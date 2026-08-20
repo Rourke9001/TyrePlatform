@@ -6,7 +6,7 @@
 
 ## Context
 
-The database already exists and is proven: `001_schema.sql` applies cleanly to
+The database already exists and is proven: `000001_init.up.sql` applies cleanly to
 PostgreSQL 16, enforces tenant isolation with row-level security, revokes
 `UPDATE`/`DELETE` from the app role to make readings immutable, and reproduces
 all fifteen SRS Appendix E valuations to the cent. Sixteen verification checks

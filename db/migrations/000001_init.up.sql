@@ -14,7 +14,9 @@
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-DROP SCHEMA IF EXISTS app CASCADE;
+-- This is a golang-migrate migration: it runs exactly once against a database
+-- and is recorded in schema_migrations. It must therefore never DROP anything
+-- it did not create in this same file — `make db-reset` owns destruction.
 CREATE SCHEMA app;
 
 -- ---------------------------------------------------------------------------

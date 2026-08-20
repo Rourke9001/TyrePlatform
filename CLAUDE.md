@@ -110,7 +110,7 @@ writing here explain a constraint that is not visible in the code:
 
 Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
 `CR-011`, `BR-INS-003`) so the code and the spec stay findable from each other.
-`db/migrations/001_schema.sql` is the reference for the house comment style.
+`db/migrations/000001_init.up.sql` is the reference for the house comment style.
 
 ## Testing
 

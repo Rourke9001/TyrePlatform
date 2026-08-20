@@ -19,5 +19,17 @@ services:
       timeout: 3s
       retries: 20
 
+  # Migration runner. Not started by default (profile: tools) — invoked by
+  # `make db-migrate` / `make db-reset`. Same image family CI uses, so a
+  # migration that works locally works in the pipeline.
+  migrate:
+    image: migrate/migrate:v4.19.1
+    profiles: ["tools"]
+    volumes:
+      - ./db/migrations:/migrations:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
 volumes:
   pgdata:

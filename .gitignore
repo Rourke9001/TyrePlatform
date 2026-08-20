@@ -31,5 +31,8 @@ dist/
 *.log
 .DS_Store
 api/bin/
+# `go build ./...` drops the main-package binary here
+/api/api
+/api/api.exe
 coverage/
 .vite/

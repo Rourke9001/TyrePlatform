@@ -1,0 +1,7 @@
+# LF everywhere, including Windows checkouts. The format hook is a shell
+# script and the SQL is piped into a Linux container — CRLF breaks both.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.gif binary
+*.woff2 binary

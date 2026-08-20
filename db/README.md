@@ -4,19 +4,30 @@ PostgreSQL 16. Implements SRS v1.3 §5 (data requirements), §6 (business rules)
 
 | File | Purpose |
 |---|---|
-| `001_schema.sql` | Tables, constraints, RLS policies, roles, business-rule functions, analytical views |
-| `002_seed_configurations.sql` | The fourteen axle configurations of SRS Appendix I, for two tenants |
-| `003_seed_fixture.sql` | The R13 acceptance fixture — one 27-position combination inspection |
-| `004_tests.sql` | Verification suite. Runs in CI on every build (NFR-SEC-005) |
+| `migrations/000001_init.up.sql` | Tables, constraints, RLS policies, roles, business-rule functions, analytical views |
+| `seeds/002_seed_configurations.sql` | The fourteen axle configurations of SRS Appendix I, for two tenants (generated) |
+| `seeds/003_seed_fixture.sql` | The R13 acceptance fixture — one 27-position combination inspection (generated) |
+| `tests/004_tests.sql` | Verification suite. Runs in CI on every build (NFR-SEC-005) |
+
+## Migrations
+
+Schema changes are [golang-migrate](https://github.com/golang-migrate/migrate)
+migrations: paired `NNNNNN_name.up.sql` / `NNNNNN_name.down.sql` files in
+`migrations/`, applied in order and versioned in the `schema_migrations`
+table. The runner is the `migrate` service in `docker-compose.yml`, so no
+local install is needed, and CI applies the same files with the same image.
+
+- New change → next number, both `.up.sql` and `.down.sql`, never edit an
+  applied migration.
+- `make db-migrate` applies pending migrations to the running database.
+- `make db-reset` drops everything and replays all migrations plus seeds —
+  destruction lives here, never inside a migration file.
 
 ## Running it
 
 ```bash
-createdb tyre
-psql -d tyre -v ON_ERROR_STOP=1 -f 001_schema.sql              # as the migration role
-psql -d tyre -v ON_ERROR_STOP=1 -f 002_seed_configurations.sql # as the migration role
-psql -d tyre -U app_login -v ON_ERROR_STOP=1 -f 003_seed_fixture.sql
-psql -d tyre -U app_login -v ON_ERROR_STOP=1 -f 004_tests.sql  # must be a non-superuser
+make db-reset   # start Postgres 16, replay migrations, regenerate + load seeds
+make db-test    # the verification suite, as app_login — must be a non-superuser
 ```
 
 Every statement below was executed against PostgreSQL 16.13 and all sixteen checks pass.
@@ -25,7 +36,7 @@ Every statement below was executed against PostgreSQL 16.13 and all sixteen chec
 
 **1. The application must not connect as a superuser.** `FORCE ROW LEVEL SECURITY` binds the
 table owner but *not* a superuser, and not a role with `BYPASSRLS`. Connect as `postgres` and
-every policy in `001_schema.sql` is inert while appearing to be in force. `004_tests.sql` refuses
+every policy in `000001_init.up.sql` is inert while appearing to be in force. `004_tests.sql` refuses
 to run as a privileged role for exactly this reason — a green test suite run as `postgres` would
 prove nothing.
 
@@ -59,7 +70,7 @@ acceptance gate.
 
 ## What is not here yet
 
-Migrations framework, indexes tuned against real query plans, partitioning of `reading` /
+Indexes tuned against real query plans, partitioning of `reading` /
 `reading_measurement` by month (not needed below ~10M rows), notification and import tables beyond
 their skeletons, and the `PLATFORM_ADMIN` cross-tenant path — which deliberately does not exist
 yet, because the safe version of it is a separate role with auditing rather than a policy exemption.

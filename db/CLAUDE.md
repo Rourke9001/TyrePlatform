@@ -8,6 +8,13 @@ The domain model lives here, not in the API. See `docs/architecture.md` for why.
 Check 0 in the suite asserts this. A run as a superuser bypasses RLS and every
 isolation assertion silently becomes vacuous while still printing PASS.
 
+## Schema changes are migrations
+
+A change is a new pair `migrations/NNNNNN_name.up.sql` + `.down.sql` (next
+number in sequence, golang-migrate). Never edit a migration that is already
+on `main` — it has run somewhere and will not run again. Migrations never
+DROP what they did not create; `make db-reset` owns destruction.
+
 ## Adding a table
 
 Three things, all of them, every time:

@@ -6,10 +6,24 @@ SHELL := /bin/bash
 PG_CONTAINER ?= tyre-pg
 PG_PORT      ?= 5433
 PG_DB        ?= tyre
-PG_SUPER_URL ?= postgres://postgres:postgres@localhost:$(PG_PORT)/$(PG_DB)
+
+# psql runs inside the container: the database is the only machine-independent
+# place it is guaranteed to exist (this repo is developed on Windows without a
+# host psql). Override PSQL_SUPER/PSQL_APP to use a host client instead.
 # The suite MUST run as app_login. Running it as postgres proves nothing:
 # superusers bypass RLS and every isolation assertion becomes vacuous.
-PG_APP_URL   ?= postgres://app_login@localhost:$(PG_PORT)/$(PG_DB)
+PSQL_SUPER ?= docker exec -i $(PG_CONTAINER) psql -U postgres -d $(PG_DB)
+PSQL_APP   ?= docker exec -i $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
+
+# migrate runs on the compose network so the same invocation works on any OS.
+# MSYS_NO_PATHCONV stops Git Bash rewriting /migrations into a Windows path;
+# it is inert everywhere else.
+MIGRATE ?= MSYS_NO_PATHCONV=1 docker compose run --rm migrate \
+             -path=/migrations \
+             -database "postgres://postgres:postgres@postgres:5432/$(PG_DB)?sslmode=disable"
+
+# python3 on stock Windows is a Microsoft Store stub that opens a browser.
+PYTHON ?= $(shell python3 -c "print()" >/dev/null 2>&1 && echo python3 || echo python)
 
 .PHONY: help
 help: ## Show this help
@@ -30,22 +44,27 @@ db-down: ## Stop and remove the database container
 
 .PHONY: db-seeds
 db-seeds: ## Regenerate the machine-generated seed SQL
-	cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
+
+.PHONY: db-migrate
+db-migrate: db-up ## Apply pending migrations (golang-migrate, versioned in schema_migrations)
+	$(MIGRATE) up
 
 .PHONY: db-reset
-db-reset: db-up db-seeds ## Drop, apply schema, load seeds
-	psql "$(PG_SUPER_URL)" -v ON_ERROR_STOP=1 -q -f db/migrations/001_schema.sql
-	psql "$(PG_SUPER_URL)" -v ON_ERROR_STOP=1 -q -f db/seeds/002_seed_configurations.sql
-	psql "$(PG_SUPER_URL)" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
-	@echo "schema and seeds applied"
+db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
+	echo "DROP SCHEMA IF EXISTS app CASCADE; DROP TABLE IF EXISTS public.schema_migrations;" | $(PSQL_SUPER) -q
+	$(MIGRATE) up
+	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/002_seed_configurations.sql
+	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/003_seed_fixture.sql
+	@echo "migrations and seeds applied"
 
 .PHONY: db-test
 db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
-	psql "$(PG_APP_URL)" -v ON_ERROR_STOP=1 -f db/tests/004_tests.sql
+	$(PSQL_APP) -v ON_ERROR_STOP=1 < db/tests/004_tests.sql
 
 .PHONY: db-shell
-db-shell: ## psql as the application role, with tenant A context preset
-	psql "$(PG_APP_URL)" -c "SET app.tenant_id='11111111-1111-1111-1111-111111111111'" -f -
+db-shell: ## Interactive psql as the application role
+	docker exec -it $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
 ## ---------------------------------------------------------------- api / web
 

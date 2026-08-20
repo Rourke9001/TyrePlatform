@@ -43,11 +43,21 @@ jobs:
           sha_b=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql)
           [ "$sha_a" = "$sha_b" ] || { echo "::error::seed generation is not deterministic"; exit 1; }
 
-      - name: Apply schema and seeds
+      # Same image `make db-migrate` uses locally, so a migration that works
+      # on a laptop works here — and schema_migrations versioning is exercised
+      # on every build, not just in production.
+      - name: Run migrations
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/db/migrations:/migrations:ro" \
+            migrate/migrate:v4.19.1 \
+            -path=/migrations \
+            -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
+
+      - name: Load seeds
         env:
           PGURL: postgres://postgres:postgres@localhost:5433/tyre
         run: |
-          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/migrations/001_schema.sql
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/002_seed_configurations.sql
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
 
@@ -68,8 +78,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # cache: false because the module has no dependencies yet, so there is
+      # no api/go.sum for the cache key. Re-enable when the first dep lands.
       - uses: actions/setup-go@v5
-        with: { go-version: '1.24', cache-dependency-path: api/go.sum }
+        with: { go-version: '1.24', cache: false }
       - name: Build, vet, test
         run: |
           if [ ! -f api/go.mod ]; then echo "api/ not scaffolded yet, skipping"; exit 0; fi
