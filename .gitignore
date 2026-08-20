@@ -1,0 +1,35 @@
+# ---------------------------------------------------------------------------
+# Project documentation is NOT committed.
+#
+# The SRS, POC scope and agreement, project brief, axle reference and capture
+# sheet analysis are the specification. They live in Confluence, which is where
+# the sponsor reads and comments on them, and they change on a different clock
+# from the code. A copy in git would immediately become a stale second
+# authority — the exact failure the project brief exists to prevent.
+#
+# `docs/spec/` may hold a local untracked mirror for offline work and for
+# grepping. It is a cache, never the source. `.mcp.json` ships the Atlassian
+# server so a session in this repo can read Confluence directly.
+#
+# What IS committed: ADRs, architecture, runbooks, CONTRIBUTING — documentation
+# ABOUT the repository, which belongs beside the code it describes.
+# ---------------------------------------------------------------------------
+docs/spec/
+docs/prototypes/
+
+# Machine-generated seeds. Regenerate with `make db-seeds` — the generators are
+# the single source of truth for the axle configuration library, and committing
+# 184KB of near-identical INSERTs helps nobody.
+db/seeds/002_seed_configurations.sql
+db/seeds/003_seed_fixture.sql
+
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+api/bin/
+coverage/
+.vite/

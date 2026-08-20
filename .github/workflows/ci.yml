@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database:
+    name: Schema, isolation and valuation
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tyre
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+
+      - name: Regenerate seeds
+        run: cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py
+
+      # The generators are deterministic and are the single source of truth for
+      # the axle configuration library. If regenerating produces a different
+      # byte stream from the last run, the library changed without the SRS
+      # changing, which is exactly the drift Appendix I exists to prevent.
+      - name: Seeds are deterministic
+        run: |
+          sha_a=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql)
+          cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
+          sha_b=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql)
+          [ "$sha_a" = "$sha_b" ] || { echo "::error::seed generation is not deterministic"; exit 1; }
+
+      - name: Apply schema and seeds
+        env:
+          PGURL: postgres://postgres:postgres@localhost:5433/tyre
+        run: |
+          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/migrations/001_schema.sql
+          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/002_seed_configurations.sql
+          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
+
+      # NFR-SEC-005. This is the gate that matters. It runs as app_login, NOT
+      # as postgres: a superuser bypasses RLS, so running it as postgres would
+      # turn every isolation assertion into a no-op that still reports PASS.
+      # Check 0 inside the suite asserts this and aborts if it is not true.
+      - name: Verification suite (as non-superuser)
+        env:
+          PGURL: postgres://app_login@localhost:5433/tyre
+        run: |
+          psql "postgres://postgres:postgres@localhost:5433/tyre" -q \
+            -c "ALTER ROLE app_login PASSWORD 'ci'"
+          PGPASSWORD=ci psql "$PGURL" -v ON_ERROR_STOP=1 -f db/tests/004_tests.sql
+
+  api:
+    name: Go
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.24', cache-dependency-path: api/go.sum }
+      - name: Build, vet, test
+        run: |
+          if [ ! -f api/go.mod ]; then echo "api/ not scaffolded yet, skipping"; exit 0; fi
+          cd api
+          gofmt -l . | tee /tmp/fmt && [ ! -s /tmp/fmt ] || { echo "::error::run gofmt"; exit 1; }
+          go vet ./...
+          go build ./...
+          go test -race ./...
+
+  web:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22', cache: npm, cache-dependency-path: web/package-lock.json }
+      - name: Lint, typecheck, test
+        run: |
+          if [ ! -f web/package.json ]; then echo "web/ not scaffolded yet, skipping"; exit 0; fi
+          cd web
+          npm ci
+          npm run lint --if-present
+          npx tsc --noEmit
+          npm test --if-present

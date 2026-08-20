@@ -1,0 +1,23 @@
+# Local development database. Deliberately Postgres 16 to match the target
+# Azure Database for PostgreSQL Flexible Server version — RLS and
+# security_invoker behaviour must be identical between local and deployed.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tyre-pg
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: tyre
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
