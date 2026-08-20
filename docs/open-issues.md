@@ -57,8 +57,12 @@ inflation-compliance figure *silently* wrong rather than visibly broken.
 |---|---|---|---|
 | Q15 | IP ownership, equity and revenue split | Both parties | TYRE-15 |
 | — | Platform name and domain | Rourke | TYRE-19 |
-| — | Azure region + POPIA position | Rourke | TYRE-20 |
 | — | POC agreement signed by both parties | Both | TYRE-15 |
+
+Resolved 2026-08-20: Azure region + POPIA position (TYRE-20) — South Africa
+North, verified and recorded in ADR-0002; environments and hosting in ADR-0005.
+Note the platform name/domain (TYRE-19) becomes a hard blocker at custom-domain
+setup.
 
 Q15 blocks nothing technically. It is listed first because the working
 agreement says, in its own words, that leaving it ambiguous between family

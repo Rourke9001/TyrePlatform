@@ -1,6 +1,6 @@
 # ADR-0002: Azure region and POPIA data residency
 
-- **Status:** Proposed — blocked on verification
+- **Status:** Accepted — verification passed 2026-08-20
 - **Date:** 2026-08-20
 - **Deciders:** Rourke
 
@@ -30,10 +30,10 @@ which requires an actual documented position rather than silence.
 
 ## Decision
 
-**Pending.** South Africa North if verification passes; West Europe with a
-written transfer justification if it does not.
+We will use **South Africa North** for everything that stores data.
 
-Verify before accepting, per TYRE-20:
+Verification ran 2026-08-20 against the live subscription (the commands below,
+per TYRE-20) and passed:
 
 ```bash
 az account list-locations -o table | grep -i "south africa"
@@ -41,9 +41,17 @@ az provider show -n Microsoft.App        --query "resourceTypes[?resourceType=='
 az provider show -n Microsoft.DBforPostgreSQL --query "resourceTypes[?resourceType=='flexibleServers'].locations" -o tsv
 ```
 
-Also confirm where the Entra External ID tenant itself can be located — the
-identity store is separate from the application region and may not be
-co-locatable.
+- Container Apps: available in South Africa North. ✓
+- PostgreSQL Flexible Server: available in South Africa North. ✓
+- Static Web Apps: **no South Africa region exists** (management region will be
+  West Europe; content is served from a global CDN). Acceptable, because the
+  SWA holds only the compiled frontend — no personal information is at rest
+  there. The POPIA answer stays one sentence: *driver data lives in
+  Johannesburg.*
+
+One item is deferred to identity setup, not to chance: the Entra External ID
+tenant's geography is fixed at tenant creation and must be chosen deliberately
+then. Record the choice here when the tenant is created.
 
 ## Consequences
 
