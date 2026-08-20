@@ -49,9 +49,16 @@ az provider show -n Microsoft.DBforPostgreSQL --query "resourceTypes[?resourceTy
   there. The POPIA answer stays one sentence: *driver data lives in
   Johannesburg.*
 
-One item is deferred to identity setup, not to chance: the Entra External ID
-tenant's geography is fixed at tenant creation and must be chosen deliberately
-then. Record the choice here when the tenant is created.
+The Entra External ID tenant was created 2026-08-20: display name
+**TyrePlatform**, domain `tyreplatform.onmicrosoft.com`, tenant ID
+`9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19`, country South Africa. External
+tenants offer no South African data location (only Australia and Japan have
+local-residency add-ons), so the identity store maps to the **EMEA geo** —
+identity data (names, email addresses) rests in European datacentres. This is
+the POPIA §72 cross-border item: it covers *sign-in identity only*; all fleet
+and driver application data remains in South Africa North. The transfer
+justification is that EMEA is the closest available geography, under
+Microsoft's standard safeguards.
 
 ## Consequences
 
