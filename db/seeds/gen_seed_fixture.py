@@ -70,5 +70,5 @@ for p,(mseq,own) in allpos:
     L.append(f"INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES {vals};")
 L.append("")
 L.append("COMMIT;")
-open('/home/claude/db/003_seed_fixture.sql','w').write("\n".join(L)+"\n")
+open('003_seed_fixture.sql','w').write("\n".join(L)+"\n")
 print("fixture written")

@@ -80,5 +80,5 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
             L.append("INSERT INTO app.combination_position_map (tenant_id,configuration_id,combination_code,member_sequence,member_position_code) VALUES")
             L.append(",\n".join("  "+v for v in m)+";")
         L.append("")
-open('/home/claude/db/002_seed_configurations.sql','w').write("\n".join(L)+"\n")
+open('002_seed_configurations.sql','w').write("\n".join(L)+"\n")
 print("seed written")
