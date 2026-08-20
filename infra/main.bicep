@@ -195,9 +195,10 @@ resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-// Placeholder image until CI pushes the first real build (phase 4); the
-// registry wiring and identity are already in place so that switch is a
-// template revision, not a redeploy.
+// The image below is a placeholder: from the first CI deploy onward the live
+// image is owned by .github/workflows/deploy.yml (tagged with the git sha).
+// A full template redeploy would silently revert the app to this placeholder
+// — accepted for the POC, but redeploy the template only alongside a CI run.
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-api-${env}'
   location: location
@@ -211,7 +212,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
     configuration: {
       ingress: {
         external: true
-        targetPort: 80
+        // The Go API listens on 8080 (PORT default in api/cmd/api/main.go).
+        targetPort: 8080
         allowInsecure: false
       }
       registries: [

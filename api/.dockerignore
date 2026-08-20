@@ -1,0 +1,7 @@
+# Local build artefacts must not leak into the image context — a Windows
+# api.exe copied into a Linux image is dead weight at best.
+api
+api.exe
+bin/
+Dockerfile
+.dockerignore

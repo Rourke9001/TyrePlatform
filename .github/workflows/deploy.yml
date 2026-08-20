@@ -1,0 +1,115 @@
+# Deploys staging on every push to main (ADR-0004: main only advances by
+# fast-forwarding a vetted develop commit, so a push here IS a release).
+# Staging is production for the BAC pilot (ADR-0005).
+#
+# Auth is OIDC federated credentials on the user-assigned managed identity
+# id-tyre-deploy-staging — no long-lived Azure secret exists in this repo.
+# The identity holds AcrPush on the registry and Contributor on the resource
+# group only.
+name: Deploy staging
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+# Never run two deploys concurrently; queue instead of cancelling so a
+# fast-follow fix cannot kill the release in front of it mid-rollout.
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+env:
+  RG: rg-tyre-staging
+  ACR: crtyrestaging
+  APP: ca-api-staging
+  SWA: stapp-tyre-staging
+
+jobs:
+  api:
+    name: API image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Build and push image
+        run: |
+          az acr login --name "$ACR"
+          image="$ACR.azurecr.io/tyre-api:${{ github.sha }}"
+          docker build -t "$image" api
+          docker push "$image"
+
+      # The image on the live app is owned by this workflow, not by Bicep: a
+      # template redeploy would revert it to whatever infra/main.bicep names.
+      - name: Deploy to Container Apps
+        run: |
+          az extension add -n containerapp --upgrade
+          az containerapp update -g "$RG" -n "$APP" \
+            --image "$ACR.azurecr.io/tyre-api:${{ github.sha }}"
+
+      # Hit the app through its public FQDN, not the revision URL: this is the
+      # path a driver's phone takes, including a cold start from zero replicas.
+      - name: Health check
+        run: |
+          fqdn=$(az containerapp show -g "$RG" -n "$APP" \
+                   --query properties.configuration.ingress.fqdn -o tsv)
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "https://$fqdn/healthz" || true)
+            [ "$code" = "200" ] && { echo "healthy after $i checks"; exit 0; }
+            sleep 5
+          done
+          echo "::error::/healthz never returned 200 (last=$code)"
+          exit 1
+
+  web:
+    name: Web to Static Web Apps
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build
+        run: |
+          cd web
+          npm ci
+          npm run build
+
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      # The SWA deployment token is fetched fresh via OIDC each run instead of
+      # living in repo secrets: one less credential that can go stale or leak.
+      # add-mask before it touches an output so the log can never show it.
+      - name: Get deployment token
+        id: swa
+        run: |
+          key=$(az staticwebapp secrets list -n "$SWA" -g "$RG" \
+                  --query properties.apiKey -o tsv)
+          echo "::add-mask::$key"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+
+      - uses: Azure/static-web-apps-deploy@v1
+        with:
+          azure_static_web_apps_api_token: ${{ steps.swa.outputs.key }}
+          action: upload
+          app_location: web/dist
+          skip_app_build: true
+          skip_api_build: true
