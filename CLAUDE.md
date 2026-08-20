@@ -126,11 +126,14 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
 
 ## Repo etiquette
 
-- Branch: `TYRE-123-short-description`. The Jira key is what links the branch,
-  the commits and the PR back to the ticket.
+- Branches: `develop` is the integration branch; `main` mirrors what
+  production/staging runs and only advances by fast-forwarding to a vetted
+  `develop` commit (ADR-0004). Do not commit to `main` directly.
+- Branch: `TYRE-123-short-description`, cut from `develop`. The Jira key is
+  what links the branch, the commits and the PR back to the ticket.
 - Commits: conventional commits with the key — `feat(capture): TYRE-42 add
   thumb keypad auto-advance`.
-- Rebase, do not merge, onto `main`.
+- Rebase, do not merge, onto `develop`.
 - Run `make check` before committing. CI runs the same thing.
 
 ## What this project is NOT
