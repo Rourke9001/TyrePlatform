@@ -10,8 +10,8 @@ PG_DB        ?= tyre
 # psql runs inside the container: the database is the only machine-independent
 # place it is guaranteed to exist (this repo is developed on Windows without a
 # host psql). Override PSQL_SUPER/PSQL_APP to use a host client instead.
-# The suite MUST run as app_login. Running it as postgres proves nothing:
-# superusers bypass RLS and every isolation assertion becomes vacuous.
+# The suite MUST run as app_login: superusers bypass RLS (DEPLOYMENT NOTE at
+# the end of db/migrations/000001_init.up.sql).
 PSQL_SUPER ?= docker exec -i $(PG_CONTAINER) psql -U postgres -d $(PG_DB)
 PSQL_APP   ?= docker exec -i $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
@@ -95,6 +95,7 @@ fmt: ## Format everything
 lint: ## Vet and typecheck everything
 	cd api && go vet ./... 2>/dev/null || true
 	cd web && npm run lint --if-present 2>/dev/null || true
+	node scripts/check-comment-style.mjs
 
 .PHONY: test
 test: db-reset db-test api-test web-test ## Every test in the repo

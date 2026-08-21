@@ -34,7 +34,8 @@ var tags = {
   env: env
 }
 
-// Built-in role definition ids (constant across tenants).
+// Azure built-in roles have the same GUIDs in every Entra tenant, so
+// hardcoding them is safe and avoids a roleDefinitions lookup at deploy time.
 var roleKeyVaultAdministrator = '00482a5a-887f-4fb3-b363-3b7fe8e74483'
 var roleKeyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
 var roleAcrPull = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
