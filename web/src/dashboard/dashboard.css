@@ -1,0 +1,239 @@
+/* Dashboard shell + vehicle list (TYRE-28). Custom properties only. */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.shell-eyebrow {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-eyebrow);
+  font-weight: 600;
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.shell-wordmark {
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--primary);
+}
+
+.shell-logo {
+  max-height: 2.5rem;
+  max-width: 14rem;
+}
+
+.shell-tenant {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.shell-tenant select {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.3rem 0.5rem;
+}
+
+.shell-nav {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.shell-nav a {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: var(--text-body);
+  color: var(--ink-muted);
+  text-decoration: none;
+  padding: 0.6rem 0.1rem;
+  border-bottom: 3px solid transparent;
+}
+
+.shell-nav a[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: var(--primary);
+}
+
+.shell-main {
+  width: 100%;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* ------------------------------------------------------------- vehicles */
+
+.vehicles-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.vehicles-bar h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+}
+
+.vehicles-search {
+  flex: 1 1 16rem;
+  max-width: 24rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.5rem 0.75rem;
+}
+
+.vehicles-count {
+  margin: 0 0 0.5rem;
+  font-family: var(--font-condensed);
+  font-weight: 500;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+.vehicle-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.vehicle-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 1rem;
+  color: var(--status-unmeasured);
+}
+
+.vehicle-row + .vehicle-row {
+  border-top: 1px solid var(--line);
+}
+
+.vehicle-fleet {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--text-body);
+  color: var(--ink);
+}
+
+.vehicle-reg {
+  font-family: var(--font-condensed);
+  font-weight: 500;
+  font-size: var(--text-body);
+  color: var(--ink-muted);
+  justify-self: end;
+}
+
+@media (max-width: 480px) {
+  .axle-schematic {
+    display: none;
+  }
+  .vehicle-row {
+    grid-template-columns: 1fr;
+    gap: 0.15rem;
+  }
+  .vehicle-reg {
+    justify-self: start;
+  }
+}
+
+/* ----------------------------------------------- empty / error / loading */
+
+.vehicles-note {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 1.5rem;
+}
+
+.vehicles-note h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+}
+
+.vehicles-note p {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.vehicles-note button {
+  margin-top: 1rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--on-primary);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+.vehicles-note button:hover {
+  background: var(--primary-hover);
+}
+
+.vehicles-note button:active {
+  background: var(--primary-pressed);
+}
+
+.vehicle-row-skeleton {
+  padding: 1.05rem 1rem;
+}
+
+.skeleton-block {
+  display: block;
+  height: 1rem;
+  width: 60%;
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
