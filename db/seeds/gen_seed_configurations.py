@@ -47,7 +47,10 @@ L.append("  ('22222222-2222-2222-2222-222222222222','Second Fleet (isolation con
 L.append("")
 for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222']:
     L.append(f"SET LOCAL app.tenant_id = '{tid}';")
-    L.append("-- policy thresholds (CR-005: never hard-coded)")
+    L.append("-- policy thresholds (CR-005: never hard-coded). effective_from is a fixed")
+    L.append("-- backdate, not load time: as-at valuation (FR-VAL-020/021) resolves the")
+    L.append("-- policy effective at the requested date, so policy must predate every")
+    L.append("-- seeded reading or historical dates would value as 'no policy configured'.")
     for k,v in [('removal_threshold_mm',4),('warning_threshold_mm',6),
                 ('tread_reading_count',3),
                 ('tread_reading_labels',["OUTER","CENTRE","INNER"]),
@@ -56,8 +59,11 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 ('width_spread_warn_mm',4),('dual_mate_warn_mm',3),('axle_divergence_warn_mm',3),
                 ('tread_bands',[[0,4],[5,7],[8,10],[11,13],[14,None]]),
                 ('inflation_bands',{"dangerously_under":[0,80],"under":[80,90],"correct":[90,110],"over":[110,120],"dangerously_over":[120,None]}),
-                ('target_pressure_kpa',{"STEER":800,"DRIVE":750,"TRAILER":750})]:
-        L.append(f"INSERT INTO app.configuration (tenant_id,key,value) VALUES ('{tid}','{k}','{json.dumps(v)}'::jsonb);")
+                ('target_pressure_kpa',{"STEER":800,"DRIVE":750,"TRAILER":750}),
+                # FR-VAL-021 staleness indication; 60 days is the gap the survey
+                # itself exposed (R2: a 2021-08-05 reading on a 2021-10-04 report)
+                ('reading_staleness_days',60)]:
+        L.append(f"INSERT INTO app.configuration (tenant_id,key,value,effective_from) VALUES ('{tid}','{k}','{json.dumps(v)}'::jsonb,'2024-01-01T00:00:00Z');")
     L.append("")
     for code,name,status,units in CONFIGS:
         rows=build(units)
