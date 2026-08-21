@@ -62,7 +62,11 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 ('target_pressure_kpa',{"STEER":800,"DRIVE":750,"TRAILER":750}),
                 # FR-VAL-021 staleness indication; 60 days is the gap the survey
                 # itself exposed (R2: a 2021-08-05 reading on a 2021-10-04 report)
-                ('reading_staleness_days',60)]:
+                ('reading_staleness_days',60),
+                # FR-ANL-002 minimum separation between the pair a wear rate
+                # is computed over. Below it the readings are dominated by
+                # gauge and operator variation rather than by wear.
+                ('wear_rate_min_distance_km',1000)]:
         L.append(f"INSERT INTO app.configuration (tenant_id,key,value,effective_from) VALUES ('{tid}','{k}','{json.dumps(v)}'::jsonb,'2024-01-01T00:00:00Z');")
     L.append("")
     for code,name,status,units in CONFIGS:

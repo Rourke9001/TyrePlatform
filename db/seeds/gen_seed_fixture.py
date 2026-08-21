@@ -8,6 +8,14 @@ R = {
 23:(750,[12,12,12]), 24:(700,[11,10,10]), 25:(750,[14,13,14]), 26:(750,[14,14,14]),
 }
 SPARE=(700,[6,2,6])
+# Tread at the earlier capture is this sheet's plus a per-position delta
+# (TYRE-35). One sheet cannot yield a wear rate: BR-ANL-001 needs a pair of
+# readings and FR-ANL-002 needs them a configured distance apart. The deltas
+# differ across positions so that a rate cannot pass a test by being a
+# constant -- over 10,000km, +0.5/+1.0/+2.0mm are 0.05/0.10/0.20 mm per
+# 1000km.
+PRIOR_DELTA={1:0.5, 9:2.0, 15:1.5}
+PRIOR_DEFAULT=1.0
 T="11111111-1111-1111-1111-111111111111"
 LABELS=['OUTER','CENTRE','INNER']
 # combination position -> (member sequence, own code)
@@ -103,6 +111,27 @@ for p,(mseq,own) in allpos:
     L.append(f"  SELECT '{T}',md5('tyre{p}')::uuid,md5('veh{mseq}')::uuid,pos.id,'2025-06-01T06:00:00Z',380000,25.0")
     L.append(f"    FROM app.position pos JOIN app.vehicle v ON v.configuration_id=pos.configuration_id")
     L.append(f"   WHERE v.id=md5('veh{mseq}')::uuid AND pos.code='{own}';")
+L.append("")
+# The earlier capture, 25 days and 10,000km before the sheet below. It is
+# emitted first so the load order is chronological, and it carries only the 26
+# running positions: a spare read once is the FR-ANL-003 insufficient-data
+# case the fixture has to contain. Every figure pinned on the Appendix J sheet
+# resolves the LATEST reading of each tyre, so that sheet still governs all of
+# them and this capture moves none.
+L.append("INSERT INTO app.inspection (id,tenant_id,vehicle_id,combination_id,user_id,client_uuid,started_at,submitted_at,odometer,device_id,app_version,duration_seconds)")
+L.append(f"  VALUES (md5('insp0')::uuid,'{T}',md5('veh1')::uuid,md5('comb1')::uuid,md5('driver1')::uuid,md5('cli0')::uuid,")
+L.append("          '2026-06-28T05:38:00Z','2026-06-28T05:45:00Z',402500,'seed-fixture','0.0.0-fixture',420);")
+L.append("")
+for p,(mseq,own) in allpos:
+    if p=='S': continue
+    kpa,rd = R[p]
+    dl = PRIOR_DELTA.get(p, PRIOR_DEFAULT)
+    L.append(f"INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)")
+    L.append(f"  SELECT md5('rd0{p}')::uuid,'{T}',md5('insp0')::uuid,md5('veh{mseq}')::uuid,pos.id,md5('tyre{p}')::uuid,{kpa}")
+    L.append(f"    FROM app.position pos JOIN app.vehicle v ON v.configuration_id=pos.configuration_id")
+    L.append(f"   WHERE v.id=md5('veh{mseq}')::uuid AND pos.code='{own}';")
+    vals=",".join(f"('{T}',md5('rd0{p}')::uuid,{i+1},'{LABELS[i]}',{v+dl:.1f})" for i,v in enumerate(rd))
+    L.append(f"INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES {vals};")
 L.append("")
 L.append("INSERT INTO app.inspection (id,tenant_id,vehicle_id,combination_id,user_id,client_uuid,started_at,submitted_at,odometer,device_id,app_version,duration_seconds,comment,defect_report)")
 L.append(f"  VALUES (md5('insp1')::uuid,'{T}',md5('veh1')::uuid,md5('comb1')::uuid,md5('driver1')::uuid,md5('cli1')::uuid,")
