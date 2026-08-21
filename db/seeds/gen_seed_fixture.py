@@ -23,6 +23,18 @@ L=["-- Seed: R13 acceptance fixture (SRS v1.3 Appendix J)",
    "SET search_path = app, public;",
    f"SET app.tenant_id = '{T}';",
    "BEGIN;",""]
+# Branding is tenant configuration like any threshold (rule 5, FR-TEN-011);
+# the two values differ visibly so a cross-tenant leak shows up on sight
+# (TYRE-26). logoUrl stays null: staging blob storage is private, so a logo
+# URL cannot render until serving arrives with RBAC.
+BRANDING={
+ T:                                       {"displayName":"BAC Transport","primaryColor":"#0B5394","logoUrl":None},
+ "22222222-2222-2222-2222-222222222222":  {"displayName":"Second Fleet","primaryColor":"#7A2E8D","logoUrl":None},
+}
+import json
+for btid,bval in BRANDING.items():
+    L.append(f"INSERT INTO app.configuration (tenant_id,key,value) VALUES ('{btid}','branding','{json.dumps(bval)}'::jsonb);")
+L.append("")
 L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('depot1')::uuid,'%s','Johannesburg','DEPOT');"%T)
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
 L.append("  (md5('driver1')::uuid,'%s','melusi@example.invalid','Melusi','EMP-0001','DRIVER');"%T)
