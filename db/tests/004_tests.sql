@@ -437,5 +437,137 @@ BEGIN
   RAISE NOTICE 'PASS  every FK between tenant-scoped tables carries tenant_id';
 END $$;
 
+\echo '== 17. Tyre register and estate valuation (FR-VAL-001..006, 010..012, FR-RPT-020)'
+-- Hand-computed from the fixture: 27 identical tyres at R205.71/mm, casing
+-- R1837.50 each, governing treads 100mm over the 4mm threshold in total.
+DO $$
+DECLARE got text; n int; v numeric; c numeric; tot numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  -- Per-tyre values (BR-VAL-001 through the one implementation, FR-VAL-001/004)
+  SELECT tread_value INTO v FROM app.v_tyre_valuation WHERE branded_number = '2102BAC2';
+  IF v IS DISTINCT FROM 2057.10 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC2 tread value [%], expected 2057.10', v; END IF;
+  SELECT tread_value INTO v FROM app.v_tyre_valuation WHERE branded_number = '2102BAC18';
+  IF v IS DISTINCT FROM 0.00 THEN
+    RAISE EXCEPTION 'FAIL: bald 2102BAC18 tread value [%], expected 0.00', v; END IF;
+  SELECT count(*) INTO n FROM app.v_tyre_valuation WHERE tread_value IS NOT NULL;
+  IF n <> 27 THEN RAISE EXCEPTION 'FAIL: % tyres valued, expected all 27', n; END IF;
+
+  -- Estate aggregation (FR-VAL-010/011): per-vehicle and grand totals
+  SELECT string_agg(key_name || '=' || tread_value, ',' ORDER BY key_name) INTO got
+    FROM app.v_estate_valuation WHERE level = 'VEHICLE' AND location_class = 'ALL';
+  IF got IS DISTINCT FROM 'HORSE=11108.34,LINK12=8228.40,LINK6=1234.26' THEN
+    RAISE EXCEPTION 'FAIL: per-vehicle tread values [%]', got; END IF;
+  SELECT tread_value, casing_value, total_value INTO v, c, tot
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF v IS DISTINCT FROM 20571.00 OR c IS DISTINCT FROM 49612.50 OR tot IS DISTINCT FROM 70183.50 THEN
+    RAISE EXCEPTION 'FAIL: grand totals tread=% casing=% total=%, expected 20571.00/49612.50/70183.50', v, c, tot; END IF;
+
+  RAISE NOTICE 'PASS  register values every tyre; vehicle and tenant totals reproduce to the cent';
+END $$;
+
+-- Stock split (FR-VAL-012), audit-tread fallback (FR-TYR-030..034) and the
+-- FR-TYR-032 exclusion, probed with two throwaway in-stock tyres.
+DO $$
+DECLARE got text; n int; v numeric; c numeric; tot numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  INSERT INTO app.tyre (id,tenant_id,branded_number,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state,last_tread_mm)
+  VALUES (md5('valprobe1')::uuid,'11111111-1111-1111-1111-111111111111','PROBE1','NEW','2024-03-01',4320.00,25.0,205.7100,100.00,'IN_STOCK',10.0);
+  INSERT INTO app.tyre (id,tenant_id,branded_number,status,casing_value,state)
+  VALUES (md5('valprobe2')::uuid,'11111111-1111-1111-1111-111111111111','PROBE2','NEW',50.00,'IN_STOCK');
+
+  SELECT tread_source, tread_value::text INTO got, v FROM app.v_tyre_valuation WHERE branded_number = 'PROBE1';
+  IF got IS DISTINCT FROM 'AUDIT' OR v IS DISTINCT FROM 1234.26 THEN
+    RAISE EXCEPTION 'FAIL: PROBE1 source [%] value [%], expected AUDIT/1234.26', got, v; END IF;
+  SELECT count(*) INTO n FROM app.v_tyre_valuation WHERE branded_number = 'PROBE2' AND tread_value IS NULL;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL: incomplete PROBE2 was given a tread value'; END IF;
+
+  SELECT tyre_count, tread_value, casing_value INTO n, v, c
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'IN_STOCK';
+  IF n <> 2 OR v IS DISTINCT FROM 1234.26 OR c IS DISTINCT FROM 150.00 THEN
+    RAISE EXCEPTION 'FAIL: IN_STOCK split n=% tread=% casing=%, expected 2/1234.26/150.00', n, v, c; END IF;
+  -- Estate total deliberately counts the casing of unvalued tyres — casing is
+  -- a stored fact, only the tread side is unknown — so it exceeds the sum of
+  -- per-tyre totals (NULL for PROBE2) by exactly PROBE2's casing. The
+  -- unvalued_count column is what flags the gap.
+  SELECT unvalued_count, tread_value, casing_value, total_value INTO n, v, c, tot
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF n <> 1 OR v IS DISTINCT FROM 21805.26 OR c IS DISTINCT FROM 49762.50 OR tot IS DISTINCT FROM 71567.76 THEN
+    RAISE EXCEPTION 'FAIL: with probes unvalued=% tread=% casing=% total=%, expected 1/21805.26/49762.50/71567.76', n, v, c, tot; END IF;
+
+  DELETE FROM app.tyre WHERE branded_number IN ('PROBE1','PROBE2');
+  SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF v IS DISTINCT FROM 20571.00 THEN
+    RAISE EXCEPTION 'FAIL: totals did not restore after probe cleanup, got %', v; END IF;
+  RAISE NOTICE 'PASS  stock is split out, audit tread values, incomplete records are excluded not invented';
+END $$;
+
+-- The threshold is tenant configuration, not a constant (FR-CFG-010, CR-005):
+-- this is the first production consumer of removal_threshold_mm, so prove the
+-- valuation follows a policy change. 67mm remain over a 6mm threshold.
+DO $$
+DECLARE v numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  INSERT INTO app.configuration (tenant_id,key,value)
+  VALUES ('11111111-1111-1111-1111-111111111111','removal_threshold_mm','6'::jsonb);
+  SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF v IS DISTINCT FROM 13782.57 THEN
+    RAISE EXCEPTION 'FAIL: at 6mm threshold expected 13782.57, got %', v; END IF;
+  SELECT tread_value INTO v FROM app.v_tyre_valuation WHERE branded_number = '2102BAC2';
+  IF v IS DISTINCT FROM 1645.68 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC2 at 6mm threshold expected 1645.68, got %', v; END IF;
+  DELETE FROM app.configuration
+   WHERE tenant_id = '11111111-1111-1111-1111-111111111111'
+     AND key = 'removal_threshold_mm' AND value = '6'::jsonb;
+  SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF v IS DISTINCT FROM 20571.00 THEN
+    RAISE EXCEPTION 'FAIL: totals did not restore after threshold cleanup, got %', v; END IF;
+  RAISE NOTICE 'PASS  a threshold policy change moves the valuation; nothing is hard-coded';
+END $$;
+
+-- A tenant with NO effective threshold row (fresh provisioning, or policy
+-- dated forward) must surface every tyre unvalued — GREATEST(0, NULL) is 0,
+-- so an unguarded call would silently price the whole estate at R0.00 tread,
+-- indistinguishable from a bald fleet (FR-TYR-032).
+DO $$
+DECLARE n int; v numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  DELETE FROM app.configuration
+   WHERE tenant_id = '11111111-1111-1111-1111-111111111111' AND key = 'removal_threshold_mm';
+  SELECT count(*) INTO n FROM app.v_tyre_valuation WHERE tread_value IS NOT NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: % tyres priced with no threshold policy configured', n; END IF;
+  SELECT unvalued_count INTO n FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF n <> 27 THEN
+    RAISE EXCEPTION 'FAIL: unvalued_count=% with no threshold policy, expected 27', n; END IF;
+  INSERT INTO app.configuration (tenant_id,key,value)
+  VALUES ('11111111-1111-1111-1111-111111111111','removal_threshold_mm','4'::jsonb);
+  SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF v IS DISTINCT FROM 20571.00 THEN
+    RAISE EXCEPTION 'FAIL: totals did not restore after policy re-seed, got %', v; END IF;
+  RAISE NOTICE 'PASS  no threshold policy means unvalued, never a silent R0.00 estate';
+END $$;
+
+-- Foreign-tenant emptiness, asserted from the tenant-2 side: tenant 2 owns no
+-- tyres, so any row here means the view executed as its owner (a superuser)
+-- instead of the invoker — the check-8b sweep alone is vacuous for a view
+-- whose underlying table has no foreign rows to leak back.
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  SELECT count(*) INTO n FROM app.v_tyre_valuation;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: tenant 2 sees % register rows', n; END IF;
+  SELECT count(*) INTO n FROM app.v_estate_valuation;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: tenant 2 sees % estate rows', n; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  the register and estate views are empty from the foreign tenant''s side';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

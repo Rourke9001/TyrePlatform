@@ -88,13 +88,14 @@ L.append(f"INSERT INTO app.combination (id,tenant_id,motive_vehicle_id,configura
 for seq,(fleet,reg,cfg,label) in UNIT.items():
     L.append(f"INSERT INTO app.combination_member (tenant_id,combination_id,vehicle_id,sequence,descriptor) VALUES ('{T}',md5('comb1')::uuid,md5('veh{seq}')::uuid,{seq},$${label}$$);")
 L.append("")
-L.append("-- Tyres. rand_per_mm follows BR-VAL-002 from an R4,320.00 purchase over 25mm")
-L.append("-- new tread and a 4mm removal threshold => R205.71/mm, matching SRS Appendix E.")
+L.append("-- Tyres. rand_per_mm follows BR-VAL-002 from an R4,319.91 purchase over 25mm")
+L.append("-- new tread and a 4mm removal threshold => R205.7100/mm exactly, matching the")
+L.append("-- SRS Appendix E derivation check (4319.91 / 21).")
 allpos=[(p,member(p)) for p in sorted(R)]+[('S',(3,'S'))]
 for p,(mseq,own) in allpos:
     tid=f"tyre{p}"
     L.append(f"INSERT INTO app.tyre (id,tenant_id,branded_number,size_id,brand_id,pattern_id,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)")
-    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01',4320.00,25.0,205.7100,1837.50,'FITTED');")
+    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01',4319.91,25.0,205.7100,1837.50,'FITTED');")
 L.append("")
 L.append("-- Fitments: each tyre on its own unit's own position code (BR-VEH-003).")
 for p,(mseq,own) in allpos:
