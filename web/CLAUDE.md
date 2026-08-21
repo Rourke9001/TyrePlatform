@@ -48,3 +48,13 @@ the reference for the interaction model.
   one place that matters.
 - Do not convey information by colour alone (NFR-USE-009). Sort identifiers in
   natural order, not lexicographic (NFR-USE-012) — `POS2` before `POS10`.
+- Colours and type live in `src/theme/tokens.ts` only, consumed through CSS
+  custom properties (TYRE-27). A hex or font literal in a component is a bug.
+  Tread band colours are fixed and keyed to band *names*; the mm thresholds
+  that assign a band are tenant configuration and never reach this codebase
+  (rule 5). Fonts are self-hosted @fontsource — no CDN (rule 7).
+- Tenant branding (display name, primary colour, nullable logo) is tenant
+  configuration in the database (`app.configuration` key `branding`), served
+  by `GET /api/org/branding` and applied by `src/theme/ThemeProvider.tsx`,
+  which derives hover/pressed shades and a contrast-safe on-primary from the
+  one colour a tenant picks (TYRE-26/27).
