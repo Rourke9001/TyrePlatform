@@ -128,7 +128,7 @@ Named here so nobody cites them as precedent for the wrong thing:
 ## When the checker is wrong
 
 The deterministic check is deliberately narrow, but a flagged phrase can be
-innocent — "no longer than 32 bytes" is not change narration. Do not add a
-suppression mechanism; rephrase. A comment that trips a history-narration
-pattern while making a present-tense claim is usually a comment that reads
-ambiguously to humans too.
+innocent — "the cache holds previously fetched pages" trips the narration
+rule while making a present-tense claim. Do not add a suppression mechanism;
+rephrase ("pages already fetched"). A comment ambiguous enough to trip a
+history-narration pattern usually reads ambiguously to humans too.
