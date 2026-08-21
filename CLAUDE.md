@@ -100,8 +100,14 @@ acceptance gate rests on there being exactly one implementation.
 - Dexie over IndexedDB for the offline queue.
 
 **Comments**
-Comment *why*, never *what*. `// increment i` is noise. The comments worth
-writing here explain a constraint that is not visible in the code:
+`docs/comments.md` is the full standard; these are the operative rules.
+Comment *why*, never *what*. `// increment i` is noise. Never narrate a
+change or compare to the old code — git holds the history. One rationale
+lives in one place; other files cite it. `TODO` needs a ticket ID on the
+same line. A hook, `make lint` and CI all run
+`scripts/check-comment-style.mjs`; run `/comment-audit` when closing out a
+branch. The comments worth writing here explain a constraint that is not
+visible in the code:
 
 ```go
 // SET LOCAL, not SET: this binds to the transaction so a pooled connection
