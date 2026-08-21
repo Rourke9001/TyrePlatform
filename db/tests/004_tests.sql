@@ -979,5 +979,249 @@ BEGIN
   RAISE NOTICE 'PASS  irregular wear and dual-mate rankings are ordered and tie-stable';
 END $$;
 
+
+\echo '== 20. Snapshots reconcile to the register (TYRE-37; FR-VAL-022, BR-VAL-007)'
+-- A valuation_snapshot row is a cache of app.tyre_valuation_asof(), never an
+-- independent record of fact, so the register wins wherever the two disagree
+-- (TYRE-37 decision). Everything here runs on tenant 2's own probe tyres:
+-- readings are append-only, so a scenario staged against tenant 1 would leave
+-- residue in the pinned Appendix E and Appendix J figures forever.
+-- Fixed dates throughout, all after 2026-08-31, so check 18's month-end
+-- assertions cannot see these tyres.
+
+-- Case A (TYRE-37): two inspections of one tyre on one day, syncing out of
+-- order. BR-VAL-007 resolves the day by the greatest submitted_at, so the
+-- 09:00Z reading governs however late the 07:00Z one arrives. 9.0mm over the
+-- 4mm threshold at R100/mm = R500.00; taking the arrival order instead gives
+-- 11.0mm and R700.00, which is the divergence this check exists to catch.
+DO $$
+DECLARE mm numeric; v numeric; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE branded_number = 'T2SNAP1') THEN
+    INSERT INTO app.tyre (id,tenant_id,branded_number,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
+    VALUES (md5('t2snap1')::uuid,'22222222-2222-2222-2222-222222222222','T2SNAP1','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
+  END IF;
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '2';
+
+  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2s1late')::uuid) THEN
+    -- the later inspection arrives FIRST; the earlier one syncs after it
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2s1late')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2s1latecli')::uuid,'2026-09-02T08:55:00Z','2026-09-02T09:00:00Z',110000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2s1lateread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s1late')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap1')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,1,'OUTER',9),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,2,'CENTRE',10),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,3,'INNER',11);
+
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2s1early')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2s1earlycli')::uuid,'2026-09-02T06:55:00Z','2026-09-02T07:00:00Z',109000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2s1earlyread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s1early')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap1')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,1,'OUTER',11),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,2,'CENTRE',12),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,3,'INNER',13);
+
+    -- only meaningful on the run that stages it: on a later run the readings
+    -- already exist and no trigger re-fires, so the assertion would pass
+    -- without proving anything
+    SELECT s.tread_mm, s.tread_value INTO mm, v
+      FROM app.valuation_snapshot s
+     WHERE s.tyre_id = md5('t2snap1')::uuid AND s.as_at = '2026-09-02';
+    IF mm IS DISTINCT FROM 9.0 OR v IS DISTINCT FROM 500.00 THEN
+      RAISE EXCEPTION 'FAIL: out-of-order sync snapshotted [% mm / %], expected 9.0 / 500.00 (the register resolves the day by submitted_at, not by arrival)', mm, v; END IF;
+  END IF;
+
+  -- Case B (TYRE-37): voiding does not touch governing_tread_mm, so nothing
+  -- in the reading itself changes -- the repair has to come from the
+  -- inspection's own state change. The register falls back to the 07:00Z
+  -- reading: 11.0mm over 4mm at R100/mm = R700.00.
+  UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
+   WHERE id = md5('t2s1late')::uuid;
+  SELECT s.tread_mm, s.tread_value INTO mm, v
+    FROM app.valuation_snapshot s
+   WHERE s.tyre_id = md5('t2snap1')::uuid AND s.as_at = '2026-09-02';
+  IF mm IS DISTINCT FROM 11.0 OR v IS DISTINCT FROM 700.00 THEN
+    RAISE EXCEPTION 'FAIL: voiding left the snapshot at [% mm / %], expected 11.0 / 700.00', mm, v; END IF;
+
+  -- and back: un-voiding is the same divergence in the other direction, so it
+  -- repairs an existing row too
+  UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
+   WHERE id = md5('t2s1late')::uuid;
+  SELECT s.tread_mm, s.tread_value INTO mm, v
+    FROM app.valuation_snapshot s
+   WHERE s.tyre_id = md5('t2snap1')::uuid AND s.as_at = '2026-09-02';
+  IF mm IS DISTINCT FROM 9.0 OR v IS DISTINCT FROM 500.00 THEN
+    RAISE EXCEPTION 'FAIL: un-voiding left the snapshot at [% mm / %], expected 9.0 / 500.00', mm, v; END IF;
+
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  out-of-order sync and void/un-void leave the snapshot equal to the register';
+END $$;
+
+-- Repair is plural: a month-end row taken after a since-voided reading
+-- inherited that reading's value, so every snapshot at or after the voided
+-- inspection's date has to be reconciled, not just the one on its own date.
+-- Voiding the tyre's LAST live reading leaves it unvalued, and an unvalued
+-- tyre has no snapshot to hold -- valuation_snapshot.tread_value is NOT NULL,
+-- so the row goes rather than turning null. That is not a DR-014 breach:
+-- DR-011 names reading, reading_measurement and tyre_event as the INSERT-only
+-- set and deliberately leaves this table out of it.
+DO $$
+DECLARE n int; v numeric; w numeric; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE branded_number = 'T2SNAP2') THEN
+    INSERT INTO app.tyre (id,tenant_id,branded_number,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
+    VALUES (md5('t2snap2')::uuid,'22222222-2222-2222-2222-222222222222','T2SNAP2','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
+  END IF;
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '3';
+
+  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2s2a')::uuid) THEN
+    -- in order this time: 15.0mm on the 5th, then 12.0mm on the 6th
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2s2a')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2s2acli')::uuid,'2026-09-05T06:55:00Z','2026-09-05T07:00:00Z',111000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2s2aread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s2a')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap2')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,1,'OUTER',15),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,2,'CENTRE',16),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,3,'INNER',17);
+
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2s2b')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2s2bcli')::uuid,'2026-09-06T06:55:00Z','2026-09-06T07:00:00Z',112000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2s2bread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s2b')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap2')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,1,'OUTER',12),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,2,'CENTRE',13),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,3,'INNER',14);
+
+    -- a month-end row now carries the 6th's value forward
+    PERFORM app.take_valuation_snapshots('2026-09-30');
+    SELECT tread_value INTO v FROM app.valuation_snapshot
+     WHERE tyre_id = md5('t2snap2')::uuid AND as_at = '2026-09-30';
+    IF v IS DISTINCT FROM 800.00 THEN
+      RAISE EXCEPTION 'FAIL: month-end took [%] for T2SNAP2, expected 800.00', v; END IF;
+
+    -- void the 6th: the register falls back to the 5th's 15.0mm = R1100.00,
+    -- and BOTH the 6th's row and the month-end row that inherited it move
+    UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
+     WHERE id = md5('t2s2b')::uuid;
+    SELECT s1.tread_value, s2.tread_value INTO v, w
+      FROM app.valuation_snapshot s1, app.valuation_snapshot s2
+     WHERE s1.tyre_id = md5('t2snap2')::uuid AND s1.as_at = '2026-09-06'
+       AND s2.tyre_id = md5('t2snap2')::uuid AND s2.as_at = '2026-09-30';
+    IF v IS DISTINCT FROM 1100.00 OR w IS DISTINCT FROM 1100.00 THEN
+      RAISE EXCEPTION 'FAIL: after voiding the 6th, snapshots read [% / %] at 09-06 / 09-30, expected 1100.00 / 1100.00', v, w; END IF;
+
+    -- void the 5th as well: no live reading left, nothing to value, no rows
+    UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
+     WHERE id = md5('t2s2a')::uuid;
+    SELECT count(*) INTO n FROM app.valuation_snapshot WHERE tyre_id = md5('t2snap2')::uuid;
+    IF n <> 0 THEN
+      RAISE EXCEPTION 'FAIL: an unvalued tyre kept % snapshot row(s)', n; END IF;
+
+    -- un-voiding restores the register but mints nothing: a deleted row is a
+    -- cache miss, and FR-VAL-022 creates rows on change or at month end, not
+    -- on a state transition. The next month-end fills the gap.
+    UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
+     WHERE id = md5('t2s2a')::uuid;
+    SELECT count(*) INTO n FROM app.valuation_snapshot WHERE tyre_id = md5('t2snap2')::uuid;
+    IF n <> 0 THEN
+      RAISE EXCEPTION 'FAIL: un-voiding resurrected % deleted snapshot row(s)', n; END IF;
+    UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
+     WHERE id = md5('t2s2a')::uuid;
+  ELSE
+    -- the staged end state, re-asserted on every later run
+    SELECT count(*) INTO n FROM app.valuation_snapshot WHERE tyre_id = md5('t2snap2')::uuid;
+    IF n <> 0 THEN
+      RAISE EXCEPTION 'FAIL: fully voided T2SNAP2 carries % snapshot row(s)', n; END IF;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  voiding repairs every snapshot at or after its date, and drops those it unvalues';
+END $$;
+
+-- FR-VAL-022 month-end is a reconcile pass, not a first-write-wins one:
+-- re-running a date has to bring whatever sits there back to the register.
+-- Self-restoring, so the corruption never outlives the check.
+DO $$
+DECLARE mm numeric; v numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  PERFORM app.take_valuation_snapshots('2026-09-30');
+  UPDATE app.valuation_snapshot SET tread_mm = 1.0, tread_value = 1.00
+   WHERE tyre_id = md5('t2snap1')::uuid AND as_at = '2026-09-30';
+  PERFORM app.take_valuation_snapshots('2026-09-30');
+  SELECT tread_mm, tread_value INTO mm, v FROM app.valuation_snapshot
+   WHERE tyre_id = md5('t2snap1')::uuid AND as_at = '2026-09-30';
+  IF mm IS DISTINCT FROM 9.0 OR v IS DISTINCT FROM 500.00 THEN
+    RAISE EXCEPTION 'FAIL: re-running month-end left [% mm / %], expected the register''s 9.0 / 500.00', mm, v; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  re-running month-end reconciles an existing row to the register';
+END $$;
+
+-- The shared writer takes its tenant as an argument because it is reachable
+-- from refresh_governing_tread()'s SECURITY DEFINER chain, where RLS never
+-- binds (000004 states the reasoning at the function itself): a tyre that
+-- does not belong to it must be refused outright rather than silently
+-- reconciled or silently skipped.
+-- What this pins is the RLS-BOUND branch. Running as app_login, a foreign
+-- tyre is invisible, so the lookup finds nothing and the refusal comes from
+-- the NULL -- which is the branch most likely to fail open, and it does not.
+-- The unbound branch, where the lookup returns a real foreign tenant, cannot
+-- be staged from this suite: it needs a SECURITY DEFINER wrapper and check 8c
+-- rejects those by design. TYRE-38 owns how a control in that position is
+-- proven.
+DO $$
+DECLARE ok boolean := false;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  BEGIN
+    PERFORM app.reconcile_valuation_snapshots(
+      '22222222-2222-2222-2222-222222222222'::uuid, '2026-09-30'::date, md5('t2snap1')::uuid);
+  EXCEPTION WHEN insufficient_privilege THEN
+    ok := true;
+  END;
+  IF NOT ok THEN
+    RAISE EXCEPTION 'FAIL: reconcile accepted a tyre outside the tenant it was handed'; END IF;
+  RAISE NOTICE 'PASS  the shared snapshot writer refuses a tyre outside its tenant argument';
+END $$;
+
+-- Check 2's isolation sweep runs long before any of this exists, so on a
+-- fresh database the rows check 20 stages are never swept at all. Repeat it
+-- here over exactly the objects this check introduces (FR-TEN-003).
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  SELECT count(*) INTO n FROM app.tyre WHERE branded_number IN ('T2SNAP1', 'T2SNAP2');
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: % check-20 probe tyre(s) visible from tenant 1', n; END IF;
+  SELECT count(*) INTO n FROM app.valuation_snapshot
+   WHERE tenant_id <> '11111111-1111-1111-1111-111111111111';
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: % foreign snapshot row(s) visible from tenant 1', n; END IF;
+  SELECT count(*) INTO n FROM app.inspection
+   WHERE tenant_id <> '11111111-1111-1111-1111-111111111111';
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: % foreign inspection(s) visible from tenant 1', n; END IF;
+  SELECT count(*) INTO n FROM app.reading
+   WHERE tenant_id <> '11111111-1111-1111-1111-111111111111';
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: % foreign reading(s) visible from tenant 1', n; END IF;
+  RAISE NOTICE 'PASS  nothing check 20 stages in tenant 2 is reachable from tenant 1';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
