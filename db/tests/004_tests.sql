@@ -765,5 +765,219 @@ BEGIN
   RAISE NOTICE 'PASS  month-end snapshots every valued tyre exactly once, per tenant';
 END $$;
 
+\echo '== 19. Single-inspection analytics (FR-ANL-023..028, FR-RPT-022/023/037)'
+-- Every figure below is hand-computed over the fixture's single 2026-07-23
+-- inspection: 27 readings, 26 running plus one spare. Governing treads sum to
+-- 194.0mm over all positions and 192.0mm over running ones (BR-INS-003).
+-- BR-RPT-001 includes spares in composition reporting by default, so 'ALL' is
+-- the headline and RUNNING/SPARE are the disclosure FR-RPT-005 requires.
+DO $$
+DECLARE n int; tot numeric; av numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  SELECT tyre_count, total_tread_mm, avg_tread_mm INTO n, tot, av
+    FROM app.v_tread_summary WHERE level='TENANT' AND position_class='ALL';
+  IF n <> 27 OR tot IS DISTINCT FROM 194.0 OR av IS DISTINCT FROM 7.19 THEN
+    RAISE EXCEPTION 'FAIL: tenant ALL %/%/%, expected 27/194.0/7.19', n, tot, av; END IF;
+
+  SELECT tyre_count, total_tread_mm, avg_tread_mm INTO n, tot, av
+    FROM app.v_tread_summary WHERE level='TENANT' AND position_class='RUNNING';
+  IF n <> 26 OR tot IS DISTINCT FROM 192.0 OR av IS DISTINCT FROM 7.38 THEN
+    RAISE EXCEPTION 'FAIL: tenant RUNNING %/%/%, expected 26/192.0/7.38', n, tot, av; END IF;
+
+  SELECT tyre_count, total_tread_mm INTO n, tot
+    FROM app.v_tread_summary WHERE level='TENANT' AND position_class='SPARE';
+  IF n <> 1 OR tot IS DISTINCT FROM 2.0 THEN
+    RAISE EXCEPTION 'FAIL: tenant SPARE %/%, expected 1/2.0', n, tot; END IF;
+
+  -- per vehicle (FR-ANL-023): the spare rides on LINK12, so its ALL and
+  -- RUNNING figures differ where the other two vehicles' do not
+  SELECT avg_tread_mm INTO av FROM app.v_tread_summary
+   WHERE level='VEHICLE' AND key_name='HORSE' AND position_class='RUNNING';
+  IF av IS DISTINCT FROM 8.80 THEN
+    RAISE EXCEPTION 'FAIL: HORSE running avg [%], expected 8.80', av; END IF;
+  SELECT avg_tread_mm INTO av FROM app.v_tread_summary
+   WHERE level='VEHICLE' AND key_name='LINK6' AND position_class='RUNNING';
+  IF av IS DISTINCT FROM 4.25 THEN
+    RAISE EXCEPTION 'FAIL: LINK6 running avg [%], expected 4.25', av; END IF;
+  SELECT tyre_count, total_tread_mm INTO n, tot FROM app.v_tread_summary
+   WHERE level='VEHICLE' AND key_name='LINK12' AND position_class='ALL';
+  IF n <> 9 OR tot IS DISTINCT FROM 72.0 THEN
+    RAISE EXCEPTION 'FAIL: LINK12 ALL %/%, expected 9/72.0', n, tot; END IF;
+
+  SELECT tyre_count, total_tread_mm INTO n, tot FROM app.v_tread_summary
+   WHERE level='DEPOT' AND key_name='Johannesburg' AND position_class='ALL';
+  IF n <> 27 OR tot IS DISTINCT FROM 194.0 THEN
+    RAISE EXCEPTION 'FAIL: depot ALL %/%, expected 27/194.0', n, tot; END IF;
+  RAISE NOTICE 'PASS  average and total governing tread reproduce at tenant, depot and vehicle';
+END $$;
+
+-- FR-ANL-024 over the seeded bands (FR-CFG-032): 0-4, 5-7, 8-10, 11-13, 14+.
+-- Running counts 9/6/2/7/2; the 2.0mm spare lands in the first band, taking
+-- the ALL row to 10.
+DO $$
+DECLARE got text; pct numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  SELECT string_agg(tyre_count::text, ',' ORDER BY band_ordinal) INTO got
+    FROM app.v_tread_distribution WHERE level='TENANT' AND position_class='RUNNING';
+  IF got IS DISTINCT FROM '9,6,2,7,2' THEN
+    RAISE EXCEPTION 'FAIL: running band distribution [%], expected 9,6,2,7,2', got; END IF;
+
+  SELECT string_agg(tyre_count::text, ',' ORDER BY band_ordinal) INTO got
+    FROM app.v_tread_distribution WHERE level='TENANT' AND position_class='ALL';
+  IF got IS DISTINCT FROM '10,6,2,7,2' THEN
+    RAISE EXCEPTION 'FAIL: all-position band distribution [%], expected 10,6,2,7,2', got; END IF;
+
+  -- the label carries the configured bounds; the classification does not
+  SELECT band_label INTO got FROM app.v_tread_distribution
+   WHERE level='TENANT' AND position_class='ALL' AND band_ordinal=1;
+  IF got IS DISTINCT FROM '0-4mm' THEN
+    RAISE EXCEPTION 'FAIL: first band label [%], expected 0-4mm', got; END IF;
+  SELECT band_label INTO got FROM app.v_tread_distribution
+   WHERE level='TENANT' AND position_class='ALL' AND band_ordinal=5;
+  IF got IS DISTINCT FROM '14mm+' THEN
+    RAISE EXCEPTION 'FAIL: last band label [%], expected 14mm+', got; END IF;
+
+  SELECT pct_of_group INTO pct FROM app.v_tread_distribution
+   WHERE level='TENANT' AND position_class='ALL' AND band_ordinal=1;
+  IF pct IS DISTINCT FROM 37.04 THEN
+    RAISE EXCEPTION 'FAIL: first band share [%], expected 37.04', pct; END IF;
+
+  -- FR-CFG-030 continuity: no reading may fall outside all bands, so the
+  -- banded counts must account for every position the summary counted
+  IF (SELECT sum(tyre_count) FROM app.v_tread_distribution
+       WHERE level='TENANT' AND position_class='ALL') <> 27 THEN
+    RAISE EXCEPTION 'FAIL: banded total lost rows against 27 readings'; END IF;
+  RAISE NOTICE 'PASS  tread band distribution and shares reproduce over the configured bands';
+END $$;
+
+-- A tread depth between two configured bounds must still land in a band.
+-- FR-INS-021 accepts one decimal place, so 4.5mm is capturable, and the
+-- FR-CFG-032 default names 0-4 then 5-7. Classification is by lower bound
+-- (FR-CFG-030 requires continuity), so 4.5 belongs to the 0-4mm band.
+DO $$
+DECLARE n int; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '2';
+  -- deliberately no purchase price, new tread or rate: valuation_complete is
+  -- generated from those three, so this probe carries a tread band without
+  -- entering any valuation total. Banding does not depend on valuation
+  -- (FR-ANL-024 counts fitted tyres, FR-TYR-032 only excludes from value),
+  -- and the isolation keeps check 18's tenant-2 figures unmoved.
+  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE branded_number = 'T2GAP1') THEN
+    INSERT INTO app.tyre (id,tenant_id,branded_number,status,state)
+    VALUES (md5('t2gaptyre')::uuid,'22222222-2222-2222-2222-222222222222','T2GAP1','NEW','FITTED');
+    INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm)
+    VALUES ('22222222-2222-2222-2222-222222222222',md5('t2gaptyre')::uuid,md5('t2veh1')::uuid,posid,'2026-07-01T06:00:00Z',90000,25.0);
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2insp4')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2cli4')::uuid,'2026-08-20T08:00:00Z','2026-08-20T08:05:00Z',102000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2rd4')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp4')::uuid,md5('t2veh1')::uuid,posid,md5('t2gaptyre')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,1,'OUTER',4.5),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,2,'CENTRE',4.8),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,3,'INNER',4.7);
+  END IF;
+  -- the invariant, not just the presence of a row: every fitted position the
+  -- summary counts must appear in exactly one band
+  SELECT (SELECT sum(tyre_count) FROM app.v_tread_distribution
+           WHERE level='TENANT' AND position_class='ALL')
+       - (SELECT tyre_count FROM app.v_tread_summary
+           WHERE level='TENANT' AND position_class='ALL') INTO n;
+  IF n IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'FAIL: banded counts differ from the summary by %, so a tread fell outside every band', n; END IF;
+  IF (SELECT tyre_count FROM app.v_tread_distribution
+       WHERE level='TENANT' AND position_class='ALL' AND band_ordinal = 1) <> 1 THEN
+    RAISE EXCEPTION 'FAIL: the 4.5mm tread did not land in the 0-4mm band'; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  a tread between two configured bounds still lands in a band';
+END $$;
+
+-- CR-005: the bands are configuration. Reconfigure to a two-band policy and
+-- the distribution must follow, then restore (check 17's idiom).
+DO $$
+DECLARE got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  INSERT INTO app.configuration (tenant_id,key,value,effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111','tread_bands','[[0,7],[8,null]]'::jsonb,'2024-06-01T00:00:00Z');
+  SELECT string_agg(tyre_count::text, ',' ORDER BY band_ordinal) INTO got
+    FROM app.v_tread_distribution WHERE level='TENANT' AND position_class='RUNNING';
+  IF got IS DISTINCT FROM '15,11' THEN
+    RAISE EXCEPTION 'FAIL: reconfigured bands gave [%], expected 15,11', got; END IF;
+  DELETE FROM app.configuration
+   WHERE tenant_id='11111111-1111-1111-1111-111111111111'
+     AND key='tread_bands' AND effective_from='2024-06-01T00:00:00Z';
+  SELECT string_agg(tyre_count::text, ',' ORDER BY band_ordinal) INTO got
+    FROM app.v_tread_distribution WHERE level='TENANT' AND position_class='RUNNING';
+  IF got IS DISTINCT FROM '9,6,2,7,2' THEN
+    RAISE EXCEPTION 'FAIL: distribution did not restore after band cleanup, got [%]', got; END IF;
+  RAISE NOTICE 'PASS  a tread band policy change moves the distribution; nothing is hard-coded';
+END $$;
+
+-- FR-ANL-025/026 and BR-RPT-004: compliance is over READINGS in a date range,
+-- never over tyres, and never without the counts it derives from. Of 27
+-- readings, 26 carry a target for their axle class: one at 26.67% of target
+-- and 25 in the correct band (four at 93.33%, twenty-one at 100%). The spare
+-- position has no configured SPARE target, so it is unclassifiable rather
+-- than compliant -- the FR-TYR-032 pattern of reporting the excluded count.
+DO $$
+DECLARE pct numeric; rc bigint; tc bigint; uc bigint; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  SELECT pct_of_classified, total_readings, total_tyres, unclassified_count
+    INTO pct, rc, tc, uc
+    FROM app.inflation_compliance('2026-07-01','2026-08-01') WHERE band_key='correct';
+  IF pct IS DISTINCT FROM 96.15 OR rc <> 26 OR tc <> 26 OR uc <> 1 THEN
+    RAISE EXCEPTION 'FAIL: compliance %/%/%/%, expected 96.15/26/26/1', pct, rc, tc, uc; END IF;
+
+  SELECT string_agg(band_key || '=' || reading_count::text, ',' ORDER BY lower_pct) INTO got
+    FROM app.inflation_compliance('2026-07-01','2026-08-01');
+  IF got IS DISTINCT FROM 'dangerously_under=1,under=0,correct=25,over=0,dangerously_over=0' THEN
+    RAISE EXCEPTION 'FAIL: band spread [%]', got; END IF;
+
+  -- the range is half-open: a window closing on the inspection date sees none
+  SELECT total_readings INTO rc FROM app.inflation_compliance('2026-07-01','2026-07-23')
+   WHERE band_key='correct';
+  IF rc IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'FAIL: window ending on the inspection date saw [%] readings, expected 0', rc; END IF;
+  RAISE NOTICE 'PASS  inflation compliance reports a percentage with its reading and tyre counts';
+END $$;
+
+-- FR-ANL-027/028 rankings (BR-ANL-007/008). Ties are real in this fixture --
+-- two positions share a 5.0mm spread -- so the ranking pins a deterministic
+-- order as well as the values.
+DO $$
+DECLARE got text; d int; dall int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  SELECT string_agg(branded_number || '=' || width_spread_mm || '#' || rank, ',' ORDER BY rank, branded_number) INTO got
+    FROM app.v_irregular_wear_ranking WHERE rank <= 3;
+  IF got IS DISTINCT FROM '2102BAC18=8.0#1,2102BAC6=6.0#2,2102BAC7=5.0#3,2102BAC8=5.0#3' THEN
+    RAISE EXCEPTION 'FAIL: irregular wear ranking [%]', got; END IF;
+
+  SELECT fleet_number || ' ' || outer_position || '/' || inner_position || '=' || difference_mm
+    INTO got FROM app.v_dual_mate_ranking WHERE rank = 1;
+  IF got IS DISTINCT FROM 'LINK6 8/7=7.0' THEN
+    RAISE EXCEPTION 'FAIL: top dual-mate pair [%], expected LINK6 8/7=7.0', got; END IF;
+
+  -- the ranking presents the same measure FR-EXC-035 raises on, not a second
+  -- definition of it: at a 4mm spread the RUNNING positions are exactly the
+  -- five check 8 pins, and the sixth is the spare -- BR-RPT-001 keeps spares
+  -- out of exception reporting and in composition reporting, so the two
+  -- counts differ by exactly that one position and neither is wrong
+  SELECT count(*) FILTER (WHERE NOT is_spare), count(*) INTO d, dall
+    FROM app.v_irregular_wear_ranking WHERE width_spread_mm >= 4;
+  IF d <> 5 OR dall <> 6 THEN
+    RAISE EXCEPTION 'FAIL: %/% running/all positions at the 4mm spread margin, expected 5/6', d, dall; END IF;
+  RAISE NOTICE 'PASS  irregular wear and dual-mate rankings are ordered and tie-stable';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
