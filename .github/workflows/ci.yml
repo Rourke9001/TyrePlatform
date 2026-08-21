@@ -86,13 +86,40 @@ jobs:
   api:
     name: Go
     runs-on: ubuntu-latest
+    # The store and httpapi tests are integration tests against RLS itself —
+    # a mocked database cannot fail a policy — so this job carries the same
+    # migrated Postgres the database job uses. Seeds are not needed: the tests
+    # plant their own tenants.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tyre
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 20
     steps:
       - uses: actions/checkout@v7
-      # cache: false because the module has no dependencies yet, so there is
-      # no api/go.sum for the cache key. Re-enable when the first dep lands.
       - uses: actions/setup-go@v7
-        with: { go-version: '1.24', cache: false }
+        with:
+          go-version: '1.24'
+          cache-dependency-path: api/go.sum
+      - name: Run migrations
+        run: |
+          docker run --rm --network host \
+            -v "$PWD/db/migrations:/migrations:ro" \
+            migrate/migrate:v4.19.1 \
+            -path=/migrations \
+            -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
+          psql "postgres://postgres:postgres@localhost:5433/tyre" -q \
+            -c "ALTER ROLE app_login PASSWORD 'ci'"
       - name: Build, vet, test
+        env:
+          TEST_DATABASE_URL: postgres://app_login:ci@localhost:5433/tyre?sslmode=disable
+          TEST_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable
         run: |
           if [ ! -f api/go.mod ]; then echo "api/ not scaffolded yet, skipping"; exit 0; fi
           cd api
