@@ -27,6 +27,8 @@ BEGIN
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: % readings visible with no tenant context', n; END IF;
   SELECT count(*) INTO n FROM app.tyre;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: % tyres visible with no tenant context', n; END IF;
+  SELECT count(*) INTO n FROM app.user_depot;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: % depot scopings visible with no tenant context', n; END IF;
   RAISE NOTICE 'PASS  unset tenant context sees nothing';
 END $$;
 
@@ -259,6 +261,54 @@ BEGIN
   IF got <> 'HORSE=10, LINK12=9, LINK6=8' THEN
     RAISE EXCEPTION 'FAIL: readings not attributed per constituent unit: %', got; END IF;
   RAISE NOTICE 'PASS  one inspection, three vehicles -> %', got;
+END $$;
+
+\echo '== 11. Users cannot be deleted by the app role (FR-AUT-011)'
+-- A fresh unreferenced user, so the only thing that can stop the DELETE is
+-- the grant itself — a seeded user would trip inspection's FK first and the
+-- check would pass for the wrong reason.
+DO $$
+DECLARE ok boolean := false;
+BEGIN
+  -- ON CONFLICT because the probe row outlives a passing run: cleaning it up
+  -- would need the very DELETE this check exists to forbid.
+  INSERT INTO app.app_user (tenant_id, email, display_name, role)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'deleteme@example.invalid', 'Deletion probe', 'DRIVER')
+  ON CONFLICT (tenant_id, email) DO NOTHING;
+  BEGIN
+    DELETE FROM app.app_user WHERE email = 'deleteme@example.invalid';
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can DELETE app.app_user'; END IF;
+  RAISE NOTICE 'PASS  users are deactivated, never deleted';
+END $$;
+
+\echo '== 12. Every table in schema app is under forced RLS'
+-- Structural companion to the data sweep in check 2: that sweep only visits
+-- tables that already have RLS, so a table someone forgot to enrol would
+-- never be swept at all. This closes that hole for every future table.
+DO $$
+DECLARE missing text;
+BEGIN
+  SELECT string_agg(c.relname, ', ') INTO missing
+    FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+   WHERE ns.nspname = 'app' AND c.relkind = 'r'
+     AND NOT (c.relrowsecurity AND c.relforcerowsecurity);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: table(s) without forced RLS: %', missing;
+  END IF;
+  RAISE NOTICE 'PASS  every app table has RLS enabled and forced';
+END $$;
+
+\echo '== 13. Depot scoping is tenant-scoped and visible to its own tenant (FR-AUT-004, DR-001)'
+DO $$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM app.user_depot;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL: expected exactly 1 own-tenant user_depot row, got %', n;
+  END IF;
+  RAISE NOTICE 'PASS  own-tenant depot scoping rows are visible, foreign ones swept by check 2';
 END $$;
 
 \echo ''
