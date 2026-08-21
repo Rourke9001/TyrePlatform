@@ -43,6 +43,16 @@ L.append("")
 L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('depot1')::uuid,'%s','Johannesburg','DEPOT');"%T)
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
 L.append("  (md5('driver1')::uuid,'%s','melusi@example.invalid','Melusi','EMP-0001','DRIVER');"%T)
+L.append("INSERT INTO app.user_depot (tenant_id,user_id,depot_id) VALUES ('%s',md5('driver1')::uuid,md5('depot1')::uuid);"%T)
+L.append("")
+# The second tenant gets a depot-scoped user too, so the cross-tenant sweep
+# in the verification suite has real foreign user_depot rows to prove
+# invisible — with none, that isolation check would pass vacuously.
+T2="22222222-2222-2222-2222-222222222222"
+L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('depot2')::uuid,'%s','Cape Town','DEPOT');"%T2)
+L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
+L.append("  (md5('driver2')::uuid,'%s','thabo@example.invalid','Thabo','EMP-2001','DRIVER');"%T2)
+L.append("INSERT INTO app.user_depot (tenant_id,user_id,depot_id) VALUES ('%s',md5('driver2')::uuid,md5('depot2')::uuid);"%T2)
 L.append("INSERT INTO app.tyre_size (id,tenant_id,name,construction) VALUES (md5('sz1')::uuid,'%s','315/80R22.5','RADIAL');"%T)
 L.append("INSERT INTO app.tyre_brand (id,tenant_id,name) VALUES (md5('br1')::uuid,'%s','Dunlop');"%T)
 L.append("INSERT INTO app.tyre_pattern (id,tenant_id,name,brand_id) VALUES (md5('pt1')::uuid,'%s','SP431',md5('br1')::uuid);"%T)
