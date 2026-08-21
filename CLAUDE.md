@@ -53,7 +53,7 @@ Every command is in the Makefile. Use it rather than remembering flags.
 ```
 make db-up          # Postgres 16 in docker, port 5433
 make db-reset       # drop, apply schema, regenerate and load seeds
-make db-test        # the 16-check verification suite, as a non-superuser
+make db-test        # the verification suite, as a non-superuser
 make test           # everything: db, api, web
 make fmt            # format all languages
 make lint           # vet + staticcheck + eslint + tsc
