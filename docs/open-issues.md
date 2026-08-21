@@ -33,12 +33,21 @@ back-loaded. It is a five-minute conversation.
 
 | ID | Question | Owner | Blocks | Jira |
 |---|---|---|---|---|
-| OI-26 | Will drivers reliably enter the odometer? | Sponsor | Wear rate, cost-per-km, removal forecast | TYRE-17 |
+| OI-26 | Will drivers reliably enter the odometer? | Sponsor | How much confidence a projection may be presented with | TYRE-17 |
 | Q5 | Does odometer data exist anywhere today? | Sponsor | Back-loading | TYRE-17 |
 
 Consequence to state plainly to the sponsor before any demo: **no historical
 paper sheet can produce a wear rate.** Those metrics begin at first digital
 capture. Do not promise cost-per-km on back-loaded paper.
+
+OI-26 does not block the engine, and TYRE-35 ships the wear rate and removal
+forecast without it. The odometer is captured for fuel reconciliation whether
+or not this platform exists (Rourke, 2026-08-21), so it is an operationally
+maintained figure rather than one the product asks a driver to produce, and
+FR-ANL-003 already requires every uncomputable rate to say why. What OI-26
+still decides is how much confidence a projection may carry on a dashboard,
+and whether an odometer that does not advance needs handling of its own
+(FR-EXC-030).
 
 ## Configuration and register
 

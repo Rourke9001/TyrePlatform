@@ -159,12 +159,17 @@ BEGIN
 END $$;
 
 \echo '== 8. Appendix J fixture produces exactly the expected exceptions'
+-- Appendix J is the exception set of ONE capture sheet, the 2026-07-23 one.
+-- v_combination_reading re-presents every reading of every inspection, which
+-- is what a tyre-history view needs, so each query here names the sheet it
+-- describes rather than relying on the fixture holding a single capture.
 DO $$
 DECLARE got text; expected text;
 BEGIN
   -- FR-EXC-020: governing depth at or below the 4mm removal threshold
   SELECT string_agg(combination_code, ',' ORDER BY combination_position) INTO got
-    FROM app.v_combination_reading WHERE governing_tread_mm <= 4;
+    FROM app.v_combination_reading
+   WHERE inspection_id = md5('insp1')::uuid AND governing_tread_mm <= 4;
   expected := '7,8,11,12,13,16,18,21,22';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-020: expected [%] got [%]', expected, got; END IF;
@@ -172,7 +177,8 @@ BEGIN
 
   -- FR-EXC-035: width-wise spread >= 4mm
   SELECT string_agg(combination_code, ',' ORDER BY combination_position) INTO got
-    FROM app.v_combination_reading WHERE width_spread_mm >= 4;
+    FROM app.v_combination_reading
+   WHERE inspection_id = md5('insp1')::uuid AND width_spread_mm >= 4;
   expected := '5,6,7,8,18';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-035: expected [%] got [%]', expected, got; END IF;
@@ -180,7 +186,8 @@ BEGIN
 
   -- FR-EXC-038: spare at or below threshold, raised despite BR-RPT-001
   SELECT string_agg(position_code || '@' || governing_tread_mm, ',') INTO got
-    FROM app.v_reading_detail WHERE is_spare AND governing_tread_mm <= 4;
+    FROM app.v_reading_detail
+   WHERE inspection_id = md5('insp1')::uuid AND is_spare AND governing_tread_mm <= 4;
   IF got IS NULL THEN RAISE EXCEPTION 'FAIL FR-EXC-038: spare exception not raised'; END IF;
   RAISE NOTICE 'PASS  FR-EXC-038 spare below threshold -> %', got;
 
@@ -195,7 +202,7 @@ BEGIN
                                      AND o.unit_own_code=dm.outer_position
     JOIN app.v_combination_reading i2 ON i2.inspection_id=dm.inspection_id AND i2.vehicle_id=dm.vehicle_id
                                      AND i2.unit_own_code=dm.inner_position
-   WHERE dm.difference_mm >= 3;
+   WHERE dm.inspection_id = md5('insp1')::uuid AND dm.difference_mm >= 3;
   expected := '17/18 = 7.0mm';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-036: expected [%] got [%]', expected, got; END IF;
@@ -206,7 +213,8 @@ BEGIN
     FROM app.v_combination_reading d
     JOIN LATERAL (SELECT (value->>d.axle_class::text)::int AS target
                     FROM app.configuration WHERE key='target_pressure_kpa' LIMIT 1) t ON true
-   WHERE d.pressure_kpa::numeric / t.target < 0.80;
+   WHERE d.inspection_id = md5('insp1')::uuid
+     AND d.pressure_kpa::numeric / t.target < 0.80;
   expected := '16 @ 200kPa';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-022: expected [%] got [%]', expected, got; END IF;
@@ -284,11 +292,22 @@ DO $$
 DECLARE got text;
 BEGIN
   SELECT string_agg(v.fleet_number || '=' || n, ', ' ORDER BY v.fleet_number) INTO got
-    FROM (SELECT vehicle_id, count(*) AS n FROM app.reading GROUP BY vehicle_id) r
+    FROM (SELECT vehicle_id, count(*) AS n FROM app.reading
+           WHERE inspection_id = md5('insp1')::uuid GROUP BY vehicle_id) r
     JOIN app.vehicle v ON v.id = r.vehicle_id;
   IF got <> 'HORSE=10, LINK12=9, LINK6=8' THEN
     RAISE EXCEPTION 'FAIL: readings not attributed per constituent unit: %', got; END IF;
-  RAISE NOTICE 'PASS  one inspection, three vehicles -> %', got;
+
+  -- The earlier capture omits the spare, so the split differs by exactly that
+  -- one position: what holds across both is that the resolution follows the
+  -- combination, never the inspection's own vehicle_id.
+  SELECT string_agg(v.fleet_number || '=' || n, ', ' ORDER BY v.fleet_number) INTO got
+    FROM (SELECT vehicle_id, count(*) AS n FROM app.reading
+           WHERE inspection_id = md5('insp0')::uuid GROUP BY vehicle_id) r
+    JOIN app.vehicle v ON v.id = r.vehicle_id;
+  IF got <> 'HORSE=10, LINK12=8, LINK6=8' THEN
+    RAISE EXCEPTION 'FAIL: earlier capture not attributed per constituent unit: %', got; END IF;
+  RAISE NOTICE 'PASS  every combination inspection attributes readings to three vehicles';
 END $$;
 
 \echo '== 11. Users cannot be deleted by the app role (FR-AUT-011)'
@@ -604,18 +623,34 @@ BEGIN
 END $$;
 
 \echo '== 18. As-at valuation and snapshot persistence (FR-VAL-020..022, UC-04)'
--- Fixed dates only: the fixture inspection is 2026-07-23 and the seeded
--- policy is backdated to 2024-01-01, so every assertion here is stable no
--- matter when the suite runs.
+-- Fixed dates only: the fixture captures are 2026-06-28 and 2026-07-23 and
+-- the seeded policy is backdated to 2024-01-01, so every assertion here is
+-- stable no matter when the suite runs.
 DO $$
 DECLARE n int; v numeric; c numeric;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
 
   -- Before any reading exists the register is visible but unvalued
-  SELECT count(*), count(tread_value) INTO n, v FROM app.tyre_valuation_asof('2026-07-01');
+  SELECT count(*), count(tread_value) INTO n, v FROM app.tyre_valuation_asof('2026-06-01');
   IF n <> 27 OR v <> 0 THEN
-    RAISE EXCEPTION 'FAIL: as at 2026-07-01 rows=% valued=%, expected 27/0', n, v; END IF;
+    RAISE EXCEPTION 'FAIL: as at 2026-06-01 rows=% valued=%, expected 27/0', n, v; END IF;
+
+  -- BR-VAL-007 between the two captures: the earlier reading governs, so the
+  -- estate is worth more on 2026-07-01 than it is three weeks later. The
+  -- spare is read only at the later capture and stays unvalued here, which is
+  -- the whole point of the row count sitting beside the valued count.
+  SELECT count(*), count(tread_value), sum(tread_value) INTO n, c, v
+    FROM app.tyre_valuation_asof('2026-07-01');
+  IF n <> 27 OR c <> 26 OR v IS DISTINCT FROM 25096.63 THEN
+    RAISE EXCEPTION 'FAIL: as at 2026-07-01 rows=% valued=% tread=%, expected 27/26/25096.63', n, c, v; END IF;
+  -- 2102BAC1 wears 0.5mm over the window, so its earlier depth is 13.5mm:
+  -- 9.5mm over the threshold at R205.7100/mm is 1954.245, and FR-VAL-005
+  -- rounds half up to the cent rather than to even.
+  SELECT tread_value INTO v FROM app.tyre_valuation_asof('2026-07-01')
+   WHERE branded_number = '2102BAC1';
+  IF v IS DISTINCT FROM 1954.25 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC1 as at 2026-07-01 [%], expected 1954.25', v; END IF;
 
   -- After the inspection: same cent-exact totals as the live view, all fresh
   SELECT sum(tread_value), sum(casing_value), count(*) FILTER (WHERE stale) INTO v, c, n
@@ -642,6 +677,10 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT count(*) INTO n FROM app.valuation_snapshot WHERE as_at = '2026-07-23';
   IF n <> 27 THEN RAISE EXCEPTION 'FAIL: % snapshots at inspection date, expected 27', n; END IF;
+  -- The earlier capture leaves one per position it read, and the spare it did
+  -- not read has no row at all: a snapshot follows a reading, never a date.
+  SELECT count(*) INTO n FROM app.valuation_snapshot WHERE as_at = '2026-06-28';
+  IF n <> 26 THEN RAISE EXCEPTION 'FAIL: % snapshots at the earlier capture, expected 26', n; END IF;
   SELECT s.tread_mm, s.tread_value INTO mm, v
     FROM app.valuation_snapshot s JOIN app.tyre t ON t.id = s.tyre_id
    WHERE t.branded_number = '2102BAC2' AND s.as_at = '2026-07-23';
@@ -1221,6 +1260,388 @@ BEGIN
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL: % foreign reading(s) visible from tenant 1', n; END IF;
   RAISE NOTICE 'PASS  nothing check 20 stages in tenant 2 is reachable from tenant 1';
+END $$;
+
+\echo '== 21. Wear rate and removal forecast (FR-ANL-001..007, BR-ANL-001/002/004)'
+-- Hand-computed over the fixture's two captures, 10,000km and 25 days apart:
+-- a tyre that loses d mm over that window wears at d/10 mm per 1000km, and
+-- the combination covers 400.00km per day. The three deltas in the fixture
+-- are deliberately different, so a rate cannot pass these by being constant.
+DO $$
+DECLARE r numeric; st text; n int; m int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  -- FR-ANL-001: 15.0mm -> 14.0mm over 10,000km
+  SELECT wear_rate_mm_per_1000km, wear_rate_status INTO r, st
+    FROM app.v_tyre_wear_rate WHERE branded_number = '2102BAC2';
+  IF r IS DISTINCT FROM 0.1000 OR st IS DISTINCT FROM 'MEASURED' THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC2 wear rate [% / %], expected 0.1000 / MEASURED', r, st; END IF;
+
+  -- twice the loss over the same distance is twice the rate
+  SELECT wear_rate_mm_per_1000km INTO r
+    FROM app.v_tyre_wear_rate WHERE branded_number = '2102BAC9';
+  IF r IS DISTINCT FROM 0.2000 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC9 wear rate [%], expected 0.2000', r; END IF;
+
+  -- and half the loss is half the rate, to four places
+  SELECT wear_rate_mm_per_1000km INTO r
+    FROM app.v_tyre_wear_rate WHERE branded_number = '2102BAC1';
+  IF r IS DISTINCT FROM 0.0500 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC1 wear rate [%], expected 0.0500', r; END IF;
+
+  -- FR-ANL-003 and BR-ANL-004: the spare is read once, so it carries a
+  -- reason instead of a rate. 000009 holds why the reason is not optional.
+  SELECT wear_rate_mm_per_1000km, wear_rate_status INTO r, st
+    FROM app.v_tyre_wear_rate WHERE branded_number = '2102BACS';
+  IF r IS NOT NULL OR st IS DISTINCT FROM 'INSUFFICIENT_READINGS' THEN
+    RAISE EXCEPTION 'FAIL: single-reading spare [% / %], expected NULL / INSUFFICIENT_READINGS', r, st; END IF;
+
+  -- every fitted position appears exactly once and every row states itself
+  SELECT count(*), count(*) FILTER (WHERE wear_rate_status = 'MEASURED')
+    INTO n, m FROM app.v_tyre_wear_rate;
+  IF n <> 27 OR m <> 26 THEN
+    RAISE EXCEPTION 'FAIL: %/% rows/measured in the wear rate view, expected 27/26', n, m; END IF;
+  IF EXISTS (SELECT 1 FROM app.v_tyre_wear_rate
+              WHERE (wear_rate_mm_per_1000km IS NULL) <> (wear_rate_status <> 'MEASURED')) THEN
+    RAISE EXCEPTION 'FAIL: a row carries a rate without MEASURED, or MEASURED without a rate'; END IF;
+  RAISE NOTICE 'PASS  wear rate is measured per tyre, and says why where it cannot be';
+END $$;
+
+-- BR-ANL-002. Remaining distance is the tread above the threshold divided by
+-- the rate; remaining days applies the vehicle's mean daily distance, which
+-- the fixture makes 400.00km.
+DO $$
+DECLARE km numeric; dys int; dt date; odo bigint; st text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  -- 2102BAC2: 10.0mm over the threshold at 0.1000mm per 1000km
+  SELECT projected_remaining_km, projected_remaining_days, projected_removal_date,
+         projected_removal_odometer, forecast_status
+    INTO km, dys, dt, odo, st
+    FROM app.v_removal_forecast WHERE branded_number = '2102BAC2';
+  IF km IS DISTINCT FROM 100000 OR dys <> 250 OR dt <> '2027-03-30'
+     OR odo <> 512500 OR st IS DISTINCT FROM 'FORECAST' THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC2 forecast [%km / %d / % / % / %], expected 100000/250/2027-03-30/512500/FORECAST', km, dys, dt, odo, st; END IF;
+
+  -- the fastest-wearing tyre in the fixture reaches the threshold first
+  SELECT projected_remaining_km, projected_remaining_days, projected_removal_date, projected_removal_odometer
+    INTO km, dys, dt, odo
+    FROM app.v_removal_forecast WHERE branded_number = '2102BAC9';
+  IF km IS DISTINCT FROM 10000 OR dys <> 25 OR dt <> '2026-08-17' OR odo <> 422500 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC9 forecast [%km / %d / % / %], expected 10000/25/2026-08-17/422500', km, dys, dt, odo; END IF;
+
+  -- and the slowest, more than a year out
+  SELECT projected_remaining_km, projected_remaining_days, projected_removal_date, projected_removal_odometer
+    INTO km, dys, dt, odo
+    FROM app.v_removal_forecast WHERE branded_number = '2102BAC1';
+  IF km IS DISTINCT FROM 180000 OR dys <> 450 OR dt <> '2027-10-16' OR odo <> 592500 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC1 forecast [%km / %d / % / %], expected 180000/450/2027-10-16/592500', km, dys, dt, odo; END IF;
+
+  -- Neither the distance nor the day count divides evenly here: 2.0mm above
+  -- the threshold at 0.1500mm per 1000km is 13,333.33km, and at 400.00km a
+  -- day that is 33.33 days. Kilometres round; days floor, so the date given
+  -- is the earlier of the two it falls between.
+  SELECT projected_remaining_km, projected_remaining_days, projected_removal_date, projected_removal_odometer
+    INTO km, dys, dt, odo
+    FROM app.v_removal_forecast WHERE branded_number = '2102BAC15';
+  IF km IS DISTINCT FROM 13333 OR dys <> 33 OR dt <> '2026-08-25' OR odo <> 425833 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC15 forecast [%km / %d / % / %], expected 13333/33/2026-08-25/425833', km, dys, dt, odo; END IF;
+
+  -- Zero remaining, dated the last reading, per 000009's note on why an
+  -- overdue tyre may not project as a negative or a NULL.
+  SELECT projected_remaining_km, projected_remaining_days, projected_removal_date, forecast_status
+    INTO km, dys, dt, st
+    FROM app.v_removal_forecast WHERE branded_number = '2102BAC18';
+  IF km IS DISTINCT FROM 0 OR dys <> 0 OR dt <> '2026-07-23'
+     OR st IS DISTINCT FROM 'AT_OR_BELOW_THRESHOLD' THEN
+    RAISE EXCEPTION 'FAIL: bald 2102BAC18 forecast [%km / %d / % / %], expected 0/0/2026-07-23/AT_OR_BELOW_THRESHOLD', km, dys, dt, st; END IF;
+
+  -- Precedence: the spare is below the threshold AND has no rate. Being past
+  -- the threshold is the answer to "when does this need replacing" without
+  -- needing a rate at all, so it outranks the missing-rate reason.
+  SELECT forecast_status INTO st
+    FROM app.v_removal_forecast WHERE branded_number = '2102BACS';
+  IF st IS DISTINCT FROM 'AT_OR_BELOW_THRESHOLD' THEN
+    RAISE EXCEPTION 'FAIL: spare below the threshold forecasts [%], expected AT_OR_BELOW_THRESHOLD', st; END IF;
+
+  SELECT count(*) INTO n FROM app.v_removal_forecast;
+  IF n <> 27 THEN RAISE EXCEPTION 'FAIL: % forecast rows, expected 27', n; END IF;
+  RAISE NOTICE 'PASS  removal forecast projects distance, days, date and odometer per tyre';
+END $$;
+
+-- FR-ANL-007. The horizon list is the report surface (FR-RPT-028), and at a
+-- zero horizon it must agree exactly with the below-threshold set check 8
+-- pins from the readings: two routes to the same nine positions.
+DO $$
+DECLARE n int; m int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  SELECT string_agg(branded_number, ',' ORDER BY branded_number) INTO got
+    FROM app.removal_forecast_within('2026-07-23', 0) WHERE NOT is_spare;
+  IF got IS DISTINCT FROM '2102BAC11,2102BAC12,2102BAC13,2102BAC16,2102BAC18,2102BAC21,2102BAC22,2102BAC7,2102BAC8' THEN
+    RAISE EXCEPTION 'FAIL: overdue running positions [%]', got; END IF;
+
+  -- thirty days out adds the two tyres inside 12,000km of the threshold.
+  -- Spares are carried, never filtered: BR-RPT-001 is a reporting convention
+  -- and FR-RPT-005 makes the caller state which it applied.
+  SELECT count(*), count(*) FILTER (WHERE NOT is_spare) INTO n, m
+    FROM app.removal_forecast_within('2026-07-23', 30);
+  IF n <> 12 OR m <> 11 THEN
+    RAISE EXCEPTION 'FAIL: %/% all/running within 30 days, expected 12/11', n, m; END IF;
+
+  -- a horizon cannot invent a tyre that has no projection
+  IF EXISTS (SELECT 1 FROM app.removal_forecast_within('2026-07-23', 3650)
+              WHERE projected_removal_date IS NULL) THEN
+    RAISE EXCEPTION 'FAIL: the horizon list carries a row with no projected date'; END IF;
+  RAISE NOTICE 'PASS  the horizon list agrees with the below-threshold set and widens with the horizon';
+END $$;
+
+-- FR-ANL-002 is tenant configuration, not a constant (rule 5, CR-005). Raise
+-- the minimum separation above the fixture's own window and no pair qualifies
+-- any more, then restore. BR-ANL-001 computes over the most recent pair
+-- separated by at least the minimum, so "below the minimum" means no
+-- qualifying pair exists (BR-ANL-004), not that the last two are too close.
+DO $$
+DECLARE n int; st text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  INSERT INTO app.configuration (tenant_id,key,value,effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111','wear_rate_min_distance_km','20000'::jsonb,'2026-07-01T00:00:00Z');
+
+  SELECT count(*) FILTER (WHERE wear_rate_status = 'BELOW_MIN_DISTANCE')
+    INTO n FROM app.v_tyre_wear_rate;
+  IF n <> 26 THEN
+    RAISE EXCEPTION 'FAIL: % rows below the raised minimum, expected 26', n; END IF;
+  SELECT count(*) INTO n FROM app.v_tyre_wear_rate WHERE wear_rate_mm_per_1000km IS NOT NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: % rates survived a minimum wider than the window', n; END IF;
+  SELECT forecast_status INTO st FROM app.v_removal_forecast WHERE branded_number = '2102BAC2';
+  IF st IS DISTINCT FROM 'BELOW_MIN_DISTANCE' THEN
+    RAISE EXCEPTION 'FAIL: forecast under the raised minimum [%], expected BELOW_MIN_DISTANCE', st; END IF;
+
+  DELETE FROM app.configuration
+   WHERE tenant_id = '11111111-1111-1111-1111-111111111111'
+     AND key = 'wear_rate_min_distance_km' AND value = '20000'::jsonb;
+  SELECT count(*) INTO n FROM app.v_tyre_wear_rate WHERE wear_rate_status = 'MEASURED';
+  IF n <> 26 THEN
+    RAISE EXCEPTION 'FAIL: % measured after restoring the policy, expected 26', n; END IF;
+
+  -- No configured minimum is not the same as a minimum of zero: an
+  -- unconfigured tenant gets no rate and is told why, never a rate computed
+  -- from a hard-coded 1,000km that nobody chose.
+  DELETE FROM app.configuration
+   WHERE tenant_id = '11111111-1111-1111-1111-111111111111'
+     AND key = 'wear_rate_min_distance_km';
+  SELECT count(*) FILTER (WHERE wear_rate_status = 'NO_MIN_DISTANCE_POLICY')
+    INTO n FROM app.v_tyre_wear_rate;
+  IF n <> 27 THEN
+    RAISE EXCEPTION 'FAIL: % rows report no minimum-distance policy, expected 27', n; END IF;
+  INSERT INTO app.configuration (tenant_id,key,value,effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111','wear_rate_min_distance_km','1000'::jsonb,'2024-01-01T00:00:00Z');
+  SELECT count(*) INTO n FROM app.v_tyre_wear_rate WHERE wear_rate_status = 'MEASURED';
+  IF n <> 26 THEN
+    RAISE EXCEPTION 'FAIL: % measured after reseeding the policy, expected 26', n; END IF;
+  RAISE NOTICE 'PASS  the minimum separation is configuration; unconfigured means no rate, with the reason';
+END $$;
+
+-- BR-ANL-004: a fitment between the two readings makes them readings of the
+-- same position rather than of the same tyre's wear. Moving a fitment date is
+-- reversible in a way an extra reading is not -- readings are append-only, so
+-- staging this with one would leave residue in every pinned figure above.
+DO $$
+DECLARE st text; r numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  UPDATE app.fitment SET fitted_at = '2026-07-10T06:00:00Z'
+   WHERE tyre_id = md5('tyre2')::uuid;
+
+  SELECT wear_rate_status, wear_rate_mm_per_1000km INTO st, r
+    FROM app.v_tyre_wear_rate WHERE branded_number = '2102BAC2';
+  IF st IS DISTINCT FROM 'FITMENT_BETWEEN' OR r IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: refitted tyre [% / %], expected FITMENT_BETWEEN / NULL', st, r; END IF;
+
+  UPDATE app.fitment SET fitted_at = '2025-06-01T06:00:00Z'
+   WHERE tyre_id = md5('tyre2')::uuid;
+  SELECT wear_rate_status, wear_rate_mm_per_1000km INTO st, r
+    FROM app.v_tyre_wear_rate WHERE branded_number = '2102BAC2';
+  IF st IS DISTINCT FROM 'MEASURED' OR r IS DISTINCT FROM 0.1000 THEN
+    RAISE EXCEPTION 'FAIL: restored fitment [% / %], expected MEASURED / 0.1000', st, r; END IF;
+  RAISE NOTICE 'PASS  a fitment between the readings withdraws the rate rather than reporting a swap as wear';
+END $$;
+
+-- Zero measured wear is the ordinary case, not an exotic one: a hard compound
+-- over a short window moves less than the gauge resolves. The rate is then a
+-- real 0.0000 rather than a missing one, and the projection it implies is
+-- infinite, so the forecast withholds it and says which of the two it is.
+-- Staged on tenant 2 in September: readings are append-only, so a tenant-1
+-- probe would sit inside the pinned figures above forever, and these dates
+-- are past check 18's month end. The tyre carries no purchase price, so it
+-- never enters a valuation or a snapshot.
+DO $$
+DECLARE r numeric; st text; km numeric; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '3';
+  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE branded_number = 'T2FLAT1') THEN
+    INSERT INTO app.tyre (id,tenant_id,branded_number,status,state)
+    VALUES (md5('t2flattyre')::uuid,'22222222-2222-2222-2222-222222222222','T2FLAT1','NEW','FITTED');
+    INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm)
+    VALUES ('22222222-2222-2222-2222-222222222222',md5('t2flattyre')::uuid,md5('t2veh1')::uuid,posid,'2026-09-01T06:00:00Z',119000,25.0);
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2flat1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2flatcli1')::uuid,'2026-09-10T08:00:00Z','2026-09-10T08:05:00Z',120000),
+           (md5('t2flat2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2flatcli2')::uuid,'2026-09-20T08:00:00Z','2026-09-20T08:05:00Z',121500);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2flatrd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2flat1')::uuid,md5('t2veh1')::uuid,posid,md5('t2flattyre')::uuid,750),
+           (md5('t2flatrd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2flat2')::uuid,md5('t2veh1')::uuid,posid,md5('t2flattyre')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,1,'OUTER',12),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,2,'CENTRE',13),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,3,'INNER',14),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,1,'OUTER',12),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,2,'CENTRE',13),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,3,'INNER',14);
+  END IF;
+
+  SELECT wear_rate_mm_per_1000km, wear_rate_status INTO r, st
+    FROM app.v_tyre_wear_rate WHERE branded_number = 'T2FLAT1';
+  IF r IS DISTINCT FROM 0.0000 OR st IS DISTINCT FROM 'MEASURED' THEN
+    RAISE EXCEPTION 'FAIL: unworn tyre [% / %], expected 0.0000 / MEASURED', r, st; END IF;
+
+  SELECT projected_remaining_km, forecast_status INTO km, st
+    FROM app.v_removal_forecast WHERE branded_number = 'T2FLAT1';
+  IF km IS NOT NULL OR st IS DISTINCT FROM 'NO_MEASURABLE_WEAR' THEN
+    RAISE EXCEPTION 'FAIL: unworn tyre forecast [% / %], expected NULL / NO_MEASURABLE_WEAR', km, st; END IF;
+
+  -- and it stays out of every horizon rather than sitting at the top of one
+  IF EXISTS (SELECT 1 FROM app.removal_forecast_within('2026-09-20', 36500)
+              WHERE branded_number = 'T2FLAT1') THEN
+    RAISE EXCEPTION 'FAIL: a tyre with no measurable wear appeared in a horizon list'; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  zero measured wear is a rate of zero and a withheld projection, not a missing rate';
+END $$;
+
+-- Two shapes the fixture cannot contain, both of which the horizon list has to
+-- survive: a vehicle that is inspected without moving, and a vehicle with only
+-- one capture to its name. The second is every vehicle on the first day of a
+-- rollout, which is the worst possible day for an overdue tyre to be missing
+-- from the replacement report.
+--
+-- Staged on tenant 2 and left VOIDED between runs: these tyres sit below the
+-- removal threshold, so a live reading would put them in tenant 2's first
+-- tread band and move check 19's pinned count. They come live for the length
+-- of this check only.
+DO $$
+DECLARE dys int; dt date; st text; n int; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  SELECT pos.id INTO posid
+    FROM app.position pos
+   WHERE pos.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
+     AND pos.code = '1';
+
+  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE branded_number = 'T2PARK1') THEN
+    INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status) VALUES
+      (md5('t2veh2')::uuid,'22222222-2222-2222-2222-222222222222','PARKED','CAA222222',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE'),
+      (md5('t2veh3')::uuid,'22222222-2222-2222-2222-222222222222','SOLO','CAA333333',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE');
+    INSERT INTO app.tyre (id,tenant_id,branded_number,status,state) VALUES
+      (md5('t2parktyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PARK1','NEW','FITTED'),
+      (md5('t2solotyre')::uuid,'22222222-2222-2222-2222-222222222222','T2SOLO1','NEW','FITTED');
+    INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2parktyre')::uuid,md5('t2veh2')::uuid,posid,'2027-01-01T06:00:00Z',59000,25.0),
+      ('22222222-2222-2222-2222-222222222222',md5('t2solotyre')::uuid,md5('t2veh3')::uuid,posid,'2027-01-01T06:00:00Z',69000,25.0);
+    -- the same odometer on two dates: a trailer that sat in the yard
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer) VALUES
+      (md5('t2park1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh2')::uuid,md5('driver2')::uuid,md5('t2parkcli1')::uuid,'2027-02-01T08:00:00Z','2027-02-01T08:05:00Z',60000),
+      (md5('t2park2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh2')::uuid,md5('driver2')::uuid,md5('t2parkcli2')::uuid,'2027-02-10T08:00:00Z','2027-02-10T08:05:00Z',60000),
+      (md5('t2solo1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh3')::uuid,md5('driver2')::uuid,md5('t2solocli1')::uuid,'2027-03-01T08:00:00Z','2027-03-01T08:05:00Z',70000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa) VALUES
+      (md5('t2parkrd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park1')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
+      (md5('t2parkrd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park2')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
+      (md5('t2solord1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2solo1')::uuid,md5('t2veh3')::uuid,posid,md5('t2solotyre')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,1,'OUTER',3),
+      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,2,'CENTRE',3),
+      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,3,'INNER',3),
+      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,1,'OUTER',3),
+      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,2,'CENTRE',3),
+      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,3,'INNER',3),
+      ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,1,'OUTER',2),
+      ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,2,'CENTRE',2),
+      ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,3,'INNER',2);
+  END IF;
+  UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
+   WHERE id IN (md5('t2park1')::uuid, md5('t2park2')::uuid, md5('t2solo1')::uuid);
+
+  -- A parked vehicle divides zero distance by zero days. Reading the whole
+  -- view is the assertion: an unguarded division takes down every row, not
+  -- one of them, so a single parked trailer would blank the dashboard.
+  SELECT count(*) INTO n FROM app.v_removal_forecast;
+  IF n < 3 THEN RAISE EXCEPTION 'FAIL: forecast view returned % rows for tenant 2', n; END IF;
+
+  SELECT projected_remaining_days, projected_removal_date, forecast_status
+    INTO dys, dt, st FROM app.v_removal_forecast WHERE branded_number = 'T2PARK1';
+  IF dys <> 0 OR dt <> '2027-02-10' OR st IS DISTINCT FROM 'AT_OR_BELOW_THRESHOLD' THEN
+    RAISE EXCEPTION 'FAIL: parked below-threshold tyre [%d / % / %], expected 0/2027-02-10/AT_OR_BELOW_THRESHOLD', dys, dt, st; END IF;
+
+  -- One capture yields no daily distance at all, and zero remaining distance
+  -- is still zero days: the tyre is already overdue and must be listed.
+  SELECT projected_remaining_days, projected_removal_date INTO dys, dt
+    FROM app.v_removal_forecast WHERE branded_number = 'T2SOLO1';
+  IF dys <> 0 OR dt <> '2027-03-01' THEN
+    RAISE EXCEPTION 'FAIL: single-capture below-threshold tyre [%d / %], expected 0/2027-03-01', dys, dt; END IF;
+  SELECT count(*) INTO n FROM app.removal_forecast_within('2027-03-01', 0)
+   WHERE branded_number = 'T2SOLO1';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL: an overdue tyre on a once-inspected vehicle is missing from the horizon list'; END IF;
+
+  UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-35 forecast probe'
+   WHERE id IN (md5('t2park1')::uuid, md5('t2park2')::uuid, md5('t2solo1')::uuid);
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  a vehicle that does not move, and one inspected only once, still forecast';
+END $$;
+
+-- Rule 6: timestamps are stored UTC. A bare cast to date reads the session
+-- timezone, so a connection west of UTC would move every projected date by a
+-- day against readings captured at 05:45Z.
+DO $$
+DECLARE dt date;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  PERFORM set_config('TimeZone', 'America/Los_Angeles', true);
+  SELECT projected_removal_date INTO dt
+    FROM app.v_removal_forecast WHERE branded_number = '2102BAC2';
+  IF dt <> '2027-03-30' THEN
+    RAISE EXCEPTION 'FAIL: projected date is [%] from a non-UTC session, expected 2027-03-30', dt; END IF;
+  SELECT projected_removal_date INTO dt
+    FROM app.v_removal_forecast WHERE branded_number = '2102BAC18';
+  IF dt <> '2026-07-23' THEN
+    RAISE EXCEPTION 'FAIL: overdue date is [%] from a non-UTC session, expected 2026-07-23', dt; END IF;
+  RAISE NOTICE 'PASS  projected dates hold from a session in another timezone';
+END $$;
+
+-- The horizon list is a set-returning function, so 8b's view sweep does not
+-- reach it: prove RLS binds it directly from the other side.
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  SELECT count(*) INTO n FROM app.removal_forecast_within('2026-07-23', 3650)
+   WHERE tenant_id <> '22222222-2222-2222-2222-222222222222';
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: the horizon list returned % foreign-tenant rows', n; END IF;
+  SELECT count(*) INTO n FROM app.v_tyre_wear_rate
+   WHERE tenant_id <> '22222222-2222-2222-2222-222222222222';
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: the wear rate view returned % foreign-tenant rows', n; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  neither the wear rate view nor the horizon list crosses the tenant boundary';
 END $$;
 
 \echo ''
