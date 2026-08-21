@@ -68,9 +68,23 @@ db-shell: ## Interactive psql as the application role
 
 ## ---------------------------------------------------------------- api / web
 
+# Go runs in docker: this repo is developed on Windows without a host Go
+# toolchain. The container joins the compose network so the integration tests
+# can reach tyre-pg; the module cache volume makes repeat runs fast. The
+# app_login password is local-only (CI sets its own; staging's lives in
+# Key Vault).
+GO_IMAGE ?= golang:1.24-alpine
+GO_RUN   = MSYS_NO_PATHCONV=1 docker run --rm \
+  -v "$(CURDIR)/api:/app" -w /app -v tyre-gomodcache:/go/pkg/mod
+GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
+  -e TEST_DATABASE_URL="postgres://app_login:dev@tyre-pg:5432/tyre?sslmode=disable" \
+  -e TEST_ADMIN_DATABASE_URL="postgres://postgres:postgres@tyre-pg:5432/tyre?sslmode=disable" \
+  $(GO_IMAGE)
+
 .PHONY: api-test
-api-test: ## Go tests
-	cd api && go test ./...
+api-test: ## Go tests (docker; needs db-up for the integration tests)
+	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
+	$(GO_DOCKER) go test ./...
 
 .PHONY: web-test
 web-test: ## Frontend tests
@@ -88,12 +102,12 @@ deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc windo
 
 .PHONY: fmt
 fmt: ## Format everything
-	cd api && gofmt -w . 2>/dev/null || true
+	$(GO_RUN) $(GO_IMAGE) gofmt -w .
 	cd web && npm run format --if-present 2>/dev/null || true
 
 .PHONY: lint
 lint: ## Vet and typecheck everything
-	cd api && go vet ./... 2>/dev/null || true
+	$(GO_RUN) $(GO_IMAGE) go vet ./...
 	cd web && npm run lint --if-present 2>/dev/null || true
 	node scripts/check-comment-style.mjs
 
