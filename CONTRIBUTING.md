@@ -32,7 +32,30 @@ fix(valuation): TYRE-51 floor tread value at zero below the removal threshold
 chore(ci): TYRE-60 assert seed generation is deterministic
 ```
 
-Rebase onto `main`. Do not merge `main` into your branch.
+Cut feature branches from `develop`, and rebase onto `develop`. Do not merge
+`develop` into your branch. (This said `main` until TYRE-21; ADR-0004 made
+`develop` the integration branch and this line was missed.)
+
+## Promoting to `main`
+
+ADR-0004 is explicit that `main` advances **only** by fast-forwarding to a
+`develop` commit that has already passed CI. GitHub's merge button cannot
+fast-forward — it always writes a merge, squash or rebase commit — so opening a
+PR into `main` is the one way to break the rule while appearing to follow it.
+Promote from the command line instead:
+
+```
+git fetch origin
+git push origin origin/develop:main
+```
+
+If that is rejected as non-fast-forward, `main` has diverged and something has
+been committed or merged into it directly. Fix the divergence; do not force it
+away without checking what is on `main` that is not on `develop`.
+
+A ruleset on `main` enforces the mechanics that can be enforced — no deletion,
+no non-fast-forward push, linear history. It cannot tell that a commit came
+from `develop`, so the discipline above is still yours to keep.
 
 ## Before you push
 
