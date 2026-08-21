@@ -125,6 +125,19 @@ jobs:
             || { echo "::error::npm $have ignores min-release-age; need >= $need"; exit 1; }
           echo "min-release-age=$age enforced by npm $have"
 
+      # TYRE-21. The gate above proves npm *would* enforce the window on the
+      # next resolution. This proves the lockfile actually in the tree does,
+      # which is a different claim: `npm ci` installs from the lock verbatim
+      # and never re-resolves, so a lockfile produced by something that does
+      # not honour min-release-age — Renovate's lockFileMaintenance, a
+      # contributor on an older npm, a hand-edit — reaches CI unexamined.
+      # Runs before install so a poisoned lockfile is rejected before any of
+      # it is fetched.
+      - name: Locked packages are old enough
+        run: |
+          if [ ! -f web/package-lock.json ]; then echo "web/ not scaffolded yet, skipping"; exit 0; fi
+          node scripts/check-release-age.mjs
+
       - name: Lint, typecheck, test
         run: |
           if [ ! -f web/package.json ]; then echo "web/ not scaffolded yet, skipping"; exit 0; fi

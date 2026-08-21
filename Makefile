@@ -76,6 +76,14 @@ api-test: ## Go tests
 web-test: ## Frontend tests
 	cd web && npm test --if-present
 
+# Deliberately NOT in `make check`: it queries the npm registry for every
+# locked package, so it needs network and must not turn an offline `make
+# check` red. CI runs it on every PR, which is where a regenerated lockfile
+# actually arrives.
+.PHONY: deps-age
+deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc window
+	node scripts/check-release-age.mjs
+
 ## ---------------------------------------------------------------- aggregate
 
 .PHONY: fmt
