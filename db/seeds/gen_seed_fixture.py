@@ -44,6 +44,10 @@ L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('depot1')::
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
 L.append("  (md5('driver1')::uuid,'%s','melusi@example.invalid','Melusi','EMP-0001','DRIVER');"%T)
 L.append("INSERT INTO app.user_depot (tenant_id,user_id,depot_id) VALUES ('%s',md5('driver1')::uuid,md5('depot1')::uuid);"%T)
+L.append("-- Sipho deliberately has no user_depot row: the verification suite pins")
+L.append("-- the depot-scoping count, and nothing about assignment needs depot scope.")
+L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
+L.append("  (md5('driver3')::uuid,'%s','sipho@example.invalid','Sipho','EMP-0002','DRIVER');"%T)
 L.append("")
 # The second tenant gets a depot-scoped user too, so the cross-tenant sweep
 # in the verification suite has real foreign user_depot rows to prove
@@ -61,6 +65,24 @@ L.append("")
 for seq,(fleet,reg,cfg,label) in UNIT.items():
     L.append(f"INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,body_type,unit_descriptor,home_depot_id,current_odometer,status)")
     L.append(f"  VALUES (md5('veh{seq}')::uuid,'{T}','{fleet}','{reg}',md5('{T}{cfg}')::uuid,'Flat deck',$${label}$$,md5('depot1')::uuid,412500,'ACTIVE');")
+L.append("")
+# Driver assignment (FR-VEH-007/008, FR-AUT-005): the shapes the verification
+# suite pins — one vehicle with two current drivers, one driver on two
+# vehicles, one ended assignment that must survive as history, and the open
+# Melusi->HORSE window covering the fixture inspection date so attribution
+# holds. Tenant 2 gets a vehicle named HORSE (fleet numbers may collide
+# across tenants, DR-003) and one assignment — foreign rows for the
+# isolation sweep, same rationale as the tenant-2 user_depot seed above.
+L.append("INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES")
+L.append(f"  (md5('vd1')::uuid,'{T}',md5('veh1')::uuid,md5('driver1')::uuid,'2025-01-01',NULL),")
+L.append(f"  (md5('vd2')::uuid,'{T}',md5('veh3')::uuid,md5('driver1')::uuid,'2026-01-01',NULL),")
+L.append(f"  (md5('vd3')::uuid,'{T}',md5('veh2')::uuid,md5('driver1')::uuid,'2024-01-01','2024-12-31'),")
+L.append(f"  (md5('vd4')::uuid,'{T}',md5('veh1')::uuid,md5('driver3')::uuid,'2026-06-01',NULL);")
+L.append("")
+L.append("INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status) VALUES")
+L.append(f"  (md5('t2veh1')::uuid,'{T2}','HORSE','CAA111111',md5('{T2}HORSE_6X4')::uuid,'ACTIVE');")
+L.append("INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES")
+L.append(f"  (md5('t2vd1')::uuid,'{T2}',md5('t2veh1')::uuid,md5('driver2')::uuid,'2026-01-01',NULL);")
 L.append("")
 L.append(f"INSERT INTO app.combination (id,tenant_id,motive_vehicle_id,configuration_id) VALUES (md5('comb1')::uuid,'{T}',md5('veh1')::uuid,md5('{T}BAC_LINKS')::uuid);")
 for seq,(fleet,reg,cfg,label) in UNIT.items():

@@ -311,5 +311,75 @@ BEGIN
   RAISE NOTICE 'PASS  own-tenant depot scoping rows are visible, foreign ones swept by check 2';
 END $$;
 
+\echo '== 14. Fleet number is unique per tenant, not globally (DR-003)'
+DO $$
+DECLARE ok boolean := false; n int;
+BEGIN
+  -- Both tenants seed a vehicle called HORSE; the constraint being scoped to
+  -- (tenant_id, fleet_number) is what lets them coexist.
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  SELECT count(*) INTO n FROM app.vehicle WHERE fleet_number = 'HORSE';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL: expected tenant-2 vehicle HORSE to coexist, found %', n; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  BEGIN
+    INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'HORSE',
+            md5('11111111-1111-1111-1111-111111111111HORSE_6X4')::uuid);
+    RAISE EXCEPTION 'FAIL: duplicate fleet number accepted within a tenant';
+  EXCEPTION WHEN unique_violation THEN ok := true;
+  END;
+  IF ok THEN RAISE NOTICE 'PASS  fleet numbers collide within a tenant, coexist across tenants'; END IF;
+END $$;
+
+\echo '== 15. Driver assignment: current set, history, attribution, scoping (FR-VEH-007/008, FR-AUT-005)'
+DO $$
+DECLARE got text; n int;
+BEGIN
+  -- Multi-driver (HORSE) and multi-vehicle (Melusi) at once; the ended LINK6
+  -- assignment must not appear.
+  SELECT string_agg(fleet_number || '=' || display_name, ',' ORDER BY fleet_number || '=' || display_name) INTO got
+    FROM app.v_current_assignment;
+  IF got IS DISTINCT FROM 'HORSE=Melusi,HORSE=Sipho,LINK12=Melusi' THEN
+    RAISE EXCEPTION 'FAIL: current assignments wrong: [%]', got; END IF;
+
+  -- FR-VEH-008: the ended assignment stays queryable history.
+  SELECT count(*) INTO n FROM app.vehicle_driver;
+  IF n <> 4 THEN RAISE EXCEPTION 'FAIL: expected 4 assignment rows including history, got %', n; END IF;
+
+  -- FR-VEH-008: the fixture inspection's driver was among those assigned to
+  -- that vehicle on the day it happened.
+  SELECT u.display_name INTO got
+    FROM app.inspection i
+    JOIN app.vehicle_driver vd ON vd.vehicle_id = i.vehicle_id
+                              AND vd.from_date <= i.started_at::date
+                              AND (vd.to_date IS NULL OR vd.to_date >= i.started_at::date)
+    JOIN app.app_user u ON u.id = vd.user_id
+   WHERE i.id = md5('insp1')::uuid AND u.id = i.user_id;
+  IF got IS DISTINCT FROM 'Melusi' THEN
+    RAISE EXCEPTION 'FAIL: inspection driver not assigned at the time, got [%]', got; END IF;
+  RAISE NOTICE 'PASS  current assignments, retained history and attribution all hold';
+END $$;
+
+DO $$
+DECLARE got text; n int;
+BEGIN
+  -- FR-AUT-005 through the one predicate the API composes (ADR-0006).
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, false);
+  SELECT string_agg(DISTINCT fleet_number, ',' ORDER BY fleet_number) INTO got
+    FROM app.v_driver_vehicle;
+  IF got IS DISTINCT FROM 'HORSE,LINK12' THEN
+    RAISE EXCEPTION 'FAIL: driver sees [%], expected HORSE,LINK12', got; END IF;
+  -- A tenant-1 session carrying tenant-2's driver id must see nothing: the
+  -- tenant predicate binds before the actor predicate, so a stale or stolen
+  -- actor id cannot cross the tenant boundary.
+  PERFORM set_config('app.actor_id', md5('driver2')::uuid::text, false);
+  SELECT count(*) INTO n FROM app.v_driver_vehicle;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: foreign-tenant actor sees % vehicles', n; END IF;
+  PERFORM set_config('app.actor_id', '', false);
+  SELECT count(*) INTO n FROM app.v_driver_vehicle;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unset actor sees % assigned vehicles', n; END IF;
+  RAISE NOTICE 'PASS  a driver sees exactly their current vehicles; foreign or unset actor sees none';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
