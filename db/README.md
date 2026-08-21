@@ -30,7 +30,7 @@ make db-reset   # start Postgres 16, replay migrations, regenerate + load seeds
 make db-test    # the verification suite, as app_login — must be a non-superuser
 ```
 
-Every statement below was executed against PostgreSQL 16.13 and all sixteen checks pass.
+Every statement below was executed against PostgreSQL 16.13 and the verification suite passes.
 
 ## The three things most likely to be got wrong
 
