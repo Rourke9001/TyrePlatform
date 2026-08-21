@@ -223,6 +223,19 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
           identity: apiIdentity.id
         }
       ]
+      secrets: [
+        // Resolved from Key Vault by the API's managed identity, so the
+        // app_login credential never exists in this repo, CI, or the app's
+        // configuration — only in kv-tyre-staging. The secret must exist
+        // before this template deploys or revision activation fails:
+        //   az keyvault secret set --vault-name kv-tyre-staging \
+        //     --name database-url --value 'postgres://app_login:...'
+        {
+          name: 'database-url'
+          keyVaultUrl: '${kv.properties.vaultUri}secrets/database-url'
+          identity: apiIdentity.id
+        }
+      ]
     }
     template: {
       containers: [
@@ -230,6 +243,9 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'api'
           image: 'mcr.microsoft.com/k8se/quickstart:latest'
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
+          env: [
+            { name: 'DATABASE_URL', secretRef: 'database-url' }
+          ]
         }
       ]
       // Scale to zero: an idle POC costs nothing (ADR-0001). If the first
@@ -238,7 +254,9 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       scale: { minReplicas: 0, maxReplicas: 2 }
     }
   }
-  dependsOn: [ acrPullForApi ]
+  // kvSecretsForApi must exist first or the database-url Key Vault reference
+  // fails revision activation with a permission error, not a missing secret.
+  dependsOn: [ acrPullForApi, kvSecretsForApi ]
 }
 
 // -------------------------------------------------------- static web app --
