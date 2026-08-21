@@ -383,5 +383,59 @@ BEGIN
   RAISE NOTICE 'PASS  a driver sees exactly their current vehicles; foreign or unset actor sees none';
 END $$;
 
+\echo '== 16. Foreign keys cannot dangle across tenants (CR-001, DR-017)'
+-- FK checks bypass RLS by design, so an id-only FK lets a session reference —
+-- and through triggers, corrupt — a row it cannot see (TYRE-29). First the
+-- reproduced attack: tenant 2 aims a measurement at a tenant-1 reading, which
+-- would drag the victim's materialised MIN down (BR-VAL-001, FR-EXC-020).
+DO $$
+DECLARE victim uuid; before_mm numeric; after_mm numeric; ok boolean := false;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  SELECT id, governing_tread_mm INTO victim, before_mm
+    FROM app.reading WHERE governing_tread_mm IS NOT NULL
+   ORDER BY governing_tread_mm DESC LIMIT 1;
+
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  BEGIN
+    -- ordinal 4 keeps 1..n contiguous so only the tenant boundary can reject
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, label, tread_mm)
+    VALUES ('22222222-2222-2222-2222-222222222222', victim, 4, 'INJECTED', 0.1);
+  EXCEPTION WHEN foreign_key_violation THEN ok := true;
+  END;
+  IF NOT ok THEN
+    RAISE EXCEPTION 'FAIL: cross-tenant reading_measurement INSERT was accepted';
+  END IF;
+
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  SELECT governing_tread_mm INTO after_mm FROM app.reading WHERE id = victim;
+  IF after_mm IS DISTINCT FROM before_mm THEN
+    RAISE EXCEPTION 'FAIL: victim governing tread moved from % to %', before_mm, after_mm;
+  END IF;
+  RAISE NOTICE 'PASS  cross-tenant measurement rejected, victim governing tread untouched';
+END $$;
+
+-- Structural companion, same shape as check 12: the attack above only probes
+-- one FK, so sweep the catalog for any FK between tenant-scoped tables that
+-- omits tenant_id — each one is the same dangling-reference class.
+DO $$
+DECLARE offender text;
+BEGIN
+  SELECT string_agg(c.conrelid::regclass || '.' || c.conname, ', ') INTO offender
+    FROM pg_constraint c
+    JOIN pg_class parent ON parent.oid = c.confrelid
+   WHERE c.contype = 'f'
+     AND c.connamespace = 'app'::regnamespace
+     AND parent.relname <> 'tenant'
+     AND NOT EXISTS (
+       SELECT 1 FROM unnest(c.conkey) k
+         JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k
+        WHERE a.attname = 'tenant_id');
+  IF offender IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: id-only FK(s) can dangle across tenants: %', offender;
+  END IF;
+  RAISE NOTICE 'PASS  every FK between tenant-scoped tables carries tenant_id';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
