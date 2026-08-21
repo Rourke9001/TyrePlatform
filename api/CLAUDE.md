@@ -13,18 +13,16 @@ query lands on. That is the one bug in this product that is existential.
 ## The pattern every handler follows
 
 ```go
-tx, err := pool.Begin(ctx)
-if err != nil { return err }
-defer tx.Rollback(ctx)
-
-// SET LOCAL, never SET: binds to this transaction, so a pooled connection
-// cannot carry this tenant's context into the next request.
-if _, err := tx.Exec(ctx, "SET LOCAL app.tenant_id = $1", claims.TenantID); err != nil {
-    return err
-}
-// ... every query on tx, never on pool ...
-return tx.Commit(ctx)
+err := s.InTenantTx(ctx, claims.TenantID, func(tx pgx.Tx) error {
+    // ... every query on tx, never on pool ...
+    return nil
+})
 ```
+
+`internal/store.InTenantTx` owns the dance — a per-request transaction with
+the tenant bound via transaction-local `set_config` — and its doc comment is
+the canonical statement of why it is shaped that way. Do not re-implement it
+in a handler.
 
 If you find yourself querying `pool` directly inside a request, stop. That
 query runs with no tenant context and returns nothing — which looks like a
