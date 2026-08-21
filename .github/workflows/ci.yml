@@ -62,9 +62,9 @@ jobs:
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
 
       # NFR-SEC-005. This is the gate that matters. It runs as app_login, NOT
-      # as postgres: a superuser bypasses RLS, so running it as postgres would
-      # turn every isolation assertion into a no-op that still reports PASS.
-      # Check 0 inside the suite asserts this and aborts if it is not true.
+      # as postgres — superusers bypass RLS (DEPLOYMENT NOTE at the end of
+      # db/migrations/000001_init.up.sql). Check 0 inside the suite asserts
+      # this and aborts if it is not true.
       - name: Verification suite (as non-superuser)
         env:
           PGURL: postgres://app_login@localhost:5433/tyre
@@ -72,6 +72,16 @@ jobs:
           psql "postgres://postgres:postgres@localhost:5433/tyre" -q \
             -c "ALTER ROLE app_login PASSWORD 'ci'"
           PGPASSWORD=ci psql "$PGURL" -v ON_ERROR_STOP=1 -f db/tests/004_tests.sql
+
+  comments:
+    name: Comment style
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      # Same script the edit hook and `make lint` run, so a comment that slips
+      # past both locally still cannot merge (docs/comments.md, TYRE-22).
+      - name: Comment standard (deterministic subset)
+        run: node scripts/check-comment-style.mjs
 
   api:
     name: Go
@@ -126,13 +136,11 @@ jobs:
           echo "min-release-age=$age enforced by npm $have"
 
       # TYRE-21. The gate above proves npm *would* enforce the window on the
-      # next resolution. This proves the lockfile actually in the tree does,
-      # which is a different claim: `npm ci` installs from the lock verbatim
-      # and never re-resolves, so a lockfile produced by something that does
-      # not honour min-release-age — Renovate's lockFileMaintenance, a
-      # contributor on an older npm, a hand-edit — reaches CI unexamined.
-      # Runs before install so a poisoned lockfile is rejected before any of
-      # it is fetched.
+      # next resolution; this proves the lockfile actually in the tree does,
+      # which is a different claim. The full rationale lives at the top of
+      # scripts/check-release-age.mjs — one canonical copy. Runs before
+      # install so a poisoned lockfile is rejected before any of it is
+      # fetched.
       - name: Locked packages are old enough
         run: |
           if [ ! -f web/package-lock.json ]; then echo "web/ not scaffolded yet, skipping"; exit 0; fi
