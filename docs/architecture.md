@@ -107,6 +107,8 @@ in under three minutes. Everything about the capture path is subordinate.
 | ADR | Title | Status |
 |---|---|---|
 | [0001](adr/0001-stack.md) | Platform stack — Azure, Go API, React PWA, PostgreSQL | Proposed |
-| [0002](adr/0002-region-and-data-residency.md) | Azure region and POPIA data residency | Blocked on verification (TYRE-20) |
+| [0002](adr/0002-region-and-data-residency.md) | Azure region and POPIA data residency | Accepted |
 | [0003](adr/0003-tenancy-model.md) | Tenancy model | Blocked on OI-29 (TYRE-13) |
+| [0004](adr/0004-branching-strategy.md) | Branching — develop integrates, main mirrors production | Proposed |
+| [0005](adr/0005-environments-and-hosting.md) | Environments — staging is production for the pilot | Accepted |
 | [0006](adr/0006-role-depot-scoping-enforcement.md) | Where role and depot scoping is enforced | Accepted |
