@@ -235,6 +235,34 @@ BEGIN
   RAISE NOTICE 'PASS  every view sets security_invoker and leaks nothing';
 END $$;
 
+\echo '== 8c. Routines do not silently bypass RLS (SECURITY DEFINER sweep)'
+-- Structural companion to 8b, and its blind spot: 8b sweeps relkind='v', but
+-- TYRE-33 moved the register's tenant-scoped logic out of a view and into
+-- app.tyre_valuation_asof(), an object class nothing was inspecting. A
+-- SECURITY DEFINER routine runs as its owner, and every routine here is owned
+-- by the migration superuser, so one added by mistake would bypass RLS
+-- entirely (FR-TEN-004) and merge green. Procedures included: prokind 'p'
+-- takes SECURITY DEFINER too.
+-- Each allowlisted routine needs RLS bypass to do its job and carries its own
+-- tenant backstop instead; the reasoning lives at the function itself.
+DO $$
+DECLARE offenders text;
+BEGIN
+  SELECT string_agg(p.proname, ', ' ORDER BY p.proname) INTO offenders
+    FROM pg_proc p
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND p.prokind IN ('f','p')
+     AND p.prosecdef
+     -- refresh_governing_tread materialises the MIN across a reading's
+     -- measurements (CR-011) for rows the writer may not see; 000004 documents
+     -- the same-tenant backstop it carries in place of RLS.
+     AND p.proname <> ALL (ARRAY['refresh_governing_tread']);
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: SECURITY DEFINER routine(s) outside the allowlist, RLS does not bind them: %', offenders;
+  END IF;
+  RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed';
+END $$;
+
 \echo '== 9. Combination numbering resolves to constituent units (BR-VEH-003, FR-VEH-032)'
 DO $$
 DECLARE got text;
@@ -545,28 +573,196 @@ BEGIN
   SELECT unvalued_count INTO n FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
   IF n <> 27 THEN
     RAISE EXCEPTION 'FAIL: unvalued_count=% with no threshold policy, expected 27', n; END IF;
-  INSERT INTO app.configuration (tenant_id,key,value)
-  VALUES ('11111111-1111-1111-1111-111111111111','removal_threshold_mm','4'::jsonb);
+  -- restore the seeded row faithfully: its backdated effective_from is what
+  -- lets as-at valuation resolve a policy for historical dates
+  INSERT INTO app.configuration (tenant_id,key,value,effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111','removal_threshold_mm','4'::jsonb,'2024-01-01T00:00:00Z');
   SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
   IF v IS DISTINCT FROM 20571.00 THEN
     RAISE EXCEPTION 'FAIL: totals did not restore after policy re-seed, got %', v; END IF;
   RAISE NOTICE 'PASS  no threshold policy means unvalued, never a silent R0.00 estate';
 END $$;
 
--- Foreign-tenant emptiness, asserted from the tenant-2 side: tenant 2 owns no
--- tyres, so any row here means the view executed as its owner (a superuser)
--- instead of the invoker — the check-8b sweep alone is vacuous for a view
--- whose underlying table has no foreign rows to leak back.
+-- Foreign-tenant leakage, asserted from the tenant-2 side: the check-8b sweep
+-- alone is vacuous for a view whose underlying table holds no foreign rows to
+-- leak back, so probe from tenant 2 directly. A single tenant-1 row visible
+-- here means the view executed as its owner (a superuser) instead of the
+-- invoker. Leak-shaped rather than count(*) = 0 on purpose: later checks
+-- seed tenant-2 tyres of their own.
 DO $$
 DECLARE n int;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
-  SELECT count(*) INTO n FROM app.v_tyre_valuation;
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: tenant 2 sees % register rows', n; END IF;
-  SELECT count(*) INTO n FROM app.v_estate_valuation;
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: tenant 2 sees % estate rows', n; END IF;
+  SELECT count(*) INTO n FROM app.v_tyre_valuation
+   WHERE tenant_id <> '22222222-2222-2222-2222-222222222222';
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: tenant 2 sees % foreign register rows', n; END IF;
+  SELECT count(*) INTO n FROM app.v_estate_valuation
+   WHERE tenant_id <> '22222222-2222-2222-2222-222222222222';
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: tenant 2 sees % foreign estate rows', n; END IF;
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  RAISE NOTICE 'PASS  the register and estate views are empty from the foreign tenant''s side';
+  RAISE NOTICE 'PASS  no foreign row reaches the register or estate views from the tenant-2 side';
+END $$;
+
+\echo '== 18. As-at valuation and snapshot persistence (FR-VAL-020..022, UC-04)'
+-- Fixed dates only: the fixture inspection is 2026-07-23 and the seeded
+-- policy is backdated to 2024-01-01, so every assertion here is stable no
+-- matter when the suite runs.
+DO $$
+DECLARE n int; v numeric; c numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  -- Before any reading exists the register is visible but unvalued
+  SELECT count(*), count(tread_value) INTO n, v FROM app.tyre_valuation_asof('2026-07-01');
+  IF n <> 27 OR v <> 0 THEN
+    RAISE EXCEPTION 'FAIL: as at 2026-07-01 rows=% valued=%, expected 27/0', n, v; END IF;
+
+  -- After the inspection: same cent-exact totals as the live view, all fresh
+  SELECT sum(tread_value), sum(casing_value), count(*) FILTER (WHERE stale) INTO v, c, n
+    FROM app.tyre_valuation_asof('2026-08-01');
+  IF v IS DISTINCT FROM 20571.00 OR c IS DISTINCT FROM 49612.50 OR n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: as at 2026-08-01 tread=% casing=% stale=%, expected 20571.00/49612.50/0', v, c, n; END IF;
+  SELECT tread_value INTO v FROM app.tyre_valuation_asof('2026-08-01') WHERE branded_number = '2102BAC2';
+  IF v IS DISTINCT FROM 2057.10 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC2 as at 2026-08-01 [%], expected 2057.10', v; END IF;
+
+  -- FR-VAL-021: months later the same reading still values, flagged stale
+  SELECT sum(tread_value), count(*) FILTER (WHERE stale) INTO v, n
+    FROM app.tyre_valuation_asof('2026-12-31');
+  IF v IS DISTINCT FROM 20571.00 OR n <> 27 THEN
+    RAISE EXCEPTION 'FAIL: as at 2026-12-31 tread=% stale=%, expected 20571.00/27 stale', v, n; END IF;
+  RAISE NOTICE 'PASS  as-at valuation resolves reading, policy and staleness at the requested date';
+END $$;
+
+-- FR-VAL-022 change-driven snapshots: the seed load itself is the first
+-- tread change (NULL -> governing), so the fixture must have snapshotted.
+DO $$
+DECLARE n int; v numeric; mm numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  SELECT count(*) INTO n FROM app.valuation_snapshot WHERE as_at = '2026-07-23';
+  IF n <> 27 THEN RAISE EXCEPTION 'FAIL: % snapshots at inspection date, expected 27', n; END IF;
+  SELECT s.tread_mm, s.tread_value INTO mm, v
+    FROM app.valuation_snapshot s JOIN app.tyre t ON t.id = s.tyre_id
+   WHERE t.branded_number = '2102BAC2' AND s.as_at = '2026-07-23';
+  IF mm IS DISTINCT FROM 14.0 OR v IS DISTINCT FROM 2057.10 THEN
+    RAISE EXCEPTION 'FAIL: 2102BAC2 snapshot [% mm / %], expected 14.0 / 2057.10', mm, v; END IF;
+  RAISE NOTICE 'PASS  the fixture inspection left one snapshot per tyre at its date';
+END $$;
+
+-- Change versus no-change, driven from the tenant-2 side so the append-only
+-- residue (readings cannot be deleted) stays out of the tenant-1 pinned
+-- figures. Conditional inserts keep the whole suite re-runnable.
+DO $$
+DECLARE n int; v numeric; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE branded_number = 'T2PROBE1') THEN
+    INSERT INTO app.tyre (id,tenant_id,branded_number,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
+    VALUES (md5('t2probetyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PROBE1','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
+  END IF;
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
+  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2insp1')::uuid) THEN
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2insp1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2cli1')::uuid,'2026-08-10T08:00:00Z','2026-08-10T08:05:00Z',100000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2rd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp1')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,1,'OUTER',12),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,2,'CENTRE',13),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,3,'INNER',14);
+  END IF;
+  -- date-scoped: the month-end block later adds its own 2026-08-31 row for
+  -- this tyre, and the suite must stay re-runnable after it has
+  SELECT count(*), min(s.tread_value) INTO n, v
+    FROM app.valuation_snapshot s
+   WHERE s.tyre_id = md5('t2probetyre')::uuid AND s.as_at = '2026-08-10';
+  IF n <> 1 OR v IS DISTINCT FROM 800.00 THEN
+    RAISE EXCEPTION 'FAIL: tread change made % snapshots at [%], expected 1 at 800.00', n, v; END IF;
+
+  -- An identical re-read is not a change: no second snapshot (FR-VAL-022)
+  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2insp2')::uuid) THEN
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2insp2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2cli2')::uuid,'2026-08-15T08:00:00Z','2026-08-15T08:05:00Z',101000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2rd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp2')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,1,'OUTER',12),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,2,'CENTRE',13),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,3,'INNER',14);
+  END IF;
+  SELECT count(*) INTO n FROM app.valuation_snapshot
+   WHERE tyre_id = md5('t2probetyre')::uuid AND as_at = '2026-08-15';
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unchanged re-read wrote % snapshot(s)', n; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  a tread change snapshots once; an unchanged re-read does not';
+END $$;
+
+-- A snapshot is priced under the policy in force on ITS OWN date, not the
+-- policy in force when the phone happened to sync (FR-CFG-010). Offline
+-- capture makes the two diverge routinely: this inspection was taken on
+-- 2026-08-01 and reaches the server after the 2026-08-05 policy change, so
+-- resolving the threshold at sync time would backdate a 6mm valuation onto
+-- a day the tenant's policy was still 4mm — the revisionism 000006 disclaims.
+-- 15mm governing over 4mm at R100/mm = R1100.00; under 6mm it would be 900.00.
+DO $$
+DECLARE v numeric; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  INSERT INTO app.configuration (tenant_id,key,value,effective_from)
+  VALUES ('22222222-2222-2222-2222-222222222222','removal_threshold_mm','6'::jsonb,'2026-08-05T00:00:00Z');
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
+  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2insp3')::uuid) THEN
+    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+    VALUES (md5('t2insp3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+            md5('t2cli3')::uuid,'2026-08-01T06:00:00Z','2026-08-01T06:05:00Z',99000);
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t2rd3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp3')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,1,'OUTER',15),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,2,'CENTRE',16),
+      ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,3,'INNER',17);
+  END IF;
+  SELECT s.tread_value INTO v FROM app.valuation_snapshot s
+   WHERE s.tyre_id = md5('t2probetyre')::uuid AND s.as_at = '2026-08-01';
+  IF v IS DISTINCT FROM 1100.00 THEN
+    RAISE EXCEPTION 'FAIL: late-synced snapshot priced at [%], expected 1100.00 under the policy of its own date', v; END IF;
+  DELETE FROM app.configuration
+   WHERE tenant_id = '22222222-2222-2222-2222-222222222222'
+     AND key = 'removal_threshold_mm' AND value = '6'::jsonb;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  a late-synced inspection is priced under the policy of its own date';
+END $$;
+
+-- FR-VAL-022 month-end pass: every valued tyre, once, idempotent. The
+-- scheduler owns invoking this; here only the effect is pinned.
+DO $$
+DECLARE n int; v numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  PERFORM app.take_valuation_snapshots('2026-08-31');
+  SELECT count(*), sum(tread_value) INTO n, v FROM app.valuation_snapshot WHERE as_at = '2026-08-31';
+  IF n <> 27 OR v IS DISTINCT FROM 20571.00 THEN
+    RAISE EXCEPTION 'FAIL: month-end wrote % rows totalling %, expected 27 at 20571.00', n, v; END IF;
+  PERFORM app.take_valuation_snapshots('2026-08-31');
+  SELECT count(*) INTO n FROM app.valuation_snapshot WHERE as_at = '2026-08-31';
+  IF n <> 27 THEN RAISE EXCEPTION 'FAIL: repeated month-end grew to % rows', n; END IF;
+
+  -- and it is tenant-scoped: the same call from tenant 2 sees only its own
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  PERFORM app.take_valuation_snapshots('2026-08-31');
+  SELECT count(*), sum(tread_value) INTO n, v
+    FROM app.valuation_snapshot WHERE as_at = '2026-08-31';
+  IF n <> 1 OR v IS DISTINCT FROM 800.00 THEN
+    RAISE EXCEPTION 'FAIL: tenant-2 month-end sees %/% , expected its single 800.00 row', n, v; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  RAISE NOTICE 'PASS  month-end snapshots every valued tyre exactly once, per tenant';
 END $$;
 
 \echo ''
