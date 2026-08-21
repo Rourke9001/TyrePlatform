@@ -27,8 +27,13 @@ L=["-- Seed: R13 acceptance fixture (SRS v1.3 Appendix J)",
 # the two values differ visibly so a cross-tenant leak shows up on sight
 # (TYRE-26). logoUrl stays null: staging blob storage is private, so a logo
 # URL cannot render until serving arrives with RBAC.
+#
+# #E2202A is BAC's real brand red (--accent in the BAC Transport site's
+# design system), used for the testing phase. A red brand is also the live
+# proof of the theming rule: chrome goes brand red while the below-removal
+# status red stays its own fixed colour.
 BRANDING={
- T:                                       {"displayName":"BAC Transport","primaryColor":"#0B5394","logoUrl":None},
+ T:                                       {"displayName":"BAC Transport","primaryColor":"#E2202A","logoUrl":None},
  "22222222-2222-2222-2222-222222222222":  {"displayName":"Second Fleet","primaryColor":"#7A2E8D","logoUrl":None},
 }
 import json
