@@ -35,7 +35,7 @@ must subquery `vehicle_driver` / `user_depot`, which are themselves RLS
 tables — that forces SECURITY DEFINER helper functions to break policy
 recursion, adds a per-row correlated cost to every query, and destroys the
 one-policy-shape property the verification suite's sweep rests on. The
-16-check suite is provable because every table carries the *same* policy;
+sweep is provable because every table carries the *same* policy;
 a matrix of role × table policies is not sweepable, it is only enumerable.
 
 ### Option B — Application-level filters in Go

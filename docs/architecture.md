@@ -109,3 +109,4 @@ in under three minutes. Everything about the capture path is subordinate.
 | [0001](adr/0001-stack.md) | Platform stack — Azure, Go API, React PWA, PostgreSQL | Proposed |
 | [0002](adr/0002-region-and-data-residency.md) | Azure region and POPIA data residency | Blocked on verification (TYRE-20) |
 | [0003](adr/0003-tenancy-model.md) | Tenancy model | Blocked on OI-29 (TYRE-13) |
+| [0006](adr/0006-role-depot-scoping-enforcement.md) | Where role and depot scoping is enforced | Accepted |
