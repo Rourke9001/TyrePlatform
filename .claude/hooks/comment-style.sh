@@ -6,6 +6,8 @@
 set -uo pipefail
 file=$(jq -r '.tool_input.file_path // empty' 2>/dev/null) || exit 0
 [[ -z "$file" || ! -f "$file" ]] && exit 0
+# The standard binds this repo, not scratch files elsewhere on the machine.
+[[ "${file//\\//}" == "${CLAUDE_PROJECT_DIR//\\//}"/* ]] || exit 0
 command -v node >/dev/null 2>&1 || exit 0
 if ! out=$(node "$CLAUDE_PROJECT_DIR/scripts/check-comment-style.mjs" "$file" 2>&1); then
   printf '%s\n' "$out" >&2
