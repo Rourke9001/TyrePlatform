@@ -335,6 +335,8 @@ END $$;
 DO $$
 DECLARE got text; n int;
 BEGIN
+  -- Self-contained: pin tenant 1 rather than inherit check 14's session state.
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   -- Multi-driver (HORSE) and multi-vehicle (Melusi) at once; the ended LINK6
   -- assignment must not appear.
   SELECT string_agg(fleet_number || '=' || display_name, ',' ORDER BY fleet_number || '=' || display_name) INTO got
