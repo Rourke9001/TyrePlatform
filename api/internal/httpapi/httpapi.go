@@ -6,6 +6,8 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -43,6 +45,7 @@ func New(s *store.Store, resolver TenantResolver) http.Handler {
 	r.Route("/api", func(r chi.Router) {
 		r.Use(requireTenant(resolver))
 		r.Get("/vehicles", listVehicles(s))
+		r.Get("/org/branding", orgBranding(s))
 	})
 	return r
 }
@@ -77,6 +80,66 @@ func requireTenant(resolver TenantResolver) func(http.Handler) http.Handler {
 func tenantFrom(ctx context.Context) (uuid.UUID, bool) {
 	id, ok := ctx.Value(tenantKey{}).(uuid.UUID)
 	return id, ok
+}
+
+// defaultPrimaryColor is the platform's own brand blue, used until a tenant
+// configures one. Chrome only — never a status colour, and not a threshold,
+// so hard-coding it does not touch rule 5. The web's design tokens (TYRE-27)
+// carry the same value as their default.
+const defaultPrimaryColor = "#14586E"
+
+type brandingJSON struct {
+	DisplayName  string  `json:"displayName"`
+	PrimaryColor string  `json:"primaryColor"`
+	LogoURL      *string `json:"logoUrl"`
+}
+
+// orgBranding serves the tenant's branding from configuration key "branding"
+// (FR-TEN-011; stored per rule 5 in app.configuration). The governing row is
+// the newest effective_from not in the future — FR-CFG-051, prospective only.
+// An absent key is not an error: the tenant simply has not branded yet, so
+// the response falls back to its registered name and the platform colour.
+func orgBranding(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tenantID, ok := tenantFrom(ctx)
+		if !ok {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		var b brandingJSON
+		err := s.InTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+			var raw []byte
+			err := tx.QueryRow(ctx,
+				`SELECT value FROM app.configuration
+				  WHERE key = 'branding' AND effective_from <= now()
+				  ORDER BY effective_from DESC LIMIT 1`).Scan(&raw)
+			if err == nil {
+				return json.Unmarshal(raw, &b)
+			}
+			if !errors.Is(err, pgx.ErrNoRows) {
+				return err
+			}
+			// The tenant_self RLS policy scopes this to the session's own row.
+			if err := tx.QueryRow(ctx,
+				`SELECT name FROM app.tenant`).Scan(&b.DisplayName); err != nil {
+				return fmt.Errorf("reading tenant name for branding fallback: %w", err)
+			}
+			b.PrimaryColor = defaultPrimaryColor
+			return nil
+		})
+		if err != nil {
+			slog.ErrorContext(ctx, "reading branding", "err", err)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(b); err != nil {
+			slog.ErrorContext(ctx, "encoding branding", "err", err)
+		}
+	}
 }
 
 type vehicleJSON struct {
