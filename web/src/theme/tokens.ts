@@ -32,8 +32,7 @@ export const statusColor = {
 
 export type TreadBandName = keyof typeof statusColor;
 
-// Self-hosted via @fontsource (imported in fonts.ts); a font CDN would put
-// the network on the critical path of an offline-first app (rule 7).
+// Self-hosted stacks; fonts.ts imports them and holds the rule-7 rationale.
 export const font = {
   display: `"Archivo", "Arial Black", "Arial", sans-serif`,
   ui: `"Barlow", "Segoe UI", "Helvetica Neue", sans-serif`,

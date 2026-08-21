@@ -35,8 +35,8 @@ describe("deriveBrandTheme", () => {
   });
 
   it("adjusts a mid-tone primary until AA holds", () => {
-    // #808080 clears at best ~4.15:1 against both white and ink, so the
-    // derivation must move the tone, not just pick a text colour.
+    // The mid-tone case deriveBrandTheme's loop comment documents: neither
+    // text colour reaches AA, so the tone itself must move.
     const t = deriveBrandTheme("#808080");
     expect(t.primary).not.toBe("#808080");
     expect(contrastRatio(t.onPrimary, t.primary)).toBeGreaterThanOrEqual(AA);
