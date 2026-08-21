@@ -86,6 +86,15 @@ api-test: ## Go tests (docker; needs db-up for the integration tests)
 	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
 	$(GO_DOCKER) go test ./...
 
+# --env-file keeps the credentials out of the Makefile and out of git; the
+# file's own comments say what belongs in it. Module cache volume means the
+# first run compiles and later runs start in seconds.
+.PHONY: api-run
+api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
+	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
+	$(GO_RUN) --network tyreplatform_default --env-file .env -p 8080:8080 \
+	  $(GO_IMAGE) go run ./cmd/api
+
 .PHONY: web-test
 web-test: ## Frontend tests
 	cd web && npm test --if-present
