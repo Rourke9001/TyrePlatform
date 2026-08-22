@@ -13,10 +13,7 @@ describe("contrastRatio", () => {
   });
 
   it("is symmetric", () => {
-    expect(contrastRatio("#14586E", "#FFFFFF")).toBeCloseTo(
-      contrastRatio("#FFFFFF", "#14586E"),
-      5,
-    );
+    expect(contrastRatio("#14586E", "#FFFFFF")).toBeCloseTo(contrastRatio("#FFFFFF", "#14586E"), 5);
   });
 });
 

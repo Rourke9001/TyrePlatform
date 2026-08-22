@@ -1,11 +1,6 @@
 import type { ReactNode } from "react";
-import {
-  DEV_TENANTS,
-  clearDevTenantId,
-  getDevTenantId,
-  setDevTenantId,
-} from "../api/devTenant";
-import { useBranding } from "../theme/ThemeProvider";
+import { DEV_TENANTS, clearDevTenantId, getDevTenantId, setDevTenantId } from "../api/devTenant";
+import { useBranding } from "../theme/themeContext";
 import "./dashboard.css";
 
 // A logo only exists once upload/serving lands with RBAC (TYRE-26), so the
@@ -13,9 +8,7 @@ import "./dashboard.css";
 function BrandMark() {
   const { branding } = useBranding();
   if (branding.logoUrl) {
-    return (
-      <img className="shell-logo" src={branding.logoUrl} alt={branding.displayName} />
-    );
+    return <img className="shell-logo" src={branding.logoUrl} alt={branding.displayName} />;
   }
   return <span className="shell-wordmark">{branding.displayName}</span>;
 }

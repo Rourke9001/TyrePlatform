@@ -5,13 +5,7 @@
 // (NFR-USE-009).
 export function AxleSchematic() {
   return (
-    <svg
-      className="axle-schematic"
-      viewBox="0 0 64 28"
-      width="64"
-      height="28"
-      aria-hidden="true"
-    >
+    <svg className="axle-schematic" viewBox="0 0 64 28" width="64" height="28" aria-hidden="true">
       <line x1="6" y1="14" x2="58" y2="14" stroke="currentColor" strokeWidth="1.5" />
       {/* steer axle: singles */}
       <line x1="10" y1="6" x2="10" y2="22" stroke="currentColor" strokeWidth="1.5" />

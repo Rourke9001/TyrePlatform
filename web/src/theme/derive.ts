@@ -52,18 +52,26 @@ export function contrastRatio(a: string, b: string): number {
 }
 
 function mix(a: Rgb, b: Rgb, t: number): Rgb {
-  return [
-    a[0] + (b[0] - a[0]) * t,
-    a[1] + (b[1] - a[1]) * t,
-    a[2] + (b[2] - a[2]) * t,
-  ];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
 
-const INK: Rgb = parseHex(palette.ink) as Rgb;
-const WHITE_RGB: Rgb = parseHex(WHITE) as Rgb;
+// A palette token is ours, not a tenant's, so an unparseable one is a typo in
+// tokens.ts rather than bad input. Failing at import names the offender;
+// asserting the type away would let `undefined` reach a contrast calculation
+// and quietly derive a theme from NaN.
+function requireHex(token: string): Rgb {
+  const rgb = parseHex(token);
+  if (!rgb) {
+    throw new Error(`palette token is not a hex colour: ${token}`);
+  }
+  return rgb;
+}
+
+const INK: Rgb = requireHex(palette.ink);
+const WHITE_RGB: Rgb = requireHex(WHITE);
 
 export function deriveBrandTheme(primaryInput: string): BrandTheme {
-  let rgb = parseHex(primaryInput) ?? (parseHex(palette.brand) as Rgb);
+  let rgb = parseHex(primaryInput) ?? requireHex(palette.brand);
 
   // A mid-tone primary clears at best ~4.15:1 against BOTH white and ink, so
   // picking a text colour is not enough: nudge the tone (hue untouched) away
@@ -77,9 +85,7 @@ export function deriveBrandTheme(primaryInput: string): BrandTheme {
 
   const primary = toHex(rgb);
   const onPrimary =
-    contrastRatio(primary, WHITE) >= contrastRatio(primary, palette.ink)
-      ? WHITE
-      : palette.ink;
+    contrastRatio(primary, WHITE) >= contrastRatio(primary, palette.ink) ? WHITE : palette.ink;
 
   // Hover/pressed step toward ink; a near-black primary has no darker to go,
   // so its states step toward white instead — the shift stays visible.

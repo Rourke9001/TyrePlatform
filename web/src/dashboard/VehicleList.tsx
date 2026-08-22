@@ -51,8 +51,8 @@ export function VehicleList() {
         <div className="vehicles-note">
           <h2>No vehicles yet</h2>
           <p>
-            Your fleet appears here once vehicles are registered. Vehicle
-            registration opens in an upcoming release.
+            Your fleet appears here once vehicles are registered. Vehicle registration opens in an
+            upcoming release.
           </p>
         </div>
       )}
@@ -82,8 +82,8 @@ function VehicleRows({
       <div className="vehicles-note">
         <h2>No matches</h2>
         <p>
-          No fleet number or registration contains “{query.trim()}”. Clear the
-          search to see all {total} vehicles.
+          No fleet number or registration contains “{query.trim()}”. Clear the search to see all{" "}
+          {total} vehicles.
         </p>
       </div>
     );
@@ -91,18 +91,14 @@ function VehicleRows({
   return (
     <>
       <p className="vehicles-count">
-        {rows.length === total
-          ? `${total} vehicles`
-          : `${rows.length} of ${total} vehicles`}
+        {rows.length === total ? `${total} vehicles` : `${rows.length} of ${total} vehicles`}
       </p>
       <ul className="vehicle-rows">
         {rows.map((v) => (
           <li key={v.id} className="vehicle-row">
             <AxleSchematic />
             <span className="vehicle-fleet">{v.fleetNumber}</span>
-            <span className="vehicle-reg">
-              {v.registration ?? "No registration"}
-            </span>
+            <span className="vehicle-reg">{v.registration ?? "No registration"}</span>
           </li>
         ))}
       </ul>

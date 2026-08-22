@@ -97,7 +97,7 @@ api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 
 .PHONY: web-test
 web-test: ## Frontend tests
-	cd web && npm test --if-present
+	cd web && npm test
 
 # Deliberately NOT in `make check`: it queries the npm registry for every
 # locked package, so it needs network and must not turn an offline `make
@@ -112,12 +112,28 @@ deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc windo
 .PHONY: fmt
 fmt: ## Format everything
 	$(GO_RUN) $(GO_IMAGE) gofmt -w .
-	cd web && npm run format --if-present 2>/dev/null || true
+	cd web && npm run format
 
+# Every line here must be able to fail the target. A gate that swallows its
+# own exit code reports success it did not earn, and the docs then promise a
+# check that never ran (TYRE-49).
+#
+# This is deliberately the same set CI runs, in the same order, so a green
+# `make lint` means a green CI lint — the reason to run it before committing.
+# `fmt` writes; `lint` only reads, which is why both formatters appear here in
+# check mode: `make check` runs fmt first, so locally they are always clean,
+# and on CI they are the drift detector.
+#
+# staticcheck comes from the `tool` directive in api/go.mod, so it is pinned
+# and checksummed like any other dependency. v0.6.1 is the last release that
+# builds under go 1.24; a Renovate bump past it will fail until the toolchain
+# moves, and moving the toolchain is the fix, not unpinning the linter.
 .PHONY: lint
-lint: ## Vet and typecheck everything
+lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard
+	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
 	$(GO_RUN) $(GO_IMAGE) go vet ./...
-	cd web && npm run lint --if-present 2>/dev/null || true
+	$(GO_RUN) $(GO_IMAGE) go tool staticcheck ./...
+	cd web && npm run format:check && npm run lint && npm run typecheck
 	node scripts/check-comment-style.mjs
 
 .PHONY: test
