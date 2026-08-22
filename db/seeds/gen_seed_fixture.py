@@ -17,13 +17,23 @@ SPARE=(700,[6,2,6])
 PRIOR_DELTA={1:0.5, 9:2.0, 15:1.5}
 PRIOR_DEFAULT=1.0
 T="11111111-1111-1111-1111-111111111111"
-LABELS=['OUTER','CENTRE','INNER']
-# combination position -> (member sequence, own code)
+# CHG-010 / CFL-007: canonical tread positions by ordinal, relative to the
+# vehicle centreline. The 2021-style sheet recorded three boxes with no stated
+# convention (OI-28), so every fixture measurement loads orientation_known =
+# FALSE (CHG-011): it counts toward min/average tread but is excluded from any
+# directional wear-pattern diagnosis. Whole-millimetre sheet => granularity 1.0
+# (CHG-012).
+POSITIONS=['OUTER','CENTRE','INNER']
+# sheet position 1..26 -> (member unit, that unit's own position code).
+# The sheet numbering is a display projection of the 2026-07-23 composition
+# (CFL-006); it is not stored anywhere in the schema.
 def member(p):
     if p<=10: return (1,str(p))
     if p<=18: return (2,str(p-10))
     return (3,str(p-18))
-UNIT={1:('HORSE','BAC039SP','HORSE_6X4','Horse'),2:('LINK6','BAC040SP','TRAILER_2AXLE','6m link'),3:('LINK12','BAC041SP','TRAILER_2AXLE','12m link')}
+UNIT={1:('HORSE','BAC039SP','HORSE_6X4','HORSE','Horse'),
+      2:('LINK6','BAC040SP','TRAILER_2AXLE','TRAILER','6m link'),
+      3:('LINK12','BAC041SP','TRAILER_2AXLE','TRAILER','12m link')}
 
 L=["-- Seed: R13 acceptance fixture (SRS v1.3 Appendix J)",
    "-- ONE completed capture sheet, used as a golden test case. Test data, not a",
@@ -69,10 +79,11 @@ L.append("INSERT INTO app.tyre_size (id,tenant_id,name,construction) VALUES (md5
 L.append("INSERT INTO app.tyre_brand (id,tenant_id,name) VALUES (md5('br1')::uuid,'%s','Dunlop');"%T)
 L.append("INSERT INTO app.tyre_pattern (id,tenant_id,name,brand_id) VALUES (md5('pt1')::uuid,'%s','SP431',md5('br1')::uuid);"%T)
 L.append("")
-# three vehicles
-for seq,(fleet,reg,cfg,label) in UNIT.items():
-    L.append(f"INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,body_type,unit_descriptor,home_depot_id,current_odometer,status)")
-    L.append(f"  VALUES (md5('veh{seq}')::uuid,'{T}','{fleet}','{reg}',md5('{T}{cfg}')::uuid,'Flat deck',$${label}$$,md5('depot1')::uuid,412500,'ACTIVE');")
+# three units (ADR-0007): a horse and two link trailers, each on its own
+# unit-scoped configuration, unit_kind backfilled at source (CHG-027)
+for seq,(fleet,reg,cfg,kind,label) in UNIT.items():
+    L.append(f"INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,body_type,unit_descriptor,home_depot_id,current_odometer,status)")
+    L.append(f"  VALUES (md5('veh{seq}')::uuid,'{T}','{fleet}','{reg}',md5('{T}{cfg}')::uuid,'{kind}','Flat deck',$${label}$$,md5('depot1')::uuid,412500,'ACTIVE');")
 L.append("")
 # Driver assignment (FR-VEH-007/008, FR-AUT-005): the shapes the verification
 # suite pins — one vehicle with two current drivers, one driver on two
@@ -87,28 +98,37 @@ L.append(f"  (md5('vd2')::uuid,'{T}',md5('veh3')::uuid,md5('driver1')::uuid,'202
 L.append(f"  (md5('vd3')::uuid,'{T}',md5('veh2')::uuid,md5('driver1')::uuid,'2024-01-01','2024-12-31'),")
 L.append(f"  (md5('vd4')::uuid,'{T}',md5('veh1')::uuid,md5('driver3')::uuid,'2026-06-01',NULL);")
 L.append("")
-L.append("INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status) VALUES")
-L.append(f"  (md5('t2veh1')::uuid,'{T2}','HORSE','CAA111111',md5('{T2}HORSE_6X4')::uuid,'ACTIVE');")
+L.append("INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,status) VALUES")
+L.append(f"  (md5('t2veh1')::uuid,'{T2}','HORSE','CAA111111',md5('{T2}HORSE_6X4')::uuid,'HORSE','ACTIVE');")
 L.append("INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES")
 L.append(f"  (md5('t2vd1')::uuid,'{T2}',md5('t2veh1')::uuid,md5('driver2')::uuid,'2026-01-01',NULL);")
 L.append("")
-L.append(f"INSERT INTO app.combination (id,tenant_id,motive_vehicle_id,configuration_id) VALUES (md5('comb1')::uuid,'{T}',md5('veh1')::uuid,md5('{T}BAC_LINKS')::uuid);")
-for seq,(fleet,reg,cfg,label) in UNIT.items():
+L.append("INSERT INTO app.combination (id,tenant_id,motive_vehicle_id) VALUES (md5('comb1')::uuid,'{}',md5('veh1')::uuid);".format(T))
+for seq,(fleet,reg,cfg,kind,label) in UNIT.items():
     L.append(f"INSERT INTO app.combination_member (tenant_id,combination_id,vehicle_id,sequence,descriptor) VALUES ('{T}',md5('comb1')::uuid,md5('veh{seq}')::uuid,{seq},$${label}$$);")
 L.append("")
 L.append("-- Tyres. rand_per_mm follows BR-VAL-002 from an R4,319.91 purchase over 25mm")
 L.append("-- new tread and a 4mm removal threshold => R205.7100/mm exactly, matching the")
 L.append("-- SRS Appendix E derivation check (4319.91 / 21).")
+L.append("-- display_code keeps the sheet's branded strings verbatim: codes are opaque")
+L.append("-- display data, not keys (CHG-021, ADR-0008), and the historical sheet is the")
+L.append("-- fixture's source of truth. cost_source INVOICE: these prices are the SRS")
+L.append("-- worked examples' purchase figures, not estimates (CHG-036). The uniform")
+L.append("-- casing figure is the onboarding audit value, not a retreader valuation")
+L.append("-- (CHG-016); a zero would load as NULL, and the sheet carries none.")
 allpos=[(p,member(p)) for p in sorted(R)]+[('S',(3,'S'))]
 for p,(mseq,own) in allpos:
     tid=f"tyre{p}"
-    L.append(f"INSERT INTO app.tyre (id,tenant_id,branded_number,size_id,brand_id,pattern_id,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)")
-    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01',4319.91,25.0,205.7100,1837.50,'FITTED');")
+    L.append(f"INSERT INTO app.tyre (id,tenant_id,display_code,size_id,brand_id,pattern_id,status,purchase_date,received_date,purchase_price,cost_source,new_tread_mm,rand_per_mm,casing_value,state)")
+    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01','2024-03-01',4319.91,'INVOICE',25.0,205.7100,1837.50,'FITTED');")
 L.append("")
 L.append("-- Fitments: each tyre on its own unit's own position code (BR-VEH-003).")
+L.append("-- Trailers have no odometer (CFL-003): their fitments carry NULL and the")
+L.append("-- distance provenance defaults to UNAVAILABLE (CHG-042, ADR-0010).")
 for p,(mseq,own) in allpos:
+    odo = '380000' if mseq==1 else 'NULL'
     L.append(f"INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm)")
-    L.append(f"  SELECT '{T}',md5('tyre{p}')::uuid,md5('veh{mseq}')::uuid,pos.id,'2025-06-01T06:00:00Z',380000,25.0")
+    L.append(f"  SELECT '{T}',md5('tyre{p}')::uuid,md5('veh{mseq}')::uuid,pos.id,'2025-06-01T06:00:00Z',{odo},25.0")
     L.append(f"    FROM app.position pos JOIN app.vehicle v ON v.configuration_id=pos.configuration_id")
     L.append(f"   WHERE v.id=md5('veh{mseq}')::uuid AND pos.code='{own}';")
 L.append("")
@@ -122,6 +142,9 @@ L.append("INSERT INTO app.inspection (id,tenant_id,vehicle_id,combination_id,use
 L.append(f"  VALUES (md5('insp0')::uuid,'{T}',md5('veh1')::uuid,md5('comb1')::uuid,md5('driver1')::uuid,md5('cli0')::uuid,")
 L.append("          '2026-06-28T05:38:00Z','2026-06-28T05:45:00Z',402500,'seed-fixture','0.0.0-fixture',420);")
 L.append("")
+def measurements(rd_key, values, delta=0.0):
+    vals=",".join(f"('{T}',md5('{rd_key}')::uuid,{i+1},'{POSITIONS[i]}',{(v+delta):.1f},false,1.0)" for i,v in enumerate(values))
+    return f"INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm) VALUES {vals};"
 for p,(mseq,own) in allpos:
     if p=='S': continue
     kpa,rd = R[p]
@@ -130,8 +153,7 @@ for p,(mseq,own) in allpos:
     L.append(f"  SELECT md5('rd0{p}')::uuid,'{T}',md5('insp0')::uuid,md5('veh{mseq}')::uuid,pos.id,md5('tyre{p}')::uuid,{kpa}")
     L.append(f"    FROM app.position pos JOIN app.vehicle v ON v.configuration_id=pos.configuration_id")
     L.append(f"   WHERE v.id=md5('veh{mseq}')::uuid AND pos.code='{own}';")
-    vals=",".join(f"('{T}',md5('rd0{p}')::uuid,{i+1},'{LABELS[i]}',{v+dl:.1f})" for i,v in enumerate(rd))
-    L.append(f"INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES {vals};")
+    L.append(measurements(f"rd0{p}", rd, dl))
 L.append("")
 L.append("INSERT INTO app.inspection (id,tenant_id,vehicle_id,combination_id,user_id,client_uuid,started_at,submitted_at,odometer,device_id,app_version,duration_seconds,comment,defect_report)")
 L.append(f"  VALUES (md5('insp1')::uuid,'{T}',md5('veh1')::uuid,md5('comb1')::uuid,md5('driver1')::uuid,md5('cli1')::uuid,")
@@ -145,8 +167,7 @@ for p,(mseq,own) in allpos:
     L.append(f"  SELECT md5('rd{p}')::uuid,'{T}',md5('insp1')::uuid,md5('veh{mseq}')::uuid,pos.id,md5('tyre{p}')::uuid,{kpa}")
     L.append(f"    FROM app.position pos JOIN app.vehicle v ON v.configuration_id=pos.configuration_id")
     L.append(f"   WHERE v.id=md5('veh{mseq}')::uuid AND pos.code='{own}';")
-    vals=",".join(f"('{T}',md5('rd{p}')::uuid,{i+1},'{LABELS[i]}',{v})" for i,v in enumerate(rd))
-    L.append(f"INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,label,tread_mm) VALUES {vals};")
+    L.append(measurements(f"rd{p}", rd))
 L.append("")
 L.append("COMMIT;")
 open('003_seed_fixture.sql','w').write("\n".join(L)+"\n")
