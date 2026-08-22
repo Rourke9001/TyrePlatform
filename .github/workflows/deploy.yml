@@ -130,11 +130,10 @@ jobs:
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
       # The third-party action in the job holding the OIDC token, so the one
-      # that most needed pinning. This SHA is what `@v1` already resolved to:
-      # the repository carries both a `v1` tag (2021) and a `v1` branch (2024)
-      # and the runner takes the tag, which is why every deploy log warns that
-      # `skip_api_build` is an unexpected input. Pinning freezes today's
-      # behaviour; moving to the branch's code is a separate decision (TYRE-53).
+      # that most needed pinning. This repository carries both a `v1` tag and a
+      # `v1` branch, three years apart, and the runner resolves `@v1` to the
+      # tag — so the tag's SHA is the pin that preserves behaviour. TYRE-53
+      # holds the decision about moving to the branch.
       - uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
         with:
           azure_static_web_apps_api_token: ${{ steps.swa.outputs.key }}
