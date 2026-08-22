@@ -1,16 +1,10 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  type ReactNode,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBranding, type Branding } from "../api/branding";
 import { getDevTenantId } from "../api/devTenant";
-import { deriveBrandTheme, type BrandTheme } from "./derive";
+import { deriveBrandTheme } from "./derive";
 import { applyCssVars, cssVars, palette } from "./tokens";
+import { ThemeContext } from "./themeContext";
 import "./fonts";
 import "./base.css";
 
@@ -22,13 +16,6 @@ const PLATFORM_BRANDING: Branding = {
   primaryColor: palette.brand,
   logoUrl: null,
 };
-
-interface ThemeContextValue {
-  branding: Branding;
-  theme: BrandTheme;
-}
-
-const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 // Branding is cached per tenant, not under one key: the dev tenant switcher
 // (TYRE-28) flips tenants in place, and one shared key would paint tenant
@@ -80,10 +67,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   });
 
   const branding = query.data ?? cached ?? PLATFORM_BRANDING;
-  const theme = useMemo(
-    () => deriveBrandTheme(branding.primaryColor),
-    [branding.primaryColor],
-  );
+  const theme = useMemo(() => deriveBrandTheme(branding.primaryColor), [branding.primaryColor]);
 
   // Layout effect: the variables must be on the root before the browser
   // paints the frame that uses them.
@@ -97,12 +81,4 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo(() => ({ branding, theme }), [branding, theme]);
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
-}
-
-export function useBranding(): ThemeContextValue {
-  const ctx = useContext(ThemeContext);
-  if (!ctx) {
-    throw new Error("useBranding must be used inside ThemeProvider");
-  }
-  return ctx;
 }

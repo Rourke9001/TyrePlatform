@@ -1,0 +1,8 @@
+dist
+node_modules
+coverage
+package-lock.json
+
+# Prose is hand-wrapped for reading, and .editorconfig deliberately keeps
+# trailing whitespace in markdown. Prettier would undo both (TYRE-49).
+*.md

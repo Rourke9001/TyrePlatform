@@ -58,8 +58,8 @@ make db-up          # Postgres 16 in docker, port 5433
 make db-reset       # drop, apply schema, regenerate and load seeds
 make db-test        # the verification suite, as a non-superuser
 make test           # everything: db, api, web
-make fmt            # format all languages
-make lint           # vet + staticcheck + eslint + tsc
+make fmt            # gofmt + prettier, in place
+make lint           # gofmt/prettier check, vet, staticcheck, eslint, tsc, comments
 make check          # fmt + lint + test. Run before every commit.
 ```
 
@@ -98,9 +98,18 @@ acceptance gate rests on there being exactly one implementation.
 **TypeScript / React**
 - Function components, hooks. No class components.
 - `strict: true`. No `any` — if you reach for it, the type is wrong.
+  `@typescript-eslint/no-explicit-any` is an error, not a warning.
 - Tanstack Query for server state, plain `useState`/`useReducer` for local.
   No Redux.
 - Dexie over IndexedDB for the durable submit outbox (ADR-0009).
+- Prettier owns layout — do not hand-format, and do not argue with it in
+  review. eslint runs the type-aware recommended and stylistic tiers with
+  `eslint-config-prettier` last, so exactly one tool has an opinion about any
+  given line.
+
+**Formatting and linting are not advisory.** Every command in `make lint`
+can fail the build, and `make lint` runs the same set as CI in the same
+order. If a gate cannot run, fix the gate — do not let it pass silently.
 
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.

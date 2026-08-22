@@ -130,15 +130,15 @@ jobs:
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
           psql "postgres://postgres:postgres@localhost:5433/tyre" -q \
             -c "ALTER ROLE app_login PASSWORD 'ci'"
-      - name: Build, vet, test
+      - name: Build, vet, staticcheck, test
         env:
           TEST_DATABASE_URL: postgres://app_login:ci@localhost:5433/tyre?sslmode=disable
           TEST_ADMIN_DATABASE_URL: postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable
         run: |
-          if [ ! -f api/go.mod ]; then echo "api/ not scaffolded yet, skipping"; exit 0; fi
           cd api
           gofmt -l . | tee /tmp/fmt && [ ! -s /tmp/fmt ] || { echo "::error::run gofmt"; exit 1; }
           go vet ./...
+          go tool staticcheck ./...
           go build ./...
           go test -race ./...
 
@@ -167,7 +167,6 @@ jobs:
       # was read. The version comparison is what proves the gate is enforced.
       - name: Release-age gate is active
         run: |
-          if [ ! -f web/package.json ]; then echo "web/ not scaffolded yet, skipping"; exit 0; fi
           cd web
           age=$(npm config get min-release-age)
           [ "$age" = "14" ] || { echo "::error::min-release-age is '$age', expected 14 — web/.npmrc not read"; exit 1; }
@@ -183,15 +182,17 @@ jobs:
       # install so a poisoned lockfile is rejected before any of it is
       # fetched.
       - name: Locked packages are old enough
-        run: |
-          if [ ! -f web/package-lock.json ]; then echo "web/ not scaffolded yet, skipping"; exit 0; fi
-          node scripts/check-release-age.mjs
+        run: node scripts/check-release-age.mjs
 
-      - name: Lint, typecheck, test
+      # The same four commands `make lint` and `make test` run locally, spelled
+      # out rather than delegated to make: the runner has no docker-based Go
+      # toolchain to hand and this job is web-only. `--if-present` is gone from
+      # all of them — a missing script is now a red build, not a silent pass.
+      - name: Format, lint, typecheck, test
         run: |
-          if [ ! -f web/package.json ]; then echo "web/ not scaffolded yet, skipping"; exit 0; fi
           cd web
           npm ci
-          npm run lint --if-present
-          npx tsc --noEmit
-          npm test --if-present
+          npm run format:check
+          npm run lint
+          npm run typecheck
+          npm test

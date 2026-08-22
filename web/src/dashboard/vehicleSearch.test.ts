@@ -26,16 +26,11 @@ describe("searchVehicles", () => {
   });
 
   it("matches fleet number case-insensitively", () => {
-    expect(searchVehicles(fleet, "bac1").map((x) => x.fleetNumber)).toEqual([
-      "BAC1",
-      "BAC10",
-    ]);
+    expect(searchVehicles(fleet, "bac1").map((x) => x.fleetNumber)).toEqual(["BAC1", "BAC10"]);
   });
 
   it("matches registration too (FR-VEH-022)", () => {
-    expect(searchVehicles(fleet, "333").map((x) => x.fleetNumber)).toEqual([
-      "TRK7",
-    ]);
+    expect(searchVehicles(fleet, "333").map((x) => x.fleetNumber)).toEqual(["TRK7"]);
   });
 
   it("survives null registrations and whitespace queries", () => {
