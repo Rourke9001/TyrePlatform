@@ -371,6 +371,26 @@ BEGIN
   RAISE NOTICE 'PASS  every app table has RLS enabled and forced';
 END $$;
 
+-- Policy SHAPE, not just presence: ENABLE+FORCE with a hand-written
+-- USING-only policy would let a session write rows it cannot read back, and
+-- the sweep above cannot see the difference. Every policy must carry both a
+-- USING and a WITH CHECK that bind to current_tenant_id(); the read-everyone
+-- reference-data policy is the one named exception (CHG-019).
+DO $$
+DECLARE bad text;
+BEGIN
+  SELECT string_agg(c.relname || '.' || p.polname, ', ') INTO bad
+    FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+   WHERE c.relnamespace = 'app'::regnamespace
+     AND p.polname <> 'jurisdiction_public_read'
+     AND (COALESCE(pg_get_expr(p.polqual, p.polrelid), '') NOT LIKE '%current_tenant_id%'
+       OR COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '') NOT LIKE '%current_tenant_id%');
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: policy without a tenant-bound USING and WITH CHECK: %', bad;
+  END IF;
+  RAISE NOTICE 'PASS  every policy binds USING and WITH CHECK to the tenant context';
+END $$;
+
 \echo '== 13. Depot scoping is tenant-scoped and visible to its own tenant (FR-AUT-004, DR-001)'
 DO $$
 DECLARE n int;

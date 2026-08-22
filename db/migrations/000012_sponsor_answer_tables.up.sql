@@ -44,7 +44,10 @@ CREATE TABLE app.vehicle_tag_map (
   tenant_id  uuid NOT NULL REFERENCES app.tenant(id) ON DELETE CASCADE,
   vehicle_id uuid NOT NULL,
   tag_id     uuid NOT NULL,
-  PRIMARY KEY (vehicle_id, tag_id),
+  -- tenant_id leads the key: a unique index is checked before the composite
+  -- FK's trigger, so a key without it answers "does this pair exist in
+  -- another tenant" through the distinguishable error alone
+  PRIMARY KEY (tenant_id, vehicle_id, tag_id),
   FOREIGN KEY (tenant_id, vehicle_id) REFERENCES app.vehicle (tenant_id, id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id, tag_id)     REFERENCES app.vehicle_tag (tenant_id, id) ON DELETE CASCADE
 );
@@ -137,7 +140,9 @@ CREATE TABLE app.vehicle_odometer_reading (
   inspection_id uuid,
   imported      boolean NOT NULL DEFAULT false,
   created_at    timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (vehicle_id, reading_date, source),
+  -- tenant_id leads the key (see vehicle_tag_map's note): without it the
+  -- duplicate-key error is a cross-tenant existence oracle
+  UNIQUE (tenant_id, vehicle_id, reading_date, source),
   FOREIGN KEY (tenant_id, vehicle_id)    REFERENCES app.vehicle (tenant_id, id) ON DELETE CASCADE,
   FOREIGN KEY (tenant_id, inspection_id) REFERENCES app.inspection (tenant_id, id)
 );
