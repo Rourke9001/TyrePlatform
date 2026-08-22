@@ -3,7 +3,7 @@ description: Prove the three-way agreement still holds
 ---
 Run the full verification and report honestly.
 
-1. `make db-reset && make db-test` — the 16-check suite, as `app_login`.
+1. `make db-reset && make db-test` — the verification suite, as `app_login`.
 2. Confirm the suite ran as a non-superuser. Check 0 asserts this; if it was
    skipped, the entire run is meaningless and you must say so.
 3. Confirm all 15 Appendix E valuations reproduced to the cent.

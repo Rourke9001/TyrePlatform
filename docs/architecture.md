@@ -8,8 +8,8 @@ the ADRs say why each was chosen and what it costs.
 ```
    phone (PWA)                    browser
         │                            │
-        │  IndexedDB queue           │
-        │  sync on reconnect         │
+        │  online-first reads        │
+        │  durable submit outbox     │
         ▼                            ▼
    ┌─────────────────────────────────────┐
    │  Azure Static Web Apps              │   React + Vite
@@ -63,36 +63,46 @@ If it is about HTTP, auth, or moving bytes, it goes in Go.**
 Every request, without exception:
 
 ```go
-// SET LOCAL, not SET. This binds the setting to the transaction, so a pooled
-// connection cannot carry one tenant's context into the next request. A plain
-// SET here is a cross-tenant data leak that will pass every test you write.
+// Transaction-local, so a pooled connection cannot carry one tenant's context
+// into the next request — a session-scoped SET here is a cross-tenant data
+// leak that will pass every test you write. set_config with is_local => true,
+// not SET LOCAL: SET cannot take a bind parameter, and interpolating a tenant
+// id into SQL is forbidden on this path.
 tx, err := pool.Begin(ctx)
 defer tx.Rollback(ctx)
-_, err = tx.Exec(ctx, "SET LOCAL app.tenant_id = $1", claims.TenantID)
+_, err = tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", claims.TenantID)
 // ... all queries on tx ...
 tx.Commit(ctx)
 ```
+
+`api/internal/store` (`InTenantTx`) is the real implementation; this sketch
+exists so the shape is visible from the architecture page.
 
 `app.current_tenant_id()` returns NULL when the setting is unset, and every
 policy compares with `=`. NULL matches nothing, so a request that skips this
 step sees zero rows rather than everything. **The system fails closed.**
 
-## Offline capture
+## Capture and the network
 
 The hypothesis the POC exists to test is that a driver captures a full vehicle
 in under three minutes. Everything about the capture path is subordinate.
 
-- Inspections are written to IndexedDB (Dexie) first, always. The network is
-  never on the critical path of the driver's flow.
+Per ADR-0009 (client platform and on-device data): the client is
+**online-first with a durable submit outbox**, not an offline-first sync
+engine. Drivers have connectivity as the normal case; what the design protects
+is the one in-progress inspection.
+
+- Reads (vehicle lists, configuration) are fetched online; nothing replicates
+  the register to the phone.
+- The in-progress inspection is durably held on-device until the server
+  acknowledges it — a submit outbox, with an explicit "Sync now" and a
+  stale-queue warning, never a background-sync dependency (iOS Safari has no
+  Background Sync API and evicts storage aggressively).
 - Each inspection carries a client-generated `client_uuid`, unique per tenant
-  in the schema. Sync is therefore idempotent: replaying a queued inspection is
-  a no-op, so an uncertain network is safe (FR-OFF-011).
+  in the schema, so submission is idempotent: replaying an outbox entry is a
+  no-op and an uncertain network is safe.
 - Photos queue separately from readings. A slow photo upload must never hold up
   a completed inspection.
-- Sync is background where the platform allows it. **On iOS it does not** —
-  Safari has no Background Sync API and evicts storage more aggressively.
-  TYRE-14 (Q7) establishes which platform the pilot drivers actually use; the
-  answer materially changes this design.
 
 ## Environments
 
@@ -108,7 +118,11 @@ in under three minutes. Everything about the capture path is subordinate.
 |---|---|---|
 | [0001](adr/0001-stack.md) | Platform stack — Azure, Go API, React PWA, PostgreSQL | Proposed |
 | [0002](adr/0002-region-and-data-residency.md) | Azure region and POPIA data residency | Accepted |
-| [0003](adr/0003-tenancy-model.md) | Tenancy model | Blocked on OI-29 (TYRE-13) |
+| [0003](adr/0003-tenancy-model.md) | Tenancy model | Proposed — blocked on sponsor acceptance (OI-29 / TYRE-13) |
 | [0004](adr/0004-branching-strategy.md) | Branching — develop integrates, main mirrors production | Proposed |
 | [0005](adr/0005-environments-and-hosting.md) | Environments — staging is production for the pilot | Accepted |
 | [0006](adr/0006-role-depot-scoping-enforcement.md) | Where role and depot scoping is enforced | Accepted |
+| [0007](adr/0007-unit-centric-fleet-model.md) | Unit-centric fleet model | Accepted |
+| [0008](adr/0008-tyre-identity-and-display-codes.md) | Tyre identity and display codes | Accepted |
+| [0009](adr/0009-client-platform-and-on-device-data.md) | Client platform and on-device data | Accepted |
+| [0010](adr/0010-provenance-measured-vs-derived.md) | Provenance — measured vs derived | Accepted |
