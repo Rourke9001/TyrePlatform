@@ -1,6 +1,6 @@
-# Deploys staging on every push to main (ADR-0004: main only advances by
-# fast-forwarding a vetted develop commit, so a push here IS a release).
-# Staging is production for the BAC pilot (ADR-0005).
+# Releases staging from main (ADR-0004: main only advances by fast-forwarding
+# a vetted develop commit, so arriving here IS a release). Staging is
+# production for the BAC pilot (ADR-0005).
 #
 # Auth is OIDC federated credentials on the user-assigned managed identity
 # id-tyre-deploy-staging — no long-lived Azure secret exists in this repo.
@@ -8,9 +8,15 @@
 # group only.
 name: Deploy staging
 
+# CI finishing on main is the trigger, not the push. Triggering on the push
+# itself races the verification suite: both start together, and the deploy
+# wins. ADR-0004 says the commit was vetted on develop; this is the machine
+# checking that claim instead of the release trusting it (TYRE-50).
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
     branches: [main]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
@@ -28,15 +34,29 @@ env:
   ACR: crtyrestaging
   APP: ca-api-staging
   SWA: stapp-tyre-staging
+  # On a workflow_run event github.sha is the default branch's head at the
+  # moment this workflow starts, not the commit CI actually verified. Deploying
+  # that would ship an unverified fast-follow push. head_sha is the commit CI
+  # ran against; the fallback covers workflow_dispatch, which has no run to
+  # inherit from.
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+# A workflow_run fires on every completion, failure included, so the
+# conclusion is the gate. workflow_dispatch carries no conclusion — the manual
+# path stays open for a rollback when CI is red.
 jobs:
   api:
     name: API image
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      # Pinned to a commit SHA for the reason set out at the top of the
+      # database job in ci.yml.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
-      - uses: azure/login@v2
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -45,7 +65,7 @@ jobs:
       - name: Build and push image
         run: |
           az acr login --name "$ACR"
-          image="$ACR.azurecr.io/tyre-api:${{ github.sha }}"
+          image="$ACR.azurecr.io/tyre-api:$DEPLOY_SHA"
           docker build -t "$image" api
           docker push "$image"
 
@@ -55,7 +75,7 @@ jobs:
         run: |
           az extension add -n containerapp --upgrade
           az containerapp update -g "$RG" -n "$APP" \
-            --image "$ACR.azurecr.io/tyre-api:${{ github.sha }}"
+            --image "$ACR.azurecr.io/tyre-api:$DEPLOY_SHA"
 
       # Hit the app through its public FQDN, not the revision URL: this is the
       # path a driver's phone takes, including a cold start from zero replicas.
@@ -73,11 +93,14 @@ jobs:
 
   web:
     name: Web to Static Web Apps
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -89,7 +112,7 @@ jobs:
           npm ci
           npm run build
 
-      - uses: azure/login@v2
+      - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -106,7 +129,13 @@ jobs:
           echo "::add-mask::$key"
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
-      - uses: Azure/static-web-apps-deploy@v1
+      # The third-party action in the job holding the OIDC token, so the one
+      # that most needed pinning. This SHA is what `@v1` already resolved to:
+      # the repository carries both a `v1` tag (2021) and a `v1` branch (2024)
+      # and the runner takes the tag, which is why every deploy log warns that
+      # `skip_api_build` is an unexpected input. Pinning freezes today's
+      # behaviour; moving to the branch's code is a separate decision (TYRE-53).
+      - uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
         with:
           azure_static_web_apps_api_token: ${{ steps.swa.outputs.key }}
           action: upload

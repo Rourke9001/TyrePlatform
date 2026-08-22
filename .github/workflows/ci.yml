@@ -5,6 +5,13 @@ on:
     branches: [main, develop]
   pull_request:
 
+# A pull_request run executes repo scripts (seed generators, the comment
+# checker, npm lifecycle) against the token it is handed. Read-only is all any
+# job here needs; without this block the run inherits whatever the repository
+# default grants, which is a write token on many settings (TYRE-50).
+permissions:
+  contents: read
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -25,8 +32,15 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      # Actions are pinned to commit SHAs, not tags. A tag is a movable
+      # pointer: whoever can push to the action's repository can repoint v7 at
+      # new code that runs inside our job. This repo already refuses npm
+      # packages younger than 14 days (web/.npmrc) — an action is the same
+      # threat model with more privilege, because it executes rather than just
+      # ships bytes. Renovate bumps these SHAs; the trailing comment is the
+      # human-readable version it keys off (TYRE-50).
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.12' }
 
       - name: Regenerate seeds
@@ -77,7 +91,7 @@ jobs:
     name: Comment style
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Same script the edit hook and `make lint` run, so a comment that slips
       # past both locally still cannot merge (docs/comments.md, TYRE-22).
       - name: Comment standard (deterministic subset)
@@ -102,8 +116,8 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s --health-timeout 3s --health-retries 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.24'
           cache-dependency-path: api/go.sum
@@ -132,8 +146,8 @@ jobs:
     name: Frontend
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: '22', cache: npm, cache-dependency-path: web/package-lock.json }
 
       # TYRE-21. node 22 bundles npm 10.9.9, which predates `min-release-age`
