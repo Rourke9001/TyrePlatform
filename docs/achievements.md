@@ -34,7 +34,7 @@ verified by a suite which first proves it is *able* to fail — it runs as a
 non-superuser and aborts if it is not, because a superuser run passes
 vacuously.
 
-**Evidence:** 16-check verification suite (`db/tests/004_tests.sql`) run as
+**Evidence:** the verification suite (`db/tests/004_tests.sql`) run as
 `app_login` in CI on every build (NFR-SEC-005): unset tenant context sees
 zero rows, cross-tenant reads and writes are blocked, append-only grants and
 `security_invoker` on every view are asserted, not assumed.

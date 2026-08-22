@@ -26,18 +26,22 @@ Every interaction decision follows from that arithmetic:
 feature that improves the dashboard and adds three seconds per position adds
 over a minute to a superlink, and the POC fails on adoption.
 
-`docs/prototypes/driver_capture_prototype.html` (untracked, in Confluence) is
+`docs/prototypes/driver_capture_prototype.html` (tracked in this repo) is
 the reference for the interaction model.
 
-## Offline
+## The network (ADR-0009)
 
-- Dexie over IndexedDB. Write locally first, always. The network is never on
-  the critical path.
-- Each inspection carries a client-generated UUID; the server treats sync as
-  idempotent, so replaying is safe.
+Online-first with a durable submit outbox — not an offline sync engine.
+
+- Reads (vehicle lists, configuration) are fetched live; nothing replicates
+  the register to the phone.
+- The one in-progress inspection is held durably on-device until the server
+  acknowledges it, with a visible outbox indicator, an explicit "Sync now" and
+  a stale-queue warning after ~2 days. Never depend on background sync — iOS
+  Safari has no Background Sync API and evicts storage aggressively.
+- Each inspection carries a client-generated UUID; the server treats
+  submission as idempotent, so replaying the outbox is safe.
 - Photos queue separately from readings.
-- iOS Safari has no Background Sync API and evicts storage more aggressively
-  than Android. TYRE-14 establishes which the pilot drivers actually use.
 
 ## Conventions
 
@@ -52,7 +56,9 @@ the reference for the interaction model.
   custom properties (TYRE-27). A hex or font literal in a component is a bug.
   Tread band colours are fixed and keyed to band *names*; the mm thresholds
   that assign a band are tenant configuration and never reach this codebase
-  (rule 5). Fonts are self-hosted @fontsource — no CDN (rule 7).
+  (rule 5). Fonts are self-hosted @fontsource — no CDN: the capture app must
+  render on a flaky depot connection, and a font fetch is a third-party
+  dependency the driver's flow must never wait on (ADR-0009).
 - Tenant branding (display name, primary colour, nullable logo) is tenant
   configuration in the database (`app.configuration` key `branding`), served
   by `GET /api/org/branding` and applied by `src/theme/ThemeProvider.tsx`,

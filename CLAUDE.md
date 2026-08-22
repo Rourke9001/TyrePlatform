@@ -42,7 +42,10 @@ Carry these without being reminded. Violating one is a bug even if tests pass.
    hard-coded constant. If you are about to type `4.0` for the removal
    threshold, stop.
 6. **Timestamps stored UTC**, displayed in tenant timezone.
-7. **Offline-first**, designed in, never retrofitted.
+7. **Online-first, with a durable submit outbox** (ADR-0009). Reads are
+   fetched live; the one thing protected on-device is the in-progress
+   inspection, held durably until the server acknowledges it. Do not build an
+   offline sync engine, and do not depend on background sync.
 8. **`rand_per_mm` lives on the individual tyre**, not on the pattern or size.
    The same pattern appears at R205.71/mm and R284.38/mm in real data.
 
@@ -97,7 +100,7 @@ acceptance gate rests on there being exactly one implementation.
 - `strict: true`. No `any` — if you reach for it, the type is wrong.
 - Tanstack Query for server state, plain `useState`/`useReducer` for local.
   No Redux.
-- Dexie over IndexedDB for the offline queue.
+- Dexie over IndexedDB for the durable submit outbox (ADR-0009).
 
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.
@@ -163,9 +166,11 @@ Do not drift into any of these. They come up repeatedly.
 ## Open questions that block work
 
 `docs/open-issues.md` is the live register, mirrored in Jira under TYRE-11.
-The one that blocks code today: **OI-28 — which of the three tread boxes is
-outer, centre and inner.** It blocks the capture screen layout and the
-interpretation of every historical sheet.
+Nothing blocks code today: the sponsor's 22 Aug 2026 answers closed the old
+blockers (OI-28's answer — tread positions are outer/centre/inner relative to
+the vehicle centreline — is CHG-010, and pre-convention captures carry
+`orientation_known = false`). The open items that shape upcoming work are
+OI-29 (tenancy, sponsor acceptance of ADR-0003) and OI-31/32/33.
 
 ## Working with me
 

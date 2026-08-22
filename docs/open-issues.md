@@ -8,57 +8,32 @@ An item here is **not work**. It is a blocker, with an owner and a phase it
 blocks. When it closes, the answer goes into the specification in Confluence —
 not into a ticket comment where nobody will find it again.
 
-## Blocking code today
+The sponsor's answers of 22 Aug 2026 (Fleet Questions — Answers of Record
+v1.0, Confluence) closed most of the register: OI-01, OI-03..08, OI-10/11,
+OI-13/14/15, OI-21..28 and OI-30 are answered there and implemented by the
+TYRE-42 recut. What follows is what remains open.
+
+## Blocking a decision, not code
 
 | ID | Question | Owner | Blocks | Jira |
 |---|---|---|---|---|
-| **OI-28** | Which of the three tread boxes is outer, centre and inner? | Any inspector | Capture screen layout; interpretation of every historical sheet | TYRE-12 |
-| **OI-29** | Is the tyre-seller marketplace in or out? | Rourke + Sponsor | Tenancy model, before the P1 schema is frozen | TYRE-13 |
-| **Q7 / Q8** | Do drivers have smartphones — which OS? What connectivity at depots and on route? | Sponsor | Everything about P3. iOS has no Background Sync. | TYRE-14 |
+| **OI-29** | Is the tyre-seller marketplace in or out? ADR-0003 is *Proposed*; deciders are engineer + sponsor jointly and no acceptance is recorded. | Rourke + Sponsor | Tenancy model, before the P1 schema is frozen | TYRE-13 |
 
-OI-28 is the cheapest and most damaging of these. The capture screen's keypad
-auto-advances in a fixed order; if that order is wrong, every reading is
-mislabelled, irregular-wear detection inverts, and no paper sheet can be
-back-loaded. It is a five-minute conversation.
-
-## Blocking the acceptance gate
+## Shaping the analytics proposition
 
 | ID | Question | Owner | Blocks | Jira |
 |---|---|---|---|---|
-| OI-03 | Where does casing value come from? 49.2% of estate value sits in casings. | Sponsor | P4 / M3 | TYRE-16 |
-| OI-04 | What is the 4mm removal threshold based on? | Sponsor | P4 / M3 | TYRE-16 |
-| Q4 | Why are two casings valued at R0.00 — scrap, or a blank field? | Sponsor | P4 / M3 | TYRE-16 |
+| **OI-31** | Do BAC's trailers have hubodometers? | Sponsor | Whether cost-per-km covers the majority or the minority of tyres — trailer distance is MEASURED only from one (CHG-042) | TYRE-43 |
+| **OI-32** | Driver-to-unit assignment: fixed per horse or pooled per trip? Who owns an uncoupled trailer? | Sponsor | Notification/task routing (not schema — `vehicle_driver` supports both) | TYRE-44 |
+| **OI-33** | Obtain BAC's current inspection spreadsheets | Sponsor | History backfill; a check on the capture model | TYRE-45 |
+| **CHG-106** | Does anyone actually *measure* pressure during today's walk-around, or is tread the only thing gauged? | Sponsor | How much weight the inflation-compliance figures deserve | TYRE-46 |
 
-## Blocking the value proposition
-
-| ID | Question | Owner | Blocks | Jira |
-|---|---|---|---|---|
-| OI-26 | Will drivers reliably enter the odometer? | Sponsor | How much confidence a projection may be presented with | TYRE-17 |
-| Q5 | Does odometer data exist anywhere today? | Sponsor | Back-loading | TYRE-17 |
-
-Consequence to state plainly to the sponsor before any demo: **no historical
-paper sheet can produce a wear rate.** Those metrics begin at first digital
-capture. Do not promise cost-per-km on back-loaded paper.
-
-OI-26 does not block the engine, and TYRE-35 ships the wear rate and removal
-forecast without it. The odometer is captured for fuel reconciliation whether
-or not this platform exists (Rourke, 2026-08-21), so it is an operationally
-maintained figure rather than one the product asks a driver to produce, and
-FR-ANL-003 already requires every uncomputable rate to say why. What OI-26
-still decides is how much confidence a projection may carry on a dashboard,
-and whether an odometer that does not advance needs handling of its own
-(FR-EXC-030).
-
-## Configuration and register
+## Domain / legal sign-off
 
 | ID | Question | Owner | Blocks | Jira |
 |---|---|---|---|---|
-| OI-01 | What do the legacy serial-number prefixes mean? | Sponsor | Tyre register | TYRE-18 |
-| OI-21 | How does a tyre physically get its branded number? | Sponsor | Onboarding audit | TYRE-18 |
-| Q13 | Pressure in kPa or PSI, and where do targets come from? | Sponsor | P2 config | TYRE-18 |
-
-Q13 is the one most likely to embarrass us: the wrong unit makes every
-inflation-compliance figure *silently* wrong rather than visibly broken.
+| **CHG-107** | Does SA regulation restrict retreads on steer axles? Seeded as `retreads_permitted = false` for STEER — fleet practice, not a legal claim; no authoritative source found. Pair with OI-17's domain-review list. | Sponsor / domain | Nothing; labelling only until answered | TYRE-47 |
+| **OI-16** | The 2021 report pack (the printed source of the Appendix E worked examples) — would have to be dug for. Low priority: the worked examples are already pinned to the cent. | Sponsor | Nothing | — |
 
 ## Not technical, still first
 
