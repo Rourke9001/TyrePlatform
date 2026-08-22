@@ -91,8 +91,8 @@ VALUES
 -- TWO pull thresholds, not one: the depth at which a tyre is pulled to RETREAD
 -- sits at or above the depth at which it would be pulled to scrap, because
 -- pulling earlier protects the casing — which is where half the value is (Q3).
--- warning_threshold_mm carries the dashboard warning band the retired
--- warning_threshold_mm config key held, so the seed migration loses nothing.
+-- warning_threshold_mm is the dashboard warning band; CHG-111 folds both
+-- threshold config keys into this table, so both live here.
 CREATE TABLE app.threshold_policy (
   id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id             uuid NOT NULL REFERENCES app.tenant(id) ON DELETE CASCADE,

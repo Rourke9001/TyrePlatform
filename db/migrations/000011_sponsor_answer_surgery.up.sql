@@ -429,8 +429,8 @@ SELECT tenant_id,
           ROLLUP(state);
 
 -- The fitted estate with each tyre's current governing depth (000007's
--- definition, re-shaped for display_code — the emitted column follows the
--- rename so no consumer ever sees a column named branded_number again).
+-- definition). The emitted column is display_code: no view may present a
+-- column named branded_number (CHG-110).
 CREATE VIEW app.v_fitted_tread WITH (security_invoker = true) AS
 SELECT t.tenant_id,
        t.id AS tyre_id,
