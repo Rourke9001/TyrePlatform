@@ -186,8 +186,9 @@ jobs:
 
       # The same four commands `make lint` and `make test` run locally, spelled
       # out rather than delegated to make: the runner has no docker-based Go
-      # toolchain to hand and this job is web-only. `--if-present` is gone from
-      # all of them — a missing script is now a red build, not a silent pass.
+      # toolchain to hand and this job is web-only. No `--if-present` on any of
+      # them — a missing script must fail the build, not pass silently
+      # (TYRE-49).
       - name: Format, lint, typecheck, test
         run: |
           cd web

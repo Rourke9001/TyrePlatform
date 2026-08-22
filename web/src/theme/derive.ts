@@ -58,7 +58,7 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
 // A palette token is ours, not a tenant's, so an unparseable one is a typo in
 // tokens.ts rather than bad input. Failing at import names the offender;
 // asserting the type away would let `undefined` reach a contrast calculation
-// and quietly derive a theme from NaN.
+// and quietly derive a theme from NaN (TYRE-27, TYRE-49).
 function requireHex(token: string): Rgb {
   const rgb = parseHex(token);
   if (!rgb) {

@@ -2,7 +2,7 @@
 // `strict` and CLAUDE.md forbids `any`, and only a rule with the type checker
 // behind it can see an inferred `any` that never appears in the source. That is
 // what `projectService` buys — without it these rules go quiet rather than
-// fail, which is the silent no-op this ticket exists to remove.
+// fail, and a gate that cannot fail is not a gate.
 //
 // Recommended rather than `strictTypeChecked`, which pairs
 // `no-non-null-assertion` with `non-nullable-type-assertion-style`: one forbids
