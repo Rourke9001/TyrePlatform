@@ -57,6 +57,11 @@ A ruleset on `main` enforces the mechanics that can be enforced — no deletion,
 no non-fast-forward push, linear history. It cannot tell that a commit came
 from `develop`, so the discipline above is still yours to keep.
 
+The promotion push starts CI on `main`; the staging deploy runs only if that
+CI run goes green, so expect two workflows and roughly twice the wall clock
+before staging moves. A deploy without CI — a rollback while `main` is red —
+is `workflow_dispatch` on "Deploy staging", which skips the gate deliberately.
+
 ## Before you push
 
 ```

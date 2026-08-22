@@ -3,7 +3,10 @@
 # exploit or patch in the final layer.
 FROM golang:1.24-alpine AS build
 WORKDIR /src
-COPY go.mod ./
+# go.sum comes with go.mod, before the rest of the tree: without it the cached
+# module fetch has no checksums to verify against, so this layer would accept
+# whatever the proxy served (TYRE-50).
+COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 # CGO off makes the binary fully static so it runs on distroless/static.
