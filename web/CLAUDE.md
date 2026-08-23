@@ -26,8 +26,10 @@ Every interaction decision follows from that arithmetic:
 feature that improves the dashboard and adds three seconds per position adds
 over a minute to a superlink, and the POC fails on adoption.
 
-`docs/prototypes/driver_capture_prototype.html` (tracked in this repo) is
-the reference for the interaction model.
+`docs/prototypes/driver_capture_prototype.html` is the reference for the
+interaction model — a gitignored working mirror. The authority is Confluence:
+*Driver Capture Prototype v1.0* (pageId 13238274, under *UI Prototypes v1.0*
+in the Specification tree).
 
 ## The network (ADR-0009)
 

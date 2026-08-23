@@ -16,7 +16,7 @@ export function getDevTenantId(): string | null {
   } catch {
     // Storage can be unavailable (private mode); the env default still applies.
   }
-  return (import.meta.env.VITE_DEV_TENANT_ID as string | undefined) ?? null;
+  return import.meta.env.VITE_DEV_TENANT_ID ?? null;
 }
 
 export function setDevTenantId(tenantId: string): void {

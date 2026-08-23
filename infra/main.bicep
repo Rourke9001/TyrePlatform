@@ -2,10 +2,12 @@
 // production for the BAC pilot; a prod environment is stamped from this same
 // template when the first external tenant signs.
 //
-// Deployed at resource-group scope into rg-tyre-staging. The resource group,
-// budget, container registry and Log Analytics workspace are deliberately
-// outside Bicep: they predate it, and the registry and logs hold state that
-// must survive an environment teardown.
+// Deployed at resource-group scope into rg-tyre-staging. Deliberately outside
+// Bicep: the resource group (this template's own scope), the budget (guards
+// the subscription, not one environment), the registry and Log Analytics
+// workspace (state that must survive an environment teardown), and the deploy
+// identity id-tyre-deploy-staging with its role assignments — it is the
+// credential that runs this template, so the template cannot own it.
 //
 // Deploy: az deployment group create -g rg-tyre-staging -f infra/main.bicep \
 //           -p pgAdminPassword=... deployerObjectId=... devMachineIp=...
@@ -69,8 +71,9 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
   name: 'default'
 }
 
-// Inspection photos (FR: damage photos on readings). Private; the API issues
-// SAS URLs - the PWA never gets account keys.
+// Inspection photos (FR-INS-023/024: photos and damage observations per
+// position). Private; the API issues SAS URLs - the PWA never gets account
+// keys.
 resource photosContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
   name: 'photos'
@@ -196,10 +199,11 @@ resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-// The image below is a placeholder: from the first CI deploy onward the live
-// image is owned by .github/workflows/deploy.yml (tagged with the git sha).
-// A full template redeploy would silently revert the app to this placeholder
-// — accepted for the POC, but redeploy the template only alongside a CI run.
+// ACCEPTED TRADE: the image below is a placeholder. From the first CI deploy
+// onward the live image is owned by .github/workflows/deploy.yml (tagged with
+// the git sha), so a full template redeploy silently reverts the app to the
+// placeholder. Compensating control: redeploy the template only alongside a
+// CI run, which immediately re-deploys the real image.
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-api-${env}'
   location: location

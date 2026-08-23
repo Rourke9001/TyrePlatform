@@ -81,6 +81,9 @@ GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
   -e TEST_ADMIN_DATABASE_URL="postgres://postgres:postgres@tyre-pg:5432/tyre?sslmode=disable" \
   $(GO_IMAGE)
 
+# No -race locally: the race detector needs cgo and a C toolchain, which
+# golang:*-alpine does not carry. CI's ubuntu runner adds `-race`, so a data
+# race is the one failure a green `make check` can still hand to CI.
 .PHONY: api-test
 api-test: ## Go tests (docker; needs db-up for the integration tests)
 	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
