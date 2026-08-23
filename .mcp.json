@@ -6,12 +6,22 @@
     },
     "postgres": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres",
-               "postgres://app_login@localhost:5433/tyre"]
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgres://app_login@localhost:5433/tyre"
+      ]
     },
     "playwright": {
       "command": "npx",
       "args": ["-y", "@playwright/mcp@latest"]
+    },
+    "context7": {
+      "type": "http",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "${CONTEXT7_API_KEY}"
+      }
     }
   }
 }
