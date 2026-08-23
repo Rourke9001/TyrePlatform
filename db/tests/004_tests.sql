@@ -3,6 +3,7 @@
 --  Run as a NON-SUPERUSER role (app_login). Running it as postgres proves
 --  nothing: superusers bypass RLS.
 --  Any failure raises an exception and aborts with a non-zero exit.
+--  Each check opens with an \echo '== ' banner; grep that prefix for an index.
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;

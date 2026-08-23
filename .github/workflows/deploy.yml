@@ -41,13 +41,15 @@ env:
   # inherit from.
   DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
-# A workflow_run fires on every completion, failure included, so the
-# conclusion is the gate. workflow_dispatch carries no conclusion — the manual
-# path stays open for a rollback when CI is red.
+# A workflow_run fires on every completion, failure included, so the gate is
+# the conclusion AND the event: ci.yml also runs for pull_requests, and a
+# PR-sourced run must never release. workflow_dispatch carries no conclusion —
+# it stays open so main's head can be re-released when CI is red — and is
+# pinned to main so a dispatch from another ref cannot ship unvetted code.
 jobs:
   api:
     name: API image
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       # Pinned to a commit SHA for the reason set out at the top of the
@@ -69,10 +71,14 @@ jobs:
           docker build -t "$image" api
           docker push "$image"
 
-      # The image on the live app is owned by this workflow, not by Bicep: a
-      # template redeploy would revert it to whatever infra/main.bicep names.
+      # The live image is owned by this workflow, not by Bicep — the ACCEPTED
+      # TRADE note on the container app in infra/main.bicep says why.
       - name: Deploy to Container Apps
         run: |
+          # Unpinned, unlike the SHA-pinned actions: the extension ships from
+          # Microsoft's own index via the az CLI the runner already trusts
+          # unpinned, and a version pin here would need manual bumps that
+          # Renovate cannot see.
           az extension add -n containerapp --upgrade
           az containerapp update -g "$RG" -n "$APP" \
             --image "$ACR.azurecr.io/tyre-api:$DEPLOY_SHA"
@@ -93,7 +99,7 @@ jobs:
 
   web:
     name: Web to Static Web Apps
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
