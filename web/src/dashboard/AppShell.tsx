@@ -11,6 +11,7 @@ import {
   setDevTenantId,
 } from "../api/devTenant";
 import { useActor } from "../auth/actorContext";
+import { RequireCapability } from "../auth/RequireCapability";
 import { useBranding } from "../theme/themeContext";
 import "./dashboard.css";
 
@@ -115,8 +116,18 @@ export function AppShell({ children }: { children: ReactNode }) {
         <DevTenantSwitcher />
         <DevActorSwitcher />
       </header>
+      {/* Each link is gated on the capability its destination requires: an
+          actor who cannot follow a link must not be offered it. A driver's
+          own destination is listed too, so refusing the fleet link still
+          leaves somewhere to go. RequireCapability hides silently — no link
+          is ever rendered disabled with an explanation. */}
       <nav className="shell-nav" aria-label="Main">
-        <NavLink to="/fleet">Vehicles</NavLink>
+        <RequireCapability capability="ViewFleet">
+          <NavLink to="/fleet">Vehicles</NavLink>
+        </RequireCapability>
+        <RequireCapability capability="CaptureInspection">
+          <NavLink to="/my">My inspections</NavLink>
+        </RequireCapability>
       </nav>
       <main className="shell-main">{children}</main>
     </div>

@@ -72,6 +72,15 @@ describe("AppRoutes", () => {
     expect(screen.getByText(/not found/i)).toBeDefined();
   });
 
+  // The landing redirect keeps a driver off /fleet, but the route itself must
+  // refuse the same actor if they land here another way — a pasted link or a
+  // bookmark, not just an offered nav link. RequireCapability hides silently,
+  // so "refused" reads as the heading never appearing rather than an error.
+  it("shows nothing at /fleet for an actor who can only capture inspections", () => {
+    renderAt("/fleet", actor(["CaptureInspection"]));
+    expect(screen.queryByRole("heading", { name: /vehicles/i })).toBeNull();
+  });
+
   // GET /api/my/tasks returns 200 with [] for an unassigned driver — an empty
   // result is a legitimate answer, not a refusal, and must not render as one.
   it("shows an unassigned driver's empty task list rather than an error", async () => {
