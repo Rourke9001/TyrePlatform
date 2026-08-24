@@ -309,3 +309,140 @@ func TestUserFromAnotherTenantIsForbidden(t *testing.T) {
 	rec := get(t, h, "/api/me", tenantA.String(), userInB.String())
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 }
+
+func plantDepotVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, userID uuid.UUID) string {
+	t.Helper()
+	suffix := uuid.NewString()[:8]
+
+	var depotID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.depot (tenant_id, name, type) VALUES ($1, $2, 'DEPOT') RETURNING id`,
+		tenantID, "depot-"+suffix,
+	).Scan(&depotID))
+
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.user_depot (tenant_id, user_id, depot_id) VALUES ($1, $2, $3)`,
+		tenantID, userID, depotID)
+	require.NoError(t, err)
+
+	var configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.axle_configuration (tenant_id, code, name, axle_count)
+		 VALUES ($1, 'DEPOTTEST', 'depot test rig', 2) RETURNING id`, tenantID,
+	).Scan(&configID))
+
+	fleet := "DEPOT-" + suffix
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, home_depot_id)
+		 VALUES ($1, $2, $3, $4)`,
+		tenantID, fleet, configID, depotID)
+	require.NoError(t, err)
+	return fleet
+}
+
+func fleetNumbers(t *testing.T, rec *httptest.ResponseRecorder) []string {
+	t.Helper()
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var vehicles []struct {
+		FleetNumber string `json:"fleetNumber"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &vehicles))
+	out := []string{}
+	for _, v := range vehicles {
+		out = append(out, v.FleetNumber)
+	}
+	return out
+}
+
+// FR-AUT-005 as a route rather than a filter: the fleet list is not a driver's
+// to read at all, and ADR-0006 names these per-role tests as the only thing
+// standing between a handler that skips the scope view and a quiet
+// intra-tenant overexposure.
+func TestFleetListIsCapabilityGated(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "gate")
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	tests := []struct {
+		role auth.Role
+		want int
+	}{
+		{auth.RoleDriver, http.StatusForbidden},
+		{auth.RoleTechnician, http.StatusOK},
+		{auth.RoleDepotManager, http.StatusOK},
+		{auth.RoleController, http.StatusOK},
+		{auth.RoleOrgAdmin, http.StatusOK},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.role), func(t *testing.T) {
+			userID := plantUser(t, ctx, admin, tenantID, tt.role)
+			rec := get(t, h, "/api/vehicles", tenantID.String(), userID.String())
+			require.Equal(t, tt.want, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// FR-AUT-006/008: the depot roles read the fleet through the depot predicate,
+// so a unit based elsewhere in the same tenant is invisible to them while a
+// CONTROLLER sees both.
+func TestFleetListIsDepotScopedForDepotRoles(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, elsewhere := plantTenantWithVehicle(t, ctx, admin, "scoped")
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	mine := plantDepotVehicle(t, ctx, admin, tenantID, technician)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	scoped := fleetNumbers(t, get(t, h, "/api/vehicles", tenantID.String(), technician.String()))
+	require.Contains(t, scoped, mine)
+	require.NotContains(t, scoped, elsewhere, "a depot-scoped role must not see a unit based elsewhere")
+
+	whole := fleetNumbers(t, get(t, h, "/api/vehicles", tenantID.String(), controller.String()))
+	require.Contains(t, whole, mine)
+	require.Contains(t, whole, elsewhere, "a controller reads the whole tenant (FR-AUT-007)")
+}
+
+// A driver out of scope gets an empty list, not a refusal: they are entitled
+// to ask what they are assigned, and the answer is legitimately nothing.
+func TestDriverVehiclesAreAssignmentScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, fleet := plantTenantWithVehicle(t, ctx, admin, "assigned")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	other := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+
+	var vehicleID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet,
+	).Scan(&vehicleID))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+		 VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC')::date - 1)`,
+		tenantID, vehicleID, driver)
+	require.NoError(t, err)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	require.Equal(t, []string{fleet},
+		fleetNumbers(t, get(t, h, "/api/my/vehicles", tenantID.String(), driver.String())))
+	require.Empty(t,
+		fleetNumbers(t, get(t, h, "/api/my/vehicles", tenantID.String(), other.String())),
+		"an unassigned driver sees nothing, and that is an empty list rather than a refusal")
+}
+
+func TestMyTasksNeedsCaptureCapability(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "tasks")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	require.Equal(t, http.StatusOK, get(t, h, "/api/my/tasks", tenantID.String(), driver.String()).Code)
+	require.Equal(t, http.StatusForbidden, get(t, h, "/api/my/tasks", tenantID.String(), technician.String()).Code)
+}
