@@ -134,5 +134,12 @@ staff have no login until that module is built.
 **Revisit when:** the identity provider lands and the subject-to-tenant
 bootstrap has to be chosen (a token claim keeps the allowlist at one; a
 login-time lookup spends the second entry); a measured latency problem appears;
-or the operator wants enforced separation of duties between the two controller
+a feature escalates an already-assigned `app.inspection_task` row in place —
+the table keeps its `UPDATE` grant (000012), and `v_my_inspection_task.overdue`
+computes `state = 'OPEN' AND due_at < now()` while admitting both `OPEN` and
+`ESCALATED`, so an escalated row with a real `assigned_user_id` would read
+`overdue = false` however far past due; unreachable today only because
+`ESCALATED` is presently set exclusively at generation, for tasks no driver
+resolves, and such rows carry a NULL `assigned_user_id` (000014); or the
+operator wants enforced separation of duties between the two controller
 surfaces, which is an enum value plus a capability row, not a redesign.
