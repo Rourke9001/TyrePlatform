@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // PWA config (vite-plugin-pwa, service worker) arrives with the capture app
@@ -12,5 +12,11 @@ export default defineConfig({
     proxy: {
       "/api": "http://localhost:8080",
     },
+  },
+  test: {
+    // Components could not be rendered in a test before this: Vitest defaults
+    // to the node environment, which has no document.
+    environment: "jsdom",
+    setupFiles: ["./src/test/setup.ts"],
   },
 });
