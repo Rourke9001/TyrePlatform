@@ -1,7 +1,9 @@
 # web/
 
-React + Vite. Two applications: the driver capture PWA and the manager
-dashboard. They share components but not priorities.
+React + Vite. **One application, one deployment** (IR-UI-001): a
+mobile-optimised capture interface and a desktop-optimised management
+interface, reached by role-appropriate routes within it. They share components
+but not priorities — see the three-minute constraint below.
 
 ## The capture app answers to one number
 

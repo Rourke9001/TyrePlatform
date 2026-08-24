@@ -1,5 +1,15 @@
 import type { ReactNode } from "react";
-import { DEV_TENANTS, clearDevTenantId, getDevTenantId, setDevTenantId } from "../api/devTenant";
+import {
+  DEV_ACTORS,
+  DEV_TENANTS,
+  clearDevActorId,
+  clearDevTenantId,
+  getDevActorId,
+  getDevTenantId,
+  setDevActorId,
+  setDevTenantId,
+} from "../api/devTenant";
+import { useActor } from "../auth/actorContext";
 import { useBranding } from "../theme/themeContext";
 import "./dashboard.css";
 
@@ -45,6 +55,53 @@ function DevTenantSwitcher() {
   );
 }
 
+// Dev stand-in for real user identity until the IdP slice (TYRE-2). Switching
+// actor also switches that actor's tenant, since a driver on tenant B does
+// not exist under tenant A's rows — reload for the same from-scratch reason
+// as DevTenantSwitcher.
+function DevActorSwitcher() {
+  if (!import.meta.env.DEV) return null;
+  const current = getDevActorId() ?? "";
+  return (
+    <label className="shell-tenant">
+      Actor (dev)
+      <select
+        value={current}
+        onChange={(e) => {
+          const actor = DEV_ACTORS.find((a) => a.id === e.target.value);
+          if (actor) {
+            setDevActorId(actor.id);
+            setDevTenantId(actor.tenant);
+          } else {
+            clearDevActorId();
+          }
+          window.location.reload();
+        }}
+      >
+        <option value="">Platform default</option>
+        {DEV_ACTORS.map((a) => (
+          <option key={a.id} value={a.id}>
+            {a.name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+// Never the security boundary (NFR-SEC-006): the server re-checks every
+// capability on every request. This is only a courtesy so it is obvious, in
+// a shared dev environment, who the app currently thinks is asking.
+function ActorBadge() {
+  const actor = useActor();
+  if (!actor) return null;
+  return (
+    <p className="shell-actor">
+      {actor.displayName} · {actor.role}
+    </p>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
@@ -52,8 +109,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="shell-brand">
           <p className="shell-eyebrow">Fleet tyre platform</p>
           <BrandMark />
+          <ActorBadge />
         </div>
         <DevTenantSwitcher />
+        <DevActorSwitcher />
       </header>
       <nav className="shell-nav" aria-label="Main">
         <a href="/" aria-current="page">
