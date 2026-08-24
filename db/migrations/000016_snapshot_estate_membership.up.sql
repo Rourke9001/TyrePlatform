@@ -14,9 +14,14 @@
 -- the estate unless it is a disposal — so this tests the disposal set, never
 -- a whitelist. A tyre with no state-transition events falls back to the
 -- current state, which for such a tyre is the only assertion on record.
+--
+-- Fail-OPEN by design (COALESCE ... true), which is only safe because every
+-- caller tenant-filters its tyre set before asking: an unknown or foreign
+-- uuid answers true, so this function must never be the thing that decides
+-- whether a tyre exists or belongs to the caller.
 CREATE FUNCTION app.tyre_in_estate_asof(p_tyre uuid, p_as_at date)
 RETURNS boolean
-LANGUAGE sql STABLE AS $$
+LANGUAGE sql STABLE SET search_path = app, pg_temp AS $$
   SELECT COALESCE(
            (SELECT e.to_state NOT IN ('SCRAPPED', 'LOST', 'SOLD')
               FROM app.tyre_event e
