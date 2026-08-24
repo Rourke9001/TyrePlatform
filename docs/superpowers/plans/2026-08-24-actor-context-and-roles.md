@@ -1072,7 +1072,38 @@ Then update the two existing handlers to use the new plumbing. In `orgBranding`,
 		}
 ```
 
-Leave `listVehicles` alone for now — Task 5 rewrites it. Add `"tyreplatform/api/internal/auth"` to the imports.
+`listVehicles` must move too, or the package will not compile: the block you just replaced contained `tenantFrom`, which it calls. Convert it now with **no** capability assertion — Task 5 adds the gate and the depot-scope switch. Replace its body (lines 152-187 of the original file) with:
+
+```go
+		ctx := r.Context()
+		vehicles := []vehicleJSON{}
+		ok := withActor(w, r, s, func(tx pgx.Tx, _ auth.Actor) error {
+			rows, err := tx.Query(ctx,
+				`SELECT id, fleet_number, registration FROM app.vehicle ORDER BY fleet_number`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var v vehicleJSON
+				if err := rows.Scan(&v.ID, &v.FleetNumber, &v.Registration); err != nil {
+					return err
+				}
+				vehicles = append(vehicles, v)
+			}
+			return rows.Err()
+		})
+		if !ok {
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(vehicles); err != nil {
+			slog.ErrorContext(ctx, "encoding vehicles", "err", err)
+		}
+```
+
+Add `"tyreplatform/api/internal/auth"` to the imports.
 
 - [ ] **Step 4: Update main.go to wire the actor resolver**
 
