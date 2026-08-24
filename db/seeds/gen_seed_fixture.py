@@ -66,6 +66,13 @@ L.append("-- Sipho deliberately has no user_depot row: the verification suite pi
 L.append("-- the depot-scoping count, and nothing about assignment needs depot scope.")
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
 L.append("  (md5('driver3')::uuid,'%s','sipho@example.invalid','Sipho','EMP-0002','DRIVER');"%T)
+# A CONTROLLER and an ORG_ADMIN so the management surfaces have someone to be
+# in development. Neither gets a user_depot row: their scope is the whole
+# tenant (FR-AUT-007/009), and the suite pins tenant 1 at exactly one
+# depot-scoped user.
+L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
+L.append("  (md5('controller1')::uuid,'%s','nomsa@example.invalid','Nomsa','EMP-0003','CONTROLLER'),"%T)
+L.append("  (md5('admin1')::uuid,'%s','pieter@example.invalid','Pieter','EMP-0004','ORG_ADMIN');"%T)
 L.append("")
 # The second tenant gets a depot-scoped user too, so the cross-tenant sweep
 # in the verification suite has real foreign user_depot rows to prove
