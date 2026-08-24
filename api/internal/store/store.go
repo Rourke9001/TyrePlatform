@@ -1,7 +1,9 @@
-// Package store owns the database connection and the tenant-context
-// transaction pattern. Every tenant-scoped query in the API goes through
-// InTenantTx; a query on the bare pool has no tenant bound and RLS returns
-// it nothing (non-negotiable rule 1, api/CLAUDE.md).
+// Package store owns the database connection and the request-context
+// transaction pattern. Every query in the API goes through InActorTx, which
+// binds the tenant and the actor together and resolves the role from
+// app_user; InTenantTx binds the tenant alone, for work with no actor to
+// resolve. A query on the bare pool has neither bound, and RLS returns it
+// nothing (non-negotiable rule 1, api/CLAUDE.md).
 package store
 
 import (
