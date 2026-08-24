@@ -1,0 +1,32 @@
+-- Reverses 000018: GRANT DELETE back on exactly the revoked list.
+GRANT DELETE ON app.tenant                  TO app_rw;
+GRANT DELETE ON app.configuration           TO app_rw;
+GRANT DELETE ON app.depot                   TO app_rw;
+GRANT DELETE ON app.user_depot              TO app_rw;
+GRANT DELETE ON app.axle_configuration      TO app_rw;
+GRANT DELETE ON app.position                TO app_rw;
+GRANT DELETE ON app.vehicle                 TO app_rw;
+GRANT DELETE ON app.vehicle_driver          TO app_rw;
+GRANT DELETE ON app.combination             TO app_rw;
+GRANT DELETE ON app.combination_member      TO app_rw;
+GRANT DELETE ON app.tyre_size               TO app_rw;
+GRANT DELETE ON app.tyre_brand              TO app_rw;
+GRANT DELETE ON app.tyre_pattern            TO app_rw;
+GRANT DELETE ON app.tyre                    TO app_rw;
+GRANT DELETE ON app.fitment                 TO app_rw;
+GRANT DELETE ON app.inspection              TO app_rw;
+GRANT DELETE ON app.photo                   TO app_rw;
+GRANT DELETE ON app.exception_rule          TO app_rw;
+GRANT DELETE ON app.exception               TO app_rw;
+GRANT DELETE ON app.notification            TO app_rw;
+
+GRANT DELETE ON app.operating_group         TO app_rw;
+GRANT DELETE ON app.vehicle_tag             TO app_rw;
+GRANT DELETE ON app.vehicle_tag_map         TO app_rw;
+GRANT DELETE ON app.threshold_policy        TO app_rw;
+GRANT DELETE ON app.retread_job             TO app_rw;
+GRANT DELETE ON app.casing_estimate_by_size TO app_rw;
+GRANT DELETE ON app.tyre_price_list         TO app_rw;
+GRANT DELETE ON app.target_pressure         TO app_rw;
+GRANT DELETE ON app.inspection_schedule     TO app_rw;
+GRANT DELETE ON app.inspection_task         TO app_rw;
