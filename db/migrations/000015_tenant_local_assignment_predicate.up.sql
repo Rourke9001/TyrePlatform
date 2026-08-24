@@ -15,7 +15,7 @@
 -- deterministically; production callers take the default.
 CREATE FUNCTION app.tenant_today(p_tz text, p_at timestamptz DEFAULT now())
 RETURNS date
-LANGUAGE sql STABLE AS $$
+LANGUAGE sql STABLE SET search_path = app, pg_temp AS $$
   SELECT (p_at AT TIME ZONE p_tz)::date
 $$;
 
