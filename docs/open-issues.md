@@ -25,7 +25,7 @@ TYRE-42 recut. What follows is what remains open.
 |---|---|---|---|---|
 | **OI-31** | Do BAC's trailers have hubodometers? | Sponsor | Whether cost-per-km covers the majority or the minority of tyres — trailer distance is MEASURED only from one (CHG-042) | TYRE-43 |
 | **OI-32** | Driver-to-unit assignment: fixed per horse or pooled per trip? Who owns an uncoupled trailer? | Sponsor | Notification/task routing (not schema — `vehicle_driver` supports both) | TYRE-44 |
-| **OI-33** | Obtain BAC's current inspection spreadsheets | Sponsor | History backfill; a check on the capture model | TYRE-45 |
+| **OI-33** | Obtain BAC's current inspection spreadsheets | Sponsor | History backfill; a check on the capture model; whether `reading_staleness_days` splits from `unit_staleness_days` (E1 item 3, TYRE-59) | TYRE-45 |
 | **CHG-106** | Does anyone actually *measure* pressure during today's walk-around, or is tread the only thing gauged? | Sponsor | How much weight the inflation-compliance figures deserve | TYRE-46 |
 
 ## Domain / legal sign-off
@@ -33,6 +33,7 @@ TYRE-42 recut. What follows is what remains open.
 | ID | Question | Owner | Blocks | Jira |
 |---|---|---|---|---|
 | **CHG-107** | Does SA regulation restrict retreads on steer axles? Seeded as `retreads_permitted = false` for STEER — fleet practice, not a legal claim; no authoritative source found. Pair with OI-17's domain-review list. | Sponsor / domain | Nothing; labelling only until answered | TYRE-47 |
+| **OI-17** | Domain/legal review list — carries (per E1 item 12) the POPIA question: what happens to a deactivated driver's personal information? Default in force: NFR-PRV-004 — retained 84 months, then pseudonymised. | Sponsor / domain | Nothing; the default governs until answered | TYRE-64 |
 | **OI-16** | The 2021 report pack (the printed source of the Appendix E worked examples) — would have to be dug for. Low priority: the worked examples are already pinned to the cent. | Sponsor | Nothing | — |
 
 ## Not technical, still first
