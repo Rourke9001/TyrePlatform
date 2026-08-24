@@ -5,6 +5,7 @@ import { MemoryRouter } from "react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ActorContext } from "./auth/actorContext";
+import { ActorProvider } from "./auth/ActorProvider";
 import { AppRoutes } from "./routes";
 import type { Me } from "./auth/me";
 
@@ -16,13 +17,10 @@ const actor = (capabilities: string[]): Me => ({
   depots: [],
 });
 
-// DriverHome and VehicleList both fetch through TanStack Query, and the
-// default QueryClient retries a failed request three times with backoff —
-// against a live `fetch` that schedules retry timers that outlive the test
-// body (Task 6 review). `fetch` is stubbed with a real Response so every
-// route can be driven to a specific status without a network call. Returning
-// the mock lets a test assert on what apiGet actually sent, not just what it
-// rendered.
+// DriverHome and VehicleList both fetch through TanStack Query. `fetch` is
+// stubbed with a real Response so every route can be driven to a specific
+// status without a network call. Returning the mock lets a test assert on
+// what apiGet actually sent, not just what it rendered.
 function mockFetchJson(status: number, body: unknown): Mock<typeof fetch> {
   const mock: Mock<typeof fetch> = vi.fn();
   mock.mockResolvedValue(new Response(JSON.stringify(body), { status }));
@@ -37,13 +35,17 @@ afterEach(() => {
   window.localStorage.removeItem(DEV_ACTOR_STORAGE_KEY);
 });
 
+// Shared by every test that needs a QueryClient: the default retries a
+// failed request three times with backoff, which would otherwise schedule
+// timers that outlive the test body (Task 6 review).
+function testClient(): QueryClient {
+  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+}
+
 function renderAt(path: string, me: Me) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
   render(
-    <QueryClientProvider client={queryClient}>
-      <ActorContext value={me}>
+    <QueryClientProvider client={testClient()}>
+      <ActorContext value={{ actor: me, settled: true }}>
         <MemoryRouter initialEntries={[path]}>
           <AppRoutes />
         </MemoryRouter>
@@ -107,5 +109,42 @@ describe("AppRoutes", () => {
     // HeadersInit also allows an array of pairs or a Headers instance, and
     // this must hold regardless of which shape apiGet chooses to send.
     expect(new Headers(init?.headers).get("X-User-ID")).toBe(devActorId);
+  });
+
+  // The redirect is one-shot, so a decision taken before GET /api/me answers
+  // is never revised. Mounting the real provider is the only way to exercise
+  // that: renderAt injects the actor synchronously and cannot see this class
+  // of bug (fix round 1, Finding 1).
+  it("waits for the actor before choosing a landing view", async () => {
+    const controller: Me = {
+      userId: "u1",
+      displayName: "Nomsa",
+      role: "CONTROLLER",
+      capabilities: ["ViewFleet", "CaptureInspection"],
+      depots: [],
+    };
+    // Deliberately not resolved yet: the assertion below is that nothing has
+    // navigated while it is outstanding.
+    let release!: (value: Response) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>((resolve) => (release = resolve))),
+    );
+
+    render(
+      <QueryClientProvider client={testClient()}>
+        <MemoryRouter initialEntries={["/"]}>
+          <ActorProvider>
+            <AppRoutes />
+          </ActorProvider>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(screen.queryByRole("heading", { name: /inspections/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /vehicles/i })).toBeNull();
+
+    release(new Response(JSON.stringify(controller), { status: 200 }));
+    expect(await screen.findByRole("heading", { name: /vehicles/i })).toBeDefined();
   });
 });
