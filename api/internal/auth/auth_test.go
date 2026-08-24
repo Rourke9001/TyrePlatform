@@ -95,3 +95,24 @@ func TestCapabilitiesIsACopy(t *testing.T) {
 	require.Equal(t, []auth.Capability{auth.CaptureInspection}, a.Capabilities())
 	require.False(t, a.Can(auth.ManageUsers))
 }
+
+func TestScopeDefaultsToDepot(t *testing.T) {
+	tests := []struct {
+		role auth.Role
+		want auth.Scope
+	}{
+		{auth.RoleController, auth.ScopeTenant},
+		{auth.RoleOrgAdmin, auth.ScopeTenant},
+		{auth.RoleTechnician, auth.ScopeDepot},
+		{auth.RoleDepotManager, auth.ScopeDepot},
+		{auth.RoleDriver, auth.ScopeDepot},
+		{auth.RolePlatformAdmin, auth.ScopeDepot},
+		{auth.Role("SOMETHING_ADDED_LATER"), auth.ScopeDepot},
+		{auth.Role(""), auth.ScopeDepot},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.role), func(t *testing.T) {
+			require.Equal(t, tt.want, auth.Actor{Role: tt.role}.Scope())
+		})
+	}
+}

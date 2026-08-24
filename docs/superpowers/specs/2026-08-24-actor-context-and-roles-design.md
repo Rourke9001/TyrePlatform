@@ -71,6 +71,10 @@ therefore assert **capabilities**, never role names:
 The mapping lives in exactly one place in Go. Separating the two controller
 jobs later is one enum value and one column in that table.
 
+Breadth is not in this table: it is a separate role-keyed `Scope` table in
+`api/internal/auth`, defaulting to depot-narrowed for any role the table does
+not name.
+
 ## Architecture — four refusal layers
 
 | Condition | Result | Enforced by |
@@ -130,7 +134,7 @@ something a user calls:
 | Endpoint | Capability | Reads through |
 | --- | --- | --- |
 | `GET /api/me` | any actor | `app.app_user`, `app.user_depot` |
-| `GET /api/vehicles` | `ViewFleet` | whole tenant, or `app.v_depot_vehicle` for the depot roles |
+| `GET /api/vehicles` | `ViewFleet` | `app.v_depot_vehicle`, or the whole tenant (`app.vehicle`) for `ScopeTenant` roles |
 | `GET /api/my/vehicles` | `CaptureInspection` | `app.v_driver_vehicle` |
 | `GET /api/my/tasks` | `CaptureInspection` | `app.v_my_inspection_task` |
 
