@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 
@@ -226,7 +227,10 @@ func TestInActorTxResolvesRoleAndDepotsFromTheDatabase(t *testing.T) {
 	ctx := context.Background()
 	s, admin, a, _ := openFixtures(t, ctx)
 	userID := plantUser(t, ctx, admin, a.id, auth.RoleDepotManager, true)
-	depotID := plantDepotFor(t, ctx, admin, a.id, userID)
+	depotA := plantDepotFor(t, ctx, admin, a.id, userID)
+	depotB := plantDepotFor(t, ctx, admin, a.id, userID)
+	want := []uuid.UUID{depotA, depotB}
+	sort.Slice(want, func(i, j int) bool { return want[i].String() < want[j].String() })
 
 	var got auth.Actor
 	require.NoError(t, s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, actor auth.Actor) error {
@@ -237,7 +241,7 @@ func TestInActorTxResolvesRoleAndDepotsFromTheDatabase(t *testing.T) {
 	require.Equal(t, userID, got.UserID)
 	require.Equal(t, a.id, got.TenantID)
 	require.Equal(t, auth.RoleDepotManager, got.Role)
-	require.Equal(t, []uuid.UUID{depotID}, got.DepotIDs)
+	require.Equal(t, want, got.DepotIDs)
 	require.True(t, got.Can(auth.ManageAssets))
 }
 
@@ -303,10 +307,19 @@ func TestActorContextDoesNotLeakAcrossTransactions(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 
-	require.NoError(t, s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, _ auth.Actor) error { return nil }))
+	require.NoError(t, s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, actor auth.Actor) error {
+		require.Len(t, actor.DepotIDs, 1, "the actor must see their own depot inside the transaction")
+		return nil
+	}))
 
+	// Tenant bound, actor deliberately not, on the same physical connection.
+	// v_actor_depot keys on app.actor_id, so a binding that outlived its
+	// transaction would still show the previous actor's depot here. Querying
+	// app.user_depot instead could not tell the two bindings apart: its policy
+	// references only the tenant.
 	var count int
-	err = s.Pool().QueryRow(ctx, `SELECT count(*) FROM app.user_depot`).Scan(&count)
-	require.NoError(t, err)
+	require.NoError(t, s.InTenantTx(ctx, a.id, func(tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT count(*) FROM app.v_actor_depot`).Scan(&count)
+	}))
 	require.Zero(t, count, "actor context must not survive the transaction on a pooled connection")
 }
