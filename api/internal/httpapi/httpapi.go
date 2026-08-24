@@ -325,6 +325,9 @@ func listMyTasks(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
 			}
+			// The scope view must stay the driving relation: app.vehicle is
+			// reached only through v_my_inspection_task's already-narrowed
+			// rows, never joined the other way round (ADR-0006).
 			rows, err := tx.Query(ctx,
 				`SELECT t.id, t.vehicle_id, v.fleet_number, t.due_at, t.state::text, t.overdue
 				   FROM app.v_my_inspection_task t
