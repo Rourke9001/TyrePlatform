@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -310,7 +311,14 @@ func TestUserFromAnotherTenantIsForbidden(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 }
 
-func plantDepotVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, userID uuid.UUID) string {
+// plantDepotWithVehicle plants a depot and a vehicle homed at it, with no
+// membership. Callers join the actor separately, so a test can also plant a
+// depot the actor is deliberately not a member of.
+//
+// The axle-configuration code is unique per call (app.axle_configuration
+// carries UNIQUE (tenant_id, code, version)): a test that plants more than
+// one depot in the same tenant collides on a shared 'DEPOTTEST' code.
+func plantDepotWithVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
 	t.Helper()
 	suffix := uuid.NewString()[:8]
 
@@ -320,23 +328,33 @@ func plantDepotVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenan
 		tenantID, "depot-"+suffix,
 	).Scan(&depotID))
 
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.user_depot (tenant_id, user_id, depot_id) VALUES ($1, $2, $3)`,
-		tenantID, userID, depotID)
-	require.NoError(t, err)
-
 	var configID uuid.UUID
 	require.NoError(t, admin.QueryRow(ctx,
 		`INSERT INTO app.axle_configuration (tenant_id, code, name, axle_count)
-		 VALUES ($1, 'DEPOTTEST', 'depot test rig', 2) RETURNING id`, tenantID,
+		 VALUES ($1, $2, 'depot test rig', 2) RETURNING id`, tenantID, "DEPOTTEST-"+suffix,
 	).Scan(&configID))
 
 	fleet := "DEPOT-" + suffix
-	_, err = admin.Exec(ctx,
+	_, err := admin.Exec(ctx,
 		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, home_depot_id)
 		 VALUES ($1, $2, $3, $4)`,
 		tenantID, fleet, configID, depotID)
 	require.NoError(t, err)
+	return depotID, fleet
+}
+
+func joinDepot(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, userID, depotID uuid.UUID) {
+	t.Helper()
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.user_depot (tenant_id, user_id, depot_id) VALUES ($1, $2, $3)`,
+		tenantID, userID, depotID)
+	require.NoError(t, err)
+}
+
+func plantDepotVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, userID uuid.UUID) string {
+	t.Helper()
+	depotID, fleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, userID, depotID)
 	return fleet
 }
 
@@ -384,25 +402,53 @@ func TestFleetListIsCapabilityGated(t *testing.T) {
 	}
 }
 
-// FR-AUT-006/008: the depot roles read the fleet through the depot predicate,
-// so a unit based elsewhere in the same tenant is invisible to them while a
-// CONTROLLER sees both.
+// ADR-0011: PLATFORM_ADMIN rows carry a NULL tenant_id, so the actor lookup
+// inside a tenant-bound transaction cannot see them. The refusal is layer 2,
+// unresolvable actor — the capability gate is never reached, and the client
+// cannot tell this apart from a user that does not exist.
+func TestPlatformAdminCannotActInATenant(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "platform")
+
+	var userID uuid.UUID
+	suffix := uuid.NewString()[:8]
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.app_user (tenant_id, email, display_name, role)
+		 VALUES (NULL, $1, $2, 'PLATFORM_ADMIN') RETURNING id`,
+		"platform-"+suffix+"@example.invalid", "Platform Admin "+suffix,
+	).Scan(&userID))
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	require.Equal(t, http.StatusForbidden,
+		get(t, h, "/api/vehicles", tenantID.String(), userID.String()).Code)
+}
+
+// FR-AUT-006/008: the depot roles read the fleet through the depot predicate.
+// The negative case is a vehicle homed at a *different* depot, not one homed
+// nowhere — a NULL home_depot_id is excluded by any depot join at all, so it
+// cannot tell a working predicate from a broken one.
 func TestFleetListIsDepotScopedForDepotRoles(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantID, elsewhere := plantTenantWithVehicle(t, ctx, admin, "scoped")
-	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
-	mine := plantDepotVehicle(t, ctx, admin, tenantID, technician)
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	tenantID, _ := plantTenant(t, ctx, admin, "scoped")
+	_, elsewhere := plantDepotWithVehicle(t, ctx, admin, tenantID)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
-	scoped := fleetNumbers(t, get(t, h, "/api/vehicles", tenantID.String(), technician.String()))
-	require.Contains(t, scoped, mine)
-	require.NotContains(t, scoped, elsewhere, "a depot-scoped role must not see a unit based elsewhere")
+	for _, role := range []auth.Role{auth.RoleTechnician, auth.RoleDepotManager} {
+		t.Run(string(role), func(t *testing.T) {
+			user := plantUser(t, ctx, admin, tenantID, role)
+			mine := plantDepotVehicle(t, ctx, admin, tenantID, user)
 
+			got := fleetNumbers(t, get(t, h, "/api/vehicles", tenantID.String(), user.String()))
+			require.Equal(t, []string{mine}, got,
+				"a depot role sees its own depot's units and no others")
+		})
+	}
+
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	whole := fleetNumbers(t, get(t, h, "/api/vehicles", tenantID.String(), controller.String()))
-	require.Contains(t, whole, mine)
 	require.Contains(t, whole, elsewhere, "a controller reads the whole tenant (FR-AUT-007)")
 }
 
@@ -445,4 +491,54 @@ func TestMyTasksNeedsCaptureCapability(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, get(t, h, "/api/my/tasks", tenantID.String(), driver.String()).Code)
 	require.Equal(t, http.StatusForbidden, get(t, h, "/api/my/tasks", tenantID.String(), technician.String()).Code)
+}
+
+// FR-DSH-012. The scope view is the only thing keeping one driver's work list
+// from being everyone's, so this asserts rows and not merely a status: a
+// handler reading app.inspection_task directly answers 200 with the whole
+// tenant's tasks, which no status-code assertion can see.
+func TestMyTasksAreActorScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, fleet := plantTenantWithVehicle(t, ctx, admin, "mytasks")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	other := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+
+	var vehicleID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet,
+	).Scan(&vehicleID))
+
+	var mine uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
+		 VALUES ($1, $2, now() - interval '1 day', $3, 'OPEN') RETURNING id`,
+		tenantID, vehicleID, driver,
+	).Scan(&mine))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
+		 VALUES ($1, $2, now() + interval '1 day', $3, 'OPEN')`,
+		tenantID, vehicleID, other)
+	require.NoError(t, err)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/my/tasks", tenantID.String(), driver.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var tasks []struct {
+		ID          string `json:"id"`
+		FleetNumber string `json:"fleetNumber"`
+		DueAt       string `json:"dueAt"`
+		State       string `json:"state"`
+		Overdue     bool   `json:"overdue"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tasks))
+	require.Len(t, tasks, 1, "a driver sees their own task and no one else's")
+	require.Equal(t, mine.String(), tasks[0].ID)
+	require.Equal(t, fleet, tasks[0].FleetNumber)
+	require.Equal(t, "OPEN", tasks[0].State)
+	require.True(t, tasks[0].Overdue, "a task past its due date reads overdue")
+	_, perr := time.Parse(time.RFC3339, tasks[0].DueAt)
+	require.NoError(t, perr, "dueAt is RFC3339")
 }

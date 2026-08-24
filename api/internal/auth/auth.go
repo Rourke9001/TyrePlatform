@@ -49,6 +49,32 @@ var capabilities = map[Role][]Capability{
 	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ManageConfig, ManageUsers},
 }
 
+// Scope is how much of the tenant an actor reads. It is deliberately not a
+// capability: CONTROLLER and DEPOT_MANAGER may do the same things
+// (FR-AUT-008) and differ only in breadth, so folding breadth into the
+// capability table would make two different questions share one answer.
+// Handlers ask for the scope and compose the matching view; the role name
+// stays in this package.
+type Scope int
+
+const (
+	// ScopeDepot is the zero value on purpose. A role absent from the table
+	// below reads only its own depots, so a role added later without a scope
+	// entry is under-permissioned and visibly broken rather than silently
+	// handed the whole tenant.
+	ScopeDepot Scope = iota
+	ScopeTenant
+)
+
+// FR-AUT-006/007/008. Only the tenant-wide roles appear; everything else
+// takes the depot-narrowed zero value.
+var scopes = map[Role]Scope{
+	RoleController: ScopeTenant,
+	RoleOrgAdmin:   ScopeTenant,
+}
+
+func (a Actor) Scope() Scope { return scopes[a.Role] }
+
 // Actor is the resolved caller: who they are, which tenant they act for, and
 // what the database says they may do.
 type Actor struct {

@@ -247,20 +247,26 @@ type vehicleJSON struct {
 // and is refused here rather than filtered — FR-AUT-005 is about what they
 // may ask for, not only about what comes back. Their route is /api/my/vehicles.
 //
-// The depot roles read through app.v_depot_vehicle rather than re-deriving
-// the join; there is exactly one definition of "within my depots" and it is
-// in SQL (ADR-0006, FR-AUT-006/008).
+// The source relation is chosen by auth.Actor.Scope, never by role name
+// (ADR-0006): the depot-narrowed app.v_depot_vehicle is the default and
+// app.vehicle — the whole tenant — is the exception earned only by
+// ScopeTenant. A role added later without a scope entry lands on the narrow
+// default rather than silently reading everything (FR-AUT-006/007/008).
 func listVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
+		// Initialised, not nil: writeJSON encodes whatever it is handed, so an
+		// empty result must already be []T{} here or the client gets JSON
+		// `null` instead of `[]` for "no rows" (repeated below and in
+		// listMyVehicles/listMyTasks — same reason each time).
 		vehicles := []vehicleJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
-			source := `app.vehicle`
-			if a.Role == auth.RoleTechnician || a.Role == auth.RoleDepotManager {
-				source = `app.v_depot_vehicle`
+			source := `app.v_depot_vehicle`
+			if a.Scope() == auth.ScopeTenant {
+				source = `app.vehicle`
 			}
 			var err error
 			vehicles, err = scanVehicles(ctx, tx,
@@ -364,8 +370,9 @@ func scanVehicles(ctx context.Context, tx pgx.Tx, query string) ([]vehicleJSON, 
 	return vehicles, rows.Err()
 }
 
-// writeJSON keeps the empty case an empty array rather than null: a client
-// distinguishing "no rows" from "field absent" is a bug waiting to happen.
+// writeJSON is the one encode-and-log path shared by the list handlers. It
+// encodes exactly what it is handed — the empty-vs-null guarantee belongs to
+// each caller's slice initialisation, not to this function.
 func writeJSON(ctx context.Context, w http.ResponseWriter, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(body); err != nil {
