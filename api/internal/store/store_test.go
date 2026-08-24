@@ -2,6 +2,7 @@ package store_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
+	"tyreplatform/api/internal/auth"
 	"tyreplatform/api/internal/store"
 )
 
@@ -181,4 +183,130 @@ func TestTenantContextDoesNotLeakAcrossTransactions(t *testing.T) {
 	err = s.Pool().QueryRow(ctx, `SELECT count(*) FROM app.vehicle`).Scan(&count)
 	require.NoError(t, err)
 	require.Zero(t, count, "tenant context must not survive the transaction on a pooled connection")
+}
+
+// plantUser adds a user to a planted tenant via the admin connection. The
+// role is bound like any other parameter; the cast is what tells Postgres the
+// text is a user_role.
+func plantUser(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, role auth.Role, active bool) uuid.UUID {
+	t.Helper()
+	suffix := uuid.NewString()[:8]
+
+	var userID uuid.UUID
+	err := admin.QueryRow(ctx,
+		`INSERT INTO app.app_user (tenant_id, email, display_name, role, active)
+		 VALUES ($1, $2, $3, $4::app.user_role, $5) RETURNING id`,
+		tenantID, "store-test-"+suffix+"@example.invalid", "Store Test "+suffix, string(role), active,
+	).Scan(&userID)
+	require.NoError(t, err)
+	return userID
+}
+
+func plantDepotFor(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+
+	var depotID uuid.UUID
+	err := admin.QueryRow(ctx,
+		`INSERT INTO app.depot (tenant_id, name, type) VALUES ($1, $2, 'DEPOT') RETURNING id`,
+		tenantID, "store-test-depot-"+uuid.NewString()[:8],
+	).Scan(&depotID)
+	require.NoError(t, err)
+
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.user_depot (tenant_id, user_id, depot_id) VALUES ($1, $2, $3)`,
+		tenantID, userID, depotID,
+	)
+	require.NoError(t, err)
+	return depotID
+}
+
+// The role is read from app.app_user, never supplied by the caller
+// (ADR-0011), so planting a role and reading it back is the whole contract.
+func TestInActorTxResolvesRoleAndDepotsFromTheDatabase(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDepotManager, true)
+	depotID := plantDepotFor(t, ctx, admin, a.id, userID)
+
+	var got auth.Actor
+	require.NoError(t, s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, actor auth.Actor) error {
+		got = actor
+		return nil
+	}))
+
+	require.Equal(t, userID, got.UserID)
+	require.Equal(t, a.id, got.TenantID)
+	require.Equal(t, auth.RoleDepotManager, got.Role)
+	require.Equal(t, []uuid.UUID{depotID}, got.DepotIDs)
+	require.True(t, got.Can(auth.ManageAssets))
+}
+
+// FR-AUT-011: deactivation is the only way a user goes away, and it must bite
+// on the next request rather than at token expiry.
+func TestInActorTxRefusesDeactivatedUser(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleController, false)
+
+	err := s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, _ auth.Actor) error {
+		t.Fatal("fn must not run for a deactivated user")
+		return nil
+	})
+	require.ErrorIs(t, err, store.ErrNoSuchActor)
+}
+
+// A tenant claimed wrongly, or forged, needs no special case: RLS hides the
+// user row and the resolution simply finds nothing.
+func TestInActorTxRefusesUserFromAnotherTenant(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, b := openFixtures(t, ctx)
+	userInB := plantUser(t, ctx, admin, b.id, auth.RoleOrgAdmin, true)
+
+	err := s.InActorTx(ctx, a.id, userInB, func(_ pgx.Tx, _ auth.Actor) error {
+		t.Fatal("fn must not run for a user outside the bound tenant")
+		return nil
+	})
+	require.ErrorIs(t, err, store.ErrNoSuchActor)
+}
+
+func TestInActorTxRefusesUnknownUser(t *testing.T) {
+	ctx := context.Background()
+	s, _, a, _ := openFixtures(t, ctx)
+
+	err := s.InActorTx(ctx, a.id, uuid.New(), func(_ pgx.Tx, _ auth.Actor) error {
+		t.Fatal("fn must not run for a user that does not exist")
+		return nil
+	})
+	require.ErrorIs(t, err, store.ErrNoSuchActor)
+	require.True(t, errors.Is(err, store.ErrNoSuchActor))
+}
+
+// The actor binding must die with the transaction for exactly the reason the
+// tenant binding does: a pooled connection must not carry one user's scope
+// into the next request.
+func TestActorContextDoesNotLeakAcrossTransactions(t *testing.T) {
+	ctx := context.Background()
+	appURL, adminURL := testURLs(t)
+
+	admin, err := pgx.Connect(ctx, adminURL)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = admin.Close(context.Background()) })
+	a := plantTenant(t, ctx, admin, "actor-leak")
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleTechnician, true)
+	plantDepotFor(t, ctx, admin, a.id, userID)
+
+	sep := "?"
+	if strings.Contains(appURL, "?") {
+		sep = "&"
+	}
+	s, err := store.New(ctx, appURL+sep+"pool_max_conns=1")
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	require.NoError(t, s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, _ auth.Actor) error { return nil }))
+
+	var count int
+	err = s.Pool().QueryRow(ctx, `SELECT count(*) FROM app.user_depot`).Scan(&count)
+	require.NoError(t, err)
+	require.Zero(t, count, "actor context must not survive the transaction on a pooled connection")
 }

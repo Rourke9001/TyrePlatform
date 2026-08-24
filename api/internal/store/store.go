@@ -6,11 +6,14 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"tyreplatform/api/internal/auth"
 )
 
 type Store struct {
@@ -64,4 +67,88 @@ func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.
 		return fmt.Errorf("committing tenant transaction: %w", err)
 	}
 	return nil
+}
+
+// ErrNoSuchActor means the request named a user this tenant cannot see, or
+// one that has been deactivated. The two are the same refusal to a client and
+// distinguishable only in the log (FR-AUT-011, ADR-0011).
+var ErrNoSuchActor = errors.New("actor not found or inactive")
+
+// InActorTx runs fn inside a transaction with app.tenant_id and app.actor_id
+// both bound, having first resolved the actor from app.app_user under RLS.
+//
+// The role is never taken from the caller. A token can be stale and a header
+// can be forged; app.app_user is the register of record, and reading it here
+// is what makes deactivation bite on the next request rather than at token
+// expiry (ADR-0011, NFR-SEC-006).
+func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn func(pgx.Tx, auth.Actor) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning actor transaction: %w", err)
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
+
+	if _, err := tx.Exec(ctx,
+		`SELECT set_config('app.tenant_id', $1, true), set_config('app.actor_id', $2, true)`,
+		tenantID.String(), userID.String()); err != nil {
+		return fmt.Errorf("binding actor context: %w", err)
+	}
+
+	actor := auth.Actor{UserID: userID, TenantID: tenantID}
+	var roleName string
+	var active bool
+	// The tenant_isolation policy does the tenant check: a user belonging to
+	// another tenant is not visible here, so a wrong tenant needs no branch.
+	// role is cast to text because the enum's OID is not in pgx's type map.
+	err = tx.QueryRow(ctx,
+		`SELECT display_name, role::text, active FROM app.app_user WHERE id = $1`, userID).
+		Scan(&actor.DisplayName, &roleName, &active)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNoSuchActor
+	}
+	if err != nil {
+		return fmt.Errorf("resolving actor: %w", err)
+	}
+	if !active {
+		return ErrNoSuchActor
+	}
+	actor.Role = auth.Role(roleName)
+
+	depots, err := actorDepots(ctx, tx)
+	if err != nil {
+		return err
+	}
+	actor.DepotIDs = depots
+
+	if err := fn(tx, actor); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing actor transaction: %w", err)
+	}
+	return nil
+}
+
+// actorDepots reads the depot scope through the single view that defines it
+// (ADR-0006). The view keys on app.actor_id, already bound above, so this
+// cannot read another user's scope.
+func actorDepots(ctx context.Context, tx pgx.Tx) ([]uuid.UUID, error) {
+	rows, err := tx.Query(ctx, `SELECT depot_id FROM app.v_actor_depot ORDER BY depot_id`)
+	if err != nil {
+		return nil, fmt.Errorf("reading actor depots: %w", err)
+	}
+	defer rows.Close()
+
+	var ids []uuid.UUID
+	for rows.Next() {
+		var id uuid.UUID
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("reading actor depots: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("reading actor depots: %w", err)
+	}
+	return ids, nil
 }
