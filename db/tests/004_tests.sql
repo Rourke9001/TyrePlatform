@@ -355,6 +355,35 @@ BEGIN
   RAISE NOTICE 'PASS  users are deactivated, never deleted';
 END $$;
 
+-- FR-AUT-022 (errata E1 note): staff numbers are unique among ACTIVE users
+-- and reusable across time — the display-code lesson of 000011 applied to
+-- people. TYRE-64 carries the sponsor question; this partial-index default
+-- survives both possible answers. Transaction-scoped: nothing persists.
+BEGIN;
+DO $$
+DECLARE dup boolean := false;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, staff_number, role, active)
+  VALUES (md5('staffprobe1')::uuid, '11111111-1111-1111-1111-111111111111',
+          'staffprobe1@example.invalid', 'Staff probe one', 'EMP9001', 'DRIVER', true);
+  BEGIN
+    INSERT INTO app.app_user (id, tenant_id, email, display_name, staff_number, role, active)
+    VALUES (md5('staffprobe2')::uuid, '11111111-1111-1111-1111-111111111111',
+            'staffprobe2@example.invalid', 'Staff probe two', 'EMP9001', 'DRIVER', true);
+    dup := true;
+  EXCEPTION WHEN unique_violation THEN NULL;
+  END;
+  IF dup THEN RAISE EXCEPTION 'FAIL: two ACTIVE users share staff_number EMP9001'; END IF;
+  -- deactivation frees the number: unique among things currently in play
+  UPDATE app.app_user SET active = false WHERE id = md5('staffprobe1')::uuid;
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, staff_number, role, active)
+  VALUES (md5('staffprobe3')::uuid, '11111111-1111-1111-1111-111111111111',
+          'staffprobe3@example.invalid', 'Staff probe three', 'EMP9001', 'DRIVER', true);
+  RAISE NOTICE 'PASS  staff numbers are unique among active users, reusable after deactivation';
+END $$;
+ROLLBACK;
+
 \echo '== 12. Every table in schema app is under forced RLS'
 -- Structural companion to the data sweep in check 2: that sweep only visits
 -- tables that already have RLS, so a table someone forgot to enrol would
@@ -475,6 +504,48 @@ BEGIN
   RAISE NOTICE 'PASS  a driver sees exactly their current vehicles; foreign or unset actor sees none';
 END $$;
 
+-- The predicate reads "today" from the tenant's calendar (FR-AUT-005,
+-- CR-003): at 00:30 SAST the UTC calendar still says yesterday, which under
+-- 000003 hid a driver assigned from today exactly when a long-haul pre-trip
+-- walk-around happens. Pinned through the injectable clock so the midnight
+-- boundary holds whatever time the suite runs.
+DO $$
+BEGIN
+  IF app.tenant_today('Africa/Johannesburg', timestamptz '2026-08-24 00:30:00+02:00')
+       IS DISTINCT FROM date '2026-08-24' THEN
+    RAISE EXCEPTION 'FAIL: tenant_today reads [%] at 00:30 SAST',
+      app.tenant_today('Africa/Johannesburg', timestamptz '2026-08-24 00:30:00+02:00');
+  END IF;
+  -- control: the same instant on the UTC calendar is the previous day, so
+  -- the assertion above genuinely distinguishes the two predicates
+  IF (timestamptz '2026-08-24 00:30:00+02:00' AT TIME ZONE 'UTC')::date
+       IS DISTINCT FROM date '2026-08-23' THEN
+    RAISE EXCEPTION 'FAIL: UTC control no longer distinguishes the calendars';
+  END IF;
+  RAISE NOTICE 'PASS  tenant_today puts 00:30 SAST on the tenant''s civil date';
+END $$;
+
+-- The live path: an assignment starting on the tenant's civil date is
+-- current through v_current_assignment. Transaction-scoped: nothing persists.
+BEGIN;
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+  SELECT v.tenant_id, v.id, md5('driver3')::uuid, app.tenant_today(t.timezone)
+    FROM app.vehicle v
+    JOIN app.tenant t ON t.id = v.tenant_id
+   WHERE v.fleet_number = 'LINK6'
+     AND v.tenant_id = '11111111-1111-1111-1111-111111111111';
+  SELECT count(*) INTO n FROM app.v_current_assignment
+   WHERE user_id = md5('driver3')::uuid AND fleet_number = 'LINK6';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL: same-day assignment not current in the tenant timezone (saw %)', n;
+  END IF;
+END $$;
+ROLLBACK;
+
 \echo '== 16. Foreign keys cannot dangle across tenants (CR-001, DR-017)'
 -- FK checks bypass RLS by design, so an id-only FK lets a session reference —
 -- and through triggers, corrupt — a row it cannot see (TYRE-29). First the
@@ -562,10 +633,13 @@ END $$;
 
 -- Stock split (FR-VAL-012), audit-tread fallback (FR-TYR-030..034) and the
 -- FR-TYR-032 exclusion, probed with two throwaway in-stock tyres.
+-- Transaction-scoped: DR-014a revoked DELETE, so probes roll back instead of
+-- cleaning up, and the estate totals later checks pin stay untouched.
+BEGIN;
 DO $$
 DECLARE got text; n int; v numeric; c numeric; tot numeric;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state,last_tread_mm)
   VALUES (md5('valprobe1')::uuid,'11111111-1111-1111-1111-111111111111','PROBE1','NEW','2024-03-01',4320.00,25.0,205.7100,100.00,'IN_STOCK',10.0);
   INSERT INTO app.tyre (id,tenant_id,display_code,status,casing_value,state)
@@ -594,20 +668,46 @@ BEGIN
   IF n <> 1 OR v IS DISTINCT FROM 21805.26 OR c IS DISTINCT FROM 49762.50 OR tot IS DISTINCT FROM 71567.76 THEN
     RAISE EXCEPTION 'FAIL: with probes unvalued=% tread=% casing=% total=%, expected 1/21805.26/49762.50/71567.76', n, v, c, tot; END IF;
 
-  DELETE FROM app.tyre WHERE display_code IN ('PROBE1','PROBE2');
-  SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
-  IF v IS DISTINCT FROM 20571.00 THEN
-    RAISE EXCEPTION 'FAIL: totals did not restore after probe cleanup, got %', v; END IF;
   RAISE NOTICE 'PASS  stock is split out, audit tread values, incomplete records are excluded not invented';
 END $$;
+ROLLBACK;
+
+-- Rule 8 through the production path: rand_per_mm is the tyre's own figure,
+-- never the pattern's — SP431's real batches diverge (R205.71 vs R284.38).
+-- Check 7 pins the pure function; this pins the register reading real rows.
+-- Transaction-scoped on purpose: a persisted second SP431 tyre would move
+-- estate totals (BR-VAL-008), per-unit counts and band distributions — the
+-- coupling check 20's probes already carry (TYRE-62).
+BEGIN;
+DO $$
+DECLARE v1 numeric; v2 numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, pattern_id, status, purchase_date,
+                        purchase_price, new_tread_mm, rand_per_mm, casing_value, state, last_tread_mm)
+  VALUES
+    (md5('rateprobe1')::uuid, '11111111-1111-1111-1111-111111111111', 'RATEPROBE1',
+     md5('pt1')::uuid, 'NEW', '2021-02-01', 4319.91, 25.0, 205.7100, 100.00, 'IN_STOCK', 12.0),
+    (md5('rateprobe2')::uuid, '11111111-1111-1111-1111-111111111111', 'RATEPROBE2',
+     md5('pt1')::uuid, 'NEW', '2021-07-01', 5972.00, 25.0, 284.3800, 100.00, 'IN_STOCK', 12.0);
+  SELECT tread_value INTO v1 FROM app.v_tyre_valuation WHERE display_code = 'RATEPROBE1';
+  SELECT tread_value INTO v2 FROM app.v_tyre_valuation WHERE display_code = 'RATEPROBE2';
+  IF v1 IS DISTINCT FROM 1645.68 OR v2 IS DISTINCT FROM 2275.04 THEN
+    RAISE EXCEPTION 'FAIL: one pattern, one tread, register valued [%]/[%], expected 1645.68/2275.04', v1, v2;
+  END IF;
+  RAISE NOTICE 'PASS  two tyres sharing a pattern value at their own rand_per_mm through the register';
+END $$;
+ROLLBACK;
 
 -- The threshold is tenant policy, not a constant (FR-CFG-010, CR-005, CHG-111):
 -- threshold_policy is the one source the resolvers read, so prove the
 -- valuation follows a POLICY ROW change. 67mm remain over a 6mm threshold.
+-- Transaction-scoped probe; the rollback IS the cleanup under DR-014a.
+BEGIN;
 DO $$
 DECLARE v numeric;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,scrap_threshold_mm)
   VALUES (md5('thrprobe6')::uuid,'11111111-1111-1111-1111-111111111111',6.0,6.0);
   SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
@@ -616,36 +716,54 @@ BEGIN
   SELECT tread_value INTO v FROM app.v_tyre_valuation WHERE display_code = '2102BAC2';
   IF v IS DISTINCT FROM 1645.68 THEN
     RAISE EXCEPTION 'FAIL: 2102BAC2 at 6mm threshold expected 1645.68, got %', v; END IF;
-  DELETE FROM app.threshold_policy WHERE id = md5('thrprobe6')::uuid;
+END $$;
+ROLLBACK;
+
+DO $$
+DECLARE v numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
   IF v IS DISTINCT FROM 20571.00 THEN
-    RAISE EXCEPTION 'FAIL: totals did not restore after threshold cleanup, got %', v; END IF;
-
-  -- the retired config key must be gone AND inert: a stray row must not
-  -- out-resolve the policy table (no dual source, CHG-111)
+    RAISE EXCEPTION 'FAIL: totals did not restore after the threshold probe, got %', v; END IF;
+  -- the retired config key must be gone (no dual source, CHG-111)
   IF EXISTS (SELECT 1 FROM app.configuration
               WHERE key IN ('removal_threshold_mm','warning_threshold_mm')) THEN
     RAISE EXCEPTION 'FAIL: retired threshold config key still seeded'; END IF;
+END $$;
+
+-- ...and inert: a stray retired row must not out-resolve the policy table.
+BEGIN;
+DO $$
+DECLARE v numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   INSERT INTO app.configuration (tenant_id,key,value)
   VALUES ('11111111-1111-1111-1111-111111111111','removal_threshold_mm','9'::jsonb);
   SELECT tread_value INTO v FROM app.v_tyre_valuation WHERE display_code = '2102BAC2';
   IF v IS DISTINCT FROM 2057.10 THEN
     RAISE EXCEPTION 'FAIL: a stray retired config key moved the valuation to %', v; END IF;
-  DELETE FROM app.configuration
-   WHERE tenant_id = '11111111-1111-1111-1111-111111111111' AND key = 'removal_threshold_mm';
   RAISE NOTICE 'PASS  a threshold policy row change moves the valuation; the retired key is inert';
 END $$;
+ROLLBACK;
 
 -- A tenant with NO effective threshold row (fresh provisioning, or policy
 -- dated forward) must surface every tyre unvalued — GREATEST(0, NULL) is 0,
 -- so an unguarded call would silently price the whole estate at R0.00 tread,
 -- indistinguishable from a bald fleet. The row's valuation_basis says so out
 -- loud (CHG-115): UNVALUED, never a zero.
+BEGIN;
 DO $$
-DECLARE n int; v numeric;
+DECLARE n int;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  DELETE FROM app.threshold_policy
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  -- DR-014a revoked DELETE from the app role, and privilege checks do not
+  -- care that a transaction rolls back — so shift the baseline out of reach
+  -- instead of destroying it: effective_from = +infinity makes the row
+  -- unresolvable at every as-at date, which is exactly the "no effective
+  -- policy" condition this check probes.
+  UPDATE app.threshold_policy
+     SET effective_from = 'infinity'
    WHERE tenant_id = '11111111-1111-1111-1111-111111111111'
      AND operating_group_id IS NULL AND axle_class IS NULL;
   SELECT count(*) INTO n FROM app.v_tyre_valuation WHERE tread_value IS NOT NULL;
@@ -657,16 +775,19 @@ BEGIN
   SELECT unvalued_count INTO n FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
   IF n IS DISTINCT FROM 27 THEN
     RAISE EXCEPTION 'FAIL: unvalued_count=% with no threshold policy, expected 27', n; END IF;
-  -- restore the seeded row faithfully: its backdated effective_from is what
-  -- lets as-at valuation resolve a policy for historical dates
-  INSERT INTO app.threshold_policy
-    (id,tenant_id,retread_threshold_mm,scrap_threshold_mm,warning_threshold_mm,effective_from)
-  VALUES (md5('11111111-1111-1111-1111-111111111111thrpol-default')::uuid,
-          '11111111-1111-1111-1111-111111111111',4.0,4.0,6.0,'2024-01-01T00:00:00Z');
+  RAISE NOTICE 'PASS  no threshold policy means unvalued and labelled, never a silent R0.00 estate';
+END $$;
+ROLLBACK;
+
+-- The rollback restored the seeded sentinel baseline; prove it, because every
+-- later as-at assertion leans on that row (SRS §5.1, errata E1).
+DO $$
+DECLARE v numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
   IF v IS DISTINCT FROM 20571.00 THEN
-    RAISE EXCEPTION 'FAIL: totals did not restore after policy re-seed, got %', v; END IF;
-  RAISE NOTICE 'PASS  no threshold policy means unvalued and labelled, never a silent R0.00 estate';
+    RAISE EXCEPTION 'FAIL: totals did not come back after the no-policy probe, got %', v; END IF;
 END $$;
 
 -- Foreign-tenant leakage, asserted from the tenant-2 side: the check-8b sweep
@@ -815,10 +936,14 @@ END $$;
 -- resolving the threshold at sync time would backdate a 6mm valuation onto
 -- a day the tenant's policy was still 4mm — the revisionism 000006 disclaims.
 -- 15mm governing over 4mm at R100/mm = R1100.00; under 6mm it would be 900.00.
+-- Transaction-scoped: the probe policy row must not survive into the
+-- month-end block below (it would re-price t2probetyre), and DR-014a means
+-- rollback is the only cleanup the app role has.
+BEGIN;
 DO $$
 DECLARE v numeric; posid uuid;
 BEGIN
-  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,scrap_threshold_mm,effective_from)
   VALUES (md5('t2thrprobe6')::uuid,'22222222-2222-2222-2222-222222222222',6.0,6.0,'2026-08-05T00:00:00Z');
   SELECT pos.id INTO posid
@@ -839,10 +964,9 @@ BEGIN
    WHERE s.tyre_id = md5('t2probetyre')::uuid AND s.as_at = '2026-08-01';
   IF v IS DISTINCT FROM 1100.00 THEN
     RAISE EXCEPTION 'FAIL: late-synced snapshot priced at [%], expected 1100.00 under the policy of its own date', v; END IF;
-  DELETE FROM app.threshold_policy WHERE id = md5('t2thrprobe6')::uuid;
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  a late-synced inspection is priced under the policy of its own date';
 END $$;
+ROLLBACK;
 
 -- FR-VAL-022 month-end pass: every valued tyre, once, idempotent. The
 -- scheduler owns invoking this; here only the effect is pinned.
@@ -867,6 +991,22 @@ BEGIN
     RAISE EXCEPTION 'FAIL: tenant-2 month-end sees %/% , expected its single 800.00 row', n, v; END IF;
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  month-end snapshots every valued tyre exactly once, per tenant';
+END $$;
+
+-- The baseline threshold_policy row is a sentinel (-infinity, SRS §5.1
+-- errata E1): history before onboarding resolves to the baseline, never to
+-- 'no policy configured'. 2021-10-04 is the survey date — exactly the class
+-- of as-at date the old 2024-01-01 seed left unresolvable.
+DO $$
+DECLARE mm numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  mm := app.removal_threshold_mm_for('11111111-1111-1111-1111-111111111111',
+                                     timestamptz '2021-10-04 00:00:00+00');
+  IF mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL: pre-onboarding as-at resolved threshold [%], expected the 4.0 baseline', mm;
+  END IF;
+  RAISE NOTICE 'PASS  the sentinel baseline policy governs history before onboarding';
 END $$;
 
 \echo '== 19. Single-inspection analytics (FR-ANL-023..028, FR-RPT-022/023/037)'
@@ -1004,25 +1144,31 @@ BEGIN
 END $$;
 
 -- CR-005: the bands are configuration. Reconfigure to a two-band policy and
--- the distribution must follow, then restore (check 17's idiom).
+-- the distribution must follow (check 17's transactional idiom: the rollback
+-- is the cleanup under DR-014a).
+BEGIN;
 DO $$
 DECLARE got text;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   INSERT INTO app.configuration (tenant_id,key,value,effective_from)
   VALUES ('11111111-1111-1111-1111-111111111111','tread_bands','[[0,7],[8,null]]'::jsonb,'2024-06-01T00:00:00Z');
   SELECT string_agg(tyre_count::text, ',' ORDER BY band_ordinal) INTO got
     FROM app.v_tread_distribution WHERE level='TENANT' AND position_class='RUNNING';
   IF got IS DISTINCT FROM '15,11' THEN
     RAISE EXCEPTION 'FAIL: reconfigured bands gave [%], expected 15,11', got; END IF;
-  DELETE FROM app.configuration
-   WHERE tenant_id='11111111-1111-1111-1111-111111111111'
-     AND key='tread_bands' AND effective_from='2024-06-01T00:00:00Z';
+  RAISE NOTICE 'PASS  a tread band policy change moves the distribution; nothing is hard-coded';
+END $$;
+ROLLBACK;
+
+DO $$
+DECLARE got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT string_agg(tyre_count::text, ',' ORDER BY band_ordinal) INTO got
     FROM app.v_tread_distribution WHERE level='TENANT' AND position_class='RUNNING';
   IF got IS DISTINCT FROM '9,6,2,7,2' THEN
-    RAISE EXCEPTION 'FAIL: distribution did not restore after band cleanup, got [%]', got; END IF;
-  RAISE NOTICE 'PASS  a tread band policy change moves the distribution; nothing is hard-coded';
+    RAISE EXCEPTION 'FAIL: distribution did not come back after the band probe, got [%]', got; END IF;
 END $$;
 
 -- FR-ANL-025/026 and BR-RPT-004: compliance is over READINGS in a date range,
@@ -1109,6 +1255,9 @@ DO $$
 DECLARE mm numeric; v numeric; posid uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  -- FIXTURE COUPLING (TYRE-62): T2SNAP1 persists, and its readings must all
+  -- stay in September 2026 — valued at 2026-08-31 it would break check 18's
+  -- tenant-2 month-end count of 1.
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2SNAP1') THEN
     INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
     VALUES (md5('t2snap1')::uuid,'22222222-2222-2222-2222-222222222222','T2SNAP1','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
@@ -1187,6 +1336,9 @@ DO $$
 DECLARE n int; v numeric; w numeric; posid uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  -- FIXTURE COUPLING (TYRE-62): T2SNAP2 persists under the same September
+  -- constraint as T2SNAP1 — unvalued at 2026-08-31 or check 18's tenant-2
+  -- month-end count of 1 breaks.
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2SNAP2') THEN
     INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
     VALUES (md5('t2snap2')::uuid,'22222222-2222-2222-2222-222222222222','T2SNAP2','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
@@ -1333,6 +1485,49 @@ BEGIN
     RAISE EXCEPTION 'FAIL: % foreign reading(s) visible from tenant 1', n; END IF;
   RAISE NOTICE 'PASS  nothing check 20 stages in tenant 2 is reachable from tenant 1';
 END $$;
+
+-- TYRE-52 / BR-VAL-008 (errata E1): a month-end snapshot asserts estate
+-- membership AT ITS DATE, judged from the event history — never from
+-- tyre.state, or re-running the repair duty after a disposal would eat valid
+-- history. Transaction-scoped: nothing persists.
+BEGIN;
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, status, rand_per_mm, casing_value, state, last_tread_mm)
+  VALUES (md5('scrapprobe')::uuid, '11111111-1111-1111-1111-111111111111',
+          'SCRAPPROBE', 'NEW', 100.0000, 100.00, 'IN_STOCK', 10.0);
+  -- valued and in the estate: the August month-end holds it
+  PERFORM app.reconcile_valuation_snapshots('11111111-1111-1111-1111-111111111111',
+                                            '2026-08-31', md5('scrapprobe')::uuid, 'ALWAYS');
+  SELECT count(*) INTO n FROM app.valuation_snapshot
+   WHERE tyre_id = md5('scrapprobe')::uuid AND as_at = '2026-08-31';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL: estate-member probe left % August row(s), expected 1', n; END IF;
+
+  -- scrapped mid-September: the September month-end refuses a row
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, from_state, to_state, reason)
+  VALUES ('11111111-1111-1111-1111-111111111111', md5('scrapprobe')::uuid,
+          'SCRAP', '2026-09-15T12:00:00Z', 'IN_STOCK', 'SCRAPPED', 'estate membership probe');
+  UPDATE app.tyre SET state = 'SCRAPPED' WHERE id = md5('scrapprobe')::uuid;
+  PERFORM app.reconcile_valuation_snapshots('11111111-1111-1111-1111-111111111111',
+                                            '2026-09-30', md5('scrapprobe')::uuid, 'ALWAYS');
+  SELECT count(*) INTO n FROM app.valuation_snapshot
+   WHERE tyre_id = md5('scrapprobe')::uuid AND as_at = '2026-09-30';
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: disposed tyre got % September month-end row(s)', n; END IF;
+
+  -- repairing August afterwards keeps the valid August row: membership is
+  -- as-of the snapshot date, not the current state
+  PERFORM app.reconcile_valuation_snapshots('11111111-1111-1111-1111-111111111111',
+                                            '2026-08-31', md5('scrapprobe')::uuid, 'ALWAYS');
+  SELECT count(*) INTO n FROM app.valuation_snapshot
+   WHERE tyre_id = md5('scrapprobe')::uuid AND as_at = '2026-08-31';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL: August repair after the disposal left % row(s); valid history must survive', n;
+  END IF;
+  RAISE NOTICE 'PASS  month-end snapshots assert estate membership as of their own date';
+END $$;
+ROLLBACK;
 
 \echo '== 21. Wear rate and removal forecast (FR-ANL-001..007, BR-ANL-001/002/004)'
 -- Hand-computed over the fixture's two captures, 10,000km and 25 days apart:
@@ -1493,10 +1688,11 @@ END $$;
 -- any more, then restore. BR-ANL-001 computes over the most recent pair
 -- separated by at least the minimum, so "below the minimum" means no
 -- qualifying pair exists (BR-ANL-004), not that the last two are too close.
+BEGIN;
 DO $$
 DECLARE n int; st text; r numeric;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   INSERT INTO app.configuration (tenant_id,key,value,effective_from)
   VALUES ('11111111-1111-1111-1111-111111111111','wear_rate_min_distance_km','20000'::jsonb,'2026-07-01T00:00:00Z');
 
@@ -1514,29 +1710,46 @@ BEGIN
   IF st IS DISTINCT FROM 'FORECAST' OR r IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: under the raised minimum forecast [% / %], expected FORECAST with a NULL sibling rate', st, r; END IF;
 
-  DELETE FROM app.configuration
-   WHERE tenant_id = '11111111-1111-1111-1111-111111111111'
-     AND key = 'wear_rate_min_distance_km' AND value = '20000'::jsonb;
+END $$;
+ROLLBACK;
+
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT count(*) INTO n FROM app.v_tyre_wear_rate WHERE wear_rate_status = 'MEASURED';
   IF n <> 26 THEN
-    RAISE EXCEPTION 'FAIL: % measured after restoring the policy, expected 26', n; END IF;
+    RAISE EXCEPTION 'FAIL: % measured after the raised-minimum probe, expected 26', n; END IF;
+END $$;
 
-  -- No configured minimum is not the same as a minimum of zero: an
-  -- unconfigured tenant gets no rate and is told why, never a rate computed
-  -- from a hard-coded 1,000km that nobody chose.
-  DELETE FROM app.configuration
+-- No configured minimum is not the same as a minimum of zero: an
+-- unconfigured tenant gets no rate and is told why, never a rate computed
+-- from a hard-coded 1,000km that nobody chose. Same +infinity trick as the
+-- no-policy valuation probe: DR-014a leaves no DELETE, so the seeded row is
+-- shifted out of reach inside a rolled-back transaction.
+BEGIN;
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  UPDATE app.configuration SET effective_from = 'infinity'
    WHERE tenant_id = '11111111-1111-1111-1111-111111111111'
      AND key = 'wear_rate_min_distance_km';
   SELECT count(*) FILTER (WHERE wear_rate_status = 'NO_MIN_DISTANCE_POLICY')
     INTO n FROM app.v_tyre_wear_rate;
   IF n <> 27 THEN
     RAISE EXCEPTION 'FAIL: % rows report no minimum-distance policy, expected 27', n; END IF;
-  INSERT INTO app.configuration (tenant_id,key,value,effective_from)
-  VALUES ('11111111-1111-1111-1111-111111111111','wear_rate_min_distance_km','1000'::jsonb,'2024-01-01T00:00:00Z');
+  RAISE NOTICE 'PASS  the minimum separation is configuration; unconfigured means no rate, with the reason';
+END $$;
+ROLLBACK;
+
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT count(*) INTO n FROM app.v_tyre_wear_rate WHERE wear_rate_status = 'MEASURED';
   IF n <> 26 THEN
-    RAISE EXCEPTION 'FAIL: % measured after reseeding the policy, expected 26', n; END IF;
-  RAISE NOTICE 'PASS  the minimum separation is configuration; unconfigured means no rate, with the reason';
+    RAISE EXCEPTION 'FAIL: % measured after the no-minimum probe, expected 26', n; END IF;
 END $$;
 
 -- BR-ANL-004: a fitment between the two readings makes them readings of the
@@ -1579,6 +1792,10 @@ BEGIN
   SELECT pos.id INTO posid
     FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
    WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '3';
+  -- FIXTURE COUPLING (TYRE-62): T2FLAT1 persists FITTED, read twice with no
+  -- tread change, in September and with no purchase price — so re-runs give
+  -- it a tread band but never a valuation or a snapshot, keeping check 18's
+  -- tenant-2 figures unmoved.
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2FLAT1') THEN
     INSERT INTO app.tyre (id,tenant_id,display_code,status,state)
     VALUES (md5('t2flattyre')::uuid,'22222222-2222-2222-2222-222222222222','T2FLAT1','NEW','FITTED');
@@ -1744,12 +1961,13 @@ END $$;
 \echo '== 22. Tyre identity: display codes are reusable, unique while active (CFL-001, CHG-021/022)'
 -- BAC brands licence number + position, so a replacement tyre on the same
 -- position repeats the code. Uniqueness binds only while a tyre is active;
--- SCRAPPED, LOST and SOLD release the code. Probes are tenant 2's and are
--- deleted at the end — nothing references them.
+-- SCRAPPED, LOST and SOLD release the code. Probes are tenant 2's and roll
+-- back at the end — nothing references them, and DR-014a leaves no DELETE.
+BEGIN;
 DO $$
 DECLARE t1 uuid; t2 uuid; ok boolean;
 BEGIN
-  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   INSERT INTO app.tyre (tenant_id, display_code, state)
     VALUES ('22222222-2222-2222-2222-222222222222','CA123456-11','FITTED') RETURNING id INTO t1;
 
@@ -1775,10 +1993,9 @@ BEGIN
   IF (SELECT count(*) FROM app.tyre WHERE display_code='CA123456-11') <> 3 THEN
     RAISE EXCEPTION 'FAIL: the reused code did not keep three distinct tyre records'; END IF;
 
-  DELETE FROM app.tyre WHERE display_code = 'CA123456-11';
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  a display code is reusable after scrap or sale, never while two tyres are active';
 END $$;
+ROLLBACK;
 
 \echo '== 23. Casing value: absent not zero, event-sourced with labelled bases (CFL-002, CHG-015..018)'
 -- The register's casing side resolves latest valuation event -> size estimate
@@ -1977,10 +2194,13 @@ BEGIN
 END $$;
 
 \echo '== 26. Assigned inspections: schedules, tasks, skip and escalation (CHG-028/032/033)'
+-- Transaction-scoped: schedules, tasks and the PARKED probe unit all roll
+-- back (DR-014a leaves the app role no DELETE for cleanup).
+BEGIN;
 DO $$
 DECLARE ok boolean; n int; got text;
 BEGIN
-  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
 
   -- a schedule must target a vehicle or a group, never both or neither
   ok := false;
@@ -2040,13 +2260,9 @@ BEGIN
    WHERE state = 'OPEN' AND due_at < '2027-10-01T00:00:00Z';
   IF n < 1 THEN RAISE EXCEPTION 'FAIL: no issued task reads as overdue past its due date'; END IF;
 
-  DELETE FROM app.inspection_task WHERE schedule_id IN
-    (md5('t2sched1')::uuid, md5('t2sched2')::uuid, md5('t2sched3')::uuid);
-  DELETE FROM app.inspection_schedule WHERE id IN
-    (md5('t2sched1')::uuid, md5('t2sched2')::uuid, md5('t2sched3')::uuid);
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  schedules issue tasks, skip parked units, assign or escalate, and never duplicate';
 END $$;
+ROLLBACK;
 
 \echo '== 27. Vocabulary, provenance columns and disposal semantics (CHG-011/012/027/030/036/037/039, CFL-006..008)'
 DO $$
@@ -2175,11 +2391,14 @@ BEGIN
   RAISE NOTICE 'PASS  depot-scoped units are granted, tenant-bound and fail closed';
 END $$;
 
+-- Transaction-scoped: the staged Bloemfontein depot and its tyre roll back
+-- (DR-014a leaves the app role no DELETE for cleanup).
+BEGIN;
 DO $$
 DECLARE fitted int; scoped int; n int; other_depot uuid; other_tyre uuid;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, false);
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
 
   -- A tyre is in a depot two ways and FR-AUT-006 means both: sitting there,
   -- or fitted to a unit based there. Scoping on current_depot_id alone would
@@ -2193,7 +2412,7 @@ BEGIN
 
   -- Same predicate as the vehicle check above: no user_depot row means no
   -- depots (FR-AUT-004).
-  PERFORM set_config('app.actor_id', md5('driver3')::uuid::text, false);
+  PERFORM set_config('app.actor_id', md5('driver3')::uuid::text, true);
   SELECT count(*) INTO n FROM app.v_depot_tyre;
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL: an actor with no depots sees % tyres', n; END IF;
@@ -2208,29 +2427,29 @@ BEGIN
   VALUES ('11111111-1111-1111-1111-111111111111', 'FINALREVIEW-OTHER-DEPOT', other_depot)
   RETURNING id INTO other_tyre;
 
-  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, false);
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
   SELECT count(*) INTO n FROM app.v_depot_tyre WHERE id = other_tyre;
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL: a tyre in a depot the actor does not belong to is visible'; END IF;
 
-  DELETE FROM app.tyre WHERE id = other_tyre;
-  DELETE FROM app.depot WHERE id = other_depot;
-
-  PERFORM set_config('app.actor_id', '', false);
+  PERFORM set_config('app.actor_id', '', true);
   SELECT count(*) INTO n FROM app.v_depot_tyre;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unset actor sees % tyres', n; END IF;
   RAISE NOTICE 'PASS  depot-scoped tyres reach fitted stock, exclude other depots and fail closed';
 END $$;
+ROLLBACK;
 
+-- Transaction-scoped, like check 26 on the other tenant: the staged tasks
+-- roll back rather than being cleaned up (DR-014a).
+BEGIN;
 DO $$
 DECLARE t1 uuid; t2 uuid; veh uuid; n int; got text;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  PERFORM set_config('app.actor_id', '', false);
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  PERFORM set_config('app.actor_id', '', true);
 
   -- Staged here rather than seeded: the fixture carries no tasks at all, and
-  -- seeding one would couple this check to check 26's cleanup. Same
-  -- insert-assert-delete shape check 26 uses on the other tenant.
+  -- seeding one would couple this check to check 26's residue.
   SELECT id INTO veh FROM app.vehicle WHERE fleet_number = 'HORSE';
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
   VALUES ('11111111-1111-1111-1111-111111111111', veh, now() - interval '1 day',
@@ -2242,7 +2461,7 @@ BEGIN
   RETURNING id INTO t2;
 
   -- FR-DSH-012: a driver's own work, and only their own.
-  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, false);
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
   SELECT string_agg(id::text, ',') INTO got FROM app.v_my_inspection_task;
   IF got IS DISTINCT FROM t1::text THEN
     RAISE EXCEPTION 'FAIL: driver1 sees tasks [%], expected only their own', got; END IF;
@@ -2252,20 +2471,19 @@ BEGIN
   SELECT count(*) INTO n FROM app.v_my_inspection_task WHERE overdue;
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL: expected 1 overdue task for driver1, got %', n; END IF;
 
-  PERFORM set_config('app.actor_id', md5('driver3')::uuid::text, false);
+  PERFORM set_config('app.actor_id', md5('driver3')::uuid::text, true);
   SELECT string_agg(id::text, ',') INTO got FROM app.v_my_inspection_task;
   IF got IS DISTINCT FROM t2::text THEN
     RAISE EXCEPTION 'FAIL: driver3 sees tasks [%], expected only their own', got; END IF;
   SELECT count(*) INTO n FROM app.v_my_inspection_task WHERE overdue;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: a task due tomorrow reads as overdue'; END IF;
 
-  PERFORM set_config('app.actor_id', '', false);
+  PERFORM set_config('app.actor_id', '', true);
   SELECT count(*) INTO n FROM app.v_my_inspection_task;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unset actor sees % tasks', n; END IF;
-
-  DELETE FROM app.inspection_task WHERE id IN (t1, t2);
   RAISE NOTICE 'PASS  task view is actor-scoped, computes overdue and fails closed';
 END $$;
+ROLLBACK;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
