@@ -126,3 +126,4 @@ is the one in-progress inspection.
 | [0008](adr/0008-tyre-identity-and-display-codes.md) | Tyre identity and display codes | Accepted |
 | [0009](adr/0009-client-platform-and-on-device-data.md) | Client platform and on-device data | Accepted |
 | [0010](adr/0010-provenance-measured-vs-derived.md) | Provenance — measured vs derived | Accepted |
+| [0011](adr/0011-actor-context-and-authorisation.md) | How the actor is established and the role resolved | Accepted |
