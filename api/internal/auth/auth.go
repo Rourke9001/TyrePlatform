@@ -31,8 +31,13 @@ const (
 	ManageAssignments Capability = "ManageAssignments"
 	ManageAssets      Capability = "ManageAssets"
 	LogRetread        Capability = "LogRetread"
-	ManageConfig      Capability = "ManageConfig"
-	ManageUsers       Capability = "ManageUsers"
+	// ViewValuation gates every monetary field and its aggregates — purchase
+	// price, rand/mm, casing value, tread value, total value, sale proceeds
+	// (FR-AUT-005a). The restriction is enforced server-side by projection: a
+	// client surface that omits the field is not the control (NFR-SEC-006).
+	ViewValuation Capability = "ViewValuation"
+	ManageConfig  Capability = "ManageConfig"
+	ManageUsers   Capability = "ManageUsers"
 )
 
 // FR-AUT-005..009. DEPOT_MANAGER holds everything CONTROLLER does: FR-AUT-008
@@ -44,9 +49,9 @@ const (
 var capabilities = map[Role][]Capability{
 	RoleDriver:       {CaptureInspection},
 	RoleTechnician:   {ViewFleet},
-	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread},
-	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread},
-	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ManageConfig, ManageUsers},
+	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation},
+	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation},
+	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, ManageUsers},
 }
 
 // Scope is how much of the tenant an actor reads. It is deliberately not a

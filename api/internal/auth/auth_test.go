@@ -17,10 +17,11 @@ func TestRoleCapabilities(t *testing.T) {
 	}{
 		{
 			// FR-AUT-005: a driver captures, and does nothing else.
+			// FR-AUT-005a: no monetary fields either.
 			name: "driver",
 			role: auth.RoleDriver,
 			can:  []auth.Capability{auth.CaptureInspection},
-			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ManageConfig, auth.ManageUsers},
+			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers},
 		},
 		{
 			// FR-AUT-006 with §4.7: a technician reads, and has no lifecycle
@@ -28,27 +29,29 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "technician",
 			role: auth.RoleTechnician,
 			can:  []auth.Capability{auth.ViewFleet},
-			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ManageConfig},
+			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig},
 		},
 		{
 			// FR-AUT-007 with FR-FIT-018: both controller jobs are this role.
+			// FR-AUT-005a: a controller carries the commercial picture.
 			name: "controller",
 			role: auth.RoleController,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation},
 			cant: []auth.Capability{auth.ManageConfig, auth.ManageUsers},
 		},
 		{
-			// FR-AUT-008: every CONTROLLER permission. The narrowing is by
-			// depot in the scope views, never by withholding a capability.
+			// FR-AUT-008: every CONTROLLER permission, ViewValuation included.
+			// The narrowing is by depot in the scope views, never by
+			// withholding a capability.
 			name: "depot manager",
 			role: auth.RoleDepotManager,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation},
 			cant: []auth.Capability{auth.ManageConfig, auth.ManageUsers},
 		},
 		{
 			name: "org admin",
 			role: auth.RoleOrgAdmin,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ManageConfig, auth.ManageUsers},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers},
 			cant: nil,
 		},
 		{
@@ -58,7 +61,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "platform admin",
 			role: auth.RolePlatformAdmin,
 			can:  nil,
-			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageUsers},
+			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ViewValuation, auth.ManageUsers},
 		},
 		{
 			// A value the database grew and Go has not learned yet must fail
@@ -66,7 +69,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "unknown role",
 			role: auth.Role("NOT_A_ROLE"),
 			can:  nil,
-			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssets},
+			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssets, auth.ViewValuation},
 		},
 	}
 
