@@ -9,6 +9,13 @@
 // identity id-tyre-deploy-staging with its role assignments — it is the
 // credential that runs this template, so the template cannot own it.
 //
+// ACCEPTED TRADE: id-tyre-deploy-staging's Contributor scope on
+// rg-tyre-staging is therefore live-Azure only, not visible or reviewable
+// here. Accepted for a single-operator subscription, where the actual
+// enforcement boundary is RLS plus password auth (non-negotiable rule 1),
+// not Azure RBAC scoping. Revisit before the first commercial contract, per
+// NFR-SEC-014; tracked as TYRE-61.
+//
 // Deploy: az deployment group create -g rg-tyre-staging -f infra/main.bicep \
 //           -p pgAdminPassword=... deployerObjectId=... devMachineIp=...
 
@@ -25,7 +32,7 @@ param env string = 'staging'
 @description('PostgreSQL admin password. Migrations-only credential: the API connects as app_login, never as this admin - RLS does not bind superusers (non-negotiable rule 1).')
 param pgAdminPassword string
 
-@description('Object id of the deploying user, granted Key Vault Administrator so secrets can be written after deployment.')
+@description('Object id of the deploying user, granted Key Vault Secrets Officer so secrets can be written after deployment.')
 param deployerObjectId string
 
 @description('Developer machine IP allowed through the PG firewall for migrations and db-test.')
@@ -38,7 +45,7 @@ var tags = {
 
 // Azure built-in roles have the same GUIDs in every Entra tenant, so
 // hardcoding them is safe and avoids a roleDefinitions lookup at deploy time.
-var roleKeyVaultAdministrator = '00482a5a-887f-4fb3-b363-3b7fe8e74483'
+var roleKeyVaultSecretsOfficer = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
 var roleKeyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
 var roleAcrPull = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
@@ -52,6 +59,11 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
 
 // ---------------------------------------------------------------- storage --
 
+// ACCEPTED TRADE (POC, no VNet exists): no publicNetworkAccess or
+// networkAcls is set, so this account answers on its public endpoint.
+// allowBlobPublicAccess: false below is the compensating control. Revisit
+// before the first commercial contract, per NFR-SEC-014; tracked as
+// TYRE-61.
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: 'sttyre${env}'
   location: location
@@ -82,6 +94,10 @@ resource photosContainer 'Microsoft.Storage/storageAccounts/blobServices/contain
 
 // -------------------------------------------------------------- key vault --
 
+// ACCEPTED TRADE (POC, no VNet exists): no publicNetworkAccess or
+// networkAcls is set, so this vault answers on its public endpoint.
+// enableRbacAuthorization above is the actual boundary. Revisit before the
+// first commercial contract, per NFR-SEC-014; tracked as TYRE-61.
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: 'kv-tyre-${env}'
   location: location
@@ -95,12 +111,18 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-resource kvAdminForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(kv.id, deployerObjectId, roleKeyVaultAdministrator)
+// Secrets Officer, not Administrator: the deploying human only needs to
+// write secrets post-deploy (see the database-url secret set command
+// below), not manage the vault's own access policies. This assignment does
+// not remove the Key Vault Administrator role already granted to this
+// principal on the live vault; that removal is a manual Azure step
+// (TYRE-63).
+resource kvSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(kv.id, deployerObjectId, roleKeyVaultSecretsOfficer)
   scope: kv
   properties: {
     principalId: deployerObjectId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleKeyVaultAdministrator)
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleKeyVaultSecretsOfficer)
     principalType: 'User'
   }
 }
