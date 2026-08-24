@@ -1,0 +1,70 @@
+-- Restores the 000008 reconcile definition verbatim, then drops the helper.
+CREATE OR REPLACE FUNCTION app.reconcile_valuation_snapshots(
+    p_tenant uuid,
+    p_as_at  date,
+    p_tyre   uuid DEFAULT NULL,
+    p_mode   text DEFAULT 'ALWAYS')
+RETURNS int
+LANGUAGE plpgsql SET search_path = app, pg_temp AS $$
+DECLARE touched int := 0; k int; row_tenant uuid;
+BEGIN
+  IF p_tenant IS NULL THEN
+    RAISE EXCEPTION 'reconcile_valuation_snapshots requires an explicit tenant'
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF COALESCE(p_mode, '') NOT IN ('ALWAYS', 'ON_CHANGE', 'NEVER') THEN
+    RAISE EXCEPTION 'unknown snapshot creation mode %', p_mode;
+  END IF;
+  IF p_tyre IS NOT NULL THEN
+    SELECT t.tenant_id INTO row_tenant FROM app.tyre t WHERE t.id = p_tyre;
+    IF row_tenant IS DISTINCT FROM p_tenant THEN
+      RAISE EXCEPTION 'tyre % is not tenant %''s to reconcile', p_tyre, p_tenant
+        USING ERRCODE = 'insufficient_privilege';
+    END IF;
+  END IF;
+
+  -- A tyre the register does not value at this date has no figure worth
+  -- holding, and tread_value is NOT NULL, so the row goes rather than emptying.
+  -- Not a DR-014 breach: DR-011 names reading, reading_measurement and
+  -- tyre_event as the INSERT-only set and leaves this table out of it, which
+  -- is why app_rw holds DELETE here and nowhere near a record of fact.
+  DELETE FROM app.valuation_snapshot s
+   WHERE s.tenant_id = p_tenant
+     AND s.as_at = p_as_at
+     AND (p_tyre IS NULL OR s.tyre_id = p_tyre)
+     AND NOT EXISTS (SELECT 1 FROM app.tyre_valuation_asof(p_as_at) tv
+                      WHERE tv.tyre_id = s.tyre_id
+                        AND tv.tenant_id = p_tenant
+                        AND tv.tread_value IS NOT NULL);
+  GET DIAGNOSTICS k = ROW_COUNT; touched := touched + k;
+
+  INSERT INTO app.valuation_snapshot (tenant_id, tyre_id, as_at, tread_mm, tread_value, casing_value)
+  SELECT p_tenant, tv.tyre_id, p_as_at, tv.current_tread_mm, tv.tread_value, tv.casing_value
+    FROM app.tyre_valuation_asof(p_as_at) tv
+   WHERE tv.tenant_id = p_tenant
+     AND (p_tyre IS NULL OR tv.tyre_id = p_tyre)
+     AND tv.tread_value IS NOT NULL
+     AND (p_mode = 'ALWAYS'
+          -- a row that already exists is repaired whatever the mode: repair is
+          -- the duty every caller shares
+          OR EXISTS (SELECT 1 FROM app.valuation_snapshot s
+                      WHERE s.tenant_id = p_tenant
+                        AND s.tyre_id = tv.tyre_id
+                        AND s.as_at = p_as_at)
+          -- the tyre's most recent snapshot, not the one preceding this date:
+          -- a late-synced older inspection restating a value already on record
+          -- is not a change either (000006's rule, kept deliberately)
+          OR (p_mode = 'ON_CHANGE'
+              AND (SELECT s.tread_mm FROM app.valuation_snapshot s
+                    WHERE s.tenant_id = p_tenant AND s.tyre_id = tv.tyre_id
+                    ORDER BY s.as_at DESC LIMIT 1) IS DISTINCT FROM tv.current_tread_mm))
+  ON CONFLICT (tyre_id, as_at) DO UPDATE
+    SET tread_mm     = EXCLUDED.tread_mm,
+        tread_value  = EXCLUDED.tread_value,
+        casing_value = EXCLUDED.casing_value;
+  GET DIAGNOSTICS k = ROW_COUNT; touched := touched + k;
+
+  RETURN touched;
+END $$;
+
+DROP FUNCTION app.tyre_in_estate_asof(uuid, date);
