@@ -80,7 +80,7 @@ function DevActorSwitcher() {
           window.location.reload();
         }}
       >
-        <option value="">Platform default</option>
+        <option value="">No user (every request 401s)</option>
         {DEV_ACTORS.map((a) => (
           <option key={a.id} value={a.id}>
             {a.name}
