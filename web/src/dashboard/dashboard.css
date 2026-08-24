@@ -39,6 +39,12 @@
   max-width: 14rem;
 }
 
+.shell-actor {
+  margin: 0.15rem 0 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
 .shell-tenant {
   display: flex;
   flex-direction: column;

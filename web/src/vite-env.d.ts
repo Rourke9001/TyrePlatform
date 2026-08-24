@@ -3,4 +3,5 @@
 // see through that — a cast on the read site would launder it silently.
 interface ImportMetaEnv {
   readonly VITE_DEV_TENANT_ID?: string;
+  readonly VITE_DEV_USER_ID?: string;
 }

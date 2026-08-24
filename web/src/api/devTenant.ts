@@ -1,7 +1,8 @@
-// DEV ONLY tenant selection, mirroring the API's X-Tenant-ID resolver: the
+// DEV ONLY tenant selection, mirroring the API's dev actor resolver: the
 // real tenant arrives with the IdP integration (TYRE-2), and the API ignores
-// the header unless APP_DEV_TENANT_HEADER=1. Guarded by import.meta.env.DEV
-// so a production bundle cannot send a chosen tenant even by mistake.
+// X-Tenant-ID and X-User-ID unless APP_DEV_TENANT_HEADER=1. Guarded by
+// import.meta.env.DEV so a production bundle cannot send a chosen tenant or
+// actor even by mistake.
 //
 // localStorage wins over the env default so the tenant switcher (TYRE-28)
 // can flip tenants without a rebuild.
@@ -33,4 +34,56 @@ export function clearDevTenantId(): void {
 export const DEV_TENANTS = [
   { id: "11111111-1111-1111-1111-111111111111", name: "BAC Transport" },
   { id: "22222222-2222-2222-2222-222222222222", name: "Second Fleet" },
+] as const;
+
+const ACTOR_STORAGE_KEY = "tyre.dev.user-id";
+
+export function getDevActorId(): string | null {
+  if (!import.meta.env.DEV) return null;
+  try {
+    const stored = window.localStorage.getItem(ACTOR_STORAGE_KEY);
+    if (stored) return stored;
+  } catch {
+    // Storage can be unavailable (private mode); the env default still applies.
+  }
+  return import.meta.env.VITE_DEV_USER_ID ?? null;
+}
+
+export function setDevActorId(userId: string): void {
+  window.localStorage.setItem(ACTOR_STORAGE_KEY, userId);
+}
+
+export function clearDevActorId(): void {
+  window.localStorage.removeItem(ACTOR_STORAGE_KEY);
+}
+
+// The seeded users (db/seeds/gen_seed_fixture.py). Ids are md5-derived so the
+// fixture is reproducible; a user list endpoint would be gated on ManageUsers
+// and is not what the dev switcher wants anyway.
+export const DEV_ACTORS = [
+  {
+    id: "b85aef08-6081-80db-9d4d-dad38ae40545",
+    name: "Melusi (driver, Johannesburg)",
+    tenant: "11111111-1111-1111-1111-111111111111",
+  },
+  {
+    id: "e4443562-7359-f4c3-de71-b538cdefdc14",
+    name: "Sipho (driver, no depot)",
+    tenant: "11111111-1111-1111-1111-111111111111",
+  },
+  {
+    id: "14fc2c61-398c-3508-084e-d61e615e695e",
+    name: "Nomsa (controller)",
+    tenant: "11111111-1111-1111-1111-111111111111",
+  },
+  {
+    id: "e00cf25a-d426-83b3-df67-8c61f42c6bda",
+    name: "Pieter (org admin)",
+    tenant: "11111111-1111-1111-1111-111111111111",
+  },
+  {
+    id: "d95784fa-a659-7a02-53e4-83e500ced3ee",
+    name: "Thabo (driver, Second Fleet)",
+    tenant: "22222222-2222-2222-2222-222222222222",
+  },
 ] as const;
