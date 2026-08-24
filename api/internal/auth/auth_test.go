@@ -1,0 +1,97 @@
+package auth_test
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	"tyreplatform/api/internal/auth"
+)
+
+func TestRoleCapabilities(t *testing.T) {
+	tests := []struct {
+		name string
+		role auth.Role
+		can  []auth.Capability
+		cant []auth.Capability
+	}{
+		{
+			// FR-AUT-005: a driver captures, and does nothing else.
+			name: "driver",
+			role: auth.RoleDriver,
+			can:  []auth.Capability{auth.CaptureInspection},
+			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ManageConfig, auth.ManageUsers},
+		},
+		{
+			// FR-AUT-006 with §4.7: a technician reads, and has no lifecycle
+			// screens at all.
+			name: "technician",
+			role: auth.RoleTechnician,
+			can:  []auth.Capability{auth.ViewFleet},
+			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ManageConfig},
+		},
+		{
+			// FR-AUT-007 with FR-FIT-018: both controller jobs are this role.
+			name: "controller",
+			role: auth.RoleController,
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread},
+			cant: []auth.Capability{auth.ManageConfig, auth.ManageUsers},
+		},
+		{
+			// FR-AUT-008: every CONTROLLER permission. The narrowing is by
+			// depot in the scope views, never by withholding a capability.
+			name: "depot manager",
+			role: auth.RoleDepotManager,
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread},
+			cant: []auth.Capability{auth.ManageConfig, auth.ManageUsers},
+		},
+		{
+			name: "org admin",
+			role: auth.RoleOrgAdmin,
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ManageConfig, auth.ManageUsers},
+			cant: nil,
+		},
+		{
+			// ADR-0011: platform admin rows carry a NULL tenant_id and are
+			// invisible in a tenant session, so it can never be the actor on
+			// a tenant-scoped request.
+			name: "platform admin",
+			role: auth.RolePlatformAdmin,
+			can:  nil,
+			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageUsers},
+		},
+		{
+			// A value the database grew and Go has not learned yet must fail
+			// closed, not open.
+			name: "unknown role",
+			role: auth.Role("NOT_A_ROLE"),
+			can:  nil,
+			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssets},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := auth.Actor{Role: tt.role}
+			for _, c := range tt.can {
+				require.True(t, a.Can(c), "%s must hold %s", tt.role, c)
+			}
+			for _, c := range tt.cant {
+				require.False(t, a.Can(c), "%s must not hold %s", tt.role, c)
+			}
+			require.Len(t, a.Capabilities(), len(tt.can), "Capabilities must list exactly what Can allows")
+		})
+	}
+}
+
+// Capabilities feeds GET /api/me, so a caller mutating the returned slice
+// must not be able to grant itself something on the next request.
+func TestCapabilitiesIsACopy(t *testing.T) {
+	a := auth.Actor{Role: auth.RoleDriver}
+	got := a.Capabilities()
+	require.Equal(t, []auth.Capability{auth.CaptureInspection}, got)
+
+	got[0] = auth.ManageUsers
+	require.Equal(t, []auth.Capability{auth.CaptureInspection}, a.Capabilities())
+	require.False(t, a.Can(auth.ManageUsers))
+}
