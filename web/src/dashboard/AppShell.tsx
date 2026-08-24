@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { NavLink } from "react-router";
 import {
   DEV_ACTORS,
   DEV_TENANTS,
@@ -115,9 +116,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <DevActorSwitcher />
       </header>
       <nav className="shell-nav" aria-label="Main">
-        <a href="/" aria-current="page">
-          Vehicles
-        </a>
+        <NavLink to="/fleet">Vehicles</NavLink>
       </nav>
       <main className="shell-main">{children}</main>
     </div>
