@@ -1,0 +1,1 @@
+DROP INDEX app.one_active_staff_number_per_tenant;
