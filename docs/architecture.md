@@ -83,8 +83,9 @@ tx.Commit(ctx)
 
 `api/internal/store` (`InActorTx`) is the real implementation; this sketch
 exists so the shape is visible from the architecture page. `InTenantTx` binds
-`app.tenant_id` alone and remains correct for the handful of tenant-scoped
-paths that have no actor to resolve.
+`app.tenant_id` alone and is kept for tenant-scoped work with no actor to
+resolve — nothing in the API currently takes that path; every handler binds
+an actor through `InActorTx`.
 
 `app.current_tenant_id()` and `app.current_actor_id()` both return NULL when
 unset, and every policy compares with `=`. NULL matches nothing, so a request
