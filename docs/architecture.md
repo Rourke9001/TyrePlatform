@@ -19,10 +19,11 @@ the ADRs say why each was chosen and what it costs.
                       ▼
    ┌─────────────────────────────────────┐
    │  Azure Container Apps  (Go)         │   scale-to-zero
-   │  auth → tenant context → handlers   │
+   │  auth → actor context → handlers    │
    └──────────────────┬──────────────────┘
                       │  pgx, one transaction per request
-                      │  SET LOCAL app.tenant_id = <claim>
+                      │  SET LOCAL app.tenant_id + app.actor_id
+                      │  role read from app_user, never from a claim
                       ▼
    ┌─────────────────────────────────────┐
    │  Azure Database for PostgreSQL 16   │
@@ -58,29 +59,40 @@ load-bearing for three reasons:
 So: **if it is a rule about tyres, it goes in SQL with a test in `db/tests/`.
 If it is about HTTP, auth, or moving bytes, it goes in Go.**
 
-## Tenant context — the critical path
+## Actor context — the critical path
 
-Every request, without exception:
+Every scoped request, without exception:
 
 ```go
 // Transaction-local, so a pooled connection cannot carry one tenant's context
 // into the next request — a session-scoped SET here is a cross-tenant data
 // leak that will pass every test you write. set_config with is_local => true,
-// not SET LOCAL: SET cannot take a bind parameter, and interpolating a tenant
-// id into SQL is forbidden on this path.
+// not SET LOCAL: SET cannot take a bind parameter, and interpolating an id
+// into SQL is forbidden on this path.
 tx, err := pool.Begin(ctx)
 defer tx.Rollback(ctx)
-_, err = tx.Exec(ctx, "SELECT set_config('app.tenant_id', $1, true)", claims.TenantID)
+_, err = tx.Exec(ctx,
+    "SELECT set_config('app.tenant_id', $1, true), set_config('app.actor_id', $2, true)",
+    identity.TenantID, identity.UserID)
+// role, active and depot scope are read back from app.app_user /
+// app.v_actor_depot under RLS in the same transaction — never taken from the
+// caller, so a stale token or a forged header cannot grant anything.
 // ... all queries on tx ...
 tx.Commit(ctx)
 ```
 
-`api/internal/store` (`InTenantTx`) is the real implementation; this sketch
-exists so the shape is visible from the architecture page.
+`api/internal/store` (`InActorTx`) is the real implementation; this sketch
+exists so the shape is visible from the architecture page. `InTenantTx` binds
+`app.tenant_id` alone and remains correct for the handful of tenant-scoped
+paths that have no actor to resolve.
 
-`app.current_tenant_id()` returns NULL when the setting is unset, and every
-policy compares with `=`. NULL matches nothing, so a request that skips this
-step sees zero rows rather than everything. **The system fails closed.**
+`app.current_tenant_id()` and `app.current_actor_id()` both return NULL when
+unset, and every policy compares with `=`. NULL matches nothing, so a request
+that skips this step sees zero rows rather than everything. The actor lookup
+fails closed the same way: an identity naming no visible, active
+`app.app_user` row resolves nothing, and `withActor` turns that into a 403
+indistinguishable from an ordinary refusal (ADR-0011). **The system fails
+closed.**
 
 ## Capture and the network
 
