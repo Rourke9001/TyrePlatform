@@ -2176,7 +2176,7 @@ BEGIN
 END $$;
 
 DO $$
-DECLARE fitted int; scoped int; n int;
+DECLARE fitted int; scoped int; n int; other_depot uuid; other_tyre uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, false);
@@ -2191,10 +2191,35 @@ BEGIN
   IF scoped <> fitted THEN
     RAISE EXCEPTION 'FAIL: depot-scoped tyres = %, open fitments = %', scoped, fitted; END IF;
 
+  -- Same predicate as the vehicle check above: no user_depot row means no
+  -- depots (FR-AUT-004).
+  PERFORM set_config('app.actor_id', md5('driver3')::uuid::text, false);
+  SELECT count(*) INTO n FROM app.v_depot_tyre;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: an actor with no depots sees % tyres', n; END IF;
+
+  -- Staged rather than seeded: without a depot Melusi is not a member of,
+  -- the count above cannot tell "tyres in my depots" from "every tyre in the
+  -- tenant" — this fixture's one depot homes every unit (FR-AUT-006).
+  INSERT INTO app.depot (tenant_id, name, type)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'Bloemfontein', 'DEPOT')
+  RETURNING id INTO other_depot;
+  INSERT INTO app.tyre (tenant_id, display_code, current_depot_id)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'FINALREVIEW-OTHER-DEPOT', other_depot)
+  RETURNING id INTO other_tyre;
+
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, false);
+  SELECT count(*) INTO n FROM app.v_depot_tyre WHERE id = other_tyre;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: a tyre in a depot the actor does not belong to is visible'; END IF;
+
+  DELETE FROM app.tyre WHERE id = other_tyre;
+  DELETE FROM app.depot WHERE id = other_depot;
+
   PERFORM set_config('app.actor_id', '', false);
   SELECT count(*) INTO n FROM app.v_depot_tyre;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unset actor sees % tyres', n; END IF;
-  RAISE NOTICE 'PASS  depot-scoped tyres reach fitted stock and fail closed';
+  RAISE NOTICE 'PASS  depot-scoped tyres reach fitted stock, exclude other depots and fail closed';
 END $$;
 
 DO $$
