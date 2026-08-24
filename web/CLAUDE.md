@@ -47,6 +47,18 @@ Online-first with a durable submit outbox — not an offline sync engine.
   submission as idempotent, so replaying the outbox is safe.
 - Photos queue separately from readings.
 
+## Browser tests (e2e/)
+
+`e2e/` holds Playwright specs; vitest never runs them (excluded in
+vite.config.ts) and they never mock — they drive the real dev stack in
+headless Chromium. Run with `make e2e`, which requires `make api-run` in
+another terminal over a seeded database; CI's "Browser smoke" job builds
+that stack itself on every PR. Identity is the dev actor headers, so specs
+run against `vite dev`, never a production build (playwright.config.ts says
+why). Assert on roles and visible text, not CSS; when the capture app lands
+(TYRE-4), its flows get mobile-viewport projects here and the three-minute
+budget becomes a measurable assertion.
+
 ## Conventions
 
 - Function components and hooks. `strict: true`. No `any`.

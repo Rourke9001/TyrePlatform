@@ -25,6 +25,12 @@ db/seeds/003_seed_fixture.sql
 
 node_modules/
 dist/
+
+# Playwright run artefacts: traces and reports are per-run diagnostics (CI
+# uploads them on failure), never source.
+web/test-results/
+web/playwright-report/
+
 .env
 .env.*
 !.env.example
