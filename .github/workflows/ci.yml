@@ -197,3 +197,79 @@ jobs:
           npm run lint
           npm run typecheck
           npm test
+
+  e2e:
+    name: Browser smoke
+    runs-on: ubuntu-latest
+    # The one job that runs the real stack end to end: seeded Postgres, the
+    # API with the dev header resolver, vite's dev server and a headless
+    # Chromium. jsdom cannot exercise real rendering or the role landing, and
+    # the deploy workflow gates on this workflow's conclusion, so a broken
+    # login-to-fleet path cannot ship (TYRE-65).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: tyre
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 2s --health-timeout 3s --health-retries 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with: { python-version: '3.12' }
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.24'
+          cache-dependency-path: api/go.sum
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with: { node-version: '22', cache: npm, cache-dependency-path: web/package-lock.json }
+
+      # Same migrated-and-seeded database the schema job builds: the smoke
+      # spec asserts against seeded fixture rows (HORSE, the dev actors).
+      - name: Migrate and seed
+        run: |
+          cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
+          docker run --rm --network host \
+            -v "$PWD/db/migrations:/migrations:ro" \
+            migrate/migrate:v4.19.1 \
+            -path=/migrations \
+            -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
+          PGURL="postgres://postgres:postgres@localhost:5433/tyre"
+          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/002_seed_configurations.sql
+          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
+          psql "$PGURL" -q -c "ALTER ROLE app_login PASSWORD 'ci'"
+
+      # APP_DEV_TENANT_HEADER is safe here for the same reason it is safe on a
+      # laptop: this API exists for minutes, listens on the runner's loopback,
+      # and CONTAINER_APP_NAME vetoes the flag in any deployed revision.
+      - name: Start the API
+        env:
+          DATABASE_URL: postgres://app_login:ci@localhost:5433/tyre?sslmode=disable
+          APP_DEV_TENANT_HEADER: '1'
+        run: |
+          cd api
+          go run ./cmd/api &
+          for i in $(seq 1 60); do
+            curl -s -o /dev/null http://localhost:8080/api/me && exit 0
+            sleep 1
+          done
+          echo "::error::API did not start within 60s"; exit 1
+
+      - name: Browser smoke tests
+        run: |
+          cd web
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run e2e
+
+      - name: Upload traces on failure
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: playwright-traces
+          path: web/test-results/
+          retention-days: 7

@@ -44,10 +44,12 @@ export default tseslint.config(
       "@typescript-eslint/no-explicit-any": "error",
     },
   },
-  // Config and tooling files are not part of the app's tsconfig project, so
-  // type-aware linting has no program to consult for them.
+  // Config, tooling and e2e files are not part of the app's tsconfig
+  // project, so type-aware linting has no program to consult for them. The
+  // e2e specs are still strictly typechecked — tsconfig.e2e.json, run by
+  // `npm run typecheck` — just not type-aware-linted.
   {
-    files: ["*.{js,ts}", "vite.config.ts"],
+    files: ["*.{js,ts}", "vite.config.ts", "playwright.config.ts", "e2e/**/*.ts"],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: { globals: globals.node },
   },

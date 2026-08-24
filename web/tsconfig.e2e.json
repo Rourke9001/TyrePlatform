@@ -1,0 +1,19 @@
+{
+  // The e2e specs are a second program, not part of the app's: Playwright's
+  // types need the node globals (Buffer) and ESNext symbols
+  // (Symbol.asyncDispose) that the DOM-only app project deliberately
+  // excludes. Same strictness, different platform. `npm run typecheck`
+  // checks both projects.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "lib": ["ESNext", "DOM"],
+    "types": ["node"],
+    // DOM and @types/node both declare TextDecoder/TextEncoder and disagree
+    // at the .d.ts level; a program that needs both worlds (page.addInitScript
+    // callbacks run in the browser, the spec itself runs in node) cannot
+    // referee them. Our own files stay strict; only library declaration
+    // cross-checking is skipped.
+    "skipLibCheck": true
+  },
+  "include": ["e2e", "playwright.config.ts"]
+}

@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
 // PWA config (vite-plugin-pwa, service worker) arrives with the capture app
@@ -18,5 +18,8 @@ export default defineConfig({
     // to the node environment, which has no document.
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // e2e/ belongs to Playwright, whose specs need a live stack; vitest
+    // matching *.spec.ts would try to run them in jsdom and fail on import.
+    exclude: [...configDefaults.exclude, "e2e/**"],
   },
 });

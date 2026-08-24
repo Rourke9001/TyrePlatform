@@ -102,6 +102,17 @@ api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 web-test: ## Frontend tests
 	cd web && npm test
 
+# Deliberately NOT in `make test`: the smoke specs need a live stack — API on
+# :8080 (`make api-run` in another terminal, APP_DEV_TENANT_HEADER=1 in .env)
+# over a seeded database (`make db-reset`) — and `make check` must stay
+# runnable without one. CI runs this as its own job with the stack it builds
+# itself, so the gate is still real on every PR (TYRE-65).
+.PHONY: e2e
+e2e: ## Browser smoke tests (needs `make api-run` running and a seeded db)
+	@curl -s -o /dev/null http://localhost:8080/api/me \
+	  || { echo "API not reachable on :8080 — run 'make db-reset' then 'make api-run' first"; exit 1; }
+	cd web && npx playwright install chromium && npm run e2e
+
 # Deliberately NOT in `make check`: it queries the npm registry for every
 # locked package, so it needs network and must not turn an offline `make
 # check` red. CI runs it on every PR, which is where a regenerated lockfile
