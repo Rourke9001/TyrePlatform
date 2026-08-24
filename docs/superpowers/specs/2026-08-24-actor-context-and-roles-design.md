@@ -94,7 +94,7 @@ RLS remains underneath all four, unchanged.
 
 ## Components
 
-### db/ — one migration (`000014`), three views
+### db/ — one migration (`000014`), four views
 
 Scope predicates as ADR-0006 requires: defined once in SQL, composed by
 handlers. All `security_invoker = true`; all key on `app.current_actor_id()`;
@@ -103,6 +103,7 @@ all return zero rows for an unset actor, matching the fail-closed contract
 
 | View | Scopes | Requirement |
 | --- | --- | --- |
+| `app.v_actor_depot` | The actor's own depot set, from `app.user_depot` | FR-AUT-004 |
 | `app.v_depot_vehicle` | Units whose home depot is one of the actor's | FR-AUT-006, FR-AUT-008 |
 | `app.v_depot_tyre` | Tyres whose current depot is one of the actor's | FR-AUT-006 |
 | `app.v_my_inspection_task` | Open tasks assigned to the actor | FR-DSH-012 |
