@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
@@ -59,6 +60,8 @@ func New(s *store.Store, resolver ActorResolver) http.Handler {
 		r.Use(requireActor(resolver))
 		r.Get("/me", me(s))
 		r.Get("/vehicles", listVehicles(s))
+		r.Get("/my/vehicles", listMyVehicles(s))
+		r.Get("/my/tasks", listMyTasks(s))
 		r.Get("/org/branding", orgBranding(s))
 	})
 	return r
@@ -133,8 +136,6 @@ var errForbidden = errors.New("capability not held")
 
 // require refuses unless the actor's role carries the capability. Handlers
 // assert capabilities, never role names (auth.Capability).
-//
-//lint:ignore U1000 called by the capability gates TYRE-56 Task 5 adds
 func require(a auth.Actor, c auth.Capability) error {
 	if !a.Can(c) {
 		return fmt.Errorf("%w: %s lacks %s", errForbidden, a.Role, c)
@@ -242,33 +243,132 @@ type vehicleJSON struct {
 	Registration *string `json:"registration"`
 }
 
+// listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
+// and is refused here rather than filtered — FR-AUT-005 is about what they
+// may ask for, not only about what comes back. Their route is /api/my/vehicles.
+//
+// The depot roles read through app.v_depot_vehicle rather than re-deriving
+// the join; there is exactly one definition of "within my depots" and it is
+// in SQL (ADR-0006, FR-AUT-006/008).
 func listVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		vehicles := []vehicleJSON{}
-		ok := withActor(w, r, s, func(tx pgx.Tx, _ auth.Actor) error {
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ViewFleet); err != nil {
+				return err
+			}
+			source := `app.vehicle`
+			if a.Role == auth.RoleTechnician || a.Role == auth.RoleDepotManager {
+				source = `app.v_depot_vehicle`
+			}
+			var err error
+			vehicles, err = scanVehicles(ctx, tx,
+				`SELECT id, fleet_number, registration FROM `+source+` ORDER BY fleet_number`)
+			return err
+		})
+		if !ok {
+			return
+		}
+		writeJSON(ctx, w, vehicles)
+	}
+}
+
+// listMyVehicles is the driver's own list, through the single predicate that
+// defines "currently assigned to me" (FR-AUT-005, app.v_driver_vehicle).
+// A driver assigned nothing gets an empty list: asking is legitimate, and the
+// answer is legitimately nothing.
+func listMyVehicles(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		vehicles := []vehicleJSON{}
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.CaptureInspection); err != nil {
+				return err
+			}
+			var err error
+			vehicles, err = scanVehicles(ctx, tx,
+				`SELECT DISTINCT vehicle_id, fleet_number, registration
+				   FROM app.v_driver_vehicle ORDER BY fleet_number`)
+			return err
+		})
+		if !ok {
+			return
+		}
+		writeJSON(ctx, w, vehicles)
+	}
+}
+
+type taskJSON struct {
+	ID          string `json:"id"`
+	VehicleID   string `json:"vehicleId"`
+	FleetNumber string `json:"fleetNumber"`
+	DueAt       string `json:"dueAt"`
+	State       string `json:"state"`
+	Overdue     bool   `json:"overdue"`
+}
+
+// listMyTasks is the driver's outstanding work (FR-DSH-012). Overdue is
+// computed in the view, not here: it is an OPEN task past its due date and
+// never a state the client may infer for itself.
+func listMyTasks(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tasks := []taskJSON{}
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.CaptureInspection); err != nil {
+				return err
+			}
 			rows, err := tx.Query(ctx,
-				`SELECT id, fleet_number, registration FROM app.vehicle ORDER BY fleet_number`)
+				`SELECT t.id, t.vehicle_id, v.fleet_number, t.due_at, t.state::text, t.overdue
+				   FROM app.v_my_inspection_task t
+				   JOIN app.vehicle v ON v.id = t.vehicle_id
+				  ORDER BY t.due_at`)
 			if err != nil {
 				return err
 			}
 			defer rows.Close()
 			for rows.Next() {
-				var v vehicleJSON
-				if err := rows.Scan(&v.ID, &v.FleetNumber, &v.Registration); err != nil {
+				var t taskJSON
+				var due time.Time
+				if err := rows.Scan(&t.ID, &t.VehicleID, &t.FleetNumber, &due, &t.State, &t.Overdue); err != nil {
 					return err
 				}
-				vehicles = append(vehicles, v)
+				t.DueAt = due.UTC().Format(time.RFC3339)
+				tasks = append(tasks, t)
 			}
 			return rows.Err()
 		})
 		if !ok {
 			return
 		}
+		writeJSON(ctx, w, tasks)
+	}
+}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(vehicles); err != nil {
-			slog.ErrorContext(ctx, "encoding vehicles", "err", err)
+func scanVehicles(ctx context.Context, tx pgx.Tx, query string) ([]vehicleJSON, error) {
+	rows, err := tx.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	vehicles := []vehicleJSON{}
+	for rows.Next() {
+		var v vehicleJSON
+		if err := rows.Scan(&v.ID, &v.FleetNumber, &v.Registration); err != nil {
+			return nil, err
 		}
+		vehicles = append(vehicles, v)
+	}
+	return vehicles, rows.Err()
+}
+
+// writeJSON keeps the empty case an empty array rather than null: a client
+// distinguishing "no rows" from "field absent" is a bug waiting to happen.
+func writeJSON(ctx context.Context, w http.ResponseWriter, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(body); err != nil {
+		slog.ErrorContext(ctx, "encoding response", "err", err)
 	}
 }
