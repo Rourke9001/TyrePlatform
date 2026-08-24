@@ -28,6 +28,14 @@ If you find yourself querying `pool` directly inside a request, stop. That
 query runs with no tenant context and returns nothing — which looks like a
 data bug and is actually a missing transaction.
 
+## The dev header resolver
+
+The dev resolver now supplies a **user** as well as a tenant. Locally, anyone
+who can send a header is anyone, in any tenant, so the capability gate is
+decorative in development — it is a development convenience with the blast
+radius of an authentication bypass. The `CONTAINER_APP_NAME` veto in
+`devHeaderEnabled` is the whole safety story; ADR-0011 records why.
+
 ## Money over the wire
 
 Postgres `numeric` → Go `decimal.Decimal` → JSON **string**. Never a JSON

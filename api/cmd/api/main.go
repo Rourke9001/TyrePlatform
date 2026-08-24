@@ -17,10 +17,10 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// devHeaderEnabled decides whether the trust-any-header tenant resolver may
-// exist in this process. Container Apps injects CONTAINER_APP_NAME into every
-// deployed revision, so its presence vetoes the flag: the dev path cannot be
-// switched on in staging with a stray --set-env-vars, only run locally.
+// devHeaderEnabled decides whether the trust-any-header resolver may exist in
+// this process. Container Apps injects CONTAINER_APP_NAME into every deployed
+// revision, so its presence vetoes the flag: the dev path cannot be switched
+// on in staging with a stray --set-env-vars, only run locally.
 func devHeaderEnabled(getenv func(string) string) bool {
 	return getenv("APP_DEV_TENANT_HEADER") == "1" && getenv("CONTAINER_APP_NAME") == ""
 }
@@ -52,14 +52,14 @@ func main() {
 	}
 	defer s.Close()
 
-	// Tenant context has no production source until the IdP integration
-	// (epic TYRE-2); the dev header resolver must be asked for by name and
-	// defaults to off. httpapi.requireTenant documents what a nil resolver
+	// Identity has no production source until the identity provider lands
+	// (FR-AUT-001); the dev header resolver must be asked for by name and
+	// defaults to off. httpapi.requireActor documents what a nil resolver
 	// means.
-	var resolver httpapi.TenantResolver
+	var resolver httpapi.ActorResolver
 	if devHeaderEnabled(os.Getenv) {
-		logger.Warn("X-Tenant-ID header resolver enabled; never do this in a deployed environment")
-		resolver = httpapi.HeaderTenantResolver{}
+		logger.Warn("X-Tenant-ID/X-User-ID header resolver enabled; anyone who can send a header is anyone")
+		resolver = httpapi.HeaderActorResolver{}
 	}
 
 	srv := &http.Server{

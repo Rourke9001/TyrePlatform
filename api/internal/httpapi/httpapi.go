@@ -15,35 +15,49 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
+	"tyreplatform/api/internal/auth"
 	"tyreplatform/api/internal/store"
 )
 
-// TenantResolver names the tenant a request acts for. The production
-// implementation arrives with the IdP integration under epic TYRE-2; until
-// then only the dev header resolver exists, and main only wires it in when
-// explicitly asked to.
-type TenantResolver interface {
-	TenantID(r *http.Request) (uuid.UUID, bool)
+// Identity is who a request claims to be. It carries no role: the role is
+// read from app.app_user on every request, so a stale or forged claim cannot
+// grant anything (ADR-0011).
+type Identity struct {
+	TenantID uuid.UUID
+	UserID   uuid.UUID
 }
 
-// HeaderTenantResolver trusts X-Tenant-ID verbatim. DEV ONLY: anyone who can
-// send a header can pick a tenant, so wiring this into a deployed environment
-// is a cross-tenant breach by construction.
-type HeaderTenantResolver struct{}
+// ActorResolver names the identity a request acts as. The production
+// implementation arrives with the identity provider (FR-AUT-001); until then
+// only the dev header resolver exists, and main wires it in only when asked.
+type ActorResolver interface {
+	Identify(r *http.Request) (Identity, bool)
+}
 
-func (HeaderTenantResolver) TenantID(r *http.Request) (uuid.UUID, bool) {
-	id, err := uuid.Parse(r.Header.Get("X-Tenant-ID"))
+// HeaderActorResolver trusts X-Tenant-ID and X-User-ID verbatim. DEV ONLY:
+// anyone who can send a header is anyone, in any tenant, so wiring this into
+// a deployed environment is both a cross-tenant breach and an authentication
+// bypass by construction (ADR-0011).
+type HeaderActorResolver struct{}
+
+func (HeaderActorResolver) Identify(r *http.Request) (Identity, bool) {
+	tenantID, err := uuid.Parse(r.Header.Get("X-Tenant-ID"))
 	if err != nil {
-		return uuid.Nil, false
+		return Identity{}, false
 	}
-	return id, true
+	userID, err := uuid.Parse(r.Header.Get("X-User-ID"))
+	if err != nil {
+		return Identity{}, false
+	}
+	return Identity{TenantID: tenantID, UserID: userID}, true
 }
 
-func New(s *store.Store, resolver TenantResolver) http.Handler {
+func New(s *store.Store, resolver ActorResolver) http.Handler {
 	r := chi.NewRouter()
 	r.Get("/healthz", healthz)
 	r.Route("/api", func(r chi.Router) {
-		r.Use(requireTenant(resolver))
+		r.Use(requireActor(resolver))
+		r.Get("/me", me(s))
 		r.Get("/vehicles", listVehicles(s))
 		r.Get("/org/branding", orgBranding(s))
 	})
@@ -55,31 +69,119 @@ func healthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("{\"status\":\"ok\"}\n"))
 }
 
-type tenantKey struct{}
+type identityKey struct{}
 
-// requireTenant refuses any request it cannot attribute to a tenant. A nil
-// resolver is the safe production default: with no way to name a tenant, no
-// tenant-scoped route answers at all.
-func requireTenant(resolver TenantResolver) func(http.Handler) http.Handler {
+// requireActor refuses any request it cannot attribute to a user in a tenant.
+// A nil resolver is the safe production default: with no way to name anyone,
+// no scoped route answers at all.
+func requireActor(resolver ActorResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if resolver == nil {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			id, ok := resolver.TenantID(r)
+			id, ok := resolver.Identify(r)
 			if !ok {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
-			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), tenantKey{}, id)))
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
 		})
 	}
 }
 
-func tenantFrom(ctx context.Context) (uuid.UUID, bool) {
-	id, ok := ctx.Value(tenantKey{}).(uuid.UUID)
+func identityFrom(ctx context.Context) (Identity, bool) {
+	id, ok := ctx.Value(identityKey{}).(Identity)
 	return id, ok
+}
+
+// withActor is the one place a handler turns an identity into an actor. It
+// owns the refusal vocabulary so no handler invents its own: 401 means we do
+// not know who you are, 403 means we do and you may not.
+func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(pgx.Tx, auth.Actor) error) bool {
+	ctx := r.Context()
+	id, ok := identityFrom(ctx)
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return false
+	}
+	err := s.InActorTx(ctx, id.TenantID, id.UserID, fn)
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, store.ErrNoSuchActor):
+		// Deliberately indistinguishable to the client: whether the user is
+		// deactivated or simply not in this tenant is not theirs to learn.
+		slog.WarnContext(ctx, "refusing unresolvable actor", "tenant", id.TenantID, "user", id.UserID)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	case errors.Is(err, errForbidden):
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	default:
+		slog.ErrorContext(ctx, "actor transaction failed", "err", err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return false
+	}
+}
+
+// errForbidden lets a handler refuse from inside the transaction and have
+// withActor shape the response, so the capability check reads inline with the
+// query it guards rather than as a separate pre-flight.
+var errForbidden = errors.New("capability not held")
+
+// require refuses unless the actor's role carries the capability. Handlers
+// assert capabilities, never role names (auth.Capability).
+//
+//lint:ignore U1000 called by the capability gates TYRE-56 Task 5 adds
+func require(a auth.Actor, c auth.Capability) error {
+	if !a.Can(c) {
+		return fmt.Errorf("%w: %s lacks %s", errForbidden, a.Role, c)
+	}
+	return nil
+}
+
+type meJSON struct {
+	UserID       string   `json:"userId"`
+	DisplayName  string   `json:"displayName"`
+	Role         string   `json:"role"`
+	Capabilities []string `json:"capabilities"`
+	Depots       []string `json:"depots"`
+}
+
+// me tells the client what to render. Presentation only — every other
+// endpoint re-checks server-side, because a client-side control is a
+// convenience and never a boundary (NFR-SEC-006).
+func me(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var body meJSON
+		ok := withActor(w, r, s, func(_ pgx.Tx, a auth.Actor) error {
+			body = meJSON{
+				UserID:       a.UserID.String(),
+				DisplayName:  a.DisplayName,
+				Role:         string(a.Role),
+				Capabilities: []string{},
+				Depots:       []string{},
+			}
+			for _, c := range a.Capabilities() {
+				body.Capabilities = append(body.Capabilities, string(c))
+			}
+			for _, d := range a.DepotIDs {
+				body.Depots = append(body.Depots, d.String())
+			}
+			return nil
+		})
+		if !ok {
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(body); err != nil {
+			slog.ErrorContext(ctx, "encoding me", "err", err)
+		}
+	}
 }
 
 // defaultPrimaryColor is the platform's own brand blue, used until a tenant
@@ -102,14 +204,8 @@ type brandingJSON struct {
 func orgBranding(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		tenantID, ok := tenantFrom(ctx)
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
 		var b brandingJSON
-		err := s.InTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		ok := withActor(w, r, s, func(tx pgx.Tx, _ auth.Actor) error {
 			var raw []byte
 			err := tx.QueryRow(ctx,
 				`SELECT value FROM app.configuration
@@ -129,9 +225,7 @@ func orgBranding(s *store.Store) http.HandlerFunc {
 			b.PrimaryColor = defaultPrimaryColor
 			return nil
 		})
-		if err != nil {
-			slog.ErrorContext(ctx, "reading branding", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
+		if !ok {
 			return
 		}
 
@@ -151,14 +245,8 @@ type vehicleJSON struct {
 func listVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		tenantID, ok := tenantFrom(ctx)
-		if !ok {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-
 		vehicles := []vehicleJSON{}
-		err := s.InTenantTx(ctx, tenantID, func(tx pgx.Tx) error {
+		ok := withActor(w, r, s, func(tx pgx.Tx, _ auth.Actor) error {
 			rows, err := tx.Query(ctx,
 				`SELECT id, fleet_number, registration FROM app.vehicle ORDER BY fleet_number`)
 			if err != nil {
@@ -174,9 +262,7 @@ func listVehicles(s *store.Store) http.HandlerFunc {
 			}
 			return rows.Err()
 		})
-		if err != nil {
-			slog.ErrorContext(ctx, "listing vehicles", "err", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
+		if !ok {
 			return
 		}
 
