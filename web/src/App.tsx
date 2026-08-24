@@ -1,12 +1,12 @@
 import { AppShell } from "./dashboard/AppShell";
-import { VehicleList } from "./dashboard/VehicleList";
+import { AppRoutes } from "./routes";
 
-// The manager dashboard (FR-DSH-001). The driver capture PWA (TYRE-4,
-// ADR-0009) is a separate mount and does not exist yet.
+// One application, one deployment: the management interface and the driver
+// capture interface are routes within it, not separate apps (IR-UI-001).
 export function App() {
   return (
     <AppShell>
-      <VehicleList />
+      <AppRoutes />
     </AppShell>
   );
 }
