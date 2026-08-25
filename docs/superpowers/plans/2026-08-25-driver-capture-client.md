@@ -320,6 +320,7 @@ const body = {
   registration: "BAC039SP",
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z",
+  combination: null,
   positions: [
     {
       id: "22222222-2222-2222-2222-222222222222",
@@ -462,6 +463,21 @@ export interface CaptureConfig {
   removalThresholdMm: number;
 }
 
+// FR-INS-062: the rig a CONTROLLER set, for the driver to confirm before
+// starting. The driver never composes it — managing what is coupled to
+// what is fleet configuration, and it is set before the truck leaves.
+export interface CaptureMember {
+  vehicleId: string;
+  fleetNumber: string;
+  sequence: number;
+  descriptor: string | null;
+}
+
+export interface CaptureCombination {
+  id: string;
+  members: CaptureMember[];
+}
+
 export interface CaptureContext {
   vehicleId: string;
   fleetNumber: string;
@@ -471,6 +487,9 @@ export interface CaptureContext {
   // denominator.
   lastOdometerAt: string | null;
   positions: CapturePosition[];
+  // Null unless this unit heads a current combination — a solo rigid, or a
+  // trailer asked for its own context, simply has none.
+  combination: CaptureCombination | null;
   config: CaptureConfig;
   // Keyed "AXLE_CLASS:AXLE_TYPE" — BR-ANL-006 cohorts by position class and
   // BR-ANL-009 forbids blending axle types. A missing key means no rate is
@@ -3515,7 +3534,6 @@ import { Keypad } from "./Keypad";
 
 export function CaptureStart({
   motive,
-  assigned,
   attachedIds,
   onToggleAttached,
   onStart,
@@ -3523,9 +3541,9 @@ export function CaptureStart({
   // The unit the driver navigated to. FR-INS-064: only the motive unit's
   // odometer is recorded, and distance is never apportioned to a towed one.
   motive: CaptureContext;
-  // The driver's own units (GET /api/my/vehicles, FR-AUT-005) — the
-  // candidates for what is coupled up today.
-  assigned: { id: string; fleetNumber: string; registration: string | null }[];
+  // Ticked member units, seeded from motive.combination and narrowed only
+  // by unticking. The motive unit cannot be unticked — it is the
+  // inspection's subject and carries the odometer (FR-INS-064).
   attachedIds: string[];
   onToggleAttached: (vehicleId: string) => void;
   onStart: (init: {
@@ -3573,35 +3591,39 @@ export function CaptureStart({
       <h1 id="start-heading">{motive.fleetNumber}</h1>
       <p>{motive.positions.length} positions on this unit</p>
 
-      {/* FR-INS-062: the driver confirms what is attached before starting.
-          A horse and its trailers are separate units with separate
-          registrations and separate position sets — this is where the
-          driver says which ones are on the road together today, and the
-          answer becomes both the walk-around and a dated coupling
-          observation (§4.8.5).
+      {/* FR-INS-062: the driver CONFIRMS the rig, they do not compose it.
+          What is coupled to what is fleet configuration a CONTROLLER sets
+          before the trip (ManageAssignments); the driver's job here is to
+          say whether that is what is actually in front of them. Pre-ticked
+          from the served composition, which is the requirement's
+          "defaulting to the last recorded composition".
 
-          The SRS also wants this pre-filled from the last recorded
-          composition. No endpoint serves that yet (TYRE-55), so the list
-          starts unticked rather than guessing — a wrong default here
-          silently attributes a trailer's tyres to the wrong unit, which is
-          worse than one extra tap. */}
-      <fieldset>
-        <legend>Trailers attached</legend>
-        <p className="cap-hint">Tick what is on the rig now.</p>
-        {assigned
-          .filter((v) => v.id !== motive.vehicleId)
-          .map((v) => (
-            <label key={v.id}>
+          Unticking is FR-INS-063's observation, not an edit: it travels as
+          observed_member_vehicle_ids and the server records the difference
+          for a controller to reconcile (server plan, D5). Nothing here
+          writes fleet state. */}
+      {motive.combination && (
+        <fieldset>
+          <legend>Your rig</legend>
+          <p className="cap-hint">Confirm what is coupled up. Untick anything that is not here.</p>
+          {motive.combination.members.map((m) => (
+            <label key={m.vehicleId}>
               <input
                 type="checkbox"
-                checked={attachedIds.includes(v.id)}
-                onChange={() => onToggleAttached(v.id)}
+                checked={attachedIds.includes(m.vehicleId)}
+                disabled={m.vehicleId === motive.vehicleId}
+                onChange={() => onToggleAttached(m.vehicleId)}
               />
-              {v.fleetNumber}
-              {v.registration ? ` · ${v.registration}` : ""}
+              {m.fleetNumber}
+              {m.descriptor ? ` · ${m.descriptor}` : ""}
             </label>
           ))}
-      </fieldset>
+          <p className="cap-hint">
+            Something else coupled up? Finish this inspection and tell the office — they set
+            the rig.
+          </p>
+        </fieldset>
+      )}
 
       {wantsOdometer && (
         <fieldset>
@@ -3661,7 +3683,9 @@ export function CaptureStart({
 
 **On starting, `CaptureFlow` loads a capture context for the motive unit and every ticked trailer** — one `GET /api/capture/vehicles/{id}` each, all while the driver still has signal (FR-OFF-001) — then hands the array to `rigPositions` for the continuous 1..n the driver walks (FR-VEH-034). Each unit keeps its own configuration, its own thresholds and its own positions; the projection is display only.
 
-The half FR-INS-062 asks for that is **not** here is the pre-filled default — "defaulting to the last recorded composition" needs a composition read the API does not have. **Raise it under TYRE-55.** Until it exists the list starts unticked: a wrong default silently attributes a trailer's tyres to the wrong unit, and one extra tap is cheaper than that.
+**The composition is the controller's, not the driver's.** `motive.combination` is what a `CONTROLLER` set for this trip (`ManageAssignments`), served by the capture context and pre-ticked here — that is FR-INS-062's "defaulting to the last recorded composition", satisfied properly rather than by guesswork. `CaptureFlow` seeds `attachedIds` from `combination.members` and loads a capture context for each ticked unit.
+
+**Unticking is an observation, not an edit.** FR-INS-063 requires the system to permit a driver to begin with a composition that differs from the record. Unticking does that: the reduced set travels as `observed_member_vehicle_ids`, the server writes an `FR-INS-063` warning, and a controller reconciles it. **Adding** a trailer the record does not know about is deliberately *not* built — under FR-AUT-005 the driver has no scoped way to identify an arbitrary unit, and inventing a fleet-wide unit picker on a driver's phone would hand out exactly the configuration authority this design is keeping with the controller. That half of FR-INS-063 is partial and is recorded as such in *What this plan does not build* and in the questions file. Do not close FR-INS-063 on the epic.
 
 - [ ] **Step 4: Write the review and done screens**
 
@@ -3930,14 +3954,17 @@ Create `web/e2e/capture.spec.ts`. Four flows, each one a requirement — plus a 
 
 **And FR-INS-038 makes these specs order-dependent by construction.** The duplicate window is tenant state in a shared database: four parallel workers across three projects submitting the same vehicle would have every submit after the first refused with a 409. The file runs serially, on one project, with a vehicle budget:
 
-| Spec | Vehicle | Submits |
-| --- | --- | --- |
-| 1 — full capture, and the agreement check | A | yes |
-| 2 — offline capture and reconnect | B | yes |
-| 3 — restart mid-capture | A | no |
-| 4 — the duplicate window | A | yes, and expects the refusal because spec 1 already submitted A |
+The seeded fixture makes this tight, and the numbers matter. `driver1` currently holds `veh1` (HORSE) and `veh3` (LINK12); `comb1` is `veh1 + veh2 + veh3`. The window keys **per unit carrying readings**, so one rig submit consumes all three and leaves nothing for anything else:
 
-Spec 4 depending on spec 1 is deliberate: serial mode makes it explicit rather than accidental.
+| Spec | Unit | Rig? | Submits |
+| --- | --- | --- | --- |
+| 1 — full capture and the agreement check | veh1 | untick trailers | yes |
+| 2 — offline capture and reconnect | veh3 | solo already | yes |
+| 3 — restart mid-capture | veh1 | untick trailers | no |
+| 4 — the duplicate window | veh1 | untick trailers | yes, and expects the refusal because spec 1 already submitted veh1 |
+| 5 — the rig | veh1 + veh2 + veh3 | confirmed | **no** — asserts the queued payload, then clears it |
+
+Spec 4 depending on spec 1 is deliberate: serial mode makes it explicit rather than accidental. Spec 5 runs last and deliberately stops at the outbox — submitting a rig would refuse on all three units and there is nothing left to test with afterwards. It is not a weaker test for that: **BR-VEH-003 breaks in the payload**, so the payload is exactly where to catch it.
 
 ```ts
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -3987,8 +4014,18 @@ async function assignedVehicles(request: APIRequestContext) {
   return vehicles;
 }
 
-async function startInspection(page: Page, vehicleId: string) {
+// Solo capture: untick every trailer the controller has coupled to this
+// unit, so the specs that submit consume one unit's window rather than
+// three. Unticking is FR-INS-063's observation and the server records it —
+// which these specs also, incidentally, exercise.
+async function startInspection(page: Page, vehicleId: string, rig: "solo" | "whole" = "solo") {
   await page.goto(`/capture/${vehicleId}`);
+  if (rig === "solo") {
+    const trailers = page.getByRole("checkbox").filter({ hasNot: page.locator("[disabled]") });
+    for (const box of await trailers.all()) {
+      if (await box.isChecked()) await box.uncheck();
+    }
+  }
   await page.getByRole("button", { name: /start inspection/i }).click();
 }
 
@@ -4100,6 +4137,61 @@ test("an inspection survives a browser restart mid-capture", async ({ page, requ
   await expect(page.getByLabel(/Tread reading 1 of 3/)).toContainText("13");
 });
 
+test("a rig walks as one sequence and attributes every reading to its own unit", async ({
+  page,
+  request,
+}) => {
+  // FR-INS-060/061 and BR-VEH-003, which is the one that breaks silently.
+  // The driver sees a continuous 1..n across the horse and both trailers;
+  // what is SENT is (vehicle_id, position_id) per unit, and the rig number
+  // appears nowhere. If the projection ever leaked into the payload, every
+  // trailer's tyres would be filed against the horse.
+  const [a] = await assignedVehicles(request);
+  await startInspection(page, a.id, "whole");
+
+  // FR-INS-062: the composition a controller set, pre-ticked. Three units.
+  const contexts = await request.get(`/api/capture/vehicles/${a.id}`, { headers: HEADERS });
+  const combination = (await contexts.json()).combination;
+  expect(combination.members).toHaveLength(3);
+
+  const total = await captureAll(page);
+  expect(total).toBeGreaterThan(20); // a superlink, not one unit
+
+  // FR-VEH-034: continuous across member units, computed for the screen.
+  await expect(page.getByRole("button", { name: /^Position 1,/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(`^Position ${total},`) })).toBeVisible();
+
+  await page.getByRole("button", { name: /review and submit/i }).click();
+  await page.getByRole("button", { name: /submit inspection/i }).click();
+
+  // Stop at the outbox. Read what WOULD go on the wire: every reading
+  // carries the owning unit, at least two distinct units appear, and no
+  // rig-level number is transmitted anywhere.
+  const queued = await page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("tyre-capture");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return await new Promise<unknown[]>((resolve) => {
+      const all = db.transaction("outbox").objectStore("outbox").getAll();
+      all.onsuccess = () => resolve(all.result);
+    });
+  });
+
+  const payload = (queued as { payload: { readings: { vehicle_id: string }[] } }[])[0].payload;
+  const units = new Set(payload.readings.map((r) => r.vehicle_id));
+  expect(units.size).toBeGreaterThanOrEqual(2);
+  for (const member of combination.members) {
+    expect(units.has(member.vehicleId)).toBe(true);
+  }
+  // BR-VEH-003 as amended by E2: never stored AND never transmitted.
+  expect(JSON.stringify(payload)).not.toMatch(/rig_position|"sequence"/);
+
+  // Leave the fixture as we found it — this one never sends.
+  await page.evaluate(() => indexedDB.deleteDatabase("tyre-capture"));
+});
+
 test("a second inspection inside the window is refused permanently", async ({ page, request }) => {
   // Depends on the first spec having submitted vehicle A, which serial mode
   // guarantees. FR-INS-038 is about the VEHICLE and a wall-clock window, not
@@ -4149,7 +4241,7 @@ This is the epic's acceptance criterion and it is a measured run, not a passing 
 
 > A full inspection of one real vehicle completed on a phone **in airplane mode**, synced on reconnect, visible in the database with correct positions.
 
-Do it on a real device against the dev stack on the same network, or `context.setOffline(true)` on the `android` project if no device is available — and **say which**, because they are not the same evidence. Record:
+**Run `make db-reset` first.** The automated specs above consume the FR-INS-038 window on every unit of `comb1`, so an M2 run straight after them is refused before it starts — and M2 is the whole rig, confirmed, not a solo unit. Do it on a real device against the dev stack on the same network, or `context.setOffline(true)` on the `android` project if no device is available — and **say which**, because they are not the same evidence. Record:
 
 - the vehicle and its position count;
 - **the wall-clock duration**, against NFR-USE-001's 3 minutes for ten positions and NFR-USE-001a's 7 minutes for 26;
@@ -4176,7 +4268,8 @@ git commit -m "test(web): TYRE-70 mobile capture flows and the M2 airplane-mode 
 
 Named so nobody discovers them mid-task and quietly adds them.
 
-- **The pre-filled rig composition.** Rig capture itself *is* in this slice: the driver ticks which trailers are coupled up (Task 11), each unit's context is fetched, and the walk-around runs as one continuous sequence with every reading attributed to the unit that owns the position (Tasks 9 and 7). What is missing is FR-INS-062's **default** — pre-ticking the last recorded composition — which needs a composition read the API does not have. Raised under TYRE-55. `combination_id` stays null until then, so the submit carries `observed_member_vehicle_ids` and the server records the observation without creating a dated combination (server plan, D5).
+- **Composition *management*.** Rig capture is fully in this slice — the controller-set composition is served, pre-ticked, confirmed by the driver, and every member unit's readings are attributed to the unit that owns the position. What is not here is the controller's surface for *setting* a composition: creating a dated `app.combination` and its members, under `ManageAssignments`. The fixture seeds one, so capture works end to end; a new tenant would have nothing to confirm. **Needs a ticket** before pilot, alongside FR-INS-049's schedule-setting surface.
+- **The add half of FR-INS-063.** A driver can untick a unit that is not actually coupled up, and that observation reaches the server. They cannot *add* a unit the recorded composition does not name — see Task 11 for why, and do not treat FR-INS-063 as closed.
 
 - **Photographs.** FR-INS-041 prompts for one and this plan raises the prompt, but capture, compression (FR-OFF-017), the separate queue and deferred upload (FR-OFF-018/019) are a slice of their own. The submit path is complete without them: FR-OFF-018 requires inspection data to submit *where photograph upload fails*, so photos can never be a submit gate. Task 3's `promptPhoto` flag is the hook they attach to.
 - **FR-INS-027's tyre dispute.** The payload already carries whatever `tyre_id` the driver was shown, and the server accepts a mismatch and records it (FR-OFF-016). The UI for *reporting* a different tyre is not here.

@@ -316,6 +316,30 @@ git commit -m "fix(db): TYRE-66 odometer ceiling is tenant config, refusals carr
 
 FR-INS-040 has been a Must with no home since v1.3. Errata E2 gave it DR-021 and a named entity; this builds it. The `response` column is nullable for a specific reason: a submit can sit in the outbox for days and be refused server-side with no driver present to answer.
 
+**Also in this migration: the capture scope view.** A rig inspection reads a capture context per member unit, and `app.v_driver_vehicle` is current *assignments* only — so a driver assigned the horse cannot read their own trailers. The fixture demonstrates it exactly: `driver1` holds `veh1` and `veh3`, their `veh2` assignment ended 2024-12-31, and all three are members of `comb1`. Without this view a superlink cannot be captured at all.
+
+> **This is an authorisation widening, taken as a default rather than assumed.** FR-AUT-005 restricts a `DRIVER` to "the vehicle or vehicles currently assigned to them", and FR-INS-053 already establishes that coupling propagates responsibility — "trailer coupled to a horse → that horse's driver". Extending *read for capture* along the same chain follows that reasoning. It is narrower than it looks: reachable only through the current combination of a unit the driver actually holds, and it does not widen `/api/my/vehicles`. Recorded in `docs/spec/QUESTIONS-FOR-ROURKE.md`.
+
+```sql
+-- FR-AUT-005 with FR-INS-053: what a driver may read IN ORDER TO CAPTURE.
+-- Deliberately not v_driver_vehicle, which is assignment alone and is what
+-- /api/my/vehicles answers — widening that would change every caller. The
+-- coupling chain is the justification: a driver responsible for the horse is
+-- responsible for what it is pulling, and cannot inspect a rig they cannot
+-- read.
+CREATE VIEW app.v_capture_vehicle WITH (security_invoker = true) AS
+SELECT dv.vehicle_id
+  FROM app.v_driver_vehicle dv
+UNION
+SELECT cm.vehicle_id
+  FROM app.v_driver_vehicle dv
+  JOIN app.combination c
+    ON c.motive_vehicle_id = dv.vehicle_id AND c.effective_to IS NULL
+  JOIN app.combination_member cm ON cm.combination_id = c.id;
+```
+
+> `security_invoker = true` is not optional — `db/tests/004_tests.sql` fails the build on any view without it, because a view running as its owner returns every tenant's rows. Check the column name `v_driver_vehicle` actually exposes before writing the `UNION`; it selects `*` from `app.v_current_assignment`.
+
 **Files:**
 - Create: `db/migrations/000022_inspection_warning.up.sql`
 - Create: `db/migrations/000022_inspection_warning.down.sql`
@@ -1010,6 +1034,23 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 				require.NotContains(t, raw, banned, "a monetary field reached the capture payload")
 			}
 			require.NotEmpty(t, body["positions"], "capture cannot proceed without positions")
+
+			// FR-INS-062: the rig the controller set, for the driver to
+			// confirm. The fixture's comb1 is horse + 6m + 12m.
+			if tt.role == auth.RoleDriver {
+				require.NotNil(t, body["combination"], "a rig's motive unit served no composition")
+			}
+
+			// The hole v_capture_vehicle exists to close, pinned as its own
+			// case: driver1 holds veh1 and veh3, their veh2 assignment ended
+			// in 2024, and all three are members of comb1. Before the view,
+			// this 403s and a superlink cannot be inspected.
+			for _, m := range body["combination"].(map[string]any)["members"].([]any) {
+				member := m.(map[string]any)["vehicleId"].(string)
+				rec := get(t, h, "/api/capture/vehicles/"+member, tenantID.String(), userID.String())
+				require.Equal(t, http.StatusOK, rec.Code,
+					"a driver could not read a member unit of their own rig: "+member)
+			}
 			require.NotNil(t, body["config"], "capture cannot evaluate warnings without thresholds")
 
 			// FR-OFF-002 as amended by E2. Each of these is the sole input to
@@ -1116,6 +1157,22 @@ type capturePosition struct {
 	CriticalOverPct  *float64 `json:"criticalOverPct"`
 }
 
+// FR-INS-062: the composition a CONTROLLER set, for the driver to confirm.
+// Managing it is a controller surface and not part of this phase — the
+// driver confirms or reports a difference, never edits the fleet's record
+// of what is coupled to what.
+type captureMember struct {
+	VehicleID   uuid.UUID `json:"vehicleId"`
+	FleetNumber string    `json:"fleetNumber"`
+	Sequence    int       `json:"sequence"`
+	Descriptor  *string   `json:"descriptor"`
+}
+
+type captureCombination struct {
+	ID      uuid.UUID       `json:"id"`
+	Members []captureMember `json:"members"`
+}
+
 type captureContextBody struct {
 	VehicleID      uuid.UUID         `json:"vehicleId"`
 	FleetNumber    string            `json:"fleetNumber"`
@@ -1125,6 +1182,10 @@ type captureContextBody struct {
 	// without it leaves the plausibility warning with no denominator.
 	LastOdometerAt *time.Time       `json:"lastOdometerAt"`
 	Positions      []capturePosition `json:"positions"`
+	// Null unless this vehicle heads a current combination. A trailer asked
+	// for its own context gets null and is captured as a solo unit, which is
+	// correct: the rig is entered through its motive unit.
+	Combination    *captureCombination `json:"combination"`
 	Config         map[string]any    `json:"config"`
 
 	// FR-INS-035's denominator, cohorted per BR-ANL-006 (position class) and
@@ -1170,7 +1231,10 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// indistinguishable (ADR-0011).
 	from := `app.vehicle v`
 	if a.Scope() != auth.ScopeTenant {
-		from = `app.v_driver_vehicle dv JOIN app.vehicle v ON v.id = dv.vehicle_id`
+		// v_capture_vehicle, not v_driver_vehicle: a driver must reach the
+		// trailers of a rig they are responsible for, or a superlink cannot
+		// be inspected at all (migration 000022).
+		from = `app.v_capture_vehicle cv JOIN app.vehicle v ON v.id = cv.vehicle_id`
 	}
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, o.odometer_km, o.reading_date
@@ -1280,6 +1344,36 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	}
 	if err := crows.Err(); err != nil {
 		return fmt.Errorf("reading cohort wear rates: %w", err)
+	}
+
+	// FR-INS-062's composition, for the driver to confirm before starting.
+	// Ordered by member sequence, which with each unit's own position
+	// sequence is all FR-VEH-034 needs to compute the rig's 1..n at render
+	// time — nothing about that numbering is stored here or anywhere.
+	var combo captureCombination
+	crows, err := tx.Query(ctx, `
+		SELECT c.id, cm.vehicle_id, mv.fleet_number, cm.sequence, cm.descriptor
+		  FROM app.combination c
+		  JOIN app.combination_member cm ON cm.combination_id = c.id
+		  JOIN app.vehicle mv ON mv.id = cm.vehicle_id
+		 WHERE c.motive_vehicle_id = $1 AND c.effective_to IS NULL
+		 ORDER BY cm.sequence`, vehicleID)
+	if err != nil {
+		return fmt.Errorf("loading combination: %w", err)
+	}
+	defer crows.Close()
+	for crows.Next() {
+		var m captureMember
+		if err := crows.Scan(&combo.ID, &m.VehicleID, &m.FleetNumber, &m.Sequence, &m.Descriptor); err != nil {
+			return fmt.Errorf("scanning combination member: %w", err)
+		}
+		combo.Members = append(combo.Members, m)
+	}
+	if err := crows.Err(); err != nil {
+		return fmt.Errorf("reading combination: %w", err)
+	}
+	if len(combo.Members) > 0 {
+		out.Combination = &combo
 	}
 
 	// Every threshold the client evaluates against, read through the same
