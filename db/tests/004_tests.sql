@@ -2534,5 +2534,44 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 30. Warning records are append-only, and a server-raised one has no response (DR-021, FR-INS-040)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '11111111-1111-1111-1111-111111111111';
+  i_id uuid;
+  w_id uuid;
+  ok   boolean;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  SELECT id INTO i_id FROM app.inspection WHERE tenant_id = t_id LIMIT 1;
+
+  -- a client-raised warning carries the driver's answer
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, response, source)
+  VALUES (t_id, i_id, 'FR-INS-036', '3.2', 'ACKNOWLEDGED', 'CLIENT')
+  RETURNING id INTO w_id;
+
+  -- a server-raised refusal has nobody to answer it (DR-021: response nullable)
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, response, source)
+  VALUES (t_id, i_id, 'DR-020', '999999', NULL, 'SERVER');
+
+  ok := false;
+  BEGIN
+    UPDATE app.inspection_warning SET response = 'CHANGED' WHERE id = w_id;
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: a warning record was updatable'; END IF;
+
+  ok := false;
+  BEGIN
+    DELETE FROM app.inspection_warning WHERE id = w_id;
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: a warning record was deletable'; END IF;
+
+  RAISE NOTICE 'PASS  warning records are append-only and a server-raised one needs no response';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
