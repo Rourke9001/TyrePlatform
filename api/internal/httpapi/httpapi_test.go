@@ -112,6 +112,193 @@ func plantUser(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid
 	return userID
 }
 
+// plantCaptureFixture plants everything the capture endpoint needs to answer
+// except the acting user: one axle configuration shared by a motive unit and
+// its trailer (a LEFT/RIGHT running pair off one axle, plus a spare), a
+// combination coupling both vehicles with effective_to NULL, the six
+// app.configuration keys the response's config block reads, a
+// threshold_policy row, a target_pressure row for the running positions'
+// axle class, and two backdated inspections on the motive unit's LEFT
+// position so previousGoverningMm and the cohort wear rate are real numbers
+// rather than nulls that would satisfy the test's presence-only assertions
+// vacuously.
+//
+// It deliberately plants no vehicle_driver row. FR-AUT-005's assignment
+// names a specific user, and the only user this fixture could name is one it
+// invents — which would satisfy nothing the caller's actor actually is,
+// since the caller plants its own actors afterwards via plantUser. Callers
+// that need the assignment call assignVehicleDriver once they hold the
+// driver's id.
+func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, label string) (uuid.UUID, uuid.UUID, uuid.UUID) {
+	t.Helper()
+	tenantID, _ := plantTenant(t, ctx, admin, label)
+	suffix := uuid.NewString()[:8]
+
+	var configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.axle_configuration (tenant_id, code, name, axle_count)
+		 VALUES ($1, $2, 'capture test rig', 1) RETURNING id`,
+		tenantID, "CAPTURETEST-"+suffix,
+	).Scan(&configID))
+
+	var leftPos uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.position
+		   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1L', 1, 1, 'STEER'::app.axle_class, 'LEFT'::app.side, 'SINGLE'::app.fitment_slot, false)
+		 RETURNING id`,
+		tenantID, configID,
+	).Scan(&leftPos))
+
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.position
+		   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1R', 2, 1, 'STEER'::app.axle_class, 'RIGHT'::app.side, 'SINGLE'::app.fitment_slot, false)`,
+		tenantID, configID)
+	require.NoError(t, err)
+
+	// The spare pins "a spare was given a pressure target": it must resolve
+	// no target even though the target_pressure row below carries no size_id
+	// and would otherwise match anything of the same axle class.
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.position (tenant_id, configuration_id, code, sequence, axle_class, is_spare)
+		 VALUES ($1, $2, 'SP1', 3, 'SPARE'::app.axle_class, true)`,
+		tenantID, configID)
+	require.NoError(t, err)
+
+	var motiveID, trailerID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+		 VALUES ($1, $2, $3, 'HORSE'::app.unit_kind) RETURNING id`,
+		tenantID, "CAPTURE-HORSE-"+suffix, configID,
+	).Scan(&motiveID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+		 VALUES ($1, $2, $3, 'TRAILER'::app.unit_kind) RETURNING id`,
+		tenantID, "CAPTURE-TRAILER-"+suffix, configID,
+	).Scan(&trailerID))
+
+	// FR-INS-062: the composition the driver confirms. effective_to NULL is
+	// what makes this the CURRENT combination app.v_capture_vehicle resolves
+	// through. No configuration_id: CFL-006/CHG-029 (000011) made the
+	// combination's shape derived from its members rather than stored.
+	var combinationID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+		 VALUES ($1, $2, now() - interval '1 hour') RETURNING id`,
+		tenantID, motiveID,
+	).Scan(&combinationID))
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence, descriptor)
+		 VALUES ($1, $2, $3, 1, 'Horse'), ($1, $2, $4, 2, 'Trailer')`,
+		tenantID, combinationID, motiveID, trailerID)
+	require.NoError(t, err)
+
+	// The six keys every cfg[...] assertion in the test reads, plus
+	// duplicate_inspection_min_hours for Task 5's 409 case. Backdated:
+	// app.config_for resolves with a strict '<' against the instant passed
+	// in, and the handler passes now().
+	for _, cfg := range []struct{ key, value string }{
+		{"tread_reading_count", "3"},
+		{"width_spread_warn_mm", "2.0"},
+		{"odometer_max_daily_km", "1000"},
+		{"wear_rate_alert_multiple", "1.5"},
+		{"tread_capture_granularity_mm", "1.0"},
+		{"duplicate_inspection_min_hours", "4"},
+	} {
+		_, err = admin.Exec(ctx,
+			`INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+			 VALUES ($1, $2, $3::jsonb, now() - interval '1 hour')`,
+			tenantID, cfg.key, cfg.value)
+		require.NoError(t, err)
+	}
+
+	// The tenant-wide default row app.removal_threshold_mm_for resolves: no
+	// operating_group_id, no axle_class.
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, effective_from)
+		 VALUES ($1, 4.0, 4.0, now() - interval '1 hour')`,
+		tenantID)
+	require.NoError(t, err)
+
+	// No size_id: applies to every STEER position regardless of what, if
+	// anything, is fitted there. warn/critical tolerances take the table's
+	// 10/20% defaults (D4).
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.target_pressure (tenant_id, axle_class, target_kpa, effective_from)
+		 VALUES ($1, 'STEER'::app.axle_class, 800, now() - interval '1 hour')`,
+		tenantID)
+	require.NoError(t, err)
+
+	// A tyre with real money on it — proves the monetary-field ban is an
+	// actual projection, not a vacuous absence — fitted to the LEFT running
+	// position, with two backdated inspections so previousGoverningMm and the
+	// cohort wear rate are real numbers rather than nulls that would satisfy
+	// a presence-only assertion vacuously. Attributed to a throwaway driver
+	// that is never used to authenticate anything.
+	historyDriver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+
+	var tyreID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre (tenant_id, display_code, purchase_price, new_tread_mm, rand_per_mm, casing_value, state)
+		 VALUES ($1, $2, 3000.00, 14.0, 250.0000, 800.00, 'FITTED') RETURNING id`,
+		tenantID, "CAPTURE-TYRE-"+suffix,
+	).Scan(&tyreID))
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+		 VALUES ($1, $2, $3, $4, now() - interval '90 days', 0)`,
+		tenantID, tyreID, motiveID, leftPos)
+	require.NoError(t, err)
+
+	for _, rd := range []struct {
+		daysAgo  int
+		treadMm  float64
+		odometer int64
+	}{
+		{60, 10.0, 50000},
+		{30, 9.0, 55000},
+	} {
+		var inspID, readingID uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.inspection
+			   (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+			 VALUES ($1, $2, $3, $4,
+			         now() - make_interval(days => $5), now() - make_interval(days => $5), $6)
+			 RETURNING id`,
+			tenantID, motiveID, historyDriver, uuid.New(), rd.daysAgo, rd.odometer,
+		).Scan(&inspID))
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, tyre_id)
+			 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+			tenantID, inspID, motiveID, leftPos, tyreID,
+		).Scan(&readingID))
+		_, err = admin.Exec(ctx,
+			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position)
+			 VALUES ($1, $2, 1, $3::numeric, 'CENTRE'::app.tread_position)`,
+			tenantID, readingID, rd.treadMm)
+		require.NoError(t, err)
+	}
+
+	return tenantID, motiveID, trailerID
+}
+
+// assignVehicleDriver gives userID FR-AUT-005's current assignment to
+// vehicleID, backdated a day so app.v_current_assignment's "from today"
+// window is unambiguously satisfied regardless of what hour the suite runs
+// — the same shape TestDriverVehiclesAreAssignmentScoped uses below.
+// Deliberately not folded into plantCaptureFixture: the driver being
+// assigned here is created by the caller, per role, inside the test's own
+// loop — after the fixture has already returned — so the fixture has no
+// user_id to assign to yet.
+func assignVehicleDriver(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID, userID uuid.UUID) {
+	t.Helper()
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+		 VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC')::date - 1)`,
+		tenantID, vehicleID, userID)
+	require.NoError(t, err)
+}
+
 func TestVehiclesScopedToHeaderTenant(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
