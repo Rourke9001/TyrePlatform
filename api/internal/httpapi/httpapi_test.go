@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +92,17 @@ func get(t *testing.T, h http.Handler, path, tenant, user string) *httptest.Resp
 	if user != "" {
 		req.Header.Set("X-User-ID", user)
 	}
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
+func post(t *testing.T, h http.Handler, path, tenant, user, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	req.Header.Set("X-Tenant-ID", tenant)
+	req.Header.Set("X-User-ID", user)
+	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
