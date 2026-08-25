@@ -62,6 +62,7 @@ func New(s *store.Store, resolver ActorResolver) http.Handler {
 		r.Get("/vehicles", listVehicles(s))
 		r.Get("/my/vehicles", listMyVehicles(s))
 		r.Get("/my/tasks", listMyTasks(s))
+		r.Get("/capture/vehicles/{vehicleID}", captureContext(s))
 		r.Get("/org/branding", orgBranding(s))
 	})
 	return r
