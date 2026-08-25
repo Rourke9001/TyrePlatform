@@ -2573,5 +2573,170 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 31. Submit is atomic, idempotent, and never loses an inspection to its odometer (FR-OFF-011, FR-INS-020/038, DR-020, FR-INS-063, TY007)'
+BEGIN;
+DO $$
+DECLARE
+  t_id   constant uuid := '11111111-1111-1111-1111-111111111111';
+  v_id   uuid;
+  drv    uuid;
+  cu     uuid := gen_random_uuid();
+  res    record;
+  first  uuid;
+  posl   uuid;
+  posr   uuid;
+  got    text;
+  n      int;
+  -- governing_tread_mm is numeric(4,1). Reading it into an int rounds 6.9
+  -- to 7 and the assertion then fails against a CORRECT implementation.
+  gov    numeric;
+  -- The FR-INS-038 window is measured from now(), which is frozen for the
+  -- transaction. Every probe timestamp is derived from it so the section
+  -- does not start failing on a date after it was written.
+  t_now  constant timestamptz := now();
+  -- A second unit, whose window this section has not already consumed: the
+  -- odometer-containment probe must submit successfully, and it cannot do
+  -- that against the unit the TY003 probe just proved is inside the window.
+  v_two  uuid;
+  pos2   uuid;   -- v_two's OWN position, not v_id's (TY004 is per-vehicle lineage)
+  -- comb1's third member (veh2/LINK6), untouched by any probe above: the D5
+  -- observation probe needs its own fresh vehicle too, or it collides with
+  -- the window v_id already consumed.
+  posx   uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  SELECT id INTO drv FROM app.app_user WHERE tenant_id = t_id AND role = 'DRIVER' AND active LIMIT 1;
+  PERFORM set_config('app.actor_id', drv::text, true);
+
+  SELECT v.id INTO v_id FROM app.vehicle v WHERE v.tenant_id = t_id ORDER BY v.fleet_number LIMIT 1;
+  SELECT v.id INTO v_two FROM app.vehicle v WHERE v.tenant_id = t_id ORDER BY v.fleet_number OFFSET 1 LIMIT 1;
+  SELECT p.id INTO posl FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_id AND p.side = 'LEFT' AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO posr FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_id AND p.side = 'RIGHT' AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO pos2 FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_two AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO posx FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = md5('veh2')::uuid AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', cu, 'vehicle_id', v_id,
+    'started_at', t_now - interval '160 seconds', 'submitted_at', t_now,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_id, 'position_id', posl,
+                         'pressure_kpa', 780, 'treads', jsonb_build_array(7.4, 7.1, 6.9)),
+      jsonb_build_object('vehicle_id', v_id, 'position_id', posr,
+                         'pressure_kpa', 790, 'treads', jsonb_build_array(6.5, 6.8, 7.2)))));
+  IF NOT res.created THEN RAISE EXCEPTION 'FAIL: a first submit reported created = false'; END IF;
+  first := res.inspection_id;
+
+  -- BR-INS-003 / DR-017: the MIN is the database's to derive, not the client's
+  SELECT governing_tread_mm INTO gov FROM app.reading WHERE inspection_id = first AND position_id = posl;
+  IF gov IS DISTINCT FROM 6.9 THEN RAISE EXCEPTION 'FAIL: governing tread was % not 6.9', gov; END IF;
+
+  -- FR-INS-029a: entry order is left-to-right in the plan view, and OUTER is
+  -- away from the centreline, so the two sides map in opposite directions
+  SELECT position::text INTO got FROM app.reading_measurement m
+    JOIN app.reading r ON r.id = m.reading_id
+   WHERE r.inspection_id = first AND r.position_id = posl AND m.ordinal = 1;
+  IF got <> 'OUTER' THEN RAISE EXCEPTION 'FAIL: left ordinal 1 mapped to % not OUTER', got; END IF;
+  SELECT position::text INTO got FROM app.reading_measurement m
+    JOIN app.reading r ON r.id = m.reading_id
+   WHERE r.inspection_id = first AND r.position_id = posr AND m.ordinal = 1;
+  IF got <> 'INNER' THEN RAISE EXCEPTION 'FAIL: right ordinal 1 mapped to % not INNER', got; END IF;
+
+  -- FR-OFF-011: a replay resolves to the same record and writes nothing
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', cu, 'vehicle_id', v_id,
+    'started_at', t_now - interval '160 seconds', 'submitted_at', t_now,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_id, 'position_id', posl,
+                         'pressure_kpa', 780, 'treads', jsonb_build_array(7.4, 7.1, 6.9)))));
+  IF res.created OR res.inspection_id <> first THEN
+    RAISE EXCEPTION 'FAIL: a replay was not a no-op resolving to the same inspection';
+  END IF;
+  SELECT count(*) INTO n FROM app.reading WHERE inspection_id = first;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL: a replay changed the reading count to %', n; END IF;
+
+  -- FR-INS-038: a genuine second inspection inside the window is refused,
+  -- which a replay above must NOT have been
+  got := NULL;
+  BEGIN
+    PERFORM app.submit_inspection(jsonb_build_object(
+      'client_uuid', gen_random_uuid(), 'vehicle_id', v_id,
+      'started_at', t_now + interval '2 minutes', 'submitted_at', t_now + interval '4 minutes',
+      'readings', jsonb_build_array(
+        jsonb_build_object('vehicle_id', v_id, 'position_id', posl,
+                           'pressure_kpa', 780, 'treads', jsonb_build_array(7.4, 7.1, 6.9)))));
+  EXCEPTION WHEN SQLSTATE 'TY003' THEN got := 'TY003';
+  END;
+  IF got IS DISTINCT FROM 'TY003' THEN
+    RAISE EXCEPTION 'FAIL: a second inspection inside the window was not refused (got %)', COALESCE(got, 'no error');
+  END IF;
+
+  -- D5 / FR-INS-063: the driver confirmed only the horse, not comb1's full
+  -- three-unit membership (horse + both links). A fresh vehicle (veh2, comb1's
+  -- other trailer) so this probe does not collide with the window v_id
+  -- already consumed above.
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_id,
+    'combination_id', md5('comb1')::uuid,
+    'observed_member_vehicle_ids', jsonb_build_array(v_id),
+    'started_at', t_now + interval '10 minutes', 'submitted_at', t_now + interval '12 minutes',
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', md5('veh2')::uuid, 'position_id', posx,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  IF NOT res.created THEN RAISE EXCEPTION 'FAIL: an observed-composition mismatch cost us the inspection'; END IF;
+  SELECT count(*) INTO n FROM app.inspection_warning
+   WHERE inspection_id = res.inspection_id AND warning_code = 'FR-INS-063' AND source = 'SERVER';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL: an observed set differing from comb1''s membership left % FR-INS-063 warnings, not 1', n;
+  END IF;
+
+  -- TY007: a vehicle from another tenant must reach a 403-shaped refusal, not
+  -- the composite FK's 23503 — RLS makes the row invisible, not merely foreign.
+  got := NULL;
+  BEGIN
+    PERFORM app.submit_inspection(jsonb_build_object(
+      'client_uuid', gen_random_uuid(), 'vehicle_id', md5('t2veh1')::uuid,
+      'started_at', t_now, 'submitted_at', t_now, 'readings', '[]'::jsonb));
+  EXCEPTION WHEN SQLSTATE 'TY007' THEN got := 'TY007';
+  END;
+  IF got IS DISTINCT FROM 'TY007' THEN
+    RAISE EXCEPTION 'FAIL: a vehicle from another tenant was not refused with TY007 (got %)', COALESCE(got, 'no error');
+  END IF;
+
+  -- FR-INS-020 + DR-020: the timeline refuses the number, the inspection
+  -- lives. Against v_two, not v_id: v_id's window is already consumed above,
+  -- and reusing it here would trip TY003 instead of exercising DR-020.
+  INSERT INTO app.vehicle_odometer_reading (tenant_id, vehicle_id, reading_date, odometer_km, source)
+  VALUES (t_id, v_two, (t_now AT TIME ZONE 'UTC')::date - 5, 900000, 'MANUAL');
+
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_two,
+    'started_at', t_now + interval '1 day' - interval '160 seconds', 'submitted_at', t_now + interval '1 day',
+    'odometer_km', 100,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_two, 'position_id', pos2,
+                         'pressure_kpa', 780, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  IF NOT res.created THEN RAISE EXCEPTION 'FAIL: a backwards odometer cost us the inspection'; END IF;
+
+  SELECT count(*) INTO n FROM app.inspection_warning
+   WHERE inspection_id = res.inspection_id AND warning_code = 'DR-020' AND source = 'SERVER'
+     AND entered_value = '100' AND response IS NULL;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL: the refused odometer left % warning records, not 1', n; END IF;
+
+  SELECT count(*) INTO n FROM app.vehicle_odometer_reading
+   WHERE vehicle_id = v_two AND odometer_km = 100;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: an implausible odometer reached the timeline'; END IF;
+
+  RAISE NOTICE 'PASS  submit is atomic and idempotent, the window holds, D5/TY007 refuse and record correctly, and a refused odometer costs a warning not an inspection';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
