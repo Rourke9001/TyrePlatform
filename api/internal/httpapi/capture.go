@@ -331,14 +331,38 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			// FR-AUT-005 on the WRITE path. The read composes v_capture_vehicle;
 			// without the same narrowing here a driver could submit against any
 			// unit in the tenant, which is a wider hole than the read ever was.
+			//
+			// A superlink payload legitimately carries readings against several
+			// vehicle_ids in one submit — the motive unit plus each coupled
+			// trailer (the "108 entries, not 52" case). Checking only the
+			// top-level vehicle_id would let a driver assigned to unit A embed
+			// a reading against unrelated unit B in the same tenant: TY004 in
+			// app.submit_inspection only confirms a position belongs to its own
+			// vehicle's configuration, never that the actor may write to that
+			// vehicle — that narrowing is deliberately the handler's
+			// (000023_submit_inspection.up.sql's TY007 comment). So every
+			// vehicle_id referenced anywhere in the payload — this one plus
+			// every readings[].vehicle_id, read straight from raw rather than a
+			// second Go-side model — must resolve through v_capture_vehicle.
+			// COALESCE guards a missing/non-array readings key so a malformed
+			// payload still gets a refusal here rather than a raw Postgres
+			// error.
 			if a.Scope() != auth.ScopeTenant {
-				var visible bool
-				if err := tx.QueryRow(r.Context(),
-					`SELECT EXISTS (SELECT 1 FROM app.v_capture_vehicle WHERE vehicle_id = $1)`,
-					body.VehicleID).Scan(&visible); err != nil {
+				var authorized bool
+				if err := tx.QueryRow(r.Context(), `
+					SELECT NOT EXISTS (
+					  SELECT vehicle_id FROM (
+					    SELECT $1::uuid AS vehicle_id
+					    UNION
+					    SELECT (e ->> 'vehicle_id')::uuid
+					      FROM jsonb_array_elements(COALESCE($2::jsonb -> 'readings', '[]'::jsonb)) e
+					  ) referenced
+					  WHERE vehicle_id NOT IN (SELECT vehicle_id FROM app.v_capture_vehicle)
+					)`,
+					body.VehicleID, string(raw)).Scan(&authorized); err != nil {
 					return fmt.Errorf("checking capture scope: %w", err)
 				}
-				if !visible {
+				if !authorized {
 					return errForbidden
 				}
 			}
