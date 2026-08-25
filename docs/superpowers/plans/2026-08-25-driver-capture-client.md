@@ -318,6 +318,7 @@ const body = {
   vehicleId: "11111111-1111-1111-1111-111111111111",
   fleetNumber: "BAC039SP",
   registration: "BAC039SP",
+  unitKind: "HORSE",
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z",
   combination: null,
@@ -329,6 +330,7 @@ const body = {
       sequence: 1,
       axleClass: "STEER",
       axleType: "FIXED",
+      axleNumber: 1,
       isSpare: false,
       unitLabel: "Horse",
       tyreId: "33333333-3333-3333-3333-333333333333",
@@ -482,6 +484,9 @@ export interface CaptureContext {
   vehicleId: string;
   fleetNumber: string;
   registration: string | null;
+  // HORSE / TRAILER / RIGID / LIGHT. A trailer has no odometer field at all
+  // (FR-INS-020) and distance is never apportioned to one (FR-INS-064).
+  unitKind: string;
   lastOdometerKm: number | null;
   // FR-INS-033 divides by the gap since this date; the value alone has no
   // denominator.
@@ -572,6 +577,7 @@ const steer: CapturePosition = {
   sequence: 1,
   axleClass: "STEER",
   axleType: "FIXED",
+  axleNumber: 1,
   isSpare: false,
   unitLabel: "Horse",
   tyreId: "t1",
@@ -592,6 +598,7 @@ const spare: CapturePosition = {
   code: "S",
   isSpare: true,
   axleClass: "SPARE",
+  axleNumber: null,
   targetKpa: null,
   warnUnderPct: null,
   criticalUnderPct: null,
@@ -907,6 +914,7 @@ const position: CapturePosition = {
   sequence: 1,
   axleClass: "STEER",
   axleType: "FIXED",
+  axleNumber: 1,
   isSpare: false,
   unitLabel: "Horse",
   tyreId: "t1",
@@ -926,8 +934,10 @@ const ctx: CaptureContext = {
   vehicleId: "v1",
   fleetNumber: "BAC039SP",
   registration: "BAC039SP",
+  unitKind: "HORSE",
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z", // six days before NOW
+  combination: null,
   positions: [position],
   config: {
     treadReadingCount: 3,
@@ -1008,8 +1018,10 @@ describe("odometerRejection", () => {
   // server raises TY001 for it — refusing here saves the driver finding out
   // after the walk-around.
   it("refuses a reading below the last recorded one", () => {
-    // toLocaleString("en-ZA") groups with U+00A0, not a plain space.
-    expect(odometerRejection(412000, ctx)).toMatch(/412[s ]?180/);
+    // toLocaleString("en-ZA") groups with a non-breaking space, and a
+    // small-ICU build may group differently again — so match any single
+    // non-digit rather than guessing which separator shipped.
+    expect(odometerRejection(412000, ctx)).toMatch(/412\D?180/);
   });
 
   it("accepts a reading at or above it", () => {
@@ -1911,6 +1923,32 @@ describe("toSubmitPayload", () => {
   // Positions are a keyed object in the draft so an entry overwrites cleanly;
   // the payload is an array, and its order must not depend on object key
   // iteration. NFR-USE-012 asks for natural order everywhere it is visible.
+  // FR-OFF-005 persists per keystroke, so the draft legitimately holds
+  // half-entered positions. They are not readings.
+  it("omits a position that was started and not finished", () => {
+    const partial: Draft = {
+      ...draft,
+      positions: {
+        ...draft.positions,
+        p3: {
+          positionId: "p3",
+          vehicleId: "v-horse",
+          tyreId: null,
+          treads: [12, null, null],
+          pressureKpa: null,
+          pressureTemperature: "UNKNOWN",
+          damageFlag: false,
+          note: null,
+          seconds: 2,
+          warnings: [],
+        },
+      },
+    };
+    const p = toSubmitPayload(partial, meta);
+    expect(p.readings.map((r) => r.position_id)).toEqual(["p1", "p2"]);
+    expect(p.completeness_pct).toBe(50);
+  });
+
   it("orders readings by position id, deterministically", () => {
     const p = toSubmitPayload(draft, meta);
     expect(p.readings.map((r) => r.position_id)).toEqual(["p1", "p2"]);
@@ -2021,7 +2059,16 @@ const wire = (w: RecordedWarning): SubmitWarning => ({
 });
 
 export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
-  const readings: SubmitReading[] = Object.values(draft.positions)
+  // FR-OFF-005 writes a position on the FIRST digit, so an abandoned
+  // position sits in the draft half-entered. Sending it would fail the
+  // tread-count check (TY005 -> 422), which the outbox classifies as
+  // permanent — turning a driver's own mid-entry into "call the office".
+  // An incomplete position is not captured, and completeness says so.
+  const captured = Object.values(draft.positions).filter(
+    (p) => p.pressureKpa !== null && p.treads.length > 0 && p.treads.every((t) => t !== null),
+  );
+
+  const readings: SubmitReading[] = captured
     // Object key order is an implementation detail of how the driver happened
     // to walk the vehicle; the payload should not vary with it.
     .sort((a, b) => a.positionId.localeCompare(b.positionId, undefined, { numeric: true }))
@@ -2544,6 +2591,7 @@ const position = (over: Partial<CapturePosition> & { id: string; sequence: numbe
   code: String(over.sequence),
   axleClass: "DRIVE",
   axleType: "FIXED",
+  axleNumber: 1,
   isSpare: false,
   unitLabel: null,
   tyreId: null,
@@ -2563,8 +2611,10 @@ const unit = (vehicleId: string, fleetNumber: string, positions: CapturePosition
   vehicleId,
   fleetNumber,
   registration: null,
+  unitKind: "HORSE",
   lastOdometerKm: null,
   lastOdometerAt: null,
+  combination: null,
   positions: positions.map((p) => ({ ...p, vehicleId })),
   config: {
     treadReadingCount: 3,
@@ -2917,7 +2967,7 @@ import { PositionSheet } from "./PositionSheet";
 
 describe("PositionSheet", () => {
   it("enters three readings and a pressure with no native keyboard", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn();
     render(<PositionSheet {...props({ onDone })} />);
 
@@ -2940,7 +2990,7 @@ describe("PositionSheet", () => {
   // FR-INS-036, and CR-010 / OR-LEG-001: the tenant's configured policy, never
   // described as a legal limit.
   it("warns below the threshold without calling it a legal limit", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     render(<PositionSheet {...props({})} />);
     await enter(user, ["3", "3", "4"], "800");
 
@@ -2952,7 +3002,7 @@ describe("PositionSheet", () => {
   // before the position closes — this is the one place the flow deliberately
   // does not auto-advance.
   it("holds a warned position until the driver acknowledges", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn();
     render(<PositionSheet {...props({ onDone })} />);
     await enter(user, ["3", "3", "4"], "800");
@@ -2969,10 +3019,11 @@ describe("PositionSheet", () => {
 
   // NFR-OBS-007: measured, not assumed, and it cannot be added later.
   it("records how long the position took", async () => {
-    const user = userEvent.setup();
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn();
     render(<PositionSheet {...props({ onDone })} />);
     await enter(user, ["9", "9", "9"], "800");
+    await user.click(screen.getByRole("button", { name: /done ›/i }));
 
     expect(onDone.mock.calls[0][0].seconds).toBeGreaterThanOrEqual(0);
   });
@@ -2988,7 +3039,11 @@ Write `props()` and `enter()` as local helpers in the file. `props` builds a `Ri
 async function enter(user: UserEvent, treads: string[], pressure: string) {
   for (const d of treads) {
     await user.click(screen.getByRole("button", { name: d, exact: true }));
+    // A value that settles advances on the timer; one that does not (any
+    // 0-3mm reading) needs the Next key. Pressing it either way is safe —
+    // the timer's field guard makes an already-advanced field a no-op.
     await vi.advanceTimersByTimeAsync(250);
+    await user.click(screen.getByRole("button", { name: /next ›/i }));
   }
   for (const d of pressure.split("")) {
     await user.click(screen.getByRole("button", { name: d, exact: true }));
@@ -3304,7 +3359,13 @@ export function PositionSheet({
       </div>
 
       <Keypad
-        onKey={(k) => (k.type === "next" ? finish() : press(k))}
+        // Next advances while the position is unfinished and finishes it
+        // once it is complete. Wiring it straight to finish() strands a
+        // 0-3mm tread: those never settle (30 is still under the 35mm
+        // ceiling, so another digit is possible), finish() returns early on
+        // an incomplete position, and the driver has no way forward — on
+        // the exact reading the product exists to catch.
+        onKey={(k) => (k.type === "next" && complete ? finish() : press(k))}
         granularityMm={ctx.config.treadGranularityMm}
         goLabel={held ? "Seen it ›" : complete ? "Done ›" : "Next ›"}
         goTone={held ? "warn" : "default"}
@@ -3386,8 +3447,10 @@ const context = {
   vehicleId: "v1",
   fleetNumber: "BAC039SP",
   registration: "BAC039SP",
+  unitKind: "HORSE",
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z",
+  combination: null,
   positions: [
     {
       id: "p1",
@@ -3396,6 +3459,7 @@ const context = {
       sequence: 1,
       axleClass: "STEER",
       axleType: "FIXED",
+      axleNumber: 1,
       isSpare: false,
       unitLabel: "Horse",
       tyreId: "ty1",
@@ -3436,23 +3500,40 @@ function stubApi(submitStatus = 201) {
   );
 }
 
-async function capturePosition(user: ReturnType<typeof userEvent.setup>) {
+// Fake timers and an explicit Next after each field — for the same reason
+// Task 10's enter() does it. Clicking nine digits straight through lands
+// them all in field 1, where everything past the second overshoots 35mm
+// and restarts the buffer: a green test over corrupt data.
+async function capturePosition(user: UserEvent) {
   await user.click(await screen.findByRole("button", { name: /position 1/i }));
-  for (const key of ["1", "3", "1", "3", "1", "4", "8", "0", "0"]) {
-    await user.click(screen.getByRole("button", { name: key, exact: true }));
+  for (const tread of [["1", "3"], ["1", "3"], ["1", "4"]]) {
+    for (const d of tread) {
+      await user.click(screen.getByRole("button", { name: d, exact: true }));
+    }
+    await vi.advanceTimersByTimeAsync(250);
   }
+  for (const d of ["8", "0", "0"]) {
+    await user.click(screen.getByRole("button", { name: d, exact: true }));
+  }
+  await vi.advanceTimersByTimeAsync(250);
   await user.click(screen.getByRole("button", { name: /done ›|seen it ›/i }));
 }
 
 beforeEach(async () => {
+  vi.useFakeTimers();
   await db.open();
   await clearDraft();
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   await clearDraft();
 });
+
+// Every user in this file: userEvent must be told about the fake clock or
+// its own internal delays never resolve.
+const newUser = () => userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
 
 describe("CaptureFlow", () => {
   // NFR-AVL-002: "Starting a new inspection requires the server." Capture and
@@ -3469,7 +3550,7 @@ describe("CaptureFlow", () => {
 
   // NFR-USE-010: success is stated, not implied.
   it("confirms a submitted inspection in words", async () => {
-    const user = userEvent.setup();
+    const user = newUser();
     stubApi(201);
     renderFlow();
 
@@ -3484,7 +3565,7 @@ describe("CaptureFlow", () => {
   // FR-OFF-013 and FR-OFF-014 together: a permanent refusal is presented with
   // something to act on, and the readings are still on the device.
   it("presents a duplicate-window refusal without losing the inspection", async () => {
-    const user = userEvent.setup();
+    const user = newUser();
     stubApi(409);
     renderFlow();
 
@@ -3500,7 +3581,7 @@ describe("CaptureFlow", () => {
   // NFR-USE-011 / FR-OFF-006: the buffer is the source of truth, so a remount
   // is a reload and finds the work — with its numbers, not just its progress.
   it("resumes an in-progress inspection after a remount", async () => {
-    const user = userEvent.setup();
+    const user = newUser();
     stubApi();
     const { unmount } = renderFlow();
 
@@ -3541,7 +3622,8 @@ export function CaptureStart({
   // The unit the driver navigated to. FR-INS-064: only the motive unit's
   // odometer is recorded, and distance is never apportioned to a towed one.
   motive: CaptureContext;
-  // Ticked member units, seeded from motive.combination and narrowed only
+  // Ticked member units, seeded from ALL of motive.combination.members —
+  // which includes the motive unit, so it shows ticked — and narrowed only
   // by unticking. The motive unit cannot be unticked — it is the
   // inspection's subject and carries the odometer (FR-INS-064).
   attachedIds: string[];
@@ -3566,14 +3648,23 @@ export function CaptureStart({
   const warnings = odometerWarnings(value, motive, new Date());
   // FR-INS-020: optional, and a trailer-only inspection has no field at all.
   // Absent last odometer means an unpowered unit, which is the same case.
-  const wantsOdometer = motive.lastOdometerKm !== null;
+  // FR-INS-020: "trailer-only inspections have no odometer field at all".
+  // Gate on what the unit IS, not on whether it happens to have a reading —
+  // no vehicle has one until the first inspection writes it, so gating on
+  // history means the timeline can never be started and FR-INS-032/033
+  // never acquire a denominator.
+  const wantsOdometer = motive.unitKind !== "TRAILER";
 
   function start() {
     if (rejection) return;
     if (warnings.length > 0 && !confirmed) return;
     onStart({
       odometerKm: wantsOdometer ? value : null,
-      observedMemberVehicleIds: [motive.vehicleId, ...attachedIds],
+      // attachedIds already contains the motive unit — it is a member of
+      // its own combination and renders ticked-and-disabled. Prepending it
+      // again would send a duplicate straight into the FR-INS-063
+      // warning's entered_value.
+      observedMemberVehicleIds: attachedIds,
       // FR-INS-033's confirmation governs the capture flow; DR-020 governs
       // the timeline. A confirmed implausible value still submits with the
       // inspection and is preserved on the warning record rather than written
@@ -3900,6 +3991,7 @@ In `DriverHome.tsx`, each task becomes the one tap into the work — FR-INS-048 
 Three things it must do that are easy to miss:
 
 - **Render progress above the diagram during capture**, not only at review: `{done} of {total} done` for the rig, and `completenessByUnit` per member unit (FR-INS-065). A driver mid-walk-around needs to know which unit is short.
+- **Seed `attachedIds` with every member id** — `motive.combination?.members.map((m) => m.vehicleId) ?? [motive.vehicleId]`. The motive unit is a member of its own combination and its checkbox is disabled, so seeding only the trailers renders the driver own truck as not-here and unfixable.
 - **Pass `initial` to `PositionSheet`** from `draft.positions[id]` when reopening a captured position, and wire its `onChange` to `savePosition` (FR-OFF-005/006).
 - **Compute and store completeness on submit.** `app.inspection.completeness_pct` defaults to 100, so a partial inspection submitted without it is recorded as complete — see the server-plan note in Task 7's Interfaces.
 
@@ -3935,12 +4027,17 @@ In `web/playwright.config.ts`, alongside the existing `chromium` project:
 
 ```ts
 projects: [
-  { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+  // capture.spec.ts submits, and the FR-INS-038 window is tenant state in
+  // one shared database — running it on three projects would have the
+  // second and third refused by the first. Gate it here rather than with a
+  // conditional skip inside the file: Playwright's skip callback takes one
+  // argument, not two, so the two-argument form does not typecheck.
+  { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /capture\.spec/ },
   // The capture app is judged at phone dimensions or not at all: thumb reach,
   // 44px targets and sunlight legibility are the design, not the styling.
   // Pixel 7 and iPhone 14 bracket the sizes BAC's drivers actually carry.
   { name: "android", use: { ...devices["Pixel 7"] } },
-  { name: "ios", use: { ...devices["iPhone 14"] } },
+  { name: "ios", use: { ...devices["iPhone 14"] }, testIgnore: /capture\.spec/ },
 ],
 ```
 
@@ -3964,7 +4061,9 @@ The seeded fixture makes this tight, and the numbers matter. `driver1` currently
 | 4 — the duplicate window | veh1 | untick trailers | yes, and expects the refusal because spec 1 already submitted veh1 |
 | 5 — the rig | veh1 + veh2 + veh3 | confirmed | **no** — asserts the queued payload, then clears it |
 
-Spec 4 depending on spec 1 is deliberate: serial mode makes it explicit rather than accidental. Spec 5 runs last and deliberately stops at the outbox — submitting a rig would refuse on all three units and there is nothing left to test with afterwards. It is not a weaker test for that: **BR-VEH-003 breaks in the payload**, so the payload is exactly where to catch it.
+Spec 4 depending on spec 1 is deliberate: serial mode makes it explicit rather than accidental.
+
+> **This file is one-shot per seed.** Spec 1 submits veh1 with a fresh `client_uuid` every run, so a second `make e2e` inside the four-hour window is refused at the first spec. CI is safe — it builds a fresh stack each time — but locally the target needs a reseed first. Make `make e2e` depend on `db-reset`, or state the requirement in the target's help text; do not let it fail mysteriously on the second run. Spec 5 runs last and deliberately stops at the outbox — submitting a rig would refuse on all three units and there is nothing left to test with afterwards. It is not a weaker test for that: **BR-VEH-003 breaks in the payload**, so the payload is exactly where to catch it.
 
 ```ts
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
@@ -3975,8 +4074,6 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 // reach and target size are project-dependent and live in reach.spec.ts;
 // the submit contract is not.
 test.describe.configure({ mode: "serial" });
-test.skip(({ }, testInfo) => testInfo.project.name !== "android",
-  "submitting flows run once, on one project — see FR-INS-038");
 
 // The seeded driver and their tenant (db/seeds/gen_seed_fixture.py, mirrored
 // in web/src/api/devTenant.ts). Identity is the dev actor headers, which
@@ -4021,7 +4118,10 @@ async function assignedVehicles(request: APIRequestContext) {
 async function startInspection(page: Page, vehicleId: string, rig: "solo" | "whole" = "solo") {
   await page.goto(`/capture/${vehicleId}`);
   if (rig === "solo") {
-    const trailers = page.getByRole("checkbox").filter({ hasNot: page.locator("[disabled]") });
+    // getByRole's own disabled option, not filter({ hasNot }) — hasNot
+    // matches DESCENDANTS, and an <input> has none, so the disabled motive
+    // checkbox would be included and uncheck() would hang on it.
+    const trailers = page.getByRole("checkbox", { disabled: false });
     for (const box of await trailers.all()) {
       if (await box.isChecked()) await box.uncheck();
     }
@@ -4037,14 +4137,21 @@ async function enterField(page: Page, digits: string[], nextLabel: RegExp) {
   for (const d of digits) {
     await page.getByRole("button", { name: d, exact: true }).click();
   }
+  // A 0-3mm reading never settles (30 is still under the 35mm ceiling), so
+  // it needs the Next key. Pressing it either way is safe: once the field
+  // has already advanced, Next simply moves on from the next one — which is
+  // why the wait comes first.
+  if (!(await page.getByLabel(nextLabel).getAttribute("aria-current"))) {
+    await page.getByRole("button", { name: /next ›/i }).click();
+  }
   await expect(page.getByLabel(nextLabel)).toHaveAttribute("aria-current", "true");
 }
 
-async function capturePosition(page: Page, index: number) {
+async function capturePosition(page: Page, index: number, treads: string[][] = TREADS) {
   await page.locator("[data-position-id]").nth(index).click();
-  await enterField(page, TREADS[0], /Tread reading 2 of 3/);
-  await enterField(page, TREADS[1], /Tread reading 3 of 3/);
-  await enterField(page, TREADS[2], /Pressure/);
+  await enterField(page, treads[0], /Tread reading 2 of 3/);
+  await enterField(page, treads[1], /Tread reading 3 of 3/);
+  await enterField(page, treads[2], /Pressure/);
   for (const d of PRESSURE) {
     await page.getByRole("button", { name: d, exact: true }).click();
   }
@@ -4056,6 +4163,12 @@ async function captureAll(page: Page) {
   for (let i = 0; i < total; i++) await capturePosition(page, i);
   return total;
 }
+
+// CaptureDone and the shell's OutboxIndicator both render role=status (and
+// both render role=alert on a refusal), so an unscoped getByRole resolves
+// two elements and throws under strict mode. Scope to the flow.
+const done = (page: Page) => page.locator("main").getByRole("status");
+const failed = (page: Page) => page.locator("main").getByRole("alert");
 
 async function submit(page: Page) {
   await page.getByRole("button", { name: /review and submit/i }).click();
@@ -4072,13 +4185,20 @@ test("a driver captures a whole vehicle, sees it confirmed, and agrees with the 
   // Decision D-C: the capture app's leg of the three-way agreement is one
   // vehicle at the moment of entry. The fleet-wide 19/11/9 leg arrives with
   // TYRE-41; do not assert it here.
-  const total = await captureAll(page);
+  //
+  // Capture the FIRST position below the threshold and the rest above it.
+  // Capturing everything at 13/13/14 against a 4mm threshold makes both
+  // sides of the comparison zero, and 0 === 0 pins nothing at all.
+  await capturePosition(page, 0, [["3"], ["3"], ["4"]]);
+  const cells = await page.locator("[data-position-id]").count();
+  for (let i = 1; i < cells; i++) await capturePosition(page, i);
+  const total = cells;
   await page.getByRole("button", { name: /review and submit/i }).click();
   const flagged = await page.getByRole("listitem").filter({ hasText: /FR-INS-036/ }).count();
   await page.getByRole("button", { name: /submit inspection/i }).click();
 
   // NFR-USE-010: stated, not inferred from the absence of an error.
-  await expect(page.getByRole("status")).toContainText(/sent|recorded/i);
+  await expect(done(page)).toContainText(/sent|recorded/i);
 
   // Re-read the context the way the dashboard will. previousGoverningMm is
   // now the reading just submitted, so this compares what the app flagged
@@ -4109,7 +4229,7 @@ test("capture continues with the network cut and syncs on reconnect", async ({
   await submit(page);
 
   // FR-OFF-005 / FR-OFF-014: queued, safe, and said so.
-  await expect(page.getByRole("status")).toContainText(/saved|will send/i);
+  await expect(done(page)).toContainText(/saved|will send/i);
   await expect(page.getByText(/waiting to send/i)).toBeVisible();
 
   // FR-OFF-009 / FR-OFF-010: on reconnect, while the app is open.
@@ -4158,8 +4278,12 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
   expect(total).toBeGreaterThan(20); // a superlink, not one unit
 
   // FR-VEH-034: continuous across member units, computed for the screen.
+  // Count the RUNNING positions, not every cell — spares carry no rig
+  // number and are drawn separately, so total includes three of them and
+  // there is no "Position 29".
+  const running = await page.getByRole("button", { name: /^Position \d+,/ }).count();
   await expect(page.getByRole("button", { name: /^Position 1,/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: new RegExp(`^Position ${total},`) })).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(`^Position ${running},`) })).toBeVisible();
 
   await page.getByRole("button", { name: /review and submit/i }).click();
   await page.getByRole("button", { name: /submit inspection/i }).click();
@@ -4203,9 +4327,8 @@ test("a second inspection inside the window is refused permanently", async ({ pa
   await submit(page);
 
   // FR-OFF-013: presented, named, and with something the driver can act on.
-  const alert = page.getByRole("alert");
-  await expect(alert).toContainText(/already inspected/i);
-  await expect(alert).toContainText(/saved/i);
+  await expect(failed(page)).toContainText(/already inspected/i);
+  await expect(failed(page)).toContainText(/saved/i);
 
   // The outbox must NOT be retrying it — a permanent refusal is not
   // "waiting to send", and a phone hammering it helps nobody.
@@ -4284,7 +4407,9 @@ Run before handing over.
 
 **Spec coverage.** Every at-capture warning in the design's table has a task: FR-INS-036/041 in Task 3, FR-INS-037/031a in Task 3, FR-INS-034/035 in Task 4, FR-INS-032/033 in Task 4. FR-OFF-002/003 in Task 2; 005/006 in Task 6; 009/010/011/012/013/014/020 in Task 8 and Task 11. FR-INS-060/061/065 and FR-VEH-034 in Task 9; 062/063 in Task 11. NFR-OBS-007 in Tasks 6 and 10. NFR-USE-010 in Task 11. NFR-PRV-006 in Tasks 2 and 11. TYRE-68's DoD in Task 1; TYRE-70's in Task 12.
 
-**Known gaps, deliberately left.** FR-INS-062's "defaulting to the last recorded composition" needs a composition read the API does not have — Task 11 says to raise it under TYRE-55 rather than invent one. FR-INS-039's photographs are out of scope above. Six of the eight capabilities have no nav destination (Task 1).
+**Known gaps, deliberately left.** The *add* half of FR-INS-063 — beginning with a unit the recorded composition does not name — is not built, for the reason Task 11 gives; FR-INS-062's default is served and pre-ticked, so that half is met. FR-INS-039's photographs are out of scope above. Six of the eight capabilities have no nav destination (Task 1). Nothing lets a controller *create* a composition yet; the fixture seeds one.
+
+**Fixtures are typed on purpose.** Every `CapturePosition` / `CaptureContext` literal in a test carries the full shape, so `tsc --noEmit` fails the moment the server adds a field the client has not taken up. That is the point: a partial fixture would let the two drift silently. When a field is added to either interface, expect `make lint` to fail until every fixture names it.
 
 **Type consistency.** `Warning` is defined once in Task 3 and reused by Task 4. `RecordedWarning` (Task 6) is the persisted form and `SubmitWarning` (Task 7) the wire form; the three are deliberately distinct and each conversion is one function. `CaptureConfig` gains `treadGranularityMm` in Task 3 and `CaptureContext` gains `lastOdometerAt` in Task 4 — both are noted in the step that needs them, and both come from the server plan's amended Task 4.
 

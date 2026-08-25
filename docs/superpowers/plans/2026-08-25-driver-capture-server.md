@@ -447,6 +447,8 @@ REVOKE UPDATE, DELETE ON app.inspection_warning FROM app_rw;
 `db/migrations/000022_inspection_warning.down.sql`:
 
 ```sql
+DROP VIEW IF EXISTS app.v_capture_vehicle;
+ALTER TABLE app.reading DROP COLUMN IF EXISTS capture_seconds;
 DROP TABLE IF EXISTS app.inspection_warning;
 DROP TYPE IF EXISTS app.warning_source;
 ```
@@ -491,7 +493,22 @@ The heart of the phase. One call, one transaction, no partial vehicle.
 | `TY004` | position does not belong to that vehicle's configuration lineage | `422` |
 | `TY005` | tread count disagrees with `tread_reading_count` | `422` |
 | `TY006` | payload asserted `governing_tread_mm` | `422` |
+| `TY007` | vehicle not visible in this tenant | `403` — indistinguishable from absent (ADR-0011) |
 | `TY010` | no tenant or actor bound | `500` — a bug, not a client error |
+
+> **`TY007` exists because the alternative is a 500.** Without it an unknown or cross-tenant `vehicle_id` reaches the composite foreign key `inspection_vehicle_id_fkey (tenant_id, vehicle_id)` and arrives as SQLSTATE `23503`, which is not in `submitStatus` and therefore surfaces as a server fault — telling the outbox to retry forever something that will never succeed. Check it first, before the header INSERT:
+>
+> ```sql
+> -- RLS-scoped, so this answers "visible to this tenant" and not "exists".
+> -- FR-AUT-005's own-units narrowing is the handler's (Task 5), because the
+> -- Scope table lives in auth and role names do not belong in SQL.
+> PERFORM 1 FROM app.vehicle WHERE id = v_vehicle;
+> IF NOT FOUND THEN
+>   RAISE EXCEPTION 'vehicle not visible' USING ERRCODE = 'TY007';
+> END IF;
+> ```
+>
+> Add `"TY007": http.StatusForbidden` to Task 5's `submitStatus` map, and a suite assertion that a vehicle from the *other* tenant raises `TY007` rather than a foreign-key violation.
 
 > **Decision — the coupling observation (D5, review finding F4).** FR-INS-062 has the driver confirm the attached units before starting and FR-INS-063 permits starting with a unit not previously associated, "recording the change of composition". §4.8.5 calls that selection "a dated coupling observation", but nothing in the spec says which component writes the new dated `combination` row. Taken here:
 >
@@ -499,7 +516,7 @@ The heart of the phase. One call, one transaction, no partial vehicle.
 >
 > The reasoning is FR-OFF-016's, applied to the composition rather than the tyre: the observation is never lost and never blocks the inspection, but creating a dated `combination` is a fleet-state write that closes the previous composition's `effective_to`, and doing that on a queued submit that may arrive days late would rewrite coupling history from stale evidence. Combination management belongs with the unit-lifecycle surface (TYRE-55), and the warning row is what that surface later reconciles from. **Raise the follow-up ticket under TYRE-55 as part of this task** — an observation nothing ever reads is worse than the gap it filled.
 
-**Implementing D5.** The decision above is not self-executing — write it. After the header INSERT and before the reading loop, inside `app.submit_inspection`:
+**Implementing D5.** The decision above is not self-executing. The block below belongs **inside Step 3's migration**, after the header INSERT and before the reading loop — it is repeated here so the decision and its code sit together, but Step 3's SQL is the authoritative copy and must contain it. It needs `v_combination uuid;` in the DECLARE block, assigned from the payload alongside the other header fields.
 
 ```sql
 -- FR-INS-063: the composition the driver confirmed, against the one they
@@ -509,11 +526,17 @@ The heart of the phase. One call, one transaction, no partial vehicle.
 -- reconciliation surface is TYRE-55's.
 IF v_combination IS NOT NULL AND jsonb_array_length(
      COALESCE(p_payload -> 'observed_member_vehicle_ids', '[]'::jsonb)) > 0 THEN
+  -- The members of THIS combination, narrowed before the join. Joining the
+  -- whole table and filtering afterwards makes every other combination's
+  -- rows look like unmatched members, so a tenant with two rigs would get a
+  -- spurious FR-INS-063 warning on every submit — and the fixture, which
+  -- has exactly one combination, could never reveal it.
   IF EXISTS (
     SELECT 1
       FROM (SELECT jsonb_array_elements_text(p_payload -> 'observed_member_vehicle_ids')::uuid AS id) obs
-      FULL JOIN app.combination_member cm
-             ON cm.combination_id = v_combination AND cm.vehicle_id = obs.id
+      FULL JOIN (SELECT vehicle_id FROM app.combination_member
+                  WHERE combination_id = v_combination) cm
+             ON cm.vehicle_id = obs.id
      WHERE obs.id IS NULL OR cm.vehicle_id IS NULL)
   THEN
     INSERT INTO app.inspection_warning (
@@ -588,12 +611,24 @@ DECLARE
   posr   uuid;
   got    text;
   n      int;
+  -- governing_tread_mm is numeric(4,1). Reading it into an int rounds 6.9
+  -- to 7 and the assertion then fails against a CORRECT implementation.
+  gov    numeric;
+  -- The FR-INS-038 window is measured from now(), which is frozen for the
+  -- transaction. Every probe timestamp is derived from it so the section
+  -- does not start failing on a date after it was written.
+  t_now  constant timestamptz := now();
+  -- A second unit, whose window this section has not already consumed: the
+  -- odometer-containment probe must submit successfully, and it cannot do
+  -- that against the unit the TY003 probe just proved is inside the window.
+  v_two  uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', t_id::text, true);
   SELECT id INTO drv FROM app.app_user WHERE tenant_id = t_id AND role = 'DRIVER' AND active LIMIT 1;
   PERFORM set_config('app.actor_id', drv::text, true);
 
   SELECT v.id INTO v_id FROM app.vehicle v WHERE v.tenant_id = t_id ORDER BY v.fleet_number LIMIT 1;
+  SELECT v.id INTO v_two FROM app.vehicle v WHERE v.tenant_id = t_id ORDER BY v.fleet_number OFFSET 1 LIMIT 1;
   SELECT p.id INTO posl FROM app.position p
     JOIN app.vehicle v ON v.configuration_id = p.configuration_id
    WHERE v.id = v_id AND p.side = 'LEFT' AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
@@ -613,8 +648,8 @@ BEGIN
   first := res.inspection_id;
 
   -- BR-INS-003 / DR-017: the MIN is the database's to derive, not the client's
-  SELECT governing_tread_mm INTO n FROM app.reading WHERE inspection_id = first AND position_id = posl;
-  IF n IS DISTINCT FROM 6.9 THEN RAISE EXCEPTION 'FAIL: governing tread was % not 6.9', n; END IF;
+  SELECT governing_tread_mm INTO gov FROM app.reading WHERE inspection_id = first AND position_id = posl;
+  IF gov IS DISTINCT FROM 6.9 THEN RAISE EXCEPTION 'FAIL: governing tread was % not 6.9', gov; END IF;
 
   -- FR-INS-029a: entry order is left-to-right in the plan view, and OUTER is
   -- away from the centreline, so the two sides map in opposite directions
@@ -742,8 +777,14 @@ BEGIN
   -- FR-INS-038, per UNIT rather than per rig, so a superlink's member units
   -- are each protected. Reached only past the replay check above: resubmitting
   -- one capture is not a second inspection and must never trip this.
-  v_hours := (app.config_for(v_tenant, 'duplicate_inspection_min_hours', now()) #>> '{}')::int;
-  IF v_hours IS NOT NULL AND EXISTS (
+  -- FR-INS-038 states the default in the requirement itself — "a
+  -- configurable minimum interval, defaulting to four hours" — so a tenant
+  -- with no configured row still gets the window. Failing open here would
+  -- stand a Must down silently, which is not the same trade Task 1 makes
+  -- for the odometer ceiling (there, no policy means no claim to test).
+  v_hours := COALESCE(
+    (app.config_for(v_tenant, 'duplicate_inspection_min_hours', now()) #>> '{}')::int, 4);
+  IF EXISTS (
     SELECT 1 FROM app.reading rd
       JOIN app.inspection i ON i.id = rd.inspection_id
      WHERE rd.tenant_id = v_tenant
@@ -809,13 +850,16 @@ BEGIN
     INSERT INTO app.reading (
       tenant_id, inspection_id, vehicle_id, position_id, tyre_id,
       pressure_kpa, pressure_temperature, damage_flag, damage_type,
-      wear_pattern, note, source)
+      wear_pattern, note, source, capture_seconds)
     VALUES (
       v_tenant, v_insp, (r ->> 'vehicle_id')::uuid, (r ->> 'position_id')::uuid,
       (r ->> 'tyre_id')::uuid, (r ->> 'pressure_kpa')::int,
       COALESCE((r ->> 'pressure_temperature')::app.temperature_state, 'UNKNOWN'),
       COALESCE((r ->> 'damage_flag')::boolean, false),
-      r ->> 'damage_type', r ->> 'wear_pattern', r ->> 'note', 'MANUAL')
+      r ->> 'damage_type', r ->> 'wear_pattern', r ->> 'note', 'MANUAL',
+      -- NFR-OBS-007. Nullable, so an absent value is absent rather than a
+      -- zero that would drag the median down (NFR-PRO-002).
+      (r ->> 'seconds')::int)
     RETURNING id INTO v_reading;
 
     -- FR-OFF-016: fitment can move between capture and submit. The driver's
@@ -1004,7 +1048,7 @@ import (
 func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantID, vehicleID := plantTenant(t, ctx, admin, "capture")
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "capture")
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -1093,7 +1137,25 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 }
 ```
 
-`plantTenant` currently returns `(uuid.UUID, ...)` — check its signature in `httpapi_test.go` and extend it to also return a vehicle id if it does not already, following its existing style.
+**The existing helpers are nowhere near enough, and this is the single biggest piece of work in Task 4.** Read them before writing anything: `plantTenant` inserts one `app.tenant` row and returns `(uuid.UUID, string)`; `plantTenantWithVehicle` adds a configuration with **zero positions** and returns a *fleet number*, not a vehicle id. CI runs `api-test` against an **unseeded** database, so nothing else exists either. Against that, every assertion above fails for reasons that have nothing to do with the handler: no positions, no `app.configuration` rows, no `threshold_policy`, no `target_pressure`, no `vehicle_driver` assignment (so a DRIVER 403s through `v_capture_vehicle`), and no combination.
+
+Write one helper, `plantCaptureFixture`, in `httpapi_test.go`, following the style of the ones already there. It must plant, as the tenant admin connection:
+
+| Row | Why the test needs it |
+| --- | --- |
+| An axle configuration with **LEFT and RIGHT running positions and one spare**, each with `axle_number`, `side`, `slot`, `axle_type` | `positions` must be non-empty, and the spare is what pins "a spare was given a pressure target" |
+| Two vehicles on it: a motive unit and one trailer | The trailer is the whole point — see below |
+| A `vehicle_driver` row for the planted driver on the **motive unit only** | Reproduces the fixture's shape, where `driver1` holds the horse but not every trailer |
+| A `combination` (motive = the motive unit, `effective_to` NULL) with **both** vehicles as members | `body["combination"]` is asserted non-null, and the member loop is what proves `v_capture_vehicle` works |
+| `app.configuration` rows for `tread_reading_count`, `width_spread_warn_mm`, `odometer_max_daily_km`, `wear_rate_alert_multiple`, `tread_capture_granularity_mm` **and `duplicate_inspection_min_hours`** | Every `cfg[...]` assertion, and Task 5's 409 case |
+| A `threshold_policy` row | `removalThresholdMm` is read through `app.removal_threshold_mm_for` |
+| A `target_pressure` row for the running positions' axle class | `sawRunningTarget` fails without it, and that assertion exists to catch a broken resolution join |
+
+> **The trailer member is not padding.** It is the only thing in the whole suite that fails if `v_capture_vehicle` is wrong: the planted driver is assigned the motive unit and *not* the trailer, exactly as `driver1` is assigned `veh1` and not `veh2`. Without it the member loop passes trivially and the view could be dropped without a single test noticing.
+
+> **`duplicate_inspection_min_hours` is not optional either.** Task 5's 409 case reads it through `app.config_for`; with no row the window stands itself down and the second submit returns 201. The test would then be asserting that FR-INS-038 does not work.
+
+Return `(tenantID, motiveVehicleID, trailerVehicleID uuid.UUID)` and let `plantUser` continue to plant actors. Task 5's `captureFixture` builds its payload from **this** vehicle's real position ids.
 
 - [ ] **Step 2: Run it and verify it fails**
 
@@ -1177,6 +1239,10 @@ type captureContextBody struct {
 	VehicleID      uuid.UUID         `json:"vehicleId"`
 	FleetNumber    string            `json:"fleetNumber"`
 	Registration   *string           `json:"registration"`
+	// FR-INS-020: a trailer-only inspection has no odometer field at all, and
+	// the client cannot infer that from an absent reading — no unit has one
+	// until the first inspection writes it.
+	UnitKind       string            `json:"unitKind"`
 	LastOdometerKm *int64            `json:"lastOdometerKm"`
 	// FR-INS-033 divides by the gap since this date. Serving the value
 	// without it leaves the plausibility warning with no denominator.
@@ -1237,7 +1303,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		from = `app.v_capture_vehicle cv JOIN app.vehicle v ON v.id = cv.vehicle_id`
 	}
 	err := tx.QueryRow(ctx, `
-		SELECT v.id, v.fleet_number, v.registration, o.odometer_km, o.reading_date
+		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text, o.odometer_km, o.reading_date
 		  FROM `+from+`
 		  LEFT JOIN LATERAL (
 		       SELECT vo.odometer_km, vo.reading_date
@@ -1245,7 +1311,8 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		        WHERE vo.vehicle_id = v.id
 		        ORDER BY vo.reading_date DESC LIMIT 1) o ON true
 		 WHERE v.id = $1`, vehicleID).
-		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.LastOdometerKm, &out.LastOdometerAt)
+		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.UnitKind,
+			&out.LastOdometerKm, &out.LastOdometerAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errForbidden
 	}
@@ -1403,6 +1470,8 @@ Register the route in `httpapi.go`, inside the existing `r.Route("/api", ...)` b
 r.Get("/capture/vehicles/{vehicleID}", captureContext(s))
 ```
 
+> **A `DEPOT_MANAGER` holding `CaptureInspection` reaches nothing.** `auth.scopes` gives `ScopeTenant` only to `CONTROLLER` and `ORG_ADMIN`, so a depot manager falls through to `v_capture_vehicle`, which is assignment-based — and a manager has no personal `vehicle_driver` rows. They get 403 on every unit. Drivers are the POC's capturers so nothing is blocked, and the fix collides with "no role names in handlers", which is why it is an open decision rather than a quiet third branch here. Record it in `docs/spec/QUESTIONS-FOR-ROURKE.md` alongside D3 rather than inventing a depot-scoped capture view now.
+
 - [ ] **Step 4: Run the tests and verify they pass**
 
 Run: `make api-test`
@@ -1453,7 +1522,7 @@ Then the contract the outbox depends on:
 func TestSubmitReplayContract(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantID, vehicleID := plantTenant(t, ctx, admin, "submit")
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "submit")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -1480,7 +1549,7 @@ func TestSubmitReplayContract(t *testing.T) {
 func TestSubmitRefusals(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantID, vehicleID := plantTenant(t, ctx, admin, "refuse")
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "refuse")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	techID := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -1540,6 +1609,20 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
+			}
+			// FR-AUT-005 on the WRITE path. The read composes v_capture_vehicle;
+			// without the same narrowing here a driver could submit against any
+			// unit in the tenant, which is a wider hole than the read ever was.
+			if a.Scope() != auth.ScopeTenant {
+				var visible bool
+				if err := tx.QueryRow(r.Context(),
+					`SELECT EXISTS (SELECT 1 FROM app.v_capture_vehicle WHERE vehicle_id = $1)`,
+					body.VehicleID).Scan(&visible); err != nil {
+					return fmt.Errorf("checking capture scope: %w", err)
+				}
+				if !visible {
+					return errForbidden
+				}
 			}
 			return tx.QueryRow(r.Context(),
 				`SELECT inspection_id, created FROM app.submit_inspection($1::jsonb)`, string(raw)).
