@@ -115,14 +115,12 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 	}
 }
 
-// captureFixture builds a valid app.submit_inspection payload for vehicleID:
-// one reading, on the vehicle's first non-spare position (plantCaptureFixture's
-// leftPos, which already carries a fitted tyre so this exercises the FR-OFF-016
-// tyre-match path rather than an always-nil tyre_id), with the tenant's
-// configured tread_reading_count of measurements. A fresh client_uuid every
-// call is what lets FR-INS-038's case ask for a second, distinct inspection
-// rather than replaying the first.
-func captureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID) string {
+// capturePositionAndTyre looks up vehicleID's first non-spare position (by
+// sequence) and any tyre currently fitted there. Positions belong to the
+// axle_configuration, not the vehicle row, so this resolves correctly for
+// any vehicle sharing plantCaptureFixture's one shared configuration —
+// motive unit or trailer alike.
+func capturePositionAndTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, vehicleID uuid.UUID) (uuid.UUID, *uuid.UUID) {
 	t.Helper()
 
 	var positionID uuid.UUID
@@ -137,6 +135,20 @@ func captureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID
 		  ORDER BY p.sequence LIMIT 1`,
 		vehicleID,
 	).Scan(&positionID, &tyreID))
+	return positionID, tyreID
+}
+
+// captureFixture builds a valid app.submit_inspection payload for vehicleID:
+// one reading, on the vehicle's first non-spare position (plantCaptureFixture's
+// leftPos, which already carries a fitted tyre so this exercises the FR-OFF-016
+// tyre-match path rather than an always-nil tyre_id), with the tenant's
+// configured tread_reading_count of measurements. A fresh client_uuid every
+// call is what lets FR-INS-038's case ask for a second, distinct inspection
+// rather than replaying the first.
+func captureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID) string {
+	t.Helper()
+
+	positionID, tyreID := capturePositionAndTyre(t, ctx, admin, vehicleID)
 
 	now := time.Now().UTC()
 	payload := map[string]any{
@@ -246,4 +258,102 @@ func TestSubmitUnknownVehicleIsUnprocessable(t *testing.T) {
 
 	rec := post(t, h, "/api/inspections", tenantID.String(), controllerID.String(), string(raw))
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+}
+
+// plantUnrelatedVehicle plants a second vehicle in tenantID with its own
+// axle_configuration and single running position — coupled to nothing,
+// assigned to no one. It exists to be the vehicle a driver has no route to
+// through app.v_capture_vehicle, for the FR-AUT-005 per-reading check below.
+func plantUnrelatedVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, uuid.UUID) {
+	t.Helper()
+	suffix := uuid.NewString()[:8]
+
+	var configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.axle_configuration (tenant_id, code, name, axle_count)
+		 VALUES ($1, $2, 'unrelated test rig', 1) RETURNING id`,
+		tenantID, "UNRELATED-"+suffix,
+	).Scan(&configID))
+
+	var positionID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.position
+		   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1L', 1, 1, 'STEER'::app.axle_class, 'LEFT'::app.side, 'SINGLE'::app.fitment_slot, false)
+		 RETURNING id`,
+		tenantID, configID,
+	).Scan(&positionID))
+
+	var vehicleID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id) VALUES ($1, $2, $3) RETURNING id`,
+		tenantID, "UNRELATED-"+suffix, configID,
+	).Scan(&vehicleID))
+
+	return vehicleID, positionID
+}
+
+// TestSubmitAuthorizesEveryVehicleInASuperlinkPayload proves the FR-AUT-005
+// fix does not break the platform's actual reason for existing: a driver
+// responsible for a motive unit must be able to submit readings against its
+// coupled trailer in the SAME payload (CLAUDE.md's "108 entries, not 52").
+// The driver is assigned only to the motive unit — the trailer is reachable
+// solely through app.v_capture_vehicle's combination-membership branch.
+func TestSubmitAuthorizesEveryVehicleInASuperlinkPayload(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, trailerID := plantCaptureFixture(t, ctx, admin, "superlink")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, motiveID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, motiveID)), &body))
+
+	trailerPositionID, trailerTyreID := capturePositionAndTyre(t, ctx, admin, trailerID)
+	readings, ok := body["readings"].([]any)
+	require.True(t, ok)
+	body["readings"] = append(readings, map[string]any{
+		"vehicle_id":   trailerID.String(),
+		"position_id":  trailerPositionID.String(),
+		"tyre_id":      trailerTyreID,
+		"pressure_kpa": 800,
+		"treads":       []float64{7.0, 7.5, 7.2},
+	})
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), string(raw))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// TestSubmitRefusesReadingAgainstUnauthorizedVehicle is the negative half of
+// the FR-AUT-005 fix: a payload whose top-level vehicle_id the driver may
+// reach, but that embeds a reading against an unrelated vehicle in the same
+// tenant — no assignment, no coupling — must be refused entirely, not
+// silently accepted for the one unit that slipped past the top-level check.
+func TestSubmitRefusesReadingAgainstUnauthorizedVehicle(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "unauth-reading")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, motiveID, driverID)
+	unrelatedVehicleID, unrelatedPositionID := plantUnrelatedVehicle(t, ctx, admin, tenantID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, motiveID)), &body))
+	readings, ok := body["readings"].([]any)
+	require.True(t, ok)
+	body["readings"] = append(readings, map[string]any{
+		"vehicle_id":   unrelatedVehicleID.String(),
+		"position_id":  unrelatedPositionID.String(),
+		"pressure_kpa": 800,
+		"treads":       []float64{7.0, 7.5, 7.2},
+	})
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), string(raw))
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 }
