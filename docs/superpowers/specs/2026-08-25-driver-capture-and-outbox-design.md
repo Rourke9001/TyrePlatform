@@ -2,8 +2,9 @@
 
 - **Date:** 2026-08-25
 - **Epic:** TYRE-4 (P3 — Capture app: PWA, offline queue, sync, M2)
-- **Tickets:** TYRE-66 (db) · TYRE-67 (api) · TYRE-68 (shell) · TYRE-69 (capture
-  and outbox) · TYRE-70 (mobile browser tests)
+- **Tickets:** TYRE-66 (db) · TYRE-71 (capture reference data) · TYRE-67 (submit
+  endpoint) · TYRE-68 (shell) · TYRE-69 (capture and outbox) · TYRE-70 (mobile
+  browser tests)
 - **Decisions it rests on:** ADR-0009 (client platform and on-device data) ·
   ADR-0011 (actor context) · ADR-0007 (unit-centric fleet model) ·
   ADR-0010 (provenance, measured vs derived)
@@ -55,7 +56,11 @@ so the effect of the three-reading model is measured rather than argued about.
 | Screen order to `OUTER`/`CENTRE`/`INNER` | **new, in SQL** | FR-INS-029a maps by side *on save*; one implementation |
 | Closing the `inspection_task` | **new, in SQL** | Nothing does it automatically today |
 | Atomicity of a whole vehicle | **new, in SQL** | One call, one transaction, no partial vehicle |
+| An odometer refusal not costing the inspection | **new, in SQL** | FR-INS-020 forbids blocking; the timeline trigger would otherwise abort the transaction |
+| The warning-and-response record | **new table** | FR-INS-040 is a Must with no data requirement behind it (C2) |
 | Decoding, sizing and refusing the request | Go | Transport |
+| Serving what a warning needs, before the signal goes | Go | FR-OFF-001 requires the checks to run offline (C4) |
+| Rig-level position numbering | web, display only | FR-VEH-034: computed at render time, never stored, never transmitted |
 | Holding the inspection until acknowledged | web | ADR-0009 |
 
 The load-bearing observation is that the database already enforces most of
@@ -74,7 +79,7 @@ width-wise `app.reading_measurement` rows beneath each. `created` distinguishes
 a first submit from a replay so the API can answer 201 or 200 without a second
 query.
 
-Four properties that are not negotiable:
+Seven properties that are not negotiable:
 
 **`SECURITY INVOKER`.** The suite asserts that `app.refresh_governing_tread`
 is the *only* `SECURITY DEFINER` routine in the schema and fails the build on
@@ -101,6 +106,34 @@ vehicle centreline. FR-INS-029a is explicit that the driver never sees the
 words inner or outer, and CHG-010 fixed the convention. `orientation_known`
 is `true` for anything captured through this path — the `false` case exists
 for imported history that predates the convention, not for live capture.
+
+**Every reading carries a real identity, never a rig number.** FR-VEH-034 is
+explicit: rig-level numbering across a combination is *computed at render time
+from the composition, never stored*, and "every reading attaches to `unit +
+own position`". So the payload names `(vehicle_id, position_id)` per reading
+and the continuous 1–26 a driver sees on a superlink never leaves the display
+layer. The function still validates that each position belongs to the vehicle
+it is claimed against — that check is what makes trusting the identity safe.
+
+**The odometer can never block the inspection.** FR-INS-020 (corrected v1.4)
+makes it optional, pre-filled from the unit's last known reading for the
+driver to confirm or correct, absent entirely on a trailer-only inspection,
+and says it "shall never block a tyre inspection". A confirmed value is
+written to the vehicle timeline with `source = INSPECTION`. But
+`app.vehicle_odometer_reading` carries its own `BEFORE` trigger that rejects a
+backwards or implausible reading, and a trigger that fires inside the submit
+would abort the whole transaction — losing the inspection to protect a
+subsidiary number. So the odometer insert sits in its own plpgsql exception
+block: a rejection rolls back that row alone, the inspection commits, and the
+refusal is recorded as a warning against the inspection.
+
+**Warnings and the driver's response to them are recorded.** FR-INS-040 is a
+Must: *"record every validation warning that was raised and the user's
+response to it."* No DR-xxx says where, and no entity in SRS §5 carries a
+field for it — see the conflicts section. This design gives it an append-only
+child table keyed to the inspection, with an optional reading reference so a
+per-position warning and an inspection-level one (the odometer) share a home.
+A record that exists only in the browser is not a record.
 
 Replay is a lookup, not an upsert: on a `client_uuid` this tenant has already
 accepted, the function returns the existing id and writes nothing. Readings
@@ -133,6 +166,34 @@ employee number from ever re-pointing one person's history at another.
 
 No monetary field crosses this endpoint in either direction.
 
+### api/ — the capture reference surface (TYRE-71)
+
+The capture flow cannot be built without this and none of it exists today.
+FR-OFF-002 has the client fetch reference data at session start and hold it in
+memory for the session only — no persistent cache, no replica of the register
+on the device — and FR-OFF-001 then requires a driver to complete and submit
+with no further connectivity. Everything a capture needs to know must
+therefore have arrived before the driver walks up to the vehicle.
+
+FR-OFF-002 names six things: *assigned units, configurations, current
+fitments, thresholds, targets, reading configuration*. That parenthetical is
+the closest the SRS comes to an enumeration and it is demonstrably incomplete
+— two more are required by §4.8 and one by the odometer rule:
+
+| Also required | Because |
+| --- | --- |
+| Last recorded odometer per unit | FR-INS-020 pre-fills a projection from it, and FR-INS-032/033 validate against it |
+| Previous governing reading per position, and fitment events since | FR-INS-034 warns on an unexplained tread increase |
+| Fleet average wear rate per position class, and the configured multiple | FR-INS-035 warns above it, defaulting to three times |
+
+All three are bounded per vehicle — one previous reading per position, one
+average per position class — so serving them costs a small payload rather than
+a replica. Serving them is what lets FR-INS-034/035 evaluate offline, which
+FR-OFF-001 requires and FR-OFF-002's list does not anticipate.
+
+Read by a `DRIVER`, who does not hold `ViewValuation`, so no monetary field
+appears. Every threshold is tenant configuration through `app.config_for`.
+
 ### web/ — the shell, the capture flow, the outbox
 
 **The shell (TYRE-68).** A persistent left-hand navigation rendered from the
@@ -150,11 +211,23 @@ diagram, and severity carried by colour *and* background *and* a text badge.
 The token system in `web/src/theme/tokens.ts` governs; a hex or font literal
 outside it is a bug.
 
-At-capture warnings are in scope: below the tenant's configured threshold
-(FR-INS-036), width-wise spread beyond the configured margin (FR-INS-041),
-pressure outside the correct band (FR-INS-037), and the acknowledgement record
-when a driver is warned and proceeds (FR-INS-040). Every threshold is fetched
-tenant configuration. Nothing is ever labelled a legal limit (CR-010).
+At-capture warnings are in scope — all of them sit inside Appendix H.1's
+`FR-INS-020..041`, so a partial set would be a silent scope cut:
+
+| Warning | Requirement | Needs |
+| --- | --- | --- |
+| Below the configured removal threshold | FR-INS-036 | tenant config |
+| Width-wise spread beyond the margin | FR-INS-041 | tenant config, and prompts for a photo |
+| Pressure outside the correct band | FR-INS-037 | target pressure by axle class |
+| Pressure beyond the target margin | FR-INS-031a | tenant config |
+| Tread higher than last time, unexplained by a fitment | FR-INS-034 | previous reading and fitment events |
+| Wear rate above the configured multiple of fleet average | FR-INS-035 | fleet average, configured multiple |
+| Odometer backwards, or an implausible daily distance | FR-INS-032/033 | last odometer |
+
+Every threshold is fetched tenant configuration; a hard-coded `4.0` anywhere
+here is a bug. Nothing is ever labelled a legal limit (CR-010). Each warning
+raised, and whether the driver acknowledged and continued, travels in the
+submit payload to satisfy FR-INS-040.
 
 **The outbox (TYRE-69).** Online-first with a durable submit queue, per
 ADR-0009 and CR-006 — no local replica of the register, no background-sync
@@ -176,10 +249,11 @@ Dexie dependency in the repo.
    correctness.
 4. `POST /api/inspections` → `withActor` binds tenant and actor →
    `app.submit_inspection`.
-5. The function resolves rig-level position numbers to constituent vehicle
-   plus own position, validates each against that vehicle's configuration,
-   inserts, maps screen order to anatomical position, forces the ordinal
-   check, closes the citing `inspection_task`.
+5. The function validates each reading's position against the vehicle it is
+   claimed against, inserts, maps screen order to anatomical position, forces
+   the ordinal check, writes the odometer to the vehicle timeline in its own
+   exception block, records the warnings the driver saw and answered, and
+   closes the citing `inspection_task`.
 6. **The cascade the client never sees:** each measurement insert fires
    `refresh_governing_tread`, recomputing `MIN()` into
    `app.reading.governing_tread_mm`. That `UPDATE` fires
@@ -191,12 +265,17 @@ Dexie dependency in the repo.
 7. `201` returns; the outbox entry is released. Anything less than a clean
    acknowledgement leaves it queued, and a replay is safe.
 
-Rig-level numbering deserves a note. BR-VEH-001 in SRS v1.4 is explicit that
-continuous numbering across a combination is *a display projection computed
-from the composition, never stored and never an identity*. The capture layer
-numbers a superlink 1–26 for the driver; step 5 resolves those to constituent
-vehicle plus own position on receipt. `app.reading.vehicle_id` is the owning
-unit, which for a trailer position is not the inspection's motive vehicle.
+Rig-level numbering deserves a note, because it is the one place this design
+changed after review. A superlink shows the driver a continuous 1–26. That
+numbering is a *display projection computed at render time from the
+composition* (FR-VEH-034, BR-VEH-001) — never stored, never an identity. The
+client already holds the composition as reference data, so it does the
+projection for display and sends real identities. Nothing resolves a rig
+number server-side because no rig number is ever transmitted.
+
+`app.reading.vehicle_id` is the owning unit, which for a trailer position is
+not the inspection's motive vehicle; `app.inspection.combination_id` records
+the rig the capture was taken against.
 
 ## Error handling
 
@@ -221,9 +300,11 @@ replay writes nothing; the same `client_uuid` is accepted in a second tenant;
 a rejected position rolls the whole vehicle back; the ordinal guard fires
 inside the function rather than at commit; screen order maps correctly to
 anatomical position on both sides of the vehicle; a position from another
-vehicle's configuration is refused; a cited task closes. Probe rows use
-`BEGIN`/`ROLLBACK` — never a cleanup `DELETE`, which DR-014a has revoked
-anyway.
+vehicle's configuration is refused; a cited task closes; a backwards odometer
+is refused **without** costing the inspection and leaves a recorded warning
+behind; a trailer-only inspection submits with no odometer at all; a warning
+the driver acknowledged survives the submit. Probe rows use `BEGIN`/`ROLLBACK`
+— never a cleanup `DELETE`, which DR-014a has revoked anyway.
 
 **api** — table-driven against a real Postgres. The 201/200 replay contract is
 the one to pin hardest.
@@ -245,6 +326,48 @@ second one for the same vehicle. It lands with this phase, behind TYRE-66.
 
 TYRE-38 (the snapshot trigger's same-tenant backstop) is write-adjacent but
 not required here.
+
+## Conflicts found in the SRS
+
+Specifying this phase surfaced four places where SRS v1.4 contradicts itself or
+leaves a Must requirement without a home. House rule is to flag a conflict
+rather than silently pick a side, so each is recorded here with the reading
+this design proceeds on and why. All four want an errata pass.
+
+**C1 — BR-VEH-003 was missed by the v1.4 unit-centric rewrite.** It still says
+rig-level numbers "exist only in the capture presentation layer and are
+resolved to unit and position **on receipt**", which describes numbers
+crossing the wire. FR-VEH-034 and BR-VEH-001 say the projection is computed at
+render time and never stored. In the Part 4 §6.4 table, BR-VEH-001 is tagged
+*(revised v1.4)* and BR-VEH-002 *(resolved v1.4)*; BR-VEH-003 carries no tag
+at all, which is what an editorial miss looks like. **Proceeding on
+FR-VEH-034**, which is explicit, dated and consistent with the rewritten §4.5.
+
+**C2 — FR-INS-040 is a Must with no data requirement behind it.** It demands a
+record of every warning and the user's response; no DR-xxx in §5.2 defines
+where that lives and no entity in §5.1 carries a field for it. The nearest
+thing, `exception.acknowledged_at`, belongs to the exception engine's post-hoc
+alerts and is a different concept. **Proceeding by adding an append-only child
+table**, and the SRS wants a DR to match.
+
+**C3 — an implausible odometer is both rejected and overridable.** For a
+*backwards* reading FR-INS-032, DR-020 and BR-INS-002 agree: reject. For a
+*forward but implausible* one, DR-020 says reject while FR-INS-032/033 say
+warn and require confirmation. FR-INS-020 then constrains both by saying the
+odometer "shall never block a tyre inspection". **Proceeding on the reading
+that satisfies all three**: the client warns and asks for confirmation before
+submit; the database still refuses a row that violates its trigger; and
+because that refusal is contained in its own exception block, the inspection
+survives either way and the refusal becomes a recorded warning. No reading of
+these requirements justifies losing an inspection over an odometer.
+
+**C4 — FR-OFF-002's reference-data list is incomplete.** It enumerates six
+items and omits the last odometer (FR-INS-020 pre-fills from it), the previous
+reading and fitment history (FR-INS-034), the fleet average wear rate
+(FR-INS-035) and assigned tasks (FR-INS-048). Since FR-OFF-001 requires
+capture to complete offline once reference data has loaded, anything a
+warning needs must be in that payload. **Proceeding by serving the additions**
+listed under TYRE-71.
 
 ## Out of scope
 
