@@ -57,12 +57,26 @@ BEGIN
   -- for the odometer ceiling (there, no policy means no claim to test).
   v_hours := COALESCE(
     (app.config_for(v_tenant, 'duplicate_inspection_min_hours', now()) #>> '{}')::int, 4);
+  -- The window compares capture-clock against capture-clock, not
+  -- capture-clock against the server's now(). ADR-0009's outbox means a
+  -- capture can queue offline for hours before it syncs: a driver who
+  -- genuinely double-captures unit X at 08:00 and 09:00, both draining from
+  -- the outbox at 18:00, must still be caught at submit time regardless of
+  -- when the sync happened to land. Anchoring on real now() would silently
+  -- stand the window down for every queued submit — exactly the case
+  -- FR-INS-038 exists to catch — because the device-claimed submitted_at
+  -- drifts further from the server clock the longer the outbox held it. The
+  -- rest of this function already trusts the device's own clock for
+  -- everything else it stores (duration_seconds, the odometer's reading_date,
+  -- NFR-OBS-007's capture_seconds), so trusting it here too is consistent,
+  -- not a new risk. This is deliberately not bounded against real now() to
+  -- guard a lying device clock — no requirement asks for that.
   IF EXISTS (
     SELECT 1 FROM app.reading rd
       JOIN app.inspection i ON i.id = rd.inspection_id
      WHERE rd.tenant_id = v_tenant
        AND i.state <> 'VOIDED'
-       AND i.submitted_at > now() - make_interval(hours => v_hours)
+       AND i.submitted_at > (p_payload ->> 'submitted_at')::timestamptz - make_interval(hours => v_hours)
        AND rd.vehicle_id IN (
              SELECT DISTINCT (e ->> 'vehicle_id')::uuid
                FROM jsonb_array_elements(p_payload -> 'readings') e))
@@ -154,6 +168,17 @@ BEGIN
     IF NOT FOUND THEN
       RAISE EXCEPTION 'position % is not on any version of vehicle %''s configuration',
         r ->> 'position_id', r ->> 'vehicle_id' USING ERRCODE = 'TY004';
+    END IF;
+
+    -- jsonb_array_length(NULL) is NULL, not an error, so an absent treads key
+    -- or an explicit JSON null would otherwise slide past "v_n <> v_want"
+    -- (NULL <> 3 is NULL, not true) and land a reading with zero measurements
+    -- and a NULL governing_tread_mm. jsonb_typeof catches both: it returns
+    -- NULL for a missing key and 'null' for a JSON null, neither of which is
+    -- 'array'.
+    IF jsonb_typeof(r -> 'treads') IS DISTINCT FROM 'array' THEN
+      RAISE EXCEPTION 'position % is missing its tread readings', r ->> 'position_id'
+        USING ERRCODE = 'TY005';
     END IF;
 
     SELECT jsonb_array_length(r -> 'treads') INTO v_n;
