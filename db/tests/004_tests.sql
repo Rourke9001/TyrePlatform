@@ -2485,5 +2485,54 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 29. Odometer ceiling is tenant configuration, and refusals are trappable (DR-020, FR-INS-033)'
+-- Transaction-scoped: the probe readings and the raised ceiling both roll
+-- back (DR-018 leaves the app role no DELETE on the timeline).
+BEGIN;
+DO $$
+DECLARE
+  t_id  constant uuid := '11111111-1111-1111-1111-111111111111';
+  v_id  uuid;
+  got   text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  SELECT id INTO v_id FROM app.vehicle WHERE tenant_id = t_id ORDER BY fleet_number LIMIT 1;
+
+  INSERT INTO app.vehicle_odometer_reading (tenant_id, vehicle_id, reading_date, odometer_km, source)
+  VALUES (t_id, v_id, DATE '2026-01-01', 100000, 'MANUAL');
+
+  -- monotonicity is unconditional (BR-INS-002) and must be trappable by code
+  got := NULL;
+  BEGIN
+    INSERT INTO app.vehicle_odometer_reading (tenant_id, vehicle_id, reading_date, odometer_km, source)
+    VALUES (t_id, v_id, DATE '2026-01-02', 99000, 'MANUAL');
+  EXCEPTION WHEN SQLSTATE 'TY001' THEN got := 'TY001';
+  END;
+  IF got IS DISTINCT FROM 'TY001' THEN
+    RAISE EXCEPTION 'FAIL: a backwards odometer did not raise TY001 (got %)', COALESCE(got, 'no error');
+  END IF;
+
+  -- the ceiling is configuration, not a constant: 5000 km in one day is
+  -- refused at the seeded 1600 and accepted once the tenant raises it
+  got := NULL;
+  BEGIN
+    INSERT INTO app.vehicle_odometer_reading (tenant_id, vehicle_id, reading_date, odometer_km, source)
+    VALUES (t_id, v_id, DATE '2026-01-02', 105000, 'MANUAL');
+  EXCEPTION WHEN SQLSTATE 'TY002' THEN got := 'TY002';
+  END;
+  IF got IS DISTINCT FROM 'TY002' THEN
+    RAISE EXCEPTION 'FAIL: an implausible odometer did not raise TY002 (got %)', COALESCE(got, 'no error');
+  END IF;
+
+  INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+  VALUES (t_id, 'odometer_max_daily_km', '6000'::jsonb, TIMESTAMPTZ '2025-01-01T00:00:00Z');
+
+  INSERT INTO app.vehicle_odometer_reading (tenant_id, vehicle_id, reading_date, odometer_km, source)
+  VALUES (t_id, v_id, DATE '2026-01-02', 105000, 'MANUAL');
+
+  RAISE NOTICE 'PASS  the odometer ceiling is tenant configuration and its refusals carry TY001/TY002';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
