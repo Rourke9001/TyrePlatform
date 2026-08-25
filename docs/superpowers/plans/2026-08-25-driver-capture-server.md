@@ -53,7 +53,7 @@ Do not paraphrase these into the code; they are the acceptance criteria.
 | `db/migrations/000021_odometer_configurable_ceiling.{up,down}.sql` | Repair `check_odometer_plausible`: configurable ceiling, trappable ERRCODEs |
 | `db/migrations/000022_inspection_warning.{up,down}.sql` | `app.inspection_warning` — DR-021's append-only record |
 | `db/migrations/000023_submit_inspection.{up,down}.sql` | `app.submit_inspection` — the one write entry point |
-| `db/seeds/gen_seed_configurations.py` | Add the two new tenant config keys (generator is the source of truth) |
+| `db/seeds/gen_seed_configurations.py` | Add the four new tenant config keys (generator is the source of truth) |
 | `db/tests/004_tests.sql` | New sections 29–31, appended before the final banner |
 | `api/internal/store/store.go` | No change — `InActorTx` is already the only helper needed |
 | `api/internal/httpapi/capture.go` | **New.** The capture reference read and the submit handler, kept out of the growing `httpapi.go` |
@@ -66,6 +66,8 @@ Two new config keys, both seeded per tenant:
 | --- | --- | --- |
 | `odometer_max_daily_km` | `1600` | DR-020's "configurable plausibility ceiling" |
 | `duplicate_inspection_min_hours` | `4` | FR-INS-038's "configurable minimum interval, defaulting to four hours" |
+| `wear_rate_alert_multiple` | `3` | FR-INS-035's "configurable multiple of the fleet average… defaulting to three times" |
+| `tread_capture_granularity_mm` | `1.0` | FR-CFG-027's 1.0 / 0.5 / 0.1mm capture granularity, stamped onto every reading (FR-INS-021) |
 
 ---
 
@@ -260,6 +262,8 @@ END $$;
 ```python
 ("odometer_max_daily_km", 1600),          # DR-020's configurable ceiling
 ("duplicate_inspection_min_hours", 4),    # FR-INS-038, used from Task 3
+("wear_rate_alert_multiple", 3),          # FR-INS-035, served to the client by Task 4
+("tread_capture_granularity_mm", 1.0),    # FR-CFG-027; 1.0 matches the fixture and app.reading_measurement.granularity_mm
 ```
 
 Match the surrounding style exactly — if the existing entries are tuples in a list, add tuples; if they are dict entries, add dict entries. Both keys are seeded now so Task 3 does not have to touch the generator again.
@@ -296,7 +300,19 @@ git commit -m "fix(db): TYRE-66 odometer ceiling is tenant config, refusals carr
 
 ---
 
-### Task 2: `app.inspection_warning` — DR-021's append-only record
+### Task 2: `app.inspection_warning` — DR-021's append-only record, and where per-position timing lands
+
+> **NFR-OBS-007 has no column, so add one here.** The requirement is to record *median time-per-position* "so that the effect of the three-reading model on NFR-USE-001 is measured rather than assumed", and `app.inspection` carries only `duration_seconds`. The client sends `seconds` on every reading (web plan, Task 7) and without a column the submit function would silently drop it — and it cannot be backfilled onto inspections already captured, which is the whole reason it lands with this phase. Add to this migration:
+
+> ```sql
+> -- NFR-OBS-007: the measurement that settles whether three readings per
+> -- position cost NFR-USE-001 its budget. Nullable: an imported or
+> -- back-dated reading has no capture time, and a zero would be a claim
+> -- (NFR-PRO-002).
+> ALTER TABLE app.reading ADD COLUMN capture_seconds int CHECK (capture_seconds >= 0);
+> ```
+
+> `app.reading` has `UPDATE`/`DELETE` revoked from `app_rw` (DR-011); adding a column is DDL run by the migration role and does not touch that. Task 3's INSERT must carry it, and the suite section should assert a submitted reading has a non-null `capture_seconds`.
 
 FR-INS-040 has been a Must with no home since v1.3. Errata E2 gave it DR-021 and a named entity; this builds it. The `response` column is nullable for a specific reason: a submit can sit in the outbox for days and be refused server-side with no driver present to answer.
 
@@ -453,6 +469,39 @@ The heart of the phase. One call, one transaction, no partial vehicle.
 | `TY006` | payload asserted `governing_tread_mm` | `422` |
 | `TY010` | no tenant or actor bound | `500` — a bug, not a client error |
 
+> **Decision — the coupling observation (D5, review finding F4).** FR-INS-062 has the driver confirm the attached units before starting and FR-INS-063 permits starting with a unit not previously associated, "recording the change of composition". §4.8.5 calls that selection "a dated coupling observation", but nothing in the spec says which component writes the new dated `combination` row. Taken here:
+>
+> **The payload carries `observed_member_vehicle_ids` — the units the driver confirmed, in rig order — and `combination_id`, the composition they were offered. The function does not create a combination.** Where the observed set differs from the named composition's members, it records one inspection-level warning with `warning_code = 'FR-INS-063'`, `source = 'SERVER'` and the observed set as `entered_value`. `combination_id` is null for a solo-unit inspection, and then the observed set is ignored.
+>
+> The reasoning is FR-OFF-016's, applied to the composition rather than the tyre: the observation is never lost and never blocks the inspection, but creating a dated `combination` is a fleet-state write that closes the previous composition's `effective_to`, and doing that on a queued submit that may arrive days late would rewrite coupling history from stale evidence. Combination management belongs with the unit-lifecycle surface (TYRE-55), and the warning row is what that surface later reconciles from. **Raise the follow-up ticket under TYRE-55 as part of this task** — an observation nothing ever reads is worse than the gap it filled.
+
+**Implementing D5.** The decision above is not self-executing — write it. After the header INSERT and before the reading loop, inside `app.submit_inspection`:
+
+```sql
+-- FR-INS-063: the composition the driver confirmed, against the one they
+-- were offered. Recorded, never enforced and never used to create a
+-- combination: a queued submit can arrive days late, and writing fleet
+-- state from stale evidence would rewrite coupling history. The
+-- reconciliation surface is TYRE-55's.
+IF v_combination IS NOT NULL AND jsonb_array_length(
+     COALESCE(p_payload -> 'observed_member_vehicle_ids', '[]'::jsonb)) > 0 THEN
+  IF EXISTS (
+    SELECT 1
+      FROM (SELECT jsonb_array_elements_text(p_payload -> 'observed_member_vehicle_ids')::uuid AS id) obs
+      FULL JOIN app.combination_member cm
+             ON cm.combination_id = v_combination AND cm.vehicle_id = obs.id
+     WHERE obs.id IS NULL OR cm.vehicle_id IS NULL)
+  THEN
+    INSERT INTO app.inspection_warning (
+      tenant_id, inspection_id, warning_code, entered_value, response, source)
+    VALUES (v_tenant, v_insp, 'FR-INS-063',
+            (p_payload ->> 'observed_member_vehicle_ids'), NULL, 'SERVER');
+  END IF;
+END IF;
+```
+
+Add a suite assertion: a submit whose observed set differs from the named composition leaves exactly one `FR-INS-063` warning and still returns `created = true`. Without this the web plan's stated FR-INS-063 story is false — the client sends the field and nothing reads it.
+
 **The payload contract.** Task 5 builds exactly this shape; the web plan consumes it:
 
 ```json
@@ -460,11 +509,13 @@ The heart of the phase. One call, one transaction, no partial vehicle.
   "client_uuid": "0f8f…",
   "vehicle_id": "…",
   "combination_id": null,
+  "observed_member_vehicle_ids": [],
   "task_id": null,
   "started_at": "2026-08-25T06:12:00Z",
   "submitted_at": "2026-08-25T06:14:40Z",
   "odometer_km": 812430,
   "duration_seconds": 160,
+  "completeness_pct": 100,
   "comment": null,
   "defect_report": null,
   "device_id": "…",
@@ -490,7 +541,9 @@ The heart of the phase. One call, one transaction, no partial vehicle.
 }
 ```
 
-> **Assumption to confirm before the web slice.** `treads` is in **entry order, left to right from the driver's viewpoint standing at that tyre**. Outer means away from the vehicle centreline (CHG-010), so the mapping reverses between sides — and getting it backwards silently swaps outer and inner on one whole side of every vehicle. Step 1's test pins both sides. Note that the Confluence prototype labels its three fields *Outer / Centre / Inner*, which contradicts FR-INS-029a's "the driver never sees the words inner or outer"; the SRS governs, and the prototype's labels want revisiting in TYRE-69.
+> **The entry-order frame, settled from the SRS.** `treads` is in **entry order, left to right in the plan view** — the vehicle seen from above, nose up. That is FR-INS-029a verbatim ("presents reading fields left-to-right in the plan view") and the same spatial frame BR-VEH-001 numbers positions in, so the axle diagram and the three entry fields read in one direction and the training message is one sentence. Outer means away from the centreline (CHG-010), so a LEFT position maps ordinal 1 → `OUTER` and a RIGHT position maps ordinal 1 → `INNER`; getting it backwards silently swaps outer and inner on one whole side of every vehicle, and Step 1's test pins both sides.
+>
+> Do not restate this as "left to right as the driver stands at the tyre". A driver standing at a tyre faces it across the vehicle's fore-aft axis, so their left-to-right is not the width axis at all — the frame is the diagram, not the body. The Confluence prototype labels its three fields *Outer / Centre / Inner*, which FR-INS-029a forbids outright ("the driver never sees the words inner or outer"); the SRS governs and TYRE-69 relabels them.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -539,8 +592,8 @@ BEGIN
   SELECT governing_tread_mm INTO n FROM app.reading WHERE inspection_id = first AND position_id = posl;
   IF n IS DISTINCT FROM 6.9 THEN RAISE EXCEPTION 'FAIL: governing tread was % not 6.9', n; END IF;
 
-  -- FR-INS-029a: entry order is left-to-right at the tyre, and OUTER is away
-  -- from the centreline, so the two sides map in opposite directions
+  -- FR-INS-029a: entry order is left-to-right in the plan view, and OUTER is
+  -- away from the centreline, so the two sides map in opposite directions
   SELECT position::text INTO got FROM app.reading_measurement m
     JOIN app.reading r ON r.id = m.reading_id
    WHERE r.inspection_id = first AND r.position_id = posl AND m.ordinal = 1;
@@ -758,9 +811,10 @@ BEGIN
       END IF;
     END IF;
 
-    -- FR-INS-029a. The driver enters left to right facing the tyre and never
-    -- sees these words; OUTER is away from the centreline (CHG-010), so the
-    -- order reverses between sides. A spare has no vehicle-relative geometry,
+    -- FR-INS-029a. The driver enters left to right in the plan view — the
+    -- frame BR-VEH-001 numbers positions in — and never sees these words;
+    -- OUTER is away from the centreline (CHG-010), so the order reverses
+    -- between sides. A spare has no vehicle-relative geometry,
     -- so its orientation is recorded as unknown rather than invented — such
     -- rows still count toward MIN but are excluded from directional diagnosis.
     v_ord := 0;
@@ -881,13 +935,27 @@ git commit -m "feat(db): TYRE-66 app.submit_inspection, the one write path for c
 
 FR-OFF-001 lets a driver finish and submit with no connectivity "at any point after reference data is loaded". Everything a capture needs must therefore arrive in one round trip, before the driver walks up to the vehicle. FR-OFF-002 as amended by E2 enumerates nine things; this serves the per-vehicle ones.
 
+**Serve all of them, not the easy ones.** Three of the nine exist in FR-OFF-002 precisely because FR-INS-034 and FR-INS-035 cannot evaluate without them once the signal goes, and a payload that omits them turns two Musts inside Appendix H.1 into a silent scope cut:
+
+| FR-OFF-002 item | Field | Warning it feeds |
+| --- | --- | --- |
+| each position's previous governing reading | `previousGoverningMm`, `previousReadingAt` | FR-INS-034 |
+| …with fitment events since | `fitmentSincePrevious` | FR-INS-034's unless-clause (BR-INS-001) |
+| fleet average wear rate per position class, cohorted per BR-ANL-009, with the configured multiple | `cohortWearRateMmPerMonth`, `config.wearRateAlertMultiple` | FR-INS-035 |
+| targets | per-position `targetKpa` and the four tolerance percentages | FR-INS-037, FR-INS-031a |
+
+**The target does not come from tenant configuration.** Migration `000013` deleted the `target_pressure_kpa`, `inflation_bands` and `pressure_deviation_margin_pct` keys outright (CHG-112) and moved targets to `app.target_pressure`, resolved per `(size_id, axle_class)` with warn/critical tolerances in both directions. Reading the retired key would return null and disable both pressure warnings silently, which is why the target fields sit on each position rather than in the config blob.
+
+> **Decision — FR-INS-031a's confirmation margin (D4).** FR-CFG-025 specifies a pressure deviation margin defaulting to 25%, and CHG-112 retired the key that held it without saying what replaces it. Taken here: **the resolved row's `critical_under_pct` / `critical_over_pct` is the FR-INS-031a confirmation threshold, and `warn_under_pct` / `warn_over_pct` is FR-INS-037's band edge.** That keeps one source for both rules and honours CHG-112 as the later deliberate decision, at the cost of moving the confirmation point from 25% to the seeded 20%. It is a conflict between FR-CFG-025 and CHG-112, not a free choice — record it in `docs/open-issues.md` as D4 and let the sponsor move the seeded percentages if 25% was meant literally. Do not reintroduce the retired key, and do not hard-code 25.
+
 **Files:**
 - Create: `api/internal/httpapi/capture.go`
 - Create: `api/internal/httpapi/capture_test.go`
 - Modify: `api/internal/httpapi/httpapi.go` (route registration only)
+- Modify: `docs/open-issues.md` (record D4)
 
 **Interfaces:**
-- Consumes: `store.InActorTx`, `withActor`, `require`, `writeJSON`, `auth.CaptureInspection` — all already present.
+- Consumes: `store.InActorTx`, `withActor`, `require`, `writeJSON`, `auth.CaptureInspection`, `auth.ScopeTenant` — all already present; `app.wear_rate_mm_per_month(uuid)` from migration `000013`; `app.target_pressure` from `000012`.
 - Produces: `httpapi.captureContext(s *store.Store) http.HandlerFunc`, and the JSON shape the web plan's reference loader consumes.
 
 - [ ] **Step 1: Write the failing test**
@@ -943,6 +1011,42 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 			}
 			require.NotEmpty(t, body["positions"], "capture cannot proceed without positions")
 			require.NotNil(t, body["config"], "capture cannot evaluate warnings without thresholds")
+
+			// FR-OFF-002 as amended by E2. Each of these is the sole input to
+			// a Must inside Appendix H.1, and each is unreachable once
+			// FR-OFF-001 takes the signal away — so an absent field is a
+			// warning that silently never fires, not a cosmetic gap.
+			cfg, ok := body["config"].(map[string]any)
+			require.True(t, ok)
+			require.NotNil(t, cfg["wearRateAlertMultiple"], "FR-INS-035 has no multiple")
+			require.NotNil(t, cfg["removalThresholdMm"], "FR-INS-036 has no threshold")
+			require.NotNil(t, cfg["widthSpreadWarnMm"], "FR-INS-041 has no margin")
+			require.NotNil(t, cfg["odometerMaxDailyKm"], "FR-INS-033 has no ceiling")
+			require.NotNil(t, body["cohortWearRateMmPerMonth"], "FR-INS-035 has no denominator")
+
+			// A running position must carry a resolvable target; a spare must
+			// not (FR-CFG-013 as amended — a spare's pressure is recorded and
+			// deliberately unclassified, and a zero would be a claim).
+			var sawRunningTarget bool
+			for _, raw := range body["positions"].([]any) {
+				pos := raw.(map[string]any)
+				_, hasPrev := pos["previousGoverningMm"]
+				require.True(t, hasPrev, "FR-INS-034 has no previous reading to compare against")
+				_, hasFit := pos["fitmentSincePrevious"]
+				require.True(t, hasFit, "FR-INS-034 cannot excuse an increase without fitment state")
+				if pos["isSpare"] == true {
+					require.Nil(t, pos["targetKpa"], "a spare was given a pressure target")
+					continue
+				}
+				if pos["targetKpa"] != nil {
+					sawRunningTarget = true
+					require.NotNil(t, pos["warnUnderPct"], "FR-INS-037 has no band edge")
+					require.NotNil(t, pos["criticalOverPct"], "FR-INS-031a has no confirmation point")
+				}
+			}
+			require.True(t, sawRunningTarget,
+				"no running position resolved a target — app.target_pressure is seeded by 000013, "+
+					"so this means the resolution join is wrong, not that the tenant has no targets")
 		})
 	}
 }
@@ -979,16 +1083,37 @@ import (
 // FR-OFF-001 takes connectivity away. It is one round trip on purpose: a
 // driver on a depot forecourt gets one good moment of signal.
 type capturePosition struct {
-	ID        uuid.UUID `json:"id"`
-	VehicleID uuid.UUID `json:"vehicleId"`
-	Code      string    `json:"code"`
-	Sequence  int       `json:"sequence"`
-	AxleClass string    `json:"axleClass"`
-	IsSpare   bool      `json:"isSpare"`
-	UnitLabel *string   `json:"unitLabel"`
+	ID        uuid.UUID  `json:"id"`
+	VehicleID uuid.UUID  `json:"vehicleId"`
+	Code      string     `json:"code"`
+	Sequence  int        `json:"sequence"`
+	AxleClass string     `json:"axleClass"`
+	AxleType  string     `json:"axleType"`
+	// The diagram groups running positions by (vehicle, axle) to draw one row
+	// per axle. Position codes are flat in the fixture, so there is nothing to
+	// parse out of them. Null on a spare, which has no axle geometry.
+	AxleNumber *int      `json:"axleNumber"`
+	IsSpare   bool       `json:"isSpare"`
+	UnitLabel *string    `json:"unitLabel"`
 	TyreID    *uuid.UUID `json:"tyreId"`
-	TyreCode  *string   `json:"tyreCode"`
-	PreviousMm *float64 `json:"previousGoverningMm"`
+	TyreCode  *string    `json:"tyreCode"`
+
+	// FR-INS-034 evaluates offline against this position's own history, so
+	// both halves of the rule travel: the previous governing value and
+	// whether a fitment since then explains an increase (BR-INS-001).
+	PreviousMm           *float64   `json:"previousGoverningMm"`
+	PreviousAt           *time.Time `json:"previousReadingAt"`
+	FitmentSincePrevious bool       `json:"fitmentSincePrevious"`
+
+	// FR-INS-037 and FR-INS-031a both need the position's own resolved
+	// target, not a tenant scalar. Null for a spare: FR-CFG-013 as amended
+	// gives SPARE no target, and a recorded-but-unclassified spare pressure
+	// is deliberate (BR-RPT-001, NFR-PRO-003) — never a zero.
+	TargetKpa        *int     `json:"targetKpa"`
+	WarnUnderPct     *float64 `json:"warnUnderPct"`
+	CriticalUnderPct *float64 `json:"criticalUnderPct"`
+	WarnOverPct      *float64 `json:"warnOverPct"`
+	CriticalOverPct  *float64 `json:"criticalOverPct"`
 }
 
 type captureContextBody struct {
@@ -996,8 +1121,19 @@ type captureContextBody struct {
 	FleetNumber    string            `json:"fleetNumber"`
 	Registration   *string           `json:"registration"`
 	LastOdometerKm *int64            `json:"lastOdometerKm"`
+	// FR-INS-033 divides by the gap since this date. Serving the value
+	// without it leaves the plausibility warning with no denominator.
+	LastOdometerAt *time.Time       `json:"lastOdometerAt"`
 	Positions      []capturePosition `json:"positions"`
 	Config         map[string]any    `json:"config"`
+
+	// FR-INS-035's denominator, cohorted per BR-ANL-006 (position class) and
+	// BR-ANL-009 (never blend axle types). Keyed "AXLE_CLASS:AXLE_TYPE" so
+	// the client looks up by the two fields each position already carries.
+	// A map rather than a field per position: at most a dozen entries for a
+	// whole tenant, against 26 repetitions of the same number on a rig
+	// (NFR-CST-010, the driver's own airtime).
+	CohortWearRateMmPerMonth map[string]float64 `json:"cohortWearRateMmPerMonth"`
 }
 
 func captureContext(s *store.Store) http.HandlerFunc {
@@ -1012,7 +1148,7 @@ func captureContext(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
 			}
-			return loadCaptureContext(r.Context(), tx, vehicleID, &body)
+			return loadCaptureContext(r.Context(), tx, a, vehicleID, &body)
 		})
 		if !ok {
 			return
@@ -1022,7 +1158,7 @@ func captureContext(s *store.Store) http.HandlerFunc {
 }
 ```
 
-Then `loadCaptureContext` runs three queries on the transaction — the vehicle header, the positions joined to current fitment and each position's previous governing reading, and the tenant configuration. Compose it from the existing scope views so a driver reads only assigned units:
+Then `loadCaptureContext` runs four queries on the transaction — the vehicle header, the positions, the cohort wear rates, and the tenant configuration. Compose it from the existing scope views so a driver reads only assigned units:
 
 ```go
 func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, out *captureContextBody) error {
@@ -1033,16 +1169,19 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// is what keeps "you may not see this" and "this does not exist"
 	// indistinguishable (ADR-0011).
 	from := `app.vehicle v`
-	if a.Scope() == auth.ScopeAssigned {
+	if a.Scope() != auth.ScopeTenant {
 		from = `app.v_driver_vehicle dv JOIN app.vehicle v ON v.id = dv.vehicle_id`
 	}
 	err := tx.QueryRow(ctx, `
-		SELECT v.id, v.fleet_number, v.registration,
-		       (SELECT o.odometer_km FROM app.vehicle_odometer_reading o
-		         WHERE o.vehicle_id = v.id ORDER BY o.reading_date DESC LIMIT 1)
+		SELECT v.id, v.fleet_number, v.registration, o.odometer_km, o.reading_date
 		  FROM `+from+`
+		  LEFT JOIN LATERAL (
+		       SELECT vo.odometer_km, vo.reading_date
+		         FROM app.vehicle_odometer_reading vo
+		        WHERE vo.vehicle_id = v.id
+		        ORDER BY vo.reading_date DESC LIMIT 1) o ON true
 		 WHERE v.id = $1`, vehicleID).
-		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.LastOdometerKm)
+		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.LastOdometerKm, &out.LastOdometerAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errForbidden
 	}
@@ -1050,22 +1189,46 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		return fmt.Errorf("loading capture vehicle: %w", err)
 	}
 
-	// One row per position, carrying what the driver's phone needs to identify
-	// the tyre (FR-INS-026) and to evaluate FR-INS-034's unexplained-increase
-	// warning offline: the previous governing reading for this very position.
+	// One row per position, carrying everything the phone needs to identify
+	// the tyre (FR-INS-026) and to evaluate FR-INS-034/037/031a with no
+	// signal. Target resolution is most-specific-wins — a row naming both
+	// size and axle class beats one naming only the class — which is the
+	// order app.inflation_compliance already resolves in; keep them agreeing.
 	rows, err := tx.Query(ctx, `
-		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.is_spare, p.unit_label,
-		       f.tyre_id, t.display_code,
-		       (SELECT r.governing_tread_mm
-		          FROM app.reading r
-		          JOIN app.inspection i ON i.id = r.inspection_id
-		         WHERE r.position_id = p.id AND r.vehicle_id = v.id AND i.state <> 'VOIDED'
-		         ORDER BY i.submitted_at DESC LIMIT 1)
+		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.axle_type::text,
+		       p.axle_number, p.is_spare, p.unit_label, f.tyre_id, t.display_code,
+		       prev.governing_tread_mm, prev.submitted_at,
+		       EXISTS (SELECT 1 FROM app.fitment fx
+		                WHERE fx.position_id = p.id AND fx.vehicle_id = v.id
+		                  AND prev.submitted_at IS NOT NULL
+		                  AND (fx.fitted_at > prev.submitted_at
+		                       OR (fx.removed_at IS NOT NULL AND fx.removed_at > prev.submitted_at))),
+		       tgt.target_kpa, tgt.warn_under_pct, tgt.critical_under_pct,
+		       tgt.warn_over_pct, tgt.critical_over_pct
 		  FROM app.vehicle v
 		  JOIN app.position p ON p.configuration_id = v.configuration_id
 		  LEFT JOIN app.fitment f
 		         ON f.position_id = p.id AND f.vehicle_id = v.id AND f.removed_at IS NULL
 		  LEFT JOIN app.tyre t ON t.id = f.tyre_id
+		  LEFT JOIN LATERAL (
+		       SELECT r.governing_tread_mm, i.submitted_at
+		         FROM app.reading r
+		         JOIN app.inspection i ON i.id = r.inspection_id
+		        WHERE r.position_id = p.id AND r.vehicle_id = v.id AND i.state <> 'VOIDED'
+		        ORDER BY i.submitted_at DESC LIMIT 1) prev ON true
+		  LEFT JOIN LATERAL (
+		       SELECT tp.target_kpa, tp.warn_under_pct, tp.critical_under_pct,
+		              tp.warn_over_pct, tp.critical_over_pct
+		         FROM app.target_pressure tp
+		        WHERE tp.tenant_id = v.tenant_id
+		          AND tp.effective_from <= now()
+		          AND p.axle_class <> 'SPARE'
+		          AND (tp.axle_class IS NULL OR tp.axle_class = p.axle_class)
+		          AND (tp.size_id   IS NULL OR tp.size_id   = t.size_id)
+		        ORDER BY (tp.size_id IS NOT NULL) DESC,
+		                 (tp.axle_class IS NOT NULL) DESC,
+		                 tp.effective_from DESC
+		        LIMIT 1) tgt ON true
 		 WHERE v.id = $1
 		 ORDER BY p.sequence`, vehicleID)
 	if err != nil {
@@ -1075,7 +1238,10 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	for rows.Next() {
 		var p capturePosition
 		if err := rows.Scan(&p.ID, &p.VehicleID, &p.Code, &p.Sequence, &p.AxleClass,
-			&p.IsSpare, &p.UnitLabel, &p.TyreID, &p.TyreCode, &p.PreviousMm); err != nil {
+			&p.AxleType, &p.AxleNumber, &p.IsSpare, &p.UnitLabel, &p.TyreID, &p.TyreCode,
+			&p.PreviousMm, &p.PreviousAt, &p.FitmentSincePrevious,
+			&p.TargetKpa, &p.WarnUnderPct, &p.CriticalUnderPct,
+			&p.WarnOverPct, &p.CriticalOverPct); err != nil {
 			return fmt.Errorf("scanning capture position: %w", err)
 		}
 		out.Positions = append(out.Positions, p)
@@ -1084,22 +1250,58 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		return fmt.Errorf("reading capture positions: %w", err)
 	}
 
+	// FR-INS-035's fleet average, over app.wear_rate_mm_per_month so the
+	// regression rule (BR-ANL-001) keeps exactly one implementation. Spares
+	// are excluded (BR-RPT-007 judges them on age, not wear) and LIFTING
+	// axles assert no rate at all (BR-ANL-009) rather than a flatteringly low
+	// one — a raised axle is not touching the road.
+	out.CohortWearRateMmPerMonth = map[string]float64{}
+	crows, err := tx.Query(ctx, `
+		SELECT p.axle_class::text || ':' || p.axle_type::text, avg(w.rate_mm_per_month)
+		  FROM app.fitment f
+		  JOIN app.position p ON p.id = f.position_id
+		  CROSS JOIN LATERAL app.wear_rate_mm_per_month(f.tyre_id) w
+		 WHERE f.removed_at IS NULL
+		   AND NOT p.is_spare
+		   AND p.axle_type <> 'LIFTING'
+		   AND w.rate_mm_per_month IS NOT NULL
+		 GROUP BY p.axle_class, p.axle_type`)
+	if err != nil {
+		return fmt.Errorf("loading cohort wear rates: %w", err)
+	}
+	defer crows.Close()
+	for crows.Next() {
+		var key string
+		var rate float64
+		if err := crows.Scan(&key, &rate); err != nil {
+			return fmt.Errorf("scanning cohort wear rate: %w", err)
+		}
+		out.CohortWearRateMmPerMonth[key] = rate
+	}
+	if err := crows.Err(); err != nil {
+		return fmt.Errorf("reading cohort wear rates: %w", err)
+	}
+
 	// Every threshold the client evaluates against, read through the same
 	// tenant-configuration accessor the database uses. Rule 5: none of these
 	// may become a literal on the device.
 	return tx.QueryRow(ctx, `
 		SELECT jsonb_build_object(
-		         'treadReadingCount',  app.config_for($1, 'tread_reading_count',   now()),
-		         'widthSpreadWarnMm',  app.config_for($1, 'width_spread_warn_mm',  now()),
-		         'targetPressureKpa',  app.config_for($1, 'target_pressure_kpa',   now()),
-		         'treadBands',         app.config_for($1, 'tread_bands',           now()),
-		         'odometerMaxDailyKm', app.config_for($1, 'odometer_max_daily_km', now()),
-		         'removalThresholdMm', app.removal_threshold_mm_for($1, now()))`,
+		         'treadReadingCount',     app.config_for($1, 'tread_reading_count',      now()),
+		         'treadGranularityMm',    app.config_for($1, 'tread_capture_granularity_mm', now()),
+		         'widthSpreadWarnMm',     app.config_for($1, 'width_spread_warn_mm',     now()),
+		         'odometerMaxDailyKm',    app.config_for($1, 'odometer_max_daily_km',    now()),
+		         'wearRateAlertMultiple', app.config_for($1, 'wear_rate_alert_multiple', now()),
+		         'removalThresholdMm',    app.removal_threshold_mm_for($1, now()))`,
 		a.TenantID).Scan(&out.Config)
 }
 ```
 
-`auth.ScopeAssigned` may be named differently — read the `Scope` table in `api/internal/auth/auth.go` and use whatever it calls the driver's own-units breadth. If a driver-scoped constant does not exist, add it there rather than branching on the role name in this file; the whole point of the `Scope` table is that role names stay in `auth`.
+Add `"errors"`, `"fmt"` and `"time"` to the import block; the skeleton above lists only what the handler body itself names.
+
+> **The cohort query runs one regression per fitted tyre in the tenant.** At pilot scale (259 tyres) that is nothing, and NFR-PRF-006 allows 500ms. At NFR-SCL-002 scale (10,000 tyres) it will not hold, and the fix is a materialised cohort view refreshed with the valuation snapshots rather than a cheaper rule here — the rule is BR-ANL-001 and it has one implementation. Raise that as a ticket when the first tenant passes ~2,000 tyres; do not pre-optimise it now, and do not substitute a two-point difference.
+
+The `Scope` table in `api/internal/auth/auth.go` has exactly two values — `ScopeDepot` (the zero value, and what a `DRIVER` gets) and `ScopeTenant` — so the branch above tests for `ScopeTenant` rather than naming a driver constant that does not exist. Do not add a role-name check here; the whole point of the `Scope` table is that role names stay in `auth`.
 
 Register the route in `httpapi.go`, inside the existing `r.Route("/api", ...)` block:
 
