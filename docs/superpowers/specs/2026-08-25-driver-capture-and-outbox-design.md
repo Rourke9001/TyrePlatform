@@ -414,9 +414,17 @@ not required here.
 
 ## Open items
 
+> **Careful with the D-numbers: this table has its own numbering.** Its D1 and D2
+> happen to match the `questions-for-rourke.md` decisions of the same name, but
+> **its D3 does not** — here D3 is FR-INS-038's controller override, whereas the
+> questions file's D3 was the combination-member capture read (settled, and now
+> SRS FR-AUT-005 erratum D3). The questions file's D4 and D5 are also settled and
+> have no counterpart here. When a plan or ticket cites "D3", check which list it
+> means. Decisions of Record — D1–D5: Confluence page 14778369.
+
 | # | Item | Blocks |
 | --- | --- | --- |
-| D1 | How is controller-set scheduling modelled — widen `ManageConfig`, or a narrower capability? FR-INS-049 already mandates *controller*-set schedules, so the requirement is settled; only the capability shape is open. This is an engineering decision, not a sponsor question. | The config-editing surface |
-| D2 | Staff-number reuse: total unique index, tenant policy, or configurable? Migration `000019` deliberately permits reuse. | Nothing here — the write path attributes by UUID either way |
+| ~~D1~~ **ANSWERED 25 Aug 2026** | How is controller-set scheduling modelled — widen `ManageConfig`, or a narrower capability? **Resolved: widen it.** `CONTROLLER` and `DEPOT_MANAGER` gain `ManageConfig` in full — thresholds, bands and rates — with no narrower split capability. It is tenant-wide, not depot-narrowed. FR-AUT-007/008/009 carry erratum D1; the `auth.go` change itself is not yet made — it is TYRE-74. | Nothing now |
+| ~~D2~~ **ANSWERED 25 Aug 2026** | Staff-number reuse: total unique index, tenant policy, or configurable? **Resolved: tenant policy.** Migration `000019`'s partial index stands as shipped; reuse is permitted once no active member holds the number. FR-AUT-022 carries erratum D2. | Nothing — the write path attributes by UUID, as it always did |
 | D3 | Where is FR-INS-038's `CONTROLLER` override exercised — at capture on the device, pre-authorised, or after the fact? The SRS does not say. Default taken: the window is enforced server-side and an override is a controller action after a refusal, because the driver's device cannot be trusted to assert one. | Nothing; the refusal path works without it |
 | OI-33 | BAC's real inspection sheets, as a check on this capture model and a defensible default cadence. | Nothing; TYRE-45 |

@@ -318,7 +318,7 @@ FR-INS-040 has been a Must with no home since v1.3. Errata E2 gave it DR-021 and
 
 **Also in this migration: the capture scope view.** A rig inspection reads a capture context per member unit, and `app.v_driver_vehicle` is current *assignments* only — so a driver assigned the horse cannot read their own trailers. The fixture demonstrates it exactly: `driver1` holds `veh1` and `veh3`, their `veh2` assignment ended 2024-12-31, and all three are members of `comb1`. Without this view a superlink cannot be captured at all.
 
-> **This is an authorisation widening, taken as a default rather than assumed.** FR-AUT-005 restricts a `DRIVER` to "the vehicle or vehicles currently assigned to them", and FR-INS-053 already establishes that coupling propagates responsibility — "trailer coupled to a horse → that horse's driver". Extending *read for capture* along the same chain follows that reasoning. It is narrower than it looks: reachable only through the current combination of a unit the driver actually holds, and it does not widen `/api/my/vehicles`. Recorded in `docs/spec/QUESTIONS-FOR-ROURKE.md`.
+> **This is an authorisation widening, taken as a default rather than assumed.** FR-AUT-005 restricts a `DRIVER` to "the vehicle or vehicles currently assigned to them", and FR-INS-053 already establishes that coupling propagates responsibility — "trailer coupled to a horse → that horse's driver". Extending *read for capture* along the same chain follows that reasoning. It is narrower than it looks: reachable only through the current combination of a unit the driver actually holds, and it does not widen `/api/my/vehicles`. **Settled 25 Aug 2026 as decision D3** — the widening stands exactly as described here. SRS FR-AUT-005 carries erratum D3 and now states it in the requirement itself, so this is no longer a default awaiting a veto. Reasoning: Confluence page 14778369.
 
 ```sql
 -- FR-AUT-005 with FR-INS-053: what a driver may read IN ORDER TO CAPTURE.
@@ -1014,13 +1014,14 @@ FR-OFF-001 lets a driver finish and submit with no connectivity "at any point af
 
 **The target does not come from tenant configuration.** Migration `000013` deleted the `target_pressure_kpa`, `inflation_bands` and `pressure_deviation_margin_pct` keys outright (CHG-112) and moved targets to `app.target_pressure`, resolved per `(size_id, axle_class)` with warn/critical tolerances in both directions. Reading the retired key would return null and disable both pressure warnings silently, which is why the target fields sit on each position rather than in the config blob.
 
-> **Decision — FR-INS-031a's confirmation margin (D4).** FR-CFG-025 specifies a pressure deviation margin defaulting to 25%, and CHG-112 retired the key that held it without saying what replaces it. Taken here: **the resolved row's `critical_under_pct` / `critical_over_pct` is the FR-INS-031a confirmation threshold, and `warn_under_pct` / `warn_over_pct` is FR-INS-037's band edge.** That keeps one source for both rules and honours CHG-112 as the later deliberate decision, at the cost of moving the confirmation point from 25% to the seeded 20%. It is a conflict between FR-CFG-025 and CHG-112, not a free choice — record it in `docs/open-issues.md` as D4 and let the sponsor move the seeded percentages if 25% was meant literally. Do not reintroduce the retired key, and do not hard-code 25.
+> **Decision — FR-INS-031a's confirmation margin (D4).** FR-CFG-025 specifies a pressure deviation margin defaulting to 25%, and CHG-112 retired the key that held it without saying what replaces it. Taken here: **the resolved row's `critical_under_pct` / `critical_over_pct` is the FR-INS-031a confirmation threshold, and `warn_under_pct` / `warn_over_pct` is FR-INS-037's band edge.** That keeps one source for both rules and honours CHG-112 as the later deliberate decision, at the cost of moving the confirmation point from 25% to the seeded 20%. It is a conflict between FR-CFG-025 and CHG-112, not a free choice. **Settled 25 Aug 2026 as decision D4** — this reading stands, 25% is not resurrected, and if 25% is wanted later the fix is to move the seeded percentages. Do not reintroduce the retired key, and do not hard-code 25. **Do not record it in `docs/open-issues.md`**: that register is open-items-only and D4 is decided; SRS FR-CFG-025, FR-INS-031a and FR-INS-037 carry erratum D4, and the reasoning is on Confluence page 14778369.
+
+> D4 also settles what the confirmation *does*: **the reading is always stored as entered.** The prompt is an acknowledgement, never a refusal — under NFR-USE-001 a modal that can reject the number a driver is standing in front of costs more than the wrong number does. The confirm-then-submit flow in the client plan already behaves this way; nothing changes.
 
 **Files:**
 - Create: `api/internal/httpapi/capture.go`
 - Create: `api/internal/httpapi/capture_test.go`
 - Modify: `api/internal/httpapi/httpapi.go` (route registration only)
-- Modify: `docs/open-issues.md` (record D4)
 
 **Interfaces:**
 - Consumes: `store.InActorTx`, `withActor`, `require`, `writeJSON`, `auth.CaptureInspection`, `auth.ScopeTenant` — all already present; `app.wear_rate_mm_per_month(uuid)` from migration `000013`; `app.target_pressure` from `000012`.
@@ -1470,7 +1471,7 @@ Register the route in `httpapi.go`, inside the existing `r.Route("/api", ...)` b
 r.Get("/capture/vehicles/{vehicleID}", captureContext(s))
 ```
 
-> **A `DEPOT_MANAGER` holding `CaptureInspection` reaches nothing.** `auth.scopes` gives `ScopeTenant` only to `CONTROLLER` and `ORG_ADMIN`, so a depot manager falls through to `v_capture_vehicle`, which is assignment-based — and a manager has no personal `vehicle_driver` rows. They get 403 on every unit. Drivers are the POC's capturers so nothing is blocked, and the fix collides with "no role names in handlers", which is why it is an open decision rather than a quiet third branch here. Record it in `docs/spec/QUESTIONS-FOR-ROURKE.md` alongside D3 rather than inventing a depot-scoped capture view now.
+> **A `DEPOT_MANAGER` holding `CaptureInspection` reaches nothing.** `auth.scopes` gives `ScopeTenant` only to `CONTROLLER` and `ORG_ADMIN`, so a depot manager falls through to `v_capture_vehicle`, which is assignment-based — and a manager has no personal `vehicle_driver` rows. They get 403 on every unit. Drivers are the POC's capturers so nothing is blocked, and the fix collides with "no role names in handlers", which is why it is an open decision rather than a quiet third branch here. It is **already recorded as D6** in `docs/spec/QUESTIONS-FOR-ROURKE.md`, where it is now the only decision still standing — nothing to add. Leave it as-is and do not invent a depot-scoped capture view.
 
 - [ ] **Step 4: Run the tests and verify they pass**
 
