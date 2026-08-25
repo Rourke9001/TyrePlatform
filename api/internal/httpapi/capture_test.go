@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
 	"tyreplatform/api/internal/auth"
@@ -110,4 +113,137 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 					"so this means the resolution join is wrong, not that the tenant has no targets")
 		})
 	}
+}
+
+// captureFixture builds a valid app.submit_inspection payload for vehicleID:
+// one reading, on the vehicle's first non-spare position (plantCaptureFixture's
+// leftPos, which already carries a fitted tyre so this exercises the FR-OFF-016
+// tyre-match path rather than an always-nil tyre_id), with the tenant's
+// configured tread_reading_count of measurements. A fresh client_uuid every
+// call is what lets FR-INS-038's case ask for a second, distinct inspection
+// rather than replaying the first.
+func captureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID) string {
+	t.Helper()
+
+	var positionID uuid.UUID
+	var tyreID *uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT p.id, f.tyre_id
+		   FROM app.position p
+		   JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+		   LEFT JOIN app.fitment f
+		          ON f.position_id = p.id AND f.vehicle_id = v.id AND f.removed_at IS NULL
+		  WHERE v.id = $1 AND NOT p.is_spare
+		  ORDER BY p.sequence LIMIT 1`,
+		vehicleID,
+	).Scan(&positionID, &tyreID))
+
+	now := time.Now().UTC()
+	payload := map[string]any{
+		"client_uuid":      uuid.New().String(),
+		"vehicle_id":       vehicleID.String(),
+		"started_at":       now.Add(-2 * time.Minute).Format(time.RFC3339),
+		"submitted_at":     now.Format(time.RFC3339),
+		"odometer_km":      60000,
+		"duration_seconds": 120,
+		"readings": []map[string]any{
+			{
+				"vehicle_id":   vehicleID.String(),
+				"position_id":  positionID.String(),
+				"tyre_id":      tyreID,
+				"pressure_kpa": 800,
+				"treads":       []float64{8.0, 8.5, 8.2},
+			},
+		},
+	}
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	return string(raw)
+}
+
+// FR-OFF-011: an uncertain network must be safe to retry. The outbox replays
+// on any answer it did not clearly receive, so this is the single most
+// load-bearing assertion in the API.
+func TestSubmitReplayContract(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "submit")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	// FR-AUT-005: plantCaptureFixture deliberately plants no assignment
+	// (its docstring names this calling convention) — without it the
+	// driver's own submit would 403 before ever reaching submit_inspection.
+	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	payload := captureFixture(t, ctx, admin, tenantID, vehicleID)
+
+	first := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), payload)
+	require.Equal(t, http.StatusCreated, first.Code, first.Body.String())
+
+	var a, b struct {
+		InspectionID string `json:"inspectionId"`
+	}
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &a))
+	require.NotEmpty(t, a.InspectionID)
+
+	replay := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), payload)
+	require.Equal(t, http.StatusOK, replay.Code, replay.Body.String())
+	require.NoError(t, json.Unmarshal(replay.Body.Bytes(), &b))
+	require.Equal(t, a.InspectionID, b.InspectionID, "a replay created a second inspection")
+}
+
+func TestSubmitRefusals(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "refuse")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	// The technician is deliberately left unassigned: its 403 below must be
+	// attributable to the missing CaptureInspection capability alone, and
+	// require() fires before the FR-AUT-005 scope check ever runs.
+	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	techID := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	require.Equal(t, http.StatusForbidden,
+		post(t, h, "/api/inspections", tenantID.String(), techID.String(),
+			captureFixture(t, ctx, admin, tenantID, vehicleID)).Code,
+		"a TECHNICIAN does not hold CaptureInspection")
+
+	require.Equal(t, http.StatusBadRequest,
+		post(t, h, "/api/inspections", tenantID.String(), driverID.String(), "{not json").Code)
+
+	// FR-INS-038 is a permanent refusal: the outbox must surface FR-OFF-013's
+	// recovery action rather than retry it for thirty minutes, which is why it
+	// cannot share a status with 422's malformed vehicle.
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/inspections", tenantID.String(), driverID.String(),
+			captureFixture(t, ctx, admin, tenantID, vehicleID)).Code)
+	require.Equal(t, http.StatusConflict,
+		post(t, h, "/api/inspections", tenantID.String(), driverID.String(),
+			captureFixture(t, ctx, admin, tenantID, vehicleID)).Code)
+}
+
+// TestSubmitUnknownVehicleIsUnprocessable pins TY007 ("vehicle not visible"):
+// app.submit_inspection's own comment explains that SQLSTATE exists so an
+// unrecognised or cross-tenant vehicle_id never falls through to the
+// composite FK violation (23503), which is not in submitStatus and would
+// otherwise surface as a 500 — telling the outbox to retry forever something
+// that will never succeed. A CONTROLLER (ScopeTenant) is used deliberately:
+// it skips the handler's own FR-AUT-005 v_capture_vehicle check, so this is
+// the one path that actually reaches submit_inspection's own guard.
+func TestSubmitUnknownVehicleIsUnprocessable(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "unknownveh")
+	controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var body map[string]any
+	require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, vehicleID)), &body))
+	body["vehicle_id"] = uuid.New().String()
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+
+	rec := post(t, h, "/api/inspections", tenantID.String(), controllerID.String(), string(raw))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 }

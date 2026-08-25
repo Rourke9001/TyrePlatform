@@ -2,8 +2,10 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -288,4 +290,72 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		         'wearRateAlertMultiple', app.config_for($1, 'wear_rate_alert_multiple', now()),
 		         'removalThresholdMm',    app.removal_threshold_mm_for($1, now()))`,
 		a.TenantID).Scan(&out.Config)
+}
+
+// The submit body is passed through to app.submit_inspection as jsonb rather
+// than modelled field by field in Go: the payload's shape is a database
+// contract (DR-015..021), and a second Go-side model of it would be a second
+// place for it to drift.
+const maxSubmitBytes = 1 << 20 // 1 MiB: a 26-position rig with 78 measurements is ~30 KB
+
+func submitInspection(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSubmitBytes))
+		if err != nil {
+			http.Error(w, "body too large or unreadable", http.StatusBadRequest)
+			return
+		}
+		if !json.Valid(raw) {
+			http.Error(w, "malformed json", http.StatusBadRequest)
+			return
+		}
+
+		// Decoded only for the FR-AUT-005 scope check below — the rest of the
+		// payload stays opaque and travels to app.submit_inspection unparsed
+		// (see the const comment above). A second, fuller Go-side model would
+		// be a second place for the database contract to drift.
+		var body struct {
+			VehicleID uuid.UUID `json:"vehicle_id"`
+		}
+		if err := json.Unmarshal(raw, &body); err != nil {
+			http.Error(w, "malformed json", http.StatusBadRequest)
+			return
+		}
+
+		var id uuid.UUID
+		var created bool
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.CaptureInspection); err != nil {
+				return err
+			}
+			// FR-AUT-005 on the WRITE path. The read composes v_capture_vehicle;
+			// without the same narrowing here a driver could submit against any
+			// unit in the tenant, which is a wider hole than the read ever was.
+			if a.Scope() != auth.ScopeTenant {
+				var visible bool
+				if err := tx.QueryRow(r.Context(),
+					`SELECT EXISTS (SELECT 1 FROM app.v_capture_vehicle WHERE vehicle_id = $1)`,
+					body.VehicleID).Scan(&visible); err != nil {
+					return fmt.Errorf("checking capture scope: %w", err)
+				}
+				if !visible {
+					return errForbidden
+				}
+			}
+			return tx.QueryRow(r.Context(),
+				`SELECT inspection_id, created FROM app.submit_inspection($1::jsonb)`, string(raw)).
+				Scan(&id, &created)
+		})
+		if !ok {
+			return
+		}
+		// Content-Type must be set before WriteHeader locks the header map in:
+		// writeJSON also sets it, but only the first call before the status is
+		// written actually reaches the wire.
+		w.Header().Set("Content-Type", "application/json")
+		if created {
+			w.WriteHeader(http.StatusCreated)
+		}
+		writeJSON(r.Context(), w, map[string]string{"inspectionId": id.String()})
+	}
 }

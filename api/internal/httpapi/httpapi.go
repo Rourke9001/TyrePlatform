@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"tyreplatform/api/internal/auth"
 	"tyreplatform/api/internal/store"
@@ -63,6 +64,7 @@ func New(s *store.Store, resolver ActorResolver) http.Handler {
 		r.Get("/my/vehicles", listMyVehicles(s))
 		r.Get("/my/tasks", listMyTasks(s))
 		r.Get("/capture/vehicles/{vehicleID}", captureContext(s))
+		r.Post("/inspections", submitInspection(s))
 		r.Get("/org/branding", orgBranding(s))
 	})
 	return r
@@ -100,6 +102,44 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 	return id, ok
 }
 
+// The submit function raises its refusals with SQLSTATEs in a private class so
+// the transport can tell a client mistake from a server fault. The 409 is
+// load-bearing beyond politeness: the outbox retries a 5xx with backoff and
+// surfaces FR-OFF-013's recovery action on a 409, so conflating the two would
+// have a phone hammer a refusal that will never change.
+//
+// TY001/TY002 (odometer plausibility, Task 1) are deliberately absent: both
+// are trapped inside app.submit_inspection's own exception block and turned
+// into an app.inspection_warning row, so they never escape as an error for
+// this map to see. TY010 (no tenant/actor bound) is also deliberately
+// absent — that is a genuine invariant breach, not a client mistake, so the
+// default 500 is the honest answer.
+var submitStatus = map[string]int{
+	"TY003": http.StatusConflict,
+	"TY004": http.StatusUnprocessableEntity,
+	"TY005": http.StatusUnprocessableEntity,
+	"TY006": http.StatusUnprocessableEntity,
+	// TY007: an unrecognised or cross-tenant vehicle_id. Migration 000023's
+	// own comment on this SQLSTATE explains why it exists — without an entry
+	// here, the alternative is the composite FK violation (23503) reaching
+	// this map unmapped and surfacing as a 500, which tells the outbox to
+	// retry forever a submit that will never succeed. Reachable in practice
+	// by a ScopeTenant actor (CONTROLLER/ORG_ADMIN), who skips the Go-side
+	// v_capture_vehicle check above.
+	"TY007": http.StatusUnprocessableEntity,
+}
+
+func statusForPgError(err error) (int, string, bool) {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return 0, "", false
+	}
+	if code, found := submitStatus[pgErr.Code]; found {
+		return code, pgErr.Message, true
+	}
+	return 0, "", false
+}
+
 // withActor is the one place a handler turns an identity into an actor. It
 // owns the refusal vocabulary so no handler invents its own: 401 means we do
 // not know who you are, 403 means we do and you may not.
@@ -111,6 +151,7 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		return false
 	}
 	err := s.InActorTx(ctx, id.TenantID, id.UserID, fn)
+	code, msg, isClient := statusForPgError(err)
 	switch {
 	case err == nil:
 		return true
@@ -122,6 +163,9 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		return false
 	case errors.Is(err, errForbidden):
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return false
+	case isClient:
+		http.Error(w, msg, code)
 		return false
 	default:
 		slog.ErrorContext(ctx, "actor transaction failed", "err", err)
