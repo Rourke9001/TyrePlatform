@@ -56,7 +56,11 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 # FR-ANL-002 minimum separation between the pair a wear rate
                 # is computed over. Below it the readings are dominated by
                 # gauge and operator variation rather than by wear.
-                ('wear_rate_min_distance_km',1000)]:
+                ('wear_rate_min_distance_km',1000),
+                ('odometer_max_daily_km', 1600),          # DR-020's configurable ceiling
+                ('duplicate_inspection_min_hours', 4),    # FR-INS-038, used from Task 3
+                ('wear_rate_alert_multiple', 3),          # FR-INS-035, served to the client by Task 4
+                ('tread_capture_granularity_mm', 1.0)]:
         L.append(f"INSERT INTO app.configuration (tenant_id,key,value,effective_from) VALUES ('{tid}','{k}','{json.dumps(v)}'::jsonb,'2024-01-01T00:00:00Z');")
     L.append("")
     L.append("-- CHG-111: threshold_policy is the one threshold source; no")
