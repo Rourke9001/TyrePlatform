@@ -357,3 +357,32 @@ func TestSubmitRefusesReadingAgainstUnauthorizedVehicle(t *testing.T) {
 	rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), string(raw))
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 }
+
+// TestSubmitEndpointIsRateLimited proves NFR-SEC-007's middleware is actually
+// wired onto POST /api/inspections through the real New(...) router, not
+// merely correct in isolation. A malformed body is deliberate: the limiter
+// runs ahead of the handler in the chain, so it still consumes budget on a
+// 400, which keeps this test fast and independent of the capture fixture. It
+// also doubles as empirical proof that requireActor's identity is visible to
+// the limiter — if it were not, every request here would 500 instead of 400,
+// and none would ever reach 429 (see submitRateLimit's own doc comment).
+func TestSubmitEndpointIsRateLimited(t *testing.T) {
+	h := httpapi.New(nil, httpapi.HeaderActorResolver{})
+	tenant := uuid.NewString()
+	user := uuid.NewString()
+
+	var sawAllowed, saw429 bool
+	for i := 0; i < 61 && !saw429; i++ {
+		rec := post(t, h, "/api/inspections", tenant, user, "{not json")
+		switch rec.Code {
+		case http.StatusTooManyRequests:
+			saw429 = true
+		case http.StatusBadRequest:
+			sawAllowed = true
+		default:
+			t.Fatalf("request %d: unexpected status %d: %s", i, rec.Code, rec.Body.String())
+		}
+	}
+	require.True(t, sawAllowed, "an earlier request in the run must not have been refused")
+	require.True(t, saw429, "the account limit must eventually refuse this single user")
+}

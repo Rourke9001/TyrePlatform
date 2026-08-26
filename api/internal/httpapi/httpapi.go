@@ -64,7 +64,14 @@ func New(s *store.Store, resolver ActorResolver) http.Handler {
 		r.Get("/my/vehicles", listMyVehicles(s))
 		r.Get("/my/tasks", listMyTasks(s))
 		r.Get("/capture/vehicles/{vehicleID}", captureContext(s))
-		r.Post("/inspections", submitInspection(s))
+		// NFR-SEC-007: rate-limited, unlike the reference read above — a
+		// driver fetches capture context once per vehicle, but a bad outbox
+		// retry loop or a hostile client can hammer a write. Built once
+		// here, not per request (ratelimit.go's const comment).
+		r.With(submitRateLimit(
+			newRateLimiter(accountSubmitsPerMinute),
+			newRateLimiter(addressSubmitsPerMinute),
+		)).Post("/inspections", submitInspection(s))
 		r.Get("/org/branding", orgBranding(s))
 	})
 	return r
