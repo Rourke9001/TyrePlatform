@@ -124,6 +124,14 @@ describe("CaptureDiagram", () => {
 // own context (own fleetNumber) rather than sharing one: groupRig labels a
 // unit from position.unitLabel ?? context.fleetNumber, so a shared context
 // would print unit B's band as unit A's fleet number and hide cross-wiring.
+//
+// Distinct position ids across the two units here, unlike the flow fixture: the
+// assertions below address cells through data-position-id with querySelector,
+// which answers with the first match. Real units of one axle configuration do
+// share ids, and under that shape those two assertions would silently be about
+// unit A's cell while reading as though they covered the rendering generally.
+// Nothing is lost by keeping them apart — groupRig keys on (vehicleId,
+// axleNumber), so id sharing cannot affect the grouping this block exists for.
 const unitA: CaptureContext = { ...context, vehicleId: "v-horse", fleetNumber: "BAC039SP" };
 const unitB: CaptureContext = { ...context, vehicleId: "v-link", fleetNumber: "BAC040SP" };
 

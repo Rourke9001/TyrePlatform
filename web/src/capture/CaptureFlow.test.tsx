@@ -95,9 +95,14 @@ const trailer: CaptureContext = {
   lastOdometerKm: null,
   lastOdometerAt: null,
   combination: null,
+  // The SAME position ids as the motive unit, deliberately. app.position rows
+  // belong to an axle configuration and not to a vehicle, so two like units on
+  // one rig share every id — the register cannot produce the distinct-id shape,
+  // and a fixture that used one would let a collision between units pass
+  // unseen while looking like better coverage.
   positions: [
-    { ...context.positions[0], id: "t1", vehicleId: "v2", code: "1", sequence: 1 },
-    { ...context.positions[0], id: "t2", vehicleId: "v2", code: "2", sequence: 2 },
+    { ...context.positions[0], vehicleId: "v2", code: "1", sequence: 1 },
+    { ...context.positions[0], id: "p2", vehicleId: "v2", code: "2", sequence: 2 },
   ],
 };
 

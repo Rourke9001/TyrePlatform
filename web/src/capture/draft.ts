@@ -83,8 +83,30 @@ database.version(1).stores({ drafts: "key", outbox: "clientUuid, state" });
 
 export const db = database;
 
+// Nothing versions the shape of the persisted draft: it is one JSON blob in one
+// row, so a change to cellKey or to DraftPosition meets a row written under a
+// different shape with no schema to refuse it and no error to raise. That
+// failure is silent and expensive — a key the reader cannot match reads back as
+// an untouched vehicle under a header counting it done, and a position entered
+// again lands beside the unreachable entry instead of replacing it, so the
+// submit carries the same wheel twice.
+//
+// Rebuilding from the values removes the dependency on the keys altogether:
+// DraftPosition names its own unit and its own position, so every entry is
+// self-describing whatever it happens to be filed under. Last one wins on a
+// collision, which is the right answer — Object.values keeps insertion order,
+// so an entry written under a superseded key is overwritten by the one written
+// after it.
+function byCell(positions: Record<string, DraftPosition>): Record<string, DraftPosition> {
+  const out: Record<string, DraftPosition> = {};
+  for (const p of Object.values(positions)) out[cellKey(p.vehicleId, p.positionId)] = p;
+  return out;
+}
+
 export async function loadDraft(): Promise<Draft | undefined> {
-  return (await db.drafts.get(DRAFT_KEY))?.draft;
+  const row = await db.drafts.get(DRAFT_KEY);
+  if (!row) return undefined;
+  return { ...row.draft, positions: byCell(row.draft.positions) };
 }
 
 export async function startDraft(init: {

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import type { DraftPosition } from "./draft";
 import { cellKey, clearDraft, db, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
 
 beforeEach(async () => {
@@ -90,6 +91,66 @@ describe("the draft buffer", () => {
     await expect(
       startDraft({ vehicleId: "v2", taskId: null, startedAt: "2026-08-25T07:00:00Z" }),
     ).rejects.toThrow(/in progress/i);
+  });
+
+  // The one place the key FORMAT is stated rather than computed. Every other
+  // fixture calls cellKey on both sides of its assertion, which holds for
+  // whatever cellKey returns — a mutation back to the bare position id
+  // included. This line is what makes those assertions mean something.
+  it("keys a position by its unit AND its position", () => {
+    expect(cellKey("v1", "p1")).toBe("v1:p1");
+  });
+
+  // The persisted draft is one JSON blob with nothing versioning its shape, so
+  // a row written under a superseded key layout has to survive being read. A
+  // reader that trusted the stored keys would show an untouched vehicle under a
+  // header counting it done, and would send a re-entered wheel twice.
+  it("reads a draft filed under superseded keys back by unit and position", async () => {
+    const draft = await startDraft({
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
+    const entry = (vehicleId: string, positionId: string, treads: number[]): DraftPosition => ({
+      positionId,
+      vehicleId,
+      tyreId: null,
+      treads,
+      pressureKpa: 750,
+      pressureTemperature: "UNKNOWN",
+      damageFlag: false,
+      note: null,
+      seconds: 4,
+      warnings: [],
+    });
+
+    // Written straight to the row, which is the only way to produce the layout:
+    // savePosition cannot file under a bare id. Insertion order is the order a
+    // driver would produce it — the unreachable entry first, the one entered
+    // afterwards second.
+    await db.drafts.put({
+      key: "current",
+      draft: {
+        ...draft,
+        positions: {
+          p1: entry("v1", "p1", [9, 9, 9]),
+          [cellKey("v1", "p1")]: entry("v1", "p1", [13, 13, 14]),
+          // Two units of the same axle configuration share every position id, so
+          // one bare "p1" names two different wheels. Both have to come back.
+          [cellKey("v2", "p1")]: entry("v2", "p1", [11, 11, 12]),
+        },
+      },
+    });
+
+    const reloaded = await loadDraft();
+    expect(Object.keys(reloaded?.positions ?? {}).sort()).toEqual([
+      cellKey("v1", "p1"),
+      cellKey("v2", "p1"),
+    ]);
+    // Last one wins, so the entry made after the unreachable one is the one
+    // that survives — never the other way round.
+    expect(reloaded?.positions[cellKey("v1", "p1")].treads).toEqual([13, 13, 14]);
+    expect(reloaded?.positions[cellKey("v2", "p1")].treads).toEqual([11, 11, 12]);
   });
 
   it("reports no draft once cleared", async () => {
