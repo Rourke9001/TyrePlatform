@@ -139,22 +139,26 @@ func submitRateLimit(account, address *rateLimiter) func(http.Handler) http.Hand
 // every client on the internet, turning the limiter meant to stop a hostile
 // client into a way for one to lock out every driver.
 //
-// The rightmost entry of X-Forwarded-For is the fix: that ingress hop is the
-// one thing appending to the header that cannot be lying about the address
-// it actually observed, whereas every entry to its left is whatever the
-// caller sent and can be forged — a request naming its own fake address as
-// the leftmost entry would otherwise buy a fresh bucket per forged value and
-// bypass the limit entirely. This assumes exactly one trusted hop between
-// the caller and this process; an additional hop in front of the ingress
-// would need this to change.
+// The fix is the LAST hop of the LAST X-Forwarded-For header line — not
+// Header.Get, which returns only the first line. RFC 7230 makes repeated
+// header lines equivalent to one comma-joined line, so a conformant proxy
+// may append its own observed address as a separate line instead of
+// extending the caller's; Header.Values preserves every line in the order
+// received, so its last element is that ingress-appended line regardless of
+// which form was used. Within that line, the last comma-separated hop is
+// the one the ingress itself observed — everything before it, in that line
+// or an earlier one, is caller-supplied and can be forged. Trusting
+// anything but this last-of-last hop would let a request buy a fresh
+// address bucket per forged value and bypass the limit entirely. This
+// assumes exactly one trusted hop between the caller and this process; an
+// additional hop in front of the ingress would need this to change.
 //
-// A header absent or empty falls back to RemoteAddr — the local/dev and
-// httptest case, where nothing sits in front of the process at all.
+// A header absent or entirely blank falls back to RemoteAddr — the
+// local/dev and httptest case, where nothing sits in front of the process
+// at all.
 func clientAddress(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		hops := strings.Split(xff, ",")
-		last := strings.TrimSpace(hops[len(hops)-1])
-		if last != "" {
+	if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 {
+		if last := lastForwardedHop(lines[len(lines)-1]); last != "" {
 			if host, _, err := net.SplitHostPort(last); err == nil {
 				return host
 			}
@@ -166,4 +170,18 @@ func clientAddress(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+// lastForwardedHop returns the last non-empty comma-separated entry of one
+// X-Forwarded-For header line, trimmed — skipping backward over a trailing
+// empty segment (a stray trailing comma) rather than returning it as if it
+// were a hop.
+func lastForwardedHop(line string) string {
+	hops := strings.Split(line, ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		if hop := strings.TrimSpace(hops[i]); hop != "" {
+			return hop
+		}
+	}
+	return ""
 }
