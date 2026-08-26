@@ -1,4 +1,5 @@
 import type { Draft, DraftPosition, RecordedWarning } from "./draft";
+import { cellKey } from "./draft";
 import { treadsRead } from "./warnings";
 
 // Wire shape of POST /api/inspections. snake_case because the body reaches
@@ -126,12 +127,14 @@ export function isCaptured(position: DraftPosition): boolean {
 }
 
 // The positions a submit would actually carry, keyed for the completeness
-// figures the driver sees.
-export function capturedPositionIds(draft: Draft): Set<string> {
+// figures the driver sees. By cell, not by position id: on a rig the same
+// position id occurs once per member unit of the same configuration, and a set
+// of bare ids would report two units as one (draft.cellKey).
+export function capturedCells(draft: Draft): Set<string> {
   return new Set(
     Object.values(draft.positions)
       .filter(isCaptured)
-      .map((p) => p.positionId),
+      .map((p) => cellKey(p.vehicleId, p.positionId)),
   );
 }
 

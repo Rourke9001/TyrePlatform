@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
+import { cellKey } from "./draft";
 import { completenessByUnit, rigPositions } from "./rig";
 
 const position = (
@@ -64,6 +65,15 @@ const link = unit("v-link", "BAC040SP", [
   position({ id: "l1", sequence: 1, axleClass: "TRAILER" }),
 ]);
 
+// The second link of a superlink, on the SAME axle configuration as the first,
+// so it carries the very same position ids. app.position belongs to a
+// configuration and not to a vehicle, which makes this the ordinary shape of a
+// three-unit rig rather than a contrived one.
+const link2 = unit("v-link2", "BAC041SP", [
+  position({ id: "l1", sequence: 1, axleClass: "TRAILER" }),
+  position({ id: "l2", sequence: 2, axleClass: "TRAILER" }),
+]);
+
 describe("rigPositions", () => {
   // FR-VEH-034 / BR-VEH-001: 1..n across member units, computed from member
   // order and each unit's own sequence. Never stored, never transmitted — the
@@ -117,8 +127,31 @@ describe("completenessByUnit", () => {
   // FR-INS-065: per member unit as well as for the rig. A driver who has
   // finished the horse and not the trailer needs to be told which, not a
   // single "18 of 26 done" that hides where the gap is.
+  // Two units sharing every position id: keyed by id alone one unit's readings
+  // count for the other's, the rig submits fewer readings than the driver
+  // entered, and nothing on screen says so (BR-VEH-003, and app.reading's
+  // (inspection_id, position_id, vehicle_id) unique key).
+  it("tells two units of the same configuration apart", () => {
+    const rig = rigPositions([link, link2]);
+    expect(new Set(rig.map((r) => r.key)).size).toBe(rig.length);
+    expect(rig.filter((r) => r.position.id === "l1").map((r) => r.key)).toEqual([
+      cellKey("v-link", "l1"),
+      cellKey("v-link2", "l1"),
+    ]);
+
+    const done = new Set([cellKey("v-link", "l1"), cellKey("v-link", "l2")]);
+    expect(completenessByUnit([link, link2], done)).toEqual([
+      { vehicleId: "v-link", fleetNumber: "BAC040SP", done: 2, total: 2 },
+      { vehicleId: "v-link2", fleetNumber: "BAC041SP", done: 0, total: 2 },
+    ]);
+  });
+
   it("reports progress for each member unit", () => {
-    const done = new Set(["h1", "hs", "l1"]);
+    const done = new Set([
+      cellKey("v-horse", "h1"),
+      cellKey("v-horse", "hs"),
+      cellKey("v-link", "l1"),
+    ]);
     expect(completenessByUnit([horse, link], done)).toEqual([
       { vehicleId: "v-horse", fleetNumber: "BAC039SP", done: 2, total: 3 },
       { vehicleId: "v-link", fleetNumber: "BAC040SP", done: 1, total: 2 },

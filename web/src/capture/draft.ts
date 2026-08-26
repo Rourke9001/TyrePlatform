@@ -17,6 +17,18 @@ export interface RecordedWarning {
   response: "ACKNOWLEDGED" | "CONFIRMED" | null;
 }
 
+// A position row belongs to an axle CONFIGURATION, not to a vehicle
+// (app.position.configuration_id), so two units of the same configuration —
+// the two links of a superlink, the ordinary case — share every position id.
+// The identity of a reading is therefore the pair, which is exactly what
+// app.reading's (inspection_id, position_id, vehicle_id) unique key states and
+// what BR-VEH-003 means by attributing every reading to the unit that owns the
+// position. Anything on the device keyed by position id alone silently
+// collapses two units into one and sends one of them nowhere.
+export function cellKey(vehicleId: string, positionId: string): string {
+  return `${vehicleId}:${positionId}`;
+}
+
 export interface DraftPosition {
   positionId: string;
   // The unit that OWNS the position, which on a rig is not the motive vehicle
@@ -49,6 +61,8 @@ export interface Draft {
   odometerKm: number | null;
   comment: string | null;
   defectReport: string | null;
+  // Keyed by cellKey, never by position id — see cellKey for why the pair is
+  // the identity.
   positions: Record<string, DraftPosition>;
   warnings: RecordedWarning[];
 }
@@ -117,7 +131,10 @@ async function mutate(fn: (draft: Draft) => Draft): Promise<void> {
 export async function savePosition(position: DraftPosition): Promise<void> {
   await mutate((draft) => ({
     ...draft,
-    positions: { ...draft.positions, [position.positionId]: position },
+    positions: {
+      ...draft.positions,
+      [cellKey(position.vehicleId, position.positionId)]: position,
+    },
   }));
 }
 

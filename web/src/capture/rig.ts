@@ -1,7 +1,12 @@
 import type { CaptureContext, CapturePosition } from "./captureContext";
+import { cellKey } from "./draft";
 
 export interface RigPosition {
   position: CapturePosition;
+  // Identity of this cell across the whole rig. Two member units of the same
+  // axle configuration share every position id, so nothing that has to tell
+  // one unit's wheel from another's may key on the id alone (draft.cellKey).
+  key: string;
   // The unit that owns it, kept alongside so the sheet can show the fleet
   // number and read that unit's own configuration.
   context: CaptureContext;
@@ -23,6 +28,7 @@ export function rigPositions(contexts: CaptureContext[]): RigPosition[] {
       .sort((a, b) => a.sequence - b.sequence)
       .map((position) => ({
         position,
+        key: cellKey(position.vehicleId, position.id),
         context,
         displayNumber: position.isSpare ? null : ++running,
       })),
@@ -40,12 +46,12 @@ export interface UnitCompleteness {
 // total is the sum, so it is not computed separately and cannot disagree.
 export function completenessByUnit(
   contexts: CaptureContext[],
-  donePositionIds: ReadonlySet<string>,
+  doneCells: ReadonlySet<string>,
 ): UnitCompleteness[] {
   return contexts.map((context) => ({
     vehicleId: context.vehicleId,
     fleetNumber: context.fleetNumber,
-    done: context.positions.filter((p) => donePositionIds.has(p.id)).length,
+    done: context.positions.filter((p) => doneCells.has(cellKey(p.vehicleId, p.id))).length,
     total: context.positions.length,
   }));
 }

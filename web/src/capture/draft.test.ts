@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { clearDraft, db, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
+import { cellKey, clearDraft, db, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
 
 beforeEach(async () => {
   await db.open();
@@ -42,8 +42,10 @@ describe("the draft buffer", () => {
     });
 
     const reloaded = await loadDraft();
-    expect(reloaded?.positions.p1.treads).toEqual([13, 13, 14]);
-    expect(reloaded?.positions.p1.seconds).toBe(6);
+    // Keyed by cell, because a position id names one wheel per member unit and
+    // two units of the same configuration share the id (draft.cellKey).
+    expect(reloaded?.positions[cellKey("v1", "p1")].treads).toEqual([13, 13, 14]);
+    expect(reloaded?.positions[cellKey("v1", "p1")].seconds).toBe(6);
   });
 
   // FR-OFF-006 / NFR-USE-011. The store is the source of truth, not a mirror
@@ -66,8 +68,8 @@ describe("the draft buffer", () => {
     await db.open();
 
     const reloaded = await loadDraft();
-    expect(reloaded?.positions.p1.pressureKpa).toBe(750);
-    expect(reloaded?.positions.p1.warnings[0].code).toBe("FR-INS-037");
+    expect(reloaded?.positions[cellKey("v1", "p1")].pressureKpa).toBe(750);
+    expect(reloaded?.positions[cellKey("v1", "p1")].warnings[0].code).toBe("FR-INS-037");
   });
 
   it("keeps the header fields the review screen collects", async () => {
