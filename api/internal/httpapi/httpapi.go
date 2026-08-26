@@ -141,12 +141,26 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 // surfaces FR-OFF-013's recovery action on a 409, so conflating the two would
 // have a phone hammer a refusal that will never change.
 //
-// TY001/TY002 (odometer plausibility, Task 1) are deliberately absent: both
+// TY001/TY002 (DR-020 odometer plausibility) are deliberately absent: both
 // are trapped inside app.submit_inspection's own exception block and turned
 // into an app.inspection_warning row, so they never escape as an error for
 // this map to see. TY010 (no tenant/actor bound) is also deliberately
 // absent — that is a genuine invariant breach, not a client mistake, so the
 // default 500 is the honest answer.
+//
+// The integrity classes below the private ones are the backstop to that rule
+// rather than a second vocabulary. app.submit_inspection guards the shapes it
+// can name and refuses them as TY005, but it cannot pre-empt every constraint
+// the payload reaches — an unknown tyre_id or combination_id arrives as a
+// foreign-key violation, and a value that will not parse as its column's type
+// never reaches a guard at all, because the function's own DECLARE casts it.
+// Each of those means "this body is wrong" and can only ever mean that: the
+// identical payload fails identically on every retry. Left unmapped they are
+// 500s, and a 500 is the one answer ADR-0009's outbox cannot survive.
+//
+// A blanket 23503 is safe here only because app.submit_inspection is the
+// single write path. If that stops being true, raise a named TYxxx in SQL
+// rather than widening this.
 var submitStatus = map[string]int{
 	"TY003": http.StatusConflict,
 	"TY004": http.StatusUnprocessableEntity,
@@ -160,6 +174,18 @@ var submitStatus = map[string]int{
 	// by a ScopeTenant actor (CONTROLLER/ORG_ADMIN), who skips the Go-side
 	// v_capture_vehicle check above.
 	"TY007": http.StatusUnprocessableEntity,
+
+	"23502": http.StatusUnprocessableEntity, // not-null violation
+	"23503": http.StatusUnprocessableEntity, // foreign key: an id this tenant cannot see
+	"23514": http.StatusUnprocessableEntity, // check: FR-INS-030/031's hard ranges
+	"22P02": http.StatusUnprocessableEntity, // a field that will not parse as its type
+	"22023": http.StatusUnprocessableEntity, // a scalar where the payload promised an array
+	// A duplicate client_uuid is FR-OFF-011's replay and app.submit_inspection
+	// answers it as one, including when two concurrent drains race for the
+	// same unique index. This entry catches any OTHER unique violation, which
+	// is a conflict rather than a fault — and, like the classes above, must
+	// not become a 500 the outbox retries to no end.
+	"23505": http.StatusConflict,
 }
 
 func statusForPgError(err error) (int, string, bool) {
