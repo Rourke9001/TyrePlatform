@@ -104,9 +104,8 @@ function ActorBadge() {
   );
 }
 
-// Filtering happens once, in navItemsFor (../shell/navigation) — the menu
-// and the route guard read that one registry so a surface an actor cannot
-// reach is never offered.
+// navItemsFor has already filtered against the registry (../shell/navigation,
+// which holds the one-list rationale), so no per-link gating here.
 function MainNav() {
   const actor = useActor();
   const items = navItemsFor(actor?.capabilities ?? []);
