@@ -181,7 +181,12 @@ describe("PositionSheet", () => {
     });
   });
 
-  // NFR-OBS-007: measured, not assumed, and it cannot be added later.
+  // NFR-OBS-007: measured, not assumed, and it cannot be added later. This
+  // column feeds NFR-USE-001's three-minute median, so a hardcoded value or a
+  // formula that just happens to never go negative has to fail here, not only
+  // clear a "some number, and it's not negative" bar. enter()'s three settle
+  // ticks plus the trailing pressure tick are exactly 1000ms of fake clock,
+  // so the exact value pins the divisor along with the sign.
   it("records how long the position took", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn<(p: DraftPosition) => void>();
@@ -189,7 +194,68 @@ describe("PositionSheet", () => {
     await enter(user, ["9", "9", "9"], "800");
     await user.click(screen.getByRole("button", { name: /done ›/i }));
 
-    expect(onDone.mock.calls[0][0].seconds).toBeGreaterThanOrEqual(0);
+    expect(onDone.mock.calls[0][0].seconds).toBe(1);
+  });
+
+  // NFR-PRO-003: a driver who reopens a position must not be credited with
+  // time they did not spend re-entering it. The fresh-position case above is
+  // vacuous here — carried.current is 0 on a fresh mount either way — so this
+  // pins the `carried.current +` term on its own: mount already-complete
+  // (unwarned, so Done needs no acknowledgement first), advance a known
+  // amount, and the total must be the carried seconds plus what elapsed on
+  // this visit, not a restart.
+  it("adds elapsed time to what was already carried on a reopened position", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onDone = vi.fn<(p: DraftPosition) => void>();
+    render(
+      <PositionSheet
+        {...props({ onDone })}
+        initial={{
+          positionId: "p1",
+          vehicleId: "v1",
+          tyreId: null,
+          treads: [13, 13, 14],
+          pressureKpa: 800,
+          pressureTemperature: "UNKNOWN",
+          damageFlag: false,
+          note: null,
+          seconds: 6,
+          warnings: [],
+        }}
+      />,
+    );
+    await advance(2000);
+    await user.click(screen.getByRole("button", { name: /done ›/i }));
+
+    expect(onDone.mock.calls[0][0].seconds).toBe(8);
+  });
+
+  // entry.ts's settle rule: does another digit still fit? "3" leaves room
+  // (valueOf("30") = 30, under the 35mm ceiling) and must not auto-advance;
+  // "4" does not (valueOf("40") = 40, over) and must. enter()'s tread
+  // sequences elsewhere in this file only ever exercise one side of that
+  // boundary at a time, so this pins both directly against the field's own
+  // aria-current, with no Next press in either case to fall back on if the
+  // auto-advance itself is broken.
+  it("auto-advances once a digit settles the field", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<PositionSheet {...props({})} />);
+
+    await user.click(screen.getByRole("button", { name: "4" }));
+    await advance(250);
+
+    expect(screen.getByLabelText(/Tread reading 1 of 3/)).not.toHaveAttribute("aria-current");
+    expect(screen.getByLabelText(/Tread reading 2 of 3/)).toHaveAttribute("aria-current", "true");
+  });
+
+  it("does not auto-advance a digit that leaves the field unsettled", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<PositionSheet {...props({})} />);
+
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+
+    expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveAttribute("aria-current", "true");
   });
 
   // FR-OFF-006: reopening a captured position shows what was entered.
