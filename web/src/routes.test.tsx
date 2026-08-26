@@ -37,7 +37,7 @@ afterEach(() => {
 
 // Shared by every test that needs a QueryClient: the default retries a
 // failed request three times with backoff, which would otherwise schedule
-// timers that outlive the test body (Task 6 review).
+// timers that outlive the test body.
 function testClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
@@ -100,10 +100,9 @@ describe("AppRoutes", () => {
     expect(screen.queryByText(/nothing due/i)).toBeNull();
   });
 
-  // apiGet has been required to send X-User-ID since Task 4's actor
-  // middleware landed API-side (every live browser request 401s without it);
-  // nothing else in this suite calls apiGet, so this is the only place a
-  // regression here would be caught.
+  // The API's dev actor middleware 401s any request missing X-User-ID, and
+  // nothing else in this suite asserts on apiGet's headers, so this is the
+  // only place a regression here would be caught.
   it("sends the dev actor id from localStorage as X-User-ID on every request", async () => {
     const devActorId = "b85aef08-6081-80db-9d4d-dad38ae40545";
     window.localStorage.setItem(DEV_ACTOR_STORAGE_KEY, devActorId);
