@@ -76,9 +76,9 @@
   justify-content: center;
   gap: 2px;
   min-width: 56px;
-  min-height: 56px; /* NFR-USE-004 floors this at 44px; this is the single
-                        most-tapped control in the capture flow, so it keeps
-                        a wider margin for a wet glove. */
+  min-height: 56px; /* NFR-USE-004 floors this at 44px; 56px leaves margin for
+                        a wet glove while staying narrow enough to keep a
+                        whole rig on one screen without scrolling. */
   padding: 4px 6px;
   appearance: none;
   margin: 0;
