@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Draft } from "./draft";
+import type { Draft, DraftPosition } from "./draft";
+import { cellKey } from "./draft";
 import { deviceId, toSubmitPayload } from "./payload";
 
 const meta = {
@@ -217,6 +218,40 @@ describe("toSubmitPayload", () => {
 
   // 000023 accepts a NULL pressure deliberately. The draft is cleared on
   // submit, so filtering this out would destroy three good tread readings.
+  // A rig's two member units of one axle configuration carry the SAME position
+  // ids, so the position alone cannot separate that couple. A stable sort left
+  // to itself settles the tie by insertion order — the order the driver
+  // happened to walk the rig — which is precisely what a deterministic payload
+  // must not depend on.
+  it("orders a shared position id the same way whichever unit was walked first", () => {
+    const cell = (vehicleId: string): DraftPosition => ({
+      positionId: "p1",
+      vehicleId,
+      tyreId: null,
+      treads: [10, 10, 11],
+      pressureKpa: 750,
+      pressureTemperature: "UNKNOWN",
+      damageFlag: false,
+      note: null,
+      seconds: 4,
+      warnings: [],
+    });
+    const walked = (first: string, second: string): Draft => ({
+      ...draft,
+      positions: {
+        [cellKey(first, "p1")]: cell(first),
+        [cellKey(second, "p1")]: cell(second),
+      },
+    });
+    const order = (d: Draft) =>
+      toSubmitPayload(d, meta).readings.map((r) => cellKey(r.vehicle_id, r.position_id));
+
+    expect(order(walked("v-horse", "v-link6"))).toEqual(["v-horse:p1", "v-link6:p1"]);
+    // The same rig walked the other way round. Without the tie-break this
+    // returns the two the other way and the assertion above still passes.
+    expect(order(walked("v-link6", "v-horse"))).toEqual(["v-horse:p1", "v-link6:p1"]);
+  });
+
   it("sends a position whose treads are complete but whose pressure was never taken", () => {
     const noPressure: Draft = {
       ...draft,

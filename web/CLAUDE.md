@@ -58,6 +58,14 @@ at phone dimensions, so `reach.spec.ts` runs on all three and
 tenant state in one shared database, and the same vehicle submitted from a
 second project is refused by the first.
 
+**A green `make e2e` does not prove the three-minute constraint.** The M2
+airplane-mode run was performed against **emulated** evidence — the Pixel 7
+project with `setOffline(true)`, no real handset — and Playwright taps as fast
+as the browser accepts. **NFR-USE-001's three minutes and NFR-USE-001a's seven
+remain unmeasured**; they need a trained driver on a real phone, with gloves, in
+the sun. What these specs do establish is that the flow completes offline, syncs
+on reconnect, and files every reading against the unit that owns the position.
+
 Run with `make e2e`, which reseeds and requires `make api-run` in another
 terminal; CI's "Browser smoke" job builds that stack itself on every PR. The
 reseed is not optional: `capture.spec.ts` submits, so a second run against the

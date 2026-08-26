@@ -108,19 +108,24 @@ web-test: ## Frontend tests
 # runnable without one. CI runs this as its own job with the stack it builds
 # itself, so the gate is still real on every PR (TYRE-65).
 #
-# The reseed is a prerequisite, not advice: the capture specs submit, and
+# The reseed is mandatory, not advice: the capture specs submit, and
 # FR-INS-038 refuses a second inspection of the same unit inside the tenant's
 # configured window — so a second run against the same seed fails at the first
 # spec, for a reason the failure itself does not explain. CI is safe either way
 # (it builds the stack per job), and a running API survives the schema drop.
+# It is a recipe line rather than a prerequisite so the reachability check
+# runs FIRST: every prerequisite is built before any recipe line, so as a
+# prerequisite it would drop and reseed the database and only then report
+# that the API — the thing actually missing — is not up.
 #
 # webkit as well as chromium: the ios project is iPhone 14, which is WebKit, and
 # a project that cannot launch is a gate that cannot run. The android project is
 # Chromium emulation and needs no extra download.
 .PHONY: e2e
-e2e: db-reset ## Browser smoke tests (reseeds first; needs `make api-run` running)
+e2e: ## Browser smoke tests (reseeds first; needs `make api-run` running)
 	@curl -s -o /dev/null http://localhost:8080/api/me \
 	  || { echo "API not reachable on :8080 — run 'make api-run' first"; exit 1; }
+	$(MAKE) db-reset
 	cd web && npx playwright install chromium webkit && npm run e2e
 
 # Deliberately NOT in `make check`: it queries the npm registry for every

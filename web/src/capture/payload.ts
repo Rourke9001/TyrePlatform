@@ -143,8 +143,16 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
 
   const readings: SubmitReading[] = captured
     // Object key order is an implementation detail of how the driver happened
-    // to walk the vehicle; the payload should not vary with it.
-    .sort((a, b) => a.positionId.localeCompare(b.positionId, undefined, { numeric: true }))
+    // to walk the vehicle; the payload should not vary with it. The unit breaks
+    // the tie, which is what makes the comparator total: two member units of
+    // the same axle configuration carry the SAME position ids, so comparing
+    // those alone returns 0 for every such couple, and a stable sort settles a
+    // tie by insertion order — which is the walk order this is here to remove.
+    .sort(
+      (a, b) =>
+        a.positionId.localeCompare(b.positionId, undefined, { numeric: true }) ||
+        a.vehicleId.localeCompare(b.vehicleId),
+    )
     .map((p) => ({
       // FR-INS-061 / BR-VEH-003: the unit that owns the position, and its own
       // position id. The 1..26 a driver sees on a rig is computed for the
