@@ -207,7 +207,7 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 	require.NoError(t, err)
 
 	// The six keys every cfg[...] assertion in the test reads, plus
-	// duplicate_inspection_min_hours for Task 5's 409 case. Backdated:
+	// duplicate_inspection_min_hours, which FR-INS-038's 409 needs. Backdated:
 	// app.config_for resolves with a strict '<' against the instant passed
 	// in, and the handler passes now().
 	for _, cfg := range []struct{ key, value string }{
@@ -316,7 +316,8 @@ func TestVehiclesScopedToHeaderTenant(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantA, fleetA := plantTenantWithVehicle(t, ctx, admin, "a")
 	_, fleetB := plantTenantWithVehicle(t, ctx, admin, "b")
-	// CONTROLLER because a DRIVER is refused this route from Task 5 onward.
+	// CONTROLLER because /api/vehicles requires ViewFleet, which a DRIVER
+	// does not hold — it carries CaptureInspection alone.
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleController)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
