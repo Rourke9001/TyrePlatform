@@ -1,9 +1,12 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-// PWA config (vite-plugin-pwa, service worker) arrives with the capture app
-// (TYRE-4). ADR-0009 settled the sync design: online-first with a durable
-// submit outbox — never Background Sync, which iOS Safari does not have.
+// No service worker and no PWA plugin here. ADR-0009 settled the sync design as
+// online-first with a durable submit outbox, so what protects an in-progress
+// inspection is IndexedDB and the outbox's own retry — never a cache and never
+// Background Sync, which iOS Safari does not have. An installable manifest
+// would add reach, not durability, and nothing in the capture flow waits on
+// one.
 export default defineConfig({
   plugins: [react()],
   // Stamped from package.json so a deployed bundle traces back to a release

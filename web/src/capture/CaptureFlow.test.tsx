@@ -4,6 +4,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
 import { clearDraft, db } from "./draft";
@@ -190,28 +191,6 @@ afterEach(async () => {
   await db.table("outbox").clear();
 });
 
-const BANNED = ["legal", "roadworth", "statutory", "minimum", "inner", "outer", "centre"];
-
-// CR-010 / OR-LEG-001 and FR-INS-029a. Accessible names are driver-facing too:
-// the field labels reach a driver only as aria-labels, so a text-only sweep
-// misses the strings most likely to carry a banned word. `present` is the
-// positive half — without it every assertion below passes on an empty
-// container, which is exactly what a stage that never rendered looks like.
-function sweep(container: HTMLElement, present: RegExp) {
-  const spoken = [
-    container.textContent ?? "",
-    ...Array.from(container.querySelectorAll("[aria-label]")).map(
-      (el) => el.getAttribute("aria-label") ?? "",
-    ),
-  ]
-    .join(" ")
-    .toLowerCase();
-  expect(spoken).toMatch(present);
-  for (const word of BANNED) {
-    expect(spoken).not.toContain(word);
-  }
-}
-
 const newUser = () => userEvent.setup();
 
 describe("CaptureFlow", () => {
@@ -365,27 +344,27 @@ describe("CaptureFlow", () => {
     const { container } = renderFlow();
 
     await screen.findByRole("button", { name: /start inspection/i });
-    sweep(container, /start inspection/);
+    expectNothingForbiddenSpoken(container, /start inspection/);
 
     await user.click(screen.getByRole("button", { name: /start inspection/i }));
     await screen.findByRole("button", { name: /^Position 1,/ });
-    sweep(container, /position 1/);
+    expectNothingForbiddenSpoken(container, /position 1/);
 
     await capturePosition(user);
-    sweep(container, /review and submit/);
+    expectNothingForbiddenSpoken(container, /review and submit/);
 
     // The entry sheet, reopened. FR-INS-029a's whole risk lives in these
     // labels, and they exist only as aria-labels.
     await user.click(screen.getByRole("button", { name: /^Position 1,/ }));
-    sweep(container, /tread reading 1 of 3/);
+    expectNothingForbiddenSpoken(container, /tread reading 1 of 3/);
     await user.click(screen.getByRole("button", { name: "Close" }));
 
     await user.click(screen.getByRole("button", { name: /review and submit/i }));
-    sweep(container, /submit inspection/);
+    expectNothingForbiddenSpoken(container, /submit inspection/);
 
     await user.click(screen.getByRole("button", { name: /submit inspection/i }));
     await screen.findByRole("status");
-    sweep(container, /inspection sent/);
+    expectNothingForbiddenSpoken(container, /inspection sent/);
   });
 
   // FR-OFF-014 / NFR-USE-005. IndexedDB throws outright under a private window

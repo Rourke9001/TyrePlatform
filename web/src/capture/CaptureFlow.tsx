@@ -132,10 +132,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const doneCells = draft ? capturedCells(draft) : new Set<string>();
   const units = contexts ? completenessByUnit(contexts, doneCells) : [];
   const doneCount = units.reduce((n, u) => n + u.done, 0);
-  // The submit payload's denominator and the figure on screen, from one
-  // expression. Two derivations drift, and when they do the driver reads
-  // "10 of 10 done" off an inspection the server has recorded as 83% complete
-  // (payload.ts, completeness_pct).
+  // The one denominator: this figure is both the total on screen and the
+  // divisor that rides to the server as completeness_pct (payload.ts). The two
+  // numerators are computed apart — doneCount from these tallies, the payload's
+  // from the readings it carries — and agree only because both answer to
+  // warnings.treadsRead. Let the denominator split in two as well and the
+  // driver reads "10 of 10 done" off an inspection recorded as 83% complete.
   const totalPositions = units.reduce((n, u) => n + u.total, 0);
   const motiveCtx = contexts?.find((c) => c.vehicleId === vehicleId) ?? contexts?.[0];
   const active = activeKey === null ? undefined : byCell.get(activeKey);

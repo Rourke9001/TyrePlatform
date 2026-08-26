@@ -2,6 +2,7 @@ import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureDiagram } from "./CaptureDiagram";
 import { cellKey } from "./draft";
 import type { RigPosition } from "./rig";
@@ -96,15 +97,7 @@ describe("CaptureDiagram", () => {
   // "roadworthy" itself, so this cannot pass by omission.
   it("puts no compliance language on screen or in an accessible name", () => {
     const { container } = render(<CaptureDiagram {...props} />);
-    const spoken = [
-      container.textContent ?? "",
-      ...Array.from(container.querySelectorAll("[aria-label]")).map(
-        (el) => el.getAttribute("aria-label") ?? "",
-      ),
-    ].join(" ");
-    for (const word of ["roadworthy", "legal", "minimum"]) {
-      expect(spoken.toLowerCase()).not.toContain(word);
-    }
+    expectNothingForbiddenSpoken(container, /position 1/);
   });
 
   it("shows the fixed band label for every severity, never the internal name", () => {
@@ -194,7 +187,7 @@ describe("CaptureDiagram with multiple units", () => {
     const bands = Array.from(container.querySelectorAll(".cap-unitband")).map(
       (el) => el.textContent,
     );
-    expect(bands).toEqual(["BAC039SP", "BAC040SP", "Spare"]);
+    expect(bands).toEqual(["BAC039SP", "BAC040SP", "BAC039SP spare"]);
   });
 
   // These do not discriminate the per-axle band bug (see the test above for
@@ -288,5 +281,58 @@ describe("CaptureDiagram with two units of the same configuration", () => {
     expect(bands[0]).not.toBe(bands[1]);
     expect(bands[0]).toContain("LINK6");
     expect(bands[1]).toContain("LINK12");
+  });
+});
+
+// The defect this pins: every axle configuration in the register carries a
+// spare count, so an ordinary superlink has one spare per unit. Drawn in a
+// single band they are identical S cells, and a driver who enters LINK6's
+// spare into LINK12's cell files the reading against the wrong vehicle_id in
+// an append-only table — nothing refuses it at entry, and nothing in the
+// stored data tells it apart afterwards (BR-VEH-003).
+const sameConfigSpares: RigPosition[] = [link6, link12].map((unit) => ({
+  position: position({
+    id: "s1",
+    vehicleId: unit.vehicleId,
+    sequence: 99,
+    axleNumber: null,
+    isSpare: true,
+    axleClass: "SPARE",
+    unitLabel: "2-axle trailer",
+  }),
+  key: cellKey(unit.vehicleId, "s1"),
+  context: unit,
+  displayNumber: null,
+}));
+
+describe("CaptureDiagram with a spare on each unit", () => {
+  it("gives each unit's spare its own identity beside the cell", () => {
+    const { container } = render(
+      <CaptureDiagram
+        positions={sameConfigSpares}
+        severityOf={() => "unmeasured"}
+        governingOf={() => null}
+        onOpen={vi.fn()}
+        activeKey={null}
+      />,
+    );
+
+    // Asserted on the band next to each cell, not on the count of cells: two
+    // spares drawn under one shared heading satisfy "two spare cells exist"
+    // exactly as well as two identified ones do, which is how the defect
+    // survived. Both units carry the identical configuration label too, so
+    // only the fleet number can tell the rows apart.
+    const rows = Array.from(container.querySelectorAll(".cap-unit")).filter((u) =>
+      u.querySelector(".cap-axle--spare"),
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows.map((u) => u.querySelector(".cap-unitband")?.textContent)).toEqual([
+      "LINK6 spare",
+      "LINK12 spare",
+    ]);
+    expect(rows.map((u) => u.querySelector(".cap-pos")?.getAttribute("aria-label"))).toEqual([
+      "Spare, LINK6, Not done",
+      "Spare, LINK12, Not done",
+    ]);
   });
 });

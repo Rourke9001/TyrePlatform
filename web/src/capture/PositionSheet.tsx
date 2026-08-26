@@ -61,7 +61,13 @@ export function PositionSheet({
   const warnings = useMemo(
     () => [
       ...positionWarnings(entry, rig.position, ctx.config),
-      ...historyWarnings(entry, rig.position, ctx, new Date()),
+      // The sheet's own frozen clock, the one CaptureFlow, CaptureStart and
+      // CaptureReview all freeze too. FR-INS-035's implied wear rate has
+      // elapsed time as its denominator, so a clock read here while the
+      // diagram behind holds an earlier one puts the two either side of the
+      // boundary: the cell bands Check and the sheet raises nothing, and the
+      // warnings array this records is empty while the screen warns.
+      ...historyWarnings(entry, rig.position, ctx, new Date(openedAt)),
     ],
     // entry is rebuilt from state every render, so depending on state (not
     // the fresh entry object) is what actually makes this a memo rather than

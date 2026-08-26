@@ -1,5 +1,6 @@
 import type { Severity } from "./warnings";
 import type { RigPosition } from "./rig";
+import { splitSpares } from "./rig";
 import "./capture.css";
 
 interface Props {
@@ -38,12 +39,16 @@ interface UnitGroup {
 // within it. The axle key is vehicleId:axleNumber, not axleNumber alone — on
 // a rig the horse's axle 1 and the trailer's axle 1 are different axles that
 // would otherwise collapse into one row. Building groups with find() rather
-// than assuming contiguous runs keeps this correct however `positions`
+// than assuming contiguous runs keeps this correct however `cells`
 // arrives, the same defensiveness rigPositions applies by sorting on
 // sequence rather than trusting API order.
-function groupRig(running: RigPosition[]): UnitGroup[] {
+//
+// Run over the running positions and over the spares separately, because the
+// two are drawn as separate rows: a spare carries no axle number, so its
+// units come back with one group apiece.
+function groupRig(cells: RigPosition[]): UnitGroup[] {
   const units: UnitGroup[] = [];
-  for (const r of running) {
+  for (const r of cells) {
     let unit = units.find((u) => u.vehicleId === r.position.vehicleId);
     if (!unit) {
       unit = {
@@ -69,8 +74,7 @@ function groupRig(running: RigPosition[]): UnitGroup[] {
 // frame FR-INS-029a means by "left-to-right". Every entry screen in the app
 // shows the vehicle this way round so the driver learns one picture.
 export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, activeKey }: Props) {
-  const running = positions.filter((r) => r.displayNumber !== null);
-  const spares = positions.filter((r) => r.displayNumber === null);
+  const { running, spares } = splitSpares(positions);
   const units = groupRig(running);
 
   return (
@@ -103,23 +107,36 @@ export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, act
           ))}
         </div>
       ))}
-      {spares.length > 0 && (
-        <div className="cap-unit">
-          <p className="cap-unitband">Spare</p>
-          <div className="cap-axle cap-axle--spare">
-            {spares.map((r) => (
-              <PositionCell
-                key={r.key}
-                rig={r}
-                severity={severityOf(r.key)}
-                governing={governingOf(r.key)}
-                active={activeKey === r.key}
-                onOpen={onOpen}
-              />
-            ))}
+      {/* A row per unit, for the same reason the running bands carry a fleet
+          number: every axle configuration in the register has a spare count,
+          so an ordinary superlink draws one S cell per unit. Under a single
+          band they are identical, and a driver who enters one link's spare
+          into the other's cell files the reading against the wrong vehicle_id
+          in an append-only table — nothing refuses it at entry, and nothing in
+          the stored data tells it apart afterwards (BR-VEH-003). */}
+      {groupRig(spares).map((unit) => {
+        const cells = unit.axles.flatMap((axle) => axle.positions);
+        return (
+          <div key={`spare-${unit.vehicleId}`} className="cap-unit">
+            <p className="cap-unitband">
+              <span className="cap-unitband-id">{unit.fleetNumber}</span>
+              <span className="cap-unitband-note"> {cells.length === 1 ? "spare" : "spares"}</span>
+            </p>
+            <div className="cap-axle cap-axle--spare">
+              {cells.map((r) => (
+                <PositionCell
+                  key={r.key}
+                  rig={r}
+                  severity={severityOf(r.key)}
+                  governing={governingOf(r.key)}
+                  active={activeKey === r.key}
+                  onOpen={onOpen}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })}
     </div>
   );
 }

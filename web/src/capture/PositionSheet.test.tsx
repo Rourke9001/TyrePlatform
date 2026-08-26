@@ -7,6 +7,7 @@ import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { DraftPosition } from "./draft";
 import { cellKey } from "./draft";
 import type { RigPosition } from "./rig";
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { PositionSheet } from "./PositionSheet";
 
 const position: CapturePosition = {
@@ -85,19 +86,6 @@ const acknowledged: DraftPosition = {
   warnings: [{ code: "FR-INS-036", enteredValue: "3", response: "ACKNOWLEDGED" }],
 };
 
-// Accessible names are driver-facing too: FIELD_LABEL reaches the driver as an
-// aria-label, never as a text node, so a text-only query cannot see the very
-// strings most likely to carry a forbidden word.
-const spokenText = (container: HTMLElement) =>
-  [
-    container.textContent ?? "",
-    ...Array.from(container.querySelectorAll("[aria-label]")).map(
-      (el) => el.getAttribute("aria-label") ?? "",
-    ),
-  ]
-    .join(" ")
-    .toLowerCase();
-
 // Fake timers, advanced deliberately between fields. On real timers this
 // test passes or fails according to how fast jsdom happens to be today, and
 // the failure mode is a green test over corrupt data.
@@ -160,12 +148,11 @@ describe("PositionSheet", () => {
 
   // FR-INS-029a: the driver never sees the words inner, outer or centre — the
   // prototype's Outer/Centre/Inner labels are not carried over (decision D-A).
-  it("never shows the words inner, outer or centre", () => {
+  // Swept with the one shared list (test/spoken.ts), which carries CR-010's
+  // compliance words with them.
+  it("never speaks a forbidden word on an untouched sheet", () => {
     const { container } = render(<PositionSheet {...props({})} />);
-    const spoken = spokenText(container);
-    for (const word of ["inner", "outer", "centre"]) {
-      expect(spoken).not.toContain(word);
-    }
+    expectNothingForbiddenSpoken(container, /tread reading 1 of 3/);
   });
 
   // FR-INS-036, and CR-010 / OR-LEG-001: the tenant's configured policy, never
@@ -176,10 +163,7 @@ describe("PositionSheet", () => {
     await enter(user, ["3", "3", "4"], "800");
 
     expect(screen.getByRole("alert")).toHaveTextContent(/replacement point/i);
-    const spoken = spokenText(container);
-    for (const word of ["legal", "roadworth", "statutory", "minimum"]) {
-      expect(spoken).not.toContain(word);
-    }
+    expectNothingForbiddenSpoken(container, /replacement point/);
   });
 
   // FR-INS-040: the acknowledgement is recorded, so the driver has to see it
@@ -394,6 +378,47 @@ describe("PositionSheet", () => {
 
     expect(screen.getByLabelText("Pressure")).toHaveTextContent("–");
     expect(screen.getByRole("alert")).toHaveTextContent(/replacement point/i);
+  });
+
+  // The clock is frozen at the sheet's own openedAt, the way CaptureFlow,
+  // CaptureStart and CaptureReview each freeze theirs. FR-INS-035's implied
+  // wear rate has elapsed time as its denominator, so a clock read during
+  // render drifts away from the diagram's — and at the boundary the cell bands
+  // Check while the sheet raises nothing and records an empty warnings array,
+  // which is the display warning and the audit record not.
+  it("bands against the clock the sheet opened with, not the clock at entry", async () => {
+    vi.setSystemTime(new Date("2026-08-27T06:00:00Z"));
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onDone = vi.fn<(p: DraftPosition) => void>();
+    // 5mm gone in the 30 days to mount is 5.07mm a month against a cohort of
+    // 0.8 and a multiple of 3 — over the 2.4 trigger. Ninety days later the
+    // same 5mm is 1.69 a month, which is under it, so a clock read at entry
+    // answers the opposite question from a clock read at open.
+    const wearing = {
+      ...position,
+      previousGoverningMm: 14,
+      previousReadingAt: "2026-07-28T06:00:00Z",
+    };
+    const wearingCtx: CaptureContext = {
+      ...ctx,
+      positions: [wearing],
+      cohortWearRateMmPerMonth: { "STEER:FIXED": 0.8 },
+    };
+    render(
+      <PositionSheet
+        {...props({ onDone })}
+        rig={{ ...rig, position: wearing, context: wearingCtx }}
+        ctx={wearingCtx}
+      />,
+    );
+
+    vi.setSystemTime(new Date("2026-10-26T06:00:00Z"));
+    await enter(user, ["9", "9", "9"], "800");
+    await advance(600);
+
+    expect(screen.getByRole("alert")).toHaveTextContent(/wearing far faster/i);
+    // And the hold held, so the response FR-INS-040 asks for is still to come.
+    expect(onDone).not.toHaveBeenCalled();
   });
 
   // FR-OFF-006: reopening a captured position shows what was entered.
