@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
@@ -107,5 +107,110 @@ describe("CaptureDiagram", () => {
     expect(getByLabelText(/Position 2, BAC039SP, Check/)).toBeTruthy();
     expect(getByLabelText(/Position 3, BAC039SP, Report/)).toBeTruthy();
     expect(getByLabelText(/Position 4, BAC039SP, Not done/)).toBeTruthy();
+  });
+});
+
+// Two units of two axles each, plus a spare. The fixture above puts every
+// position on one vehicleId and one axleNumber, so groupRig only ever builds
+// one axle group — a unit-band emitted per axle rather than per unit renders
+// identically under it. This fixture has four axle groups across two units,
+// which is the minimum shape that tells the two apart. Each unit carries its
+// own context (own fleetNumber) rather than sharing one: groupRig labels a
+// unit from position.unitLabel ?? context.fleetNumber, so a shared context
+// would print unit B's band as unit A's fleet number and hide cross-wiring.
+const unitA: CaptureContext = { ...context, vehicleId: "v-horse", fleetNumber: "BAC039SP" };
+const unitB: CaptureContext = { ...context, vehicleId: "v-link", fleetNumber: "BAC040SP" };
+
+const DEDUP: {
+  id: string;
+  context: CaptureContext;
+  sequence: number;
+  axleNumber: number | null;
+  displayNumber: number | null;
+  isSpare?: boolean;
+}[] = [
+  { id: "p1", context: unitA, sequence: 1, axleNumber: 1, displayNumber: 1 },
+  { id: "p2", context: unitA, sequence: 2, axleNumber: 1, displayNumber: 2 },
+  { id: "p3", context: unitA, sequence: 3, axleNumber: 2, displayNumber: 3 },
+  { id: "p4", context: unitA, sequence: 4, axleNumber: 2, displayNumber: 4 },
+  { id: "ps", context: unitA, sequence: 99, axleNumber: null, displayNumber: null, isSpare: true },
+  { id: "p5", context: unitB, sequence: 1, axleNumber: 1, displayNumber: 5 },
+  { id: "p6", context: unitB, sequence: 2, axleNumber: 1, displayNumber: 6 },
+  { id: "p7", context: unitB, sequence: 3, axleNumber: 2, displayNumber: 7 },
+  { id: "p8", context: unitB, sequence: 4, axleNumber: 2, displayNumber: 8 },
+];
+
+const dedupPositions: RigPosition[] = DEDUP.map((d) => ({
+  position: position({
+    id: d.id,
+    vehicleId: d.context.vehicleId,
+    sequence: d.sequence,
+    axleNumber: d.axleNumber,
+    isSpare: d.isSpare ?? false,
+  }),
+  context: d.context,
+  displayNumber: d.displayNumber,
+}));
+
+// p1 carries a governing reading, everything else does not — the two
+// outcomes of PositionCell's governing display each get one representative.
+const dedupGoverningOf = (id: string) => (id === "p1" ? 9 : null);
+const dedupSeverityOf = (id: string) => (id === "p1" ? "roadworthy" : "unmeasured");
+
+// A fresh onOpen per render: the module-level props.onOpen above is shared
+// across the first describe block's tests and would accumulate calls if
+// reused here, making a toHaveBeenCalledTimes assertion depend on test order.
+function renderDedup(onOpen: (positionId: string) => void) {
+  return render(
+    <CaptureDiagram
+      positions={dedupPositions}
+      severityOf={dedupSeverityOf}
+      governingOf={dedupGoverningOf}
+      onOpen={onOpen}
+      activeId={null}
+    />,
+  );
+}
+
+describe("CaptureDiagram with multiple units", () => {
+  it("labels the unit band once per unit, not once per axle", () => {
+    const { container } = renderDedup(vi.fn());
+    const bands = Array.from(container.querySelectorAll(".cap-unitband")).map(
+      (el) => el.textContent,
+    );
+    expect(bands).toEqual(["BAC039SP", "BAC040SP", "Spare"]);
+  });
+
+  // These do not discriminate the per-axle band bug (see the test above for
+  // that) — they pin the coupling mark and the spares branch instead
+  // (FR-INS-060/FR-INS-061, the requirements CouplingMark cites).
+  it("draws one coupling mark, one axle row per axle group, and the spare row once", () => {
+    const { container } = renderDedup(vi.fn());
+    expect(container.querySelectorAll(".cap-unit")).toHaveLength(3);
+    expect(container.querySelectorAll(".cap-coupling")).toHaveLength(1);
+    expect(container.querySelectorAll(".cap-axle")).toHaveLength(5);
+    expect(container.querySelectorAll(".cap-axle--spare")).toHaveLength(1);
+  });
+
+  it("renders the governing reading where one exists and a dash where it does not", () => {
+    const { container } = renderDedup(vi.fn());
+    expect(container.querySelector('[data-position-id="p1"] .cap-pos-v')?.textContent).toBe("9mm");
+    expect(container.querySelector('[data-position-id="p2"] .cap-pos-v')?.textContent).toBe("—");
+  });
+
+  it("opens the tapped position in the second unit, proving onOpen survives the grouping", () => {
+    const onOpen = vi.fn();
+    const { getByLabelText } = renderDedup(onOpen);
+    fireEvent.click(getByLabelText(/^Position 7, BAC040SP,/));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("p7");
+  });
+
+  it("opens a spare through its own render path", () => {
+    const onOpen = vi.fn();
+    const { getByLabelText } = renderDedup(onOpen);
+    fireEvent.click(getByLabelText(/^Spare, BAC039SP,/));
+    expect(onOpen).toHaveBeenCalledTimes(1);
+    expect(onOpen).toHaveBeenCalledWith("ps");
   });
 });

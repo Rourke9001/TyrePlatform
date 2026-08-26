@@ -104,8 +104,12 @@ describe("rigPositions", () => {
   });
 
   it("handles a solo unit without inventing a rig", () => {
-    const solo = rigPositions([horse]);
-    expect(solo.filter((r) => !r.position.isSpare).map((r) => r.displayNumber)).toEqual([1, 2]);
+    const running = rigPositions([horse]).filter((r) => !r.position.isSpare);
+    expect(running.map((r) => r.displayNumber)).toEqual([1, 2]);
+    // displayNumber alone is [1, 2] whether or not rigPositions sorts by
+    // sequence first; the horse fixture is deliberately out of order, so only
+    // the id order tells a sorted result from an unsorted one.
+    expect(running.map((r) => r.position.id)).toEqual(["h1", "h2"]);
   });
 });
 
