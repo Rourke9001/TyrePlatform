@@ -170,9 +170,34 @@ beforeEach(async () => {
 
 afterEach(async () => {
   vi.unstubAllGlobals();
+  // The storage-failure tests spy on Dexie's own methods; a leaked spy would
+  // fail the next block somewhere with no connection to its cause.
+  vi.restoreAllMocks();
   await clearDraft();
   await db.table("outbox").clear();
 });
+
+const BANNED = ["legal", "roadworth", "statutory", "minimum", "inner", "outer", "centre"];
+
+// CR-010 / OR-LEG-001 and FR-INS-029a. Accessible names are driver-facing too:
+// the field labels reach a driver only as aria-labels, so a text-only sweep
+// misses the strings most likely to carry a banned word. `present` is the
+// positive half — without it every assertion below passes on an empty
+// container, which is exactly what a stage that never rendered looks like.
+function sweep(container: HTMLElement, present: RegExp) {
+  const spoken = [
+    container.textContent ?? "",
+    ...Array.from(container.querySelectorAll("[aria-label]")).map(
+      (el) => el.getAttribute("aria-label") ?? "",
+    ),
+  ]
+    .join(" ")
+    .toLowerCase();
+  expect(spoken).toMatch(present);
+  for (const word of BANNED) {
+    expect(spoken).not.toContain(word);
+  }
+}
 
 const newUser = () => userEvent.setup();
 
@@ -287,28 +312,105 @@ describe("CaptureFlow", () => {
     expect(body.observed_member_vehicle_ids).toEqual(["v1", "v2"]);
   });
 
-  // CR-010 / OR-LEG-001. Accessible names are driver-facing too, so a
-  // text-only sweep would miss the strings most likely to carry a banned word.
-  it("never says legal, roadworthy, statutory or minimum to a driver", async () => {
+  // Swept at every stage of the journey, not once at the end: by the time the
+  // review screen renders, start and capture have unmounted and the done
+  // screen has not been reached, so a single sweep guards one screen out of
+  // four and reads like it guards all of them.
+  it("never says legal, roadworthy, statutory or minimum to a driver, on any screen", async () => {
     const user = newUser();
     stubApi(201);
     const { container } = renderFlow();
+
+    await screen.findByRole("button", { name: /start inspection/i });
+    sweep(container, /start inspection/);
+
+    await user.click(screen.getByRole("button", { name: /start inspection/i }));
+    await screen.findByRole("button", { name: /^Position 1,/ });
+    sweep(container, /position 1/);
+
+    await capturePosition(user);
+    sweep(container, /review and submit/);
+
+    // The entry sheet, reopened. FR-INS-029a's whole risk lives in these
+    // labels, and they exist only as aria-labels.
+    await user.click(screen.getByRole("button", { name: /^Position 1,/ }));
+    sweep(container, /tread reading 1 of 3/);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    sweep(container, /submit inspection/);
+
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+    await screen.findByRole("status");
+    sweep(container, /inspection sent/);
+  });
+
+  // FR-OFF-014 / NFR-USE-005. IndexedDB throws outright under a private window
+  // or an MDM policy blocking site data. The driver then taps a Start button
+  // that can never work, so the screen they are standing on has to say why —
+  // which requires the alert to sit above the screen switch, not inside one
+  // branch of it.
+  it("says so on the start screen when the device cannot store anything", async () => {
+    stubApi(201);
+    vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
+    renderFlow();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not saving/i);
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+  });
+
+  // The same alert on the other screen that could not show it. A submit that
+  // throws re-enables the button and leaves the driver on review, so without
+  // this they tap the most important control in the app and observe nothing.
+  it("says so on the review screen when the submit cannot be written", async () => {
+    const user = newUser();
+    stubApi(201);
+    renderFlow();
 
     await user.click(await screen.findByRole("button", { name: /start inspection/i }));
     await capturePosition(user);
     await user.click(screen.getByRole("button", { name: /review and submit/i }));
 
-    const spoken = [
-      container.textContent ?? "",
-      ...Array.from(container.querySelectorAll("[aria-label]")).map(
-        (el) => el.getAttribute("aria-label") ?? "",
-      ),
-    ]
-      .join(" ")
-      .toLowerCase();
-    for (const word of ["legal", "roadworth", "statutory", "minimum", "inner", "outer", "centre"]) {
-      expect(spoken).not.toContain(word);
+    // Installed only now: the capture above has to reach the draft normally.
+    vi.spyOn(db.drafts, "put").mockRejectedValue(new Error("storage blocked"));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/not saving/i);
+    // Still on review, with the readings on screen and the button live again.
+    expect(screen.getByRole("button", { name: /submit inspection/i })).toBeEnabled();
+  });
+
+  // The defect this reconciles: a position whose treads are read and whose
+  // pressure was never taken is captured, is counted, and is sent (000023
+  // accepts a NULL pressure). Banding the cell on the pressure as well drew it
+  // "Not done" — hiding FR-INS-036 on a cell the app had every number for, and
+  // sending the driver back across the yard for a wheel already done while the
+  // header above said it was.
+  it("bands a tread-complete position with no pressure, and counts it done", async () => {
+    const user = newUser();
+    stubApi(201);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
+
+    // 3mm does not settle the field — another digit still fits under 35mm — so
+    // the go key is what moves it on; 4mm does.
+    for (const d of ["3", "3"]) {
+      await user.click(screen.getByRole("button", { name: d }));
+      await user.click(screen.getByRole("button", { name: /next ›/i }));
     }
+    await user.click(screen.getByRole("button", { name: "4" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText("Pressure")).toHaveAttribute("aria-current", "true"),
+    );
+    expect(screen.getByLabelText("Pressure")).toHaveTextContent("–");
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(
+      await screen.findByRole("button", { name: "Position 1, BAC039SP, Report" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "1 of 1 done" })).toBeInTheDocument();
   });
 
   // FR-OFF-014: the outbox is not a place work goes to be forgotten. A queued

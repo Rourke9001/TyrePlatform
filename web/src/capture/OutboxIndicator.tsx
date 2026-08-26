@@ -83,7 +83,7 @@ export function OutboxIndicator() {
         )}
         {blocked.length > 0 && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
-            {blocked.length} inspection{blocked.length === 1 ? "" : "s"} need the office
+            {blocked.length} inspection{blocked.length === 1 ? " needs" : "s need"} the office
           </span>
         )}
         {stale.length > 0 && (

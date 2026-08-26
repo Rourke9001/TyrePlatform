@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { CaptureConfig, CapturePosition } from "./captureContext";
-import { governingTread, positionWarnings, severityFor, widthSpread } from "./warnings";
+import {
+  governingTread,
+  isComplete,
+  positionWarnings,
+  severityFor,
+  treadsRead,
+  widthSpread,
+} from "./warnings";
 
 const config: CaptureConfig = {
   treadReadingCount: 3,
@@ -132,6 +139,23 @@ describe("positionWarnings", () => {
     expect(w).toEqual([]);
   });
 
+  // A position whose treads are read and whose pressure was never taken is a
+  // designed case — 000023 accepts a NULL pressure and payload.ts sends the
+  // reading — and the tread bands are final the moment the last reading is in.
+  // Gating them on a pressure would hide FR-INS-036 on a position that may
+  // never get one, on the diagram as well as here.
+  it("raises the tread warning as soon as the treads are read, with no pressure", () => {
+    const w = positionWarnings({ treads: [3, 4, 4], pressureKpa: null }, steer, config);
+    expect(codes(w)).toEqual(["FR-INS-036"]);
+  });
+
+  // The other half of the same rule, and the half that keeps it honest: a
+  // pressure band must never be asserted from a reading that does not exist.
+  it("bands no pressure when no pressure was taken", () => {
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: null }, steer, config);
+    expect(w).toEqual([]);
+  });
+
   // FR-INS-040: the record needs the value that provoked the warning, not
   // just that one happened.
   it("carries the entered value that provoked it", () => {
@@ -169,8 +193,33 @@ describe("positionWarnings", () => {
   });
 });
 
+// The two predicates exist to disagree in exactly one place. Pinning the
+// disagreement makes it a decision rather than the drift it was: a position
+// with its treads read and no pressure is done for counting, banding and
+// submitting, and not finished for the sheet, which still has a field to hold
+// the driver on (FR-INS-040).
+describe("treadsRead and isComplete", () => {
+  it("call a tread-complete position with no pressure read, but not finished", () => {
+    const entry = { treads: [10, 10, 11], pressureKpa: null };
+    expect(treadsRead(entry.treads)).toBe(true);
+    expect(isComplete(entry, 3)).toBe(false);
+  });
+
+  it("agree that a half-entered position is neither", () => {
+    const entry = { treads: [10, null, null], pressureKpa: null };
+    expect(treadsRead(entry.treads)).toBe(false);
+    expect(isComplete(entry, 3)).toBe(false);
+  });
+
+  // treadReadingCount is tenant configuration (FR-CFG-027), so three readings
+  // against a four-reading tenant is a short position, not a finished one.
+  it("do not call a position finished against a longer configured tread count", () => {
+    expect(isComplete({ treads: [10, 10, 11], pressureKpa: 800 }, 4)).toBe(false);
+  });
+});
+
 describe("severityFor", () => {
-  it("is unmeasured before the position is complete", () => {
+  it("is unmeasured until the treads have been read", () => {
     expect(severityFor([], false)).toBe("unmeasured");
   });
 

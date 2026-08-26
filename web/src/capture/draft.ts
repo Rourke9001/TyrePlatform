@@ -5,10 +5,16 @@ import type { WarningCode } from "./warnings";
 // FR-INS-040 / DR-021: the code, the value that provoked it and what the
 // driver did about it. The response is what the paper trail turns on months
 // later, so it is captured here rather than reconstructed at submit.
+//
+// Null when the driver left the position without answering — closing the sheet
+// is not acknowledging. app.inspection_warning.response is nullable with no
+// CHECK for exactly this case (000022_inspection_warning), so absence is
+// recorded as absence; a "DISMISSED" or "UNANSWERED" value invented here would
+// be a fiction the column was deliberately shaped to avoid.
 export interface RecordedWarning {
   code: WarningCode;
   enteredValue: string | null;
-  response: "ACKNOWLEDGED" | "CONFIRMED";
+  response: "ACKNOWLEDGED" | "CONFIRMED" | null;
 }
 
 export interface DraftPosition {
