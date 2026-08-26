@@ -11,7 +11,7 @@ import {
   setDevTenantId,
 } from "../api/devTenant";
 import { useActor } from "../auth/actorContext";
-import { RequireCapability } from "../auth/RequireCapability";
+import { navItemsFor } from "../shell/navigation";
 import { useBranding } from "../theme/themeContext";
 import "./dashboard.css";
 
@@ -104,6 +104,24 @@ function ActorBadge() {
   );
 }
 
+// Filtering happens once, in navItemsFor (../shell/navigation) — the menu
+// and the route guard read that one registry so a surface an actor cannot
+// reach is never offered.
+function MainNav() {
+  const actor = useActor();
+  const items = navItemsFor(actor?.capabilities ?? []);
+  if (items.length === 0) return null;
+  return (
+    <nav className="shell-nav" aria-label="Main">
+      {items.map((item) => (
+        <NavLink key={item.to} to={item.to}>
+          {item.label}
+        </NavLink>
+      ))}
+    </nav>
+  );
+}
+
 export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
@@ -116,19 +134,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <DevTenantSwitcher />
         <DevActorSwitcher />
       </header>
-      {/* Each link is gated on the capability its destination requires: an
-          actor who cannot follow a link must not be offered it. A driver's
-          own destination is listed too, so refusing the fleet link still
-          leaves somewhere to go. RequireCapability hides silently — no link
-          is ever rendered disabled with an explanation. */}
-      <nav className="shell-nav" aria-label="Main">
-        <RequireCapability capability="ViewFleet">
-          <NavLink to="/fleet">Vehicles</NavLink>
-        </RequireCapability>
-        <RequireCapability capability="CaptureInspection">
-          <NavLink to="/my">My inspections</NavLink>
-        </RequireCapability>
-      </nav>
+      <MainNav />
       <main className="shell-main">{children}</main>
     </div>
   );

@@ -71,19 +71,48 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* NFR-USE-004: gloves. 44px is the smallest target a gloved thumb hits
+   reliably, and the nav is the one control a driver must not miss. */
 .shell-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
   font-family: var(--font-ui);
   font-weight: 600;
   font-size: var(--text-body);
   color: var(--ink-muted);
   text-decoration: none;
-  padding: 0.6rem 0.1rem;
+  padding: 0 var(--space-3);
   border-bottom: 3px solid transparent;
 }
 
 .shell-nav a[aria-current="page"] {
   color: var(--ink);
   border-bottom-color: var(--primary);
+}
+
+/* NFR-USE-003: direct sunlight. The focus ring has to survive a washed-out
+   screen, so it is a solid offset outline rather than a tinted glow —
+   stronger than base.css's global 2px because the shell chrome is the one
+   thing a driver must never lose track of. */
+.shell-nav a:focus-visible,
+.shell-main :focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* The driver's shell and the manager's shell are one product, not two: the
+   header stacks and the nav becomes a row, but nothing is hidden behind a
+   disclosure the sun makes invisible. */
+@media (max-width: 640px) {
+  .shell-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  .shell-nav {
+    overflow-x: auto;
+  }
 }
 
 .shell-main {

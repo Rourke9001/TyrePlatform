@@ -56,6 +56,16 @@ export const radius = {
   card: "10px",
 } as const;
 
+// A gloved thumb and a stacked-on-mobile header (NFR-USE-003/004) both need
+// consistent gaps, not ad hoc rem values re-chosen at every call site.
+export const space = {
+  1: "4px",
+  2: "8px",
+  3: "12px",
+  4: "16px",
+  5: "24px",
+} as const;
+
 // Everything the runtime themes is written to the document root as custom
 // properties; static CSS reads the same names. One surface, no divergence.
 export function cssVars(brand: BrandTheme): Record<string, string> {
@@ -85,6 +95,11 @@ export function cssVars(brand: BrandTheme): Record<string, string> {
     "--tracking-eyebrow": typeScale.eyebrowTracking,
     "--radius-control": radius.control,
     "--radius-card": radius.card,
+    "--space-1": space[1],
+    "--space-2": space[2],
+    "--space-3": space[3],
+    "--space-4": space[4],
+    "--space-5": space[5],
   };
 }
 
