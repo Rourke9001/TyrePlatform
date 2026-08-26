@@ -138,6 +138,35 @@ describe("positionWarnings", () => {
     const w = positionWarnings({ treads: [4, 5, 6], pressureKpa: 800 }, steer, config);
     expect(w.find((x) => x.code === "FR-INS-036")?.enteredValue).toBe("4");
   });
+
+  // Pressure boundary tests: target 800, warnUnderPct 10, criticalUnderPct 20,
+  // warnOverPct 10, criticalOverPct 20. Boundaries are 720/640 under, 880/960
+  // over. The operators (< vs >=) create asymmetry that must be pinned: the
+  // database bands with strict inequality on the under side to match this.
+  // (db/migrations/000013: `pct < 100 - critical_under_pct` not <=)
+  it("at exactly -20% critical under (640 kPa) stays in warn band", () => {
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 640 }, steer, config);
+    expect(codes(w)).toContain("FR-INS-037");
+    expect(codes(w)).not.toContain("FR-INS-031a");
+  });
+
+  it("just under -20% critical (639 kPa) escalates to confirmation", () => {
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 639 }, steer, config);
+    expect(codes(w)).toContain("FR-INS-031a");
+    expect(codes(w)).not.toContain("FR-INS-037");
+  });
+
+  it("at exactly +10% warn over (880 kPa) stays in warn band", () => {
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 880 }, steer, config);
+    expect(codes(w)).toContain("FR-INS-037");
+    expect(codes(w)).not.toContain("FR-INS-031a");
+  });
+
+  it("at exactly +20% critical over (960 kPa) escalates to confirmation", () => {
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 960 }, steer, config);
+    expect(codes(w)).toContain("FR-INS-031a");
+    expect(codes(w)).not.toContain("FR-INS-037");
+  });
 });
 
 describe("severityFor", () => {
