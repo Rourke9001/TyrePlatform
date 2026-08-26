@@ -1,7 +1,10 @@
-// The one list. The menu renders it and the route guard reads the same
-// capability strings, so a surface an actor cannot reach is never offered and
-// the two cannot drift (NFR-SEC-006 — hiding is a courtesy, the server
-// refuses regardless).
+// The menu's one list — navItemsFor drives which links render. It does not
+// drive route enforcement: each route's RequireCapability checks its own
+// capability independently, which it must, since a route can exist with no
+// menu item (capture, added later, has none). This registry and every
+// RequireCapability both read Me.capabilities from GET /api/me, so they
+// cannot disagree about what the actor holds; hiding a menu item is a
+// courtesy, never the boundary (NFR-SEC-006).
 //
 // Capabilities are strings, not a union: the server owns the vocabulary
 // (web/src/auth/me.ts), and an unknown one degrades to a missing menu item
