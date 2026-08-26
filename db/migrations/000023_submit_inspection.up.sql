@@ -30,6 +30,10 @@ DECLARE
   v_odo        bigint;
   v_ord        int;
   v_n          int;
+  v_gran       numeric;
+  v_rg         numeric;
+  v_press      int;
+  v_constraint text;
   r            jsonb;
   w            jsonb;
   t            jsonb;
@@ -37,6 +41,38 @@ BEGIN
   IF v_tenant IS NULL OR v_actor IS NULL THEN
     RAISE EXCEPTION 'submit_inspection called with no tenant or actor bound'
       USING ERRCODE = 'TY010';
+  END IF;
+
+  -- Preconditions, refused by name before anything reads them. Each of the
+  -- three is a body that can only ever fail, and ADR-0009's outbox retries a
+  -- 5xx to a 30-minute ceiling and never gives up — so a shape that reached
+  -- its column's own not-null violation instead would be retried forever
+  -- (FR-OFF-013 needs a permanent refusal it can surface to the driver).
+  -- Both keys are also load-bearing for the guards immediately below: the
+  -- FR-OFF-011 replay lookup keys on client_uuid and the FR-INS-038 window
+  -- compares against submitted_at, so an absent key does not fail there, it
+  -- silently stands the guard down.
+  IF v_cu IS NULL THEN
+    RAISE EXCEPTION 'the payload carries no client_uuid' USING ERRCODE = 'TY005';
+  END IF;
+  IF (p_payload ->> 'submitted_at') IS NULL THEN
+    RAISE EXCEPTION 'the payload carries no submitted_at' USING ERRCODE = 'TY005';
+  END IF;
+
+  -- FR-INS-020: an inspection is its readings. jsonb_array_elements over an
+  -- absent key yields the empty set rather than an error, so without this an
+  -- empty submit lands a SYNCED inspection at the default 100% completeness
+  -- (see completeness_pct below) recording nothing, closes the driver's task,
+  -- and never arms FR-INS-038 — whose window keys on readings[].vehicle_id,
+  -- not on the header. jsonb_typeof screens the missing key, the JSON null
+  -- and the non-array in one: only the last two would otherwise reach
+  -- jsonb_array_elements, and they reach it as "cannot extract elements from
+  -- a scalar" rather than as anything a client could act on.
+  IF jsonb_typeof(p_payload -> 'readings') IS DISTINCT FROM 'array' THEN
+    RAISE EXCEPTION 'the payload carries no readings array' USING ERRCODE = 'TY005';
+  END IF;
+  IF jsonb_array_length(p_payload -> 'readings') = 0 THEN
+    RAISE EXCEPTION 'the payload carries an empty readings array' USING ERRCODE = 'TY005';
   END IF;
 
   -- FR-OFF-011. A lookup, never an upsert: readings are append-only, so a
@@ -53,8 +89,9 @@ BEGIN
   -- FR-INS-038 states the default in the requirement itself — "a
   -- configurable minimum interval, defaulting to four hours" — so a tenant
   -- with no configured row still gets the window. Failing open here would
-  -- stand a Must down silently, which is not the same trade Task 1 makes
-  -- for the odometer ceiling (there, no policy means no claim to test).
+  -- stand a Must down silently, which is not the same trade DR-020's
+  -- configurable ceiling makes (migration 000021: there, no configured
+  -- policy means no claim to test).
   v_hours := COALESCE(
     (app.config_for(v_tenant, 'duplicate_inspection_min_hours', now()) #>> '{}')::int, 4);
   -- The window compares capture-clock against capture-clock, not
@@ -93,25 +130,49 @@ BEGIN
   -- never succeed.
   --
   -- RLS-scoped, so this answers "visible to this tenant" and not "exists".
-  -- FR-AUT-005's own-units narrowing is the handler's (Task 5), because the
-  -- Scope table lives in auth and role names do not belong in SQL.
+  -- FR-AUT-005's own-units narrowing is the HTTP handler's, because the Scope
+  -- table lives in auth and role names do not belong in SQL.
   PERFORM 1 FROM app.vehicle WHERE id = v_vehicle;
   IF NOT FOUND THEN
     RAISE EXCEPTION 'vehicle not visible' USING ERRCODE = 'TY007';
   END IF;
 
-  INSERT INTO app.inspection (
-    tenant_id, vehicle_id, combination_id, user_id, client_uuid,
-    started_at, submitted_at, odometer, duration_seconds,
-    comment, defect_report, device_id, app_version, completeness_pct, state)
-  VALUES (
-    v_tenant, v_vehicle, v_combination, v_actor, v_cu,
-    (p_payload ->> 'started_at')::timestamptz, (p_payload ->> 'submitted_at')::timestamptz,
-    (p_payload ->> 'odometer_km')::bigint, (p_payload ->> 'duration_seconds')::int,
-    p_payload ->> 'comment', p_payload ->> 'defect_report',
-    p_payload ->> 'device_id', p_payload ->> 'app_version',
-    COALESCE((p_payload ->> 'completeness_pct')::numeric, 100), 'SYNCED')
-  RETURNING id INTO v_insp;
+  -- FR-OFF-011 under concurrency. Two drains of the same outbox entry can
+  -- both pass the lookup above before either commits; the loser then blocks
+  -- on inspection_tenant_id_client_uuid_key and surfaces as a 23505. That is
+  -- still a replay, not a conflict, so it must answer the replay contract —
+  -- reporting it as an error would have the outbox raise FR-OFF-013 over an
+  -- inspection that is already safely stored. The re-read is correct because
+  -- the transaction is READ COMMITTED: this statement takes a fresh snapshot
+  -- and therefore sees the winner's now-committed row.
+  BEGIN
+    INSERT INTO app.inspection (
+      tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+      started_at, submitted_at, odometer, duration_seconds,
+      comment, defect_report, device_id, app_version, completeness_pct, state)
+    VALUES (
+      v_tenant, v_vehicle, v_combination, v_actor, v_cu,
+      (p_payload ->> 'started_at')::timestamptz, (p_payload ->> 'submitted_at')::timestamptz,
+      (p_payload ->> 'odometer_km')::bigint, (p_payload ->> 'duration_seconds')::int,
+      p_payload ->> 'comment', p_payload ->> 'defect_report',
+      p_payload ->> 'device_id', p_payload ->> 'app_version',
+      COALESCE((p_payload ->> 'completeness_pct')::numeric, 100), 'SYNCED')
+    RETURNING id INTO v_insp;
+  EXCEPTION WHEN unique_violation THEN
+    -- Narrowed to the one index that means "already submitted". Any other
+    -- unique violation is a different fault and must not be dressed up as a
+    -- successful replay.
+    GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+    IF v_constraint IS DISTINCT FROM 'inspection_tenant_id_client_uuid_key' THEN
+      RAISE;
+    END IF;
+    SELECT i.id INTO v_found FROM app.inspection i
+     WHERE i.tenant_id = v_tenant AND i.client_uuid = v_cu;
+    IF NOT FOUND THEN
+      RAISE;
+    END IF;
+    inspection_id := v_found; created := false; RETURN NEXT; RETURN;
+  END;
 
   -- FR-INS-063: the composition the driver confirmed, against the one they
   -- were offered. Recorded, never enforced and never used to create a
@@ -140,7 +201,28 @@ BEGIN
     END IF;
   END IF;
 
+  -- Rule 5, read once for the whole submit: both the width of a capture and
+  -- the gauge precision it claims are tenant configuration, never a literal.
   v_want := (app.config_for(v_tenant, 'tread_reading_count', now()) #>> '{}')::int;
+  v_gran := (app.config_for(v_tenant, 'tread_capture_granularity_mm', now()) #>> '{}')::numeric;
+
+  -- CR-011's screen-order-to-anatomy map below is total only for 1 or 3
+  -- readings, and neither app.configuration nor anything above constrains the
+  -- key. 4 subscripts past the end of the width array and lands a NOT NULL
+  -- violation on position, so every submit that tenant makes fails with no
+  -- client bug involved; 2 raises nothing at all and records the far edge of
+  -- the tread as the CENTRE — permanently, because DR-014a revokes UPDATE, so
+  -- it is compensable but never correctable. Refusing the configuration is
+  -- smaller and safer than inventing a width convention the SRS has not
+  -- settled. The IS NULL half is load-bearing: NULL NOT IN (1,3) is NULL, not
+  -- true, so a guard without it would still admit an unconfigured tenant and
+  -- land readings carrying no tread at all, which is rule 4 inverted. No
+  -- configured width means no capture — unlike the FR-INS-038 window above,
+  -- whose default the requirement itself states, nothing states this one.
+  IF v_want IS NULL OR v_want NOT IN (1, 3) THEN
+    RAISE EXCEPTION 'the tenant configures tread_reading_count = %, which is neither 1 nor 3',
+      COALESCE(v_want::text, 'nothing') USING ERRCODE = 'TY005';
+  END IF;
 
   FOR r IN SELECT * FROM jsonb_array_elements(p_payload -> 'readings') LOOP
     IF r ? 'governing_tread_mm' THEN
@@ -182,9 +264,45 @@ BEGIN
     END IF;
 
     SELECT jsonb_array_length(r -> 'treads') INTO v_n;
-    IF v_want IS NOT NULL AND v_n <> v_want THEN
+    IF v_n <> v_want THEN
       RAISE EXCEPTION 'position % carried % tread readings, the tenant configures %',
         r ->> 'position_id', v_n, v_want USING ERRCODE = 'TY005';
+    END IF;
+    -- Belt to the configuration guard's braces. The width map subscripts its
+    -- array with v_ord, so a count of zero would make CR-011's "ordered set
+    -- of width-wise readings" an empty one and leave governing_tread_mm null.
+    IF v_n < 1 THEN
+      RAISE EXCEPTION 'position % carried no tread readings', r ->> 'position_id'
+        USING ERRCODE = 'TY005';
+    END IF;
+
+    -- FR-INS-031's hard range. reading_pressure_kpa_check (000001) stays the
+    -- authority for the numbers; echoing it here is what turns a generic
+    -- 23514 into a refusal naming the position, which is what FR-OFF-013
+    -- gives the driver to act on. NULL stays legal on purpose: an unclassified
+    -- spare pressure is recorded as absent, never as a zero (BR-RPT-001,
+    -- NFR-PRO-003).
+    v_press := (r ->> 'pressure_kpa')::int;
+    IF v_press IS NOT NULL AND (v_press < 0 OR v_press > 1200) THEN
+      RAISE EXCEPTION 'position %''s pressure of % kPa is outside the accepted range',
+        r ->> 'position_id', v_press USING ERRCODE = 'TY005';
+    END IF;
+
+    -- ADR-0010 provenance: granularity_mm is a claim about the gauge that
+    -- produced the reading, on an append-only table, so a wrong one is
+    -- permanent and silently degrades every later analysis that trusts it.
+    -- The payload's value if it sent one, else the tenant's configured
+    -- capture granularity — a literal fallback here would stamp 1.0 mm
+    -- precision on a tenant capturing at 0.1 the moment a client omitted the
+    -- field, which is easy to omit because it is session reference data
+    -- rather than per-reading input. reading_measurement_granularity_mm_check
+    -- (000011) is the authority for the accepted set; refusing here names the
+    -- value and also catches a tenant whose configured granularity is not in
+    -- it, which is otherwise the same unmapped-500 hole as the width count.
+    v_rg := COALESCE((r ->> 'granularity_mm')::numeric, v_gran);
+    IF v_rg IS NULL OR v_rg NOT IN (1.0, 0.5, 0.1) THEN
+      RAISE EXCEPTION 'position % claims a gauge granularity of %, which is not 1.0, 0.5 or 0.1',
+        r ->> 'position_id', COALESCE(v_rg::text, 'nothing') USING ERRCODE = 'TY005';
     END IF;
 
     INSERT INTO app.reading (
@@ -228,6 +346,19 @@ BEGIN
     v_ord := 0;
     FOR t IN SELECT * FROM jsonb_array_elements(r -> 'treads') LOOP
       v_ord := v_ord + 1;
+      -- FR-INS-030's hard range, plus the null element the count check cannot
+      -- see: jsonb_array_length counts a JSON null as an entry, so
+      -- [7.0, null, 7.0] is three readings by that measure and reaches
+      -- tread_mm NOT NULL instead. reading_measurement_tread_mm_check (000011)
+      -- stays the authority for the numbers, as for pressure above.
+      IF jsonb_typeof(t) <> 'number' THEN
+        RAISE EXCEPTION 'position %, tread reading %, is not a number',
+          r ->> 'position_id', v_ord USING ERRCODE = 'TY005';
+      END IF;
+      IF (t #>> '{}')::numeric < 0 OR (t #>> '{}')::numeric > 35 THEN
+        RAISE EXCEPTION 'position %, tread reading % of % mm, is outside the accepted range',
+          r ->> 'position_id', v_ord, (t #>> '{}')::numeric USING ERRCODE = 'TY005';
+      END IF;
       INSERT INTO app.reading_measurement (
         tenant_id, reading_id, ordinal, tread_mm, position, orientation_known, granularity_mm)
       VALUES (
@@ -238,7 +369,7 @@ BEGIN
           ELSE (ARRAY['OUTER','CENTRE','INNER']::app.tread_position[])[v_ord]
         END,
         NOT v_spare,
-        COALESCE((r ->> 'granularity_mm')::numeric, 1.0));
+        v_rg);
     END LOOP;
 
     FOR w IN SELECT * FROM jsonb_array_elements(COALESCE(r -> 'warnings', '[]'::jsonb)) LOOP
@@ -292,10 +423,20 @@ BEGIN
   -- driver launched from a specific task (FR-INS-048 shows them) and a unit can
   -- carry several at once (FR-INS-051), so the payload names which. Absent one,
   -- close nothing rather than guess at the driver's intent.
+  --
+  -- vehicle_id is what stops the citation being a lie. Without it a task_id
+  -- naming unit C is closed by an inspection of unit B, and the row then
+  -- asserts C was inspected when it was not: the schedule stands its next
+  -- task down and C leaves the controller's outstanding-work view. A driver
+  -- holding several open tasks plus one client-side index slip is enough, and
+  -- GET /api/my/tasks hands the client every id needed to make it. A task the
+  -- submit does not cover closes nothing, silently — the same trade made for
+  -- an absent task_id above and for one belonging to another tenant.
   IF v_task IS NOT NULL THEN
     UPDATE app.inspection_task
        SET state = 'COMPLETED', completed_inspection_id = v_insp
-     WHERE tenant_id = v_tenant AND id = v_task AND state IN ('OPEN','ESCALATED');
+     WHERE tenant_id = v_tenant AND id = v_task AND vehicle_id = v_vehicle
+       AND state IN ('OPEN','ESCALATED');
   END IF;
 
   inspection_id := v_insp; created := true; RETURN NEXT;
