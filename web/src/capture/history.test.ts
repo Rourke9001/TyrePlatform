@@ -173,11 +173,14 @@ describe("historyWarnings", () => {
   });
 
   // Guard: negative elapsed time (previousReadingAt after now, clock skew on device).
-  // The months > 0 guard should prevent FR-INS-035 when timestamp is in the future.
+  // The months > 0 guard is what suppresses the warning. A tread increase over
+  // negative time produces a positive rate (two negatives): (12 - 14) / -0.0329 ≈ +60.88.
+  // Without the guard, this would exceed the 2.4 trigger and warn. With the guard, it does not.
   it("does not compute a wear rate when the previous reading is in the future", () => {
     const futureTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000); // one day in the future
     const skewedPosition = { ...position, previousReadingAt: futureTime.toISOString() };
-    const w = historyWarnings({ treads: [1, 1, 2], pressureKpa: 800 }, skewedPosition, ctx, NOW);
+    // Treads deeper than previousGoverningMm (14 > 12) produce a positive implied rate over negative time
+    const w = historyWarnings({ treads: [14, 14, 15], pressureKpa: 800 }, skewedPosition, ctx, NOW);
     expect(codes(w)).not.toContain("FR-INS-035");
   });
 });
@@ -258,11 +261,14 @@ describe("odometerWarnings", () => {
   });
 
   // Guard: negative elapsed time (lastOdometerAt after now, clock skew on device).
-  // The days <= 0 guard should prevent FR-INS-033 when timestamp is in the future.
+  // The days <= 0 guard is what suppresses the warning. An odometer decrease over
+  // negative time produces a positive distance (two negatives): (400000 - 412180) / -1 = +12,180.
+  // Without the guard, this would exceed the 1,600 ceiling and warn. With the guard, it does not.
   it("does not compute daily distance when the last odometer is in the future", () => {
     const futureTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000); // one day in the future
     const skewedCtx = { ...ctx, lastOdometerAt: futureTime.toISOString() };
-    const w = odometerWarnings(500000, skewedCtx, NOW);
+    // Odometer below lastOdometerKm (400,000 < 412,180) produces a positive perDay over negative time
+    const w = odometerWarnings(400000, skewedCtx, NOW);
     expect(codes(w)).not.toContain("FR-INS-033");
   });
 });
