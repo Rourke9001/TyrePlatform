@@ -1,0 +1,144 @@
+/* Driver capture screens (TYRE-69). The capture app's one stylesheet — a new
+   capture component adds its own section below rather than a second file, so
+   cascade order for shared classes never depends on which file loaded last.
+   Every colour and font here is a custom property from theme/tokens.ts; a hex
+   or font literal in this file is a bug. */
+
+/* ------------------------------------------------------------ rig diagram */
+
+.cap-diagram {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2) var(--space-4);
+}
+
+.cap-unit {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.cap-unitband {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+/* The coupling mark between member units — see CaptureDiagram.tsx's
+   CouplingMark for why it exists. Neutral ink-muted, same as the rest of the
+   diagram's structural (non-severity) marks. */
+.cap-coupling {
+  display: block;
+  margin: var(--space-1) auto 0;
+  color: var(--ink-muted);
+}
+
+.cap-axle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+}
+
+.cap-axle--spare {
+  margin-top: var(--space-1);
+  border-top: 1px dashed var(--line);
+}
+
+/* The axle itself, drawn behind the positions mounted to it — the same
+   line-through-wheels grammar as dashboard/AxleSchematic.tsx's plan-view
+   motif, so a driver who has seen the vehicle list recognises the picture. */
+.cap-beam {
+  position: absolute;
+  top: 50%;
+  left: var(--space-4);
+  right: var(--space-4);
+  height: 2px;
+  background: var(--line);
+  transform: translateY(-50%);
+  z-index: 0;
+}
+
+.cap-pos {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 56px;
+  min-height: 56px; /* NFR-USE-004 floors this at 44px; this is the single
+                        most-tapped control in the capture flow, so it keeps
+                        a wider margin for a wet glove. */
+  padding: 4px 6px;
+  appearance: none;
+  margin: 0;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cap-pos--roadworthy {
+  border-color: var(--status-roadworthy);
+  background: color-mix(in srgb, var(--status-roadworthy) 8%, var(--surface));
+}
+.cap-pos--caution {
+  border-color: var(--status-caution);
+  background: color-mix(in srgb, var(--status-caution) 12%, var(--surface));
+}
+.cap-pos--below-removal {
+  border-color: var(--status-below-removal);
+  background: color-mix(in srgb, var(--status-below-removal) 14%, var(--surface));
+}
+.cap-pos--unmeasured {
+  border-color: var(--status-unmeasured);
+  border-style: dashed;
+  background: var(--surface-sunken);
+}
+
+/* "You have this one open", layered on top of severity via box-shadow rather
+   than the border colour severity already owns, and a different property
+   from base.css's global :focus-visible outline so the two never fight over
+   the same ring. */
+.cap-pos.is-active {
+  box-shadow: 0 0 0 3px var(--primary);
+}
+
+.cap-pos-n {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-display);
+  line-height: 1;
+  color: var(--ink);
+}
+
+.cap-pos-v {
+  font-family: var(--font-mono);
+  font-weight: 500;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.cap-pos-badge {
+  /* Neutral rather than severity-coloured: this text is the non-colour
+     channel NFR-USE-009 requires, and colouring it too risks low-contrast
+     text on a tinted background at exactly the moment legibility matters. */
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}

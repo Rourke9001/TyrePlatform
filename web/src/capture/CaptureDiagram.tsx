@@ -1,0 +1,162 @@
+import type { Severity } from "./warnings";
+import type { RigPosition } from "./rig";
+import "./capture.css";
+
+interface Props {
+  positions: RigPosition[];
+  severityOf: (positionId: string) => Severity;
+  governingOf: (positionId: string) => number | null;
+  onOpen: (positionId: string) => void;
+  activeId: string | null;
+}
+
+interface AxleGroup {
+  key: string;
+  positions: RigPosition[];
+}
+
+interface UnitGroup {
+  vehicleId: string;
+  label: string;
+  axles: AxleGroup[];
+}
+
+// One pass, grouped by the unit that owns each position and then by axle
+// within it. The axle key is vehicleId:axleNumber, not axleNumber alone — on
+// a rig the horse's axle 1 and the trailer's axle 1 are different axles that
+// would otherwise collapse into one row. Building groups with find() rather
+// than assuming contiguous runs keeps this correct however `positions`
+// arrives, the same defensiveness rigPositions applies by sorting on
+// sequence rather than trusting API order.
+function groupRig(running: RigPosition[]): UnitGroup[] {
+  const units: UnitGroup[] = [];
+  for (const r of running) {
+    let unit = units.find((u) => u.vehicleId === r.position.vehicleId);
+    if (!unit) {
+      unit = {
+        vehicleId: r.position.vehicleId,
+        label: r.position.unitLabel ?? r.context.fleetNumber,
+        axles: [],
+      };
+      units.push(unit);
+    }
+    const axleKey = `${r.position.vehicleId}:${r.position.axleNumber}`;
+    let axle = unit.axles.find((a) => a.key === axleKey);
+    if (!axle) {
+      axle = { key: axleKey, positions: [] };
+      unit.axles.push(axle);
+    }
+    axle.positions.push(r);
+  }
+  return units;
+}
+
+// Plan view, nose up — the same frame BR-VEH-001 numbers positions in and the
+// frame FR-INS-029a means by "left-to-right". Every entry screen in the app
+// shows the vehicle this way round so the driver learns one picture.
+export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, activeId }: Props) {
+  const running = positions.filter((r) => r.displayNumber !== null);
+  const spares = positions.filter((r) => r.displayNumber === null);
+  const units = groupRig(running);
+
+  return (
+    <div className="cap-diagram">
+      {units.map((unit, i) => (
+        <div key={unit.vehicleId} className="cap-unit">
+          {/* FR-INS-060/FR-INS-061: a driver walks one coupled rig built from
+              independent units. The mark shows the coupling itself, once
+              between units, rather than repeating a unit's own label on
+              every axle it owns. */}
+          {i > 0 && <CouplingMark />}
+          <p className="cap-unitband">{unit.label}</p>
+          {unit.axles.map((axle) => (
+            <div key={axle.key} className="cap-axle">
+              <div className="cap-beam" aria-hidden="true" />
+              {axle.positions.map((r) => (
+                <PositionCell
+                  key={r.position.id}
+                  rig={r}
+                  severity={severityOf(r.position.id)}
+                  governing={governingOf(r.position.id)}
+                  active={activeId === r.position.id}
+                  onOpen={onOpen}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      ))}
+      {spares.length > 0 && (
+        <div className="cap-unit">
+          <p className="cap-unitband">Spare</p>
+          <div className="cap-axle cap-axle--spare">
+            {spares.map((r) => (
+              <PositionCell
+                key={r.position.id}
+                rig={r}
+                severity={severityOf(r.position.id)}
+                governing={governingOf(r.position.id)}
+                active={activeId === r.position.id}
+                onOpen={onOpen}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// A hitch-and-pin mark between member units. The projection numbers straight
+// through the coupling (FR-VEH-034); the picture keeps it visible, since a
+// driver reads the rig as one walk, not as several unrelated lists.
+function CouplingMark() {
+  return (
+    <svg className="cap-coupling" viewBox="0 0 32 12" width="32" height="12" aria-hidden="true">
+      <line x1="0" y1="6" x2="12" y2="6" stroke="currentColor" strokeWidth="1.5" />
+      <circle cx="16" cy="6" r="3" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <line x1="20" y1="6" x2="32" y2="6" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+const SEVERITY_LABEL: Record<Severity, string> = {
+  roadworthy: "OK",
+  caution: "Check",
+  "below-removal": "Report",
+  unmeasured: "Not done",
+};
+
+function PositionCell({
+  rig,
+  severity,
+  governing,
+  active,
+  onOpen,
+}: {
+  rig: RigPosition;
+  severity: Severity;
+  governing: number | null;
+  active: boolean;
+  onOpen: (positionId: string) => void;
+}) {
+  const name = rig.displayNumber === null ? "Spare" : `Position ${rig.displayNumber}`;
+  return (
+    <button
+      type="button"
+      // Any-order completion (FR-INS-048's walk-around reality): a driver
+      // works round the vehicle in whatever order the yard allows, not in the
+      // order a form dictates.
+      className={`cap-pos cap-pos--${severity}${active ? " is-active" : ""}`}
+      data-position-id={rig.position.id}
+      aria-label={`${name}, ${rig.context.fleetNumber}, ${SEVERITY_LABEL[severity]}`}
+      onClick={() => onOpen(rig.position.id)}
+    >
+      <span className="cap-pos-n">{rig.displayNumber ?? "S"}</span>
+      <span className="cap-pos-v">{governing === null ? "—" : `${governing}mm`}</span>
+      {/* NFR-USE-009: colour is never the only encoding. The badge says it in
+          words, and it is the thing that survives direct sunlight. */}
+      <span className="cap-pos-badge">{SEVERITY_LABEL[severity]}</span>
+    </button>
+  );
+}
