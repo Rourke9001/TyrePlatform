@@ -2620,6 +2620,25 @@ DECLARE
   v_queued      uuid;   -- C1: a queued pair, both submitted_at far from real
                          -- now() and close only to each other.
   pos_queued    uuid;
+  v_atomic      uuid;   -- the atomicity claim needs a probe whose FIRST
+  pos_atomic    uuid;    -- reading is valid and whose SECOND is refused.
+  pos_atomic2   uuid;
+  v_gran        uuid;   -- the granularity fallback needs a submit that lands.
+  pos_gran      uuid;
+  v_taskb       uuid;   -- I1: a task on one vehicle, a submit of another.
+  pos_taskb     uuid;
+  v_taskc       uuid;
+  other_task    uuid;
+  v_super       uuid;   -- FR-VEH-016: a vehicle on version 2 of its
+  pos_super_v1  uuid;    -- configuration, submitting a version-1 position.
+  cfg_v1        uuid;
+  cfg_v2        uuid;
+  t2_drv        uuid;   -- the same client_uuid, accepted in a second tenant.
+  t2_veh        uuid;
+  t2_pos        uuid;
+  a_reading     uuid;
+  gran          numeric;
+  probe         jsonb;  -- one entry of a table-driven refusal set
 BEGIN
   PERFORM set_config('app.tenant_id', t_id::text, true);
   SELECT id INTO drv FROM app.app_user WHERE tenant_id = t_id AND role = 'DRIVER' AND active LIMIT 1;
@@ -2653,6 +2672,35 @@ BEGIN
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
     (gen_random_uuid(), t_id, 'SEC31-QUEUED', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
     RETURNING id INTO v_queued;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-ATOMIC', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+    RETURNING id INTO v_atomic;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-GRAN',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+    RETURNING id INTO v_gran;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-TASK-B', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+    RETURNING id INTO v_taskb;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-TASK-C', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+    RETURNING id INTO v_taskc;
+
+  SELECT p.id INTO pos_atomic FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_atomic AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO pos_atomic2 FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_atomic AND NOT p.is_spare ORDER BY p.sequence OFFSET 1 LIMIT 1;
+  SELECT p.id INTO pos_gran FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_gran AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO pos_taskb FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_taskb AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+
+  -- An OPEN task against TASK-C, which no submit below ever covers.
+  INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, state)
+  VALUES (gen_random_uuid(), t_id, v_taskc, t_now, 'OPEN') RETURNING id INTO other_task;
 
   SELECT p.id INTO pos_probe FROM app.position p
     JOIN app.vehicle v ON v.configuration_id = p.configuration_id
@@ -2750,13 +2798,21 @@ BEGIN
     RAISE EXCEPTION 'FAIL: an observed set differing from comb1''s membership left % FR-INS-063 warnings, not 1', n;
   END IF;
 
-  -- TY007: a vehicle from another tenant must reach a 403-shaped refusal, not
+  -- TY007: a vehicle from another tenant must reach a 422-shaped refusal, not
   -- the composite FK's 23503 — RLS makes the row invisible, not merely foreign.
+  -- 422 and not the 403 the endpoint gives an invisible vehicle elsewhere:
+  -- FR-OFF-013's permanent-refusal set is 409 and 422, so a 403 here would be
+  -- retryable to the outbox and it would hammer a submit that can never
+  -- succeed. The readings array carries a real element because an empty one
+  -- is now its own refusal, raised before this check is reached.
   got := NULL;
   BEGIN
     PERFORM app.submit_inspection(jsonb_build_object(
       'client_uuid', gen_random_uuid(), 'vehicle_id', md5('t2veh1')::uuid,
-      'started_at', t_now, 'submitted_at', t_now, 'readings', '[]'::jsonb));
+      'started_at', t_now, 'submitted_at', t_now,
+      'readings', jsonb_build_array(
+        jsonb_build_object('vehicle_id', md5('t2veh1')::uuid, 'position_id', gen_random_uuid(),
+                           'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
   EXCEPTION WHEN SQLSTATE 'TY007' THEN got := 'TY007';
   END;
   IF got IS DISTINCT FROM 'TY007' THEN
@@ -2941,7 +2997,291 @@ BEGIN
    WHERE vehicle_id = v_two AND odometer_km = 100;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: an implausible odometer reached the timeline'; END IF;
 
-  RAISE NOTICE 'PASS  submit is atomic and idempotent, the window is capture-clock not server-clock, every refusal branch fires on its own terms, D5 warns on mismatch and stays silent on match, and a refused odometer costs a warning not an inspection';
+  -- Every payload and configuration shape that can ONLY ever fail must refuse
+  -- by name. ADR-0009's outbox retries a 5xx with backoff to a 30-minute
+  -- ceiling and never gives up, so a body that reached a generic integrity
+  -- SQLSTATE — which the transport can only call a 500 — would be retried
+  -- forever, FR-OFF-020 would nag about a queue that can never drain, and the
+  -- only exit would be a support engineer with database access. A named
+  -- refusal is what FR-OFF-013 gives the driver to act on instead.
+  FOR probe IN SELECT * FROM jsonb_array_elements(jsonb_build_array(
+      jsonb_build_object('why', 'no client_uuid', 'payload', jsonb_build_object(
+        'vehicle_id', v_probe, 'started_at', t_now, 'submitted_at', t_now,
+        'readings', jsonb_build_array(jsonb_build_object(
+          'vehicle_id', v_probe, 'position_id', pos_probe,
+          'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0))))),
+      jsonb_build_object('why', 'no submitted_at', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe, 'started_at', t_now,
+        'readings', jsonb_build_array(jsonb_build_object(
+          'vehicle_id', v_probe, 'position_id', pos_probe,
+          'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0))))),
+      -- FR-INS-020: an inspection is its readings. All three shapes below
+      -- landed a SYNCED inspection at 100% completeness recording nothing, or
+      -- reached jsonb_array_elements as a scalar.
+      jsonb_build_object('why', 'no readings key', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now)),
+      jsonb_build_object('why', 'a null readings key', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now) || '{"readings": null}'::jsonb),
+      jsonb_build_object('why', 'an empty readings array', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now, 'readings', '[]'::jsonb)),
+      jsonb_build_object('why', 'a readings key that is not an array', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now, 'readings', '"nope"'::jsonb)),
+      -- FR-INS-030/031's hard ranges, reached by a client for the first time
+      -- in this branch. jsonb_array_length counts a JSON null as an entry, so
+      -- the null below passes the width check and only the element guard sees it.
+      jsonb_build_object('why', 'a null inside treads', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now,
+        'readings', jsonb_build_array(jsonb_build_object(
+          'vehicle_id', v_probe, 'position_id', pos_probe,
+          'pressure_kpa', 750) || '{"treads": [7.0, null, 7.0]}'::jsonb))),
+      jsonb_build_object('why', 'a tread of 40mm', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now,
+        'readings', jsonb_build_array(jsonb_build_object(
+          'vehicle_id', v_probe, 'position_id', pos_probe,
+          'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 40.0, 7.0))))),
+      jsonb_build_object('why', 'a pressure of 5000 kPa', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now,
+        'readings', jsonb_build_array(jsonb_build_object(
+          'vehicle_id', v_probe, 'position_id', pos_probe,
+          'pressure_kpa', 5000, 'treads', jsonb_build_array(7.0, 7.0, 7.0))))),
+      jsonb_build_object('why', 'a gauge granularity of 0.25mm', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now,
+        'readings', jsonb_build_array(jsonb_build_object(
+          'vehicle_id', v_probe, 'position_id', pos_probe, 'pressure_kpa', 750,
+          'granularity_mm', 0.25, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))))
+    )) LOOP
+    got := NULL;
+    BEGIN
+      PERFORM app.submit_inspection(probe -> 'payload');
+    EXCEPTION WHEN SQLSTATE 'TY005' THEN got := 'TY005';
+    END;
+    IF got IS DISTINCT FROM 'TY005' THEN
+      RAISE EXCEPTION 'FAIL: a payload carrying % was not refused with TY005 (got %)',
+        probe ->> 'why', COALESCE(got, 'no error');
+    END IF;
+  END LOOP;
+
+  -- Ten more refusals, still nothing written: each was reached and refused on
+  -- its own terms rather than masked by an earlier one quietly succeeding.
+  SELECT count(*) INTO n FROM app.reading WHERE vehicle_id = v_probe;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: a refused payload left % reading rows on v_probe', n; END IF;
+
+  -- The function's range guards echo these constraints so a refusal can name
+  -- the position; the constraints remain the authority for the numbers. Pin
+  -- that they are still there, reached directly rather than through the
+  -- function, so the two can never drift apart silently.
+  SELECT id INTO a_reading FROM app.reading WHERE inspection_id = first AND position_id = posl;
+  got := NULL;
+  BEGIN
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position, granularity_mm)
+    VALUES (t_id, a_reading, 4, 40.0, 'CENTRE', 1.0);
+  EXCEPTION WHEN check_violation THEN got := 'check_violation';
+  END;
+  IF got IS DISTINCT FROM 'check_violation' THEN
+    RAISE EXCEPTION 'FAIL: reading_measurement accepted a 40mm tread (got %)', COALESCE(got, 'no error');
+  END IF;
+
+  got := NULL;
+  BEGIN
+    INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, pressure_kpa)
+    VALUES (t_id, first, v_id, pos_probe, 5000);
+  EXCEPTION WHEN check_violation THEN got := 'check_violation';
+  END;
+  IF got IS DISTINCT FROM 'check_violation' THEN
+    RAISE EXCEPTION 'FAIL: reading accepted a 5000 kPa pressure (got %)', COALESCE(got, 'no error');
+  END IF;
+
+  -- tread_reading_count is tenant configuration and nothing constrains its
+  -- value: not app.configuration, not the handler. CR-011's screen-order to
+  -- OUTER/CENTRE/INNER map is total only for 1 or 3. A count of 4 subscripts
+  -- past the end of the width array and lands a NOT NULL violation on
+  -- position, making every submit that tenant sends fail with no client bug
+  -- involved; a count of 2 raises nothing at all and permanently records the
+  -- far edge of the tread as the CENTRE, which DR-014a makes compensable but
+  -- never correctable. An unconfigured tenant is the third hole in the same
+  -- guard, and the one NULL semantics hide: NULL NOT IN (1,3) is NULL.
+  --
+  -- The superseding configuration row is undone by the very exception being
+  -- asserted — a plpgsql EXCEPTION block is a savepoint — which is what lets
+  -- these three run against the shared tenant without disturbing what follows.
+  FOR probe IN SELECT * FROM jsonb_array_elements(jsonb_build_array(
+      jsonb_build_object('cfg', '4'::jsonb,    'treads', jsonb_build_array(7.0, 7.0, 7.0, 7.0)),
+      jsonb_build_object('cfg', '2'::jsonb,    'treads', jsonb_build_array(7.0, 7.0)),
+      jsonb_build_object('cfg', 'null'::jsonb, 'treads', '[]'::jsonb)
+    )) LOOP
+    got := NULL;
+    BEGIN
+      INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+      VALUES (t_id, 'tread_reading_count', probe -> 'cfg', t_now - interval '1 minute');
+      PERFORM app.submit_inspection(jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe,
+        'started_at', t_now, 'submitted_at', t_now,
+        'readings', jsonb_build_array(
+          jsonb_build_object('vehicle_id', v_probe, 'position_id', pos_probe,
+                             'pressure_kpa', 750, 'treads', probe -> 'treads'))));
+    EXCEPTION WHEN SQLSTATE 'TY005' THEN got := 'TY005';
+    END;
+    IF got IS DISTINCT FROM 'TY005' THEN
+      RAISE EXCEPTION 'FAIL: tread_reading_count = % was not refused with TY005 (got %)',
+        probe ->> 'cfg', COALESCE(got, 'no error');
+    END IF;
+  END LOOP;
+
+  -- ... and the tenant's real configuration survived all three, which is what
+  -- makes every probe after this one sound.
+  IF (app.config_for(t_id, 'tread_reading_count', now()) #>> '{}')::int <> 3 THEN
+    RAISE EXCEPTION 'FAIL: the tread_reading_count probes left the tenant configured at %',
+      app.config_for(t_id, 'tread_reading_count', now());
+  END IF;
+
+  -- Atomicity, which no probe above reaches: every refusal so far fires on
+  -- the FIRST reading, so none of them can show that an accepted reading is
+  -- rolled back when a later one is refused. Reading 1 here is valid and
+  -- lands; reading 2 carries the wrong tread count. A partial vehicle is the
+  -- one outcome DR-014a cannot be undone from.
+  got := NULL;
+  BEGIN
+    PERFORM app.submit_inspection(jsonb_build_object(
+      'client_uuid', gen_random_uuid(), 'vehicle_id', v_atomic,
+      'started_at', t_now, 'submitted_at', t_now,
+      'readings', jsonb_build_array(
+        jsonb_build_object('vehicle_id', v_atomic, 'position_id', pos_atomic,
+                           'pressure_kpa', 780, 'treads', jsonb_build_array(7.4, 7.1, 6.9)),
+        jsonb_build_object('vehicle_id', v_atomic, 'position_id', pos_atomic2,
+                           'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0)))));
+  EXCEPTION WHEN SQLSTATE 'TY005' THEN got := 'TY005';
+  END;
+  IF got IS DISTINCT FROM 'TY005' THEN
+    RAISE EXCEPTION 'FAIL: a wrong tread count on the SECOND reading was not refused (got %)',
+      COALESCE(got, 'no error');
+  END IF;
+  SELECT count(*) INTO n FROM app.reading WHERE vehicle_id = v_atomic;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: a refused second reading left % rows written by the first', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.inspection WHERE vehicle_id = v_atomic;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: a refused submit left % inspection rows', n; END IF;
+
+  -- FR-INS-052 requires a completed task to CITE its inspection, so the task
+  -- closure must name a vehicle the submit actually covers. Closing TASK-C's
+  -- task from a submit of TASK-B would have the row assert C was inspected
+  -- when it was not: the schedule stands its next task down and the unit
+  -- leaves the controller's outstanding-work view. FR-INS-051 lets a driver
+  -- hold several open tasks at once and GET /api/my/tasks hands the client
+  -- every id, so one index slip is all it takes.
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_taskb, 'task_id', other_task,
+    'started_at', t_now, 'submitted_at', t_now,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_taskb, 'position_id', pos_taskb,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  IF NOT res.created THEN
+    RAISE EXCEPTION 'FAIL: citing another vehicle''s task cost us the inspection';
+  END IF;
+  SELECT it.state::text, it.completed_inspection_id INTO got, taskclosed
+    FROM app.inspection_task it WHERE it.id = other_task;
+  IF got <> 'OPEN' OR taskclosed IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: a submit of one vehicle closed another vehicle''s task (state=%, cites=%)',
+      got, taskclosed;
+  END IF;
+
+  -- FR-VEH-016: amending a configuration must not invalidate a capture taken
+  -- against the version it replaced. A finished walk-around can wait days in
+  -- the outbox, and throwing it away because an admin revised the
+  -- configuration meanwhile is the adoption wound ADR-0009 exists to prevent
+  -- — which is why the function compares the (tenant_id, code) lineage rather
+  -- than the vehicle's current configuration_id. The fixture ships only
+  -- version 1 of everything, so this argument had never been executed.
+  cfg_v1 := md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid;
+  INSERT INTO app.axle_configuration (tenant_id, code, name, version, axle_count, default_spare_count)
+  SELECT ac.tenant_id, ac.code, ac.name, ac.version + 1, ac.axle_count, ac.default_spare_count
+    FROM app.axle_configuration ac WHERE ac.id = cfg_v1
+  RETURNING id INTO cfg_v2;
+  INSERT INTO app.position (tenant_id, configuration_id, code, sequence, axle_number,
+                            axle_class, side, slot, is_spare, unit_label, axle_type, spare_ordinal)
+  SELECT p.tenant_id, cfg_v2, p.code, p.sequence, p.axle_number,
+         p.axle_class, p.side, p.slot, p.is_spare, p.unit_label, p.axle_type, p.spare_ordinal
+    FROM app.position p WHERE p.configuration_id = cfg_v1;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id)
+  VALUES (gen_random_uuid(), t_id, 'SEC31-SUPER', cfg_v2) RETURNING id INTO v_super;
+  SELECT p.id INTO pos_super_v1 FROM app.position p
+   WHERE p.configuration_id = cfg_v1 AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_super,
+    'started_at', t_now, 'submitted_at', t_now,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_super, 'position_id', pos_super_v1,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  IF NOT res.created THEN
+    RAISE EXCEPTION 'FAIL: a position from a superseded version of the vehicle''s OWN configuration was refused';
+  END IF;
+
+  -- ADR-0010 provenance: granularity_mm is a claim about the gauge that took
+  -- the reading, on an append-only table, so a wrong one is permanent and
+  -- silently degrades every later analysis that trusts it. The client omits
+  -- the field here — easy to omit, since it is session reference data rather
+  -- than per-reading input — and must inherit the tenant's configured capture
+  -- granularity. A literal fallback would stamp 1.0mm precision on every
+  -- measurement a 0.1mm tenant ever captures.
+  INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+  VALUES (t_id, 'tread_capture_granularity_mm', '0.1'::jsonb, t_now - interval '1 minute');
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_gran,
+    'started_at', t_now, 'submitted_at', t_now,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_gran, 'position_id', pos_gran,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.4, 7.1, 6.9)))));
+  SELECT DISTINCT m.granularity_mm INTO gran
+    FROM app.reading_measurement m JOIN app.reading rd ON rd.id = m.reading_id
+   WHERE rd.inspection_id = res.inspection_id;
+  IF gran IS DISTINCT FROM 0.1 THEN
+    RAISE EXCEPTION 'FAIL: a payload omitting granularity_mm recorded % mm, not the tenant''s configured 0.1', gran;
+  END IF;
+
+  -- FR-OFF-011's uniqueness is per tenant — UNIQUE (tenant_id, client_uuid) —
+  -- so two tenants' devices generating the same uuid must not collide, and
+  -- the second must get a NEW inspection rather than the first's replay. No
+  -- submit anywhere in this suite had ever run under tenant 2. Last in the
+  -- section, because it rebinds the tenant and actor for the rest of the block.
+  -- Tenant first, then the lookup: under tenant 1's policies the second
+  -- tenant's driver is not merely forbidden, it is invisible, so a lookup
+  -- before the rebind silently yields NULL and unbinds the actor.
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT id INTO t2_drv FROM app.app_user WHERE role = 'DRIVER' AND active LIMIT 1;
+  PERFORM set_config('app.actor_id', t2_drv::text, true);
+
+  -- A section-local unit on tenant 2's own configuration: its seeded vehicles
+  -- all carry a fixture inspection inside the FR-INS-038 window, which would
+  -- refuse this submit for a reason that has nothing to do with the uuid.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id)
+  SELECT gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'SEC31-T2', v.configuration_id
+    FROM app.vehicle v ORDER BY v.fleet_number LIMIT 1
+  RETURNING id INTO t2_veh;
+  SELECT p.id INTO t2_pos FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = t2_veh AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', cu, 'vehicle_id', t2_veh,
+    'started_at', t_now, 'submitted_at', t_now,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', t2_veh, 'position_id', t2_pos,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  IF NOT res.created OR res.inspection_id = first THEN
+    RAISE EXCEPTION 'FAIL: tenant 1''s client_uuid in tenant 2 gave created=%, id=% (expected a new inspection)',
+      res.created, res.inspection_id;
+  END IF;
+
+  RAISE NOTICE 'PASS  submit is atomic and idempotent, the window is capture-clock not server-clock, every refusal branch fires on its own terms, every payload and configuration shape that can only fail refuses by name, a superseded configuration version is still accepted, D5 warns on mismatch and stays silent on match, and a refused odometer costs a warning not an inspection';
 END $$;
 ROLLBACK;
 
