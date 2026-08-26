@@ -6,10 +6,12 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -23,6 +25,28 @@ import (
 // on in staging with a stray --set-env-vars, only run locally.
 func devHeaderEnabled(getenv func(string) string) bool {
 	return getenv("APP_DEV_TENANT_HEADER") == "1" && getenv("CONTAINER_APP_NAME") == ""
+}
+
+// trustedProxyHops parses TRUSTED_PROXY_HOPS (infra/main.bicep documents the
+// operational default) for NFR-SEC-007's per-source-address rate limit
+// (httpapi.WithTrustedProxyHops). getenv-injected like devHeaderEnabled
+// above, so parsing is unit-testable without touching the process
+// environment. Absent is the documented default of 1 and is not a deploy
+// mistake — every environment that has not added an L7 hop in front of the
+// ingress leaves this unset. Present but not a positive integer IS a
+// mistake worth failing loudly for: silently falling back to 1 on a typo
+// would collapse the per-address limit into one bucket shared by every
+// client on the internet with nothing in the logs to explain why.
+func trustedProxyHops(getenv func(string) string) (int, error) {
+	raw := getenv("TRUSTED_PROXY_HOPS")
+	if raw == "" {
+		return 1, nil
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n < 1 {
+		return 0, fmt.Errorf("TRUSTED_PROXY_HOPS must be a positive integer, got %q", raw)
+	}
+	return n, nil
 }
 
 func main() {
@@ -45,6 +69,13 @@ func main() {
 		logger.Error("DATABASE_URL is not set")
 		os.Exit(1)
 	}
+
+	hops, err := trustedProxyHops(os.Getenv)
+	if err != nil {
+		logger.Error("parsing TRUSTED_PROXY_HOPS", "err", err)
+		os.Exit(1)
+	}
+
 	s, err := store.New(ctx, dsn)
 	if err != nil {
 		logger.Error("connecting to database", "err", err)
@@ -64,7 +95,7 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.New(s, resolver),
+		Handler:           httpapi.New(s, resolver, httpapi.WithTrustedProxyHops(hops)),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

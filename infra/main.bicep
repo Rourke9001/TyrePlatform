@@ -271,6 +271,17 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'DATABASE_URL', secretRef: 'database-url' }
+            // NFR-SEC-007's per-source-address rate limit reads the caller's
+            // address this many entries from the right of X-Forwarded-For,
+            // trusting that many hops to have appended their own observation
+            // rather than relayed the caller's claim untouched. '1' matches
+            // the ingress above being the only hop between the caller and
+            // this container. Putting any additional L7 hop in front of it —
+            // Front Door, Application Gateway, a CDN, a WAF — moves the
+            // trustworthy entry further from the right; leaving this stale
+            // after doing so collapses the address limit into one bucket
+            // shared by every client on the internet.
+            { name: 'TRUSTED_PROXY_HOPS', value: '1' }
           ]
         }
       ]

@@ -84,8 +84,8 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 
 // submitRateLimit composes the account and address counters into the one
 // middleware NFR-SEC-007 asks for on the submission endpoint. The two
-// limiters are constructed once at router construction (see New) and closed
-// over here, never rebuilt per request.
+// limiters and the trusted-hop count are constructed once at router
+// construction (see New) and closed over here, never rebuilt per request.
 //
 // Keyed on the identity requireActor already resolved, never on a raw
 // header: HeaderActorResolver is documented DEV ONLY (httpapi.go), and once
@@ -96,7 +96,7 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 // the submission route alone; chi runs a router's Use-registered middleware
 // before an inline With() chain, so the identity is genuinely present by the
 // time this runs (TestRequireActorRunsBeforeInlineRateLimitMiddleware).
-func submitRateLimit(account, address *rateLimiter) func(http.Handler) http.Handler {
+func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, ok := identityFrom(r.Context())
@@ -109,7 +109,7 @@ func submitRateLimit(account, address *rateLimiter) func(http.Handler) http.Hand
 				return
 			}
 
-			host := clientAddress(r)
+			host := clientAddress(r, trustedProxyHops)
 
 			now := time.Now()
 			// Both counters always advance, even if one has already
@@ -130,40 +130,49 @@ func submitRateLimit(account, address *rateLimiter) func(http.Handler) http.Hand
 }
 
 // clientAddress resolves the source address the per-address counter keys
-// on. Every deployed environment fronts the API with an Azure Container
-// Apps ingress (infra/main.bicep's `ingress: { external: true }`), and that
-// ingress terminates every connection itself and forwards over its own
-// internal hop — so RemoteAddr is the ingress's address, never the caller's,
-// on every request in every deployed environment. Keying the address
-// counter on RemoteAddr there would collapse it into one bucket shared by
-// every client on the internet, turning the limiter meant to stop a hostile
-// client into a way for one to lock out every driver.
+// on, honouring trustedProxyHops: the number of L7 hops between the caller
+// and this process that append their own observed peer address to
+// X-Forwarded-For rather than merely relaying whatever the caller sent.
+// Each such hop appends the address of the peer it received the request
+// from, so the Nth trusted hop's own observation sits N entries from the
+// right of the full forwarded chain — never at a fixed position the caller
+// can predict and prepend forged entries in front of.
 //
-// The fix is the LAST hop of the LAST X-Forwarded-For header line — not
-// Header.Get, which returns only the first line. RFC 7230 makes repeated
-// header lines equivalent to one comma-joined line, so a conformant proxy
-// may append its own observed address as a separate line instead of
-// extending the caller's; Header.Values preserves every line in the order
-// received, so its last element is that ingress-appended line regardless of
-// which form was used. Within that line, the last comma-separated hop is
-// the one the ingress itself observed — everything before it, in that line
-// or an earlier one, is caller-supplied and can be forged. Trusting
-// anything but this last-of-last hop would let a request buy a fresh
-// address bucket per forged value and bypass the limit entirely. This
-// assumes exactly one trusted hop between the caller and this process; an
-// additional hop in front of the ingress would need this to change.
+// The default of 1 (New's trustedProxyHops option, infra/main.bicep's
+// TRUSTED_PROXY_HOPS) is today's single Azure Container Apps ingress hop
+// (infra/main.bicep's `ingress: { external: true }`), which terminates
+// every connection itself and forwards over its own internal hop — so
+// RemoteAddr is that ingress's own address, never the caller's, on every
+// request in every deployed environment. Keying the address counter on
+// RemoteAddr there would collapse it into one bucket shared by every client
+// on the internet, turning the limiter meant to stop a hostile client into
+// a way for one to lock out every driver. Adding a second hop in front of
+// the ingress — a CDN, WAF or gateway — moves the trusted observation one
+// entry further from the right, which is exactly what raising the option
+// exists to track.
 //
-// A header absent or entirely blank falls back to RemoteAddr — the
-// local/dev and httptest case, where nothing sits in front of the process
-// at all.
-func clientAddress(r *http.Request) string {
-	if lines := r.Header.Values("X-Forwarded-For"); len(lines) > 0 {
-		if last := lastForwardedHop(lines[len(lines)-1]); last != "" {
-			if host, _, err := net.SplitHostPort(last); err == nil {
-				return host
-			}
-			return last
+// The chain is flattened across every X-Forwarded-For header LINE, not
+// read from Header.Get's first line alone: RFC 7230 treats repeated header
+// lines as equivalent to one comma-joined line, so a conformant hop may
+// append its observation as a separate line rather than extend the
+// caller's, and reading only one form would let a caller supply whichever
+// form the code does not check and claim a trusted position for itself.
+//
+// If the flattened chain has fewer entries than trustedProxyHops, the
+// header does not match the topology this process was told to expect —
+// either a misconfiguration or a spoof attempt — and this falls back to
+// RemoteAddr rather than trust anything closer to the caller than the Nth
+// hop would be. The same fallback covers a header absent or entirely
+// blank, which is also the local/dev and httptest case: nothing sits in
+// front of the process there at all.
+func clientAddress(r *http.Request, trustedProxyHops int) string {
+	hops := forwardedHops(r)
+	if trustedProxyHops >= 1 && len(hops) >= trustedProxyHops {
+		hop := hops[len(hops)-trustedProxyHops]
+		if host, _, err := net.SplitHostPort(hop); err == nil {
+			return host
 		}
+		return hop
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -172,16 +181,19 @@ func clientAddress(r *http.Request) string {
 	return host
 }
 
-// lastForwardedHop returns the last non-empty comma-separated entry of one
-// X-Forwarded-For header line, trimmed — skipping backward over a trailing
-// empty segment (a stray trailing comma) rather than returning it as if it
-// were a hop.
-func lastForwardedHop(line string) string {
-	hops := strings.Split(line, ",")
-	for i := len(hops) - 1; i >= 0; i-- {
-		if hop := strings.TrimSpace(hops[i]); hop != "" {
-			return hop
+// forwardedHops flattens every X-Forwarded-For header line into one ordered,
+// trimmed, non-empty chain: line order first, then comma order within each
+// line — the same ordering RFC 7230 requires whether a hop chose to append
+// a new line or extend the last one, so clientAddress does not need to care
+// which form produced the header it is reading.
+func forwardedHops(r *http.Request) []string {
+	var hops []string
+	for _, line := range r.Header.Values("X-Forwarded-For") {
+		for _, hop := range strings.Split(line, ",") {
+			if h := strings.TrimSpace(hop); h != "" {
+				hops = append(hops, h)
+			}
 		}
 	}
-	return ""
+	return hops
 }
