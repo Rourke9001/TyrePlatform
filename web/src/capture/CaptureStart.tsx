@@ -65,10 +65,19 @@ export function CaptureStart({
     warnings: RecordedWarning[];
   }) => void;
 }) {
-  const [odometer, setOdometer] = useState<string>(
-    motive.lastOdometerKm === null ? "" : String(motive.lastOdometerKm),
-  );
-  const [touched, setTouched] = useState(false);
+  // Empty, never seeded from motive.lastOdometerKm. A field that arrives
+  // already holding the last inspection's reading is one tap from recording it
+  // as this one's, and nothing catches that: FR-INS-032 compares `>=` and
+  // accepts an equal value, an unchanged reading implies no daily distance for
+  // FR-INS-033 to warn about, and what lands is a zero-distance interval that
+  // DR-018 makes permanent and every wear rate on the vehicle then divides by.
+  // It is the fabrication ruled out for duration_seconds (payload.ts): a
+  // plausible invented number is worse than an absent one.
+  //
+  // The last reading stays on screen below as a hint — a driver checking it
+  // against their dash is the point of showing it — but supplying this
+  // inspection's number is the driver's job.
+  const [odometer, setOdometer] = useState("");
   // FR-INS-033 says warn and REQUIRE confirmation. Defaulting the box to
   // checked satisfies the control without the driver ever acting on it,
   // which is the same as not having the control.
@@ -181,13 +190,7 @@ export function CaptureStart({
             goTone="default"
             onKey={(k) => {
               if (k.type === "digit") {
-                // The first digit REPLACES the prefill. Appending to a
-                // prefilled 412180 gives 4121801, which is both wrong and
-                // the kind of wrong a driver will not notice.
-                setOdometer((o) =>
-                  touched ? (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit) : k.digit,
-                );
-                setTouched(true);
+                setOdometer((o) => (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit));
               }
               if (k.type === "delete") setOdometer("");
               // The go key is the largest control on the keypad. Leaving it

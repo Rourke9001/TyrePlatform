@@ -1,5 +1,5 @@
 import { ApiError, apiPost } from "../api/client";
-import { db, loadDraft } from "./draft";
+import { clearDraft, db, loadDraft } from "./draft";
 import type { SubmitMeta, SubmitPayload } from "./payload";
 import { toSubmitPayload } from "./payload";
 
@@ -90,7 +90,11 @@ export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
       lastError: null,
     };
     await table().put(entry);
-    await db.drafts.delete("current");
+    // Through the module that owns the key, not a second copy of the string.
+    // A draft this fails to delete is one the driver is handed back after it
+    // has already been queued, and the next startDraft then refuses for good
+    // (FR-OFF-014's "already in progress").
+    await clearDraft();
     return entry;
   });
 }

@@ -131,7 +131,7 @@ describe("AppRoutes", () => {
   // The redirect is one-shot, so a decision taken before GET /api/me answers
   // is never revised. Mounting the real provider is the only way to exercise
   // that: renderAt injects the actor synchronously and cannot see this class
-  // of bug (fix round 1, Finding 1).
+  // of bug.
   it("waits for the actor before choosing a landing view", async () => {
     const controller: Me = {
       userId: "u1",

@@ -118,11 +118,12 @@ function durationSeconds(startedAt: string, submittedAt: string): number | null 
 // Requiring one here would discard a position whose treads are complete, and
 // the draft is cleared on submit, so those readings would be gone for good.
 //
-// Exported because the capture screens count progress with it too (FR-INS-065).
-// A second predicate there would let the driver read "10 of 10 done" off one
-// definition while completeness_pct was computed from another — so this is the
-// draft-shaped adapter over treadsRead (warnings.ts), never a second rule.
-export function isCaptured(position: DraftPosition): boolean {
+// The draft-shaped adapter over treadsRead (warnings.ts), never a second rule.
+// The capture screens count progress with it too (FR-INS-065), through
+// capturedCells below — a second predicate there would let the driver read
+// "10 of 10 done" off one definition while completeness_pct was computed from
+// another.
+function isCaptured(position: DraftPosition): boolean {
   return treadsRead(position.treads);
 }
 

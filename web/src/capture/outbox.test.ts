@@ -114,7 +114,10 @@ describe("the outbox", () => {
   it("moves the draft to the queue atomically", async () => {
     await queueOne();
     expect(await listOutbox()).toHaveLength(1);
-    expect(await db.drafts.get("current")).toBeUndefined();
+    // Asked through loadDraft rather than by the literal key: a test that
+    // restates the string agrees with a queueDraft that restates it too, and
+    // both would pass while the draft the driver is holding survived.
+    expect(await loadDraft()).toBeUndefined();
   });
 
   it("releases the entry on a 201", async () => {
