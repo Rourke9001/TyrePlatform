@@ -5,3 +5,7 @@ interface ImportMetaEnv {
   readonly VITE_DEV_TENANT_ID?: string;
   readonly VITE_DEV_USER_ID?: string;
 }
+
+// Replaced at build time by vite.config.ts's `define`; declared so tsc and the
+// no-any gate see a string rather than an undeclared global.
+declare const __APP_VERSION__: string;
