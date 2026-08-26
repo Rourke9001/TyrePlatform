@@ -224,11 +224,13 @@ export function CaptureStart({
         </fieldset>
       )}
 
-      {/* NFR-PRV-006. Most drivers are on their own phone, and this sentence
-          has to be true — the storage tests in draft.test.ts keep it true. */}
+      {/* NFR-PRV-006, erratum CS-2. Most drivers are on their own phone, and
+          this sentence has to be true — the storage tests in draft.test.ts keep
+          the inspection half true, and the device id it names is the one in
+          payload.ts (NFR-OBS-004). */}
       <p className="cap-notice">
-        While you are working, this inspection is saved on your phone. Nothing else about the fleet
-        is stored here.
+        While you are working, this inspection is saved on your phone, along with a random code that
+        identifies the phone to the platform — not you. Nothing else about the fleet is stored here.
       </p>
 
       <button
