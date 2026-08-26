@@ -421,6 +421,15 @@ describe("PositionSheet", () => {
     expect(onDone).not.toHaveBeenCalled();
   });
 
+  // A spare has no walk-around number to be named by, and every configuration
+  // in the register carries a spare count — so a rig opens one spare sheet per
+  // unit, and only the unit's own identity tells them apart (BR-VEH-003).
+  it("names a spare's sheet for the unit that owns it", () => {
+    const spare = { ...position, isSpare: true };
+    render(<PositionSheet {...props({})} rig={{ ...rig, position: spare, displayNumber: null }} />);
+    expect(screen.getByRole("region", { name: "Spare, BAC039SP" })).toBeInTheDocument();
+  });
+
   // FR-OFF-006: reopening a captured position shows what was entered.
   // Without this the draft survives a restart and the screen does not,
   // which from the driver's side is the same as having lost it.

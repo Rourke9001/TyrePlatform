@@ -76,9 +76,11 @@ async function enterField(page: Page, digits: string[], next: Locator) {
   await advanceTo(page, next);
 }
 
-// The sheet for whichever position is open, named for that position. Waiting
-// on it by name is how a spec tells "the next position opened itself" from
-// "nothing happened", which is what the per-position advance turns on.
+// The sheet for whichever position is open, named for that position — or, for
+// a spare, for the unit that owns it, since a spare carries no walk-around
+// number and a rig has one spare per unit. Waiting on it by name is how a spec
+// tells "the next position opened itself" from "nothing happened", which is
+// what the per-position advance turns on.
 const openSheet = (page: Page, named: string) => page.getByRole("region", { name: named });
 
 // Enter the position already open. The sheet finishes a position with nothing
@@ -88,7 +90,9 @@ const openSheet = (page: Page, named: string) => page.getByRole("region", { name
 // the interaction driver_capture_prototype.html defines, and the arithmetic
 // NFR-USE-001a's seven minutes rests on.
 async function capturePosition(page: Page, treads: string[][] = TREADS) {
-  const named = await page.getByRole("region", { name: /^Position / }).getAttribute("aria-label");
+  const named = await page
+    .getByRole("region", { name: /^Position \d|^Spare, / })
+    .getAttribute("aria-label");
   if (named === null) throw new Error("no position sheet is open");
   const field = (n: number) => page.getByLabel(`Tread reading ${n} of ${treads.length}`);
   await enterField(page, treads[0], field(2));
@@ -97,15 +101,18 @@ async function capturePosition(page: Page, treads: string[][] = TREADS) {
   for (const d of PRESSURE) {
     await page.getByRole("button", { name: d, exact: true }).click();
   }
-  // Which case this is shows in the go key, but reading the label would race
-  // the render; waiting for the outcome does not. Comfortably past the 450ms
-  // hold, so a sheet still open here is one holding for an answer.
-  try {
-    await expect(openSheet(page, named)).toBeHidden({ timeout: 1500 });
-  } catch {
-    await page.getByRole("button", { name: /seen it ›/i }).click();
-    await expect(openSheet(page, named)).toBeHidden();
-  }
+  // Two outcomes, whichever the flow reaches first: a clean position closes
+  // itself once the hold expires, and a warned one puts "Seen it ›" on the go
+  // key and waits. Polling for either is what keeps this off a render race in
+  // both directions — a fixed wait long enough for the hold would be paid on
+  // every warned position, and the seeded sheet warns on most of them.
+  const sheet = openSheet(page, named);
+  const answer = page.getByRole("button", { name: /seen it ›/i });
+  await expect
+    .poll(async () => (await sheet.count()) === 0 || (await answer.count()) > 0)
+    .toBe(true);
+  if ((await answer.count()) > 0) await answer.click();
+  await expect(sheet).toBeHidden();
 }
 
 async function captureAll(page: Page, first: string[][] = TREADS): Promise<number> {
