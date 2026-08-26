@@ -386,3 +386,74 @@ func TestSubmitEndpointIsRateLimited(t *testing.T) {
 	require.True(t, sawAllowed, "an earlier request in the run must not have been refused")
 	require.True(t, saw429, "the account limit must eventually refuse this single user")
 }
+
+// TestSubmitUnretryableShapesAreClientErrors is the endpoint-level half of the
+// rule submitStatus states: a payload that can only ever fail must answer 4xx.
+// Per ADR-0009 the outbox retries a 5xx with backoff to a 30-minute ceiling
+// and never gives up, so a shape that reaches the transport unmapped is an
+// inspection that can never be delivered, a queue FR-OFF-020 will nag about
+// forever, and no recovery action the driver can take.
+//
+// The cases are deliberately of both kinds. app.submit_inspection refuses what
+// it can name (FR-INS-030/031's ranges, an absent readings array) as TY005;
+// what it cannot pre-empt — an id this tenant cannot see, a field that will
+// not parse as its column's type, which the function's own DECLARE casts
+// before any guard runs — arrives as a bare integrity SQLSTATE and is mapped
+// here. Both halves are only observable through the endpoint, which is the
+// only surface the outbox ever sees.
+func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "unretryable")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	firstReading := func(body map[string]any) map[string]any {
+		return body["readings"].([]any)[0].(map[string]any)
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{"a tyre_id this tenant cannot see", func(b map[string]any) {
+			firstReading(b)["tyre_id"] = uuid.NewString()
+		}},
+		{"a combination_id this tenant cannot see", func(b map[string]any) {
+			b["combination_id"] = uuid.NewString()
+		}},
+		{"a client_uuid that is not a uuid", func(b map[string]any) {
+			b["client_uuid"] = "not-a-uuid"
+		}},
+		{"a tread outside FR-INS-030's range", func(b map[string]any) {
+			firstReading(b)["treads"] = []float64{8.0, 40.0, 8.2}
+		}},
+		{"a pressure outside FR-INS-031's range", func(b map[string]any) {
+			firstReading(b)["pressure_kpa"] = 5000
+		}},
+		{"a null inside treads", func(b map[string]any) {
+			firstReading(b)["treads"] = []any{8.0, nil, 8.2}
+		}},
+		{"no readings at all", func(b map[string]any) {
+			delete(b, "readings")
+		}},
+		{"an empty readings array", func(b map[string]any) {
+			b["readings"] = []any{}
+		}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var body map[string]any
+			require.NoError(t, json.Unmarshal(
+				[]byte(captureFixture(t, ctx, admin, tenantID, vehicleID)), &body))
+			tc.mutate(body)
+			raw, err := json.Marshal(body)
+			require.NoError(t, err)
+
+			rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), string(raw))
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+		})
+	}
+}
