@@ -15,6 +15,14 @@ import "./capture.css";
 // plan view — the same direction the diagram above them reads.
 const FIELD_LABEL = (i: number, count: number) => `Tread reading ${i + 1} of ${count}`;
 
+// The beat between the last digit that could still change a field and the sheet
+// acting on it. Both are the prototype's own numbers, and it is longer off the
+// pressure field for the reason it is longer there: that hold ENDS the
+// position, so the driver gets to read the verdict before the next position
+// takes the screen (driver_capture_prototype.html, holdThenAdvance's callers).
+const HOLD_MS = 200;
+const PRESSURE_HOLD_MS = 450;
+
 export function PositionSheet({
   rig,
   ctx,
@@ -106,24 +114,27 @@ export function PositionSheet({
 
   // React 19 removed the argument-less useRef overload.
   const timer = useRef<number | undefined>(undefined);
+
+  // What the hold does when it fires, refreshed on every commit (below, once
+  // everything it reaches for is in scope). The callback outlives the render
+  // that armed it by a fifth of a second or more, and by then the entry, the
+  // standing warnings and the flow's own draft have all moved on — so it has
+  // to run this render's closure, not that one's. It is also deliberately not
+  // a state updater: off the pressure field it finishes the position, and an
+  // updater that called onDone would be invoked twice under StrictMode and
+  // record the position twice.
+  const onHold = useRef<((atField: number, expected: number | null) => void) | undefined>(
+    undefined,
+  );
+
   function scheduleAdvance(from: EntryState) {
     window.clearTimeout(timer.current);
-    const field = from.field;
-    const expected = field >= count ? from.pressureKpa : from.treads[field];
-    timer.current = window.setTimeout(() => {
-      setState((current) => {
-        if (current.field !== field) return current;
-        // The prototype's holdThenAdvance guard, and the reason a fourth
-        // pressure digit or a correction typed inside the beat is never
-        // swallowed: if the value moved, the driver is still working.
-        const now = field >= count ? current.pressureKpa : current.treads[field];
-        if (now !== expected) return current;
-        // Finishing a position is a decision. A sheet that closed itself
-        // while the driver was reading a warning would defeat FR-INS-040.
-        if (field >= count) return current;
-        return applyKey(current, { type: "next" }, opts).state;
-      });
-    }, 200);
+    const atField = from.field;
+    const expected = atField >= count ? from.pressureKpa : from.treads[atField];
+    timer.current = window.setTimeout(
+      () => onHold.current?.(atField, expected),
+      atField >= count ? PRESSURE_HOLD_MS : HOLD_MS,
+    );
   }
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -166,6 +177,31 @@ export function PositionSheet({
     }));
     onDone(snapshot(state, recorded));
   }
+
+  useEffect(() => {
+    onHold.current = (atField, expected) => {
+      if (state.field !== atField) return;
+      // The prototype's holdThenAdvance guard, and the reason a fourth
+      // pressure digit or a correction typed inside the beat is never
+      // swallowed: if the value moved, the driver is still working.
+      const now = atField >= count ? state.pressureKpa : state.treads[atField];
+      if (now !== expected) return;
+      if (atField < count) {
+        setState(applyKey(state, { type: "next" }, opts).state);
+        return;
+      }
+      // Off the pressure field the hold ends the position, which makes it the
+      // one place FR-INS-040 can be defeated: a sheet that closed itself while
+      // the driver was reading a warning would never record what they did
+      // about it. So the guard is the prototype's own, and no wider — a
+      // position with something to tell the driver waits for the tap that
+      // answers it, and a clean one closes itself. That saved tap is paid on
+      // every clean position, against NFR-USE-001a's seven minutes for a
+      // 26-position combination.
+      if (!complete || warnings.length > 0) return;
+      finish();
+    };
+  });
 
   const governing = governingTread(state.treads);
   // Banded on the treads, like the diagram cell this sheet zooms in on: a

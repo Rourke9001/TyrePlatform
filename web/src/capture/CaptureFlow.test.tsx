@@ -162,7 +162,15 @@ async function capturePosition(user: UserEvent) {
   for (const d of ["8", "0", "0"]) {
     await user.click(screen.getByRole("button", { name: d }));
   }
-  await user.click(await screen.findByRole("button", { name: /done ›|seen it ›/i }));
+  // A position with nothing to flag finishes itself off the pressure field; a
+  // warned one waits for the tap that records the FR-INS-040 response. Either
+  // way the sheet that was open must go — on to the next outstanding position,
+  // or back to the diagram when none are left.
+  const answer = screen.queryByRole("button", { name: /seen it ›/i });
+  if (answer) await user.click(answer);
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: /done ›|seen it ›/i })).toBeNull(),
+  );
 }
 
 beforeEach(async () => {
@@ -300,6 +308,11 @@ describe("CaptureFlow", () => {
 
     await user.click(await screen.findByRole("button", { name: /start inspection/i }));
     await capturePosition(user);
+    // Two positions are still outstanding, so finishing the first opened the
+    // next one over the diagram (.cap-sheet-layer covers it). Review is
+    // reachable only from the diagram, which is where a driver who stops
+    // short of a full rig has to close the sheet to get to.
+    await user.click(screen.getByRole("button", { name: "Close" }));
     await user.click(screen.getByRole("button", { name: /review and submit/i }));
     expect(screen.getByText(/1 of 3 positions done/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /submit inspection/i }));
@@ -318,6 +331,28 @@ describe("CaptureFlow", () => {
     // included, travels as an observation for a controller to reconcile.
     expect(body.combination_id).toBe("c1");
     expect(body.observed_member_vehicle_ids).toEqual(["v1", "v2"]);
+  });
+
+  // NFR-USE-001a. Finishing a position opens the next outstanding one, so the
+  // driver pays one tap to open the first wheel of the walk and none after
+  // that; returning them to the diagram to hunt for the next cell costs a tap
+  // and a re-orientation on each of a superlink's 27.
+  //
+  // The rig fixture is the sharp case: both units carry position ids p1 and
+  // p2, because app.position belongs to an axle configuration and not to a
+  // vehicle. A "next outstanding" that asked by id would find p1 done and step
+  // over the trailer's first wheel (BR-VEH-003, draft.cellKey).
+  it("opens the next outstanding position on the next unit rather than stepping over it", async () => {
+    const user = newUser();
+    stubApi(201, [rigMotive, trailer]);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+
+    const sheet = await screen.findByRole("region", { name: "Position 2" });
+    expect(sheet).toHaveTextContent("BAC711TR");
+    expect(screen.getByLabelText("Pressure")).toHaveTextContent("–");
   });
 
   // Swept at every stage of the journey, not once at the end: by the time the

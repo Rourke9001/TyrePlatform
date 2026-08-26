@@ -14,7 +14,7 @@ import { historyWarnings } from "./history";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
 import { appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
-import { completenessByUnit, rigPositions } from "./rig";
+import { completenessByUnit, nextOutstanding, rigPositions } from "./rig";
 import type { Severity } from "./warnings";
 import { governingTread, positionWarnings, severityFor, treadsRead } from "./warnings";
 import "./capture.css";
@@ -226,7 +226,18 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
 
   function handleDone(position: DraftPosition) {
     handleChange(position);
-    setActiveKey(null);
+    // Finishing a position opens the next outstanding one rather than
+    // returning the driver to the diagram to find it themselves. That second
+    // tap, plus re-reading the picture to work out where they had got to, is
+    // paid once per position — 27 times on a superlink, against
+    // NFR-USE-001a's seven minutes.
+    //
+    // doneCells comes off `draft`, which this render still sees without the
+    // position just finished: setDraft has not committed. Adding the finished
+    // cell here is what stops the flow reopening the sheet it has closed.
+    const finished = cellKey(position.vehicleId, position.positionId);
+    const outstanding = new Set(doneCells).add(finished);
+    setActiveKey(nextOutstanding(rig, outstanding, finished)?.key ?? null);
   }
 
   function handleSubmit(patch: { comment: string | null; defectReport: string | null }) {
