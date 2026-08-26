@@ -51,13 +51,23 @@ Online-first with a durable submit outbox — not an offline sync engine.
 
 `e2e/` holds Playwright specs; vitest never runs them (excluded in
 vite.config.ts) and they never mock — they drive the real dev stack in
-headless Chromium. Run with `make e2e`, which requires `make api-run` in
-another terminal over a seeded database; CI's "Browser smoke" job builds
-that stack itself on every PR. Identity is the dev actor headers, so specs
-run against `vite dev`, never a production build (playwright.config.ts says
-why). Assert on roles and visible text, not CSS; when the capture app lands
-(TYRE-4), its flows get mobile-viewport projects here and the three-minute
-budget becomes a measurable assertion.
+headless browsers. Three projects: `chromium` at a desktop viewport,
+`android` (Pixel 7) and `ios` (iPhone 14, WebKit). The capture app is judged
+at phone dimensions, so `reach.spec.ts` runs on all three and
+`capture.spec.ts` on `android` alone — FR-INS-038's duplicate window is
+tenant state in one shared database, and the same vehicle submitted from a
+second project is refused by the first.
+
+Run with `make e2e`, which reseeds and requires `make api-run` in another
+terminal; CI's "Browser smoke" job builds that stack itself on every PR. The
+reseed is not optional: `capture.spec.ts` submits, so a second run against the
+same seed is refused at the first spec. Identity is the dev actor headers, so
+specs run against `vite dev`, never a production build (playwright.config.ts
+says why). Assert on roles and visible text, not CSS — with one deliberate
+exception: a requirement id may be reached through a `data-` attribute
+(`data-position-id`, `data-warning-code`), because CR-010 keeps those ids out
+of driver-facing wording and a spec keyed on the friendly name would fail on
+the next copy edit.
 
 ## Conventions
 

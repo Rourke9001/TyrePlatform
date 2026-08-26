@@ -114,8 +114,14 @@ export function CaptureReview({
         <p className="cap-hint">Nothing to flag.</p>
       ) : (
         <ul className="cap-flags">
+          {/* The requirement id as a data attribute, never as rendered text or
+              an accessible name: CR-010 and OR-LEG-001 govern what a driver
+              sees, and the code is not it. A browser test keyed on the friendly
+              name above would fail on the next wording change and report a copy
+              edit as a broken agreement check — data-position-id on the diagram
+              cells is the same trade for the same reason. */}
           {flagged.map((f) => (
-            <li key={f.key} className="cap-flag">
+            <li key={f.key} className="cap-flag" data-warning-code={f.code}>
               <span className="cap-flag-where">{f.where}</span>
               <span className="cap-flag-what">{WARNING_NAME[f.code]}</span>
               {f.enteredValue !== null && <span className="cap-flag-val">{f.enteredValue}</span>}

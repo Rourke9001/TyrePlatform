@@ -202,9 +202,10 @@ jobs:
     name: Browser smoke
     runs-on: ubuntu-latest
     # The one job that runs the real stack end to end: seeded Postgres, the
-    # API with the dev header resolver, vite's dev server and a headless
-    # Chromium. jsdom cannot exercise real rendering or the role landing, and
-    # the deploy workflow gates on this workflow's conclusion, so a broken
+    # API with the dev header resolver, vite's dev server, and headless
+    # Chromium and WebKit at desktop and phone viewports. jsdom cannot
+    # exercise real rendering, the role landing or a 44px tap target, and the
+    # deploy workflow gates on this workflow's conclusion, so a broken
     # login-to-fleet path cannot ship (TYRE-65).
     services:
       postgres:
@@ -263,7 +264,7 @@ jobs:
         run: |
           cd web
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install --with-deps chromium webkit
           npm run e2e
 
       - name: Upload traces on failure

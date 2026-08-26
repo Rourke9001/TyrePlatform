@@ -18,10 +18,22 @@ export default defineConfig({
     baseURL: "http://localhost:5173",
     trace: "retain-on-failure",
   },
-  // One desktop browser is the smoke tier. Mobile-viewport projects arrive
-  // with the capture app (TYRE-4), where the three-minute constraint
-  // (NFR-USE-001) is the thing under test.
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    // capture.spec.ts submits, and FR-INS-038's duplicate window is tenant
+    // state in one shared database: the same vehicle captured on a second
+    // project is refused by the first project's submit. It runs on one project
+    // only, gated here rather than skipped inside the file — a skip still has
+    // Playwright launch a browser and build a context per project to decide it.
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /capture\.spec/ },
+    // The capture app is judged at phone dimensions or not at all: thumb reach,
+    // 44px targets and sunlight legibility are the design, not the styling.
+    // Pixel 7 and iPhone 14 bracket the sizes a driver actually carries.
+    { name: "android", use: { ...devices["Pixel 7"] } },
+    // iPhone 14 is WebKit, which `make e2e` and CI install alongside chromium.
+    // It earns its place beyond the viewport: iOS is where FR-OFF-020's
+    // storage eviction is a real risk, so the outbox has to be exercised on it.
+    { name: "ios", use: { ...devices["iPhone 14"] }, testIgnore: /capture\.spec/ },
+  ],
   webServer: {
     command: "npm run dev",
     url: "http://localhost:5173",
