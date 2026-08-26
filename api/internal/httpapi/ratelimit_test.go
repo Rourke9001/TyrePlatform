@@ -77,32 +77,47 @@ func TestSubmitRateLimitTracksTwoIndependentAxes(t *testing.T) {
 // its left is caller-supplied and untrusted.
 func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 	tests := []struct {
-		name   string
-		xff    string
+		name string
+		// Each entry is added as its own X-Forwarded-For header LINE (via
+		// Header.Add, in order), not comma-joined here: RFC 7230 makes
+		// repeated header lines equivalent to one comma-joined line, so a
+		// proxy may emit either form and clientAddress must treat them the
+		// same. A nil/empty slice means the header is not sent at all.
+		xff    []string
 		remote string
 		want   string
 	}{
 		{
 			name:   "single hop with a port is stripped to the host",
-			xff:    "203.0.113.9:51712",
+			xff:    []string{"203.0.113.9:51712"},
 			remote: "10.0.0.4:443",
 			want:   "203.0.113.9",
 		},
 		{
-			name:   "a forged leftmost entry is ignored in favour of the trusted rightmost one",
-			xff:    "9.9.9.9, 203.0.113.9:51712",
+			name:   "a forged leftmost entry within one line is ignored in favour of the trusted rightmost one",
+			xff:    []string{"9.9.9.9, 203.0.113.9:51712"},
+			remote: "10.0.0.4:443",
+			want:   "203.0.113.9",
+		},
+		{
+			name: "a forged entry on its own EARLIER header line is ignored in favour of the real LAST line",
+			// A proxy is free under RFC 7230 to append its own observed
+			// address as a separate header line rather than extend the
+			// caller's, and still be conformant — the caller's forged line
+			// arrives first, the trusted ingress line last.
+			xff:    []string{"9.9.9.9", "203.0.113.9:51712"},
 			remote: "10.0.0.4:443",
 			want:   "203.0.113.9",
 		},
 		{
 			name:   "no header falls back to RemoteAddr",
-			xff:    "",
+			xff:    nil,
 			remote: "192.0.2.7:1234",
 			want:   "192.0.2.7",
 		},
 		{
 			name:   "a header present but blank falls back to RemoteAddr",
-			xff:    "   ",
+			xff:    []string{"   "},
 			remote: "192.0.2.7:1234",
 			want:   "192.0.2.7",
 		},
@@ -111,8 +126,8 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
 			hreq.RemoteAddr = tt.remote
-			if tt.xff != "" {
-				hreq.Header.Set("X-Forwarded-For", tt.xff)
+			for _, line := range tt.xff {
+				hreq.Header.Add("X-Forwarded-For", line)
 			}
 			req.Equal(t, tt.want, clientAddress(hreq))
 		})
