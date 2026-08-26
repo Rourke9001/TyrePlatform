@@ -183,6 +183,14 @@ OI-29 (tenancy, sponsor acceptance of ADR-0003) and OI-31/32/33.
 
 ## Working with me
 
+- **`docs/lessons.md` is the register of things that did not work.** You may
+  edit it without asking: when an approach, tool or command fails in a way
+  that would fool the next session too, append an entry in the file's format
+  (dated, with the imperative rule) in the same session. Before retrying
+  anything that feels like it may have been tried before, check the register —
+  an entry there means **do not try it again**; do what the rule says instead.
+  It is curated, not a diary: only failures that change how the next attempt
+  should behave, never one-off typos or transient errors.
 - Prefer `rg` over `grep`, `fd` over `find`.
 - Do not create files unless they are needed. No README per directory.
 - When you finish a task, run `make check`, not just the test you were working on.
