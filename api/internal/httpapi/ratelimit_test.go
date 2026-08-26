@@ -70,11 +70,12 @@ func TestSubmitRateLimitTracksTwoIndependentAxes(t *testing.T) {
 }
 
 // TestClientAddressUsesRightmostForwardedForHop pins clientAddress's address
-// derivation: every deployed environment fronts the API with an Azure
-// Container Apps ingress (infra/main.bicep), so RemoteAddr is always that
-// ingress, never the caller. The rightmost X-Forwarded-For entry is the one
-// hop the ingress itself appended and the caller cannot forge; anything to
-// its left is caller-supplied and untrusted.
+// derivation: every deployed environment fronts the API with at least one
+// trusted L7 hop (infra/main.bicep's Container Apps ingress, TRUSTED_PROXY_HOPS
+// default 1), so RemoteAddr is always that hop's own address, never the
+// caller's. The Nth-from-right X-Forwarded-For entry is the one that hop
+// itself appended and the caller cannot forge; every earlier entry — in that
+// hop's own line or one before it — is caller-supplied and untrusted.
 func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 	tests := []struct {
 		name string
@@ -83,21 +84,24 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 		// repeated header lines equivalent to one comma-joined line, so a
 		// proxy may emit either form and clientAddress must treat them the
 		// same. A nil/empty slice means the header is not sent at all.
-		xff    []string
-		remote string
-		want   string
+		xff         []string
+		trustedHops int
+		remote      string
+		want        string
 	}{
 		{
-			name:   "single hop with a port is stripped to the host",
-			xff:    []string{"203.0.113.9:51712"},
-			remote: "10.0.0.4:443",
-			want:   "203.0.113.9",
+			name:        "single hop with a port is stripped to the host",
+			xff:         []string{"203.0.113.9:51712"},
+			trustedHops: 1,
+			remote:      "10.0.0.4:443",
+			want:        "203.0.113.9",
 		},
 		{
-			name:   "a forged leftmost entry within one line is ignored in favour of the trusted rightmost one",
-			xff:    []string{"9.9.9.9, 203.0.113.9:51712"},
-			remote: "10.0.0.4:443",
-			want:   "203.0.113.9",
+			name:        "a forged leftmost entry within one line is ignored in favour of the trusted rightmost one",
+			xff:         []string{"9.9.9.9, 203.0.113.9:51712"},
+			trustedHops: 1,
+			remote:      "10.0.0.4:443",
+			want:        "203.0.113.9",
 		},
 		{
 			name: "a forged entry on its own EARLIER header line is ignored in favour of the real LAST line",
@@ -105,21 +109,46 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 			// address as a separate header line rather than extend the
 			// caller's, and still be conformant — the caller's forged line
 			// arrives first, the trusted ingress line last.
-			xff:    []string{"9.9.9.9", "203.0.113.9:51712"},
-			remote: "10.0.0.4:443",
-			want:   "203.0.113.9",
+			xff:         []string{"9.9.9.9", "203.0.113.9:51712"},
+			trustedHops: 1,
+			remote:      "10.0.0.4:443",
+			want:        "203.0.113.9",
 		},
 		{
-			name:   "no header falls back to RemoteAddr",
-			xff:    nil,
-			remote: "192.0.2.7:1234",
-			want:   "192.0.2.7",
+			name:        "no header falls back to RemoteAddr",
+			xff:         nil,
+			trustedHops: 1,
+			remote:      "192.0.2.7:1234",
+			want:        "192.0.2.7",
 		},
 		{
-			name:   "a header present but blank falls back to RemoteAddr",
-			xff:    []string{"   "},
-			remote: "192.0.2.7:1234",
-			want:   "192.0.2.7",
+			name:        "a header present but blank falls back to RemoteAddr",
+			xff:         []string{"   "},
+			trustedHops: 1,
+			remote:      "192.0.2.7:1234",
+			want:        "192.0.2.7",
+		},
+		{
+			name: "two trusted hops (an L7 hop in front of the ingress) picks second-from-right",
+			// Each trusted hop appends the address of the peer it received
+			// from: the outer hop's own entry is rightmost, and the caller's
+			// real address — what the address counter should key on — is one
+			// entry further in, not at a fixed position the caller controls.
+			xff:         []string{"9.9.9.9, 203.0.113.9:51712, 10.10.10.5:443"},
+			trustedHops: 2,
+			remote:      "10.0.0.4:443",
+			want:        "203.0.113.9",
+		},
+		{
+			name: "fewer entries than the configured trusted-hop count falls back to RemoteAddr",
+			// The topology says two trusted hops should have appended their
+			// own entries; only one hop's worth is present. That mismatch is
+			// a misconfiguration or a spoof attempt either way, so this must
+			// never guess by indexing into caller-supplied territory.
+			xff:         []string{"203.0.113.9:51712"},
+			trustedHops: 2,
+			remote:      "192.0.2.7:1234",
+			want:        "192.0.2.7",
 		},
 	}
 	for _, tt := range tests {
@@ -129,7 +158,7 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 			for _, line := range tt.xff {
 				hreq.Header.Add("X-Forwarded-For", line)
 			}
-			req.Equal(t, tt.want, clientAddress(hreq))
+			req.Equal(t, tt.want, clientAddress(hreq, tt.trustedHops))
 		})
 	}
 }
@@ -141,7 +170,7 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 // different one. The account limiter is set high enough that only the
 // address axis can trip in this test.
 func TestSubmitRateLimitKeysAddressOnRightmostForwardedForHop(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(100), newRateLimiter(2))
+	limiter := submitRateLimit(newRateLimiter(100), newRateLimiter(2), 1)
 	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -173,7 +202,7 @@ func TestSubmitRateLimitKeysAddressOnRightmostForwardedForHop(t *testing.T) {
 // four requests rather than only the last: asserting only the last would
 // also pass if the first had been wrongly refused.
 func TestSubmitRateLimitMiddlewareRefusesOverLimit(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(2), newRateLimiter(100))
+	limiter := submitRateLimit(newRateLimiter(2), newRateLimiter(100), 1)
 	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -200,7 +229,7 @@ func TestSubmitRateLimitMiddlewareRefusesOverLimit(t *testing.T) {
 // identity bound is TY010's invariant breach, not a client mistake, so the
 // honest answer is 500 rather than 401 or 429.
 func TestSubmitRateLimitRefusesWithoutIdentity(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10))
+	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10), 1)
 	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -222,7 +251,7 @@ func TestSubmitRateLimitRefusesWithoutIdentity(t *testing.T) {
 // no-op handler below ever ran.
 func TestRequireActorRunsBeforeInlineRateLimitMiddleware(t *testing.T) {
 	router := chi.NewRouter()
-	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10))
+	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10), 1)
 	router.Route("/api", func(r chi.Router) {
 		r.Use(requireActor(HeaderActorResolver{}))
 		r.With(limiter).Post("/inspections", func(w http.ResponseWriter, _ *http.Request) {

@@ -54,7 +54,32 @@ func (HeaderActorResolver) Identify(r *http.Request) (Identity, bool) {
 	return Identity{TenantID: tenantID, UserID: userID}, true
 }
 
-func New(s *store.Store, resolver ActorResolver) http.Handler {
+// Option configures New. Variadic rather than a positional parameter: New
+// has dozens of call sites, nearly all of them tests asserting behaviour
+// that has nothing to do with proxy topology, and a rate-limiting knob
+// should not force every one of them to state an opinion about it.
+type Option func(*options)
+
+type options struct {
+	trustedProxyHops int
+}
+
+// WithTrustedProxyHops sets how many trusted L7 hops sit between the caller
+// and this process, for NFR-SEC-007's per-source-address rate limit
+// (ratelimit.go's clientAddress) to read the address the outermost trusted
+// hop actually observed rather than one a caller can forge. Defaults to 1 —
+// today's single Azure Container Apps ingress hop, infra/main.bicep's
+// TRUSTED_PROXY_HOPS — for every call site that does not name one.
+func WithTrustedProxyHops(n int) Option {
+	return func(o *options) { o.trustedProxyHops = n }
+}
+
+func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
+	o := options{trustedProxyHops: 1}
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	r := chi.NewRouter()
 	r.Get("/healthz", healthz)
 	r.Route("/api", func(r chi.Router) {
@@ -71,6 +96,7 @@ func New(s *store.Store, resolver ActorResolver) http.Handler {
 		r.With(submitRateLimit(
 			newRateLimiter(accountSubmitsPerMinute),
 			newRateLimiter(addressSubmitsPerMinute),
+			o.trustedProxyHops,
 		)).Post("/inspections", submitInspection(s))
 		r.Get("/org/branding", orgBranding(s))
 	})
