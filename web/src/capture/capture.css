@@ -142,3 +142,271 @@
   text-transform: uppercase;
   color: var(--ink-muted);
 }
+
+/* --------------------------------------------------------- position sheet */
+
+.cap-sheet {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 100dvh;
+  background: var(--surface);
+}
+
+.cap-sheet-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-5) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.cap-sheet-pos {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-title);
+  color: var(--ink);
+}
+
+.cap-sheet-meta {
+  margin: 0;
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+}
+
+/* 44px is the NFR-USE-004 floor; this is the one non-keypad control on the
+   sheet a thumb must also reach reliably, so it gets the same floor rather
+   than shrinking to fit the header. */
+.cap-iconbtn {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  appearance: none;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-control);
+  color: var(--ink-muted);
+  font-size: var(--text-title);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cap-iconbtn:active {
+  background: var(--surface-sunken);
+}
+
+/* The four tap targets for this position — three tread fields plus pressure,
+   left to right, the same order and grammar (index numeral, mono value,
+   condensed unit) as a diagram cell (.cap-pos), so the sheet reads as that
+   one cell zoomed in rather than as a new picture the driver has to learn. */
+.cap-fields {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-3);
+}
+
+/* The same beam-under-the-wheels motif as .cap-beam on the diagram above —
+   one wheel position, still standing on its axle, now filling the screen. */
+.cap-fields::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: var(--space-4);
+  right: var(--space-4);
+  height: 2px;
+  background: var(--line);
+  transform: translateY(-50%);
+  z-index: 0;
+}
+
+.cap-fld {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 64px; /* NFR-USE-004 floors this at 44px; the extra room is for
+                        the larger value type this view needs, not the touch
+                        target itself. */
+  padding: var(--space-2) 4px;
+  appearance: none;
+  margin: 0;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* "This is the field the keypad is about to fill." The ring matches
+   .cap-pos.is-active's shape so a driver who has seen the diagram already
+   knows what it means; the border thickening on top of it is a second, purely
+   structural cue that survives a printed-in-black-and-white screenshot
+   (NFR-USE-009 — colour is never the only signal). */
+.cap-fld.is-on {
+  border-width: 3px;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+}
+
+.cap-fld-k {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-title);
+  line-height: 1;
+  color: var(--ink);
+}
+
+.cap-fld-u {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.cap-fld-v {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--text-title);
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The placeholder dash reads as "not entered yet" rather than as a value of
+   its own — the same distinction a blank instrument dial makes with a dimmer
+   needle before the first reading arrives. */
+.cap-fld-v.is-empty {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.cap-alerts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) var(--space-2);
+}
+
+/* A left accent bar carries the severity so it is legible in the sun and
+   survives greyscale: the colour is reinforced by, never the only source of,
+   which band a warning belongs to — the message text itself always names the
+   fleet's policy in words (warnings.ts), never a colour alone. */
+.cap-alert {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-control);
+  border-left: 4px solid var(--ink-muted);
+  background: var(--surface-sunken);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+  line-height: 1.35;
+}
+
+.cap-alert--caution {
+  border-left-color: var(--status-caution);
+  background: color-mix(in srgb, var(--status-caution) 10%, var(--surface));
+}
+.cap-alert--below-removal {
+  border-left-color: var(--status-below-removal);
+  background: color-mix(in srgb, var(--status-below-removal) 10%, var(--surface));
+}
+/* Reachable when a history warning fires on the treads (FR-INS-034/035)
+   before pressure is typed: the position is still "unmeasured" overall, but
+   the driver needs to see the warning as soon as it is true, not held back
+   until the last field is filled. */
+.cap-alert--unmeasured {
+  border-left-color: var(--status-unmeasured);
+  border-left-style: dashed;
+}
+.cap-alert--ok {
+  border-left-color: var(--status-roadworthy);
+  background: color-mix(in srgb, var(--status-roadworthy) 8%, var(--surface));
+  color: var(--ink-muted);
+}
+
+/* -------------------------------------------------------------- keypad */
+
+/* Pinned to the bottom of the sheet: thumb reach on a phone is worst at the
+   top of the screen, and this is the control tapped 108 times a vehicle. */
+.cap-keypad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-2);
+  margin-top: auto;
+  padding: var(--space-2) var(--space-3) var(--space-4);
+}
+
+.cap-key {
+  min-height: 56px; /* NFR-USE-004 floors this at 44px; 56px matches the
+                        diagram's own position cells (.cap-pos) so every
+                        tap target on the capture screens shares one size. */
+  appearance: none;
+  margin: 0;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-display);
+  color: var(--ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cap-key:active {
+  background: var(--surface-sunken);
+}
+
+.cap-key--alt {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: var(--text-title);
+  color: var(--ink-muted);
+  border-style: dashed;
+}
+
+/* The one key whose physical position never changes meaning across all 27
+   positions on a rig — bottom-right, filled, distinct from every digit
+   around it — is what lets a driver stop looking at it by position four. */
+.cap-key--go {
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  border-color: var(--primary);
+  background: var(--primary);
+  color: var(--on-primary);
+}
+.cap-key--go:active {
+  background: var(--primary-pressed);
+}
+
+/* FR-INS-040: held open on a warning. The label text is what actually says
+   so ("Seen it ›" — NFR-USE-009 again); this tone is the reinforcing signal,
+   not the only one, and caution rather than the below-removal red because
+   the keypad only ever knows default/warn, not which band triggered it. */
+.cap-key--warn {
+  border-color: var(--status-caution);
+  background: var(--status-caution);
+  color: var(--ink);
+}
+.cap-key--warn:active {
+  background: color-mix(in srgb, var(--status-caution) 80%, var(--ink));
+}
