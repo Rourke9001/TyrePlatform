@@ -201,6 +201,45 @@ describe("PositionSheet", () => {
     });
   });
 
+  // The other half of the guard above, and the reason it has to be a guard
+  // rather than an unconditional hold: NFR-USE-001 is the constraint every
+  // other decision in this app is subordinate to, and a Done tap that a clean
+  // position does not need is paid on 27 of them on a superlink. The pair
+  // pins that the hold is CONDITIONAL — either assertion alone is satisfied by
+  // holding always or by never holding at all.
+  it("finishes a position with nothing to flag without a further tap", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onDone = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onDone })} />);
+    await enter(user, ["9", "9", "9"], "800");
+
+    // enter() ends 250ms after the last pressure digit, inside the beat that
+    // lets a fourth digit or a correction land — so this is the hold being
+    // real, not the sheet having no opinion.
+    expect(onDone).not.toHaveBeenCalled();
+    await advance(300);
+
+    expect(onDone).toHaveBeenCalledOnce();
+    expect(onDone.mock.calls[0][0].pressureKpa).toBe(800);
+    expect(onDone.mock.calls[0][0].warnings).toEqual([]);
+  });
+
+  // The hold's own guard, now that firing it ends the position rather than
+  // moving a field: it may only act on the entry it was armed against. A
+  // driver correcting a mis-read gauge inside the beat is entitled to an open
+  // sheet and an incomplete position.
+  it("does not finish a position whose pressure moved inside the hold", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onDone = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onDone })} />);
+    await enter(user, ["9", "9", "9"], "800");
+    await user.click(screen.getByRole("button", { name: "Delete" }));
+    await advance(600);
+
+    expect(onDone).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Pressure")).toHaveTextContent("–");
+  });
+
   // NFR-OBS-007: measured, not assumed, and it cannot be added later. This
   // column feeds NFR-USE-001's three-minute median, so a hardcoded value or a
   // formula that just happens to never go negative has to fail here, not only

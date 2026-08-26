@@ -35,6 +35,45 @@ export function rigPositions(contexts: CaptureContext[]): RigPosition[] {
   );
 }
 
+// The two rows the diagram draws, in the order it draws them (CaptureDiagram):
+// the running positions in walk-around sequence, then the spares. Split here
+// rather than in each consumer because the flow's next-position jump has to
+// follow the picture the driver is reading — a spare threaded back in at its
+// own sequence would send them to the boot between two wheels.
+export function splitSpares(positions: RigPosition[]): {
+  running: RigPosition[];
+  spares: RigPosition[];
+} {
+  return {
+    running: positions.filter((r) => r.displayNumber !== null),
+    spares: positions.filter((r) => r.displayNumber === null),
+  };
+}
+
+// The next position a driver should be put in front of once one is finished:
+// the outstanding position AFTER this one, wrapping round to the first
+// outstanding one, and null when none are left. Forward first and then wrap,
+// in that order — a driver who skipped a seized wheel early should finish the
+// walk and be brought back to it, not dragged backwards after every position.
+//
+// Outstanding is asked by CELL. Two member units of the same axle configuration
+// share every position id (draft.cellKey), so a search keyed on the bare id
+// would read one trailer's wheel as the other's and walk the driver straight
+// past a whole unit.
+export function nextOutstanding(
+  positions: RigPosition[],
+  doneCells: ReadonlySet<string>,
+  afterCell: string,
+): RigPosition | null {
+  const { running, spares } = splitSpares(positions);
+  const order = [...running, ...spares];
+  const outstanding = (r: RigPosition) => !doneCells.has(r.key);
+  // -1 when the cell is not on this rig, which makes the forward search the
+  // whole list — the same answer as the wrap, and the only sensible one.
+  const from = order.findIndex((r) => r.key === afterCell);
+  return order.slice(from + 1).find(outstanding) ?? order.find(outstanding) ?? null;
+}
+
 export interface UnitCompleteness {
   vehicleId: string;
   fleetNumber: string;

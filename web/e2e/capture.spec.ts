@@ -76,8 +76,20 @@ async function enterField(page: Page, digits: string[], next: Locator) {
   await advanceTo(page, next);
 }
 
-async function capturePosition(page: Page, index: number, treads: string[][] = TREADS) {
-  await page.locator("[data-position-id]").nth(index).click();
+// The sheet for whichever position is open, named for that position. Waiting
+// on it by name is how a spec tells "the next position opened itself" from
+// "nothing happened", which is what the per-position advance turns on.
+const openSheet = (page: Page, named: string) => page.getByRole("region", { name: named });
+
+// Enter the position already open. The sheet finishes a position with nothing
+// to flag off the pressure field and opens the next outstanding one; a warned
+// position waits for the tap that records the FR-INS-040 response. So a whole
+// vehicle costs one tap to open the walk and one more per warned position —
+// the interaction driver_capture_prototype.html defines, and the arithmetic
+// NFR-USE-001a's seven minutes rests on.
+async function capturePosition(page: Page, treads: string[][] = TREADS) {
+  const named = await page.getByRole("region", { name: /^Position / }).getAttribute("aria-label");
+  if (named === null) throw new Error("no position sheet is open");
   const field = (n: number) => page.getByLabel(`Tread reading ${n} of ${treads.length}`);
   await enterField(page, treads[0], field(2));
   await enterField(page, treads[1], field(3));
@@ -85,15 +97,25 @@ async function capturePosition(page: Page, index: number, treads: string[][] = T
   for (const d of PRESSURE) {
     await page.getByRole("button", { name: d, exact: true }).click();
   }
-  // One tap, not two: "Seen it ›" records the FR-INS-040 response and finishes
-  // the position in the same press.
-  await page.getByRole("button", { name: /done ›|seen it ›/i }).click();
+  // Which case this is shows in the go key, but reading the label would race
+  // the render; waiting for the outcome does not. Comfortably past the 450ms
+  // hold, so a sheet still open here is one holding for an answer.
+  try {
+    await expect(openSheet(page, named)).toBeHidden({ timeout: 1500 });
+  } catch {
+    await page.getByRole("button", { name: /seen it ›/i }).click();
+    await expect(openSheet(page, named)).toBeHidden();
+  }
 }
 
-async function captureAll(page: Page): Promise<number> {
+async function captureAll(page: Page, first: string[][] = TREADS): Promise<number> {
   await expect(page.locator("[data-position-id]").first()).toBeVisible();
   const total = await page.locator("[data-position-id]").count();
-  for (let i = 0; i < total; i++) await capturePosition(page, i);
+  // The only diagram tap in the walk. Every position after this one is opened
+  // by the position before it finishing.
+  await page.locator("[data-position-id]").first().click();
+  await capturePosition(page, first);
+  for (let i = 1; i < total; i++) await capturePosition(page);
   return total;
 }
 
@@ -140,9 +162,7 @@ test("a driver captures a whole vehicle, sees it confirmed, and agrees with the 
   // Capture the FIRST position below the threshold and the rest above it.
   // Capturing everything at 13/13/14 against a 4mm threshold makes both sides
   // of the comparison zero, and 0 === 0 pins nothing at all.
-  await capturePosition(page, 0, [["3"], ["3"], ["4"]]);
-  const total = await page.locator("[data-position-id]").count();
-  for (let i = 1; i < total; i++) await capturePosition(page, i);
+  const total = await captureAll(page, [["3"], ["3"], ["4"]]);
 
   await page.getByRole("button", { name: /review and submit/i }).click();
   // Keyed on the code, which CaptureReview carries as a data attribute because
@@ -197,9 +217,10 @@ test("capture continues with the network cut and syncs on reconnect", async ({
 test("an inspection survives a browser restart mid-capture", async ({ page, request }) => {
   const horse = await assignedVehicle(request, "HORSE");
   await startInspection(page, horse.id);
-  await capturePosition(page, 0);
-  await capturePosition(page, 1);
-  await capturePosition(page, 2);
+  await page.locator("[data-position-id]").first().click();
+  await capturePosition(page);
+  await capturePosition(page);
+  await capturePosition(page);
 
   // FR-OFF-006 / NFR-USE-011: the flat-battery case, and the one a driver will
   // never forgive. A reload is a restart as far as the buffer is concerned —
