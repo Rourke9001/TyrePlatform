@@ -21,6 +21,17 @@ import "./capture.css";
 
 type Screen = "start" | "capture" | "review" | "done";
 
+// Two different failures wearing one word. "unavailable" is a device that will
+// not let the app write at all — a private window, an MDM policy — caught
+// before there is any inspection: nothing can be captured, and it does not
+// clear by waiting, because a browser mode is not a transient condition.
+// "degraded" is a write that failed with an inspection already in hand: the
+// readings are on screen and the submit path may still work.
+//
+// One string for both told a driver with no draft to keep an inspection open
+// that does not exist, which under NFR-USE-005 is worse than saying nothing.
+type StorageFault = "unavailable" | "degraded";
+
 interface Outcome {
   state: "sent" | "queued" | "failed";
   lastStatus: number | null;
@@ -40,7 +51,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [storageFailed, setStorageFailed] = useState(false);
+  const [storageFault, setStorageFault] = useState<StorageFault | null>(null);
+  // Bumped by the retry below to re-run the draft load. FR-OFF-013 asks for a
+  // supported recovery action, and for a browser mode the action is a person
+  // changing something and trying again — which is only an offer if something
+  // actually re-attempts.
+  const [storageAttempt, setStorageAttempt] = useState(0);
   // Frozen at mount, for the same reason CaptureStart freezes its own: the
   // diagram asks severityOf once per cell on every render, and a wear-rate
   // comparison must not depend on when React happened to re-render. Day
@@ -71,14 +87,14 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       },
       () => {
         if (dropped) return;
-        setStorageFailed(true);
+        setStorageFault("unavailable");
         setResumed(true);
       },
     );
     return () => {
       dropped = true;
     };
-  }, [vehicleId]);
+  }, [vehicleId, storageAttempt]);
 
   // FR-INS-062's "defaulting to the last recorded composition": the rig a
   // CONTROLLER set, pre-ticked for the driver to confirm. Seeded with EVERY
@@ -172,9 +188,18 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         setDraft((await loadDraft()) ?? null);
         setScreen("capture");
       } catch {
-        setStorageFailed(true);
+        // No draft was written, so there is nothing to keep open and nothing
+        // to send: this is the same standing refusal as a device that would
+        // not let the app read one.
+        setStorageFault("unavailable");
       }
     })();
+  }
+
+  function retryStorage() {
+    setStorageFault(null);
+    setResumed(false);
+    setStorageAttempt((n) => n + 1);
   }
 
   // FR-OFF-005: written as it is typed, not when the position is finished.
@@ -185,7 +210,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     setDraft((d) =>
       d ? { ...d, positions: { ...d.positions, [position.positionId]: position } } : d,
     );
-    void savePosition(position).catch(() => setStorageFailed(true));
+    void savePosition(position).catch(() => setStorageFault("degraded"));
   }
 
   function handleDone(position: DraftPosition) {
@@ -224,7 +249,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         setDraft(null);
         setScreen("done");
       } catch {
-        setStorageFailed(true);
+        // An inspection is in hand and still on screen, so this is recoverable
+        // in a way the pre-start case is not.
+        setStorageFault("degraded");
         setSubmitting(false);
       }
     })();
@@ -271,6 +298,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     body = (
       <CaptureStart
         motive={motive.data}
+        storageBlocked={storageFault === "unavailable"}
         attachedIds={confirmedIds ?? [vehicleId]}
         onToggleAttached={toggleAttached}
         onStart={handleStart}
@@ -358,17 +386,29 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     );
   }
 
-  // Above every branch, not inside one: storageFailed is set from four places
-  // and the driver can be on any of the four screens when it fires. Nested in
-  // one branch, a Start button that throws and a submit that fails while
-  // review re-renders are both silent. Non-blocking on purpose — the readings
-  // are still on screen and still submittable the moment storage comes back.
+  // Above every branch, not inside one: the fault is set from four places and
+  // the driver can be on any of the four screens when it fires. Nested in one
+  // branch, a Start button that throws and a submit that fails while review
+  // re-renders are both silent.
+  //
+  // "degraded" stays non-blocking — the readings are on screen and still
+  // submittable the moment storage comes back, so replacing the screen would
+  // take away the only copy of the driver's work.
   return (
     <>
-      {storageFailed && (
-        <p role="alert" className="cap-alert cap-alert--stop cap-storage">
-          This phone is not saving reliably. Keep the app open until this inspection has been sent.
-        </p>
+      {storageFault !== null && (
+        <div role="alert" className="cap-alert cap-alert--stop cap-storage">
+          <p className="cap-storage-msg">
+            {storageFault === "unavailable"
+              ? "This phone is not letting the app save anything, so an inspection cannot be started. Private browsing or a work-phone setting usually causes this."
+              : "This phone is not saving reliably. Keep the app open until this inspection has been sent."}
+          </p>
+          {storageFault === "unavailable" && (
+            <button type="button" className="cap-secondary" onClick={retryStorage}>
+              Try again
+            </button>
+          )}
+        </div>
       )}
       {body}
     </>
