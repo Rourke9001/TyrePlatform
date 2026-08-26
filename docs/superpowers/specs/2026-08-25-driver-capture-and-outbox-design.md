@@ -213,9 +213,10 @@ per source address.
 | First submit | `201` | server inspection id |
 | Same `client_uuid`, same tenant | `200` | same id, nothing written |
 | Actor lacks `CaptureInspection` | `403` | — |
-| Vehicle not visible in this tenant | `403` | indistinguishable from absent |
+| Vehicle not visible in this tenant | `422` | indistinguishable from absent |
 | Position not on any version of that vehicle's configuration | `422` | names the position |
 | Second inspection inside the FR-INS-038 window | `409` | **permanent**, not retryable |
+| Any other payload shape that can only ever fail | `422` | **permanent**, not retryable |
 | Malformed or oversized body | `400` | — |
 | Rate limit exceeded | `429` | NFR-SEC-007 |
 
@@ -223,6 +224,20 @@ The `409` deserves its own status because the outbox must treat it as a
 permanent failure that surfaces FR-OFF-013's recovery action, not something to
 retry for thirty minutes. Conflating it with `422` or a replay would make the
 outbox hammer a refusal that will never change.
+
+An invisible vehicle answers `422` and not the `403` this table first gave it,
+which is the same argument arriving at the row above. The permanent-refusal
+set named in the outbox section below is `409` and `422`; `403` is not in it,
+so an outbox built to this table would treat a cross-tenant submit as
+retryable, back off, and hammer forever a body that can never succeed. Both
+codes are refusals the driver cannot act around, and only one of them tells
+the queue to stop. The reasoning is general, which is why the catch-all row
+exists: any shape that fails identically on every retry — a value outside
+FR-INS-030/031's ranges, an id this tenant cannot see, a tenant configuration
+the capture geometry cannot honour — must answer `4xx`, whether
+`app.submit_inspection` refuses it by name or a database constraint does.
+Indistinguishability is preserved either way: `422` for an invisible vehicle
+says nothing about whether it exists elsewhere.
 
 Attribution is `app_user.id`. `staff_number` appears nowhere on the write path.
 No monetary field crosses this endpoint in either direction.
