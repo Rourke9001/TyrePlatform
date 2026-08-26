@@ -5,7 +5,11 @@ import { deviceId, toSubmitPayload } from "./payload";
 
 const meta = {
   submittedAt: "2026-08-25T06:14:40Z",
-  granularityMm: 1.0,
+  // Not 1.0: that is also the value a hardcoded literal in the builder would
+  // produce, so a passthrough and a constant would be indistinguishable. 0.5
+  // is a legal granularity (000023_submit_inspection.up.sql accepts 1.0, 0.5
+  // and 0.1) that only a real passthrough can produce.
+  granularityMm: 0.5,
   deviceId: "device-1",
   appVersion: "0.0.0",
   totalPositions: 4,
@@ -101,7 +105,7 @@ describe("toSubmitPayload", () => {
   // FR-INS-021: the granularity in force is stamped onto every reading.
   it("stamps the capture granularity on every reading", () => {
     const p = toSubmitPayload(draft, meta);
-    expect(p.readings.every((r) => r.granularity_mm === 1.0)).toBe(true);
+    expect(p.readings.every((r) => r.granularity_mm === 0.5)).toBe(true);
   });
 
   // NFR-OBS-007 and FR-INS-040: both ride in the payload or they do not exist.
@@ -125,6 +129,16 @@ describe("toSubmitPayload", () => {
   // omitted value is not 'unknown' — it is a false claim of completeness.
   it("reports completeness against every position, not just the ones captured", () => {
     expect(toSubmitPayload(draft, meta).completeness_pct).toBe(50);
+  });
+
+  it("carries the driver's own words and the device that recorded them", () => {
+    const p = toSubmitPayload({ ...draft, defectReport: "brake light out" }, meta);
+    expect(p.comment).toBe("7/8 need replacing");
+    expect(p.defect_report).toBe("brake light out");
+    // Distinct values on purpose: a device_id/app_version swap type-checks.
+    expect(p.device_id).toBe("device-1");
+    expect(p.app_version).toBe("0.0.0");
+    expect(toSubmitPayload(draft, meta).defect_report).toBeNull();
   });
 
   // FR-INS-062/063: what the driver said was attached. The server records a
