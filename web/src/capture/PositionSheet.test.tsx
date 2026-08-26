@@ -55,15 +55,29 @@ const rig: RigPosition = { position, context: ctx, displayNumber: 1 };
 function props(overrides: {
   onChange?: (p: DraftPosition) => void;
   onDone?: (p: DraftPosition) => void;
+  onClose?: () => void;
 }) {
   return {
     rig,
     ctx,
     onChange: overrides.onChange ?? vi.fn(),
     onDone: overrides.onDone ?? vi.fn(),
-    onClose: vi.fn(),
+    onClose: overrides.onClose ?? vi.fn(),
   };
 }
+
+const acknowledged: DraftPosition = {
+  positionId: "p1",
+  vehicleId: "v1",
+  tyreId: null,
+  treads: [3, 3, 4],
+  pressureKpa: 800,
+  pressureTemperature: "UNKNOWN",
+  damageFlag: false,
+  note: null,
+  seconds: 6,
+  warnings: [{ code: "FR-INS-036", enteredValue: "3", response: "ACKNOWLEDGED" }],
+};
 
 // Accessible names are driver-facing too: FIELD_LABEL reaches the driver as an
 // aria-label, never as a text node, so a text-only query cannot see the very
@@ -256,6 +270,85 @@ describe("PositionSheet", () => {
     await advance(250);
 
     expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveAttribute("aria-current", "true");
+  });
+
+  // FR-INS-040 asks what the driver DID about a warning, and closing the sheet
+  // is not acknowledging it. Without this the warning that was on screen never
+  // reaches the draft at all, so the review screen's "what the app found" never
+  // mentions it and the audit record loses the one fact it exists to hold.
+  // app.inspection_warning.response is nullable with no CHECK precisely so
+  // absence can be recorded as absence (000022_inspection_warning).
+  it("records an unanswered warning when the position is closed rather than finished", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    const onDone = vi.fn<(p: DraftPosition) => void>();
+    const onClose = vi.fn();
+    render(<PositionSheet {...props({ onChange, onDone, onClose })} />);
+    await enter(user, ["3", "3", "4"], "800");
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(onDone).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onChange.mock.lastCall?.[0].warnings).toEqual([
+      { code: "FR-INS-036", enteredValue: "3", response: null },
+    ]);
+  });
+
+  // The state at exit, not every warning typed through on the way. A reading
+  // the driver corrected before leaving must not leave an unanswered record
+  // behind — that would put a warning on the review screen for a value that no
+  // longer exists.
+  it("does not record a warning the driver corrected before closing", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onChange })} />);
+    await enter(user, ["3", "5", "6"], "800");
+    expect(screen.getByRole("alert")).toBeTruthy();
+
+    await user.click(screen.getByLabelText("Tread reading 1 of 3"));
+    await user.click(screen.getByRole("button", { name: "7" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onChange.mock.lastCall?.[0].warnings).toEqual([]);
+  });
+
+  // The guard on the exit write, and the reason it is identity against this
+  // mount's own state rather than a flag: a driver who reopens a finished
+  // position to look at it and closes again must not have their recorded
+  // ACKNOWLEDGED downgraded to an unanswered one.
+  it("leaves a finished position's recorded response alone when it is only reopened", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    const onClose = vi.fn();
+    render(<PositionSheet {...props({ onChange, onClose })} initial={acknowledged} />);
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  // The tread bands are final the moment the last reading is in, and a
+  // pressure may never be taken (000023 accepts NULL). Holding the warning
+  // back until then hides it on the diagram as well as here.
+  it("warns on the treads before a pressure has been entered", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<PositionSheet {...props({})} />);
+
+    for (const [i, d] of ["3", "3", "4"].entries()) {
+      await user.click(screen.getByRole("button", { name: d }));
+      await advance(250);
+      const field = screen.getByLabelText(`Tread reading ${i + 1} of 3`);
+      if (field.getAttribute("aria-current") === "true") {
+        await user.click(screen.getByRole("button", { name: /next ›/i }));
+      }
+    }
+
+    expect(screen.getByLabelText("Pressure")).toHaveTextContent("–");
+    expect(screen.getByRole("alert")).toHaveTextContent(/replacement point/i);
   });
 
   // FR-OFF-006: reopening a captured position shows what was entered.

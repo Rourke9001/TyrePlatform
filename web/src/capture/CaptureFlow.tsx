@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { useQueries } from "@tanstack/react-query";
 
@@ -15,7 +16,7 @@ import { appVersion, capturedPositionIds, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { completenessByUnit, rigPositions } from "./rig";
 import type { Severity } from "./warnings";
-import { governingTread, positionWarnings, severityFor } from "./warnings";
+import { governingTread, positionWarnings, severityFor, treadsRead } from "./warnings";
 import "./capture.css";
 
 type Screen = "start" | "capture" | "review" | "done";
@@ -40,6 +41,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [storageFailed, setStorageFailed] = useState(false);
+  // Frozen at mount, for the same reason CaptureStart freezes its own: the
+  // diagram asks severityOf once per cell on every render, and a wear-rate
+  // comparison must not depend on when React happened to re-render. Day
+  // granularity, so an inspection's lifetime cannot move it.
+  const [openedAt] = useState(() => Date.now());
 
   // FR-OFF-006 / NFR-USE-011: a remount is a reload — a killed browser, a
   // phone call, a driver returning after lunch — and it has to find the work.
@@ -119,21 +125,23 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   // warnings: those are written only when a position is finished, so a
   // position saved mid-entry (FR-OFF-005 writes on the first digit) carries an
   // empty list and would draw on the diagram as though it had nothing to flag.
+  //
+  // Banded on treadsRead — the same predicate the header count, the tallies and
+  // the payload use. Requiring a pressure here as well would draw a
+  // tread-complete position with no pressure as "Not done" while the header
+  // above it counted the same position as done, and would hide FR-INS-036 on a
+  // cell the app has every number it needs to raise.
   function severityOf(positionId: string): Severity {
     const saved = draft?.positions[positionId];
     const r = byId.get(positionId);
     if (!saved || !r) return "unmeasured";
     const entry = { treads: saved.treads, pressureKpa: saved.pressureKpa };
-    const complete =
-      saved.treads.length === r.context.config.treadReadingCount &&
-      saved.treads.every((t) => t !== null) &&
-      saved.pressureKpa !== null;
     return severityFor(
       [
         ...positionWarnings(entry, r.position, r.context.config),
-        ...historyWarnings(entry, r.position, r.context, new Date()),
+        ...historyWarnings(entry, r.position, r.context, new Date(openedAt)),
       ],
-      complete,
+      treadsRead(saved.treads),
     );
   }
 
@@ -193,10 +201,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         await saveHeader(patch);
         const entry = await queueDraft({
           submittedAt: new Date().toISOString(),
-          // The motive unit's configured granularity, stamped on every reading
-          // (FR-INS-021). A rig whose members are configured differently would
-          // mislabel the towed unit's readings; the payload carries one value
-          // for the inspection (payload.ts).
+          // The configured granularity, stamped on every reading (FR-INS-021).
+          // The payload carries one value for the whole inspection (payload.ts).
           granularityMm: motiveCtx.config.treadGranularityMm,
           deviceId: deviceId(),
           appVersion,
@@ -231,16 +237,13 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     });
   }
 
+  let body: ReactNode;
   if (screen === "done" && outcome) {
-    return <CaptureDone state={outcome.state} lastStatus={outcome.lastStatus} />;
-  }
-
-  if (!resumed || motive.isPending) {
-    return <p className="cap-wait">Loading…</p>;
-  }
-
-  if (held) {
-    return (
+    body = <CaptureDone state={outcome.state} lastStatus={outcome.lastStatus} />;
+  } else if (!resumed || motive.isPending) {
+    body = <p className="cap-wait">Loading…</p>;
+  } else if (held) {
+    body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
           An inspection for another vehicle is still open on this phone. Finish that one first.
@@ -250,13 +253,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         </a>
       </section>
     );
-  }
-
-  // NFR-AVL-002: starting requires the server. Capture and submit do not, but
-  // a driver must not start against reference data that never arrived — every
-  // threshold would be missing and every warning would silently never fire.
-  if (motive.isError || !motive.data) {
-    return (
+  } else if (motive.isError || !motive.data) {
+    // NFR-AVL-002: starting requires the server. Capture and submit do not, but
+    // a driver must not start against reference data that never arrived — every
+    // threshold would be missing and every warning would silently never fire.
+    body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
           Could not load this vehicle. Find signal and try again.
@@ -266,10 +267,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         </button>
       </section>
     );
-  }
-
-  if (screen === "start") {
-    return (
+  } else if (screen === "start") {
+    body = (
       <CaptureStart
         motive={motive.data}
         attachedIds={confirmedIds ?? [vehicleId]}
@@ -277,24 +276,18 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         onStart={handleStart}
       />
     );
-  }
-
-  if (membersFailed) {
-    return (
+  } else if (membersFailed) {
+    body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
           Could not load the rest of the rig. Find signal and try again — your readings are saved.
         </p>
       </section>
     );
-  }
-
-  if (!contexts || !draft) {
-    return <p className="cap-wait">Loading…</p>;
-  }
-
-  if (screen === "review") {
-    return (
+  } else if (!contexts || !draft) {
+    body = <p className="cap-wait">Loading…</p>;
+  } else if (screen === "review") {
+    body = (
       <CaptureReview
         contexts={contexts}
         draft={draft}
@@ -303,71 +296,82 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         onSubmit={handleSubmit}
       />
     );
-  }
-
-  return (
-    <section className="cap-screen cap-capture" aria-labelledby="capture-heading">
-      <header className="cap-screen-head">
-        <p className="cap-eyebrow">{motiveCtx?.fleetNumber}</p>
-        {/* FR-INS-065: progress belongs above the diagram, not only at review.
+  } else {
+    body = (
+      <section className="cap-screen cap-capture" aria-labelledby="capture-heading">
+        <header className="cap-screen-head">
+          <p className="cap-eyebrow">{motiveCtx?.fleetNumber}</p>
+          {/* FR-INS-065: progress belongs above the diagram, not only at review.
             A driver mid-walk-around needs to know which unit is short while
             they are still standing next to it. */}
-        <h1 id="capture-heading" className="cap-screen-title">
-          {doneCount} of {totalPositions} done
-        </h1>
-        {units.length > 1 && (
-          <ul className="cap-tally">
-            {units.map((u) => (
-              <li key={u.vehicleId} className="cap-tally-row">
-                <span className="cap-tally-id">{u.fleetNumber}</span>
-                <span className="cap-tally-count">
-                  {u.done}/{u.total}
-                </span>
-                <span className="cap-tally-note">
-                  {u.done === u.total ? "all done" : `${u.total - u.done} left`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-        {storageFailed && (
-          <p role="alert" className="cap-alert cap-alert--stop">
-            This phone stopped saving. Finish and send now, before you close the app.
-          </p>
-        )}
-      </header>
+          <h1 id="capture-heading" className="cap-screen-title">
+            {doneCount} of {totalPositions} done
+          </h1>
+          {units.length > 1 && (
+            <ul className="cap-tally">
+              {units.map((u) => (
+                <li key={u.vehicleId} className="cap-tally-row">
+                  <span className="cap-tally-id">{u.fleetNumber}</span>
+                  <span className="cap-tally-count">
+                    {u.done}/{u.total}
+                  </span>
+                  <span className="cap-tally-note">
+                    {u.done === u.total ? "all done" : `${u.total - u.done} left`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </header>
 
-      <CaptureDiagram
-        positions={rig}
-        severityOf={severityOf}
-        governingOf={governingOf}
-        onOpen={setActiveId}
-        activeId={activeId}
-      />
+        <CaptureDiagram
+          positions={rig}
+          severityOf={severityOf}
+          governingOf={governingOf}
+          onOpen={setActiveId}
+          activeId={activeId}
+        />
 
-      <button type="button" className="cap-primary" onClick={() => setScreen("review")}>
-        Review and submit ›
-      </button>
+        <button type="button" className="cap-primary" onClick={() => setScreen("review")}>
+          Review and submit ›
+        </button>
 
-      {/* Laid over the diagram rather than replacing it: the active cell is
+        {/* Laid over the diagram rather than replacing it: the active cell is
           the driver's place-keeper across 27 positions, and remounting the
           picture on every position is both slower and a new screen to
           re-read. Keyed on the position so reopening one gets a fresh sheet
           seeded from the draft rather than the previous position's state. */}
-      {active && (
-        <div className="cap-sheet-layer">
-          <PositionSheet
-            key={active.position.id}
-            rig={active}
-            ctx={active.context}
-            initial={draft.positions[active.position.id]}
-            onChange={handleChange}
-            onDone={handleDone}
-            onClose={() => setActiveId(null)}
-          />
-        </div>
+        {active && (
+          <div className="cap-sheet-layer">
+            <PositionSheet
+              key={active.position.id}
+              rig={active}
+              ctx={active.context}
+              initial={draft.positions[active.position.id]}
+              onChange={handleChange}
+              onDone={handleDone}
+              onClose={() => setActiveId(null)}
+            />
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  // Above every branch, not inside one: storageFailed is set from four places
+  // and the driver can be on any of the four screens when it fires. Nested in
+  // one branch, a Start button that throws and a submit that fails while
+  // review re-renders are both silent. Non-blocking on purpose — the readings
+  // are still on screen and still submittable the moment storage comes back.
+  return (
+    <>
+      {storageFailed && (
+        <p role="alert" className="cap-alert cap-alert--stop cap-storage">
+          This phone is not saving reliably. Keep the app open until this inspection has been sent.
+        </p>
       )}
-    </section>
+      {body}
+    </>
   );
 }
 

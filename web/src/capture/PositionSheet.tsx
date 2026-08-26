@@ -5,7 +5,7 @@ import type { RigPosition } from "./rig";
 import type { DraftPosition, RecordedWarning } from "./draft";
 import type { EntryKey, EntryState } from "./entry";
 import { applyKey, newEntryState } from "./entry";
-import { governingTread, positionWarnings, severityFor } from "./warnings";
+import { governingTread, isComplete, positionWarnings, severityFor, treadsRead } from "./warnings";
 import { historyWarnings } from "./history";
 import { Keypad } from "./Keypad";
 import "./capture.css";
@@ -61,7 +61,7 @@ export function PositionSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [state, rig.position, ctx],
   );
-  const complete = state.treads.every((t) => t !== null) && state.pressureKpa !== null;
+  const complete = isComplete(entry, count);
   const held = complete && warnings.length > 0 && !acknowledged;
 
   function snapshot(from: EntryState, recorded: RecordedWarning[] = []): DraftPosition {
@@ -127,6 +127,31 @@ export function PositionSheet({
   }
   useEffect(() => () => window.clearTimeout(timer.current), []);
 
+  // FR-INS-040 asks what the driver DID about a warning, and walking away
+  // without answering is one of the answers the record has to be able to hold.
+  // finish() records ACKNOWLEDGED/CONFIRMED; this is the other exit, and it
+  // writes the warnings still standing with a null response — the state at
+  // exit, recomputed from the current entry, so a value the driver corrected
+  // on the way leaves no unanswered record behind.
+  //
+  // Guarded on the same identity the incremental save uses: an untouched visit
+  // must not overwrite the responses a previous, finished visit recorded.
+  function close() {
+    if (state !== initialState.current) {
+      onChange(
+        snapshot(
+          state,
+          warnings.map((w) => ({
+            code: w.code,
+            enteredValue: w.enteredValue,
+            response: null,
+          })),
+        ),
+      );
+    }
+    onClose();
+  }
+
   function finish() {
     if (!complete) return;
     // FR-INS-040: the warning was displayed and the driver acted on it. One
@@ -143,7 +168,10 @@ export function PositionSheet({
   }
 
   const governing = governingTread(state.treads);
-  const severity = severityFor(warnings, complete);
+  // Banded on the treads, like the diagram cell this sheet zooms in on: a
+  // below-removal reading has to look urgent the moment it is legible, not
+  // once a pressure the driver may never take has been typed.
+  const severity = severityFor(warnings, treadsRead(state.treads));
 
   return (
     <section className="cap-sheet" aria-label={`Position ${rig.displayNumber ?? "spare"}`}>
@@ -158,7 +186,7 @@ export function PositionSheet({
           {rig.context.fleetNumber} · {rig.position.axleClass.toLowerCase()}
           {rig.position.tyreCode ? ` · ${rig.position.tyreCode}` : ""}
         </p>
-        <button type="button" className="cap-iconbtn" aria-label="Close" onClick={onClose}>
+        <button type="button" className="cap-iconbtn" aria-label="Close" onClick={close}>
           ✕
         </button>
       </header>

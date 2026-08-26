@@ -327,14 +327,6 @@
   border-left-color: var(--status-below-removal);
   background: color-mix(in srgb, var(--status-below-removal) 10%, var(--surface));
 }
-/* Reachable when a history warning fires on the treads (FR-INS-034/035)
-   before pressure is typed: the position is still "unmeasured" overall, but
-   the driver needs to see the warning as soon as it is true, not held back
-   until the last field is filled. */
-.cap-alert--unmeasured {
-  border-left-color: var(--status-unmeasured);
-  border-left-style: dashed;
-}
 .cap-alert--ok {
   border-left-color: var(--status-roadworthy);
   background: color-mix(in srgb, var(--status-roadworthy) 8%, var(--surface));
@@ -683,6 +675,13 @@
 }
 .cap-secondary:active {
   background: var(--surface-sunken);
+}
+
+/* Hoisted above the screen switch, so it reaches all four screens rather than
+   the one it happens to be nested in. Full-width and at the top: it is the
+   only thing on any capture screen that outranks the driver's own work. */
+.cap-storage {
+  margin: var(--space-3) var(--space-3) 0;
 }
 
 /* A refusal or a dead connection, in the same accent-bar grammar as the entry

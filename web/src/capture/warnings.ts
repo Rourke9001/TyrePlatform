@@ -34,8 +34,27 @@ export interface PositionEntry {
 
 export type Severity = "roadworthy" | "caution" | "below-removal" | "unmeasured";
 
-const complete = (e: PositionEntry, count: number) =>
-  e.treads.length === count && e.treads.every((t) => t !== null) && e.pressureKpa !== null;
+// The one definition of done. Every surface that counts, bands or submits a
+// position reads it: the payload filters on it (payload.ts), the tallies count
+// it, and the diagram bands on it. Pressure is deliberately not part of it —
+// 000023 accepts a NULL pressure by design, so a position with its treads read
+// and no pressure is captured and is sent, and calling it unmeasured would hide
+// a tread band the app already holds every number for.
+export function treadsRead(treads: (number | null)[]): boolean {
+  return treads.length > 0 && treads.every((t) => t !== null);
+}
+
+// Every field on the sheet answered, which only the sheet itself needs:
+// FR-INS-040 holds the driver on a warning once there is nothing left to type,
+// and a pressure band cannot be asserted from a reading never taken. Kept
+// apart from treadsRead so the difference is a decision rather than a drift.
+export function isComplete(entry: PositionEntry, treadReadingCount: number): boolean {
+  return (
+    entry.treads.length === treadReadingCount &&
+    treadsRead(entry.treads) &&
+    entry.pressureKpa !== null
+  );
+}
 
 // BR-INS-003. The client shows this; the database derives its own from the
 // measurements and the payload never carries it (CR-011, DR-017).
@@ -58,8 +77,12 @@ export function positionWarnings(
 ): Warning[] {
   // Warning on a half-entered position would fire on the first digit of a
   // number that is about to become fine, which trains drivers to dismiss
-  // warnings without reading them.
-  if (!complete(entry, config.treadReadingCount)) return [];
+  // warnings without reading them. Gated on the treads, not on the whole
+  // sheet: once all of them are in, the tread bands are final, and holding
+  // FR-INS-036 back until a pressure is typed hides it on a position where the
+  // driver may never take one. The pressure block below keeps its own guard,
+  // so a missing reading is still never banded.
+  if (entry.treads.length !== config.treadReadingCount || !treadsRead(entry.treads)) return [];
 
   const out: Warning[] = [];
   const governing = governingTread(entry.treads);
@@ -131,8 +154,12 @@ export function positionWarnings(
 // Colour is never the only encoding (NFR-USE-009) — this names the state and
 // the component pairs it with a text badge. The names are the fixed band names
 // in theme/tokens.ts; the millimetres that reach them are tenant configuration.
-export function severityFor(warnings: Warning[], isComplete: boolean): Severity {
-  if (!isComplete) return "unmeasured";
+//
+// `measured` asks whether the treads have been read, not whether every field on
+// the sheet is filled. "unmeasured" is the absence of a measurement, and a
+// position carrying three readings has one whether or not a pressure was taken.
+export function severityFor(warnings: Warning[], measured: boolean): Severity {
+  if (!measured) return "unmeasured";
   if (warnings.some((w) => w.code === "FR-INS-036")) return "below-removal";
   return warnings.length > 0 ? "caution" : "roadworthy";
 }

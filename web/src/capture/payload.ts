@@ -1,4 +1,5 @@
 import type { Draft, DraftPosition, RecordedWarning } from "./draft";
+import { treadsRead } from "./warnings";
 
 // Wire shape of POST /api/inspections. snake_case because the body reaches
 // app.submit_inspection(jsonb) and is read with SQL-style keys — deliberately
@@ -118,9 +119,10 @@ function durationSeconds(startedAt: string, submittedAt: string): number | null 
 //
 // Exported because the capture screens count progress with it too (FR-INS-065).
 // A second predicate there would let the driver read "10 of 10 done" off one
-// definition while completeness_pct was computed from another.
+// definition while completeness_pct was computed from another — so this is the
+// draft-shaped adapter over treadsRead (warnings.ts), never a second rule.
 export function isCaptured(position: DraftPosition): boolean {
-  return position.treads.length > 0 && position.treads.every((t) => t !== null);
+  return treadsRead(position.treads);
 }
 
 // The positions a submit would actually carry, keyed for the completeness
