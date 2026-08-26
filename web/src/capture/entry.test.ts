@@ -75,21 +75,32 @@ describe("applyKey at whole-millimetre granularity", () => {
     expect(r.state.field).toBe(2);
   });
 
-  // Boundary-exact test R-12a: 35mm is the valid ceiling, and the settle rule
-  // uses strict >, not >=. After digit 3: 30 > 35 is false, so it waits.
-  // After digit 5: 35 > 35 is false so the value is kept; then 350 > 35 is
-  // true so it settles.
+  // 35mm is the valid ceiling, and the settle rule uses strict >, not >=.
+  // After digit 3: 30 > 35 is false, so it waits. After digit 5: 35 > 35 is
+  // false so the value is kept; then 350 > 35 is true so it settles.
   it("settles on 35mm at the ceiling without overflow", () => {
     const { state, settled } = type(newEntryState(3), "35", whole);
     expect(state.treads[0]).toBe(35);
     expect(settled).toBe(true);
   });
 
-  // Boundary-exact test R-12b: 36mm overflows the ceiling, so it restarts on
-  // the digit just pressed (6).
-  it("restarts on 36mm just over the ceiling", () => {
-    const { state } = type(newEntryState(3), "36", whole);
+  // 36mm overflows the ceiling, so it restarts on the digit just pressed
+  // (6), and the restart must itself settle: 60 > 35, so no further digit
+  // could change 6mm, and a driver correcting a mistype should not also
+  // have to tap next.
+  it("restarts on 36mm just over the ceiling and settles on the restart", () => {
+    const { state, settled } = type(newEntryState(3), "36", whole);
     expect(state.treads[0]).toBe(6);
+    expect(settled).toBe(true);
+  });
+
+  // Guards the Math.min clamp in the next case: without it, advancing from
+  // the pressure field would push field to 4, one past the last valid index,
+  // and the next digit typed would write beyond the treads array.
+  it("does not advance the field past pressure on next", () => {
+    const atPressure = { ...newEntryState(3), field: 3 };
+    const r = applyKey(atPressure, { type: "next" }, whole);
+    expect(r.state.field).toBe(3);
   });
 });
 
@@ -115,17 +126,19 @@ describe("applyKey on the pressure field", () => {
     expect(state.pressureKpa).toBe(1000);
   });
 
-  // Boundary-exact test R-12c: 1200 kPa is the valid ceiling, and at three
-  // digits 1200 > 1200 is false so the field must NOT settle early — a fourth
-  // digit is still possible and the driver must be able to enter 1200.
-  it("waits on 1200 kPa and does not settle at three digits", () => {
-    const { state, settled } = type(atPressure(), "120", whole);
-    expect(state.pressureKpa).toBe(120);
-    expect(settled).toBe(false);
+  // FR-INS-031's ceiling is 1200 exactly. Reaching it requires the restart
+  // comparison (grown > ceiling) to stay false at exactly 1200 — a mutation
+  // to >= here would treat 1200 as an overflow and wipe it back to 0 on the
+  // fourth digit. The "waits for a fourth digit" test above pins the settle
+  // half of the boundary; this test pins the restart half.
+  it("reaches 1200 kPa exactly and settles on the fourth digit", () => {
+    const { state, settled } = type(atPressure(), "1200", whole);
+    expect(state.pressureKpa).toBe(1200);
+    expect(settled).toBe(true);
   });
 
-  // Boundary-exact test R-12d: 1201 kPa overflows the ceiling, so it restarts
-  // on the digit just pressed (1).
+  // 1201 kPa overflows the ceiling, so it restarts on the digit just
+  // pressed (1).
   it("restarts on 1201 kPa just over the ceiling", () => {
     const { state } = type(atPressure(), "1201", whole);
     expect(state.pressureKpa).toBe(1);
@@ -159,5 +172,27 @@ describe("applyKey at other granularities (FR-CFG-027)", () => {
     const { state } = type(newEntryState(3), "13", whole);
     const r = applyKey(state, { type: "half" }, whole);
     expect(r.state.treads[0]).toBe(13);
+  });
+
+  // Guards the `current === null` check in the half case: without it,
+  // Math.floor(null) coerces to 0 and the field is silently written 0.5 — a
+  // reading the driver never entered.
+  it("ignores the half key on an empty tread field", () => {
+    const r = applyKey(newEntryState(3), { type: "half" }, halves);
+    expect(r.state.treads[0]).toBeNull();
+    expect(r.settled).toBe(false);
+  });
+
+  // Guards the isPressure half of the half case's first check: without it,
+  // indexing the treads array at the pressure field's index yields
+  // undefined, which is not === null, so Math.floor(undefined) writes NaN
+  // into a slot past the end of the treads array. That write lands in
+  // treads, not pressureKpa, so it is the settled assertion below — not the
+  // pressureKpa one — that discriminates the guard being removed.
+  it("ignores the half key while focused on the pressure field", () => {
+    const atPressure = { ...newEntryState(3), field: 3 };
+    const r = applyKey(atPressure, { type: "half" }, halves);
+    expect(r.state.pressureKpa).toBeNull();
+    expect(r.settled).toBe(false);
   });
 });
