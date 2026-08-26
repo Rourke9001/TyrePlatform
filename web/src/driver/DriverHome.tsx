@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 
 import { apiGet } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
@@ -36,9 +37,14 @@ export function DriverHome() {
           <ul>
             {tasks.data.map((t) => (
               <li key={t.id}>
-                {t.fleetNumber} — due {new Date(t.dueAt).toLocaleDateString()}
-                {/* Never colour alone (NFR-USE-009): overdue says so in words. */}
-                {t.overdue ? " (overdue)" : ""}
+                {/* The whole task is the target: this is the one tap between a
+                    driver opening the app and entering their first reading,
+                    and it carries the task so submitting can close it. */}
+                <Link to={`/capture/${t.vehicleId}?taskId=${t.id}`}>
+                  {t.fleetNumber} — due {new Date(t.dueAt).toLocaleDateString()}
+                  {/* Never colour alone (NFR-USE-009): overdue says so in words. */}
+                  {t.overdue ? " (overdue)" : ""}
+                </Link>
               </li>
             ))}
           </ul>

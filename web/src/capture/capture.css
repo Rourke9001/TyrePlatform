@@ -410,3 +410,505 @@
 .cap-key--warn:active {
   background: color-mix(in srgb, var(--status-caution) 80%, var(--ink));
 }
+/* ------------------------------------------------- start / review / done */
+
+/* One column, thumb-width. The capture screens are the only part of this
+   application designed for a phone held one-handed, so the measure is capped
+   rather than filling a desktop window a driver will never use it in. */
+.cap-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: var(--space-3) var(--space-3) var(--space-5);
+}
+
+.cap-screen-head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cap-eyebrow {
+  margin: 0;
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.cap-screen-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-display);
+  line-height: 1.05;
+  color: var(--ink);
+}
+
+.cap-screen-sub {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.cap-hint {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
+/* NFR-PRV-006's sentence. Set apart from the hints so it reads as a statement
+   about the device rather than as guidance about the field above it. */
+.cap-notice {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 4px solid var(--line);
+  background: var(--surface-sunken);
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  line-height: 1.35;
+  color: var(--ink-muted);
+}
+
+.cap-wait {
+  margin: 0;
+  padding: var(--space-5) var(--space-3);
+  text-align: center;
+  font-family: var(--font-condensed);
+  font-size: var(--text-title);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+/* A grouped block of one decision. fieldset's own border and padding are
+   reset rather than styled: the grouping is carried by the surface, and the
+   default border draws a box around the legend that fights the eyebrow. */
+.cap-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.cap-card > legend {
+  padding: 0 var(--space-1);
+}
+
+/* The one loud element on the start screen, and the only place a wrong digit
+   silently corrupts a wear rate for months (FR-INS-032/033, BR-ANL-004). Set
+   as the instrument the driver has just read: mono, tabular, grouped in threes
+   so they can check their place mid-transcription without recounting. */
+.cap-odo {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--text-display);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+}
+
+/* The placeholder drum reads as "nothing entered", the same distinction the
+   entry sheet's empty field makes (.cap-fld-v.is-empty). */
+.cap-odo.is-empty {
+  color: var(--ink-muted);
+  font-weight: 400;
+}
+
+.cap-odo-unit {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-eyebrow);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.cap-members {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The whole row is the target, not the box: NFR-USE-004's 44px floor applies
+   to what a gloved thumb actually has to hit, and a bare checkbox is 16px. */
+.cap-member,
+.cap-confirm {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 44px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-control);
+  cursor: pointer;
+}
+
+.cap-member:active,
+.cap-confirm:active {
+  background: var(--surface-sunken);
+}
+
+.cap-confirm {
+  align-items: flex-start;
+  padding-top: var(--space-2);
+}
+
+.cap-confirm > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cap-confirm-msg {
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+/* Scaled up rather than replaced by a styled span: a real checkbox keeps the
+   ticked/unticked distinction in shape, which is the non-colour channel
+   NFR-USE-009 asks for, and keeps the control keyboard-operable for free. */
+.cap-check {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+
+/* The motive unit's box is disabled because it cannot be unticked
+   (FR-INS-064), not because it is unavailable — dimming it would say the
+   opposite of what it means. */
+.cap-check:disabled {
+  opacity: 1;
+}
+
+.cap-member-id {
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: var(--text-title);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.cap-member-note {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+/* 56px matches the keypad's go key and the diagram's cells, so the largest
+   control on a screen is always the same size wherever the driver is. */
+.cap-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 56px;
+  padding: 0 var(--space-4);
+  appearance: none;
+  margin: 0;
+  border: 2px solid var(--primary);
+  border-radius: var(--radius-control);
+  background: var(--primary);
+  color: var(--on-primary);
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: var(--text-title);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cap-primary:active {
+  background: var(--primary-pressed);
+  border-color: var(--primary-pressed);
+}
+
+/* Unavailable says so in shape as well as tone: the fill drops out and the
+   border goes neutral, so it still reads as unavailable in greyscale and in
+   direct sun (NFR-USE-009). */
+.cap-primary:disabled {
+  border-color: var(--line);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  cursor: default;
+}
+
+.cap-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  appearance: none;
+  margin: 0;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cap-secondary:active {
+  background: var(--surface-sunken);
+}
+
+/* A refusal or a dead connection, in the same accent-bar grammar as the entry
+   sheet's warnings. Not a tread band: the below-removal colour is borrowed for
+   its stopping power, and the band modifiers stay keyed to band names. */
+.cap-alert--stop {
+  border-left-color: var(--status-below-removal);
+  background: color-mix(in srgb, var(--status-below-removal) 10%, var(--surface));
+}
+
+/* FR-INS-065's per-unit tally. A row, not a sentence: on a superlink there are
+   four of these and a driver reads them as a column of numbers. */
+.cap-tally {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cap-tally-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-left: 4px solid var(--line);
+  background: var(--surface-sunken);
+}
+
+.cap-tally-id {
+  flex: 1;
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.cap-tally-count {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-size: var(--text-body);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+}
+
+.cap-tally-note {
+  min-width: 5rem;
+  text-align: right;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.cap-flags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cap-flag {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-left: 4px solid var(--status-caution);
+  background: color-mix(in srgb, var(--status-caution) 10%, var(--surface));
+}
+
+.cap-flag-where {
+  flex: none;
+  min-width: 6rem;
+  font-family: var(--font-condensed);
+  font-weight: 700;
+  font-size: var(--text-small);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.cap-flag-what {
+  flex: 1;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  line-height: 1.3;
+  color: var(--ink);
+}
+
+.cap-flag-val {
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-muted);
+}
+
+.cap-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.cap-field-label {
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-body);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+/* The only place in the capture app that opens the OS keyboard, and it is
+   deliberate: prose has no thumb keypad. Both boxes are optional and neither
+   sits on the 108-entry path (FR-INS-030a/030b). */
+.cap-textarea {
+  width: 100%;
+  padding: var(--space-2);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+  resize: vertical;
+}
+
+/* NFR-USE-010: the outcome is the whole screen. A driver glancing at a phone
+   at arm's length in the sun reads the mark, then the sentence. */
+.cap-done {
+  align-items: center;
+  text-align: center;
+  padding-top: var(--space-5);
+}
+
+.cap-done-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  margin: 0;
+  border-radius: 50%;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-display);
+  line-height: 1;
+}
+
+.cap-done-mark--ok {
+  border: 3px solid var(--status-roadworthy);
+  background: color-mix(in srgb, var(--status-roadworthy) 14%, var(--surface));
+  color: var(--status-roadworthy);
+}
+
+.cap-done-mark--stop {
+  border: 3px solid var(--status-below-removal);
+  background: color-mix(in srgb, var(--status-below-removal) 14%, var(--surface));
+  color: var(--status-below-removal);
+}
+
+.cap-done-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--text-display);
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.cap-done-body {
+  margin: 0;
+  max-width: 24rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  line-height: 1.4;
+  color: var(--ink-muted);
+}
+
+/* The diagram stays mounted underneath: the active cell is the driver's place
+   in a 27-position walk-around, and rebuilding the picture between positions
+   is both slower and a new screen to re-read. */
+.cap-sheet-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  overflow-y: auto;
+  background: var(--surface);
+}
+
+/* Mounted in the shell, so it is the one piece of capture that appears on
+   every screen. Kept to a single band: it is a status line, not a panel, and
+   it must never push the driver's work below the fold. */
+.cap-outbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-sunken);
+}
+
+.cap-outbox-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* NFR-USE-009: the count is the message. There is no badge to read a colour
+   off, because in direct sun there is no colour to read. */
+.cap-outbox-line {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  line-height: 1.3;
+  color: var(--ink-muted);
+}
+
+.cap-outbox-line--stop {
+  font-weight: 600;
+  color: var(--status-below-removal);
+}
+
+.cap-outbox-sync {
+  flex: none;
+}

@@ -119,6 +119,15 @@ describe("AppRoutes", () => {
     expect(new Headers(init?.headers).get("X-User-ID")).toBe(devActorId);
   });
 
+  // /capture is the one route that refuses out loud. A menu item may hide
+  // silently, but somebody who followed a link to a destination and got a blank
+  // screen has no way to tell refusal from a broken app (NFR-USE-005). The
+  // server re-checks the capability regardless (NFR-SEC-006).
+  it("explains a refusal at /capture rather than rendering nothing", () => {
+    renderAt("/capture/11111111-1111-1111-1111-111111111111", actor(["ViewFleet"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
+  });
+
   // The redirect is one-shot, so a decision taken before GET /api/me answers
   // is never revised. Mounting the real provider is the only way to exercise
   // that: renderAt injects the actor synchronously and cannot see this class

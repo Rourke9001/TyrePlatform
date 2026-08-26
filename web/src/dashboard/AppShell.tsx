@@ -11,6 +11,7 @@ import {
   setDevTenantId,
 } from "../api/devTenant";
 import { useActor } from "../auth/actorContext";
+import { OutboxIndicator } from "../capture/OutboxIndicator";
 import { navItemsFor } from "../shell/navigation";
 import { useBranding } from "../theme/themeContext";
 import "./dashboard.css";
@@ -133,6 +134,11 @@ export function AppShell({ children }: { children: ReactNode }) {
         <DevTenantSwitcher />
         <DevActorSwitcher />
       </header>
+      {/* Above the nav and outside the routes: a driver who has navigated away
+          from capture still has to be told that an inspection is waiting to
+          send, and which one needs a person (FR-OFF-010/013). It renders
+          nothing when the queue is empty. */}
+      <OutboxIndicator />
       <MainNav />
       <main className="shell-main">{children}</main>
     </div>

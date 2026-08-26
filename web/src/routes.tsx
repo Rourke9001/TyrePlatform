@@ -1,7 +1,8 @@
-import { Navigate, Route, Routes } from "react-router";
+import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router";
 
 import { useActorSettled, useCan } from "./auth/actorContext";
 import { RequireCapability } from "./auth/RequireCapability";
+import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
 import { VehicleList } from "./dashboard/VehicleList";
 
@@ -21,6 +22,24 @@ function Landing() {
   return canViewFleet ? <Navigate to="/fleet" replace /> : <Navigate to="/my" replace />;
 }
 
+// FR-INS-048's one tap into the work. The vehicle is in the path and the task
+// is a query parameter because an inspection can be started off a task or off
+// the vehicle alone (FR-INS-049) — the same screen, with or without a task to
+// close.
+function CaptureRoute() {
+  const { vehicleId } = useParams();
+  const [params] = useSearchParams();
+  const can = useCan("CaptureInspection");
+  const settled = useActorSettled();
+  if (!settled) return null;
+  // A blank screen is not NFR-USE-005. RequireCapability hides silently,
+  // which is right for a menu item and wrong for a destination someone
+  // navigated to.
+  if (!can) return <p role="alert">You do not have permission to capture inspections.</p>;
+  if (!vehicleId) return <NotFound />;
+  return <CaptureFlow vehicleId={vehicleId} taskId={params.get("taskId")} />;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -34,6 +53,7 @@ export function AppRoutes() {
         }
       />
       <Route path="/my" element={<DriverHome />} />
+      <Route path="/capture/:vehicleId" element={<CaptureRoute />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );

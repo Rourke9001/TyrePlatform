@@ -90,12 +90,21 @@ export function fetchCaptureContext(vehicleId: string): Promise<CaptureContext> 
 // the session, and FR-OFF-003 refreshes it on app-open and on demand — never
 // on a timer that could fire mid-walk-around and change a threshold under the
 // driver's feet. Tanstack Query holds it in memory; nothing here persists.
-export function useCaptureContext(vehicleId: string) {
-  return useQuery({
+//
+// The options are a function rather than inlined in the hook because a rig is
+// fetched as a set (useQueries, one call per confirmed member unit) while a
+// solo unit is fetched as one. Both must produce the same queryKey or the
+// motive unit is fetched twice over a depot connection.
+export function captureContextQuery(vehicleId: string) {
+  return {
     queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId],
     queryFn: () => fetchCaptureContext(vehicleId),
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnWindowFocus: false,
-  });
+  };
+}
+
+export function useCaptureContext(vehicleId: string) {
+  return useQuery(captureContextQuery(vehicleId));
 }
