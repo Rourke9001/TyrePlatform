@@ -30,6 +30,15 @@
   letter-spacing: var(--tracking-eyebrow);
 }
 
+/* The unit's own identity leads and stands out in full ink; the
+   configuration label after it inherits .cap-unitband's muted styling
+   unchanged — see CaptureDiagram.tsx's UnitGroup comment for why the two may
+   never collapse into one string. */
+.cap-unitband-id {
+  font-weight: 700;
+  color: var(--ink);
+}
+
 /* The coupling mark between member units — see CaptureDiagram.tsx's
    CouplingMark for why it exists. Neutral ink-muted, same as the rest of the
    diagram's structural (non-severity) marks. */

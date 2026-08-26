@@ -217,6 +217,9 @@ describe("CaptureFlow", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/connect|signal|load/i);
     expect(screen.queryByRole("button", { name: /start inspection/i })).toBeNull();
+    // The storage alert's own retry can render at the same time (see the
+    // stacked test below), so this one has to name its own action.
+    expect(screen.getByRole("button", { name: /reload vehicle/i })).toBeInTheDocument();
   });
 
   // NFR-USE-010: success is stated, not implied.
@@ -366,7 +369,7 @@ describe("CaptureFlow", () => {
     // there is no inspection to keep open, so it is an instruction that
     // cannot be followed, which NFR-USE-005 rates below saying nothing.
     expect(alert).not.toHaveTextContent(/keep the app open/i);
-    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /recheck storage/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
   });
 
@@ -381,7 +384,7 @@ describe("CaptureFlow", () => {
     await screen.findByRole("alert");
 
     blocked.mockRestore();
-    await user.click(screen.getByRole("button", { name: /try again/i }));
+    await user.click(screen.getByRole("button", { name: /recheck storage/i }));
 
     await waitFor(() =>
       expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled(),
@@ -400,7 +403,7 @@ describe("CaptureFlow", () => {
     renderFlow();
     await screen.findByRole("alert");
 
-    await user.click(screen.getByRole("button", { name: /try again/i }));
+    await user.click(screen.getByRole("button", { name: /recheck storage/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/cannot be started/i);
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
@@ -418,6 +421,21 @@ describe("CaptureFlow", () => {
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/cannot be started/i);
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+  });
+
+  // The storage alert is hoisted above the screen switch (CaptureFlow's
+  // return, below) while the context-fetch failure renders inside it, so a
+  // locked-down phone with no signal shows both retries at once. Two
+  // controls that read the same leave a driver guessing which tap does
+  // what, so this asserts the names differ, not just that two buttons exist.
+  it("names each retry by what it retries when storage and the context fetch both fail", async () => {
+    stubApi(201, []); // nothing served: every GET 404s, so motive.isError becomes true
+    vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
+    renderFlow();
+
+    const reloadVehicle = await screen.findByRole("button", { name: /reload vehicle/i });
+    const recheckStorage = await screen.findByRole("button", { name: /recheck storage/i });
+    expect(reloadVehicle.textContent).not.toBe(recheckStorage.textContent);
   });
 
   // The same alert on the other screen that could not show it. A submit that
@@ -442,7 +460,7 @@ describe("CaptureFlow", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/keep the app open/i);
     expect(alert).not.toHaveTextContent(/cannot be started/i);
-    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /recheck storage/i })).toBeNull();
     // Still on review, with the readings on screen and the button live again.
     expect(screen.getByRole("button", { name: /submit inspection/i })).toBeEnabled();
   });

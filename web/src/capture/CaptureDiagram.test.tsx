@@ -230,3 +230,63 @@ describe("CaptureDiagram with multiple units", () => {
     expect(onOpen).toHaveBeenCalledWith(cellKey(unitA.vehicleId, "ps"));
   });
 });
+
+// The defect this pins: two member trailers of one ordinary superlink are
+// built from the identical axle CONFIGURATION, so app.position.unit_label
+// ("2-axle trailer" for TRAILER_2AXLE) is the same string for both. A band
+// that showed only that label would render "2-AXLE TRAILER" twice with
+// nothing to tell a driver which section belongs to which unit
+// (BR-VEH-003). Only app.vehicle — CaptureContext.fleetNumber — actually
+// distinguishes them.
+const link6: CaptureContext = { ...context, vehicleId: "v-link6", fleetNumber: "LINK6" };
+const link12: CaptureContext = { ...context, vehicleId: "v-link12", fleetNumber: "LINK12" };
+
+const sameConfigPositions: RigPosition[] = [
+  {
+    position: position({
+      id: "l6-1",
+      vehicleId: link6.vehicleId,
+      sequence: 1,
+      unitLabel: "2-axle trailer",
+    }),
+    key: cellKey(link6.vehicleId, "l6-1"),
+    context: link6,
+    displayNumber: 1,
+  },
+  {
+    position: position({
+      id: "l12-1",
+      vehicleId: link12.vehicleId,
+      sequence: 1,
+      unitLabel: "2-axle trailer",
+    }),
+    key: cellKey(link12.vehicleId, "l12-1"),
+    context: link12,
+    displayNumber: 2,
+  },
+];
+
+describe("CaptureDiagram with two units of the same configuration", () => {
+  it("names each unit's own heading rather than repeating the shared configuration label", () => {
+    const { container } = render(
+      <CaptureDiagram
+        positions={sameConfigPositions}
+        severityOf={() => "unmeasured"}
+        governingOf={() => null}
+        onOpen={vi.fn()}
+        activeKey={null}
+      />,
+    );
+    const bands = Array.from(container.querySelectorAll(".cap-unitband")).map(
+      (el) => el.textContent,
+    );
+    expect(bands).toHaveLength(2);
+    // Both units carry the identical configuration label, so a heading that
+    // merely CONTAINS "2-axle trailer" would pass on both sections even with
+    // the pre-fix bug live. Asserting the two headings differ, and that each
+    // carries its own fleet number, is what actually catches it.
+    expect(bands[0]).not.toBe(bands[1]);
+    expect(bands[0]).toContain("LINK6");
+    expect(bands[1]).toContain("LINK12");
+  });
+});

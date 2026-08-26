@@ -295,13 +295,18 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     // NFR-AVL-002: starting requires the server. Capture and submit do not, but
     // a driver must not start against reference data that never arrived — every
     // threshold would be missing and every warning would silently never fire.
+    //
+    // The storage-unavailable alert below is hoisted above this screen
+    // switch, so its own retry button can be on screen at the same time as
+    // this one. Each names its own action so a driver is never choosing
+    // between two controls that read the same for two different recoveries.
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
           Could not load this vehicle. Find signal and try again.
         </p>
         <button type="button" className="cap-primary" onClick={() => void motive.refetch()}>
-          Try again
+          Reload vehicle
         </button>
       </section>
     );
@@ -415,8 +420,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
               : "This phone is not saving reliably. Keep the app open until this inspection has been sent."}
           </p>
           {storageFault === "unavailable" && (
+            // Named for what it retries — see the motive.isError branch above
+            // for why both retries need distinct labels.
             <button type="button" className="cap-secondary" onClick={retryStorage}>
-              Try again
+              Recheck storage
             </button>
           )}
         </div>
