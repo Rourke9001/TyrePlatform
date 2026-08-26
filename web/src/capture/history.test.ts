@@ -163,6 +163,23 @@ describe("historyWarnings", () => {
     const w = historyWarnings({ treads: [1, 1, 2], pressureKpa: 800 }, fresh, ctx, NOW);
     expect(w).toEqual([]);
   });
+
+  // Guard: zero elapsed time (previousReadingAt exactly equal to now).
+  // The months > 0 guard should prevent FR-INS-035 when there is no time interval.
+  it("does not compute a wear rate when the previous reading timestamp equals now", () => {
+    const sameTime = { ...position, previousReadingAt: NOW.toISOString() };
+    const w = historyWarnings({ treads: [1, 1, 2], pressureKpa: 800 }, sameTime, ctx, NOW);
+    expect(codes(w)).not.toContain("FR-INS-035");
+  });
+
+  // Guard: negative elapsed time (previousReadingAt after now, clock skew on device).
+  // The months > 0 guard should prevent FR-INS-035 when timestamp is in the future.
+  it("does not compute a wear rate when the previous reading is in the future", () => {
+    const futureTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000); // one day in the future
+    const skewedPosition = { ...position, previousReadingAt: futureTime.toISOString() };
+    const w = historyWarnings({ treads: [1, 1, 2], pressureKpa: 800 }, skewedPosition, ctx, NOW);
+    expect(codes(w)).not.toContain("FR-INS-035");
+  });
 });
 
 describe("odometerRejection", () => {
@@ -230,5 +247,22 @@ describe("odometerWarnings", () => {
   it("says nothing when there is no previous reading to divide by", () => {
     const fresh = { ...ctx, lastOdometerKm: null, lastOdometerAt: null };
     expect(odometerWarnings(999999, fresh, NOW)).toEqual([]);
+  });
+
+  // Guard: zero elapsed time (lastOdometerAt exactly equal to now).
+  // The days <= 0 guard should prevent FR-INS-033 when there is no time interval.
+  it("does not compute daily distance when the last odometer timestamp equals now", () => {
+    const sameTimeCtx = { ...ctx, lastOdometerAt: NOW.toISOString() };
+    const w = odometerWarnings(500000, sameTimeCtx, NOW);
+    expect(codes(w)).not.toContain("FR-INS-033");
+  });
+
+  // Guard: negative elapsed time (lastOdometerAt after now, clock skew on device).
+  // The days <= 0 guard should prevent FR-INS-033 when timestamp is in the future.
+  it("does not compute daily distance when the last odometer is in the future", () => {
+    const futureTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000); // one day in the future
+    const skewedCtx = { ...ctx, lastOdometerAt: futureTime.toISOString() };
+    const w = odometerWarnings(500000, skewedCtx, NOW);
+    expect(codes(w)).not.toContain("FR-INS-033");
   });
 });
