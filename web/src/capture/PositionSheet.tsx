@@ -199,11 +199,16 @@ export function PositionSheet({
       // Off the pressure field the hold ends the position, which makes it the
       // one place FR-INS-040 can be defeated: a sheet that closed itself while
       // the driver was reading a warning would never record what they did
-      // about it. So the guard is the prototype's own, and no wider — a
-      // position with something to tell the driver waits for the tap that
-      // answers it, and a clean one closes itself. That saved tap is paid on
-      // every clean position, against NFR-USE-001a's seven minutes for a
-      // 26-position combination.
+      // about it. So a position with something to tell the driver waits for
+      // the tap that answers it, and a clean one closes itself — that saved
+      // tap is paid on every clean position, against NFR-USE-001a's seven
+      // minutes for a 26-position combination.
+      //
+      // The `!complete` half is wider than the prototype, deliberately: there
+      // `advance()` jumps away from a half-entered position, which strands a
+      // reading the driver was mid-way through. Nothing on a counted path
+      // reaches it — `finish()` no-ops when incomplete — so it costs no taps
+      // and is kept as the safer answer.
       if (!complete || warnings.length > 0) return;
       finish();
     };

@@ -208,8 +208,7 @@ describe("PositionSheet", () => {
     expect(onDone.mock.calls[0][0].warnings).toEqual([]);
   });
 
-  // The hold's own guard, now that firing it ends the position rather than
-  // moving a field: it may only act on the entry it was armed against. A
+  // The hold may only act on the entry it was armed against. A
   // driver correcting a mis-read gauge inside the beat is entitled to an open
   // sheet and an incomplete position.
   it("does not finish a position whose pressure moved inside the hold", async () => {
