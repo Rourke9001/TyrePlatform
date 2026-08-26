@@ -1,4 +1,4 @@
-import type { Draft, RecordedWarning } from "./draft";
+import type { Draft, DraftPosition, RecordedWarning } from "./draft";
 
 // Wire shape of POST /api/inspections. snake_case because the body reaches
 // app.submit_inspection(jsonb) and is read with SQL-style keys — deliberately
@@ -106,19 +106,35 @@ function durationSeconds(startedAt: string, submittedAt: string): number | null 
   return elapsed < 0 ? null : elapsed;
 }
 
-export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
-  // FR-OFF-005 writes a position on the FIRST digit, so an abandoned position
-  // sits in the draft half-entered. Its tread array would fail the configured
-  // tread-count check (TY005 -> 422, which the outbox treats as permanent), so
-  // it cannot be sent and completeness reports the shortfall instead.
-  //
-  // Pressure is the opposite case and deliberately not required: 000023 accepts
-  // a NULL pressure by design (BR-RPT-001, NFR-PRO-003 — absent, never zero).
-  // Requiring one here would discard a position whose treads are complete, and
-  // the draft is cleared on submit, so those readings would be gone for good.
-  const captured = Object.values(draft.positions).filter(
-    (p) => p.treads.length > 0 && p.treads.every((t) => t !== null),
+// FR-OFF-005 writes a position on the FIRST digit, so an abandoned position
+// sits in the draft half-entered. Its tread array would fail the configured
+// tread-count check (TY005 -> 422, which the outbox treats as permanent), so it
+// cannot be sent and completeness reports the shortfall instead.
+//
+// Pressure is the opposite case and deliberately not required: 000023 accepts a
+// NULL pressure by design (BR-RPT-001, NFR-PRO-003 — absent, never zero).
+// Requiring one here would discard a position whose treads are complete, and
+// the draft is cleared on submit, so those readings would be gone for good.
+//
+// Exported because the capture screens count progress with it too (FR-INS-065).
+// A second predicate there would let the driver read "10 of 10 done" off one
+// definition while completeness_pct was computed from another.
+export function isCaptured(position: DraftPosition): boolean {
+  return position.treads.length > 0 && position.treads.every((t) => t !== null);
+}
+
+// The positions a submit would actually carry, keyed for the completeness
+// figures the driver sees.
+export function capturedPositionIds(draft: Draft): Set<string> {
+  return new Set(
+    Object.values(draft.positions)
+      .filter(isCaptured)
+      .map((p) => p.positionId),
   );
+}
+
+export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
+  const captured = Object.values(draft.positions).filter(isCaptured);
 
   const readings: SubmitReading[] = captured
     // Object key order is an implementation detail of how the driver happened
