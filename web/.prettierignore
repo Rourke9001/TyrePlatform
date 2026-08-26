@@ -3,6 +3,13 @@ node_modules
 coverage
 package-lock.json
 
+# Playwright's own output, written by `make e2e` into a gitignored directory.
+# Without this a local e2e run leaves `make lint` red on a JSON file nobody
+# wrote, and the gate that is supposed to be the same as CI's stops being
+# runnable at all.
+test-results
+playwright-report
+
 # Prose is hand-wrapped for reading, and .editorconfig deliberately keeps
 # trailing whitespace in markdown. Prettier would undo both (TYRE-49).
 *.md

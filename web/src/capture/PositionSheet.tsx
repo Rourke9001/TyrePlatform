@@ -216,7 +216,19 @@ export function PositionSheet({
   const severity = severityFor(warnings, treadsRead(state.treads));
 
   return (
-    <section className="cap-sheet" aria-label={`Position ${rig.displayNumber ?? "spare"}`}>
+    <section
+      className="cap-sheet"
+      // Named the way the diagram cell that opens it is named. A spare carries
+      // no walk-around number (rig.displayNumber), so naming it for its unit is
+      // the only thing that tells one unit's spare from another's — and every
+      // configuration in the register has a spare count, so a rig has one per
+      // unit (BR-VEH-003, CaptureDiagram's spare rows).
+      aria-label={
+        rig.displayNumber === null
+          ? `Spare, ${rig.context.fleetNumber}`
+          : `Position ${rig.displayNumber}`
+      }
+    >
       <header className="cap-sheet-head">
         <p className="cap-sheet-pos">
           {rig.displayNumber === null ? "Spare tyre" : `Position ${rig.displayNumber}`}
