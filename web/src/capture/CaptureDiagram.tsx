@@ -20,7 +20,17 @@ interface AxleGroup {
 
 interface UnitGroup {
   vehicleId: string;
-  label: string;
+  // The unit's own identity (app.vehicle, via CaptureContext.fleetNumber),
+  // never the configuration label alone: app.position belongs to an axle
+  // CONFIGURATION, not a vehicle, so two member units built from the same
+  // configuration (an ordinary superlink's two trailers) carry the identical
+  // unitLabel. Leading with fleetNumber is what BR-VEH-003 needs — a driver
+  // tells units apart by what is painted on them, not by list order.
+  fleetNumber: string;
+  // The configuration's own label ("2-axle trailer"), kept as a secondary
+  // fact: it tells the driver what layout to expect, but two same-model
+  // trailers share it, so it can never stand in for identity on its own.
+  configLabel: string | null;
   axles: AxleGroup[];
 }
 
@@ -38,7 +48,8 @@ function groupRig(running: RigPosition[]): UnitGroup[] {
     if (!unit) {
       unit = {
         vehicleId: r.position.vehicleId,
-        label: r.position.unitLabel ?? r.context.fleetNumber,
+        fleetNumber: r.context.fleetNumber,
+        configLabel: r.position.unitLabel,
         axles: [],
       };
       units.push(unit);
@@ -71,7 +82,10 @@ export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, act
               between units, rather than repeating a unit's own label on
               every axle it owns. */}
           {i > 0 && <CouplingMark />}
-          <p className="cap-unitband">{unit.label}</p>
+          <p className="cap-unitband">
+            <span className="cap-unitband-id">{unit.fleetNumber}</span>
+            {unit.configLabel && <span className="cap-unitband-note"> {unit.configLabel}</span>}
+          </p>
           {unit.axles.map((axle) => (
             <div key={axle.key} className="cap-axle">
               <div className="cap-beam" aria-hidden="true" />
