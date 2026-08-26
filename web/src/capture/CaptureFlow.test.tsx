@@ -350,13 +350,69 @@ describe("CaptureFlow", () => {
   // that can never work, so the screen they are standing on has to say why —
   // which requires the alert to sit above the screen switch, not inside one
   // branch of it.
-  it("says so on the start screen when the device cannot store anything", async () => {
+  it("refuses to start when the device cannot store anything, and names a way out", async () => {
     stubApi(201);
     vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
     renderFlow();
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/not saving/i);
-    expect(screen.getByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/cannot be started/i);
+    // The mid-inspection sentence is the one thing this screen must NOT say:
+    // there is no inspection to keep open, so it is an instruction that
+    // cannot be followed, which NFR-USE-005 rates below saying nothing.
+    expect(alert).not.toHaveTextContent(/keep the app open/i);
+    expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+  });
+
+  // The retry has to re-attempt, not just clear the message. A device policy
+  // or a private window is changed by a person, and this is the tap that picks
+  // the change up (FR-OFF-013's supported recovery action).
+  it("starts working again when storage returns and the driver retries", async () => {
+    const user = newUser();
+    stubApi(201);
+    const blocked = vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
+    renderFlow();
+    await screen.findByRole("alert");
+
+    blocked.mockRestore();
+    await user.click(screen.getByRole("button", { name: /try again/i }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled(),
+    );
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  // The half that proves the retry re-attempts rather than just clearing the
+  // message: a retry that only hid the banner would leave a driver on a screen
+  // with an enabled Start button and no warning, which is where this round
+  // started.
+  it("says so again when a retry finds the device still refusing", async () => {
+    const user = newUser();
+    stubApi(201);
+    vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
+    renderFlow();
+    await screen.findByRole("alert");
+
+    await user.click(screen.getByRole("button", { name: /try again/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/cannot be started/i);
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+  });
+
+  // The other pre-start route to the same standing refusal: the read
+  // succeeded, so nothing warned, and the write is what the device blocks.
+  it("refuses to start when the draft itself cannot be written", async () => {
+    const user = newUser();
+    stubApi(201);
+    vi.spyOn(db.drafts, "put").mockRejectedValue(new Error("storage blocked"));
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/cannot be started/i);
+    expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
   });
 
   // The same alert on the other screen that could not show it. A submit that
@@ -375,7 +431,13 @@ describe("CaptureFlow", () => {
     vi.spyOn(db.drafts, "put").mockRejectedValue(new Error("storage blocked"));
     await user.click(screen.getByRole("button", { name: /submit inspection/i }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(/not saving/i);
+    // The mid-inspection wording, not the standing refusal: the readings are
+    // on screen and the submit path may still work, so this must not tell the
+    // driver the inspection cannot be started.
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/keep the app open/i);
+    expect(alert).not.toHaveTextContent(/cannot be started/i);
+    expect(screen.queryByRole("button", { name: /try again/i })).toBeNull();
     // Still on review, with the readings on screen and the button live again.
     expect(screen.getByRole("button", { name: /submit inspection/i })).toBeEnabled();
   });

@@ -40,6 +40,7 @@ const grouped = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ")
 
 export function CaptureStart({
   motive,
+  storageBlocked,
   attachedIds,
   onToggleAttached,
   onStart,
@@ -47,6 +48,11 @@ export function CaptureStart({
   // The unit the driver navigated to. FR-INS-064: only the motive unit's
   // odometer is recorded, and distance is never apportioned to a towed one.
   motive: CaptureContext;
+  // The device will not let the app write, so there is nowhere to put an
+  // inspection. CaptureFlow carries the reason and the retry above this
+  // screen; all this control has to do is stop looking live, because a button
+  // that silently does nothing is a worse answer than a refusal (NFR-USE-005).
+  storageBlocked: boolean;
   // Ticked member units, seeded from ALL of motive.combination.members —
   // which includes the motive unit, so it shows ticked — and narrowed only
   // by unticking. The motive unit cannot be unticked — it is the
@@ -226,7 +232,7 @@ export function CaptureStart({
         type="button"
         className="cap-primary"
         onClick={start}
-        disabled={rejection !== null || held}
+        disabled={storageBlocked || rejection !== null || held}
       >
         Start inspection
       </button>
