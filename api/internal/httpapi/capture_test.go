@@ -457,3 +457,71 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		})
 	}
 }
+
+// TestCaptureContextServesTheLastOdometerReading pins FR-INS-033's
+// denominator. The rule divides the tread lost since the previous reading by
+// the distance covered since it, so the capture context has to carry both the
+// last odometer value AND the date it was taken — serving the value alone
+// leaves the plausibility warning with nothing to divide by.
+//
+// The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by
+// reading_date DESC, so two things need proving and neither is visible from
+// the fixture: that an absent reading serves null rather than a zero, and that
+// "last" means the most recent by reading date rather than whichever row the
+// planner happened to reach first.
+func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "odometer")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	read := func(t *testing.T) struct {
+		LastOdometerKm *int64     `json:"lastOdometerKm"`
+		LastOdometerAt *time.Time `json:"lastOdometerAt"`
+	} {
+		t.Helper()
+		rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
+			tenantID.String(), driverID.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body struct {
+			LastOdometerKm *int64     `json:"lastOdometerKm"`
+			LastOdometerAt *time.Time `json:"lastOdometerAt"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		return body
+	}
+
+	// No unit has an odometer reading until an inspection writes one, and a
+	// client cannot tell "never measured" from "measured as zero" (FR-INS-020).
+	before := read(t)
+	require.Nil(t, before.LastOdometerKm, "a vehicle with no reading served an odometer value")
+	require.Nil(t, before.LastOdometerAt, "a vehicle with no reading served a reading date")
+
+	// Planted oldest-last, so a join that ignored the ORDER BY would be as
+	// likely to serve the older row. Both values are plausible and rising:
+	// DR-020's trigger refuses a backwards or implausible reading outright.
+	for _, r := range []struct {
+		daysAgo int
+		km      int64
+	}{
+		{5, 110000},
+		{30, 100000},
+	} {
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.vehicle_odometer_reading
+			   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+			 VALUES ($1, $2, (now() AT TIME ZONE 'UTC')::date - $3::int, $4, 'MANUAL')`,
+			tenantID, vehicleID, r.daysAgo, r.km)
+		require.NoError(t, err)
+	}
+
+	after := read(t)
+	require.NotNil(t, after.LastOdometerKm, "a planted odometer reading did not reach the capture context")
+	require.NotNil(t, after.LastOdometerAt, "FR-INS-033 has no denominator without the reading date")
+	require.Equal(t, int64(110000), *after.LastOdometerKm, "the older reading was served as the last one")
+
+	wantDate := time.Now().UTC().AddDate(0, 0, -5).Format("2006-01-02")
+	require.Equal(t, wantDate, after.LastOdometerAt.UTC().Format("2006-01-02"))
+}
