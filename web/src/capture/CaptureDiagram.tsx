@@ -4,10 +4,13 @@ import "./capture.css";
 
 interface Props {
   positions: RigPosition[];
-  severityOf: (positionId: string) => Severity;
-  governingOf: (positionId: string) => number | null;
-  onOpen: (positionId: string) => void;
-  activeId: string | null;
+  // Addressed by RigPosition.key, never by position id: two member units of
+  // the same axle configuration share every position id, so an id alone cannot
+  // name a wheel on a rig (draft.cellKey).
+  severityOf: (cell: string) => Severity;
+  governingOf: (cell: string) => number | null;
+  onOpen: (cell: string) => void;
+  activeKey: string | null;
 }
 
 interface AxleGroup {
@@ -54,7 +57,7 @@ function groupRig(running: RigPosition[]): UnitGroup[] {
 // Plan view, nose up — the same frame BR-VEH-001 numbers positions in and the
 // frame FR-INS-029a means by "left-to-right". Every entry screen in the app
 // shows the vehicle this way round so the driver learns one picture.
-export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, activeId }: Props) {
+export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, activeKey }: Props) {
   const running = positions.filter((r) => r.displayNumber !== null);
   const spares = positions.filter((r) => r.displayNumber === null);
   const units = groupRig(running);
@@ -74,11 +77,11 @@ export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, act
               <div className="cap-beam" aria-hidden="true" />
               {axle.positions.map((r) => (
                 <PositionCell
-                  key={r.position.id}
+                  key={r.key}
                   rig={r}
-                  severity={severityOf(r.position.id)}
-                  governing={governingOf(r.position.id)}
-                  active={activeId === r.position.id}
+                  severity={severityOf(r.key)}
+                  governing={governingOf(r.key)}
+                  active={activeKey === r.key}
                   onOpen={onOpen}
                 />
               ))}
@@ -92,11 +95,11 @@ export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, act
           <div className="cap-axle cap-axle--spare">
             {spares.map((r) => (
               <PositionCell
-                key={r.position.id}
+                key={r.key}
                 rig={r}
-                severity={severityOf(r.position.id)}
-                governing={governingOf(r.position.id)}
-                active={activeId === r.position.id}
+                severity={severityOf(r.key)}
+                governing={governingOf(r.key)}
+                active={activeKey === r.key}
                 onOpen={onOpen}
               />
             ))}
@@ -138,7 +141,7 @@ function PositionCell({
   severity: Severity;
   governing: number | null;
   active: boolean;
-  onOpen: (positionId: string) => void;
+  onOpen: (cell: string) => void;
 }) {
   const name = rig.displayNumber === null ? "Spare" : `Position ${rig.displayNumber}`;
   return (
@@ -150,7 +153,7 @@ function PositionCell({
       className={`cap-pos cap-pos--${severity}${active ? " is-active" : ""}`}
       data-position-id={rig.position.id}
       aria-label={`${name}, ${rig.context.fleetNumber}, ${SEVERITY_LABEL[severity]}`}
-      onClick={() => onOpen(rig.position.id)}
+      onClick={() => onOpen(rig.key)}
     >
       <span className="cap-pos-n">{rig.displayNumber ?? "S"}</span>
       <span className="cap-pos-v">{governing === null ? "—" : `${governing}mm`}</span>

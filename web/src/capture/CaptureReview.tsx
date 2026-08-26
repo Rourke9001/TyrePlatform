@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 
 import type { CaptureContext } from "./captureContext";
 import type { Draft } from "./draft";
+import { cellKey } from "./draft";
 import { completenessByUnit, rigPositions } from "./rig";
 import type { WarningCode } from "./warnings";
 import "./capture.css";
@@ -36,7 +37,7 @@ function elapsedWords(fromIso: string, to: number): string {
 export function CaptureReview({
   contexts,
   draft,
-  donePositionIds,
+  doneCells,
   onBack,
   onSubmit,
 }: {
@@ -45,13 +46,13 @@ export function CaptureReview({
   // Computed once by CaptureFlow from the same predicate the submit payload
   // filters on, so the count the driver reads and the completeness_pct the
   // server stores cannot disagree.
-  donePositionIds: ReadonlySet<string>;
+  doneCells: ReadonlySet<string>;
   // The shortfall above is only useful if the driver can act on it while they
   // are still standing at the vehicle.
   onBack: () => void;
   onSubmit: (patch: { comment: string | null; defectReport: string | null }) => void;
 }) {
-  const units = completenessByUnit(contexts, donePositionIds);
+  const units = completenessByUnit(contexts, doneCells);
   const [comment, setComment] = useState("");
   const [defect, setDefect] = useState("");
   const [openedAt] = useState(() => Date.now());
@@ -63,22 +64,21 @@ export function CaptureReview({
   // "Position 7" here walks to the wheel they were just standing at.
   const numberOf = useMemo(() => {
     const map = new Map<string, number | null>();
-    for (const r of rigPositions(contexts)) map.set(r.position.id, r.displayNumber);
+    for (const r of rigPositions(contexts)) map.set(r.key, r.displayNumber);
     return map;
   }, [contexts]);
 
   const flagged = [
     ...draft.warnings.map((w) => ({ key: `rig-${w.code}`, where: "This vehicle", ...w })),
-    ...Object.values(draft.positions).flatMap((p) =>
-      p.warnings.map((w) => ({
-        key: `${p.positionId}-${w.code}`,
-        where:
-          numberOf.get(p.positionId) === null || numberOf.get(p.positionId) === undefined
-            ? "Spare"
-            : `Position ${numberOf.get(p.positionId)}`,
+    ...Object.values(draft.positions).flatMap((p) => {
+      const cell = cellKey(p.vehicleId, p.positionId);
+      const number = numberOf.get(cell);
+      return p.warnings.map((w) => ({
+        key: `${cell}-${w.code}`,
+        where: number === null || number === undefined ? "Spare" : `Position ${number}`,
         ...w,
-      })),
-    ),
+      }));
+    }),
   ];
 
   return (

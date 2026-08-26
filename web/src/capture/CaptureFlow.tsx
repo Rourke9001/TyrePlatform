@@ -9,10 +9,10 @@ import { CaptureStart } from "./CaptureStart";
 import type { CaptureContext } from "./captureContext";
 import { captureContextQuery, useCaptureContext } from "./captureContext";
 import type { Draft, DraftPosition, RecordedWarning } from "./draft";
-import { loadDraft, saveHeader, savePosition, startDraft } from "./draft";
+import { cellKey, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
 import { historyWarnings } from "./history";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
-import { appVersion, capturedPositionIds, deviceId } from "./payload";
+import { appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { completenessByUnit, rigPositions } from "./rig";
 import type { Severity } from "./warnings";
@@ -48,7 +48,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [held, setHeld] = useState<Draft | null>(null);
   const [screen, setScreen] = useState<Screen>("start");
   const [attachedIds, setAttachedIds] = useState<string[] | null>(null);
-  const [activeId, setActiveId] = useState<string | null>(null);
+  // A cell, not a position id: two member units of the same axle
+  // configuration share every position id, so an id alone opens the wrong
+  // unit's sheet on a rig (draft.cellKey).
+  const [activeKey, setActiveKey] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [storageFault, setStorageFault] = useState<StorageFault | null>(null);
@@ -125,9 +128,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const membersFailed = memberQueries.some((q) => q.isError);
 
   const rig = contexts ? rigPositions(contexts) : [];
-  const byId = new Map(rig.map((r) => [r.position.id, r]));
-  const donePositionIds = draft ? capturedPositionIds(draft) : new Set<string>();
-  const units = contexts ? completenessByUnit(contexts, donePositionIds) : [];
+  const byCell = new Map(rig.map((r) => [r.key, r]));
+  const doneCells = draft ? capturedCells(draft) : new Set<string>();
+  const units = contexts ? completenessByUnit(contexts, doneCells) : [];
   const doneCount = units.reduce((n, u) => n + u.done, 0);
   // The submit payload's denominator and the figure on screen, from one
   // expression. Two derivations drift, and when they do the driver reads
@@ -135,7 +138,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   // (payload.ts, completeness_pct).
   const totalPositions = units.reduce((n, u) => n + u.total, 0);
   const motiveCtx = contexts?.find((c) => c.vehicleId === vehicleId) ?? contexts?.[0];
-  const active = activeId === null ? undefined : byId.get(activeId);
+  const active = activeKey === null ? undefined : byCell.get(activeKey);
 
   // Recomputed from the readings rather than read off draft.positions[].
   // warnings: those are written only when a position is finished, so a
@@ -147,9 +150,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   // tread-complete position with no pressure as "Not done" while the header
   // above it counted the same position as done, and would hide FR-INS-036 on a
   // cell the app has every number it needs to raise.
-  function severityOf(positionId: string): Severity {
-    const saved = draft?.positions[positionId];
-    const r = byId.get(positionId);
+  function severityOf(cell: string): Severity {
+    const saved = draft?.positions[cell];
+    const r = byCell.get(cell);
     if (!saved || !r) return "unmeasured";
     const entry = { treads: saved.treads, pressureKpa: saved.pressureKpa };
     return severityFor(
@@ -161,8 +164,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     );
   }
 
-  function governingOf(positionId: string): number | null {
-    return governingTread(draft?.positions[positionId]?.treads ?? []);
+  function governingOf(cell: string): number | null {
+    return governingTread(draft?.positions[cell]?.treads ?? []);
   }
 
   function handleStart(init: {
@@ -208,14 +211,22 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   // rewrite of the same row, which is why nothing may depend on the count.
   function handleChange(position: DraftPosition) {
     setDraft((d) =>
-      d ? { ...d, positions: { ...d.positions, [position.positionId]: position } } : d,
+      d
+        ? {
+            ...d,
+            positions: {
+              ...d.positions,
+              [cellKey(position.vehicleId, position.positionId)]: position,
+            },
+          }
+        : d,
     );
     void savePosition(position).catch(() => setStorageFault("degraded"));
   }
 
   function handleDone(position: DraftPosition) {
     handleChange(position);
-    setActiveId(null);
+    setActiveKey(null);
   }
 
   function handleSubmit(patch: { comment: string | null; defectReport: string | null }) {
@@ -319,7 +330,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       <CaptureReview
         contexts={contexts}
         draft={draft}
-        donePositionIds={donePositionIds}
+        doneCells={doneCells}
         onBack={() => setScreen("capture")}
         onSubmit={handleSubmit}
       />
@@ -356,8 +367,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           positions={rig}
           severityOf={severityOf}
           governingOf={governingOf}
-          onOpen={setActiveId}
-          activeId={activeId}
+          onOpen={setActiveKey}
+          activeKey={activeKey}
         />
 
         <button type="button" className="cap-primary" onClick={() => setScreen("review")}>
@@ -372,13 +383,13 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         {active && (
           <div className="cap-sheet-layer">
             <PositionSheet
-              key={active.position.id}
+              key={active.key}
               rig={active}
               ctx={active.context}
-              initial={draft.positions[active.position.id]}
+              initial={draft.positions[active.key]}
               onChange={handleChange}
               onDone={handleDone}
-              onClose={() => setActiveId(null)}
+              onClose={() => setActiveKey(null)}
             />
           </div>
         )}

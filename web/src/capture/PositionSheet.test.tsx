@@ -5,6 +5,7 @@ import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { DraftPosition } from "./draft";
+import { cellKey } from "./draft";
 import type { RigPosition } from "./rig";
 import { PositionSheet } from "./PositionSheet";
 
@@ -50,7 +51,12 @@ const ctx: CaptureContext = {
   cohortWearRateMmPerMonth: {},
 };
 
-const rig: RigPosition = { position, context: ctx, displayNumber: 1 };
+const rig: RigPosition = {
+  position,
+  key: cellKey(ctx.vehicleId, position.id),
+  context: ctx,
+  displayNumber: 1,
+};
 
 function props(overrides: {
   onChange?: (p: DraftPosition) => void;

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
 import { CaptureDiagram } from "./CaptureDiagram";
+import { cellKey } from "./draft";
 import type { RigPosition } from "./rig";
 import type { Severity } from "./warnings";
 
@@ -67,18 +68,23 @@ const SEVERITIES: {
 
 const rigPositions: RigPosition[] = SEVERITIES.map((s) => ({
   position: position({ id: s.id, sequence: s.sequence }),
+  key: cellKey(context.vehicleId, s.id),
   context,
   displayNumber: s.displayNumber,
 }));
 
-const severityById = new Map(SEVERITIES.map((s) => [s.id, s.severity]));
+// Keyed by cell, like everything the diagram hands back: a position id alone
+// names two wheels on a rig of same-configuration units (draft.cellKey).
+const severityByCell = new Map(
+  SEVERITIES.map((s) => [cellKey(context.vehicleId, s.id), s.severity]),
+);
 
 const props = {
   positions: rigPositions,
-  severityOf: (id: string): Severity => severityById.get(id) ?? "unmeasured",
-  governingOf: (id: string) => (id === "p1" ? 9 : null),
+  severityOf: (cell: string): Severity => severityByCell.get(cell) ?? "unmeasured",
+  governingOf: (cell: string) => (cell === cellKey(context.vehicleId, "p1") ? 9 : null),
   onOpen: vi.fn(),
-  activeId: null,
+  activeKey: null,
 };
 
 describe("CaptureDiagram", () => {
@@ -148,26 +154,28 @@ const dedupPositions: RigPosition[] = DEDUP.map((d) => ({
     axleNumber: d.axleNumber,
     isSpare: d.isSpare ?? false,
   }),
+  key: cellKey(d.context.vehicleId, d.id),
   context: d.context,
   displayNumber: d.displayNumber,
 }));
 
 // p1 carries a governing reading, everything else does not — the two
 // outcomes of PositionCell's governing display each get one representative.
-const dedupGoverningOf = (id: string) => (id === "p1" ? 9 : null);
-const dedupSeverityOf = (id: string) => (id === "p1" ? "roadworthy" : "unmeasured");
+const dedupGoverningOf = (cell: string) => (cell === cellKey(unitA.vehicleId, "p1") ? 9 : null);
+const dedupSeverityOf = (cell: string) =>
+  cell === cellKey(unitA.vehicleId, "p1") ? "roadworthy" : "unmeasured";
 
 // A fresh onOpen per render: the module-level props.onOpen above is shared
 // across the first describe block's tests and would accumulate calls if
 // reused here, making a toHaveBeenCalledTimes assertion depend on test order.
-function renderDedup(onOpen: (positionId: string) => void) {
+function renderDedup(onOpen: (cell: string) => void) {
   return render(
     <CaptureDiagram
       positions={dedupPositions}
       severityOf={dedupSeverityOf}
       governingOf={dedupGoverningOf}
       onOpen={onOpen}
-      activeId={null}
+      activeKey={null}
     />,
   );
 }
@@ -203,7 +211,7 @@ describe("CaptureDiagram with multiple units", () => {
     const { getByLabelText } = renderDedup(onOpen);
     fireEvent.click(getByLabelText(/^Position 7, BAC040SP,/));
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(onOpen).toHaveBeenCalledWith("p7");
+    expect(onOpen).toHaveBeenCalledWith(cellKey(unitB.vehicleId, "p7"));
   });
 
   it("opens a spare through its own render path", () => {
@@ -211,6 +219,6 @@ describe("CaptureDiagram with multiple units", () => {
     const { getByLabelText } = renderDedup(onOpen);
     fireEvent.click(getByLabelText(/^Spare, BAC039SP,/));
     expect(onOpen).toHaveBeenCalledTimes(1);
-    expect(onOpen).toHaveBeenCalledWith("ps");
+    expect(onOpen).toHaveBeenCalledWith(cellKey(unitA.vehicleId, "ps"));
   });
 });
