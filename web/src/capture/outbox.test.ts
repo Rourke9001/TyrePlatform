@@ -216,8 +216,17 @@ describe("the outbox", () => {
     await vi.advanceTimersByTimeAsync(backoffMs(1) + 2000);
     // The heartbeat's flushOutbox is fire-and-forget, and fake-indexeddb
     // completes a request on a real (unfaked) timer tick, so the fake clock
-    // advance above does not itself wait for it to finish.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // advance above does not itself wait for it to finish — landing the
+    // retry takes several real ticks (a Dexie read, the fetch, a Dexie
+    // write). One tick is enough to cover that on an idle machine and not
+    // under a loaded full-suite run, so the wait has to bound itself on the
+    // condition rather than a fixed tick count: vi.waitFor polls on its own
+    // real (unfaked) timer regardless of the fake clock installed above,
+    // giving those real ticks room to land until the retry shows up or the
+    // poll's own timeout is reached.
+    await vi.waitFor(() => {
+      if (fetchMock.mock.calls.length <= 1) throw new Error("heartbeat retry has not landed yet");
+    });
 
     expect(fetchMock.mock.calls.length).toBeGreaterThan(1);
     stop();

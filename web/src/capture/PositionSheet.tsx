@@ -95,7 +95,7 @@ export function PositionSheet({
   useEffect(() => {
     if (state === initialState.current) return;
     onChange(snapshot(state));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- state carries treads/pressureKpa; snapshot's other inputs (rig, carried, openedAt) are stable for the sheet's lifetime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- state carries treads/pressureKpa, rig/carried/openedAt are stable for the sheet's lifetime, and onChange is a prop deliberately excluded: the effect must fire on a state change, not on a parent re-render handing it a new closure.
   }, [state]);
 
   function press(key: EntryKey) {
