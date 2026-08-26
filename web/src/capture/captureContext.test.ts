@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CaptureContext } from "./captureContext";
 import { fetchCaptureContext } from "./captureContext";
 
-const body = {
+const body: CaptureContext = {
   vehicleId: "11111111-1111-1111-1111-111111111111",
   fleetNumber: "BAC039SP",
   registration: "BAC039SP",
