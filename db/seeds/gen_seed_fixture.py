@@ -84,9 +84,9 @@ L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number
 L.append("  (md5('driver2')::uuid,'%s','thabo@example.invalid','Thabo','EMP-2001','DRIVER');"%T2)
 L.append("INSERT INTO app.user_depot (tenant_id,user_id,depot_id) VALUES ('%s',md5('driver2')::uuid,md5('depot2')::uuid);"%T2)
 L.append("")
-# The sandbox tenant. It deliberately carries NO tyres, fitments or readings:
-# nothing here may be reachable by an Appendix E or Appendix J assertion, and
-# an empty estate is the cheapest guarantee of that. What it does carry is the
+# Deliberately carries NO tyres, fitments or readings: nothing here may be
+# reachable by an Appendix E or Appendix J assertion, and an empty estate is
+# the cheapest guarantee of that. What it does carry is the
 # minimum an operator needs to be present in the app at all — a depot, one user
 # per role, and two units on the shared configuration library — so the write
 # surfaces have a tenant to be exercised against as they land (TYRE-3, TYRE-55).
