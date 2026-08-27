@@ -226,12 +226,24 @@ retry for thirty minutes. Conflating it with `422` or a replay would make the
 outbox hammer a refusal that will never change.
 
 An invisible vehicle answers `422` and not the `403` this table first gave it,
-which is the same argument arriving at the row above. The permanent-refusal
-set named in the outbox section below is `409` and `422`; `403` is not in it,
-so an outbox built to this table would treat a cross-tenant submit as
-retryable, back off, and hammer forever a body that can never succeed. Both
-codes are refusals the driver cannot act around, and only one of them tells
-the queue to stop. The reasoning is general, which is why the catch-all row
+which is the same argument arriving at the row above. The decisive reason is
+that the refusal has two routes to it and they must agree: a driver is
+narrowed by the handler against `v_capture_vehicle`, while a tenant-scoped
+actor skips that check and meets the same condition at
+`app.submit_inspection`'s `TY007` guard, which answers `422`. Two roles
+learning different things about the same vehicle is exactly the distinction
+ADR-0011 denies.
+
+*Erratum, 27 Aug 2026: this paragraph originally rested on a second argument —
+that `403` sits outside the permanent-refusal set, so an outbox built to this
+table would retry a cross-tenant submit forever. That does not describe the
+shipped classifier, which treats `400` and `403` as permanent too and says why
+(`web/src/capture/outbox.ts`): an actor who may not capture does not acquire
+the capability by waiting. `401` is the one that stays retryable. The `422`
+ruling stands on the symmetry argument above; the permanent set named in the
+outbox section below is this document's, not the implementation's.*
+
+The reasoning is general, which is why the catch-all row
 exists: any shape that fails identically on every retry — a value outside
 FR-INS-030/031's ranges, an id this tenant cannot see, a tenant configuration
 the capture geometry cannot honour — must answer `4xx`, whether
