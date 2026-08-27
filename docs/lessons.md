@@ -15,6 +15,38 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-08-27 — A guarded, non-transactional test section is dead on a warm database (TYRE-85)
+
+**What happened:** `TY009` should have refused suite section 24's odometer-less
+fitment immediately — the section hangs it on a unit the seed declares `HORSE`.
+Two full `make db-test` runs passed with the migration applied and the defect
+live. Section 24 wraps its inserts in `IF NOT EXISTS (… 'T2TRL1')` and, unlike
+sections 29–34, is not `BEGIN`/`ROLLBACK`-wrapped, so its rows persisted from an
+earlier run and the whole block was skipped. Only `make db-reset` ever ran it.
+The same shape hides any regression in every guarded section of the suite.
+
+**The rule:** a suite section that persists rows behind an existence guard is
+only exercised on a fresh database. Verify anything touching one with `make
+db-reset && make db-test`, never `make db-test` alone — and when a new
+constraint plausibly conflicts with existing fixtures, reset before believing a
+green run. `make check` does reset, which is the reason it is the gate and a
+bare suite run is not.
+
+## 2026-08-27 — The comment checker sees only tracked files (TYRE-82)
+
+**What happened:** `node scripts/check-comment-style.mjs` was run with no
+arguments over a tree holding three new, unstaged migrations and exited 0. The
+migrations contained two change-narration violations. With no arguments the
+script enumerates `git ls-files`, so untracked files are invisible to it; the
+green run said nothing about the only files under review. `make lint` inherits
+the same blind spot for work that is not yet staged.
+
+**The rule:** run the comment checker with explicit paths when auditing new
+files — `node scripts/check-comment-style.mjs <paths>` — or stage them first.
+A no-argument run proves something only about files git already tracks. This
+compounds the 2026-08-26 entry below: that one says a green run is not evidence
+of no narration; this one says a green run may not have read the file at all.
+
 ## 2026-08-27 — A requirement declared unbuildable was never re-read (TYRE-4, CS-4)
 
 **What happened:** the capture slice shipped the odometer field empty and
