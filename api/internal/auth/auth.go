@@ -37,7 +37,15 @@ const (
 	// client surface that omits the field is not the control (NFR-SEC-006).
 	ViewValuation Capability = "ViewValuation"
 	ManageConfig  Capability = "ManageConfig"
-	ManageUsers   Capability = "ManageUsers"
+	// ManageTemplates is separate from ManageConfig on purpose (D8). A tenant
+	// picks its axle configuration from the platform-seeded library
+	// (FR-CFG-001..007); authoring one outside it is ORG_ADMIN's alone,
+	// because a wrong template silently corrupts every position on every unit
+	// that uses it. ManageConfig reaches thresholds, bands, rates and cadence
+	// and is held by CONTROLLER and DEPOT_MANAGER — sharing a gate would hand
+	// template authoring to both.
+	ManageTemplates Capability = "ManageTemplates"
+	ManageUsers     Capability = "ManageUsers"
 )
 
 // FR-AUT-005..009, carrying erratum D1. DEPOT_MANAGER holds everything
@@ -56,7 +64,7 @@ var capabilities = map[Role][]Capability{
 	RoleTechnician:   {ViewFleet},
 	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig},
 	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig},
-	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, ManageUsers},
+	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, ManageUsers, ManageTemplates},
 }
 
 // Scope is how much of the tenant an actor reads. It is deliberately not a

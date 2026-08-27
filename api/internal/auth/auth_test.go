@@ -21,7 +21,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "driver",
 			role: auth.RoleDriver,
 			can:  []auth.Capability{auth.CaptureInspection},
-			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers},
+			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates},
 		},
 		{
 			// FR-AUT-006 with §4.7: a technician reads, and has no lifecycle
@@ -29,7 +29,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "technician",
 			role: auth.RoleTechnician,
 			can:  []auth.Capability{auth.ViewFleet},
-			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig},
+			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageTemplates},
 		},
 		{
 			// FR-AUT-007 with FR-FIT-018: both controller jobs are this role.
@@ -39,7 +39,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "controller",
 			role: auth.RoleController,
 			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig},
-			cant: []auth.Capability{auth.ManageUsers},
+			cant: []auth.Capability{auth.ManageUsers, auth.ManageTemplates},
 		},
 		{
 			// FR-AUT-008: every CONTROLLER permission, ViewValuation included.
@@ -49,12 +49,15 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "depot manager",
 			role: auth.RoleDepotManager,
 			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig},
-			cant: []auth.Capability{auth.ManageUsers},
+			cant: []auth.Capability{auth.ManageUsers, auth.ManageTemplates},
 		},
 		{
+			// FR-AUT-009 with erratum D1: configuration is shared, user
+			// management is not. ManageTemplates is ORG_ADMIN's alone for a
+			// different reason than ManageUsers — see D8 and the constant.
 			name: "org admin",
 			role: auth.RoleOrgAdmin,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates},
 			cant: nil,
 		},
 		{
