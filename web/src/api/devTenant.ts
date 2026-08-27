@@ -87,9 +87,9 @@ export const DEV_ACTORS = [
     name: "Thabo (driver, Second Fleet)",
     tenant: "22222222-2222-2222-2222-222222222222",
   },
-  // Sandbox Fleet carries no acceptance data, so it is the tenant to type into
-  // when exploring. Anything entered against BAC has to be unpicked before the
-  // pilot goes live; anything entered here is discarded by the next db-reset.
+  // The tenant to type into when exploring — db/seeds/gen_seed_configurations.py
+  // holds why it exists. Anything entered here is discarded by the next
+  // db-reset, which is the property the other two tenants do not have.
   {
     id: "40f019ce-192e-92d1-5b15-2eb7b65369df",
     name: "Sandbox Driver",
