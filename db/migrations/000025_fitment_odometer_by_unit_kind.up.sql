@@ -3,13 +3,12 @@
 --  Implements: FR-FIT-002 as corrected in SRS v1.4; CHG-027
 -- ============================================================================
 
--- 000011 dropped fitted_odometer NOT NULL so a trailer could be fitted at all:
--- trailers have no odometer and carry roughly two-thirds of the tyres on a
--- superlink. That was half of the corrected requirement. The other half —
--- required where the unit HAS one — has been enforced nowhere since, so a
--- horse fitment with no odometer is silently accepted and its distance
--- degrades to UNAVAILABLE, understating cost-per-km coverage for exactly the
--- units where MEASURED was available.
+-- fitted_odometer is nullable (000011) because a trailer has none to give, and
+-- trailers carry roughly two-thirds of the tyres on a superlink. That is half
+-- of the corrected requirement; this trigger is the other half — required
+-- where the unit HAS one. Without it a horse fitment with no odometer is
+-- accepted and its distance degrades to UNAVAILABLE, understating cost-per-km
+-- coverage for exactly the units where MEASURED was available.
 --
 -- A CHECK cannot see app.vehicle, so this is a trigger.
 --
