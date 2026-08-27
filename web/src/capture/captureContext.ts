@@ -70,6 +70,11 @@ export interface CaptureContext {
   // FR-INS-033 divides by the gap since this date; the value alone has no
   // denominator.
   lastOdometerAt: string | null;
+  // FR-INS-020's pre-fill is a projection from the last reading, and this is
+  // the rate it projects at. Null when the timeline cannot support one — a
+  // first inspection, or a unit read twice on the same day — and then there
+  // is no projection to show (history.projectedOdometerKm).
+  averageDailyKm: number | null;
   positions: CapturePosition[];
   // Null unless this unit heads a current combination — a solo rigid, or a
   // trailer asked for its own context, simply has none.

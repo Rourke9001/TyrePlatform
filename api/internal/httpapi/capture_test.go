@@ -475,6 +475,11 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 // the fixture: that an absent reading serves null rather than a zero, and that
 // "last" means the most recent by reading date rather than whichever row the
 // planner happened to reach first.
+//
+// The same two rows settle FR-INS-020's pre-fill, which is why it is asserted
+// here rather than apart: the projection the driver confirms is this reading
+// carried forward at averageDailyKm, so the rate has to be derived from the
+// odometer timeline and to be absent whenever the timeline cannot support one.
 func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -486,6 +491,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	read := func(t *testing.T) struct {
 		LastOdometerKm *int64     `json:"lastOdometerKm"`
 		LastOdometerAt *time.Time `json:"lastOdometerAt"`
+		AverageDailyKm *float64   `json:"averageDailyKm"`
 	} {
 		t.Helper()
 		rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
@@ -494,6 +500,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 		var body struct {
 			LastOdometerKm *int64     `json:"lastOdometerKm"`
 			LastOdometerAt *time.Time `json:"lastOdometerAt"`
+			AverageDailyKm *float64   `json:"averageDailyKm"`
 		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		return body
@@ -504,6 +511,8 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	before := read(t)
 	require.Nil(t, before.LastOdometerKm, "a vehicle with no reading served an odometer value")
 	require.Nil(t, before.LastOdometerAt, "a vehicle with no reading served a reading date")
+	require.Nil(t, before.AverageDailyKm,
+		"a vehicle with no timeline served a rate, which FR-INS-020 would project from")
 
 	// Planted oldest-last, so a join that ignored the ORDER BY would be as
 	// likely to serve the older row. Both values are plausible and rising:
@@ -530,4 +539,12 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 
 	wantDate := time.Now().UTC().AddDate(0, 0, -5).Format("2006-01-02")
 	require.Equal(t, wantDate, after.LastOdometerAt.UTC().Format("2006-01-02"))
+
+	// 10 000 km over the 25 days between the two readings. Asserted as an
+	// exact figure because the projection a driver is asked to confirm is only
+	// as honest as this number: a rate derived from the wrong span pre-fills a
+	// value the unit never reached, and confirming it is how FR-INS-020 would
+	// put a fiction on an append-only timeline (DR-018).
+	require.NotNil(t, after.AverageDailyKm, "two readings 25 days apart yielded no rate")
+	require.InDelta(t, 400.0, *after.AverageDailyKm, 0.005)
 }

@@ -38,6 +38,7 @@ const unit = (
   unitKind: "HORSE",
   lastOdometerKm: null,
   lastOdometerAt: null,
+  averageDailyKm: null,
   combination: null,
   positions: positions.map((p) => ({ ...p, vehicleId })),
   config: {

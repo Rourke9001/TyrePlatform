@@ -38,6 +38,7 @@ const context: CaptureContext = {
   unitKind: "HORSE",
   lastOdometerKm: null,
   lastOdometerAt: null,
+  averageDailyKm: null,
   combination: null,
   positions: [],
   config: {

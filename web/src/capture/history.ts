@@ -56,6 +56,27 @@ export function historyWarnings(
   return out;
 }
 
+// FR-INS-020's pre-fill, verbatim: "pre-filled with a projection from the
+// unit's last known reading for the driver to confirm or correct". A
+// projection, never the raw last reading — that distinction is the whole
+// safety of the pre-fill. Confirming a number the unit has plausibly reached
+// beats typing six digits in the sun (sponsor Q6), and it cannot manufacture
+// the zero-distance interval a raw last reading would: FR-INS-032 compares
+// `>=` and accepts an equal value, and an unchanged reading gives FR-INS-033
+// nothing to warn about.
+//
+// Null is the honest answer wherever an input is missing — a projection from
+// nothing is not a projection, and NFR-PRO-003 prefers an absent value to an
+// invented one. The caller decides what an unconfirmed projection means; this
+// only says what the number would be.
+export function projectedOdometerKm(ctx: CaptureContext, now: Date): number | null {
+  if (ctx.lastOdometerKm === null || ctx.lastOdometerAt === null) return null;
+  if (ctx.averageDailyKm === null) return null;
+  const days = daysBetween(new Date(ctx.lastOdometerAt), now);
+  if (days <= 0) return ctx.lastOdometerKm;
+  return Math.round(ctx.lastOdometerKm + ctx.averageDailyKm * days);
+}
+
 // FR-INS-032 is a rejection, not a warning: BR-INS-002 is unconditional and
 // the timeline raises TY001 for it on submit. Refusing at entry means the
 // driver finds out while standing at the cab, not after the walk-around.

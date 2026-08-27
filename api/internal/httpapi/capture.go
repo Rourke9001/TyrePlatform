@@ -81,7 +81,14 @@ type captureContextBody struct {
 	LastOdometerKm *int64 `json:"lastOdometerKm"`
 	// FR-INS-033 divides by the gap since this date. Serving the value
 	// without it leaves the plausibility warning with no denominator.
-	LastOdometerAt *time.Time        `json:"lastOdometerAt"`
+	LastOdometerAt *time.Time `json:"lastOdometerAt"`
+	// FR-INS-020's pre-fill is a PROJECTION — the last known reading carried
+	// forward by this unit's average daily distance — not the last reading
+	// itself, which is what stops one tap recording last inspection's number
+	// as this one's. The rate travels rather than the projected value because
+	// the days elapsed are only known when the driver opens the screen, and
+	// FR-OFF-001 may have taken the signal away hours earlier.
+	AverageDailyKm *float64          `json:"averageDailyKm"`
 	Positions      []capturePosition `json:"positions"`
 	// Null unless this vehicle heads a current combination. A trailer asked
 	// for its own context gets null and is captured as a solo unit, which is
@@ -137,17 +144,33 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		// be inspected at all (migration 000022).
 		from = `app.v_capture_vehicle cv JOIN app.vehicle v ON v.id = cv.vehicle_id`
 	}
+	// The average is derived from the odometer TIMELINE, the same relation the
+	// last reading above comes from, and not from app.v_removal_forecast's
+	// mean_daily_km: that one is anchored on a tyre's own later reading and
+	// sums inspection odometers, which is the right window for a wear
+	// projection and the wrong one for "how far has this unit gone since
+	// somebody last read the dial". Ninety days matches the forecast's
+	// convention. A unit with one reading, or two on the same day, divides by
+	// zero days and correctly yields no rate at all — FR-INS-020 then has
+	// nothing to project from and the field starts empty.
 	err := tx.QueryRow(ctx, `
-		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text, o.odometer_km, o.reading_date
+		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text,
+		       o.odometer_km, o.reading_date, avg_km.km
 		  FROM `+from+`
 		  LEFT JOIN LATERAL (
 		       SELECT vo.odometer_km, vo.reading_date
 		         FROM app.vehicle_odometer_reading vo
 		        WHERE vo.vehicle_id = v.id
 		        ORDER BY vo.reading_date DESC LIMIT 1) o ON true
+		  LEFT JOIN LATERAL (
+		       SELECT round((max(vo.odometer_km) - min(vo.odometer_km))::numeric
+		                  / NULLIF(max(vo.reading_date) - min(vo.reading_date), 0), 2) AS km
+		         FROM app.vehicle_odometer_reading vo
+		        WHERE vo.vehicle_id = v.id
+		          AND vo.reading_date > (now() AT TIME ZONE 'UTC')::date - 90) avg_km ON true
 		 WHERE v.id = $1`, vehicleID).
 		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.UnitKind,
-			&out.LastOdometerKm, &out.LastOdometerAt)
+			&out.LastOdometerKm, &out.LastOdometerAt, &out.AverageDailyKm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errForbidden
 	}

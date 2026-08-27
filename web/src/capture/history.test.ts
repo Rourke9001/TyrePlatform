@@ -35,6 +35,7 @@ const ctx: CaptureContext = {
   unitKind: "HORSE",
   lastOdometerKm: 412180,
   lastOdometerAt: "2026-08-19T06:00:00Z", // six days before NOW
+  averageDailyKm: null,
   combination: null,
   positions: [position],
   config: {
