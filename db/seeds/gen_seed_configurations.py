@@ -30,12 +30,19 @@ def build(axles):
 L=["-- Seed: axle configuration library (unit types per CHG-070..073) + policy seeds",
    "-- Generated from the same model as the spec reference; do not hand-edit.",
    "SET search_path = app, public;",""]
-L.append("-- Two tenants. Isolation must hold at n=2 (SRS Appendix H).")
+L.append("-- Three tenants. Isolation must hold at n=2 (SRS Appendix H); the third")
+L.append("-- carries no acceptance data and exists so exploratory test data has a")
+L.append("-- home that is not the pilot tenant. BAC's rows reproduce Appendix E and")
+L.append("-- Appendix J to the cent, so anything typed into BAC during the POC has")
+L.append("-- to be found and unpicked before go-live — the sandbox is that cleanup")
+L.append("-- avoided rather than deferred.")
 L.append("INSERT INTO app.tenant (id,name,subdomain,state) VALUES")
 L.append("  ('11111111-1111-1111-1111-111111111111','BAC Transport','bac','ACTIVE'),")
-L.append("  ('22222222-2222-2222-2222-222222222222','Second Fleet (isolation control)','other','ACTIVE');")
+L.append("  ('22222222-2222-2222-2222-222222222222','Second Fleet (isolation control)','other','ACTIVE'),")
+L.append("  ('33333333-3333-3333-3333-333333333333','Sandbox Fleet','sandbox','ACTIVE');")
 L.append("")
-for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222']:
+for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-222222222222',
+            '33333333-3333-3333-3333-333333333333']:
     L.append(f"SET LOCAL app.tenant_id = '{tid}';")
     L.append("-- policy values (CR-005: never hard-coded). effective_from is a fixed")
     L.append("-- backdate, not load time: as-at valuation (FR-VAL-020/021) resolves the")
