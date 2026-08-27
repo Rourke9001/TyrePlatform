@@ -347,6 +347,13 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			// COALESCE guards a missing/non-array readings key so a malformed
 			// payload still gets a refusal here rather than a raw Postgres
 			// error.
+			//
+			// The refusal is errVehicleNotVisible (422), not errForbidden
+			// (403). A ScopeTenant actor skips this check entirely and meets
+			// the same condition at app.submit_inspection's TY007 guard, which
+			// answers 422 — so refusing a driver with 403 would have two roles
+			// learn different things about the same vehicle. The sentinel's own
+			// comment in httpapi.go carries the reasoning.
 			if a.Scope() != auth.ScopeTenant {
 				var authorized bool
 				if err := tx.QueryRow(r.Context(), `
@@ -363,7 +370,7 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 					return fmt.Errorf("checking capture scope: %w", err)
 				}
 				if !authorized {
-					return errForbidden
+					return errVehicleNotVisible
 				}
 			}
 			return tx.QueryRow(r.Context(),

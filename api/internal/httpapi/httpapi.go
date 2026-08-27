@@ -223,6 +223,9 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 	case errors.Is(err, errForbidden):
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return false
+	case errors.Is(err, errVehicleNotVisible):
+		http.Error(w, "vehicle not visible", http.StatusUnprocessableEntity)
+		return false
 	case isClient:
 		http.Error(w, msg, code)
 		return false
@@ -237,6 +240,17 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 // withActor shape the response, so the capability check reads inline with the
 // query it guards rather than as a separate pre-flight.
 var errForbidden = errors.New("capability not held")
+
+// errVehicleNotVisible is the write path's FR-AUT-005 narrowing, answered as
+// 422 and not 403 — the status and the wording are TY007's, deliberately.
+// A ScopeTenant actor skips the Go-side check and meets the same condition at
+// app.submit_inspection's TY007 guard, which answers 422 "vehicle not
+// visible"; a driver refused here with 403 would tell the two roles different
+// things about the same vehicle, which is the distinction ADR-0011 exists to
+// deny. 422 says nothing about whether the vehicle exists elsewhere, so
+// indistinguishability is preserved either way — and it is the status the
+// capture design's refusal table already names for this row.
+var errVehicleNotVisible = errors.New("vehicle not visible")
 
 // require refuses unless the actor's role carries the capability. Handlers
 // assert capabilities, never role names (auth.Capability).
