@@ -2093,10 +2093,16 @@ BEGIN
   -- CFL-003: a fitment with no odometer is accepted, and its distance
   -- provenance says UNAVAILABLE rather than pretending (CHG-042, ADR-0010)
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2TRL1') THEN
+    -- The unit carrying this fitment has to be a TRAILER. FR-FIT-002 requires a
+    -- fitted odometer wherever the unit kind has one (TY009, migration 000025),
+    -- so a horse is the one kind that cannot demonstrate the odometer-less case
+    -- CFL-003 is about — it is the kind the rule refuses.
+    INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,status) VALUES
+      (md5('t2trlveh')::uuid,'22222222-2222-2222-2222-222222222222','TRAILER1','CAA444444',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'TRAILER','ACTIVE');
     INSERT INTO app.tyre (id,tenant_id,display_code,state)
     VALUES (md5('t2trltyre')::uuid,'22222222-2222-2222-2222-222222222222','T2TRL1','FITTED');
     INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer)
-    SELECT '22222222-2222-2222-2222-222222222222',md5('t2trltyre')::uuid,md5('t2veh1')::uuid,pos.id,
+    SELECT '22222222-2222-2222-2222-222222222222',md5('t2trltyre')::uuid,md5('t2trlveh')::uuid,pos.id,
            '2027-05-01T06:00:00Z',NULL
       FROM app.position pos
      WHERE pos.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
@@ -3383,6 +3389,92 @@ BEGIN
   UPDATE app.vehicle SET registration = 'TY82-TOUCHED' WHERE id = v;
 
   RAISE NOTICE 'PASS  configuration is immutable with history, editable without, and other columns are untouched';
+END $$;
+ROLLBACK;
+
+\echo '== 33. Fitment odometer is required where the unit kind has one (FR-FIT-002 as corrected in SRS v1.4, CHG-027)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '11111111-1111-1111-1111-111111111111';
+  ok       boolean := false;
+  horse    uuid;
+  trailer  uuid;
+  nullkind uuid;
+  cfg      uuid;
+  pos      uuid;
+  f        uuid;
+  spare    uuid[];
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+
+  SELECT v.configuration_id INTO cfg
+    FROM app.vehicle v WHERE v.unit_kind = 'HORSE' ORDER BY v.fleet_number LIMIT 1;
+  IF cfg IS NULL THEN RAISE EXCEPTION 'FAIL: fixture has no HORSE to test with'; END IF;
+
+  SELECT p.id INTO pos FROM app.position p
+   WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  IF pos IS NULL THEN RAISE EXCEPTION 'FAIL: the HORSE configuration has no running position'; END IF;
+
+  -- DR-005 allows a tyre one open fitment, so every open fitment below needs
+  -- its own tyre or the refusal under test arrives as one_open_fitment_per_tyre
+  -- and proves nothing about TY009. The section makes its own rather than
+  -- drawing on the fixture: every seeded tyre is fitted, so there is no slack
+  -- to draw on, and a test that depends on there being some is a test that
+  -- breaks the next time the seed fills a position.
+  WITH made AS (
+    INSERT INTO app.tyre (tenant_id, display_code)
+    SELECT t_id, 'TY85-SPARE-' || g FROM generate_series(1, 4) g
+    RETURNING id)
+  SELECT array_agg(id) INTO spare FROM made;
+
+  INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+       VALUES (t_id, 'TY85-HORSE', cfg, 'HORSE') RETURNING id INTO horse;
+  INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+       VALUES (t_id, 'TY85-TRAILER', cfg, 'TRAILER') RETURNING id INTO trailer;
+  -- CHG-027 left underivable kinds NULL. Such a unit must not be blocked:
+  -- we do not know whether it has an odometer, and guessing would refuse
+  -- legitimate work.
+  INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+       VALUES (t_id, 'TY85-UNKNOWN', cfg, NULL) RETURNING id INTO nullkind;
+
+  -- (a) A horse fitted with no odometer is refused.
+  BEGIN
+    INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+         VALUES (t_id, spare[1], horse, pos, now(), NULL);
+  EXCEPTION WHEN SQLSTATE 'TY009' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: a HORSE fitment without an odometer was accepted'; END IF;
+
+  -- (b) A trailer fitted with no odometer is accepted — it has none to give,
+  -- and refusing it makes two-thirds of a superlink unrecordable.
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+       VALUES (t_id, spare[2], trailer, pos, now(), NULL);
+
+  -- (c) A NULL-kind unit is not blocked.
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+       VALUES (t_id, spare[3], nullkind, pos, now(), NULL);
+
+  -- (d) A horse fitted WITH an odometer is accepted, then refused a removal
+  -- that omits the removed odometer — the second half of FR-FIT-002.
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+       VALUES (t_id, spare[4], horse, pos, now(), 100000) RETURNING id INTO f;
+
+  ok := false;
+  BEGIN
+    UPDATE app.fitment
+       SET removed_at = now(), removed_odometer = NULL, removal_reason = 'WORN'
+     WHERE id = f;
+  EXCEPTION WHEN SQLSTATE 'TY009' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: a HORSE removal without an odometer was accepted'; END IF;
+
+  -- (e) The same removal with an odometer succeeds.
+  UPDATE app.fitment
+     SET removed_at = now(), removed_odometer = 120000, removal_reason = 'WORN'
+   WHERE id = f;
+
+  RAISE NOTICE 'PASS  odometer required on odometer-bearing kinds at fitment and removal, optional elsewhere';
 END $$;
 ROLLBACK;
 
