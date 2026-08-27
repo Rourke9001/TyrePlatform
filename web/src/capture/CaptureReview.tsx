@@ -15,7 +15,6 @@ import "./capture.css";
 // CR-010 / OR-LEG-001 governs every string in it.
 const WARNING_NAME: Record<WarningCode, string> = {
   "FR-INS-031a": "Pressure well off target",
-  "FR-INS-032": "Odometer below the last reading",
   "FR-INS-033": "Big jump on the odometer",
   "FR-INS-034": "Deeper than last time",
   "FR-INS-035": "Wearing fast",
@@ -61,10 +60,21 @@ export function CaptureReview({
   const total = units.reduce((n, u) => n + u.total, 0);
 
   // The same projection the diagram numbers from, so a driver reading
-  // "Position 7" here walks to the wheel they were just standing at.
-  const numberOf = useMemo(() => {
-    const map = new Map<string, number | null>();
-    for (const r of rigPositions(contexts)) map.set(r.key, r.displayNumber);
+  // "Position 7" here walks to the wheel they were just standing at. The
+  // fleet number rides along because a spare carries no walk-around number:
+  // every unit in a rig has one (BR-VEH-003), so two flagged spares would
+  // otherwise be two identical rows at the moment the driver decides whether
+  // to submit. Named the way the diagram cell and the position sheet name it.
+  const whereOf = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rigPositions(contexts)) {
+      map.set(
+        r.key,
+        r.displayNumber === null
+          ? `Spare, ${r.context.fleetNumber}`
+          : `Position ${r.displayNumber}`,
+      );
+    }
     return map;
   }, [contexts]);
 
@@ -72,10 +82,13 @@ export function CaptureReview({
     ...draft.warnings.map((w) => ({ key: `rig-${w.code}`, where: "This vehicle", ...w })),
     ...Object.values(draft.positions).flatMap((p) => {
       const cell = cellKey(p.vehicleId, p.positionId);
-      const number = numberOf.get(cell);
+      // The fallback names the unit rather than guessing at a position: a
+      // draft entry whose cell is not in the rig is a defect, and inventing
+      // "Spare" for it would send the driver to the wrong wheel.
+      const unit = contexts.find((c) => c.vehicleId === p.vehicleId)?.fleetNumber;
       return p.warnings.map((w) => ({
         key: `${cell}-${w.code}`,
-        where: number === null || number === undefined ? "Spare" : `Position ${number}`,
+        where: whereOf.get(cell) ?? unit ?? "This vehicle",
         ...w,
       }));
     }),

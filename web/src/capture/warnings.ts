@@ -4,9 +4,12 @@ import type { CaptureConfig, CapturePosition } from "./captureContext";
 // app.inspection_warning (DR-021) and is what a controller reads months later
 // when asking why a driver was stopped. A private enum here would need a
 // mapping table nobody maintains.
+// FR-INS-032 is deliberately absent: it is a rejection, not a warning
+// (history.ts's odometerRejection returns a sentence, never a Warning), so it
+// never travels to app.inspection_warning and a member here would promise a
+// record nothing writes.
 export type WarningCode =
   | "FR-INS-031a"
-  | "FR-INS-032"
   | "FR-INS-033"
   | "FR-INS-034"
   | "FR-INS-035"
