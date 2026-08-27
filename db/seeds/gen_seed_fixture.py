@@ -53,6 +53,7 @@ L=["-- Seed: R13 acceptance fixture (SRS v1.3 Appendix J)",
 BRANDING={
  T:                                       {"displayName":"BAC Transport","primaryColor":"#E2202A","logoUrl":None},
  "22222222-2222-2222-2222-222222222222":  {"displayName":"Second Fleet","primaryColor":"#7A2E8D","logoUrl":None},
+ "33333333-3333-3333-3333-333333333333":  {"displayName":"Sandbox Fleet","primaryColor":"#1F7A5A","logoUrl":None},
 }
 import json
 for btid,bval in BRANDING.items():
@@ -82,6 +83,36 @@ L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('depot2')::
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
 L.append("  (md5('driver2')::uuid,'%s','thabo@example.invalid','Thabo','EMP-2001','DRIVER');"%T2)
 L.append("INSERT INTO app.user_depot (tenant_id,user_id,depot_id) VALUES ('%s',md5('driver2')::uuid,md5('depot2')::uuid);"%T2)
+L.append("")
+# The sandbox tenant. It deliberately carries NO tyres, fitments or readings:
+# nothing here may be reachable by an Appendix E or Appendix J assertion, and
+# an empty estate is the cheapest guarantee of that. What it does carry is the
+# minimum an operator needs to be present in the app at all — a depot, one user
+# per role, and two units on the shared configuration library — so the write
+# surfaces have a tenant to be exercised against as they land (TYRE-3, TYRE-55).
+# Its fleet numbers repeat tenant 1's on purpose: fleet numbers are unique per
+# tenant, never globally (DR-003), and a sandbox that quietly used distinct ones
+# would hide a regression in that constraint rather than expose it.
+T3="33333333-3333-3333-3333-333333333333"
+L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('sbdepot1')::uuid,'%s','Sandbox Depot','DEPOT');"%T3)
+L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
+L.append("  (md5('sbdriver1')::uuid,'%s','sandbox-driver@example.invalid','Sandbox Driver','SBX-0001','DRIVER'),"%T3)
+L.append("  (md5('sbcontroller1')::uuid,'%s','sandbox-controller@example.invalid','Sandbox Controller','SBX-0002','CONTROLLER'),"%T3)
+L.append("  (md5('sbadmin1')::uuid,'%s','sandbox-admin@example.invalid','Sandbox Admin','SBX-0003','ORG_ADMIN');"%T3)
+# Only the driver is depot-scoped; a controller and an org admin see the whole
+# tenant (FR-AUT-007/009), so a user_depot row for either would misrepresent
+# the scope the dashboard is being exercised at.
+L.append("INSERT INTO app.user_depot (tenant_id,user_id,depot_id) VALUES ('%s',md5('sbdriver1')::uuid,md5('sbdepot1')::uuid);"%T3)
+for sbseq,(sbfleet,sbreg,sbcfg,sbkind) in {1:('HORSE','SBX001GP','HORSE_6X4','HORSE'),
+                                           2:('LINK6','SBX002GP','TRAILER_2AXLE','TRAILER')}.items():
+    L.append("INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,body_type,home_depot_id,current_odometer,status)")
+    L.append(f"  VALUES (md5('sbveh{sbseq}')::uuid,'{T3}','{sbfleet}','{sbreg}',md5('{T3}{sbcfg}')::uuid,'{sbkind}','Flat deck',md5('sbdepot1')::uuid,250000,'ACTIVE');")
+    # FR-AUT-005 scopes GET /api/my/vehicles to the driver's own units, so
+    # without an open assignment the sandbox driver's capture list is empty and
+    # the tenant cannot be walked end to end.
+    L.append("INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES")
+    L.append(f"  (md5('sbvd{sbseq}')::uuid,'{T3}',md5('sbveh{sbseq}')::uuid,md5('sbdriver1')::uuid,'2026-01-01',NULL);")
+L.append("")
 L.append("INSERT INTO app.tyre_size (id,tenant_id,name,construction) VALUES (md5('sz1')::uuid,'%s','315/80R22.5','RADIAL');"%T)
 L.append("INSERT INTO app.tyre_brand (id,tenant_id,name) VALUES (md5('br1')::uuid,'%s','Dunlop');"%T)
 L.append("INSERT INTO app.tyre_pattern (id,tenant_id,name,brand_id) VALUES (md5('pt1')::uuid,'%s','SP431',md5('br1')::uuid);"%T)

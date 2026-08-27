@@ -34,6 +34,7 @@ export function clearDevTenantId(): void {
 export const DEV_TENANTS = [
   { id: "11111111-1111-1111-1111-111111111111", name: "BAC Transport" },
   { id: "22222222-2222-2222-2222-222222222222", name: "Second Fleet" },
+  { id: "33333333-3333-3333-3333-333333333333", name: "Sandbox Fleet" },
 ] as const;
 
 const ACTOR_STORAGE_KEY = "tyre.dev.user-id";
@@ -85,5 +86,23 @@ export const DEV_ACTORS = [
     id: "d95784fa-a659-7a02-53e4-83e500ced3ee",
     name: "Thabo (driver, Second Fleet)",
     tenant: "22222222-2222-2222-2222-222222222222",
+  },
+  // Sandbox Fleet carries no acceptance data, so it is the tenant to type into
+  // when exploring. Anything entered against BAC has to be unpicked before the
+  // pilot goes live; anything entered here is discarded by the next db-reset.
+  {
+    id: "40f019ce-192e-92d1-5b15-2eb7b65369df",
+    name: "Sandbox Driver",
+    tenant: "33333333-3333-3333-3333-333333333333",
+  },
+  {
+    id: "c8b320df-8f90-ce76-e180-9d35ea293a9c",
+    name: "Sandbox Controller",
+    tenant: "33333333-3333-3333-3333-333333333333",
+  },
+  {
+    id: "96b10943-acb4-c3d7-e8cd-3e1fb52e067e",
+    name: "Sandbox Admin",
+    tenant: "33333333-3333-3333-3333-333333333333",
   },
 ] as const;
