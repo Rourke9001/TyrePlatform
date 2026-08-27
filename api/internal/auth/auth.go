@@ -40,8 +40,13 @@ const (
 	ManageUsers   Capability = "ManageUsers"
 )
 
-// FR-AUT-005..009. DEPOT_MANAGER holds everything CONTROLLER does: FR-AUT-008
-// narrows it by depot, and that narrowing lives in the scope views, not here.
+// FR-AUT-005..009, carrying erratum D1. DEPOT_MANAGER holds everything
+// CONTROLLER does: FR-AUT-008 narrows it by depot, and that narrowing lives in
+// the scope views, not here. ManageConfig is the one capability with no
+// narrowing to live anywhere — app.configuration is keyed by tenant, not by
+// depot, so a depot manager holding it configures the whole tenant. D1 accepts
+// that breadth deliberately; there is no depot-scoped variant to reach for, and
+// template authoring is held away from it entirely (TYRE-84).
 // PLATFORM_ADMIN holds nothing — its rows carry a NULL tenant_id and cannot be
 // seen from inside a tenant session, so it is never the actor on a
 // tenant-scoped request (ADR-0011). A role absent from this map holds nothing,
@@ -49,8 +54,8 @@ const (
 var capabilities = map[Role][]Capability{
 	RoleDriver:       {CaptureInspection},
 	RoleTechnician:   {ViewFleet},
-	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation},
-	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation},
+	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig},
+	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig},
 	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, ManageUsers},
 }
 
