@@ -52,10 +52,10 @@ which is why the batches keep its shape.
 
 | Key | Verified at |
 |---|---|
-| TYRE-74 | `api/internal/auth/auth.go:52-53` — `ManageConfig` is absent from both roles |
-| TYRE-84 | No `ManageTemplates` capability exists |
-| TYRE-82 | No trigger or constraint guards `vehicle.configuration_id` against change with history present |
-| TYRE-85 | `000011` dropped `fitted_odometer NOT NULL`; nothing re-enforces it where the unit kind has an odometer |
+| TYRE-74 | ~~`api/internal/auth/auth.go:52-53` — `ManageConfig` is absent from both roles~~ — **closed by B2** |
+| TYRE-84 | ~~No `ManageTemplates` capability exists~~ — **closed by B2** |
+| TYRE-82 | ~~No trigger or constraint guards `vehicle.configuration_id` against change with history present~~ — **closed by B1** |
+| TYRE-85 | ~~`000011` dropped `fitted_odometer NOT NULL`; nothing re-enforces it where the unit kind has an odometer~~ — **closed by B1** |
 | TYRE-77 | `statusForPgError` forwards `pgErr.Message` verbatim |
 | TYRE-78 | `TY003` and `23505` both map to 409 in `submitStatus`, and the client cannot tell them apart |
 
@@ -110,7 +110,7 @@ are history:
   trailer. It guards its inserts with `IF NOT EXISTS` and is not
   transaction-wrapped, so only `make db-reset` exercises it.
 
-### B2 — the capability map
+### B2 — the capability map — **delivered**
 
 **TYRE-74, then TYRE-84.**
 
@@ -120,6 +120,25 @@ outcome TYRE-84 exists to prevent: TYRE-74 widens `ManageConfig` to CONTROLLER
 and DEPOT_MANAGER, so a template gate resting on it would silently hand
 template authoring to two roles that must not have it. Together they are a
 capability constant, two map entries and their tests.
+
+The plan is at `docs/superpowers/plans/2026-08-27-capability-map.md`.
+
+Delivered on `TYRE-74-capability-map` as two commits, in that order:
+
+| Commit | Change | Assertion |
+|---|---|---|
+| TYRE-74 | `ManageConfig` on `RoleController` and `RoleDepotManager` | both hold it; DRIVER and TECHNICIAN still do not |
+| TYRE-84 | `ManageTemplates` on `RoleOrgAdmin` alone | CONTROLLER and DEPOT_MANAGER do not hold it |
+
+No schema change: the capability table has no database mirror, so the whole
+batch is one file and its test. No endpoint gated on `ManageConfig` at the
+time it widened, which is why the widening was cheap — the cost of deferring
+it would have been paid once per surface built on the old shape. The web app
+is untouched for the same reason: `navItemsFor` takes capabilities as input
+and no menu item is gated on either capability.
+
+`require.Len` in `TestRoleCapabilities` is what keeps the table honest — the
+`can` list is an exact set, so a grant added to the map without a test fails.
 
 ### B3 — the submit refusal contract
 
@@ -176,7 +195,11 @@ successors.** TYRE-36 only once the register shape is stable, since it reads it.
 ### Homed, not scheduled
 
 - **TYRE-76** (depot-scoped capture path) follows B2 — it needs the capability
-  map settled before a depot manager can be granted a capture path.
+  map settled before a depot manager can be granted a capture path. B2 is
+  delivered, so it is unblocked. Note what B2 settled and what it did not: a
+  depot manager holds `CaptureInspection` and `ManageConfig` tenant-wide, but
+  still takes `ScopeDepot`, so the capture path is a scope question and not a
+  capability one.
 - **TYRE-59, TYRE-60, TYRE-62** are E1 residue with no dependent. They are
   deliberately unscheduled rather than forgotten; pull them when a gap appears.
 - **TYRE-61, TYRE-63** are infrastructure hardening and belong with the
