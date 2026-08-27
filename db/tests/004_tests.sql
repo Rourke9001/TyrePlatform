@@ -3478,5 +3478,153 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 34. Platform-admin emails are unique, and a driver assignment cannot duplicate itself (TYRE-30, DR-003)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '11111111-1111-1111-1111-111111111111';
+  ok    boolean := false;
+  v     uuid;
+  u     uuid;
+  u_two uuid;
+  n     int;
+  got   text;
+  n2    int;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+
+  -- (a) UNIQUE (tenant_id, email) treats NULL tenant_id as distinct, so two
+  -- platform admins could share an email.
+  --
+  -- Asserted through the catalog, not by behaviour, and the reason is the
+  -- point of the constraint rather than a shortcut. The suite runs as
+  -- app_login, which is a member of app_rw and nothing else — it cannot
+  -- SET ROLE postgres, and app_rw's WITH CHECK rejects a NULL-tenant insert
+  -- outright. The only actor that can reach this duplicate is the postgres
+  -- provisioning path, which the suite deliberately never becomes (section 0
+  -- fails the whole run if it is a superuser). So the index's existence is
+  -- the strongest true statement this suite can make about it.
+  SELECT count(*) INTO n FROM pg_indexes
+   WHERE schemaname = 'app' AND tablename = 'app_user'
+     AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+     AND indexdef ILIKE '%(email)%'
+     AND indexdef ILIKE '%tenant\_id IS NULL%';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL: expected exactly one partial unique index on app_user(email) WHERE tenant_id IS NULL, found %', n;
+  END IF;
+
+  -- And prove app_login really is barred from the path that would exercise it,
+  -- so the catalog assertion above is not quietly standing in for a check that
+  -- could have been behavioural all along.
+  ok := false;
+  BEGIN
+    INSERT INTO app.app_user (tenant_id, email, display_name, role)
+         VALUES (NULL, 'ty30-dup@example.test', 'First', 'PLATFORM_ADMIN');
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN ok := true;
+  END;
+  IF NOT ok THEN
+    RAISE EXCEPTION 'FAIL: app_login inserted a NULL-tenant user; the index is no longer the only control here';
+  END IF;
+
+  -- (b) An exact-duplicate current assignment multiplies the vehicle through
+  -- v_current_assignment and v_driver_vehicle.
+  --
+  -- The unit is required to still have an unassigned driver, because case (c)
+  -- below needs one: a bare pick lands on a unit whose whole driver roster is
+  -- already assigned to it, and (c) then fails for a fixture reason rather
+  -- than a constraint one.
+  SELECT vd.vehicle_id, vd.user_id INTO v, u
+    FROM app.vehicle_driver vd
+   WHERE vd.tenant_id = t_id AND vd.to_date IS NULL
+     AND EXISTS (SELECT 1 FROM app.app_user au
+                  WHERE au.tenant_id = t_id AND au.role = 'DRIVER' AND au.active
+                    AND NOT EXISTS (SELECT 1 FROM app.vehicle_driver vd2
+                                     WHERE vd2.vehicle_id = vd.vehicle_id
+                                       AND vd2.user_id = au.id))
+   ORDER BY vd.vehicle_id, vd.user_id LIMIT 1;
+  IF v IS NULL THEN
+    RAISE EXCEPTION 'FAIL: fixture has no open assignment on a unit that still has an unassigned driver';
+  END IF;
+
+  ok := false;
+  BEGIN
+    INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
+         VALUES (t_id, v, u, current_date, NULL);
+  EXCEPTION WHEN exclusion_violation THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: a duplicate open assignment was accepted'; END IF;
+
+  -- (c) A SECOND DRIVER on the same vehicle is still permitted. OI-32 —
+  -- fixed per horse or pooled per trip — is an open sponsor question
+  -- (TYRE-44), and a constraint that answered it would be this migration
+  -- deciding scope it has no authority over.
+  SELECT au.id INTO u_two FROM app.app_user au
+   WHERE au.tenant_id = t_id AND au.role = 'DRIVER' AND au.active
+     AND NOT EXISTS (SELECT 1 FROM app.vehicle_driver vd
+                      WHERE vd.vehicle_id = v AND vd.user_id = au.id)
+   ORDER BY au.id LIMIT 1;
+  IF u_two IS NULL THEN RAISE EXCEPTION 'FAIL: fixture has no second driver to prove OI-32 is left open'; END IF;
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
+       VALUES (t_id, v, u_two, current_date, NULL);
+
+  -- (d) A non-overlapping re-assignment of the SAME driver is permitted —
+  -- a driver returning to a unit after a gap is ordinary. The pair is the one
+  -- case (b) held, not a fresh pick: a fresh pick can land on the row (c) just
+  -- opened today, and closing that in the past violates the table's own CHECK.
+  UPDATE app.vehicle_driver SET to_date = current_date - 10
+   WHERE vehicle_id = v AND user_id = u AND to_date IS NULL;
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
+       VALUES (t_id, v, u, current_date - 5, NULL);
+
+  -- (e) The constraint must not become a cross-tenant oracle. An exclusion
+  -- check bypasses RLS, so a key without tenant_id would answer "is that
+  -- driver on that unit on this date?" for a tenant whose rows this session
+  -- cannot see — exclusion_violation when the probe lands inside the foreign
+  -- assignment, foreign_key_violation when it lands outside, and the caller
+  -- picks the date. Both probes must now fail identically, on the FK.
+  --
+  -- The probe itself cannot see what it probes for, so the uuids are
+  -- hard-coded — but the precondition can be checked, and has to be. Both
+  -- probes draw 23503 from the composite FK whether or not the seeded
+  -- assignment exists, so without this the section would still print PASS
+  -- after a seed change quietly removed the only thing case (e) discriminates
+  -- on, and the constraint could go back to a tenant-omitting key unnoticed.
+  -- The seed is generated and gitignored, which is exactly why the assertion
+  -- belongs here rather than in a reader's memory of it.
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT count(*) INTO n2 FROM app.vehicle_driver vd
+   WHERE vd.id = md5('t2vd1')::uuid
+     AND vd.vehicle_id = md5('t2veh1')::uuid
+     AND vd.user_id = md5('driver2')::uuid
+     AND vd.from_date = DATE '2026-01-01' AND vd.to_date IS NULL;
+  IF n2 <> 1 THEN
+    RAISE EXCEPTION 'FAIL: the tenant-2 assignment case (e) probes for is absent or moved; the probes below would pass vacuously';
+  END IF;
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+
+  got := NULL;
+  BEGIN
+    INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
+         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, DATE '2026-06-01', DATE '2026-06-01');
+  EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
+  END;
+  IF got IS DISTINCT FROM '23503' THEN
+    RAISE EXCEPTION 'FAIL: a probe inside another tenant''s assignment window answered % (expected 23503 foreign_key_violation); the constraint is a cross-tenant date oracle', COALESCE(got, 'success');
+  END IF;
+
+  got := NULL;
+  BEGIN
+    INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
+         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, DATE '2025-01-01', DATE '2025-01-01');
+  EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
+  END;
+  IF got IS DISTINCT FROM '23503' THEN
+    RAISE EXCEPTION 'FAIL: a probe outside another tenant''s assignment window answered % (expected 23503)', COALESCE(got, 'success');
+  END IF;
+
+  RAISE NOTICE 'PASS  platform-admin emails unique; assignments cannot overlap themselves, OI-32 stays open, and the constraint is not a cross-tenant date oracle';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
