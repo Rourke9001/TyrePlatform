@@ -15,6 +15,37 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-08-27 — A requirement declared unbuildable was never re-read (TYRE-4, CS-4)
+
+**What happened:** the capture slice shipped the odometer field empty and
+raised "FR-INS-020 cannot be built as written" to the sponsor, on the strength
+of a quotation — *"optional, pre-filled… It shall never block a tyre
+inspection"* — carried between documents rather than fetched. The live
+requirement pre-fills a **projection** for the driver to **confirm or
+correct** and records confirmed values only, which already contains the guard
+the objection asked the errata to invent. The escalation, the assumption
+recorded in the questions file, the PR's Decisions paragraph and a week of the
+sponsor's attention were all spent on a requirement that says something else.
+
+**The rule:** before declaring a requirement contradictory, unbuildable or in
+conflict with another, fetch its current text from Confluence and quote it in
+full. An ellipsis in a quotation is where the answer usually was. This costs
+one MCP call; not doing it costs a sponsor round trip and a build of the wrong
+thing.
+
+## 2026-08-27 — A window with one bound answers a different question (TYRE-66)
+
+**What happened:** FR-INS-038's duplicate guard bounded its interval below
+only. Every test asked whether a later capture was refused, so the whole suite
+agreed with a predicate that would silently discard any capture arriving out
+of order — which, behind a durable outbox, is the ordinary case rather than
+the exotic one.
+
+**The rule:** when a rule is about the distance between two events, test it in
+both directions. A test suite that only ever plants the older event first
+cannot see a missing bound, and "within N hours of each other" is symmetric
+whatever order the payloads happen to arrive in.
+
 ## 2026-08-26 — A sibling agent's commit is indistinguishable from a human's (TYRE-4)
 
 **What happened:** a subagent resumed, found HEAD had moved past its own commit,
