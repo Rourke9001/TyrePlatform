@@ -70,7 +70,7 @@ integrity rule is cheap before pilot data exists and expensive after, because
 afterwards the rule has to be retrofitted around rows that already violate it.
 That is why the database constraints come before any surface that writes.
 
-### B1 — database integrity rules
+### B1 — database integrity rules — **delivered**
 
 **TYRE-82, TYRE-85, and TYRE-30's two remaining constraints.**
 
@@ -82,6 +82,33 @@ the same class of small constraint in the same schema territory, so they ride
 along rather than waiting for a pass of their own.
 
 The plan is at `docs/superpowers/plans/2026-08-27-db-integrity-rules.md`.
+
+Delivered on `TYRE-82-db-integrity-rules` as three paired migrations and three
+suite sections:
+
+| Migration | Rule | Section |
+|---|---|---|
+| `000024_configuration_immutable_with_history` | `TY008` on a `configuration_id` change where fitment, inspection **or** reading exists | 32 |
+| `000025_fitment_odometer_by_unit_kind` | `TY009` where `unit_kind` carries an odometer; `TRAILER` and NULL pass | 33 |
+| `000026_tenant_null_email_and_assignment_overlap` | partial unique index on `app_user(email) WHERE tenant_id IS NULL`; `vehicle_driver_no_overlap` | 34 |
+
+Two things the branch found that the plan did not predict, both recorded here
+because they change what the next batch should expect rather than because they
+are history:
+
+- The exclusion constraint keyed as the ticket described it — without
+  `tenant_id` — is a **cross-tenant oracle**. Exclusion checks bypass RLS and
+  fire before the composite FK, so `exclusion_violation` against
+  `foreign_key_violation` disclosed another tenant's assignment dates to a
+  caller who chose the probe date. `tenant_id` leads the key for that reason.
+  The general case is unswept: check 16 sweeps foreign keys for a missing
+  `tenant_id`, and there is no equivalent for unique or exclusion constraints.
+  Seven pre-existing constraints are in that blind spot, three of them
+  standalone partial indexes with no `pg_constraint` row.
+- Suite section 24 asserted the odometer-less fitment property on a unit the
+  seed declares `HORSE`, so `TY009` refused it. The section now creates its own
+  trailer. It guards its inserts with `IF NOT EXISTS` and is not
+  transaction-wrapped, so only `make db-reset` exercises it.
 
 ### B2 — the capability map
 
