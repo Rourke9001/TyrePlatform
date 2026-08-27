@@ -3337,5 +3337,54 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 32. A unit axle configuration is immutable once it has history (D11(ii), FR-VEH-016, INV-4)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '11111111-1111-1111-1111-111111111111';
+  ok        boolean := false;
+  v         uuid;
+  clean     uuid;
+  cfg       uuid;
+  other_cfg uuid;
+  n         int;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+
+  -- A unit with recorded history: its configuration is now load-bearing for
+  -- every position row its fitments and readings point at.
+  SELECT r.vehicle_id INTO v FROM app.reading r ORDER BY r.id LIMIT 1;
+  IF v IS NULL THEN RAISE EXCEPTION 'FAIL: fixture has no reading to hang this test on'; END IF;
+
+  SELECT ve.configuration_id INTO cfg FROM app.vehicle ve WHERE ve.id = v;
+  SELECT ac.id INTO other_cfg
+    FROM app.axle_configuration ac
+   WHERE ac.tenant_id = t_id AND ac.id <> cfg ORDER BY ac.id LIMIT 1;
+  IF other_cfg IS NULL THEN RAISE EXCEPTION 'FAIL: tenant has only one configuration to move between'; END IF;
+
+  BEGIN
+    UPDATE app.vehicle SET configuration_id = other_cfg WHERE id = v;
+  EXCEPTION WHEN SQLSTATE 'TY008' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: a unit with history accepted a configuration change'; END IF;
+
+  -- The same edit on a unit with no history is permitted: this is a history
+  -- rule, not a freeze, and a data-capture mistake must stay correctable
+  -- until something points at the positions.
+  INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+       VALUES (t_id, 'TY82-CLEAN', cfg, 'HORSE')
+    RETURNING id INTO clean;
+  UPDATE app.vehicle SET configuration_id = other_cfg WHERE id = clean;
+  SELECT count(*) INTO n FROM app.vehicle WHERE id = clean AND configuration_id = other_cfg;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL: a unit with no history was refused a configuration change'; END IF;
+
+  -- An UPDATE that leaves configuration_id alone must pass whatever the
+  -- history, or every future edit to a vehicle row is blocked by this rule.
+  UPDATE app.vehicle SET registration = 'TY82-TOUCHED' WHERE id = v;
+
+  RAISE NOTICE 'PASS  configuration is immutable with history, editable without, and other columns are untouched';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
