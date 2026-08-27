@@ -39,6 +39,7 @@ const ctx: CaptureContext = {
   unitKind: "HORSE",
   lastOdometerKm: null,
   lastOdometerAt: null,
+  averageDailyKm: null,
   positions: [position],
   combination: null,
   config: {
@@ -343,10 +344,9 @@ describe("PositionSheet", () => {
     expect(onChange.mock.lastCall?.[0].warnings).toEqual([]);
   });
 
-  // The guard on the exit write, and the reason it is identity against this
-  // mount's own state rather than a flag: a driver who reopens a finished
-  // position to look at it and closes again must not have their recorded
-  // ACKNOWLEDGED downgraded to an unanswered one.
+  // The guard on the exit write: a driver who reopens a finished position to
+  // look at it and closes again must not have their recorded ACKNOWLEDGED
+  // downgraded to an unanswered one.
   it("leaves a finished position's recorded response alone when it is only reopened", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onChange = vi.fn<(p: DraftPosition) => void>();
@@ -357,6 +357,51 @@ describe("PositionSheet", () => {
 
     expect(onChange).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  // The same guard against the tap that actually happens. Reading a value off
+  // a field on a phone means tapping it, and a focus tap builds a fresh entry
+  // state holding identical readings — so identity alone cannot tell looking
+  // from editing. Both exits are covered here because both write: the
+  // incremental save fires on the tap, and close() fires on the way out.
+  it("keeps the recorded response when a driver taps a field and changes nothing", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onChange })} initial={acknowledged} />);
+
+    await user.click(screen.getByLabelText("Tread reading 1 of 3"));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    for (const call of onChange.mock.calls) {
+      expect(call[0].warnings).toEqual([
+        { code: "FR-INS-036", enteredValue: "3", response: "ACKNOWLEDGED" },
+      ]);
+    }
+  });
+
+  // And the other half of the same rule: a visit that moves a reading answers
+  // for the entry it leaves behind. The code and the entered value here are
+  // the ones the previous visit acknowledged, so only the changed reading
+  // separates this from the case above.
+  it("records an unanswered warning when a reopened position is edited and closed", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    render(<PositionSheet {...props({ onChange })} initial={acknowledged} />);
+
+    // 4, not a deeper reading: this position's governing value has to stay
+    // the 3 the previous visit acknowledged, and the change has to stay
+    // inside BR-ANL-007's spread, so the recorded list differs from the
+    // previous visit's in the response alone.
+    await user.click(screen.getByLabelText("Tread reading 1 of 3"));
+    await user.click(screen.getByRole("button", { name: "4" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    expect(onChange.mock.lastCall?.[0].treads).toEqual([4, 3, 4]);
+    expect(onChange.mock.lastCall?.[0].warnings).toEqual([
+      { code: "FR-INS-036", enteredValue: "3", response: null },
+    ]);
   });
 
   // The tread bands are final the moment the last reading is in, and a

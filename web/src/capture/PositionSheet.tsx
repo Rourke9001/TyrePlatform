@@ -78,7 +78,34 @@ export function PositionSheet({
   const complete = isComplete(entry, count);
   const held = complete && warnings.length > 0 && !acknowledged;
 
-  function snapshot(from: EntryState, recorded: RecordedWarning[] = []): DraftPosition {
+  // Whether anything a driver could change on this sheet actually moved.
+  // Object identity is not enough to answer it: applyKey returns a fresh
+  // state for a focus tap too (entry.ts), so tapping a field just to read
+  // what is in it looks exactly like an edit — and treating it as one is what
+  // let a look-and-leave visit overwrite the FR-INS-040 responses a previous,
+  // finished visit recorded.
+  function edited(from: EntryState): boolean {
+    if (!initial) return from.treads.some((t) => t !== null) || from.pressureKpa !== null;
+    return (
+      from.pressureKpa !== initial.pressureKpa ||
+      from.treads.length !== initial.treads.length ||
+      from.treads.some((t, i) => t !== initial.treads[i])
+    );
+  }
+
+  // The default carries the previous visit's FR-INS-040 records forward, and
+  // that is load-bearing: the incremental save below fires on every keystroke
+  // and wholesale-replaces the draft position (CaptureFlow.handleChange), so
+  // an empty default turns an ACKNOWLEDGED or CONFIRMED warning into no
+  // record at all the moment a driver touches the sheet again — a corruption
+  // that then submits into append-only history. A browser killed mid-edit
+  // therefore persists the older records beside newer readings; they carry
+  // their own enteredValue, so what is stored stays self-describing, which is
+  // the better half of the trade against losing the response outright.
+  function snapshot(
+    from: EntryState,
+    recorded: RecordedWarning[] = initial?.warnings ?? [],
+  ): DraftPosition {
     return {
       positionId: rig.position.id,
       vehicleId: rig.position.vehicleId,
@@ -151,10 +178,19 @@ export function PositionSheet({
   // exit, recomputed from the current entry, so a value the driver corrected
   // on the way leaves no unanswered record behind.
   //
-  // Guarded on the same identity the incremental save uses: an untouched visit
-  // must not overwrite the responses a previous, finished visit recorded.
+  // Only when a reading actually moved. A visit that changed nothing is not a
+  // driver walking away from a warning, it is a driver checking what they
+  // entered, and rewriting an ACKNOWLEDGED as unanswered says something
+  // different about them in a record that is permanent. Nothing is written in
+  // that case because nothing needs to be: the incremental save has already
+  // stored this entry, warnings included.
+  //
+  // A visit that DID move a reading answers for the entry it leaves behind:
+  // a warning standing over a changed value is recorded unanswered whatever
+  // an earlier visit said, because an acknowledgement is an answer about one
+  // number and this is a different number.
   function close() {
-    if (state !== initialState.current) {
+    if (edited(state)) {
       onChange(
         snapshot(
           state,
