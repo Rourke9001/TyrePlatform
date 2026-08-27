@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { CaptureContext } from "./captureContext";
-import { odometerRejection, odometerWarnings } from "./history";
+import { odometerRejection, odometerWarnings, projectedOdometerKm } from "./history";
 import type { RecordedWarning } from "./draft";
 import { Keypad } from "./Keypad";
 import "./capture.css";
@@ -65,39 +65,49 @@ export function CaptureStart({
     warnings: RecordedWarning[];
   }) => void;
 }) {
-  // Empty, never seeded from motive.lastOdometerKm. A field that arrives
-  // already holding the last inspection's reading is one tap from recording it
-  // as this one's, and nothing catches that: FR-INS-032 compares `>=` and
-  // accepts an equal value, an unchanged reading implies no daily distance for
-  // FR-INS-033 to warn about, and what lands is a zero-distance interval that
-  // DR-018 makes permanent and every wear rate on the vehicle then divides by.
-  // It is the fabrication ruled out for duration_seconds (payload.ts): a
-  // plausible invented number is worse than an absent one.
-  //
-  // The last reading stays on screen below as a hint — a driver checking it
-  // against their dash is the point of showing it — but supplying this
-  // inspection's number is the driver's job.
-  const [odometer, setOdometer] = useState("");
+  // What the driver typed. Empty means they typed nothing, which is not the
+  // same as an empty field: the screen may still be showing a projection.
+  const [typed, setTyped] = useState("");
+  // FR-INS-020 records CONFIRMED values only, so an untouched projection is
+  // absent rather than recorded. This flag is the confirmation, and nothing
+  // sets it but the driver's own tap — a default of true would record a
+  // number nobody read, which is the fabrication NFR-PRO-003 refuses and the
+  // one thing the pre-fill must not be able to do.
+  const [accepted, setAccepted] = useState(false);
   // FR-INS-033 says warn and REQUIRE confirmation. Defaulting the box to
   // checked satisfies the control without the driver ever acting on it,
-  // which is the same as not having the control.
-  const [confirmed, setConfirmed] = useState(false);
+  // which is the same as not having the control. Separate from `accepted`
+  // above: one confirms WHAT the reading is, the other confirms that an
+  // implausible jump is real.
+  const [plausible, setPlausible] = useState(false);
   // Frozen at mount. This screen is open for seconds and nothing on it is
   // time-sensitive at a finer grain than a day, so reading the clock during
   // render would only make the output depend on when React happened to
   // re-render — FR-INS-033's own denominator included.
   const [openedAt] = useState(() => Date.now());
 
-  const value = odometer === "" ? null : parseInt(odometer, 10);
+  // FR-INS-020's three clauses, in one expression. A typed number is the
+  // driver correcting the projection; a tapped confirmation is the driver
+  // accepting it; anything else is an odometer this inspection does not
+  // carry. Every check below reads this rather than what is on screen, so an
+  // unconfirmed projection can gate nothing and block nothing — which is what
+  // keeps "pre-filled" and "shall never block a tyre inspection" true at the
+  // same time.
+  const projected = projectedOdometerKm(motive, new Date(openedAt));
+  const value = typed !== "" ? parseInt(typed, 10) : accepted ? projected : null;
   const rejection = odometerRejection(value, motive);
   const warnings = odometerWarnings(value, motive, new Date(openedAt));
+  // What the readout shows: the driver's digits, else the projection offered
+  // for confirmation, else nothing. Dimmed until it is the recorded value, so
+  // a provisional number never looks like an entered one (NFR-USE-005).
+  const shown = typed !== "" ? typed : projected !== null ? String(projected) : "";
   // FR-INS-020: optional, and a trailer-only inspection has no field at all.
   // Gate on what the unit IS, not on whether it happens to have a reading —
   // no vehicle has one until the first inspection writes it, so gating on
   // history means the timeline can never be started and FR-INS-032/033
   // never acquire a denominator.
   const wantsOdometer = motive.unitKind !== "TRAILER";
-  const held = warnings.length > 0 && !confirmed;
+  const held = warnings.length > 0 && !plausible;
 
   function start() {
     if (rejection) return;
@@ -172,8 +182,8 @@ export function CaptureStart({
       {wantsOdometer && (
         <fieldset className="cap-card">
           <legend className="cap-eyebrow">Odometer</legend>
-          <p className={`cap-odo${odometer === "" ? " is-empty" : ""}`} aria-live="polite">
-            {odometer === "" ? "000 000" : grouped(odometer)}
+          <p className={`cap-odo${value === null ? " is-empty" : ""}`} aria-live="polite">
+            {shown === "" ? "000 000" : grouped(shown)}
             <span className="cap-odo-unit">km</span>
           </p>
           <p className="cap-hint">
@@ -184,15 +194,41 @@ export function CaptureStart({
               ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
               : ""}
           </p>
+          {/* The confirm half of "confirm or correct". One tap against six
+              digits is the trade FR-INS-020 is making, so the control is the
+              cheap path and typing is the fallback — and the label carries the
+              number, because a driver who taps a button reading only "That's
+              right" has agreed to something they were not made to read. It
+              disappears once the value is the driver's, which is also how the
+              screen says the number counts. */}
+          {value === null && projected !== null && (
+            <button type="button" className="cap-secondary" onClick={() => setAccepted(true)}>
+              Confirm {grouped(String(projected))} km
+            </button>
+          )}
+          {value === null && projected !== null && (
+            <p className="cap-hint">
+              Worked out from that reading and this unit&rsquo;s usual daily distance. Check it
+              against the dash — confirm it, type the real number, or skip it.
+            </p>
+          )}
           <Keypad
             granularityMm={ODOMETER_GRANULARITY_KM}
             goLabel="Done ›"
             goTone="default"
             onKey={(k) => {
+              // Typing supersedes the projection rather than editing it: the
+              // driver is reading six digits off a dial, and appending to a
+              // number they did not enter is how a transcription becomes a
+              // hybrid of two readings.
               if (k.type === "digit") {
-                setOdometer((o) => (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit));
+                setAccepted(false);
+                setTyped((o) => (o.length >= ODOMETER_MAX_DIGITS ? o : o + k.digit));
               }
-              if (k.type === "delete") setOdometer("");
+              if (k.type === "delete") {
+                setAccepted(false);
+                setTyped("");
+              }
               // The go key is the largest control on the keypad. Leaving it
               // inert here would train a driver to distrust it on the entry
               // sheet, where it is pressed once per position.
@@ -212,8 +248,8 @@ export function CaptureStart({
               <input
                 type="checkbox"
                 className="cap-check"
-                checked={confirmed}
-                onChange={(e) => setConfirmed(e.target.checked)}
+                checked={plausible}
+                onChange={(e) => setPlausible(e.target.checked)}
               />
               <span>
                 <span className="cap-confirm-msg">{w.message}</span>
