@@ -2620,6 +2620,8 @@ DECLARE
   v_queued      uuid;   -- C1: a queued pair, both submitted_at far from real
                          -- now() and close only to each other.
   pos_queued    uuid;
+  v_late        uuid;   -- C2: a stale capture drained after a fresher one is
+  pos_late      uuid;    -- already stored, and the near side of that window.
   v_atomic      uuid;   -- the atomicity claim needs a probe whose FIRST
   pos_atomic    uuid;    -- reading is valid and whose SECOND is refused.
   pos_atomic2   uuid;
@@ -2673,6 +2675,9 @@ BEGIN
     (gen_random_uuid(), t_id, 'SEC31-QUEUED', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
     RETURNING id INTO v_queued;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-LATE',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+    RETURNING id INTO v_late;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
     (gen_random_uuid(), t_id, 'SEC31-ATOMIC', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
     RETURNING id INTO v_atomic;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
@@ -2711,6 +2716,9 @@ BEGIN
   SELECT p.id INTO pos_queued FROM app.position p
     JOIN app.vehicle v ON v.configuration_id = p.configuration_id
    WHERE v.id = v_queued AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO pos_late FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = v_late AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
 
   -- A throwaway tyre never fitted anywhere else: the fixture's own tyres are
   -- all already fitted, and DR-005 forbids a second open fitment for one, so
@@ -2971,6 +2979,50 @@ BEGIN
   END;
   IF got IS DISTINCT FROM 'TY003' THEN
     RAISE EXCEPTION 'FAIL: a queued pair an hour apart, both stale by real now(), was not refused with TY003 (got %)', COALESCE(got, 'no error');
+  END IF;
+
+  -- C2, the mirror of C1: the window is symmetric, so a payload OLDER than
+  -- what is already stored is judged the same way as a newer one. The outbox
+  -- makes this ordinary — a capture held offline for days drains after a
+  -- capture taken later has already landed — and a one-sided window would
+  -- refuse it however far apart the two are. TY003 reaches the device as a
+  -- 409, which the outbox treats as permanent, so a wrongly refused submit is
+  -- a completed walk-around discarded (FR-OFF-014).
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_late,
+    'started_at', t_now - interval '10 minutes', 'submitted_at', t_now,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_late, 'position_id', pos_late,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  IF NOT res.created THEN RAISE EXCEPTION 'FAIL: the fresher of an out-of-order pair reported created = false'; END IF;
+
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_late,
+    'started_at', t_now - interval '2 days' - interval '10 minutes',
+    'submitted_at', t_now - interval '2 days',
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_late, 'position_id', pos_late,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  IF NOT res.created THEN
+    RAISE EXCEPTION 'FAIL: a capture two days older than the stored one was refused as a duplicate';
+  END IF;
+
+  -- And the near side of the same window still bites: two hours before an
+  -- inspection already stored is two hours apart, whichever order they
+  -- arrived in.
+  got := NULL;
+  BEGIN
+    PERFORM app.submit_inspection(jsonb_build_object(
+      'client_uuid', gen_random_uuid(), 'vehicle_id', v_late,
+      'started_at', t_now - interval '2 hours' - interval '10 minutes',
+      'submitted_at', t_now - interval '2 hours',
+      'readings', jsonb_build_array(
+        jsonb_build_object('vehicle_id', v_late, 'position_id', pos_late,
+                           'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  EXCEPTION WHEN SQLSTATE 'TY003' THEN got := 'TY003';
+  END;
+  IF got IS DISTINCT FROM 'TY003' THEN
+    RAISE EXCEPTION 'FAIL: a capture two hours BEFORE a stored one was not refused with TY003 (got %)', COALESCE(got, 'no error');
   END IF;
 
   -- FR-INS-020 + DR-020: the timeline refuses the number, the inspection
