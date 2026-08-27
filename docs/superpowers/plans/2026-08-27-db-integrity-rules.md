@@ -128,9 +128,21 @@ SELECT column_name FROM information_schema.columns
 SELECT column_name, data_type FROM information_schema.columns
  WHERE table_schema='app' AND table_name='vehicle_driver' ORDER BY ordinal_position;
 
+\echo '-- app_user columns (Task 4 inserts into this table)'
+SELECT column_name, data_type, is_nullable FROM information_schema.columns
+ WHERE table_schema='app' AND table_name='app_user' ORDER BY ordinal_position;
+
 \echo '-- app_user email uniqueness as it stands'
 SELECT indexname, indexdef FROM pg_indexes
  WHERE schemaname='app' AND tablename='app_user';
+
+\echo '-- app_login holds no route to superuser (Task 4 depends on this)'
+SELECT r.rolname AS member_of FROM pg_auth_members m
+  JOIN pg_roles r ON r.oid=m.roleid JOIN pg_roles g ON g.oid=m.member
+ WHERE g.rolname='app_login';
+
+\echo '-- one open fitment per tyre (Task 3 must not fight this)'
+SELECT indexdef FROM pg_indexes WHERE schemaname='app' AND tablename='fitment';
 
 \echo '-- SQLSTATEs TY008/TY009 must be unused'
 SQL
@@ -144,7 +156,9 @@ Expected, and each is a stop condition if it differs:
 - `app_rw` holds `UPDATE` on `app.fitment`.
 - `app.reading.vehicle_id` exists.
 - `app.vehicle_driver` has `vehicle_id`, `user_id`, `from_date date`, `to_date date` nullable.
-- `app.app_user` has a `UNIQUE (tenant_id, email)` index and **no** partial index on `tenant_id IS NULL`.
+- `app.app_user` carries `display_name` (**not** `full_name`), has a `UNIQUE (tenant_id, email)` index and **no** partial index on `tenant_id IS NULL`.
+- `app_login` is a member of `app_rw` and of nothing else — in particular it has no route to `postgres`. Task 4 depends on this being true, and tests the constraint through the catalog rather than by behaviour because of it.
+- `app.fitment` carries `one_open_fitment_per_tyre ON (tyre_id) WHERE removed_at IS NULL` (DR-005) and `one_open_fitment_per_position ON (position_id, vehicle_id) WHERE removed_at IS NULL` (DR-004). Task 3 needs one distinct, currently-unfitted tyre per open fitment it creates.
 - `TY008` and `TY009` appear nowhere.
 
 - [ ] **Step 3: Record the result**
@@ -342,14 +356,26 @@ Append to `db/tests/004_tests.sql`:
 \echo '== 33. Fitment odometer is required where the unit kind has one (FR-FIT-002 as corrected in SRS v1.4, CHG-027)'
 DO $$
 DECLARE ok boolean := false; t uuid; horse uuid; trailer uuid; nullkind uuid;
-        cfg uuid; pos uuid; ty uuid; f uuid;
+        cfg uuid; pos uuid; f uuid; spare uuid[];
 BEGIN
   SELECT v.tenant_id, v.configuration_id INTO t, cfg
     FROM app.vehicle v WHERE v.unit_kind = 'HORSE' LIMIT 1;
   IF t IS NULL THEN RAISE EXCEPTION 'FAIL: fixture has no HORSE to test with'; END IF;
 
   SELECT p.id INTO pos FROM app.position p WHERE p.configuration_id = cfg AND NOT p.is_spare LIMIT 1;
-  SELECT ty2.id INTO ty FROM app.tyre ty2 WHERE ty2.tenant_id = t LIMIT 1;
+
+  -- DR-005: one open fitment per tyre. Every open fitment below therefore
+  -- needs its own currently-unfitted tyre, or the refusal under test arrives
+  -- as one_open_fitment_per_tyre and proves nothing about TY009.
+  SELECT array_agg(id) INTO spare FROM (
+    SELECT ty2.id FROM app.tyre ty2
+     WHERE ty2.tenant_id = t
+       AND NOT EXISTS (SELECT 1 FROM app.fitment f2
+                        WHERE f2.tyre_id = ty2.id AND f2.removed_at IS NULL)
+     LIMIT 4) s;
+  IF spare IS NULL OR array_length(spare, 1) < 4 THEN
+    RAISE EXCEPTION 'FAIL: fixture has fewer than four unfitted tyres; this test cannot distinguish TY009 from DR-005';
+  END IF;
 
   INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
        VALUES (t, 'TY85-HORSE', cfg, 'HORSE') RETURNING id INTO horse;
@@ -364,7 +390,7 @@ BEGIN
   -- (a) A horse fitted with no odometer is refused.
   BEGIN
     INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
-         VALUES (t, ty, horse, pos, now(), NULL);
+         VALUES (t, spare[1], horse, pos, now(), NULL);
   EXCEPTION WHEN SQLSTATE 'TY009' THEN ok := true;
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL: a HORSE fitment without an odometer was accepted'; END IF;
@@ -372,16 +398,16 @@ BEGIN
   -- (b) A trailer fitted with no odometer is accepted — it has none to give,
   -- and refusing it makes two-thirds of a superlink unrecordable.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
-       VALUES (t, ty, trailer, pos, now(), NULL);
+       VALUES (t, spare[2], trailer, pos, now(), NULL);
 
   -- (c) A NULL-kind unit is not blocked.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
-       VALUES (t, ty, nullkind, pos, now(), NULL);
+       VALUES (t, spare[3], nullkind, pos, now(), NULL);
 
   -- (d) A horse fitted WITH an odometer is accepted, then refused a removal
   -- that omits the removed odometer — the second half of FR-FIT-002.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
-       VALUES (t, ty, horse, pos, now(), 100000) RETURNING id INTO f;
+       VALUES (t, spare[4], horse, pos, now(), 100000) RETURNING id INTO f;
 
   ok := false;
   BEGIN
@@ -530,21 +556,40 @@ Append to `db/tests/004_tests.sql`:
 ```sql
 \echo '== 34. Platform-admin emails are unique, and a driver assignment cannot duplicate itself (TYRE-30, DR-003)'
 DO $$
-DECLARE ok boolean := false; t uuid; v uuid; u uuid;
+DECLARE ok boolean := false; t uuid; v uuid; u uuid; n int;
 BEGIN
   -- (a) UNIQUE (tenant_id, email) treats NULL tenant_id as distinct, so two
-  -- platform admins could share an email. Reachable only through the postgres
-  -- provisioning path, which is why this runs as a superuser check.
-  SET LOCAL ROLE postgres;
+  -- platform admins could share an email.
+  --
+  -- Asserted through the catalog, not by behaviour, and the reason is the
+  -- point of the constraint rather than a shortcut. The suite runs as
+  -- app_login, which is a member of app_rw and nothing else — it cannot
+  -- SET ROLE postgres, and app_rw's WITH CHECK rejects a NULL-tenant insert
+  -- outright. The only actor that can reach this duplicate is the postgres
+  -- provisioning path, which the suite deliberately never becomes (section 0
+  -- fails the whole run if it is a superuser). So the index's existence is
+  -- the strongest true statement this suite can make about it.
+  SELECT count(*) INTO n FROM pg_indexes
+   WHERE schemaname = 'app' AND tablename = 'app_user'
+     AND indexdef ILIKE 'CREATE UNIQUE INDEX%'
+     AND indexdef ILIKE '%(email)%'
+     AND indexdef ILIKE '%tenant\_id IS NULL%';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL: expected exactly one partial unique index on app_user(email) WHERE tenant_id IS NULL, found %', n;
+  END IF;
+
+  -- And prove app_login really is barred from the path that would exercise it,
+  -- so the catalog assertion above is not quietly standing in for a check that
+  -- could have been behavioural all along.
+  ok := false;
   BEGIN
-    INSERT INTO app.app_user (tenant_id, email, role, full_name)
-         VALUES (NULL, 'ty30-dup@example.test', 'PLATFORM_ADMIN', 'First');
-    INSERT INTO app.app_user (tenant_id, email, role, full_name)
-         VALUES (NULL, 'ty30-dup@example.test', 'PLATFORM_ADMIN', 'Second');
-  EXCEPTION WHEN unique_violation THEN ok := true;
+    INSERT INTO app.app_user (tenant_id, email, display_name, role)
+         VALUES (NULL, 'ty30-dup@example.test', 'First', 'PLATFORM_ADMIN');
+  EXCEPTION WHEN insufficient_privilege OR check_violation THEN ok := true;
   END;
-  RESET ROLE;
-  IF NOT ok THEN RAISE EXCEPTION 'FAIL: two platform admins accepted the same email'; END IF;
+  IF NOT ok THEN
+    RAISE EXCEPTION 'FAIL: app_login inserted a NULL-tenant user; the index is no longer the only control here';
+  END IF;
 
   -- (b) An exact-duplicate current assignment multiplies the vehicle through
   -- v_current_assignment and v_driver_vehicle.
@@ -593,7 +638,9 @@ BEGIN;
 make db-test
 ```
 
-Expected: `FAIL: two platform admins accepted the same email`.
+Expected: `FAIL: expected exactly one partial unique index on app_user(email) WHERE tenant_id IS NULL, found 0`.
+
+Before writing the migration, settle one convention the test above assumes. `'[]'` bounds make a same-day close-and-reopen of the same driver on the same vehicle an overlap — closing on the 5th and reopening on the 5th would be refused. Check how `app.v_current_assignment` reads `to_date` (inclusive or exclusive) and match it. If that view treats `to_date` as the last day held, `'[]'` is right and case (d) in the test stands; if it treats it as exclusive, use `'[)'` and adjust the comment. Do not leave the two disagreeing.
 
 - [ ] **Step 3: Write the migration**
 
@@ -750,4 +797,5 @@ Checked before handing this over:
 
 - **Ticket coverage.** TYRE-82's DoD (trigger, paired down, both test directions) is Task 2. TYRE-85's DoD (all three cases plus the removal half) is Task 3, cases (a)–(e). TYRE-30's two residuals are Task 4, with the third folded decision — `staff_number` uniqueness — already delivered in `8ad7c9f` and correctly absent here.
 - **Type consistency.** `app.reject_configuration_change_with_history()` and `app.require_odometer_where_unit_has_one()` are each named identically in their migration, their down migration and their task interface block. `TY008` belongs to Task 2 only, `TY009` to Task 3 only.
-- **The one thing this plan cannot verify for you.** The test sections assume the fixture contains a HORSE, a second axle configuration per tenant, an open driver assignment, and a second DRIVER. Each assumption raises an explicit `FAIL` rather than passing vacuously, so a missing fixture row surfaces as a failure and not as a false green. If one fires, extend the Sandbox Fleet seed (TYRE-80) rather than BAC's.
+- **Two constraints the suite's own posture forces.** The suite runs as `app_login`, a member of `app_rw` and nothing else, so no test here may `SET ROLE postgres` — Task 4's index is asserted through `pg_indexes` for that reason, and the section proves `app_login` is barred from the path rather than leaving the catalog check unexplained. And DR-005 allows a tyre exactly one open fitment, so Task 3 draws a distinct unfitted tyre per open fitment; sharing one would have the refusal arrive as `one_open_fitment_per_tyre` and prove nothing about `TY009`.
+- **The one thing this plan cannot verify for you.** The test sections assume the fixture contains a HORSE, a second axle configuration per tenant, four currently-unfitted tyres, an open driver assignment, and a second DRIVER. Each assumption raises an explicit `FAIL` rather than passing vacuously, so a missing fixture row surfaces as a failure and not as a false green. If one fires, extend the Sandbox Fleet seed (TYRE-80) rather than BAC's.
