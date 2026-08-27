@@ -108,12 +108,25 @@ BEGIN
   -- NFR-OBS-007's capture_seconds), so trusting it here too is consistent,
   -- not a new risk. This is deliberately not bounded against real now() to
   -- guard a lying device clock — no requirement asks for that.
+  --
+  -- Bounded on BOTH sides, and for the same reason: FR-INS-038 asks whether
+  -- two captures of one unit are within v_hours OF EACH OTHER, which is a
+  -- symmetric question, and the outbox is exactly what makes the payload
+  -- arrive out of order. A capture held offline on Monday and drained on
+  -- Friday meets a Wednesday capture that is already stored — one bound alone
+  -- refuses that Monday walk-around no matter how far apart the two are, and
+  -- the outbox reads TY003's 409 as permanent, so a completed inspection
+  -- would be discarded rather than retried (FR-OFF-014). Both bounds are
+  -- strict, so two captures exactly v_hours apart are accepted in either
+  -- order: the requirement sets a MINIMUM interval, and an interval that
+  -- meets the minimum has not breached it.
   IF EXISTS (
     SELECT 1 FROM app.reading rd
       JOIN app.inspection i ON i.id = rd.inspection_id
      WHERE rd.tenant_id = v_tenant
        AND i.state <> 'VOIDED'
        AND i.submitted_at > (p_payload ->> 'submitted_at')::timestamptz - make_interval(hours => v_hours)
+       AND i.submitted_at < (p_payload ->> 'submitted_at')::timestamptz + make_interval(hours => v_hours)
        AND rd.vehicle_id IN (
              SELECT DISTINCT (e ->> 'vehicle_id')::uuid
                FROM jsonb_array_elements(p_payload -> 'readings') e))
