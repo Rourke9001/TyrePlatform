@@ -326,3 +326,118 @@ func TestWriteAimedAtAnotherTenantIsRefused_AppUser(t *testing.T) {
 		`SELECT count(*) FROM app.app_user WHERE email = 'smuggled@example.invalid'`).Scan(&landed))
 	require.Zero(t, landed)
 }
+
+type assignmentBody struct {
+	ID        string `json:"id"`
+	VehicleID string `json:"vehicleId"`
+	UserID    string `json:"userId"`
+	FromDate  string `json:"fromDate"`
+}
+
+func TestAssignDriverToVehicle(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "assign")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	path := "/api/vehicles/" + vehicleID.String() + "/drivers"
+	body := `{"userId":"` + driver.String() + `","fromDate":"2026-01-01"}`
+
+	// The gate is ManageAssignments. A TECHNICIAN holds ViewFleet and no more.
+	tech := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	require.Equal(t, http.StatusForbidden,
+		post(t, h, path, tenantID.String(), tech.String(), body).Code)
+
+	rec := post(t, h, path, tenantID.String(), orgAdmin.String(), body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created assignmentBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.Equal(t, driver.String(), created.UserID)
+
+	// The point of the endpoint: the assignment is what makes the unit
+	// reachable, so the driver can now read it (FR-AUT-005,
+	// app.v_capture_vehicle).
+	require.Equal(t, http.StatusOK,
+		get(t, h, "/api/capture/vehicles/"+vehicleID.String(), tenantID.String(), driver.String()).Code)
+
+	// B1's vehicle_driver_no_overlap (000026), reachable for the first time
+	// through an endpoint. Unmapped, 23P01 would answer 500.
+	rec = post(t, h, path, tenantID.String(), orgAdmin.String(), body)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "assignment_overlaps", ref.Code)
+	require.NotContains(t, rec.Body.String(), "vehicle_driver_no_overlap")
+
+	for _, tt := range []struct{ name, path, payload, field string }{
+		{"unparseable vehicle", "/api/vehicles/not-a-uuid/drivers", body, "vehicleId"},
+		{"unparseable user", path, `{"userId":"nope","fromDate":"2026-01-01"}`, "userId"},
+		{"no from date", path, `{"userId":"` + driver.String() + `"}`, "fromDate"},
+		{"unparseable from date", path, `{"userId":"` + driver.String() + `","fromDate":"01/01/2026"}`, "fromDate"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := post(t, h, tt.path, tenantID.String(), orgAdmin.String(), tt.payload)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Contains(t, ref.Message, tt.field)
+		})
+	}
+
+	// A user in another tenant is not assignable here, and the composite FK
+	// (tenant_id, user_id) is what refuses it below RLS (000004).
+	otherID, _ := plantTenant(t, ctx, admin, "assign-other")
+	stranger := plantUser(t, ctx, admin, otherID, auth.RoleDriver)
+	rec = post(t, h, path, tenantID.String(), orgAdmin.String(),
+		`{"userId":"`+stranger.String()+`","fromDate":"2026-01-01"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+}
+
+// app.vehicle_driver carries three composite tenant FKs (000004, 000017), not
+// tenant_isolation's usual one: (tenant_id, vehicle_id), (tenant_id, user_id)
+// and (tenant_id, created_by). Leaving any of the three to a default or to a
+// tenant-A value would fail that FK before WITH CHECK is ever evaluated
+// (2026-08-28 lessons entry) — a red for the wrong reason, indistinguishable
+// from a working policy. To isolate tenant_id as the sole confound,
+// vehicle_id, user_id and created_by must each be a real row genuinely
+// belonging to tenant B.
+func TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, _ := plantTenantWithVehicle(t, ctx, admin, "withcheck-vd-a")
+	tenantB, vehicleB := plantTenantWithVehicle(t, ctx, admin, "withcheck-vd-b")
+
+	var vehicleBID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`,
+		tenantB, vehicleB).Scan(&vehicleBID))
+
+	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
+	// driverB stands in for both the assignee and the created_by stamp: both
+	// need only be a genuine tenant-B row, and one suffices for that.
+	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
+
+	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, created_by)
+			 VALUES ($1, $2, $3, '2026-01-01', $4)`,
+			tenantB, vehicleBID, driverB, driverB)
+		return err
+	})
+	require.Error(t, err, "a row aimed at another tenant was accepted")
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	// 42501 is insufficient_privilege, which is how a row-level security
+	// policy refuses a write it will not admit. 23503 would mean an FK fired
+	// instead of the policy, which means the test's own setup is broken.
+	require.Equal(t, "42501", pgErr.Code)
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1 AND user_id = $2`,
+		vehicleBID, driverB).Scan(&landed))
+	require.Zero(t, landed)
+}
