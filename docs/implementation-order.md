@@ -186,40 +186,71 @@ write surface that can raise them.
 
 No SQL changed. `make check` and `make e2e` both green at delivery.
 
-### B4 — the first admin write surface — **planned, in progress**
+### B4 — the first admin write surface — **delivered**
 
-**The TYRE-81 ADR, then TYRE-81, then TYRE-83.**
+**The TYRE-81 ADR, then TYRE-81.**
 
 The ADR comes first because the D9/D10 constraints — the tiered-invite shape,
 the reactivate branch, the subdomain-login assumption — are cheaper to record
-than to unpick from code. TYRE-83 sits directly on `POST /api/users` and cannot
-start before it exists.
+than to unpick from code. TYRE-83 sits directly on `POST /api/users` and
+cannot start before it exists.
 
 The plan is at `docs/superpowers/plans/2026-08-28-admin-write-surface.md`, the
-design at `docs/superpowers/specs/2026-08-28-admin-write-surface-design.md`.
-It covers **TYRE-81 only** — ten tasks on branch `TYRE-81-admin-write-surface`,
-cut from `develop` @ `3a3d6c2`. TYRE-83 gets its own plan once this lands.
+design at `docs/superpowers/specs/2026-08-28-admin-write-surface-design.md`,
+the closing proof at `web/e2e/admin.spec.ts`. It covers **TYRE-81 only** — ten
+tasks on branch `TYRE-81-admin-write-surface`, cut from `develop` @
+`3a3d6c2`. TYRE-83 gets its own plan now that this has landed.
 
-Three things the planning pass settled that change what this batch is:
+Delivered as ADR-0013 plus nine feature commits and the browser proof:
 
-- **TYRE-81's definition of done needs an endpoint its scope section does not
-  name.** "The driver can then be assigned and reach a capture" is
-  `app.vehicle_driver`, which is what `app.v_capture_vehicle` reads; the
-  excluded "inspection assignment" is FR-INS-049's scheduled task, a different
-  thing. A third endpoint, `POST /api/vehicles/{vehicleID}/drivers`, is in the
-  plan as an explicitly marked assumption for the ticket owner to confirm or
-  drop. Without it the definition of done cannot be met through the product.
-- **The batch adds no schema.** Every rule governing a user row or a unit row
-  is already a constraint, so the writes are parameterised inserts and not SQL
-  functions. The one integrity rule that was considered — `unit_kind` required
-  on a unit — is deferred with a measured reason: 12 of the 18
-  `INSERT INTO app.vehicle` statements in `db/tests/004_tests.sql` omit it, so
-  the constraint would churn the acceptance suite for a benefit this batch does
-  not need. The API requires it; the schema does not; TYRE-88 owns the sweep.
-- **ADR-0012's `TY008`/`TY009` deferral does not discharge here.** Both need a
-  write surface B4 does not build — `TY008` fires on an *update* of
-  `vehicle.configuration_id`, `TY009` on a fitment write. The deferral is
-  re-pointed at the batch that builds one rather than closed.
+| Commit | Change | Assertion |
+|---|---|---|
+| `de2979d` | ADR-0013: parameterised inserts over a SQL function, `tenant_id` from `app.current_tenant_id()` never the request, the constraint-name-to-wire-code map, the renderable-shape-validation extension to ADR-0012 | verified against the real files rather than merely written (Task 1 self-review) |
+| `7d6b2fd` | `GET /api/axle-configurations`, capability-gated and tenant-scoped | `TestAxleConfigurationsAreCapabilityGatedAndTenantScoped` |
+| `a272de8` | `POST /api/vehicles` against the tenant's configuration library | `TestCreateVehicle`; `TestWriteAimedAtAnotherTenantIsRefused` — the insert names another tenant directly and is required to fail, not merely to report its own tenant back at itself |
+| `afde115` | `POST /api/users`, creating a tenant role and never `PLATFORM_ADMIN` | `TestCreateUser`; `TestWriteAimedAtAnotherTenantIsRefused_AppUser` |
+| `eca4ce8` | `POST /api/vehicles/{vehicleID}/drivers` — the endpoint TYRE-81's scope section does not name | `TestAssignDriverToVehicle`; `TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver` |
+| `6305563` | `client.ts` carries the refusal envelope's `message`, not just its `code`; the admin API module (`createUnit`, `createUser`, `assignDriver`, `fetchAxleConfigurations`) | vitest per function; `client.test.ts` asserts the message survives, closing the gap the plan's review pass found before Tasks 7–8 could hit it |
+| `9e6f439` | the add-a-unit screen, gated on `ManageAssets` | `AddUnit.test.tsx` |
+| `dde0d0e` | the add-a-driver screen with its assignment step, gated on `ManageUsers` | `AddDriver.test.tsx` |
+| `096e6d9` | both screens routed and placed in navigation behind their capabilities | `routes.test.tsx`; `navigation.test.ts` |
+| the closing commit | `web/e2e/admin.ts`, `web/e2e/admin.spec.ts` — an org admin builds a unit and a user from nothing, assigns them, on `chromium` alone | `make e2e`, 21 passed (up from 20) |
+
+Three things this batch found, carried forward because they change what the
+next batch should expect rather than because they are history:
+
+- **The assignment endpoint was an assumption, and it is not yet confirmed by
+  the ticket owner.** TYRE-81's scope section does not name
+  `POST /api/vehicles/{vehicleID}/drivers`; the plan added it because the
+  definition of done — "the driver can then be assigned and reach a
+  capture" — cannot be met through the product without it. It shipped on that
+  assumption rather than waiting on an answer, and the assumption is recorded
+  in ADR-0013 and stated plainly in the PR body rather than left to be
+  inferred. If the ticket owner rules it out after the fact, Task 5 and the
+  assign panel in Task 8 are what to remove.
+- **`unit_kind` is required by the API and not the schema, owned by TYRE-88.**
+  The column stays nullable: 12 of the 18 `INSERT INTO app.vehicle` statements
+  in `db/tests/004_tests.sql` omit it, so a `NOT NULL` constraint would churn
+  the acceptance suite for a benefit this batch does not need. TYRE-88 already
+  names `unit_kind` edits as part of its trigger-hardening scope, so the gap
+  has an owner rather than sitting unclaimed.
+- **`TY008`/`TY009` are still not in `submitStatus`, and B4 did not discharge
+  ADR-0012's deferral.** Both need a write surface this batch does not build —
+  `TY008` fires on an *update* of `vehicle.configuration_id`, `TY009` on a
+  fitment write. B4 only creates a vehicle and assigns a driver; it never
+  updates a configuration or writes a fitment, so neither code is reachable
+  yet and an entry in `submitStatus` could carry no test able to fail. The
+  deferral stays re-pointed at whichever batch builds one of those two
+  surfaces.
+
+No schema change: every rule governing a user or unit row was already a
+constraint (B1 and B3's antecedent work), so all three write endpoints are
+parameterised inserts, none a SQL function. The driver-reaches-capture half of
+the definition of done is proven by `TestAssignDriverToVehicle` in Go, against
+the same `app.vehicle_driver` relation the browser writes to, and not by a
+browser assertion — the created driver's id is never surfaced by either admin
+screen, so there is no honest selector for a spec to act as. `make check` and
+`make e2e` both green at delivery.
 
 **TYRE-58** belongs after it, not in the analytics tail: band configuration
 write-time validation is a rule about a config-editing surface. Note that
