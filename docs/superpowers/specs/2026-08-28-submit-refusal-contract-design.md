@@ -22,8 +22,10 @@ refuses in fourteen places that share no contract. Every refusal is
 harmless while the map held only the private `TY0xx` codes, whose messages are
 written in `app.submit_inspection` and say what a driver's phone should see.
 The driver-capture review then added the transport-level integrity classes —
-`23502`, `23503`, `23514`, `22P02`, `23505` — because leaving them unmapped
-meant a 500 that ADR-0009's outbox retries forever. Those messages are
+the map holds `23502`, `23503`, `23514`, `22P02`, `22023` and `23505` today —
+because leaving them unmapped meant a 500 that ADR-0009's outbox retries
+forever. (TYRE-77's own description lists five of the six, omitting `22023`.)
+Those messages are
 Postgres's, not ours. A mapped `23503` answers 422 carrying a constraint name
 and a table name: `reading_tyre_id_fkey`. It discloses internal schema, and it
 is not something a driver can act on (NFR-USE-010).
@@ -68,7 +70,7 @@ preserving "the five `TY0xx` messages". There are ten. B1 added `TY008` and
 
 ## The envelope
 
-Every non-2xx response the API emits carries the same body:
+Every refusal the API writes carries the same body:
 
 ```json
 { "code": "TY003", "message": "a unit in this submit was already inspected within 4 hours" }
@@ -81,9 +83,24 @@ unexported helper in `api/internal/httpapi/httpapi.go` owns the shape:
 func writeError(ctx context.Context, w http.ResponseWriter, status int, code, message string)
 ```
 
-It sets the status and delegates to the existing `writeJSON` at
-`httpapi.go:497`. All fourteen `http.Error` call sites move to it: four in
-`capture.go`, eight in `httpapi.go`, two in `ratelimit.go`.
+**It sets `Content-Type` before it calls `WriteHeader`.** `WriteHeader` locks
+the header map in, so a helper that writes the status first and delegates to
+`writeJSON` afterwards has `writeJSON`'s own `Header().Set` at `httpapi.go:498`
+silently ignored, and the response goes out as `text/plain` while every status
+assertion still passes. `submitInspection` already carries this hazard's
+comment at `capture.go:406`. The table-driven test asserts the header for that
+reason: no test in the suite checks a response `Content-Type` today.
+
+All fourteen `http.Error` call sites move to it: four in `capture.go`, eight in
+`httpapi.go`, two in `ratelimit.go`.
+
+**Two responses stay outside the envelope**, and the wording above is
+deliberately "every refusal the API writes" rather than every non-2xx.
+The router registers no `NotFound` or `MethodNotAllowed` handler, so chi's
+defaults answer 404 and 405 as `text/plain`. Commit 2 registers both through
+`writeError` — four lines — because a contract every later endpoint inherits
+should not ship with two known exceptions to it. The client tolerates a
+plaintext body regardless, as `code: null`.
 
 Nothing is lost on the way in. No Go test asserts an error body — bodies
 appear in the suite only as the failure message of a status assertion — and
@@ -113,11 +130,15 @@ The fourteen refusal sites, each with the code it emits:
 | `capture.go:332`, `:344` (malformed json) | `malformed_json` | 400 |
 | `ratelimit.go:124` | `rate_limited` | 429 |
 
-`bad_request` covers both a path parameter that will not parse and a body that
-will not read, because the caller's remedy is identical and both are reached
-only by a client defect. `malformed_json` stays separate: it is the one 400 a
-correct client can provoke by sending a truncated body over a bad connection,
-and it is worth telling apart in a support log.
+`bad_request` covers a path parameter that will not parse and a body that did
+not arrive intact. The 1 MiB `MaxBytesReader` cap and a transfer that dies
+mid-flight both land at `capture.go:328`, because `io.ReadAll` fails before any
+content is examined. `malformed_json` is reachable only once the body has
+arrived whole and is still not JSON, which is a serialisation defect in the
+client. The two point at different investigations in a support log — a rise in
+`bad_request` implicates the size cap or the network, a rise in
+`malformed_json` implicates the caller — which is what earns them separate
+codes despite an identical remedy.
 
 Two properties of this table are load-bearing.
 
@@ -211,9 +232,12 @@ question.
 ## Testing
 
 - **Go, table-driven.** One row per entry in the code table, asserting status,
-  `code`, and whether the message is forwarded or canned. Includes a synthetic
-  `23503` whose message carries `reading_tyre_id_fkey`, asserting the string
-  appears in neither field of the response.
+  `code`, `Content-Type: application/json`, and whether the message is
+  forwarded or canned. Includes a synthetic `23503` whose message carries
+  `reading_tyre_id_fkey`, asserting the string appears in neither field of the
+  response. The `Content-Type` assertion is not ceremony: a `writeError` that
+  calls `WriteHeader` before setting the header answers `text/plain` while
+  every status and body assertion still passes.
 - **Go, integration.** The existing capture tests already drive real refusals
   against a real Postgres; their assertions extend to the envelope.
 - **vitest.** One case per `CaptureDone` branch — `TY003` produces the
@@ -236,9 +260,14 @@ Four commits on `TYRE-77-refusal-contract`, cut from `develop` at `33ccd27`.
 | # | Commit | Contents |
 | --- | --- | --- |
 | 1 | `docs: TYRE-77 ADR-0012` | The envelope's shape, stated once |
-| 2 | `feat(api): TYRE-77` | `writeError`, twelve call sites, canned messages, the code table. Client untouched |
+| 2 | `feat(api): TYRE-77` | `writeError`, fourteen call sites, the chi 404/405 handlers, canned messages, the code table. Client untouched |
 | 3 | `feat(capture): TYRE-78` | `ApiError.code`, the outbox and flow thread, `CaptureDone` branching, vitest |
-| 4 | `docs: TYRE-77` | `implementation-order.md` corrections; B3 recorded as delivered |
+| 4 | `docs: TYRE-77` | `implementation-order.md` corrections; `api/CLAUDE.md` reworded; B3 recorded as delivered |
+
+`api/CLAUDE.md:32` currently reads "A handler never writes its own
+`http.Error`", which after commit 2 cites a call that exists nowhere. The rule
+it states is still right and still worth stating; commit 4 rewords it to
+`writeError`.
 
 The envelope carries `code` from commit 2, so commit 3 never rewrites commit
 2's work. `make check` before each commit, and the branch finishes with a PR
