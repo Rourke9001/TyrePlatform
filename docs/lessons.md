@@ -15,6 +15,25 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-08-28 — `package httpapi`'s own `require` function shadows testify's import (TYRE-77)
+
+**What happened:** the B3 plan's Task 2 test code imports
+`"github.com/stretchr/testify/require"` unaliased into a new white-box test
+file declaring `package httpapi`. `httpapi.go:257` already defines a
+package-level function `require(a auth.Actor, c auth.Capability) error` (the
+capability-check helper `api/CLAUDE.md` documents). Go merges identifiers
+across every file sharing one package name, so the build fails:
+`require already declared through import of package require`. The plan was
+written and tested against a description of the file, not the file itself.
+
+**The rule:** any new `package httpapi` (not `httpapi_test`) file that needs
+testify's `require` must alias the import — `req "github.com/stretchr/testify/require"`
+— exactly as `ratelimit_test.go` already does, with the same explanatory
+comment. This is a permanent property of the package, not a one-off typo:
+every future white-box test file in `internal/httpapi` hits it. Check for an
+existing same-name package-level identifier before trusting a plan's
+unaliased import block for an internal test file.
+
 ## 2026-08-27 — A guarded, non-transactional test section is dead on a warm database (TYRE-85)
 
 **What happened:** `TY009` should have refused suite section 24's odometer-less
