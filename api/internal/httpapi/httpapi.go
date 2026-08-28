@@ -170,6 +170,7 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 // A blanket 23503 is safe here only because app.submit_inspection is the
 // single write path. If that stops being true, raise a named TYxxx in SQL
 // rather than widening this.
+
 // The refusal vocabulary (ADR-0012). A code names the reason, never the layer
 // that found it, which is why codeVehicleNotVisible is TY007's own: the Go
 // scope check in submitInspection and app.submit_inspection's TY007 guard
