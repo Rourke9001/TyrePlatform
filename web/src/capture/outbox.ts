@@ -13,6 +13,11 @@ export interface OutboxEntry {
   attempts: number;
   nextAttemptAt: number;
   lastStatus: number | null;
+  // The refusal's reason (ADR-0012). The status alone cannot separate
+  // FR-INS-038's duplicate window from any other conflict, and the two send a
+  // driver to different conversations. Null where the refusal carried no
+  // envelope, and on entries queued before this field existed.
+  lastCode: string | null;
   // Diagnostics only, never rendered. A mapped SQLSTATE 422 can carry a raw
   // constraint name (reading_tyre_id_fkey is reachable: 000023 inserts
   // tyre_id with no pre-check), which no driver can act on. FR-OFF-013 asks
@@ -87,6 +92,7 @@ export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
       attempts: 0,
       nextAttemptAt: 0,
       lastStatus: null,
+      lastCode: null,
       lastError: null,
     };
     await table().put(entry);
@@ -123,6 +129,7 @@ export async function attemptSend(
       attempts,
       nextAttemptAt: permanent ? 0 : Date.now() + backoffMs(attempts),
       lastStatus: error instanceof ApiError ? error.status : null,
+      lastCode: error instanceof ApiError ? error.code : null,
       lastError: error instanceof Error ? error.message : String(error),
     });
   }

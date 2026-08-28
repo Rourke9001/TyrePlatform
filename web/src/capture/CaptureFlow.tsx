@@ -34,7 +34,7 @@ type StorageFault = "unavailable" | "degraded";
 
 interface Outcome {
   state: "sent" | "queued" | "failed";
-  lastStatus: number | null;
+  lastCode: string | null;
 }
 
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
@@ -264,10 +264,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         const still = (await listOutbox()).find((e) => e.clientUuid === entry.clientUuid);
         setOutcome(
           still === undefined
-            ? { state: "sent", lastStatus: null }
+            ? { state: "sent", lastCode: null }
             : {
                 state: still.state === "failed" ? "failed" : "queued",
-                lastStatus: still.lastStatus,
+                lastCode: still.lastCode ?? null,
               },
         );
         setDraft(null);
@@ -290,7 +290,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
 
   let body: ReactNode;
   if (screen === "done" && outcome) {
-    body = <CaptureDone state={outcome.state} lastStatus={outcome.lastStatus} />;
+    body = <CaptureDone state={outcome.state} lastCode={outcome.lastCode} />;
   } else if (!resumed || motive.isPending) {
     body = <p className="cap-wait">Loading…</p>;
   } else if (held) {

@@ -111,14 +111,21 @@ const trailer: CaptureContext = {
 // GET the context of whichever unit was asked for, POST the inspection. Routed
 // on method and on the vehicle in the path, so neither the order the component
 // calls in nor which unit it asks for first decides whether the test passes.
-function stubApi(submitStatus = 201, served: CaptureContext[] = [context]) {
+function stubApi(
+  submitStatus = 201,
+  served: CaptureContext[] = [context],
+  submitCode: string | null = null,
+) {
   const byId = new Map(served.map((c) => [c.vehicleId, c]));
   const api = vi.fn((url: string, init?: { method?: string; body?: string }) => {
     if (init?.method === "POST") {
       return Promise.resolve({
         ok: submitStatus < 400,
         status: submitStatus,
-        json: () => Promise.resolve({ inspectionId: "i1" }),
+        json: () =>
+          Promise.resolve(
+            submitStatus < 400 ? { inspectionId: "i1" } : { code: submitCode, message: "refused" },
+          ),
       });
     }
     const asked = byId.get(url.split("/").pop() ?? "");
@@ -228,7 +235,7 @@ describe("CaptureFlow", () => {
   // something to act on, and the readings are still on the device.
   it("presents a duplicate-window refusal without losing the inspection", async () => {
     const user = newUser();
-    stubApi(409);
+    stubApi(409, [context], "TY003");
     renderFlow();
 
     await user.click(await screen.findByRole("button", { name: /start inspection/i }));
@@ -237,6 +244,26 @@ describe("CaptureFlow", () => {
     await user.click(screen.getByRole("button", { name: /submit inspection/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/already inspected/i);
+    expect(await db.table("outbox").count()).toBe(1);
+  });
+
+  // FR-INS-038's window is the one refusal a driver resolves by naming that
+  // vehicle to the office. Any other conflict is a different conversation, and
+  // naming the wrong one sends them to argue about an inspection that never
+  // happened (NFR-USE-005).
+  it("does not blame the duplicate window for an unrelated conflict", async () => {
+    const user = newUser();
+    stubApi(409, [context], "conflict");
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/could not accept/i);
+    expect(alert).not.toHaveTextContent(/already inspected/i);
     expect(await db.table("outbox").count()).toBe(1);
   });
 

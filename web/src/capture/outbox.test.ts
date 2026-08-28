@@ -183,8 +183,30 @@ describe("the outbox", () => {
     const [failed] = await listOutbox();
     expect(failed.state).toBe("failed");
     expect(failed.lastStatus).toBe(409);
+    expect(failed.lastCode).toBeNull();
     // FR-OFF-014, the load-bearing half: the readings are still here.
     expect(failed.payload.readings).toHaveLength(1);
+  });
+
+  // The status alone cannot separate FR-INS-038's window from any other
+  // conflict, and the two send a driver to different conversations.
+  it("records the refusal code beside the status", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 409,
+        json: () => Promise.resolve({ code: "TY003", message: "already inspected" }),
+      }),
+    );
+    const entry = await queueOne();
+
+    await attemptSend(entry.clientUuid);
+
+    const [failed] = await listOutbox();
+    expect(failed.state).toBe("failed");
+    expect(failed.lastStatus).toBe(409);
+    expect(failed.lastCode).toBe("TY003");
   });
 
   it("does not send an entry before its backoff has elapsed", async () => {

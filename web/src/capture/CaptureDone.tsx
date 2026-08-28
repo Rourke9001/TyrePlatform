@@ -18,10 +18,10 @@ function BackToWork() {
 // what happened and what, if anything, is left to do.
 export function CaptureDone({
   state,
-  lastStatus,
+  lastCode,
 }: {
   state: "sent" | "queued" | "failed";
-  lastStatus: number | null;
+  lastCode: string | null;
 }) {
   if (state === "sent") {
     return (
@@ -53,8 +53,10 @@ export function CaptureDone({
     );
   }
   // FR-OFF-013: a supported recovery action, in plain language (NFR-USE-005).
-  // "Submission failed" tells a driver nothing they can act on; naming the
-  // duplicate window tells them exactly who to call and why.
+  // TY003 is FR-INS-038's window and the one refusal a driver can resolve by
+  // naming the vehicle to the office. Every other refusal is a different
+  // conversation, so it gets the honest general answer rather than a specific
+  // wrong one.
   return (
     <section className="cap-screen cap-done" role="alert">
       <p className="cap-done-mark cap-done-mark--stop" aria-hidden="true">
@@ -62,7 +64,7 @@ export function CaptureDone({
       </p>
       <h1 className="cap-done-title">This one needs the office</h1>
       <p className="cap-done-body">
-        {lastStatus === 409
+        {lastCode === "TY003"
           ? "This vehicle was already inspected a short while ago. Your readings are saved — call the tyre office and they can accept it."
           : "The office could not accept this inspection. Your readings are saved — call the tyre office."}
       </p>
