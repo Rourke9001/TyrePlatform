@@ -18,6 +18,11 @@ export interface NavItem {
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/fleet", label: "Vehicles", capability: "ViewFleet" },
   { to: "/my", label: "My inspections", capability: "CaptureInspection" },
+  // D8 puts add-a-unit on ManageAssets and invites on ManageUsers, which are
+  // held by different roles — so they are two items and never one "Admin"
+  // group, which would appear for a controller who cannot use half of it.
+  { to: "/admin/units/new", label: "Add a unit", capability: "ManageAssets" },
+  { to: "/admin/users/new", label: "Add a user", capability: "ManageUsers" },
 ] as const;
 
 export function navItemsFor(capabilities: string[]): NavItem[] {

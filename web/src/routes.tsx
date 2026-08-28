@@ -1,7 +1,10 @@
+import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router";
 
 import { useActorSettled, useCan } from "./auth/actorContext";
 import { RequireCapability } from "./auth/RequireCapability";
+import { AddDriver } from "./admin/AddDriver";
+import { AddUnit } from "./admin/AddUnit";
 import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
 import { VehicleList } from "./dashboard/VehicleList";
@@ -40,6 +43,16 @@ function CaptureRoute() {
   return <CaptureFlow vehicleId={vehicleId} taskId={params.get("taskId")} />;
 }
 
+// A destination someone navigated to says why it is refused; a menu item just
+// disappears. RequireCapability is the second, so these routes are the first.
+function AdminRoute({ capability, children }: { capability: string; children: ReactNode }) {
+  const can = useCan(capability);
+  const settled = useActorSettled();
+  if (!settled) return null;
+  if (!can) return <p role="alert">You do not have permission to use this screen.</p>;
+  return <>{children}</>;
+}
+
 export function AppRoutes() {
   return (
     <Routes>
@@ -54,6 +67,22 @@ export function AppRoutes() {
       />
       <Route path="/my" element={<DriverHome />} />
       <Route path="/capture/:vehicleId" element={<CaptureRoute />} />
+      <Route
+        path="/admin/units/new"
+        element={
+          <AdminRoute capability="ManageAssets">
+            <AddUnit />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/admin/users/new"
+        element={
+          <AdminRoute capability="ManageUsers">
+            <AddDriver />
+          </AdminRoute>
+        }
+      />
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
