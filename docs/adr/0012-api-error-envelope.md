@@ -99,12 +99,18 @@ them:
 2. **`TY008` and `TY009` are deliberately absent** from `submitStatus`.
    Neither is reachable through any endpoint that exists today — `TY008`
    fires on a `vehicle.configuration_id` change with history present,
-   `TY009` on a fitment whose unit kind carries an odometer, and both need a
-   write surface B4 has not built yet. `000024_configuration_immutable_with_history.up.sql:55`
+   `TY009` on a fitment whose unit kind carries an odometer, and each needs
+   a write surface that does not exist yet: an *update* to `app.vehicle` for
+   `TY008`, a write to `app.fitment` for `TY009`. `000024_configuration_immutable_with_history.up.sql:55`
    and `000025_fitment_odometer_by_unit_kind.up.sql:58` each state that the
    code has no entry in `submitStatus`; those migrations are edit-frozen, so
    adding entries now would make both comments false before either code is
-   reachable. B4 adds the entry and a test that can fail in the same change.
+   reachable. ADR-0013 governs the first admin write surface built after
+   this one, and it adds only *create* endpoints — it reaches neither an
+   update of `vehicle.configuration_id` nor a write to `app.fitment` — so
+   this deferral does not discharge there either. The batch that builds an
+   update or a fitment write adds the entry and a test that can fail in the
+   same change.
 
 The code table:
 
