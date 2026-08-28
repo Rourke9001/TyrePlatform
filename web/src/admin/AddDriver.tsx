@@ -21,25 +21,27 @@ const ROLES: { value: TenantRole; label: string }[] = [
   { value: "ORG_ADMIN", label: "Organisation admin" },
 ];
 
-function refusalMessage(error: unknown): string {
+// Shared by the create and the assign mutation, so the sentence names the
+// action that was refused: ManageUsers and ManageAssignments are separate
+// capabilities (TYRE-83 narrows the first), and a refusal on the assignment
+// that speaks of adding a user points at the wrong one.
+function refusalMessage(error: unknown, action: "add a user" | "assign a unit"): string {
   if (error instanceof ApiError && error.code !== null) {
     const speakable = ["invalid_submission", "email_taken", "assignment_overlaps", "conflict"];
     if (speakable.includes(error.code) && error.message !== "") {
       return error.message;
     }
     if (error.code === "forbidden") {
-      return "You do not have permission to add a user.";
+      return `You do not have permission to ${action}.`;
     }
   }
-  return "The user could not be added. Try again, or call support if it keeps happening.";
+  return `Could not ${action}. Try again, or call support if it keeps happening.`;
 }
 
-// An assignment's from_date is a date, not a timestamp, so this is the
-// browser's local calendar day — which is the person's own day, and is not
-// the same thing as the tenant's configured timezone. They differ only for an
-// admin working from another country, and a from_date one day out is
-// correctable; taking a UTC instant instead would be wrong every evening in
-// South Africa.
+// An assignment's from_date is a date, not a timestamp, and this reads the
+// browser's calendar day — the admin's own day, not the tenant's configured
+// timezone that rule 6 asks for. TYRE-89 moves this server-side
+// (app.tenant_today) and retires this function.
 function today(): string {
   const now = new Date();
   const month = `${now.getMonth() + 1}`.padStart(2, "0");
@@ -73,6 +75,9 @@ export function AddDriver() {
     onSuccess: (user) => {
       setCreated(user);
       setAssignedTo(null);
+      setEmail("");
+      setDisplayName("");
+      setStaffNumber("");
     },
   });
 
@@ -151,7 +156,7 @@ export function AddDriver() {
         </button>
       </form>
 
-      {create.isError && <p role="alert">{refusalMessage(create.error)}</p>}
+      {create.isError && <p role="alert">{refusalMessage(create.error, "add a user")}</p>}
       {created && <p role="status">{created.displayName} was added.</p>}
 
       {created && (
@@ -159,7 +164,13 @@ export function AddDriver() {
           <h2>Assign to a unit</h2>
           {vehicles.isPending && <p>Loading units…</p>}
           {vehicles.isError && <p role="alert">The unit list could not be loaded.</p>}
-          {vehicles.isSuccess && (
+          {/* A silent no-op here — an Assign button over an empty select — is
+              worse than telling the admin there is nothing to assign to yet
+              (NFR-USE-005). */}
+          {vehicles.isSuccess && vehicles.data.length === 0 && (
+            <p>No units yet — add a unit first.</p>
+          )}
+          {vehicles.isSuccess && vehicles.data.length > 0 && (
             <>
               <label htmlFor="vehicleId">Unit</label>
               <select
@@ -181,7 +192,7 @@ export function AddDriver() {
         </form>
       )}
 
-      {assign.isError && <p role="alert">{refusalMessage(assign.error)}</p>}
+      {assign.isError && <p role="alert">{refusalMessage(assign.error, "assign a unit")}</p>}
       {assignedTo && <p role="status">Assigned to {assignedTo}.</p>}
     </section>
   );

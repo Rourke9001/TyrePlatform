@@ -179,4 +179,15 @@ describe("AppRoutes", () => {
     renderAt("/admin/units/new", actor(["ManageAssets"]));
     expect(await screen.findByRole("heading", { name: /add a unit/i })).toBeInTheDocument();
   });
+
+  it("tells an actor without the capability, rather than blanking the screen, at /admin/users/new", () => {
+    mockFetchJson(200, []);
+    renderAt("/admin/users/new", actor(["CaptureInspection"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
+  });
+
+  it("renders the add-a-user screen for an actor holding ManageUsers", () => {
+    renderAt("/admin/users/new", actor(["ManageUsers"]));
+    expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
+  });
 });

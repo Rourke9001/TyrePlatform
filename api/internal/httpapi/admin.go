@@ -8,7 +8,6 @@ package httpapi
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -85,15 +84,19 @@ const maxCreateBytes = 16 << 10
 // place to discover that a client sent a megabyte of description.
 const maxTextLen = 200
 
-// errInvalidRequest is a request that is malformed as a request: a missing
-// field, an unparseable id, a value outside an enum. It is answered 422 with
-// the message forwarded, which is safe because the message is ours — written
-// here, naming no schema object (ADR-0013). A message Postgres wrote is
-// canned, and that distinction is the whole of ADR-0012.
-var errInvalidRequest = errors.New("invalid request")
+// invalidError is a request that is malformed as a request — a missing field,
+// an unparseable id, a value outside an enum — answered 422 with this message
+// forwarded verbatim. That is safe because the message is ours: written here,
+// naming the request field and never a schema object (ADR-0013). A message
+// Postgres wrote is canned, and that distinction is the whole of ADR-0012.
+type invalidError struct {
+	field, why string
+}
+
+func (e invalidError) Error() string { return e.field + " " + e.why }
 
 func invalid(field, why string) error {
-	return fmt.Errorf("%w: %s %s", errInvalidRequest, field, why)
+	return invalidError{field: field, why: why}
 }
 
 // decodeJSON answers the refusal itself when a body cannot be read. Validation

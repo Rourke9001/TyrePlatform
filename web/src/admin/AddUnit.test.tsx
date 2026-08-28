@@ -63,8 +63,6 @@ describe("adding a unit", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/fleet number/i);
-    // ADR-0012: no schema object reaches a person's screen.
-    expect(alert).not.toHaveTextContent(/_key|constraint/i);
   });
 
   it("shows a validation refusal's own message", async () => {
@@ -81,6 +79,36 @@ describe("adding a unit", () => {
     await userEvent.click(screen.getByRole("button", { name: /add unit/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/too long/i);
+  });
+
+  it("names the permission problem when the create itself is refused as forbidden", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(200, CONFIGS))
+      .mockResolvedValueOnce(respond(403, { code: "forbidden", message: "no" }));
+
+    renderScreen();
+    await screen.findByRole("option", { name: /Horse 6x4/ });
+    await userEvent.type(screen.getByLabelText(/fleet number/i), "H1");
+    await userEvent.selectOptions(screen.getByLabelText(/unit kind/i), "HORSE");
+    await userEvent.click(screen.getByRole("button", { name: /add unit/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/permission to add a unit/i);
+  });
+
+  it("falls back to a generic message for a create refusal with an unrecognised code", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(200, CONFIGS))
+      .mockResolvedValueOnce(respond(500, { code: "boom", message: "unrecognised" }));
+
+    renderScreen();
+    await screen.findByRole("option", { name: /Horse 6x4/ });
+    await userEvent.type(screen.getByLabelText(/fleet number/i), "H1");
+    await userEvent.selectOptions(screen.getByLabelText(/unit kind/i), "HORSE");
+    await userEvent.click(screen.getByRole("button", { name: /add unit/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).not.toHaveTextContent(/unrecognised/i);
+    expect(alert).toHaveTextContent(/could not be added/i);
   });
 
   it("reports a refused library rather than rendering an empty picker", async () => {

@@ -117,12 +117,14 @@ func TestCreateVehicle(t *testing.T) {
 	require.Equal(t, "fleet_number_taken", refusal.Code)
 	require.NotContains(t, rec.Body.String(), "vehicle_tenant_id_fleet_number_key")
 
-	// Shape refusals, each 422 and each naming its field.
-	for _, tt := range []struct{ name, payload, field string }{
-		{"no fleet number", `{"fleetNumber":"  ","configurationId":"` + configID + `","unitKind":"HORSE"}`, "fleetNumber"},
-		{"no unit kind", `{"fleetNumber":"X1","configurationId":"` + configID + `"}`, "unitKind"},
-		{"unknown unit kind", `{"fleetNumber":"X2","configurationId":"` + configID + `","unitKind":"SPACESHIP"}`, "unitKind"},
-		{"unparseable configuration", `{"fleetNumber":"X3","configurationId":"not-a-uuid","unitKind":"HORSE"}`, "configurationId"},
+	// Shape refusals, each 422 and each naming its field. wantMessage is the
+	// bare field-plus-why text ADR-0013 puts on the wire, with no wrapping
+	// prefix.
+	for _, tt := range []struct{ name, payload, wantMessage string }{
+		{"no fleet number", `{"fleetNumber":"  ","configurationId":"` + configID + `","unitKind":"HORSE"}`, "fleetNumber is required"},
+		{"no unit kind", `{"fleetNumber":"X1","configurationId":"` + configID + `"}`, "unitKind is required"},
+		{"unknown unit kind", `{"fleetNumber":"X2","configurationId":"` + configID + `","unitKind":"SPACESHIP"}`, "unitKind must be one of HORSE, TRAILER, RIGID, LIGHT"},
+		{"unparseable configuration", `{"fleetNumber":"X3","configurationId":"not-a-uuid","unitKind":"HORSE"}`, "configurationId must be a uuid"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := post(t, h, "/api/vehicles", tenantID.String(), orgAdmin.String(), tt.payload)
@@ -130,7 +132,7 @@ func TestCreateVehicle(t *testing.T) {
 			var ref refusalBody
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
 			require.Equal(t, "invalid_submission", ref.Code)
-			require.Contains(t, ref.message(), tt.field)
+			require.Equal(t, tt.wantMessage, ref.Message)
 		})
 	}
 
@@ -150,14 +152,13 @@ func TestCreateVehicle(t *testing.T) {
 	// The row carries the actor's tenant. This proves the handler binds it
 	// from the session — it does NOT prove the policy would refuse one that
 	// did not, because the handler never sends a tenant to be refused. That
-	// is Step 14's job, and this assertion must not be described as doing it.
+	// is TestWriteAimedAtAnotherTenantIsRefused's job, and this assertion
+	// must not be described as doing it.
 	var landedTenant string
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT tenant_id FROM app.vehicle WHERE id = $1`, created.ID).Scan(&landedTenant))
 	require.Equal(t, tenantID.String(), landedTenant)
 }
-
-func (r refusalBody) message() string { return r.Message }
 
 // The WITH CHECK half of tenant_isolation, which no test driven through a
 // handler can reach: every handler binds tenant_id from the session, so none
@@ -278,8 +279,9 @@ func TestCreateUser(t *testing.T) {
 
 	// The row carries the actor's tenant, which proves the handler binds it
 	// from the session. The policy's refusal of a row aimed elsewhere is a
-	// different property and is proven by TestWriteAimedAtAnotherTenantIsRefused
-	// (Task 3, Step 14), which issues the insert a handler cannot.
+	// different property, proven by
+	// TestWriteAimedAtAnotherTenantIsRefused_AppUser, which issues the insert
+	// a handler cannot.
 	var landedTenant string
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT tenant_id FROM app.app_user WHERE id = $1`, created.ID).Scan(&landedTenant))
