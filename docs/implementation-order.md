@@ -56,8 +56,8 @@ which is why the batches keep its shape.
 | TYRE-84 | ~~No `ManageTemplates` capability exists~~ — **closed by B2** |
 | TYRE-82 | ~~No trigger or constraint guards `vehicle.configuration_id` against change with history present~~ — **closed by B1** |
 | TYRE-85 | ~~`000011` dropped `fitted_odometer NOT NULL`; nothing re-enforces it where the unit kind has an odometer~~ — **closed by B1** |
-| TYRE-77 | `statusForPgError` forwards `pgErr.Message` verbatim |
-| TYRE-78 | `TY003` and `23505` both map to 409 in `submitStatus`, and the client cannot tell them apart |
+| TYRE-77 | ~~`statusForPgError` forwards `pgErr.Message` verbatim~~ — **closed by B3** |
+| TYRE-78 | ~~`TY003` and `23505` both map to 409 in `submitStatus`, and the client cannot tell them apart~~ — **closed by B3** |
 
 Also open and unbuilt: TYRE-36, TYRE-38, TYRE-41, TYRE-48, TYRE-51, TYRE-53,
 TYRE-58 to TYRE-64, TYRE-72, TYRE-73, TYRE-75, TYRE-76, TYRE-79, TYRE-81,
@@ -140,7 +140,7 @@ and no menu item is gated on either capability.
 `require.Len` in `TestRoleCapabilities` is what keeps the table honest — the
 `can` list is an exact set, so a grant added to the map without a test fails.
 
-### B3 — the submit refusal contract
+### B3 — the submit refusal contract — **delivered**
 
 **TYRE-77, then TYRE-78.**
 
@@ -149,9 +149,30 @@ carries. Every write endpoint added after this inherits whatever shape is
 settled here, so the cost of deferring is paid once per endpoint. TYRE-81's own
 description asks for these first.
 
-TYRE-77's constraint is that the five `TY0xx` messages are deliberately
-human-facing and asserted by name in `db/tests/004_tests.sql` — the fix must
-preserve them while canning everything else.
+TYRE-77's stated constraint was not accurate: there are **ten** `TY0xx` codes
+(`TY001`–`TY010`, `TY008`/`TY009` added by B1), and `db/tests/004_tests.sql`
+asserts the **SQLSTATEs** by name, not the messages — it contains no
+message-text assertion at all. The fix preserves the five messages reachable
+through `app.submit_inspection` (`TY003`–`TY007`) by forwarding them verbatim,
+and cans every other refusal.
+
+The plan is at `docs/superpowers/plans/2026-08-28-submit-refusal-contract.md`,
+the design at
+`docs/superpowers/specs/2026-08-28-submit-refusal-contract-design.md`.
+
+Delivered on `TYRE-77-refusal-contract` as ADR-0012 plus two feature commits:
+
+| Commit | Change | Assertion |
+|---|---|---|
+| TYRE-77 | `writeError` envelope; `refusalForPgError` cans every non-`TY` refusal; chi's 404/405 get handlers | table-driven `refusal_internal_test.go`; router-level `TestRefusalsCarryTheEnvelope` |
+| TYRE-78 | `ApiError.code`; the outbox and `CaptureFlow` thread it; `CaptureDone` branches on `TY003` rather than on the 409 status | vitest per branch; `capture.spec.ts`'s duplicate-window e2e spec, unchanged and still green |
+
+`TY008` and `TY009` stay out of `submitStatus` — deliberately, per ADR-0012:
+neither is reachable through any endpoint that exists yet, so an entry now
+could carry no test able to fail. B4 owns adding them once it builds the
+write surface that can raise them.
+
+No SQL changed. `make check` and `make e2e` both green at delivery.
 
 ### B4 — the first admin write surface
 

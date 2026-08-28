@@ -29,8 +29,9 @@ if !ok {
 transaction — `internal/store.InActorTx` owns that dance, and its doc comment
 is the canonical statement of why it is shaped that way — and owns the
 401/403 vocabulary: 401 means the request names no one, 403 means it names
-someone who may not do this. A handler never writes its own `http.Error` for
-either case.
+someone who may not do this. A handler never writes its own refusal: every
+refusal in the package goes through `writeError`, so one JSON envelope
+covers the whole API (ADR-0012).
 
 A handler asserts what it needs with `require(a, auth.SomeCapability)` and
 returns the error; it never tests `a.Role` against a role name. Two roles can
