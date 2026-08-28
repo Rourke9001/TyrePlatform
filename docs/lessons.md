@@ -15,6 +15,26 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-08-28 — A WITH CHECK kill can be masked by an unrelated FK (TYRE-81)
+
+**What happened:** Task 3's proof that `app.vehicle`'s `tenant_isolation`
+policy refuses a cross-tenant insert used a row built with every column but
+`tenant_id` left to plausible defaults, including `created_by` left to its
+`app.current_actor_id()` default (000017, DR-013). With RLS disabled to prove
+the test could fail, the insert still errored — but as `23503` on
+`vehicle_created_by_fkey`'s composite FK `(tenant_id, created_by)`, not
+`42501` from the policy: `created_by` defaulted to the acting tenant's own
+user, which cannot exist paired with the smuggled tenant_id. The kill
+"worked" but proved the wrong thing — the row was never actually valid in
+every way but the one under test, so RLS was never reached.
+
+**The rule:** every audit-columned table (000017 stamped `created_by` plus its
+tenant-scoped composite FK onto roughly thirty tables) needs a WITH CHECK proof
+that stamps `created_by` explicitly with a real user from the *target* tenant,
+not left to its default. A row that would fail on an unrelated FK regardless
+of the policy under test proves nothing when the kill succeeds for the wrong
+reason. Before trusting a RED, confirm which constraint produced it.
+
 ## 2026-08-28 — `package httpapi`'s own `require` function shadows testify's import (TYRE-77)
 
 **What happened:** the B3 plan's Task 2 test code imports
