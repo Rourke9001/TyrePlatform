@@ -1,6 +1,7 @@
 # Implementation order
 
-Snapshot of **27 Aug 2026**, verified against `develop` @ `604099f`.
+Snapshot of **27 Aug 2026**, re-verified **28 Aug 2026** against `develop` @
+`3a3d6c2`.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase, the same way
@@ -46,7 +47,17 @@ which is why the batches keep its shape.
 | Key | What actually remains |
 |---|---|
 | TYRE-70 | The mobile-viewport projects and specs landed in `11230eb`. What is outstanding is the acceptance run itself — one real vehicle, on a phone, in airplane mode, with its duration measured against the three-minute target. That is a human sitting in a yard, not agent work |
-| TYRE-30 | DR-013 audit columns, the DR-014a DELETE revoke and `staff_number` uniqueness all landed (`873bf82`, `ff76209`, `8ad7c9f`). Two of its folded decisions did not: the PLATFORM\_ADMIN email partial unique index and the `vehicle_driver` overlap constraint. Both are carried into B1. DR-014b left separately as TYRE-60 |
+| TYRE-30 | ~~Two of its folded decisions were outstanding — the PLATFORM\_ADMIN email partial unique index and the `vehicle_driver` overlap constraint~~ — **closed by B1** in migration `000026`. DR-014b remains separate as TYRE-60 |
+
+### Raised after this page was written
+
+The 28 Aug re-verification found two keys the page predates rather than
+misses. Both came out of B1's delivery and neither is scheduled:
+
+| Key | What it is | Home |
+| --- | --- | --- |
+| TYRE-87 | Sweep unique and exclusion constraints, and unique indexes, for a missing `tenant_id`. B1 found one cross-tenant oracle and fixed it; seven pre-existing constraints sit in the same blind spot, three of them standalone partial indexes with no `pg_constraint` row | The class of work B1 was. Cheap now, expensive after pilot data — pull it before the pilot, ahead of the analytics tail |
+| TYRE-88 | Harden the TY008/TY009 triggers: legacy NULL-odometer fitments and `unit_kind` edits | Follows B4, which adds the first writer that can create a unit whose kind is known. B4 requires `unit_kind` at the API and leaves the schema alone deliberately — that gap is this ticket's |
 
 ### Open and correctly scoped, verified still needed
 
@@ -61,7 +72,8 @@ which is why the batches keep its shape.
 
 Also open and unbuilt: TYRE-36, TYRE-38, TYRE-41, TYRE-48, TYRE-51, TYRE-53,
 TYRE-58 to TYRE-64, TYRE-72, TYRE-73, TYRE-75, TYRE-76, TYRE-79, TYRE-81,
-TYRE-83, TYRE-86.
+TYRE-83, TYRE-87, TYRE-88. TYRE-86 — this page itself — closed on 28 Aug once
+its own method had been re-run against it.
 
 ## The batches
 
@@ -174,7 +186,7 @@ write surface that can raise them.
 
 No SQL changed. `make check` and `make e2e` both green at delivery.
 
-### B4 — the first admin write surface
+### B4 — the first admin write surface — **planned, in progress**
 
 **The TYRE-81 ADR, then TYRE-81, then TYRE-83.**
 
@@ -183,9 +195,37 @@ the reactivate branch, the subdomain-login assumption — are cheaper to record
 than to unpick from code. TYRE-83 sits directly on `POST /api/users` and cannot
 start before it exists.
 
-**TYRE-58** belongs here, not in the analytics tail: band configuration
-write-time validation is a rule about a config-editing surface, and this batch
-builds the first one.
+The plan is at `docs/superpowers/plans/2026-08-28-admin-write-surface.md`, the
+design at `docs/superpowers/specs/2026-08-28-admin-write-surface-design.md`.
+It covers **TYRE-81 only** — ten tasks on branch `TYRE-81-admin-write-surface`,
+cut from `develop` @ `3a3d6c2`. TYRE-83 gets its own plan once this lands.
+
+Three things the planning pass settled that change what this batch is:
+
+- **TYRE-81's definition of done needs an endpoint its scope section does not
+  name.** "The driver can then be assigned and reach a capture" is
+  `app.vehicle_driver`, which is what `app.v_capture_vehicle` reads; the
+  excluded "inspection assignment" is FR-INS-049's scheduled task, a different
+  thing. A third endpoint, `POST /api/vehicles/{vehicleID}/drivers`, is in the
+  plan as an explicitly marked assumption for the ticket owner to confirm or
+  drop. Without it the definition of done cannot be met through the product.
+- **The batch adds no schema.** Every rule governing a user row or a unit row
+  is already a constraint, so the writes are parameterised inserts and not SQL
+  functions. The one integrity rule that was considered — `unit_kind` required
+  on a unit — is deferred with a measured reason: 12 of the 18
+  `INSERT INTO app.vehicle` statements in `db/tests/004_tests.sql` omit it, so
+  the constraint would churn the acceptance suite for a benefit this batch does
+  not need. The API requires it; the schema does not; TYRE-88 owns the sweep.
+- **ADR-0012's `TY008`/`TY009` deferral does not discharge here.** Both need a
+  write surface B4 does not build — `TY008` fires on an *update* of
+  `vehicle.configuration_id`, `TY009` on a fitment write. The deferral is
+  re-pointed at the batch that builds one rather than closed.
+
+**TYRE-58** belongs after it, not in the analytics tail: band configuration
+write-time validation is a rule about a config-editing surface. Note that
+TYRE-81 does not build one — it picks from the axle configuration library and
+authoring stays ORG_ADMIN's through `ManageTemplates` (D8, TYRE-84) — so
+TYRE-58 waits for the surface that edits tenant configuration, not for this.
 
 ### B5 — the rig-setup surface
 
