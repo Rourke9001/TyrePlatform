@@ -105,7 +105,7 @@ func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(h
 				// reaching this far with no bound identity is an invariant
 				// breach, not a client mistake, so 500 is the honest answer.
 				slog.ErrorContext(r.Context(), "rate limiter reached with no bound identity")
-				http.Error(w, "internal error", http.StatusInternalServerError)
+				writeError(r.Context(), w, http.StatusInternalServerError, codeInternal, msgInternal)
 				return
 			}
 
@@ -121,7 +121,7 @@ func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(h
 			addressOK := address.allow(host, now)
 			if !accountOK || !addressOK {
 				w.Header().Set("Retry-After", strconv.Itoa(int(rateLimitWindow.Seconds())))
-				http.Error(w, "too many requests", http.StatusTooManyRequests)
+				writeError(r.Context(), w, http.StatusTooManyRequests, codeRateLimited, "too many requests")
 				return
 			}
 			next.ServeHTTP(w, r)

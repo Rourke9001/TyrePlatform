@@ -449,6 +449,47 @@ func TestHealthzNeedsNoTenant(t *testing.T) {
 	require.Equal(t, http.StatusOK, get(t, h, "/healthz", "", "").Code)
 }
 
+// The refusal envelope as a client meets it (ADR-0012). chi answers an
+// unrouted path and a wrong method itself, in text/plain, unless the router
+// registers handlers — a contract every later endpoint inherits does not ship
+// with two exceptions to it.
+func TestRefusalsCarryTheEnvelope(t *testing.T) {
+	h := httpapi.New(nil, nil)
+
+	tests := []struct {
+		name       string
+		method     string
+		path       string
+		wantStatus int
+		wantCode   string
+	}{
+		// Outside /api deliberately: requireActor is mounted on that group and
+		// answers 401 before an unrouted path ever reaches chi's NotFound.
+		{"an unrouted path", http.MethodGet, "/nothing-here", http.StatusNotFound, "not_found"},
+		{"a wrong method on a real route", http.MethodDelete, "/healthz", http.StatusMethodNotAllowed, "method_not_allowed"},
+		// A nil resolver names nobody, which is the production default.
+		{"a request naming no user", http.MethodGet, "/api/me", http.StatusUnauthorized, "unauthorized"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+
+			var body struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
+			require.Equal(t, tt.wantCode, body.Code)
+			require.NotEmpty(t, body.Message)
+		})
+	}
+}
+
 type meBody struct {
 	UserID       string   `json:"userId"`
 	DisplayName  string   `json:"displayName"`

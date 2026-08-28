@@ -109,7 +109,7 @@ func captureContext(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vehicleID, err := uuid.Parse(chi.URLParam(r, "vehicleID"))
 		if err != nil {
-			http.Error(w, "bad vehicle id", http.StatusBadRequest)
+			writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "bad vehicle id")
 			return
 		}
 		var body captureContextBody
@@ -325,11 +325,11 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxSubmitBytes))
 		if err != nil {
-			http.Error(w, "body too large or unreadable", http.StatusBadRequest)
+			writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "body too large or unreadable")
 			return
 		}
 		if !json.Valid(raw) {
-			http.Error(w, "malformed json", http.StatusBadRequest)
+			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 			return
 		}
 
@@ -341,7 +341,7 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			VehicleID uuid.UUID `json:"vehicle_id"`
 		}
 		if err := json.Unmarshal(raw, &body); err != nil {
-			http.Error(w, "malformed json", http.StatusBadRequest)
+			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 			return
 		}
 
