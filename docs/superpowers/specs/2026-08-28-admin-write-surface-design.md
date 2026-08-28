@@ -153,6 +153,13 @@ reachable the moment the assignment endpoint exists, and `exclusion_violation`
 is in no map today, so it would answer 500 — which for the capture outbox
 means an infinite retry, and for a form means a spinner that never resolves.
 
+**One consequence to accept deliberately.** `refusalForPgError` serves every
+endpoint, so mapping `23P01` also changes what the capture path does with a
+future exclusion constraint it can reach: 409 rather than 500. That is the
+outcome ADR-0009 wants — a 500 is the one answer the outbox cannot survive —
+but it is a decision about the submit path made from an admin batch, so the
+ADR states it rather than leaving it to be found.
+
 ### 3. Validation is shape only, and it happens in Go
 
 A create request is refused before it reaches the database when it is
@@ -186,6 +193,15 @@ This matters because the alternative is worse. An admin form that must
 highlight a field either reads the message or the envelope grows a `field`
 key — and a third key on every refusal in the platform, to serve two screens,
 is a larger change than the one ADR-0012 just settled.
+
+**The client cannot do this yet, and that is part of this batch.** B3 gave
+`ApiError` the envelope's `code` and left its `message` as the synthetic string
+`apiPost` builds from the verb, the path and the status; the envelope's message
+is parsed for its code and thrown away. So the rule above is a decision the
+code does not implement until `web/src/api/client.ts` reads both fields from
+the one parse a `Response` body allows. The capture path is unaffected either
+way: `CaptureDone` keys its sentences on `code`, and `outbox.ts` already
+records that its stored message is "diagnostics only, never rendered".
 
 ### 4. `PLATFORM_ADMIN` is not creatable through a tenant surface
 
@@ -323,7 +339,7 @@ scope. An entry now would still carry no test able to fail.
 
 ## Sequencing
 
-Nine tasks. The ADR first, because everything after it cites it. Then the
+Ten tasks. The ADR first, because everything after it cites it. Then the
 library read, because the vehicle form needs it. Then the three writes, in
 dependency order — a driver cannot be assigned to a unit before either exists.
 Then the client, in one pass per screen. Then the end-to-end proof and the
