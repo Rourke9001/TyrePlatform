@@ -208,3 +208,121 @@ func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
 		`SELECT count(*) FROM app.vehicle WHERE fleet_number = 'SMUGGLED'`).Scan(&landed))
 	require.Zero(t, landed)
 }
+
+type createdUserBody struct {
+	ID          string  `json:"id"`
+	Email       string  `json:"email"`
+	DisplayName string  `json:"displayName"`
+	Role        string  `json:"role"`
+	StaffNumber *string `json:"staffNumber"`
+	Active      bool    `json:"active"`
+}
+
+func TestCreateUser(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "createuser")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	email := "new-driver-" + uuid.NewString()[:8] + "@example.invalid"
+	body := `{"email":"` + email + `","displayName":"New Driver",` +
+		`"staffNumber":"SBX-9001","role":"DRIVER"}`
+
+	// ManageUsers is ORG_ADMIN's alone today (D9 keeps it so). A CONTROLLER
+	// holds ManageAssets and not this.
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	rec := post(t, h, "/api/users", tenantID.String(), controller.String(), body)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created createdUserBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.Equal(t, email, created.Email)
+	require.Equal(t, "DRIVER", created.Role)
+	require.True(t, created.Active, "a created user is active; leaving is active=false and is TYRE-83's")
+
+	// D10: the rehire branch TYRE-83 builds needs to know which conflict it
+	// hit, which is why this is not a generic conflict.
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), body)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "email_taken", ref.Code)
+	require.NotContains(t, rec.Body.String(), "app_user_tenant_id_email_key")
+
+	// ADR-0011: platform staff are never the subject of a tenant-scoped
+	// request any more than they are its actor. Refused as an invalid role,
+	// not left to platform_admin_has_no_tenant to catch.
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(),
+		`{"email":"pa-`+uuid.NewString()[:8]+`@example.invalid","displayName":"No","role":"PLATFORM_ADMIN"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "role")
+
+	for _, tt := range []struct{ name, payload, field string }{
+		{"no email", `{"displayName":"X","role":"DRIVER"}`, "email"},
+		{"no display name", `{"email":"a@example.invalid","role":"DRIVER"}`, "displayName"},
+		{"unknown role", `{"email":"b@example.invalid","displayName":"X","role":"WIZARD"}`, "role"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), tt.payload)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Contains(t, ref.Message, tt.field)
+		})
+	}
+
+	// The row carries the actor's tenant, which proves the handler binds it
+	// from the session. The policy's refusal of a row aimed elsewhere is a
+	// different property and is proven by TestWriteAimedAtAnotherTenantIsRefused
+	// (Task 3, Step 14), which issues the insert a handler cannot.
+	var landedTenant string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT tenant_id FROM app.app_user WHERE id = $1`, created.ID).Scan(&landedTenant))
+	require.Equal(t, tenantID.String(), landedTenant)
+}
+
+// The WITH CHECK half of tenant_isolation, which no test driven through a
+// handler can reach: every handler binds tenant_id from the session, so none
+// of them can produce the row this refuses. USING hides another tenant's
+// rows; WITH CHECK refuses a row aimed AT one, and only an insert that names
+// the other tenant exercises it.
+//
+// app.app_user.created_by is a self-referencing column with its own composite
+// FK (tenant_id, created_by) REFERENCES app.app_user (tenant_id, id) — if
+// created_by is left at its default app.current_actor_id(), a row that
+// smuggles in another tenant's tenant_id will fail on that FK, not on the RLS
+// policy (000017, DR-013). To prove the policy fires, created_by must be
+// stamped explicitly with a real user from the TARGET tenant.
+func TestWriteAimedAtAnotherTenantIsRefused_AppUser(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, _ := plantTenant(t, ctx, admin, "withcheck-appuser-a")
+	tenantB, _ := plantTenant(t, ctx, admin, "withcheck-appuser-b")
+
+	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
+	userB := plantUser(t, ctx, admin, tenantB, auth.RoleOrgAdmin)
+	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO app.app_user (tenant_id, email, display_name, role, created_by)
+			 VALUES ($1, 'smuggled@example.invalid', 'Smuggled', 'DRIVER'::app.user_role, $2)`,
+			tenantB, userB)
+		return err
+	})
+	require.Error(t, err, "a row aimed at another tenant was accepted")
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	// 42501 is insufficient_privilege, which is how a row-level security
+	// policy refuses a write it will not admit.
+	require.Equal(t, "42501", pgErr.Code)
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.app_user WHERE email = 'smuggled@example.invalid'`).Scan(&landed))
+	require.Zero(t, landed)
+}

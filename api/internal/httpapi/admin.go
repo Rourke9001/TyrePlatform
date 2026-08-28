@@ -261,3 +261,120 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 		writeJSON(ctx, w, created)
 	}
 }
+
+type createUserRequest struct {
+	Email       string  `json:"email"`
+	DisplayName string  `json:"displayName"`
+	StaffNumber *string `json:"staffNumber"`
+	Role        string  `json:"role"`
+}
+
+type userInsert struct {
+	email       string
+	displayName string
+	staffNumber *string
+	role        string
+}
+
+// tenantRoles is app.user_role minus PLATFORM_ADMIN. Platform staff carry a
+// NULL tenant_id and are never the subject of a tenant-scoped request any more
+// than they are its actor (ADR-0011); platform_admin_has_no_tenant would
+// refuse the row anyway, and a refusal that depends on a constraint firing is
+// an accident that happens to be safe rather than a decision.
+//
+// D9 narrows this per actor: CONTROLLER and DEPOT_MANAGER may create DRIVER
+// alone, through a finer capability. That narrowing is an edit to this map's
+// use in createUser and to nothing else (TYRE-83).
+var tenantRoles = map[string]bool{
+	"DRIVER": true, "TECHNICIAN": true, "CONTROLLER": true,
+	"DEPOT_MANAGER": true, "ORG_ADMIN": true,
+}
+
+func (b createUserRequest) validate() (userInsert, error) {
+	var u userInsert
+
+	u.email = strings.TrimSpace(b.Email)
+	if u.email == "" {
+		return u, invalid("email", "is required")
+	}
+	if len(u.email) > maxTextLen {
+		return u, invalid("email", "is too long")
+	}
+
+	u.displayName = strings.TrimSpace(b.DisplayName)
+	if u.displayName == "" {
+		return u, invalid("displayName", "is required")
+	}
+	if len(u.displayName) > maxTextLen {
+		return u, invalid("displayName", "is too long")
+	}
+
+	if b.Role == "" {
+		return u, invalid("role", "is required")
+	}
+	if !tenantRoles[b.Role] {
+		return u, invalid("role", "is not a role this tenant may create")
+	}
+	u.role = b.Role
+
+	// FR-AUT-022: a durable identifier independent of the display name, and
+	// optional — R13 identifies its driver as "Melusi" and nothing else.
+	var err error
+	if u.staffNumber, err = text("staffNumber", b.StaffNumber); err != nil {
+		return u, err
+	}
+	return u, nil
+}
+
+// createUser is FR-AUT-010's invite, gated on ManageUsers. It creates an
+// active user and nothing else: leaving a company is active = false and never
+// a delete (D10, FR-VEH-008), and that surface is TYRE-83's.
+func createUser(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		var body createUserRequest
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		ins, err := body.validate()
+		if refuseInvalid(w, r, err) {
+			return
+		}
+
+		var created userJSON
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageUsers); err != nil {
+				return err
+			}
+			var id uuid.UUID
+			err := tx.QueryRow(ctx,
+				`INSERT INTO app.app_user
+				   (tenant_id, email, display_name, staff_number, role)
+				 VALUES (app.current_tenant_id(), $1, $2, $3, $4::app.user_role)
+				 RETURNING id, email, display_name, role::text, staff_number, active`,
+				ins.email, ins.displayName, ins.staffNumber, ins.role).
+				Scan(&id, &created.Email, &created.DisplayName, &created.Role,
+					&created.StaffNumber, &created.Active)
+			if err != nil {
+				return fmt.Errorf("creating user: %w", err)
+			}
+			created.ID = id.String()
+			return nil
+		})
+		if !ok {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(ctx, w, created)
+	}
+}
+
+type userJSON struct {
+	ID          string  `json:"id"`
+	Email       string  `json:"email"`
+	DisplayName string  `json:"displayName"`
+	Role        string  `json:"role"`
+	StaffNumber *string `json:"staffNumber"`
+	Active      bool    `json:"active"`
+}
