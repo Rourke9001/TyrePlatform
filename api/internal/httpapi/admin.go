@@ -13,7 +13,9 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -377,4 +379,87 @@ type userJSON struct {
 	Role        string  `json:"role"`
 	StaffNumber *string `json:"staffNumber"`
 	Active      bool    `json:"active"`
+}
+
+type assignDriverRequest struct {
+	UserID   string `json:"userId"`
+	FromDate string `json:"fromDate"`
+}
+
+type assignmentJSON struct {
+	ID        string `json:"id"`
+	VehicleID string `json:"vehicleId"`
+	UserID    string `json:"userId"`
+	FromDate  string `json:"fromDate"`
+}
+
+// isoDate is the only date format the API accepts or emits. A locale-sensitive
+// parse is a defect waiting for a tenant in another timezone (rule 6).
+const isoDate = "2006-01-02"
+
+// assignDriver opens a driver-to-unit assignment (FR-VEH-007). It is what
+// app.v_capture_vehicle reads, so it is the step between a created driver and
+// a capture they can reach.
+//
+// The assignee's role is deliberately unchecked: no constraint says an
+// assignment names a DRIVER, and asserting it here would put a rule in Go that
+// the schema does not hold (ADR-0013). Every assignable role already holds
+// CaptureInspection, so the gap grants nothing.
+//
+// to_date is left NULL — an open assignment. Closing one is a different
+// action and does not belong on a create.
+func assignDriver(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		vehicleID, err := uuid.Parse(chi.URLParam(r, "vehicleID"))
+		if err != nil {
+			refuseInvalid(w, r, invalid("vehicleId", "must be a uuid"))
+			return
+		}
+		var body assignDriverRequest
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		userID, err := uuid.Parse(strings.TrimSpace(body.UserID))
+		if err != nil {
+			refuseInvalid(w, r, invalid("userId", "must be a uuid"))
+			return
+		}
+		if strings.TrimSpace(body.FromDate) == "" {
+			refuseInvalid(w, r, invalid("fromDate", "is required"))
+			return
+		}
+		from, err := time.Parse(isoDate, strings.TrimSpace(body.FromDate))
+		if err != nil {
+			refuseInvalid(w, r, invalid("fromDate", "must be a date as YYYY-MM-DD"))
+			return
+		}
+
+		created := assignmentJSON{VehicleID: vehicleID.String(), UserID: userID.String()}
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageAssignments); err != nil {
+				return err
+			}
+			var id uuid.UUID
+			var fromDate time.Time
+			err := tx.QueryRow(ctx,
+				`INSERT INTO app.vehicle_driver
+				   (tenant_id, vehicle_id, user_id, from_date)
+				 VALUES (app.current_tenant_id(), $1, $2, $3)
+				 RETURNING id, from_date`,
+				vehicleID, userID, from).Scan(&id, &fromDate)
+			if err != nil {
+				return fmt.Errorf("assigning driver: %w", err)
+			}
+			created.ID = id.String()
+			created.FromDate = fromDate.Format(isoDate)
+			return nil
+		})
+		if !ok {
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		writeJSON(ctx, w, created)
+	}
 }
