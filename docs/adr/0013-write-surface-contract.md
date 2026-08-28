@@ -40,6 +40,35 @@ The tenancy guarantee on a write is the `WITH CHECK` half of
 is a bug the database refuses on the way in, not a bug that has to be caught
 by reading Go.
 
+## Options considered
+
+### Option A — a SQL function per write, mirroring `app.submit_inspection`
+
+Wrap each create in a function that expresses the constraints it needs, the
+one precedent the codebase already has. Attractive because every write then
+sits behind the same kind of seam, and a reviewer only has to learn one shape.
+
+**Its real downside:** there is no rule for a function to express. Every rule
+governing a user or a unit row is already a schema constraint —
+`UNIQUE (tenant_id, fleet_number)`, `UNIQUE (tenant_id, email)`,
+`platform_admin_has_no_tenant`, `vehicle_driver_no_overlap` — so a function
+here would only restate them, becoming a second place for the rule to be
+wrong. Decision 1 rejects it for that reason.
+
+### Option B — a `TY0xx` code raised in SQL for every constraint
+
+Give `fleet_number_taken`, `email_taken` and `assignment_overlaps` the same
+shape as `TY003`: a trigger or function that detects the violation and
+raises a named exception ahead of the constraint.
+
+**Its real downside:** a unique or exclusion violation is detected by the
+index itself, not by code positioned to check first and raise cleanly.
+Pre-checking inside a trigger races the very index it duplicates; wrapping
+every insert in an exception handler that exists solely to rename an error
+gives the rule two implementations instead of one. Decision 2 translates the
+constraint name in the transport layer instead — the rule stays in the
+database in one place, and Go only names the refusal for a client.
+
 ## Decision
 
 1. **A write with no rule of its own is a parameterised insert in Go.** A SQL
@@ -126,6 +155,65 @@ by reading Go.
    has already revoked `DELETE` from `app_rw` on the tables these decisions
    govern, so the database refuses a delete regardless. The point recorded
    here is that no endpoint should be built that tries.
+
+8. **The axle-configuration library gets a read endpoint.**
+   `GET /api/axle-configurations` is gated on `ManageAssets` — the
+   capability that can act on the answer — and returns the tenant's active
+   configurations, the source a vehicle-create form has nowhere else to
+   populate a picker from. It is a plain select inside `withActor`;
+   `app.axle_configuration` is RLS-scoped like every other table, and no new
+   relation is composed. Authoring a configuration stays out of scope: D8
+   reserves that for `ManageTemplates`, held by `ORG_ADMIN` alone (TYRE-84),
+   and this endpoint only reads the library.
+
+9. **A created row answers 201 with its own projection, not 202.**
+   `POST /api/inspections` answers 202 because the outbox may still be
+   holding the submission when the response is written. A create here is
+   synchronous — it happened inside the transaction or it did not — so it
+   answers 201 with the same JSON projection the corresponding list endpoint
+   uses, and no `Location` header: the platform has no
+   `GET /api/vehicles/{id}`, and a header pointing at a route that 404s is
+   worse than no header at all.
+
+10. **No idempotency key.** `client_uuid` exists on the capture path because
+    a driver's outbox retries a submission with no human present
+    (ADR-0009). An admin form has a human in front of it, and the unique
+    constraints these writes already carry turn a resubmission into a clean
+    409 rather than a duplicate row. Building an idempotency mechanism now
+    would be for a retry loop that does not exist.
+
+## Consequences
+
+**Good:** every write surface queued behind this one — rig setup, tyre
+lifecycle, configuration editing, tiered invites — inherits a shape instead
+of inventing one: a parameterised insert unless a rule is genuinely missing
+from the schema, `tenant_id` from the session never the request, a
+translated constraint code a form can act on, and a Go-authored message a
+form may render on the field it names. The axle-configuration read
+establishes the same seam for a read endpoint that a future list view can
+copy, and a created row's 201 projection lets a client hold what it just
+wrote without a second round trip.
+
+**Bad:** the constraint-name-to-wire-code map is a second place that must
+change in step with the schema — rename `vehicle_tenant_id_fleet_number_key`
+and forget the map, and the client silently falls back to the generic
+`conflict`. An integration test per entry catches a missed rename on the
+code failing, not on the constraint's name, which is the best this shape
+does without generating the map from the catalogue. `PLATFORM_ADMIN`'s
+rejection is now enforced in two places — the handler and
+`platform_admin_has_no_tenant` — because the constraint alone would answer
+the wrong code, not because either enforcement is redundant to drop. No
+surface here removes a row or narrows `DEPOT_MANAGER` writes to its own
+depot, and both are deliberate deferrals a reader could mistake for
+oversights without this paragraph.
+
+**Revisit when:** TYRE-83 narrows the creatable-role list to `InviteDriver`
+for `CONTROLLER` and `DEPOT_MANAGER`; TYRE-88 adds the `unit_kind NOT NULL`
+constraint this ADR accepts as a gap; TYRE-64's POPIA answer defines the
+deactivation surface that decision 7 deliberately leaves unbuilt; a write
+surface needs an update or a delete, which is the point decision 7 stops
+covering; or a client needs to retry a write idempotently, which decision 10
+assumes never happens because a human is always present at an admin form.
 
 ## Constraints on later work
 
