@@ -43,4 +43,17 @@ describe("navItemsFor", () => {
     const reversed = navItemsFor(["CaptureInspection", "ViewFleet"]);
     expect(forward).toEqual(reversed);
   });
+
+  it("offers the admin screens only to the capabilities that can use them", () => {
+    const assets = navItemsFor(["ViewFleet", "ManageAssets"]).map((i) => i.to);
+    expect(assets).toContain("/admin/units/new");
+    expect(assets).not.toContain("/admin/users/new");
+
+    const users = navItemsFor(["ViewFleet", "ManageUsers"]).map((i) => i.to);
+    expect(users).toContain("/admin/users/new");
+
+    // A driver holds neither, and the menu is a courtesy — the route checks
+    // again regardless (NFR-SEC-006).
+    expect(navItemsFor(["CaptureInspection"]).map((i) => i.to)).toEqual(["/my"]);
+  });
 });
