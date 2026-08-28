@@ -1,0 +1,75 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { ApiError, apiGet, apiPost } from "./client";
+
+function stubFetch(status: number, body: unknown, ok = false) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() =>
+      Promise.resolve({
+        ok,
+        status,
+        json: () => (body instanceof Error ? Promise.reject(body) : Promise.resolve(body)),
+      }),
+    ),
+  );
+}
+
+describe("the refusal envelope", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("carries the code off a refusal", async () => {
+    stubFetch(409, {
+      code: "TY003",
+      message: "a unit in this submit was already inspected within 6 hours",
+    });
+
+    const err = await apiPost("/api/inspections", {}).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ApiError);
+    expect((err as ApiError).status).toBe(409);
+    expect((err as ApiError).code).toBe("TY003");
+  });
+
+  it("distinguishes a conflict from the duplicate window", async () => {
+    stubFetch(409, {
+      code: "conflict",
+      message: "the submission conflicts with data already recorded",
+    });
+
+    const err = (await apiPost("/api/inspections", {}).catch((e: unknown) => e)) as ApiError;
+
+    expect(err.status).toBe(409);
+    expect(err.code).toBe("conflict");
+  });
+
+  // A proxy or gateway refusal carries no envelope. An error path that throws
+  // while reporting an error is the one failure the outbox cannot absorb.
+  it("reads a body with no envelope as a null code", async () => {
+    stubFetch(502, { nothing: "useful" });
+
+    const err = (await apiGet("/api/me").catch((e: unknown) => e)) as ApiError;
+
+    expect(err.status).toBe(502);
+    expect(err.code).toBeNull();
+  });
+
+  it("reads an unparseable body as a null code", async () => {
+    stubFetch(500, new SyntaxError("Unexpected token < in JSON"));
+
+    const err = (await apiGet("/api/me").catch((e: unknown) => e)) as ApiError;
+
+    expect(err.status).toBe(500);
+    expect(err.code).toBeNull();
+  });
+
+  it("reads a non-string code as null rather than trusting it", async () => {
+    stubFetch(422, { code: 42 });
+
+    const err = (await apiGet("/api/me").catch((e: unknown) => e)) as ApiError;
+
+    expect(err.code).toBeNull();
+  });
+});
