@@ -72,4 +72,32 @@ describe("the refusal envelope", () => {
 
     expect(err.code).toBeNull();
   });
+
+  it("carries the envelope's own message, which is the server's to write", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          code: "fleet_number_taken",
+          message: "a unit with that fleet number already exists",
+        }),
+        {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const error = await apiPost("/api/vehicles", {}).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).message).toBe("a unit with that fleet number already exists");
+    expect((error as ApiError).code).toBe("fleet_number_taken");
+  });
+
+  it("falls back to a diagnostic message when the refusal carried no envelope", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(fetch).mockResolvedValue(new Response("<html>502</html>", { status: 502 }));
+    const error = await apiPost("/api/vehicles", {}).catch((e: unknown) => e);
+    expect((error as ApiError).code).toBeNull();
+    expect((error as ApiError).message).toContain("502");
+  });
 });
