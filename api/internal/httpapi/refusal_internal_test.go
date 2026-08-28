@@ -144,3 +144,37 @@ func TestRefusalForPgErrorIgnoresNonPgErrors(t *testing.T) {
 	_, isClient = refusalForPgError(nil)
 	req.False(t, isClient)
 }
+
+// A conflict a form must act on differently from any other conflict carries
+// its own code. The constraint name is translated here and never forwarded,
+// so ADR-0012's guarantee that no schema object reaches the wire is unchanged
+// (ADR-0013).
+func TestConflictConstraintsTranslateToTheirOwnCode(t *testing.T) {
+	tests := []struct {
+		name       string
+		sqlstate   string
+		constraint string
+		wantCode   string
+		wantStatus int
+	}{
+		{"duplicate fleet number", "23505", "vehicle_tenant_id_fleet_number_key", "fleet_number_taken", http.StatusConflict},
+		{"duplicate email", "23505", "app_user_tenant_id_email_key", "email_taken", http.StatusConflict},
+		{"overlapping assignment", "23P01", "vehicle_driver_no_overlap", "assignment_overlaps", http.StatusConflict},
+		{"an unmapped unique constraint", "23505", "some_other_key", "conflict", http.StatusConflict},
+		{"an unmapped exclusion constraint", "23P01", "some_other_excl", "conflict", http.StatusConflict},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ref, isClient := refusalForPgError(&pgconn.PgError{
+				Code:           tt.sqlstate,
+				ConstraintName: tt.constraint,
+				Message:        "duplicate key value violates unique constraint \"" + tt.constraint + "\"",
+			})
+			req.True(t, isClient)
+			req.Equal(t, tt.wantStatus, ref.status)
+			req.Equal(t, tt.wantCode, ref.code)
+			req.NotContains(t, ref.message, tt.constraint,
+				"a constraint name reached the wire")
+		})
+	}
+}
