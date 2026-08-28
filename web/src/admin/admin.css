@@ -1,0 +1,25 @@
+/* The admin forms. Layout only — colour comes from the theme tokens
+   (web/src/theme/base.css), so a tenant's branding reaches these screens
+   without either file knowing about the other. */
+
+.adm-form {
+  max-width: 32rem;
+}
+
+/* Stacked, never side by side: these screens are reachable from the same
+   phone the capture app runs on, and a two-column form at 360px is a
+   horizontal scroll. */
+.adm-form form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.adm-form input,
+.adm-form select,
+.adm-form button {
+  /* NFR-USE-004's 44px target, in rem so it survives a browser text-size
+     setting. The capture keypad uses the same floor. */
+  min-height: 2.75rem;
+  font: inherit;
+}
