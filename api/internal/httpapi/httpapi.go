@@ -108,6 +108,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 			o.trustedProxyHops,
 		)).Post("/inspections", submitInspection(s))
 		r.Get("/org/branding", orgBranding(s))
+		r.Get("/axle-configurations", listAxleConfigurations(s))
 	})
 	return r
 }
