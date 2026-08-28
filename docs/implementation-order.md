@@ -1,7 +1,7 @@
 # Implementation order
 
 Snapshot of **27 Aug 2026**, re-verified **28 Aug 2026** against `develop` @
-`3a3d6c2`.
+`04cee3e`.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase, the same way
@@ -183,8 +183,8 @@ Delivered on `TYRE-77-refusal-contract` as ADR-0012 plus two feature commits:
 
 `TY008` and `TY009` stay out of `submitStatus` — deliberately, per ADR-0012:
 neither is reachable through any endpoint that exists yet, so an entry now
-could carry no test able to fail. B4 owns adding them once it builds the
-write surface that can raise them.
+could carry no test able to fail. B4 did not build such a surface either; the
+deferral is re-pointed at whichever batch does (see B4's carry-forward).
 
 No SQL changed. `make check` and `make e2e` both green at delivery.
 
@@ -203,21 +203,22 @@ the closing proof at `web/e2e/admin.spec.ts`. It covers **TYRE-81 only** — ten
 tasks on branch `TYRE-81-admin-write-surface`, cut from `develop` @
 `3a3d6c2`. TYRE-83 gets its own plan now that this has landed.
 
-Delivered as ADR-0013 plus nine feature commits and the browser proof:
+Delivered as PR #32, rebase-merged 28 Aug 2026 (hashes below are `develop`'s,
+not the branch's):
 
 | Commit | Change | Assertion |
 |---|---|---|
-| `de2979d` | ADR-0013: parameterised inserts over a SQL function, `tenant_id` from `app.current_tenant_id()` never the request, the constraint-name-to-wire-code map, the renderable-shape-validation extension to ADR-0012 | verified against the real files rather than merely written (Task 1 self-review) |
-| `7d6b2fd` | `GET /api/axle-configurations`, capability-gated and tenant-scoped | `TestAxleConfigurationsAreCapabilityGatedAndTenantScoped` |
-| `a272de8` | `POST /api/vehicles` against the tenant's configuration library | `TestCreateVehicle`; `TestWriteAimedAtAnotherTenantIsRefused` — the insert names another tenant directly and is required to fail, not merely to report its own tenant back at itself |
-| `afde115` | `POST /api/users`, creating a tenant role and never `PLATFORM_ADMIN` | `TestCreateUser`; `TestWriteAimedAtAnotherTenantIsRefused_AppUser` |
-| `eca4ce8` | `POST /api/vehicles/{vehicleID}/drivers` — the endpoint TYRE-81's scope section does not name | `TestAssignDriverToVehicle`; `TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver` |
-| `6305563` | `client.ts` carries the refusal envelope's `message`, not just its `code`; the admin API module (`createUnit`, `createUser`, `assignDriver`, `fetchAxleConfigurations`) | vitest per function; `client.test.ts` asserts the message survives, closing the gap the plan's review pass found before Tasks 7–8 could hit it |
-| `9e6f439` | the add-a-unit screen, gated on `ManageAssets` | `AddUnit.test.tsx` |
-| `dde0d0e` | the add-a-driver screen with its assignment step, gated on `ManageUsers` | `AddDriver.test.tsx` |
-| `096e6d9` | both screens routed and placed in navigation behind their capabilities | `routes.test.tsx`; `navigation.test.ts` |
-| `4a5a221` | `web/e2e/admin.ts`, `web/e2e/admin.spec.ts` — an org admin builds a unit and a user from nothing and assigns them, on `chromium` alone | `make e2e`, 21 passed (up from 20) |
-| `d2599e9` | the final whole-branch review's fixes: the e2e proof continues as the created driver to the capture screen for the created unit; `AddDriver` names the refused action, handles a tenant with no units, and clears after a create; validation messages lose their wrapping prefix; ADR-0013 completed to the template | `admin.spec.ts` asserts `CaptureStart`'s heading as the driver; `AddDriver.test.tsx` / `AddUnit.test.tsx` cover the forbidden and fallback branches; `TestCreateVehicle` asserts the exact message |
+| `f03ae5f` | ADR-0013: parameterised inserts over a SQL function, `tenant_id` from `app.current_tenant_id()` never the request, the constraint-name-to-wire-code map, the renderable-shape-validation extension to ADR-0012 | verified against the real files rather than merely written (Task 1 self-review) |
+| `7091c93` | `GET /api/axle-configurations`, capability-gated and tenant-scoped | `TestAxleConfigurationsAreCapabilityGatedAndTenantScoped` |
+| `c729399` | `POST /api/vehicles` against the tenant's configuration library | `TestCreateVehicle`; `TestWriteAimedAtAnotherTenantIsRefused` — the insert names another tenant directly and is required to fail, not merely to report its own tenant back at itself |
+| `78674f8` | `POST /api/users`, creating a tenant role and never `PLATFORM_ADMIN` | `TestCreateUser`; `TestWriteAimedAtAnotherTenantIsRefused_AppUser` |
+| `b8326cd` | `POST /api/vehicles/{vehicleID}/drivers` — the endpoint TYRE-81's scope section does not name | `TestAssignDriverToVehicle`; `TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver` |
+| `49732bd` | `client.ts` carries the refusal envelope's `message`, not just its `code`; the admin API module (`createUnit`, `createUser`, `assignDriver`, `fetchAxleConfigurations`) | vitest per function; `client.test.ts` asserts the message survives, closing the gap the plan's review pass found before Tasks 7–8 could hit it |
+| `7d4133f` | the add-a-unit screen, gated on `ManageAssets` | `AddUnit.test.tsx` |
+| `f039946` | the add-a-driver screen with its assignment step, gated on `ManageUsers` | `AddDriver.test.tsx` |
+| `f85bdc5` | both screens routed and placed in navigation behind their capabilities | `routes.test.tsx`; `navigation.test.ts` |
+| `97554ee` | `web/e2e/admin.ts`, `web/e2e/admin.spec.ts` — an org admin builds a unit and a user from nothing and assigns them, on `chromium` alone | `make e2e`, 21 passed (up from 20) |
+| `cfdf097` | the final whole-branch review's fixes: the e2e proof continues as the created driver to the capture screen for the created unit; `AddDriver` names the refused action, handles a tenant with no units, and clears after a create; validation messages lose their wrapping prefix; ADR-0013 completed to the template | `admin.spec.ts` asserts `CaptureStart`'s heading as the driver; `AddDriver.test.tsx` / `AddUnit.test.tsx` cover the forbidden and fallback branches; `TestCreateVehicle` asserts the exact message |
 
 Four things this batch found, carried forward because they change what the
 next batch should expect rather than because they are history:
@@ -256,11 +257,11 @@ next batch should expect rather than because they are history:
 No schema change: every rule governing a user or unit row was already a
 constraint (B1 and B3's antecedent work), so all three write endpoints are
 parameterised inserts, none a SQL function. The driver-reaches-capture half of
-the definition of done is proven by `TestAssignDriverToVehicle` in Go, against
-the same `app.vehicle_driver` relation the browser writes to, and not by a
-browser assertion — the created driver's id is never surfaced by either admin
-screen, so there is no honest selector for a spec to act as. `make check` and
-`make e2e` both green at delivery.
+the definition of done is proven twice: `TestAssignDriverToVehicle` reads
+`GET /api/capture/vehicles/{id}` as the driver in Go, and `admin.spec.ts` opens
+the capture screen as the created driver in a second browser context, taking
+the driver's id from the create response since neither admin screen surfaces
+it. `make check` and `make e2e` both green at delivery and in CI.
 
 **TYRE-58** belongs after it, not in the analytics tail: band configuration
 write-time validation is a rule about a config-editing surface. Note that
