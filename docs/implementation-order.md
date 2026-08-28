@@ -217,6 +217,7 @@ Delivered as ADR-0013 plus nine feature commits and the browser proof:
 | `dde0d0e` | the add-a-driver screen with its assignment step, gated on `ManageUsers` | `AddDriver.test.tsx` |
 | `096e6d9` | both screens routed and placed in navigation behind their capabilities | `routes.test.tsx`; `navigation.test.ts` |
 | `4a5a221` | `web/e2e/admin.ts`, `web/e2e/admin.spec.ts` — an org admin builds a unit and a user from nothing and assigns them, on `chromium` alone | `make e2e`, 21 passed (up from 20) |
+| `d2599e9` | the final whole-branch review's fixes: the e2e proof continues as the created driver to the capture screen for the created unit; `AddDriver` names the refused action, handles a tenant with no units, and clears after a create; validation messages lose their wrapping prefix; ADR-0013 completed to the template | `admin.spec.ts` asserts `CaptureStart`'s heading as the driver; `AddDriver.test.tsx` / `AddUnit.test.tsx` cover the forbidden and fallback branches; `TestCreateVehicle` asserts the exact message |
 
 Four things this batch found, carried forward because they change what the
 next batch should expect rather than because they are history:
