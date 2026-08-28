@@ -79,9 +79,8 @@ Settled here so the implementer does not re-litigate them. The spec argues each 
 | `docs/adr/0012-api-error-envelope.md` | modify | Its `TY008`/`TY009` deferral, re-pointed off B4 |
 | `api/internal/httpapi/admin.go` | create | The four admin endpoints, their request types and their validation |
 | `api/internal/httpapi/httpapi.go` | modify | Four routes; `23P01` in `submitStatus`; `conflictCodes`; the new codes; the `23503` and `errorBody` comments |
-| `api/internal/httpapi/admin_test.go` | create | Integration tests for all four endpoints — black-box, `package httpapi_test` |
+| `api/internal/httpapi/admin_test.go` | create | Integration tests for all four endpoints, plus the `WITH CHECK` proof — black-box, `package httpapi_test` |
 | `api/internal/httpapi/refusal_internal_test.go` | modify | `conflictCodes` translation — white-box, `package httpapi` |
-| `api/internal/store/store_test.go` | modify | The `WITH CHECK` proof: an insert naming another tenant, refused by the policy |
 | `web/src/api/client.ts` | modify | Carries the envelope's message onto `ApiError`, not only its code |
 | `web/src/api/client.test.ts` | modify | That the envelope's message survives to the error |
 | `web/src/api/admin.ts` | create | Wire types and fetchers for the four endpoints |
@@ -377,7 +376,6 @@ git commit -m "feat(api): TYRE-81 serve the tenant's axle configuration library"
 - Modify: `api/internal/httpapi/httpapi.go` (one route, the new codes, `conflictCodes`, the `23503` and `errorBody` comments)
 - Modify: `api/internal/httpapi/admin_test.go`
 - Modify: `api/internal/httpapi/refusal_internal_test.go`
-- Modify: `api/internal/store/store_test.go` (Step 14 — the `WITH CHECK` proof)
 
 **Interfaces:**
 - Consumes: `writeError`, `codeInvalidSubmission`, `codeBadRequest`, `codeMalformedJSON`, `refusalForPgError` from `httpapi.go`; `vehicleJSON` from `httpapi.go`.
@@ -864,28 +862,36 @@ docker compose exec db psql -U postgres -c "\d app.vehicle"
 
 - [ ] **Step 14: Prove the `WITH CHECK` half, with a test that can fail**
 
-TYRE-81 asks for this by name: "a write aimed at another tenant fails on `WITH CHECK`, with a test for each." No handler can produce that write — every one of them binds `tenant_id` from the session — so a test driven through the API cannot reach the policy at all. The test has to name the other tenant itself, which puts it in `api/internal/store/store_test.go`, beside the isolation tests that already live there. (`db/tests/` is out of bounds for this batch, and the property is about the app role's write path rather than the suite's.)
+TYRE-81 asks for this by name: "a write aimed at another tenant fails on `WITH CHECK`, with a test for each." No handler can produce that write — every one of them binds `tenant_id` from the session — so a test driven through the API cannot reach the policy at all. The test has to issue the insert itself, naming the other tenant.
 
-Read the file's existing helpers first and reuse them — `testURLs`, and whatever it already uses to plant a tenant — rather than adding a second harness.
+It goes in `admin_test.go`, calling `s.InActorTx` directly rather than through a handler. That keeps it beside the helpers it needs — `testStore` and `plantUser` are `package httpapi_test`'s, and `store_test.go` is a different package with a different harness. It needs two imports that file does not yet carry: `github.com/jackc/pgx/v5` and `github.com/jackc/pgx/v5/pgconn`.
 
 ```go
-// The WITH CHECK half of tenant_isolation, which the USING half's tests
-// cannot reach: USING hides another tenant's rows, and WITH CHECK is what
-// refuses a row aimed AT one. No handler can produce this insert — they all
-// bind tenant_id from the session — so the test writes it directly, which is
-// the only way this assertion can fail if the policy is dropped.
+// The WITH CHECK half of tenant_isolation, which no test driven through a
+// handler can reach: every handler binds tenant_id from the session, so none
+// of them can produce the row this refuses. USING hides another tenant's
+// rows; WITH CHECK refuses a row aimed AT one, and only an insert that names
+// the other tenant exercises it.
 func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantA, configA := plantTenantWithConfiguration(t, ctx, admin, "withcheck-a")
-	tenantB, _ := plantTenantWithConfiguration(t, ctx, admin, "withcheck-b")
+	tenantA, _ := plantTenantWithVehicle(t, ctx, admin, "withcheck-a")
+	tenantB, _ := plantTenantWithVehicle(t, ctx, admin, "withcheck-b")
+
+	// Tenant B's own configuration, so the row is valid in every way except
+	// the one under test. Borrowing tenant A's would fail the composite FK
+	// even with the policy gone, and a test that cannot distinguish the two
+	// refusals proves neither.
+	var configB uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.axle_configuration WHERE tenant_id = $1`, tenantB).Scan(&configB))
 
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
 	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
 			 VALUES ($1, 'SMUGGLED', $2, 'HORSE')`,
-			tenantB, configA)
+			tenantB, configB)
 		return err
 	})
 	require.Error(t, err, "a row aimed at another tenant was accepted")
@@ -903,23 +909,22 @@ func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
 }
 ```
 
-`plantTenantWithConfiguration` is whatever `store_test.go` already offers for a tenant plus an `axle_configuration`; if it has none, write the smallest one, modelled on `httpapi_test.go`'s `plantTenantWithVehicle`. Do **not** import the `httpapi` package's test helpers — they are in a different package and not exported.
-
-**Prove the test can fail before trusting it** (`docs/lessons.md`, 2026-08-20). Against a scratch database only, never one you will keep:
+**Prove the test can fail before trusting it** (`docs/lessons.md`, 2026-08-20). Against a scratch database only, never one you will keep — and note **which** kill is the right one:
 
 ```bash
 docker compose exec db psql -U postgres -d tyre -c \
-  "ALTER TABLE app.vehicle DROP CONSTRAINT IF EXISTS x; DROP POLICY tenant_isolation ON app.vehicle;"
+  "ALTER TABLE app.vehicle DISABLE ROW LEVEL SECURITY;"
 ```
 
-Re-run the test: it must fail. Then `make db-reset` to put the policy back, and re-run: it must pass. A test for a security property that has never been observed failing is the thing this project's own register warns about.
+Re-run the test. Expected: **FAIL at `require.Error`** — with RLS off the insert succeeds, because the row is valid apart from the tenant it names. Then `make db-reset` and re-run: PASS.
+
+Do **not** kill it with `DROP POLICY tenant_isolation ON app.vehicle`. Row-level security stays enabled, a table with RLS on and no policy is default-deny, and the insert is still refused with 42501 — the test stays green and the procedure meant to prove it has teeth proves the opposite. `DISABLE ROW LEVEL SECURITY` is the kill; the policy's own absence is not.
 
 - [ ] **Step 15: Commit**
 
 ```bash
 git add api/internal/httpapi/admin.go api/internal/httpapi/admin_test.go \
-        api/internal/httpapi/httpapi.go api/internal/httpapi/refusal_internal_test.go \
-        api/internal/store/store_test.go
+        api/internal/httpapi/httpapi.go api/internal/httpapi/refusal_internal_test.go
 git commit -m "feat(api): TYRE-81 create a unit against the tenant's configuration library"
 ```
 
@@ -1012,7 +1017,8 @@ func TestCreateUser(t *testing.T) {
 
 	// The row carries the actor's tenant, which proves the handler binds it
 	// from the session. The policy's refusal of a row aimed elsewhere is a
-	// different property and is proven in store_test.go (Task 3, Step 14).
+	// different property and is proven by TestWriteAimedAtAnotherTenantIsRefused
+	// (Task 3, Step 14), which issues the insert a handler cannot.
 	var landedTenant string
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT tenant_id FROM app.app_user WHERE id = $1`, created.ID).Scan(&landedTenant))
@@ -1297,9 +1303,8 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 		ctx := r.Context()
 		vehicleID, err := uuid.Parse(chi.URLParam(r, "vehicleID"))
 		if err != nil {
-			if refuseInvalid(w, r, invalid("vehicleId", "must be a uuid")) {
-				return
-			}
+			refuseInvalid(w, r, invalid("vehicleId", "must be a uuid"))
+			return
 		}
 		var body assignDriverRequest
 		if !decodeJSON(w, r, &body) {
@@ -1349,8 +1354,6 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 	}
 }
 ```
-
-The `vehicleID` guard above has a deliberate shape: `refuseInvalid` returns true when it wrote a refusal, so the `if` body returns. Write it as a plain guard if that reads better — the requirement is that a bad path parameter answers 422 with `vehicleId` in the message, not 500.
 
 - [ ] **Step 4: Register the route**
 
@@ -2576,7 +2579,7 @@ git add web/e2e/admin.ts web/e2e/admin.spec.ts web/playwright.config.ts docs/imp
 git commit -m "test(e2e): TYRE-81 build a tenant from nothing through the UI"
 ```
 
-The PR body follows PR #31's shape: a summary per ticket, the gates actually run with their results read from the log rather than the wrapper's exit code, any honest disclosure, and the test plan as a checklist. Say plainly that the assignment endpoint was taken as an assumption.
+The PR body follows PR #31's shape: a summary per ticket, the gates actually run with their results read from the log rather than the wrapper's exit code, any honest disclosure, and the test plan as a checklist. Two things must be said plainly rather than left to be inferred: that the assignment endpoint was taken as an assumption, and that the definition of done's last clause — the driver reaching a capture — is proven by `TestAssignDriverToVehicle` in Go and not in the browser, because the created driver's id is never surfaced by the UI for a spec to act as.
 
 ---
 
@@ -2591,7 +2594,7 @@ Checked against the spec on 2026-08-28.
 **Review pass, 2026-08-28.** A reviewer with no context read this plan against the real files and found two defects that would have stopped an executor mid-task. Both are fixed above, and both are recorded here because the shape of each is worth recognising again:
 
 1. **The plan built on a client capability that did not exist.** ADR-0013 decision 4 makes a Go-authored refusal message renderable, and both screens render it — but `client.ts` reads the envelope for its `code` and discards the message, so `ApiError.message` is the synthetic `POST /api/vehicles failed: 409`. Tasks 7 and 8 would have failed at their own verification steps on assertions that look like screen bugs. Task 6 now carries the client change first, and `client.ts` is in the file structure where it belongs. **The general form: a decision recorded in an ADR is not a capability the code has.**
-2. **The `WITH CHECK` test could not fail.** Asserting that a created row carries the actor's tenant tests the handler's own `app.current_tenant_id()` back at itself — drop the policy entirely and it stays green. TYRE-81 asks for this property by name. Task 3 Step 14 now writes the insert that names another tenant directly, from `store_test.go`, and requires the executor to observe it failing with the policy dropped before trusting it (`docs/lessons.md`, 2026-08-20).
+2. **The `WITH CHECK` test could not fail.** Asserting that a created row carries the actor's tenant tests the handler's own `app.current_tenant_id()` back at itself — drop the policy entirely and it stays green. TYRE-81 asks for this property by name. Task 3 Step 14 now issues the insert that names another tenant directly, and requires the executor to observe it failing before trusting it (`docs/lessons.md`, 2026-08-20) — with `DISABLE ROW LEVEL SECURITY` as the kill, because a table with RLS on and no policy is default-deny and would keep the test green.
 
 Smaller corrections from the same pass, all applied: the `23503` comment's second sentence — which prescribed the very approach ADR-0013 rejects — is replaced along with the first; `errorBody`'s doc comment gets its own step, since ADR-0013 makes it false; `routes.test.tsx`'s `renderAt` takes a full `Me` and the pasted object literal would not typecheck; the message-constants snippet carried a stray closing paren; `admin_test.go` needed the `uuid` import a task before it was used; three Files blocks disagreed with their own steps.
 
