@@ -76,10 +76,14 @@ Settled here so the implementer does not re-litigate them. The spec argues each 
 | File | Change | Responsibility after this plan |
 | --- | --- | --- |
 | `docs/adr/0013-write-surface-contract.md` | create | Where a rule lives on a write, and how a violation becomes a status |
+| `docs/adr/0012-api-error-envelope.md` | modify | Its `TY008`/`TY009` deferral, re-pointed off B4 |
 | `api/internal/httpapi/admin.go` | create | The four admin endpoints, their request types and their validation |
-| `api/internal/httpapi/httpapi.go` | modify | Four routes; `23P01` in `submitStatus`; `conflictCodes`; the new codes; the `23503` comment |
+| `api/internal/httpapi/httpapi.go` | modify | Four routes; `23P01` in `submitStatus`; `conflictCodes`; the new codes; the `23503` and `errorBody` comments |
 | `api/internal/httpapi/admin_test.go` | create | Integration tests for all four endpoints — black-box, `package httpapi_test` |
 | `api/internal/httpapi/refusal_internal_test.go` | modify | `conflictCodes` translation — white-box, `package httpapi` |
+| `api/internal/store/store_test.go` | modify | The `WITH CHECK` proof: an insert naming another tenant, refused by the policy |
+| `web/src/api/client.ts` | modify | Carries the envelope's message onto `ApiError`, not only its code |
+| `web/src/api/client.test.ts` | modify | That the envelope's message survives to the error |
 | `web/src/api/admin.ts` | create | Wire types and fetchers for the four endpoints |
 | `web/src/api/admin.test.ts` | create | Fetcher shape and refusal-code surfacing |
 | `web/src/admin/AddUnit.tsx` | create | The add-a-unit screen |
@@ -93,6 +97,7 @@ Settled here so the implementer does not re-litigate them. The spec argues each 
 | `web/src/routes.test.tsx` | modify | A driver reaching either route is told, not blanked |
 | `web/e2e/admin.ts` | create | The org-admin actor, seed-derived |
 | `web/e2e/admin.spec.ts` | create | Build a unit, a driver and an assignment; the driver reaches capture |
+| `web/playwright.config.ts` | modify | Keeps the writing spec on one project |
 | `docs/implementation-order.md` | modify | B4 recorded as delivered |
 
 ---
@@ -101,6 +106,7 @@ Settled here so the implementer does not re-litigate them. The spec argues each 
 
 **Files:**
 - Create: `docs/adr/0013-write-surface-contract.md`
+- Modify: `docs/adr/0012-api-error-envelope.md` (Step 6 — its `TY008`/`TY009` deferral)
 - Read first: `docs/adr/0000-template.md`, `docs/adr/0012-api-error-envelope.md`, `docs/adr/0011-actor-context-and-authorisation.md`
 
 **Interfaces:**
@@ -131,6 +137,11 @@ Each is argued in the spec; the ADR states them and gives the reason in one or t
 5. **Request validation is shape only, in Go, before any transaction opens.** It never grows into a business rule: no fleet-number pattern (FR-VEH-003), no threshold, no band, no rate.
 6. **`PLATFORM_ADMIN` is not creatable through a tenant surface**, refused explicitly rather than left to `platform_admin_has_no_tenant`.
 7. **No write surface removes a row.** Leaving is `active = false` (D10) and lives with TYRE-83; `000018` has already revoked `DELETE` from `app_rw`.
+
+Two consequences of decision 3 that must be stated in the ADR rather than left to be discovered:
+
+- **The translation map is shared with the submit path.** `refusalForPgError` serves every endpoint, so a future exclusion constraint reachable from `POST /api/inspections` will surface to the capture outbox as a 409 rather than a 500. That is the outcome we want — ADR-0009's outbox cannot survive a 500 — but it should be a decision and not an accident.
+- **These endpoints carry a body-size cap and no rate limit**, unlike `POST /api/inspections`, whose limiter exists because a driver's outbox can retry without a human present (NFR-SEC-007). An admin form has a human in front of it and sits behind `ManageUsers`/`ManageAssets`. Say that it was considered.
 
 - [ ] **Step 4: Write the Constraints on later work section**
 
@@ -251,12 +262,15 @@ Expected: FAIL — the route does not exist, so chi's `NotFound` answers 404 and
 
 - [ ] **Step 3: Create `admin.go` with the handler**
 
+Leave a blank line between the comment and `package httpapi`, or godoc reads it as a second package doc competing with `httpapi.go`'s.
+
 ```go
-// Package-level file for the admin write surface: users, units and the
-// assignment between them. Every handler here follows ADR-0013 — shape
-// validated in Go before a transaction opens, the row's own rules left to the
-// constraints that already state them, and tenant_id taken from the bound
-// session and never from the request.
+// The admin write surface: users, units and the assignment between them.
+// Every handler here follows ADR-0013 — shape validated in Go before a
+// transaction opens, the row's own rules left to the constraints that already
+// state them, and tenant_id taken from the bound session and never from the
+// request.
+
 package httpapi
 
 import (
@@ -360,13 +374,14 @@ git commit -m "feat(api): TYRE-81 serve the tenant's axle configuration library"
 
 **Files:**
 - Modify: `api/internal/httpapi/admin.go`
-- Modify: `api/internal/httpapi/httpapi.go` (one route, the new codes, `conflictCodes`, the `23503` comment)
+- Modify: `api/internal/httpapi/httpapi.go` (one route, the new codes, `conflictCodes`, the `23503` and `errorBody` comments)
 - Modify: `api/internal/httpapi/admin_test.go`
 - Modify: `api/internal/httpapi/refusal_internal_test.go`
+- Modify: `api/internal/store/store_test.go` (Step 14 — the `WITH CHECK` proof)
 
 **Interfaces:**
 - Consumes: `writeError`, `codeInvalidSubmission`, `codeBadRequest`, `codeMalformedJSON`, `refusalForPgError` from `httpapi.go`; `vehicleJSON` from `httpapi.go`.
-- Produces: `createVehicle(s *store.Store) http.HandlerFunc`; `decodeJSON(w, r, into) bool`; `errInvalidRequest`; `invalid(field, why string) error`; `conflictCodes map[string]string`; the wire codes `fleet_number_taken`, `email_taken`, `assignment_overlaps`. Tasks 4 and 5 consume every one of these.
+- Produces: `createVehicle(s *store.Store) http.HandlerFunc`; `decodeJSON(w, r, into) bool`; `refuseInvalid(w, r, err) bool`; `text(field string, in *string) (*string, error)`; `errInvalidRequest`; `invalid(field, why string) error`; `maxCreateBytes`, `maxTextLen`; `conflictCodes` and `conflictMessages`; the wire codes `fleet_number_taken`, `email_taken`, `assignment_overlaps`. Tasks 4 and 5 consume every one of these.
 
 - [ ] **Step 1: Write the failing test for the refusal translation (white-box)**
 
@@ -428,8 +443,9 @@ Add to the message constants:
 	msgFleetNumberTaken   = "a unit with that fleet number already exists"
 	msgEmailTaken         = "a user with that email address already exists in this tenant"
 	msgAssignmentOverlaps = "that driver already holds an overlapping assignment to this unit"
-)
 ```
+
+Both snippets go **inside** the existing `const (…)` blocks, so neither carries its own closing paren.
 
 Add `23P01` to `submitStatus`, beside `23505`, with its reason:
 
@@ -477,20 +493,45 @@ Replace the `23505` case in `refusalForPgError` with:
 
 - [ ] **Step 4: Rewrite the `23503` comment whose premise this batch ends**
 
-`httpapi.go` carries, above `submitStatus`, a sentence saying the blanket `23503` mapping "is safe here only because `app.submit_inspection` is the single write path". That stops being true in this task. Replace that sentence — not the whole block — with the reason that is true:
+`httpapi.go`'s comment block above `submitStatus` ends with a **two-sentence** paragraph. Both sentences die in this task, and replacing only the first leaves the second prescribing the approach ADR-0013 rejects. The paragraph to replace, in full:
+
+```go
+// A blanket 23503 is safe here only because app.submit_inspection is the
+// single write path. If that stops being true, raise a named TYxxx in SQL
+// rather than widening this.
+```
+
+Replace it with:
 
 ```go
 // A blanket 23503 is safe across every write path because the message is
 // canned (ADR-0012): a foreign-key violation means the request named
 // something that does not exist, and 422 with no schema object in it is the
-// honest answer wherever it is raised.
+// honest answer wherever it is raised. A refusal a client must branch on
+// earns a code of its own instead — raised as a TY in SQL where a rule is
+// being evaluated, or translated from the constraint that detects it where
+// the schema already states the rule (ADR-0013).
 ```
 
-- [ ] **Step 5: Run the white-box test to verify it passes**
+Leave the rest of the block alone: the paragraph above it, explaining why the integrity classes are a backstop rather than a second vocabulary, is still true.
+
+- [ ] **Step 5: Rewrite `errorBody`'s doc comment, which ADR-0013 also makes false**
+
+At the foot of `httpapi.go`, `errorBody` carries: *"Message is diagnostic-grade and is never the source of a driver's sentence — the wording a driver reads is the client's, keyed on Code."* ADR-0013 decision 4 makes a Go-authored message renderable, and Tasks 7 and 8 render one. One rationale in two places, disagreeing, is exactly what the comment standard forbids. Replace that sentence with:
+
+```go
+// Message's audience depends on who wrote it (ADR-0013): a message written in
+// Go or raised as a TY in SQL is ours and may be rendered, and a message
+// Postgres wrote is canned before it ever reaches this struct. A driver's
+// sentence is still the client's, keyed on Code — that is FR-OFF-013's
+// recovery action and not a diagnostic.
+```
+
+- [ ] **Step 6: Run the white-box test to verify it passes**
 
 Run the Go suite. Expected: PASS for `TestConflictConstraintsTranslateToTheirOwnCode`.
 
-- [ ] **Step 6: Write the failing integration test for the endpoint**
+- [ ] **Step 7: Write the failing integration test for the endpoint**
 
 Add to `api/internal/httpapi/admin_test.go`:
 
@@ -583,8 +624,10 @@ func TestCreateVehicle(t *testing.T) {
 		`{"fleetNumber":"CROSS-1","configurationId":"`+otherConfigs[0].ID+`","unitKind":"HORSE"}`)
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 
-	// TYRE-81's WITH CHECK requirement, proven rather than assumed: the row
-	// lands in the actor's tenant and nowhere else, whatever the request said.
+	// The row carries the actor's tenant. This proves the handler binds it
+	// from the session — it does NOT prove the policy would refuse one that
+	// did not, because the handler never sends a tenant to be refused. That
+	// is Step 14's job, and this assertion must not be described as doing it.
 	var landedTenant string
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT tenant_id FROM app.vehicle WHERE id = $1`, created.ID).Scan(&landedTenant))
@@ -596,11 +639,11 @@ func (r refusalBody) message() string { return r.Message }
 
 Delete the `message()` helper and call `ref.Message` directly if you prefer — it exists only so the table above reads in one line.
 
-- [ ] **Step 7: Run it to verify it fails**
+- [ ] **Step 8: Run it to verify it fails**
 
 Expected: FAIL — no route, so every case gets 404.
 
-- [ ] **Step 8: Add the shared decode and validation helpers to `admin.go`**
+- [ ] **Step 9: Add the shared decode and validation helpers to `admin.go`**
 
 ```go
 // maxCreateBytes caps an admin create body. It is a transport limit, not a
@@ -667,7 +710,7 @@ func text(field string, in *string) (*string, error) {
 }
 ```
 
-- [ ] **Step 9: Add the request type, its validation and the handler**
+- [ ] **Step 10: Add the request type, its validation and the handler**
 
 ```go
 type createVehicleRequest struct {
@@ -796,11 +839,11 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 }
 ```
 
-- [ ] **Step 10: Teach `withActor` about a validation error raised inside the transaction**
+- [ ] **Step 11: Teach `withActor` about a validation error raised inside the transaction**
 
 Not needed — `refuseInvalid` answers before `withActor` is reached. Confirm by reading `withActor`'s switch: it has no `errInvalidRequest` case and must not gain one, or the same refusal would have two shapes.
 
-- [ ] **Step 11: Register the route**
+- [ ] **Step 12: Register the route**
 
 ```go
 		r.Post("/vehicles", createVehicle(s))
@@ -808,7 +851,7 @@ Not needed — `refuseInvalid` answers before `withActor` is reached. Confirm by
 
 Place it directly after `r.Get("/vehicles", listVehicles(s))`, so the two halves of the same resource read together.
 
-- [ ] **Step 12: Run the suite to verify it passes**
+- [ ] **Step 13: Run the suite to verify it passes**
 
 ```bash
 make check
@@ -819,11 +862,64 @@ Expected: PASS. If `TestCreateVehicle`'s conflict case reports `conflict` rather
 docker compose exec db psql -U postgres -c "\d app.vehicle"
 ```
 
-- [ ] **Step 13: Commit**
+- [ ] **Step 14: Prove the `WITH CHECK` half, with a test that can fail**
+
+TYRE-81 asks for this by name: "a write aimed at another tenant fails on `WITH CHECK`, with a test for each." No handler can produce that write — every one of them binds `tenant_id` from the session — so a test driven through the API cannot reach the policy at all. The test has to name the other tenant itself, which puts it in `api/internal/store/store_test.go`, beside the isolation tests that already live there. (`db/tests/` is out of bounds for this batch, and the property is about the app role's write path rather than the suite's.)
+
+Read the file's existing helpers first and reuse them — `testURLs`, and whatever it already uses to plant a tenant — rather than adding a second harness.
+
+```go
+// The WITH CHECK half of tenant_isolation, which the USING half's tests
+// cannot reach: USING hides another tenant's rows, and WITH CHECK is what
+// refuses a row aimed AT one. No handler can produce this insert — they all
+// bind tenant_id from the session — so the test writes it directly, which is
+// the only way this assertion can fail if the policy is dropped.
+func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, configA := plantTenantWithConfiguration(t, ctx, admin, "withcheck-a")
+	tenantB, _ := plantTenantWithConfiguration(t, ctx, admin, "withcheck-b")
+
+	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
+	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+			 VALUES ($1, 'SMUGGLED', $2, 'HORSE')`,
+			tenantB, configA)
+		return err
+	})
+	require.Error(t, err, "a row aimed at another tenant was accepted")
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	// 42501 is insufficient_privilege, which is how a row-level security
+	// policy refuses a write it will not admit.
+	require.Equal(t, "42501", pgErr.Code)
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.vehicle WHERE fleet_number = 'SMUGGLED'`).Scan(&landed))
+	require.Zero(t, landed)
+}
+```
+
+`plantTenantWithConfiguration` is whatever `store_test.go` already offers for a tenant plus an `axle_configuration`; if it has none, write the smallest one, modelled on `httpapi_test.go`'s `plantTenantWithVehicle`. Do **not** import the `httpapi` package's test helpers — they are in a different package and not exported.
+
+**Prove the test can fail before trusting it** (`docs/lessons.md`, 2026-08-20). Against a scratch database only, never one you will keep:
+
+```bash
+docker compose exec db psql -U postgres -d tyre -c \
+  "ALTER TABLE app.vehicle DROP CONSTRAINT IF EXISTS x; DROP POLICY tenant_isolation ON app.vehicle;"
+```
+
+Re-run the test: it must fail. Then `make db-reset` to put the policy back, and re-run: it must pass. A test for a security property that has never been observed failing is the thing this project's own register warns about.
+
+- [ ] **Step 15: Commit**
 
 ```bash
 git add api/internal/httpapi/admin.go api/internal/httpapi/admin_test.go \
-        api/internal/httpapi/httpapi.go api/internal/httpapi/refusal_internal_test.go
+        api/internal/httpapi/httpapi.go api/internal/httpapi/refusal_internal_test.go \
+        api/internal/store/store_test.go
 git commit -m "feat(api): TYRE-81 create a unit against the tenant's configuration library"
 ```
 
@@ -841,6 +937,8 @@ git commit -m "feat(api): TYRE-81 create a unit against the tenant's configurati
 - Produces: `createUser(s *store.Store) http.HandlerFunc`; `userJSON` with fields `{id, email, displayName, role, staffNumber, active}`, which Task 6 types and Task 8 renders; `tenantRoles`, the one place TYRE-83 narrows.
 
 - [ ] **Step 1: Write the failing test**
+
+Add `"github.com/google/uuid"` to `admin_test.go`'s imports first — this is the first test in the file to call `uuid.NewString()`, and Task 2's import list does not carry it.
 
 Add to `api/internal/httpapi/admin_test.go`:
 
@@ -912,7 +1010,9 @@ func TestCreateUser(t *testing.T) {
 		})
 	}
 
-	// The row landed in the actor's tenant, whatever the request said.
+	// The row carries the actor's tenant, which proves the handler binds it
+	// from the session. The policy's refusal of a row aimed elsewhere is a
+	// different property and is proven in store_test.go (Task 3, Step 14).
 	var landedTenant string
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT tenant_id FROM app.app_user WHERE id = $1`, created.ID).Scan(&landedTenant))
@@ -1277,14 +1377,99 @@ git commit -m "feat(api): TYRE-81 open a driver-to-unit assignment"
 ### Task 6: the client's admin API module
 
 **Files:**
+- Modify: `web/src/api/client.ts`
+- Modify: `web/src/api/client.test.ts`
 - Create: `web/src/api/admin.ts`
 - Create: `web/src/api/admin.test.ts`
 
 **Interfaces:**
-- Consumes: `apiGet`, `apiPost`, `ApiError` from `web/src/api/client.ts`. `ApiError.code` carries the ADR-0012 envelope's code and is what every screen branches on.
-- Produces: `AxleConfiguration`, `CreatedUnit`, `CreatedUser`, `Assignment` types; `fetchAxleConfigurations()`, `createUnit(body)`, `createUser(body)`, `assignDriver(vehicleId, body)`.
+- Consumes: `apiGet`, `apiPost`, `ApiError` from `web/src/api/client.ts`.
+- Produces: an `ApiError` whose `message` is the envelope's when the refusal carried one; `AxleConfiguration`, `CreatedUnit`, `CreatedUser`, `Assignment` types; `fetchAxleConfigurations()`, `createUnit(body)`, `createUser(body)`, `assignDriver(vehicleId, body)`.
 
-- [ ] **Step 1: Write the failing test**
+**Steps 1–4 come before the admin module and are not optional.** B3 gave `ApiError` the envelope's `code` and left its `message` as the synthetic `POST /api/vehicles failed: 409` that `apiPost` builds — the envelope's message is read for its code and then discarded. ADR-0013 decision 4 and both screens in Tasks 7 and 8 render that message. Without this, Task 7's second and third tests and Task 8's second test fail at their own verification steps, on assertions that look like screen bugs and are not.
+
+- [ ] **Step 1: Write the failing test for the client library**
+
+Add to `web/src/api/client.test.ts`, matching its existing helpers rather than adding new ones:
+
+```ts
+it("carries the envelope's own message, which is the server's to write", async () => {
+  vi.mocked(fetch).mockResolvedValue(
+    new Response(JSON.stringify({ code: "fleet_number_taken", message: "a unit with that fleet number already exists" }), {
+      status: 409,
+      headers: { "Content-Type": "application/json" },
+    }),
+  );
+  const error = await apiPost("/api/vehicles", {}).catch((e: unknown) => e);
+  expect(error).toBeInstanceOf(ApiError);
+  expect((error as ApiError).message).toBe("a unit with that fleet number already exists");
+  expect((error as ApiError).code).toBe("fleet_number_taken");
+});
+
+it("falls back to a diagnostic message when the refusal carried no envelope", async () => {
+  vi.mocked(fetch).mockResolvedValue(new Response("<html>502</html>", { status: 502 }));
+  const error = await apiPost("/api/vehicles", {}).catch((e: unknown) => e);
+  expect((error as ApiError).code).toBeNull();
+  expect((error as ApiError).message).toContain("502");
+});
+```
+
+- [ ] **Step 2: Run it to verify it fails**
+
+```bash
+cd web && npx vitest run src/api/client.test.ts
+```
+Expected: FAIL on the first test — the message is `POST /api/vehicles failed: 409`.
+
+- [ ] **Step 3: Read the envelope once, for both fields**
+
+In `web/src/api/client.ts`, replace `refusalCode` with a function that returns both, and update both call sites. The body can only be read once, so code and message must come from the same parse — a second `res.json()` throws.
+
+```ts
+// The refusal envelope, or nothing (ADR-0012). A proxy, a gateway or a
+// browser-generated failure carries none, so an unreadable body yields nulls
+// rather than a throw: an error path that fails while reporting a failure
+// loses the inspection the outbox is holding.
+//
+// Both fields come from one parse because a Response body can only be read
+// once.
+async function refusal(res: Response): Promise<{ code: string | null; message: string | null }> {
+  const none = { code: null, message: null };
+  try {
+    const body: unknown = await res.json();
+    if (typeof body !== "object" || body === null) return none;
+    return {
+      code: "code" in body && typeof body.code === "string" ? body.code : null,
+      message: "message" in body && typeof body.message === "string" ? body.message : null,
+    };
+  } catch {
+    return none;
+  }
+}
+```
+
+Then each call site becomes, with the verb and path changing:
+
+```ts
+  if (!res.ok) {
+    const { code, message } = await refusal(res);
+    // The envelope's message is the server's own words and is safe to show
+    // where it is Go-authored or TY-class (ADR-0013). The fallback is a
+    // diagnostic for the case where there is no envelope at all.
+    throw new ApiError(res.status, message ?? `POST ${path} failed: ${res.status}`, code);
+  }
+```
+
+Update `ApiError`'s doc comment so it states what `message` now is, in the terms ADR-0013 uses — not by describing the change.
+
+- [ ] **Step 4: Run the whole web suite, not just this file**
+
+```bash
+cd web && npx vitest run
+```
+Expected: PASS. `CaptureDone` keys its driver-facing sentences on `code` and never renders `message` (`outbox.ts`: "Diagnostics only, never rendered"), so the capture path is unaffected — but run everything, because this changes a value every failing request produces.
+
+- [ ] **Step 5: Write the failing test for the admin module**
 
 ```ts
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
@@ -1366,14 +1551,14 @@ describe("the admin API module", () => {
 });
 ```
 
-- [ ] **Step 2: Run it to verify it fails**
+- [ ] **Step 6: Run it to verify it fails**
 
 ```bash
 cd web && npx vitest run src/api/admin.test.ts
 ```
 Expected: FAIL — `./admin` does not resolve.
 
-- [ ] **Step 3: Write `web/src/api/admin.ts`**
+- [ ] **Step 7: Write `web/src/api/admin.ts`**
 
 ```ts
 import { apiGet, apiPost } from "./client";
@@ -1461,18 +1646,18 @@ export function assignDriver(vehicleId: string, body: NewAssignment): Promise<As
 }
 ```
 
-- [ ] **Step 4: Run the test to verify it passes**
+- [ ] **Step 8: Run the test to verify it passes**
 
 ```bash
 cd web && npx vitest run src/api/admin.test.ts
 ```
 Expected: PASS, 5 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
-git add web/src/api/admin.ts web/src/api/admin.test.ts
-git commit -m "feat(web): TYRE-81 type the admin write surface"
+git add web/src/api/client.ts web/src/api/client.test.ts \n        web/src/api/admin.ts web/src/api/admin.test.ts
+git commit -m "feat(web): TYRE-81 carry the refusal envelope's message and type the admin surface"
 ```
 
 ---
@@ -1948,9 +2133,12 @@ function refusalMessage(error: unknown): string {
   return "The user could not be added. Try again, or call support if it keeps happening.";
 }
 
-// Today, in the tenant's own terms. An assignment's from_date is a date and
-// not a timestamp, so this is the local calendar day and never a UTC instant
-// (rule 6).
+// An assignment's from_date is a date, not a timestamp, so this is the
+// browser's local calendar day — which is the person's own day, and is not
+// the same thing as the tenant's configured timezone. They differ only for an
+// admin working from another country, and a from_date one day out is
+// correctable; taking a UTC instant instead would be wrong every evening in
+// South Africa.
 function today(): string {
   const now = new Date();
   const month = `${now.getMonth() + 1}`.padStart(2, "0");
@@ -2175,16 +2363,21 @@ Expected: PASS.
 
 - [ ] **Step 5: Write the failing route test**
 
-Add to `web/src/routes.test.tsx`, following the file's existing render helper and actor stubbing — read it first and match it rather than inventing a second harness:
+Add to `web/src/routes.test.tsx`. The file already provides everything needed: `renderAt(path, me)` takes a full `Me`, `actor(capabilities)` builds one, and `mockFetchJson(status, body)` stubs the fetch. Passing a bare `{ capabilities: [...] }` object does not typecheck under `strict: true` and fails `make lint` at `tsc`, so use the factory.
 
 ```tsx
-it("tells an actor without the capability, rather than blanking the screen", async () => {
-  renderAt("/admin/units/new", { capabilities: ["CaptureInspection"] });
-  expect(await screen.findByRole("alert")).toHaveTextContent(/permission/i);
+it("tells an actor without the capability, rather than blanking the screen", () => {
+  mockFetchJson(200, []);
+  renderAt("/admin/units/new", actor(["CaptureInspection"]));
+  expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
 });
 
 it("renders the add-a-unit screen for an actor holding ManageAssets", async () => {
-  renderAt("/admin/units/new", { capabilities: ["ManageAssets"] });
+  // The screen fetches the configuration library on mount; an unstubbed
+  // relative-URL fetch throws in node, so stub it even though the heading
+  // renders outside the query's branches.
+  mockFetchJson(200, []);
+  renderAt("/admin/units/new", actor(["ManageAssets"]));
   expect(await screen.findByRole("heading", { name: /add a unit/i })).toBeInTheDocument();
 });
 ```
@@ -2273,8 +2466,6 @@ import { type Page } from "@playwright/test";
 const ORG_ADMIN = "96b10943-acb4-c3d7-e8cd-3e1fb52e067e";
 const TENANT = "33333333-3333-3333-3333-333333333333";
 
-export const ADMIN_HEADERS = { "X-Tenant-ID": TENANT, "X-User-ID": ORG_ADMIN };
-
 export async function actAsOrgAdmin(page: Page): Promise<void> {
   await page.addInitScript(
     ([user, tenant]) => {
@@ -2341,7 +2532,18 @@ The driver-reaches-capture half is asserted by `TestAssignDriverToVehicle` in Go
 
 - [ ] **Step 3: Register the spec's project**
 
-`web/playwright.config.ts` runs `capture.spec` on the `android` project alone because of FR-INS-038's window. This spec has no such constraint but does write rows, so run it on **one** project only: add `/admin\.spec/` to the `testIgnore` of the `android` and `ios` projects, leaving it on `chromium`. State that reason in a comment beside the existing one.
+`web/playwright.config.ts` runs `capture.spec` on the `android` project alone because of FR-INS-038's window. This spec has no such constraint but does write rows, so it runs on **one** project only — `chromium` — which means excluding it from the other two. The `chromium` project already carries a `testIgnore`, so this is an alternation there and a new key on `android`:
+
+```ts
+    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /capture\.spec/ },
+    // admin.spec.ts creates a unit and a user per run. Rows, not just reads —
+    // so it runs on one project, like capture.spec.ts and for a related
+    // reason: a second project repeats the writes rather than the assertions.
+    { name: "android", use: { ...devices["Pixel 7"] }, testIgnore: /admin\.spec/ },
+    { name: "ios", use: { ...devices["iPhone 14"] }, testIgnore: /capture\.spec|admin\.spec/ },
+```
+
+Keep each project's existing comment; the block above shows only the lines that change.
 
 - [ ] **Step 4: Run the e2e gate**
 
@@ -2382,12 +2584,17 @@ The PR body follows PR #31's shape: a summary per ticket, the gates actually run
 
 Checked against the spec on 2026-08-28.
 
-**Spec coverage.** Decision 1 → Tasks 3–5 (parameterised inserts, no SQL function, no migration). Decision 2 → Task 3 Steps 1–5. Decision 3 → Task 3 Step 8 and Task 4 Step 3. Decision 4 → Task 4 Step 3's `tenantRoles`. Decision 5 → no delete endpoint appears anywhere; asserted by absence and stated in Task 1 Step 3. Decision 6 → Task 3 Step 9's `unitKinds` and Task 1 Step 5. Decision 7 → Task 2. Decision 8 → the 201 in Tasks 3, 4 and 5. Decision 9 → no idempotency key appears. The D9/D10 constraints → Task 1 Step 4. ADR-0012's premises → Task 3 Step 4 and Task 1 Step 6. The assignment assumption → Task 5's banner and Task 10 Step 5.
+**Spec coverage.** Decision 1 → Tasks 3–5 (parameterised inserts, no SQL function, no migration). Decision 2 → Task 3 Steps 1–6. Decision 3, the shape half → Task 3 Step 9 and Task 4 Step 3; the renderable-message half → Task 6 Steps 1–4, then the screens in Tasks 7 and 8. Decision 4 → Task 4 Step 3's `tenantRoles`. Decision 5 → no delete endpoint appears anywhere; asserted by absence and stated in Task 1 Step 3. Decision 6 → Task 3 Step 10's `unitKinds` and Task 1 Step 5. Decision 7 → Task 2. Decision 8 → the 201 in Tasks 3, 4 and 5. Decision 9 → no idempotency key appears. The D9/D10 constraints → Task 1 Step 4. ADR-0012's premises → Task 3 Steps 4–5 and Task 1 Step 6. The `WITH CHECK` requirement → Task 3 Step 14. The assignment assumption → Task 5's banner and Task 10 Step 5.
 
 **Type consistency.** `vehicleJSON` is the server's existing type and Task 3 reuses it rather than defining a second; the client's mirror is `CreatedUnit`, and the two agree field for field. `userJSON` (Task 4) and `CreatedUser` (Task 6) agree. `assignmentJSON` (Task 5) and `Assignment` (Task 6) agree. `axleConfigurationJSON` (Task 2) and `AxleConfiguration` (Task 6) agree. `conflictCodes` values are the `code*` constants added in Task 3 Step 3 and the literals asserted in Task 3 Step 1 — literals in the test on purpose, since a test comparing a constant to itself proves nothing about the wire.
 
-**Known soft spots, stated rather than hidden.** Three, each with the step that resolves it:
+**Review pass, 2026-08-28.** A reviewer with no context read this plan against the real files and found two defects that would have stopped an executor mid-task. Both are fixed above, and both are recorded here because the shape of each is worth recognising again:
 
-1. **Constraint names are asserted, not verified against a live catalog.** `vehicle_tenant_id_fleet_number_key` and `app_user_tenant_id_email_key` are Postgres's default names for the inline `UNIQUE` clauses in `000001`, and `vehicle_driver_no_overlap` is named explicitly in `000026`. Task 3 Step 12 carries the `\d app.vehicle` check and the instruction to fix the map rather than the assertion.
-2. **`plantTenant` returns `(uuid.UUID, string)` and `plantCaptureFixture` returns three values.** The test code above uses both; check the signatures in `httpapi_test.go` before pasting, and adjust the call, not the helper.
-3. **`routes.test.tsx`'s render helper is referred to as `renderAt` without being shown.** Read that file and use whatever it actually provides — the requirement is the two assertions, not the helper's name.
+1. **The plan built on a client capability that did not exist.** ADR-0013 decision 4 makes a Go-authored refusal message renderable, and both screens render it — but `client.ts` reads the envelope for its `code` and discards the message, so `ApiError.message` is the synthetic `POST /api/vehicles failed: 409`. Tasks 7 and 8 would have failed at their own verification steps on assertions that look like screen bugs. Task 6 now carries the client change first, and `client.ts` is in the file structure where it belongs. **The general form: a decision recorded in an ADR is not a capability the code has.**
+2. **The `WITH CHECK` test could not fail.** Asserting that a created row carries the actor's tenant tests the handler's own `app.current_tenant_id()` back at itself — drop the policy entirely and it stays green. TYRE-81 asks for this property by name. Task 3 Step 14 now writes the insert that names another tenant directly, from `store_test.go`, and requires the executor to observe it failing with the policy dropped before trusting it (`docs/lessons.md`, 2026-08-20).
+
+Smaller corrections from the same pass, all applied: the `23503` comment's second sentence — which prescribed the very approach ADR-0013 rejects — is replaced along with the first; `errorBody`'s doc comment gets its own step, since ADR-0013 makes it false; `routes.test.tsx`'s `renderAt` takes a full `Me` and the pasted object literal would not typecheck; the message-constants snippet carried a stray closing paren; `admin_test.go` needed the `uuid` import a task before it was used; three Files blocks disagreed with their own steps.
+
+**Verified against the real files rather than asserted:** every test-helper signature the plan calls (`plantUser`, `plantTenant`, `plantTenantWithVehicle`, `plantCaptureFixture`, `get`, `post`); the three constraint names, against the DDL in `000001` and `000026`; `created_by`'s `app.current_actor_id()` default in `000017`; the `unit_kind` enum values in `000010` and the column's nullability in `000011`; the sandbox org-admin and tenant ids against the seed generator; that no existing web test asserts the synthetic error message the client change replaces.
+
+**One soft spot remains, with the step that resolves it.** Constraint names are read from the migrations, not from a live catalog. Task 3 Step 13 carries the `\d app.vehicle` check and the instruction to fix the map rather than weaken the assertion.
