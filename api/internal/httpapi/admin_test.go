@@ -286,11 +286,9 @@ func TestCreateUser(t *testing.T) {
 	require.Equal(t, tenantID.String(), landedTenant)
 }
 
-// The WITH CHECK half of tenant_isolation, which no test driven through a
-// handler can reach: every handler binds tenant_id from the session, so none
-// of them can produce the row this refuses. USING hides another tenant's
-// rows; WITH CHECK refuses a row aimed AT one, and only an insert that names
-// the other tenant exercises it.
+// The WITH CHECK half of tenant_isolation — see
+// TestWriteAimedAtAnotherTenantIsRefused for what this proves and why no
+// handler-driven test can reach it any other way.
 //
 // app.app_user.created_by is a self-referencing column with its own composite
 // FK (tenant_id, created_by) REFERENCES app.app_user (tenant_id, id) — if

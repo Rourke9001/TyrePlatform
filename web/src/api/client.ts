@@ -51,9 +51,6 @@ export async function apiGet<T>(path: string): Promise<T> {
   const res = await fetch(path, { headers });
   if (!res.ok) {
     const { code, message } = await refusal(res);
-    // The envelope's message is the server's own words and is safe to show
-    // where it is Go-authored or TY-class (ADR-0013). The fallback is a
-    // diagnostic for the case where there is no envelope at all.
     throw new ApiError(res.status, message ?? `GET ${path} failed: ${res.status}`, code);
   }
   return res.json() as Promise<T>;
@@ -69,9 +66,6 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
   if (!res.ok) {
     const { code, message } = await refusal(res);
-    // The envelope's message is the server's own words and is safe to show
-    // where it is Go-authored or TY-class (ADR-0013). The fallback is a
-    // diagnostic for the case where there is no envelope at all.
     throw new ApiError(res.status, message ?? `POST ${path} failed: ${res.status}`, code);
   }
   return res.json() as Promise<T>;
