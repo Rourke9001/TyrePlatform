@@ -19,6 +19,7 @@ function entry(clientUuid: string, state: OutboxState): OutboxEntry {
     attempts: 0,
     nextAttemptAt: Date.now() + 3_600_000,
     lastStatus: null,
+    lastCode: null,
     lastError: null,
   };
 }
