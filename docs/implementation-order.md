@@ -70,10 +70,12 @@ misses. Both came out of B1's delivery and neither is scheduled:
 | TYRE-77 | ~~`statusForPgError` forwards `pgErr.Message` verbatim~~ — **closed by B3** |
 | TYRE-78 | ~~`TY003` and `23505` both map to 409 in `submitStatus`, and the client cannot tell them apart~~ — **closed by B3** |
 
-Also open and unbuilt: TYRE-36, TYRE-38, TYRE-41, TYRE-48, TYRE-51, TYRE-53,
-TYRE-58 to TYRE-64, TYRE-72, TYRE-73, TYRE-75, TYRE-76, TYRE-79, TYRE-81,
-TYRE-83, TYRE-87, TYRE-88. TYRE-86 — this page itself — closed on 28 Aug once
-its own method had been re-run against it.
+Also open and unbuilt, against `develop` rather than any branch in flight — a
+key delivered on a branch that has not yet merged stays listed here until it
+lands: TYRE-36, TYRE-38, TYRE-41, TYRE-48, TYRE-51, TYRE-53, TYRE-58 to
+TYRE-64, TYRE-72, TYRE-73, TYRE-75, TYRE-76, TYRE-79, TYRE-83, TYRE-87,
+TYRE-88, TYRE-89. TYRE-86 — this page itself — closed on 28 Aug once its own
+method had been re-run against it.
 
 ## The batches
 
@@ -214,9 +216,9 @@ Delivered as ADR-0013 plus nine feature commits and the browser proof:
 | `9e6f439` | the add-a-unit screen, gated on `ManageAssets` | `AddUnit.test.tsx` |
 | `dde0d0e` | the add-a-driver screen with its assignment step, gated on `ManageUsers` | `AddDriver.test.tsx` |
 | `096e6d9` | both screens routed and placed in navigation behind their capabilities | `routes.test.tsx`; `navigation.test.ts` |
-| the closing commit | `web/e2e/admin.ts`, `web/e2e/admin.spec.ts` — an org admin builds a unit and a user from nothing, assigns them, on `chromium` alone | `make e2e`, 21 passed (up from 20) |
+| `4a5a221` | `web/e2e/admin.ts`, `web/e2e/admin.spec.ts` — an org admin builds a unit and a user from nothing and assigns them, on `chromium` alone | `make e2e`, 21 passed (up from 20) |
 
-Three things this batch found, carried forward because they change what the
+Four things this batch found, carried forward because they change what the
 next batch should expect rather than because they are history:
 
 - **The assignment endpoint was an assumption, and it is not yet confirmed by
@@ -226,8 +228,8 @@ next batch should expect rather than because they are history:
   capture" — cannot be met through the product without it. It shipped on that
   assumption rather than waiting on an answer, and the assumption is recorded
   in ADR-0013 and stated plainly in the PR body rather than left to be
-  inferred. If the ticket owner rules it out after the fact, Task 5 and the
-  assign panel in Task 8 are what to remove.
+  inferred. If the ticket owner rules it out after the fact,
+  Task 5 and the assign panel in Task 8 are what to remove.
 - **`unit_kind` is required by the API and not the schema, owned by TYRE-88.**
   The column stays nullable: 12 of the 18 `INSERT INTO app.vehicle` statements
   in `db/tests/004_tests.sql` omit it, so a `NOT NULL` constraint would churn
@@ -242,6 +244,13 @@ next batch should expect rather than because they are history:
   yet and an entry in `submitStatus` could carry no test able to fail. The
   deferral stays re-pointed at whichever batch builds one of those two
   surfaces.
+- **Rule 6's display half has no infrastructure, owned by TYRE-89.** Storage
+  is UTC throughout and `app.tenant_today(timezone)` exists, but no endpoint
+  sends the tenant's timezone to the client and no screen formats in it —
+  `DriverHome` renders a due date in the browser's zone, and this batch's
+  `AddDriver` picks an assignment's `from_date` as the browser's calendar day.
+  TYRE-89 puts the timezone on `/api/me`, adds the one formatting path a
+  screen may use, and defaults `from_date` server-side to the tenant's day.
 
 No schema change: every rule governing a user or unit row was already a
 constraint (B1 and B3's antecedent work), so all three write endpoints are

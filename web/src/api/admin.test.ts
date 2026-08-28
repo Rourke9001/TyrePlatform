@@ -49,6 +49,7 @@ describe("the admin API module", () => {
     }).catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).code).toBe("invalid_submission");
+    expect((error as ApiError).message).toBe("fleetNumber is required");
   });
 
   it("posts an assignment under the unit it belongs to", async () => {

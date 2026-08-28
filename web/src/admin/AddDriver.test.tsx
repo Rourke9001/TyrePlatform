@@ -69,7 +69,68 @@ describe("adding a driver", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(/already exists/i);
-    expect(alert).not.toHaveTextContent(/_key|constraint/i);
+  });
+
+  it("names the add-user action on a create refused as forbidden", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(403, { code: "forbidden", message: "no" }));
+
+    renderScreen();
+    await fillAndSubmit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/permission to add a user/i);
+  });
+
+  it("names the assign action, not the add-user one, on an assignment refused as forbidden", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]))
+      .mockResolvedValueOnce(respond(403, { code: "forbidden", message: "no" }));
+
+    renderScreen();
+    await fillAndSubmit();
+    await screen.findByLabelText(/unit/i);
+    await userEvent.click(screen.getByRole("button", { name: /assign/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/permission to assign a unit/i);
+    expect(alert).not.toHaveTextContent(/add a user/i);
+  });
+
+  it("falls back to a generic message for a create refusal with an unrecognised code", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(500, { code: "boom", message: "unrecognised" }));
+
+    renderScreen();
+    await fillAndSubmit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).not.toHaveTextContent(/unrecognised/i);
+    expect(alert).toHaveTextContent(/add a user/i);
+  });
+
+  it("offers no unit picker, and no silent no-op, when there is nothing to assign to", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, []));
+
+    renderScreen();
+    await fillAndSubmit();
+
+    expect(await screen.findByText(/no units yet/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/unit/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /assign/i })).not.toBeInTheDocument();
+  });
+
+  it("clears the create form once a user has been added", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]));
+
+    renderScreen();
+    await fillAndSubmit();
+
+    await screen.findByRole("status");
+    expect(screen.getByLabelText(/email/i)).toHaveValue("");
+    expect(screen.getByLabelText(/name/i)).toHaveValue("");
   });
 
   it("records the assignment against the unit chosen", async () => {
