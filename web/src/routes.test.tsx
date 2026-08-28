@@ -164,4 +164,19 @@ describe("AppRoutes", () => {
     release(new Response(JSON.stringify(controller), { status: 200 }));
     expect(await screen.findByRole("heading", { name: /vehicles/i })).toBeDefined();
   });
+
+  it("tells an actor without the capability, rather than blanking the screen", () => {
+    mockFetchJson(200, []);
+    renderAt("/admin/units/new", actor(["CaptureInspection"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
+  });
+
+  it("renders the add-a-unit screen for an actor holding ManageAssets", async () => {
+    // The screen fetches the configuration library on mount; an unstubbed
+    // relative-URL fetch throws in node, so stub it even though the heading
+    // renders outside the query's branches.
+    mockFetchJson(200, []);
+    renderAt("/admin/units/new", actor(["ManageAssets"]));
+    expect(await screen.findByRole("heading", { name: /add a unit/i })).toBeInTheDocument();
+  });
 });
