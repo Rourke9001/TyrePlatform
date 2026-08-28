@@ -25,8 +25,7 @@ async function refusalCode(res: Response): Promise<string | null> {
   try {
     const body: unknown = await res.json();
     if (typeof body === "object" && body !== null && "code" in body) {
-      const { code } = body as { code: unknown };
-      return typeof code === "string" ? code : null;
+      return typeof body.code === "string" ? body.code : null;
     }
   } catch {
     return null;
