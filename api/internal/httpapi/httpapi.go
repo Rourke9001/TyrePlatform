@@ -95,6 +95,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Use(requireActor(resolver))
 		r.Get("/me", me(s))
 		r.Get("/vehicles", listVehicles(s))
+		r.Post("/vehicles", createVehicle(s))
 		r.Get("/my/vehicles", listMyVehicles(s))
 		r.Get("/my/tasks", listMyTasks(s))
 		r.Get("/capture/vehicles/{vehicleID}", captureContext(s))
@@ -168,9 +169,13 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 // identical payload fails identically on every retry. Left unmapped they are
 // 500s, and a 500 is the one answer ADR-0009's outbox cannot survive.
 //
-// A blanket 23503 is safe here only because app.submit_inspection is the
-// single write path. If that stops being true, raise a named TYxxx in SQL
-// rather than widening this.
+// A blanket 23503 is safe across every write path because the message is
+// canned (ADR-0012): a foreign-key violation means the request named
+// something that does not exist, and 422 with no schema object in it is the
+// honest answer wherever it is raised. A refusal a client must branch on
+// earns a code of its own instead — raised as a TY in SQL where a rule is
+// being evaluated, or translated from the constraint that detects it where
+// the schema already states the rule (ADR-0013).
 
 // The refusal vocabulary (ADR-0012). A code names the reason, never the layer
 // that found it, which is why codeVehicleNotVisible is TY007's own: the Go
@@ -189,6 +194,10 @@ const (
 	codeMethodNotAllowed  = "method_not_allowed"
 	codeRateLimited       = "rate_limited"
 	codeInternal          = "internal"
+
+	codeFleetNumberTaken   = "fleet_number_taken"
+	codeEmailTaken         = "email_taken"
+	codeAssignmentOverlaps = "assignment_overlaps"
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
@@ -203,6 +212,10 @@ const (
 	msgForbidden         = "this action is not permitted for this role"
 	msgVehicleNotVisible = "vehicle not visible"
 	msgInternal          = "internal error"
+
+	msgFleetNumberTaken   = "a unit with that fleet number already exists"
+	msgEmailTaken         = "a user with that email address already exists in this tenant"
+	msgAssignmentOverlaps = "that driver already holds an overlapping assignment to this unit"
 )
 
 var submitStatus = map[string]int{
@@ -230,6 +243,11 @@ var submitStatus = map[string]int{
 	// is a conflict rather than a fault — and, like the classes above, must
 	// not become a 500 the outbox retries to no end.
 	"23505": http.StatusConflict,
+
+	// 23P01 is vehicle_driver_no_overlap (000026). Unmapped it would answer
+	// 500, which for a form is a spinner that never resolves and for the
+	// capture outbox is a retry that never stops (ADR-0009).
+	"23P01": http.StatusConflict,
 }
 
 // refusal is what the wire carries for a client mistake (ADR-0012).
@@ -237,6 +255,27 @@ type refusal struct {
 	status  int
 	code    string
 	message string
+}
+
+// The conflicts a client acts on differently from any other conflict, keyed by
+// the constraint that detects them (ADR-0013). The rule is the constraint's —
+// DR-003 for a fleet number, D10 for an email, B1's exclusion for an
+// assignment — and this map only names the refusal for a caller. The name is
+// translated, never forwarded, so ADR-0012 holds; an unrecognised constraint
+// keeps the generic conflict, which is the safe direction.
+//
+// A constraint renamed in a migration without an edit here fails the
+// integration test that asserts the code, not one that asserts the name.
+var conflictCodes = map[string]string{
+	"vehicle_tenant_id_fleet_number_key": codeFleetNumberTaken,
+	"app_user_tenant_id_email_key":       codeEmailTaken,
+	"vehicle_driver_no_overlap":          codeAssignmentOverlaps,
+}
+
+var conflictMessages = map[string]string{
+	codeFleetNumberTaken:   msgFleetNumberTaken,
+	codeEmailTaken:         msgEmailTaken,
+	codeAssignmentOverlaps: msgAssignmentOverlaps,
 }
 
 // Forwarding is decided by the TY class rather than by a list of safe codes.
@@ -261,7 +300,10 @@ func refusalForPgError(err error) (refusal, bool) {
 	switch {
 	case strings.HasPrefix(pgErr.Code, "TY"):
 		return refusal{status: status, code: pgErr.Code, message: pgErr.Message}, true
-	case pgErr.Code == "23505":
+	case pgErr.Code == "23505" || pgErr.Code == "23P01":
+		if code, found := conflictCodes[pgErr.ConstraintName]; found {
+			return refusal{status: status, code: code, message: conflictMessages[code]}, true
+		}
 		return refusal{status: status, code: codeConflict, message: msgConflict}, true
 	default:
 		return refusal{status: status, code: codeInvalidSubmission, message: msgInvalidSubmission}, true
@@ -571,9 +613,12 @@ func writeJSON(ctx context.Context, w http.ResponseWriter, body any) {
 }
 
 // errorBody is the refusal envelope every endpoint answers with (ADR-0012).
-// Code is the machine-readable reason a client branches on; Message is
-// diagnostic-grade and is never the source of a driver's sentence — the
-// wording a driver reads is the client's, keyed on Code.
+// Code is the machine-readable reason a client branches on.
+// Message's audience depends on who wrote it (ADR-0013): a message written in
+// Go or raised as a TY in SQL is ours and may be rendered, and a message
+// Postgres wrote is canned before it ever reaches this struct. A driver's
+// sentence is still the client's, keyed on Code — that is FR-OFF-013's
+// recovery action and not a diagnostic.
 type errorBody struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
