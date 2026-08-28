@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
 	"tyreplatform/api/internal/auth"
@@ -54,4 +57,154 @@ func TestAxleConfigurationsAreCapabilityGatedAndTenantScoped(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &otherConfigs))
 	require.Len(t, otherConfigs, 1)
 	require.NotEqual(t, configs[0].ID, otherConfigs[0].ID)
+}
+
+type createdVehicleBody struct {
+	ID           string  `json:"id"`
+	FleetNumber  string  `json:"fleetNumber"`
+	Registration *string `json:"registration"`
+}
+
+type refusalBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func TestCreateVehicle(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "createveh")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var configID string
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	rec := get(t, h, "/api/axle-configurations", tenantID.String(), orgAdmin.String())
+	var configs []axleConfigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &configs))
+	require.NotEmpty(t, configs)
+	configID = configs[0].ID
+
+	body := func(fleet string) string {
+		return `{"fleetNumber":"` + fleet + `","registration":"CA123456",` +
+			`"configurationId":"` + configID + `","unitKind":"HORSE"}`
+	}
+
+	// D8: the gate is ManageAssets, and a DRIVER does not hold it.
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	rec = post(t, h, "/api/vehicles", tenantID.String(), driver.String(), body("REFUSED-1"))
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+
+	// The create itself, answering 201 with the list projection.
+	rec = post(t, h, "/api/vehicles", tenantID.String(), orgAdmin.String(), body("NEW-1"))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created createdVehicleBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	require.Equal(t, "NEW-1", created.FleetNumber)
+	require.NotEmpty(t, created.ID)
+
+	// DR-013: created_by is stamped from the bound actor, without the handler
+	// naming it — app.current_actor_id() is the column's default.
+	var createdBy string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT created_by FROM app.vehicle WHERE id = $1`, created.ID).Scan(&createdBy))
+	require.Equal(t, orgAdmin.String(), createdBy)
+
+	// FR-VEH-004 / DR-003, and the code a form branches on (ADR-0013).
+	rec = post(t, h, "/api/vehicles", tenantID.String(), orgAdmin.String(), body("NEW-1"))
+	require.Equal(t, http.StatusConflict, rec.Code)
+	var refusal refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &refusal))
+	require.Equal(t, "fleet_number_taken", refusal.Code)
+	require.NotContains(t, rec.Body.String(), "vehicle_tenant_id_fleet_number_key")
+
+	// Shape refusals, each 422 and each naming its field.
+	for _, tt := range []struct{ name, payload, field string }{
+		{"no fleet number", `{"fleetNumber":"  ","configurationId":"` + configID + `","unitKind":"HORSE"}`, "fleetNumber"},
+		{"no unit kind", `{"fleetNumber":"X1","configurationId":"` + configID + `"}`, "unitKind"},
+		{"unknown unit kind", `{"fleetNumber":"X2","configurationId":"` + configID + `","unitKind":"SPACESHIP"}`, "unitKind"},
+		{"unparseable configuration", `{"fleetNumber":"X3","configurationId":"not-a-uuid","unitKind":"HORSE"}`, "configurationId"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := post(t, h, "/api/vehicles", tenantID.String(), orgAdmin.String(), tt.payload)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Contains(t, ref.message(), tt.field)
+		})
+	}
+
+	// A configuration that exists in another tenant is not a reference this
+	// tenant can make: the composite FK (tenant_id, configuration_id) checks
+	// below RLS, so the refusal is a foreign-key violation and not a leak of
+	// whether that id exists (000004, TYRE-29 class).
+	otherID, _ := plantTenantWithVehicle(t, ctx, admin, "createveh-other")
+	otherAdmin := plantUser(t, ctx, admin, otherID, auth.RoleOrgAdmin)
+	rec = get(t, h, "/api/axle-configurations", otherID.String(), otherAdmin.String())
+	var otherConfigs []axleConfigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &otherConfigs))
+	rec = post(t, h, "/api/vehicles", tenantID.String(), orgAdmin.String(),
+		`{"fleetNumber":"CROSS-1","configurationId":"`+otherConfigs[0].ID+`","unitKind":"HORSE"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+
+	// The row carries the actor's tenant. This proves the handler binds it
+	// from the session — it does NOT prove the policy would refuse one that
+	// did not, because the handler never sends a tenant to be refused. That
+	// is Step 14's job, and this assertion must not be described as doing it.
+	var landedTenant string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT tenant_id FROM app.vehicle WHERE id = $1`, created.ID).Scan(&landedTenant))
+	require.Equal(t, tenantID.String(), landedTenant)
+}
+
+func (r refusalBody) message() string { return r.Message }
+
+// The WITH CHECK half of tenant_isolation, which no test driven through a
+// handler can reach: every handler binds tenant_id from the session, so none
+// of them can produce the row this refuses. USING hides another tenant's
+// rows; WITH CHECK refuses a row aimed AT one, and only an insert that names
+// the other tenant exercises it.
+func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, _ := plantTenantWithVehicle(t, ctx, admin, "withcheck-a")
+	tenantB, _ := plantTenantWithVehicle(t, ctx, admin, "withcheck-b")
+
+	// Tenant B's own configuration, so the row is valid in every way except
+	// the one under test. Borrowing tenant A's would fail the composite FK
+	// even with the policy gone, and a test that cannot distinguish the two
+	// refusals proves neither.
+	var configB uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.axle_configuration WHERE tenant_id = $1`, tenantB).Scan(&configB))
+
+	// created_by is stamped explicitly rather than left to its
+	// app.current_actor_id() default (000017, DR-013): the default would
+	// resolve to userA, and vehicle_created_by_fkey's own composite FK
+	// (tenant_id, created_by) would then refuse this row on a foreign-key
+	// violation whether or not tenant_isolation's WITH CHECK is even
+	// evaluated — which would prove nothing about the policy under test.
+	// userB is a real row in tenant B, so this is the one field that differs
+	// from a genuine tenant-B insert being the tenant_id smuggled in above.
+	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
+	userB := plantUser(t, ctx, admin, tenantB, auth.RoleOrgAdmin)
+	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind, created_by)
+			 VALUES ($1, 'SMUGGLED', $2, 'HORSE', $3)`,
+			tenantB, configB, userB)
+		return err
+	})
+	require.Error(t, err, "a row aimed at another tenant was accepted")
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	// 42501 is insufficient_privilege, which is how a row-level security
+	// policy refuses a write it will not admit.
+	require.Equal(t, "42501", pgErr.Code)
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.vehicle WHERE fleet_number = 'SMUGGLED'`).Scan(&landed))
+	require.Zero(t, landed)
 }
