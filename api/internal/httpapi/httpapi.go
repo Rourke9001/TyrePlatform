@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -81,6 +82,14 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 	}
 
 	r := chi.NewRouter()
+	// chi answers both of these itself, in text/plain, unless they are
+	// registered — the envelope's only escapees (ADR-0012).
+	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
+		writeError(r.Context(), w, http.StatusNotFound, codeNotFound, "no such endpoint")
+	})
+	r.MethodNotAllowed(func(w http.ResponseWriter, r *http.Request) {
+		writeError(r.Context(), w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "that method is not allowed on this endpoint")
+	})
 	r.Get("/healthz", healthz)
 	r.Route("/api", func(r chi.Router) {
 		r.Use(requireActor(resolver))
@@ -117,12 +126,12 @@ func requireActor(resolver ActorResolver) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if resolver == nil {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeError(r.Context(), w, http.StatusUnauthorized, codeUnauthorized, msgUnauthorized)
 				return
 			}
 			id, ok := resolver.Identify(r)
 			if !ok {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeError(r.Context(), w, http.StatusUnauthorized, codeUnauthorized, msgUnauthorized)
 				return
 			}
 			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), identityKey{}, id)))
@@ -161,6 +170,39 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 // A blanket 23503 is safe here only because app.submit_inspection is the
 // single write path. If that stops being true, raise a named TYxxx in SQL
 // rather than widening this.
+// The refusal vocabulary (ADR-0012). A code names the reason, never the layer
+// that found it, which is why codeVehicleNotVisible is TY007's own: the Go
+// scope check in submitInspection and app.submit_inspection's TY007 guard
+// answer the same condition, and ADR-0011 denies letting two roles learn
+// different things about the same vehicle.
+const (
+	codeUnauthorized      = "unauthorized"
+	codeForbidden         = "forbidden"
+	codeVehicleNotVisible = "TY007"
+	codeBadRequest        = "bad_request"
+	codeMalformedJSON     = "malformed_json"
+	codeInvalidSubmission = "invalid_submission"
+	codeConflict          = "conflict"
+	codeNotFound          = "not_found"
+	codeMethodNotAllowed  = "method_not_allowed"
+	codeRateLimited       = "rate_limited"
+	codeInternal          = "internal"
+)
+
+// Canned replacements for messages Postgres wrote. A driver's recovery action
+// is the same for all of them — the payload is wrong in a way the database
+// declined to name, and it fails identically on every retry — so one code
+// covers the class (ADR-0012). msgConflict is separate only because it is a
+// 409 and must be distinguishable from TY003's duplicate window (FR-INS-038).
+const (
+	msgInvalidSubmission = "the submission was refused as invalid"
+	msgConflict          = "the submission conflicts with data already recorded"
+	msgUnauthorized      = "the request does not identify a user"
+	msgForbidden         = "this action is not permitted for this role"
+	msgVehicleNotVisible = "vehicle not visible"
+	msgInternal          = "internal error"
+)
+
 var submitStatus = map[string]int{
 	"TY003": http.StatusConflict,
 	"TY004": http.StatusUnprocessableEntity,
@@ -188,15 +230,40 @@ var submitStatus = map[string]int{
 	"23505": http.StatusConflict,
 }
 
-func statusForPgError(err error) (int, string, bool) {
+// refusal is what the wire carries for a client mistake (ADR-0012).
+type refusal struct {
+	status  int
+	code    string
+	message string
+}
+
+// Forwarding is decided by the TY class rather than by a list of safe codes.
+// A message in that class is ours: app.submit_inspection writes it, it names
+// no table or constraint, and it interpolates values a Go constant could not
+// state — TY003's window is tenant configuration (rule 5, FR-INS-038). Every
+// other message is Postgres's and can name a constraint and a table
+// (reading_tyre_id_fkey), so it is canned. A SQLSTATE added to submitStatus
+// without a case below is canned by default, which is the safe direction.
+//
+// No standard Postgres SQLSTATE class begins with T, so the class is ours
+// alone and the prefix cannot collide.
+func refusalForPgError(err error) (refusal, bool) {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
-		return 0, "", false
+		return refusal{}, false
 	}
-	if code, found := submitStatus[pgErr.Code]; found {
-		return code, pgErr.Message, true
+	status, found := submitStatus[pgErr.Code]
+	if !found {
+		return refusal{}, false
 	}
-	return 0, "", false
+	switch {
+	case strings.HasPrefix(pgErr.Code, "TY"):
+		return refusal{status: status, code: pgErr.Code, message: pgErr.Message}, true
+	case pgErr.Code == "23505":
+		return refusal{status: status, code: codeConflict, message: msgConflict}, true
+	default:
+		return refusal{status: status, code: codeInvalidSubmission, message: msgInvalidSubmission}, true
+	}
 }
 
 // withActor is the one place a handler turns an identity into an actor. It
@@ -206,11 +273,11 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 	ctx := r.Context()
 	id, ok := identityFrom(ctx)
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		writeError(ctx, w, http.StatusUnauthorized, codeUnauthorized, msgUnauthorized)
 		return false
 	}
 	err := s.InActorTx(ctx, id.TenantID, id.UserID, fn)
-	code, msg, isClient := statusForPgError(err)
+	ref, isClient := refusalForPgError(err)
 	switch {
 	case err == nil:
 		return true
@@ -218,20 +285,20 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		// Deliberately indistinguishable to the client: whether the user is
 		// deactivated or simply not in this tenant is not theirs to learn.
 		slog.WarnContext(ctx, "refusing unresolvable actor", "tenant", id.TenantID, "user", id.UserID)
-		http.Error(w, "forbidden", http.StatusForbidden)
+		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
 		return false
 	case errors.Is(err, errForbidden):
-		http.Error(w, "forbidden", http.StatusForbidden)
+		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
 		return false
 	case errors.Is(err, errVehicleNotVisible):
-		http.Error(w, "vehicle not visible", http.StatusUnprocessableEntity)
+		writeError(ctx, w, http.StatusUnprocessableEntity, codeVehicleNotVisible, msgVehicleNotVisible)
 		return false
 	case isClient:
-		http.Error(w, msg, code)
+		writeError(ctx, w, ref.status, ref.code, ref.message)
 		return false
 	default:
 		slog.ErrorContext(ctx, "actor transaction failed", "err", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)
 		return false
 	}
 }
@@ -499,4 +566,25 @@ func writeJSON(ctx context.Context, w http.ResponseWriter, body any) {
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		slog.ErrorContext(ctx, "encoding response", "err", err)
 	}
+}
+
+// errorBody is the refusal envelope every endpoint answers with (ADR-0012).
+// Code is the machine-readable reason a client branches on; Message is
+// diagnostic-grade and is never the source of a driver's sentence — the
+// wording a driver reads is the client's, keyed on Code.
+type errorBody struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+// writeError is the only way a refusal reaches the wire, so that one shape
+// covers every endpoint rather than each inventing its own (ADR-0012).
+//
+// Content-Type is set before WriteHeader: WriteHeader locks the header map in,
+// so writeJSON's own Set would be dropped and the response would go out as
+// text/plain with every status assertion still green.
+func writeError(ctx context.Context, w http.ResponseWriter, status int, code, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	writeJSON(ctx, w, errorBody{Code: code, Message: message})
 }
