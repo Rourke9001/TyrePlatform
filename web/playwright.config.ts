@@ -28,11 +28,15 @@ export default defineConfig({
     // The capture app is judged at phone dimensions or not at all: thumb reach,
     // 44px targets and sunlight legibility are the design, not the styling.
     // Pixel 7 and iPhone 14 bracket the sizes a driver actually carries.
-    { name: "android", use: { ...devices["Pixel 7"] } },
+    //
+    // admin.spec.ts creates a unit and a user per run. Rows, not just reads —
+    // so it runs on one project, like capture.spec.ts and for a related
+    // reason: a second project repeats the writes rather than the assertions.
+    { name: "android", use: { ...devices["Pixel 7"] }, testIgnore: /admin\.spec/ },
     // iPhone 14 is WebKit, which `make e2e` and CI install alongside chromium.
     // It earns its place beyond the viewport: iOS is where FR-OFF-020's
     // storage eviction is a real risk, so the outbox has to be exercised on it.
-    { name: "ios", use: { ...devices["iPhone 14"] }, testIgnore: /capture\.spec/ },
+    { name: "ios", use: { ...devices["iPhone 14"] }, testIgnore: /capture\.spec|admin\.spec/ },
   ],
   webServer: {
     command: "npm run dev",
