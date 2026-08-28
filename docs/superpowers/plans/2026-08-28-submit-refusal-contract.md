@@ -156,17 +156,15 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
-	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 )
 ```
+
+This import block covers **this task's test only**. Go treats an unused import as a compile error and gofmt does not strip them, so importing Task 3's needs here makes Step 2 fail for the wrong reason and Step 4 impossible. Task 3 Step 1 widens the block when it adds the imports it actually uses.
 
 Then the test itself:
 
@@ -254,7 +252,19 @@ Read the existing comment block at `httpapi.go:140-163` before changing anything
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `api/internal/httpapi/refusal_internal_test.go`, the file Task 2 created — it is `package httpapi` and can see the unexported vocabulary:
+Add to `api/internal/httpapi/refusal_internal_test.go`, the file Task 2 created — it is `package httpapi` and can see the unexported vocabulary.
+
+First widen its import block with the four this test needs, which Task 2 deliberately left out because Go rejects an unused import:
+
+```go
+	"errors"
+	"fmt"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgconn"
+```
+
+Then the test:
 
 ```go
 // The refusal vocabulary, asserted as a set (ADR-0012). The canned rows are
@@ -905,6 +915,8 @@ function stubApi(submitStatus = 201, served: CaptureContext[] = [context], submi
 ```
 
 Update the existing test `"presents a duplicate-window refusal without losing the inspection"` (`:229`) so its stub carries the code: `stubApi(409, [context], "TY003")`. Its assertions are unchanged and must still pass.
+
+**The file has a second `stubApi(409)`, at `:520`, and it stays bare.** That test — `"keeps a refused inspection queued rather than discarding it"` — asserts queue state and payload only, never wording, and it waits on `findByRole("alert")`, which both branches render. Leaving it without a code is deliberate: it becomes the null-code path's coverage in the flow. Do not add `"TY003"` to it.
 
 Then add its opposite immediately after it, following the same drive sequence — `newUser()`, `renderFlow()`, `capturePosition(user)`, the two buttons. The file has no combined submit helper; do not invent one:
 
