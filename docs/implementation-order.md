@@ -271,10 +271,14 @@ TYRE-58 waits for the surface that edits tenant configuration, not for this.
 
 ### B5 — the rig-setup surface
 
-**TYRE-72, then TYRE-73, then TYRE-75.**
+**TYRE-72 with TYRE-90, then TYRE-73, then TYRE-75.**
 
-Create and date a combination, lock it while in active transportation, then
-reconcile observed composition against membership. The largest build on the
+Create and date a combination and schedule an inspection task for a driver,
+lock the combination while in active transportation, then reconcile observed
+composition against membership. TYRE-90 (FR-INS-049's schedule surface) was
+named as "the natural sibling" in TYRE-72, TYRE-73 and TYRE-81 and owned by
+none of them until 28 Aug; TYRE-72's own text says to build the two together,
+and they share the `ManageAssignments` gate. The largest build on the
 board. It blocks D5's driver-confirm flow and FR-INS-049 scheduling, but
 nothing corrupts while it waits, which is why it sits behind the write-path
 foundations rather than in front of them.
