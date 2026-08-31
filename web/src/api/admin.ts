@@ -41,6 +41,10 @@ export interface NewUser {
   displayName: string;
   staffNumber?: string;
   role: TenantRole;
+  // D10: the admin's answer to "this address belongs to a deactivated user".
+  // Absent is a plain create; the server refuses with email_inactive until it
+  // is set, so this can never reactivate somebody silently.
+  reactivate?: boolean;
 }
 
 export interface CreatedUser {

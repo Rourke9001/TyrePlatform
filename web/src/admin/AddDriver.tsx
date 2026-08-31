@@ -5,14 +5,12 @@ import { assignDriver, createUser, type CreatedUser, type TenantRole } from "../
 import { ApiError } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
 import { fetchVehicles } from "../api/vehicles";
+import { useCan } from "../auth/actorContext";
 import "./admin.css";
 
 // The roles a tenant may create. PLATFORM_ADMIN is absent because it is not
-// creatable through a tenant surface at all (ADR-0011, ADR-0013).
-//
-// D9 narrows this per actor — CONTROLLER and DEPOT_MANAGER will be able to
-// create DRIVER alone — and TYRE-83 owns that. Until it lands the whole list
-// is offered to whoever holds ManageUsers, which is ORG_ADMIN alone.
+// creatable through a tenant surface at all (ADR-0011, ADR-0013). This is the
+// full list; the component narrows it per actor before rendering (D9).
 const ROLES: { value: TenantRole; label: string }[] = [
   { value: "DRIVER", label: "Driver" },
   { value: "TECHNICIAN", label: "Technician" },
@@ -27,7 +25,13 @@ const ROLES: { value: TenantRole; label: string }[] = [
 // that speaks of adding a user points at the wrong one.
 function refusalMessage(error: unknown, action: "add a user" | "assign a unit"): string {
   if (error instanceof ApiError && error.code !== null) {
-    const speakable = ["invalid_submission", "email_taken", "assignment_overlaps", "conflict"];
+    const speakable = [
+      "invalid_submission",
+      "email_taken",
+      "email_inactive",
+      "assignment_overlaps",
+      "conflict",
+    ];
     if (speakable.includes(error.code) && error.message !== "") {
       return error.message;
     }
@@ -62,6 +66,13 @@ export function AddDriver() {
   const [created, setCreated] = useState<CreatedUser | null>(null);
   const [vehicleId, setVehicleId] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
+  const [rehire, setRehire] = useState<string | null>(null);
+
+  // D9. ManageUsers offers the whole list; InviteDriver alone offers DRIVER.
+  // The server decides the same question again (mayCreateRole) — this only
+  // keeps the form from expressing a request it knows will be refused.
+  const canManageUsers = useCan("ManageUsers");
+  const roles = canManageUsers ? ROLES : ROLES.filter((r) => r.value === "DRIVER");
 
   const vehicles = useQuery({
     queryKey: ["vehicles", tenantKey],
@@ -78,6 +89,10 @@ export function AddDriver() {
       setEmail("");
       setDisplayName("");
       setStaffNumber("");
+      setRehire(null);
+    },
+    onError: (error) => {
+      setRehire(error instanceof ApiError && error.code === "email_inactive" ? email : null);
     },
   });
 
@@ -144,7 +159,7 @@ export function AddDriver() {
           onChange={(e) => setRole(e.target.value as TenantRole)}
           required
         >
-          {ROLES.map((r) => (
+          {roles.map((r) => (
             <option key={r.value} value={r.value}>
               {r.label}
             </option>
@@ -156,7 +171,28 @@ export function AddDriver() {
         </button>
       </form>
 
-      {create.isError && <p role="alert">{refusalMessage(create.error, "add a user")}</p>}
+      {create.isError && rehire === null && (
+        <p role="alert">{refusalMessage(create.error, "add a user")}</p>
+      )}
+      {rehire !== null && (
+        <p role="alert">
+          {refusalMessage(create.error, "add a user")}{" "}
+          <button
+            type="button"
+            onClick={() =>
+              create.mutate({
+                email: rehire,
+                displayName,
+                staffNumber: staffNumber === "" ? undefined : staffNumber,
+                role,
+                reactivate: true,
+              })
+            }
+          >
+            Reactivate {rehire}
+          </button>
+        </p>
+      )}
       {created && <p role="status">{created.displayName} was added.</p>}
 
       {created && (
