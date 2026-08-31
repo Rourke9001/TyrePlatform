@@ -201,6 +201,7 @@ const (
 	codeEmailTaken         = "email_taken"
 	codeEmailInactive      = "email_inactive"
 	codeAssignmentOverlaps = "assignment_overlaps"
+	codeStaffNumberTaken   = "staff_number_taken"
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
@@ -220,6 +221,7 @@ const (
 	msgEmailTaken         = "a user with that email address already exists in this tenant"
 	msgEmailInactive      = "a user with this email address was deactivated; reactivate them instead of adding a new one"
 	msgAssignmentOverlaps = "that driver already holds an overlapping assignment to this unit"
+	msgStaffNumberTaken   = "another active user already has that staff number; give this one a different number to reactivate them"
 )
 
 var submitStatus = map[string]int{
@@ -274,12 +276,20 @@ var conflictCodes = map[string]string{
 	"vehicle_tenant_id_fleet_number_key": codeFleetNumberTaken,
 	"app_user_tenant_id_email_key":       codeEmailTaken,
 	"vehicle_driver_no_overlap":          codeAssignmentOverlaps,
+	// A rehire preserves the returning employee's staff_number rather than
+	// blanking it (admin.go's COALESCE, FR-AUT-022), and 000019's partial
+	// index permits another active user to hold that same number once the
+	// original left (D2) — so the two legitimate rules collide on
+	// reactivation. That is a state an admin must be told how to resolve,
+	// not a bare conflict.
+	"one_active_staff_number_per_tenant": codeStaffNumberTaken,
 }
 
 var conflictMessages = map[string]string{
 	codeFleetNumberTaken:   msgFleetNumberTaken,
 	codeEmailTaken:         msgEmailTaken,
 	codeAssignmentOverlaps: msgAssignmentOverlaps,
+	codeStaffNumberTaken:   msgStaffNumberTaken,
 }
 
 // Forwarding is decided by the TY class rather than by a list of safe codes.
