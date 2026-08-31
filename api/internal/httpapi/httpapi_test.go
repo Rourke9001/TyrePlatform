@@ -83,6 +83,17 @@ func plantTenantWithVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, 
 	return tenantID, fleet
 }
 
+// plantTenantInZone is plantTenantWithVehicle for a tenant that is not on the
+// runner's clock — the only way to prove a date was computed in the tenant's
+// zone rather than coincidentally matching UTC.
+func plantTenantInZone(t *testing.T, ctx context.Context, admin *pgx.Conn, label, tz string) (uuid.UUID, string) {
+	t.Helper()
+	tenantID, fleet := plantTenantWithVehicle(t, ctx, admin, label)
+	_, err := admin.Exec(ctx, `UPDATE app.tenant SET timezone = $2 WHERE id = $1`, tenantID, tz)
+	require.NoError(t, err)
+	return tenantID, fleet
+}
+
 func get(t *testing.T, h http.Handler, path, tenant, user string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodGet, path, nil)

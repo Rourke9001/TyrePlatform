@@ -373,10 +373,12 @@ func TestAssignDriverToVehicle(t *testing.T) {
 	require.Equal(t, "assignment_overlaps", ref.Code)
 	require.NotContains(t, rec.Body.String(), "vehicle_driver_no_overlap")
 
+	// An absent fromDate is not malformed — it defaults to the tenant's day
+	// (rule 6, TestAssignmentDefaultsToTheTenantDay) — so this table holds
+	// only genuinely malformed input.
 	for _, tt := range []struct{ name, path, payload, field string }{
 		{"unparseable vehicle", "/api/vehicles/not-a-uuid/drivers", body, "vehicleId"},
 		{"unparseable user", path, `{"userId":"nope","fromDate":"2026-01-01"}`, "userId"},
-		{"no from date", path, `{"userId":"` + driver.String() + `"}`, "fromDate"},
 		{"unparseable from date", path, `{"userId":"` + driver.String() + `","fromDate":"01/01/2026"}`, "fromDate"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -607,4 +609,70 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	return body.Code
+}
+
+// Two tenants 25 hours apart cannot share a civil date at any instant, so this
+// holds whatever time CI runs at. An admin working late from another zone must
+// not date a South African tenant's assignment a day out (rule 6).
+func TestAssignmentDefaultsToTheTenantDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	east, _ := plantTenantInZone(t, ctx, admin, "tz-east", "Pacific/Kiritimati") // UTC+14
+	west, _ := plantTenantInZone(t, ctx, admin, "tz-west", "Pacific/Midway")     // UTC-11
+
+	landed := func(tenantID uuid.UUID) string {
+		actor := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+		driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+		var vehicleID uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT id FROM app.vehicle WHERE tenant_id = $1 LIMIT 1`, tenantID).Scan(&vehicleID))
+
+		var before string
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT app.tenant_today(timezone)::text FROM app.tenant WHERE id = $1`,
+			tenantID).Scan(&before))
+
+		rec := post(t, h, "/api/vehicles/"+vehicleID.String()+"/drivers",
+			tenantID.String(), actor.String(),
+			fmt.Sprintf(`{"userId":%q}`, driver.String()))
+		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+		var body struct {
+			FromDate string `json:"fromDate"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+		// Read the tenant's day again after the write, and accept either.
+		// A run straddling the tenant's midnight would otherwise flake, and a
+		// test that lectures about clock independence must not depend on one.
+		var after string
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT app.tenant_today(timezone)::text FROM app.tenant WHERE id = $1`,
+			tenantID).Scan(&after))
+		require.Contains(t, []string{before, after}, body.FromDate)
+		return body.FromDate
+	}
+
+	require.NotEqual(t, landed(east), landed(west),
+		"two tenants 25 hours apart must never land an omitted date on the same day")
+
+	// An explicit date is still honoured — the default is a default.
+	actor := plantUser(t, ctx, admin, east, auth.RoleOrgAdmin)
+	driver := plantUser(t, ctx, admin, east, auth.RoleDriver)
+	var vehicleID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.vehicle WHERE tenant_id = $1 LIMIT 1`, east).Scan(&vehicleID))
+	rec := post(t, h, "/api/vehicles/"+vehicleID.String()+"/drivers",
+		east.String(), actor.String(),
+		fmt.Sprintf(`{"userId":%q,"fromDate":"2020-02-29"}`, driver.String()))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	require.Contains(t, rec.Body.String(), "2020-02-29")
+
+	// A malformed date is still a malformed date, not a silent default.
+	rec = post(t, h, "/api/vehicles/"+vehicleID.String()+"/drivers",
+		east.String(), actor.String(),
+		fmt.Sprintf(`{"userId":%q,"fromDate":"29-02-2020"}`, driver.String()))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 }
