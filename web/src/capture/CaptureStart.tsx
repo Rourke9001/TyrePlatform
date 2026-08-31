@@ -189,7 +189,7 @@ export function CaptureStart({
           <p className="cap-hint">
             {motive.lastOdometerKm === null
               ? "No reading on record yet — this one starts the count."
-              : `Last reading ${motive.lastOdometerKm.toLocaleString("en-ZA")} km`}
+              : `Last reading ${Intl.NumberFormat("en-ZA").format(motive.lastOdometerKm)} km`}
             {motive.lastOdometerAt
               ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
               : ""}
