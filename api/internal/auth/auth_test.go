@@ -59,10 +59,9 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "org admin",
 			role: auth.RoleOrgAdmin,
 			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates},
-			// D9's finer capability is not ORG_ADMIN's: it reaches the same
-			// invite through ManageUsers, and holding both would make
-			// "holds only InviteDriver" false of the role that phrase
-			// describes (createUser's mayCreateRole).
+			// D9's finer capability is not ORG_ADMIN's: ManageUsers already
+			// creates a DRIVER along with every other role, so InviteDriver
+			// would grant nothing an ORG_ADMIN cannot already do.
 			cant: []auth.Capability{auth.InviteDriver},
 		},
 		{
