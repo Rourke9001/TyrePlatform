@@ -191,7 +191,7 @@ describe("odometerRejection", () => {
   // server raises TY001 for it — refusing here saves the driver finding out
   // after the walk-around.
   it("refuses a reading below the last recorded one", () => {
-    // toLocaleString("en-ZA") groups with a non-breaking space, and a
+    // Intl.NumberFormat("en-ZA") groups with a non-breaking space, and a
     // small-ICU build may group differently again — so match any single
     // non-digit rather than guessing which separator shipped.
     expect(odometerRejection(412000, ctx)).toMatch(/412\D?180/);

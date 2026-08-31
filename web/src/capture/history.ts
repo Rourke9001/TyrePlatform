@@ -83,7 +83,7 @@ export function projectedOdometerKm(ctx: CaptureContext, now: Date): number | nu
 export function odometerRejection(odometerKm: number | null, ctx: CaptureContext): string | null {
   if (odometerKm === null || ctx.lastOdometerKm === null) return null;
   if (odometerKm >= ctx.lastOdometerKm) return null;
-  return `Lower than the last recorded ${ctx.lastOdometerKm.toLocaleString("en-ZA")} km.`;
+  return `Lower than the last recorded ${Intl.NumberFormat("en-ZA").format(ctx.lastOdometerKm)} km.`;
 }
 
 // FR-INS-033. The confirmation governs the capture flow only: DR-020 governs
@@ -106,7 +106,7 @@ export function odometerWarnings(
     {
       code: "FR-INS-033",
       requiresConfirmation: true,
-      message: `That is about ${Math.round(perDay).toLocaleString("en-ZA")} km a day since the last reading. Check the digits.`,
+      message: `That is about ${Intl.NumberFormat("en-ZA").format(Math.round(perDay))} km a day since the last reading. Check the digits.`,
       enteredValue: String(odometerKm),
     },
   ];
