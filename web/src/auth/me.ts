@@ -10,6 +10,9 @@ export interface Me {
   role: string;
   capabilities: string[];
   depots: string[];
+  // The tenant's IANA timezone. Every date a screen shows is formatted in it
+  // (rule 6) — see web/src/time/tenantTime.ts, which is the only path.
+  timezone: string;
 }
 
 export function fetchMe(): Promise<Me> {

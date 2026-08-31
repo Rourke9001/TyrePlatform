@@ -17,6 +17,7 @@ function renderScreen(capabilities: string[] = ["ManageUsers", "ManageAssignment
     role: "ORG_ADMIN",
     capabilities,
     depots: [],
+    timezone: "Africa/Johannesburg",
   };
   return render(
     <ActorContext.Provider value={{ actor, settled: true }}>

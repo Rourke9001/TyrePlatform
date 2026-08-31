@@ -11,6 +11,7 @@ const actor = (capabilities: string[]): Me => ({
   role: "CONTROLLER",
   capabilities,
   depots: [],
+  timezone: "Africa/Johannesburg",
 });
 
 describe("RequireCapability", () => {
