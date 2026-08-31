@@ -36,6 +36,7 @@ func TestRoleCapabilities(t *testing.T) {
 			// FR-AUT-005a: a controller carries the commercial picture.
 			// FR-AUT-007 carries erratum D1 — the cadence belongs to whoever
 			// is responsible for the drivers, and an ORG_ADMIN is not.
+			// D9: driver onboarding must not queue behind the owner.
 			name: "controller",
 			role: auth.RoleController,
 			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.InviteDriver},
@@ -58,6 +59,10 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "org admin",
 			role: auth.RoleOrgAdmin,
 			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates},
+			// D9's finer capability is not ORG_ADMIN's: it reaches the same
+			// invite through ManageUsers, and holding both would make
+			// "holds only InviteDriver" false of the role that phrase
+			// describes (createUser's mayCreateRole).
 			cant: []auth.Capability{auth.InviteDriver},
 		},
 		{
