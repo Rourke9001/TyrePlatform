@@ -42,6 +42,30 @@ export default tseslint.config(
       // The house rule from CLAUDE.md — "if you reach for `any`, the type is
       // wrong" — with the same weight as a compile error, not a warning.
       "@typescript-eslint/no-explicit-any": "error",
+      // Rule 6's display half, enforced rather than remembered (TYRE-89).
+      // toLocaleDateString and toLocaleTimeString exist only on Date, so
+      // naming them is precise; toLocaleString is also Number's, and the
+      // odometer readings that use it are numbers and unaffected — only its
+      // Date form is named.
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "MemberExpression[property.name='toLocaleDateString']",
+          message:
+            "Render dates through formatTenantDate/useTenantDate (web/src/time/tenantTime.ts) — the browser's zone is not the tenant's (rule 6).",
+        },
+        {
+          selector: "MemberExpression[property.name='toLocaleTimeString']",
+          message:
+            "Render times through web/src/time/tenantTime.ts — the browser's zone is not the tenant's (rule 6).",
+        },
+        {
+          selector:
+            "CallExpression[callee.object.type='NewExpression'][callee.object.callee.name='Date'][callee.property.name='toLocaleString']",
+          message:
+            "Render dates through web/src/time/tenantTime.ts — the browser's zone is not the tenant's (rule 6).",
+        },
+      ],
     },
   },
   // Config, tooling and e2e files are not part of the app's tsconfig
