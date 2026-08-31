@@ -56,7 +56,14 @@ export function AddDriver() {
   const [created, setCreated] = useState<CreatedUser | null>(null);
   const [vehicleId, setVehicleId] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
-  const [rehire, setRehire] = useState<string | null>(null);
+  // Tanstack Query v5 clears create.error the instant the Reactivate click
+  // starts its own mutation, so re-deriving the offer's paragraph from
+  // create.error would swap in the generic sentence while that request is
+  // still in flight — announced by the role="alert" live region over a
+  // retry that is in fact succeeding. The server's message is captured once,
+  // when onError first learns it, and outlives the mutation that produced it
+  // (D10).
+  const [rehire, setRehire] = useState<{ email: string; message: string } | null>(null);
 
   // D9. ManageUsers offers the whole list; InviteDriver alone offers DRIVER.
   // The server decides the same question again (mayCreateRole) — this only
@@ -82,7 +89,11 @@ export function AddDriver() {
       setRehire(null);
     },
     onError: (error) => {
-      setRehire(error instanceof ApiError && error.code === "email_inactive" ? email : null);
+      setRehire(
+        error instanceof ApiError && error.code === "email_inactive"
+          ? { email, message: refusalMessage(error, "add a user") }
+          : null,
+      );
     },
   });
 
@@ -166,7 +177,7 @@ export function AddDriver() {
       )}
       {rehire !== null && (
         <>
-          <p role="alert">{refusalMessage(create.error, "add a user")}</p>
+          <p role="alert">{rehire.message}</p>
           {/* A focusable descendant of role="alert" is not reliably surfaced
               by assistive tech, which announces the region's text and stops;
               the button is a sibling so a screen-reader user can reach it. */}
@@ -175,7 +186,7 @@ export function AddDriver() {
             disabled={create.isPending}
             onClick={() =>
               create.mutate({
-                email: rehire,
+                email: rehire.email,
                 displayName,
                 staffNumber: staffNumber === "" ? undefined : staffNumber,
                 role,
@@ -183,7 +194,7 @@ export function AddDriver() {
               })
             }
           >
-            Reactivate {rehire}
+            Reactivate {rehire.email}
           </button>
         </>
       )}
