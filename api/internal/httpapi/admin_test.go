@@ -244,10 +244,10 @@ func TestCreateUser(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	require.Equal(t, email, created.Email)
 	require.Equal(t, "DRIVER", created.Role)
-	require.True(t, created.Active, "a created user is active; leaving is active=false and is TYRE-83's")
+	require.True(t, created.Active, "a created user is active; leaving is active=false and is TYRE-64's")
 
-	// D10: the rehire branch TYRE-83 builds needs to know which conflict it
-	// hit, which is why this is not a generic conflict.
+	// D10: the rehire branch this handler builds needs to know which conflict
+	// it hit, which is why this is not a generic conflict.
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), body)
 	require.Equal(t, http.StatusConflict, rec.Code)
 	var ref refusalBody

@@ -357,7 +357,7 @@ func mayCreateRole(a auth.Actor, role string) error {
 // createUser is FR-AUT-010's invite, gated on ManageUsers, or on InviteDriver
 // for a DRIVER alone (D9). It creates an active user and nothing else: leaving
 // a company is active = false and never a delete (D10, FR-VEH-008), and that
-// surface is TYRE-83's.
+// surface is TYRE-64's, blocked on the sponsor's POPIA question.
 func createUser(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -414,6 +414,14 @@ func createUser(s *store.Store) http.HandlerFunc {
 					// Reactivated by someone else between the lookup and this
 					// update. That is an active collision now, and the admin's
 					// next action is the same as for any other one.
+					//
+					// Correct only under READ COMMITTED (store.InActorTx's
+					// pool.Begin default, unspecified isolation): the loser
+					// blocks on the winner's row lock, then re-evaluates WHERE
+					// against the now-committed row and matches nothing. Under
+					// REPEATABLE READ the same interleaving raises SQLSTATE
+					// 40001 instead, which submitStatus does not map, so this
+					// would answer 500 rather than the 409 a form can act on.
 					return refusalError{refusal{http.StatusConflict, codeEmailTaken, msgEmailTaken}}
 				}
 				if err != nil {
