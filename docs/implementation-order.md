@@ -342,10 +342,11 @@ server-side `from_date` default are cheaper before those exist than retrofitted
 across them. Its eslint ban on bare `toLocale*` is what stops the rule decaying
 into a convention.
 
-One constraint from the ticket: TYRE-83's `active = false` half touches
-**TYRE-64's POPIA question**, which is open and with the sponsor. Build the
-invite and reactivate paths; leave deactivation alone. The definition of done
-does not need it.
+One constraint from the ticket: TYRE-83's `active = false` half was left out
+of B4.5's scope. NFR-PRV-004 already governs a deactivated driver's personal
+information — 84 months, then pseudonymised — so nothing blocks the surface
+when it is scheduled. Build the invite and reactivate paths; leave deactivation
+for a later batch.
 
 ### B5 — the asset flow
 

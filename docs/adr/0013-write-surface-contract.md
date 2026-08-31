@@ -209,8 +209,9 @@ oversights without this paragraph.
 
 **Revisit when:** TYRE-83 narrows the creatable-role list to `InviteDriver`
 for `CONTROLLER` and `DEPOT_MANAGER`; TYRE-88 adds the `unit_kind NOT NULL`
-constraint this ADR accepts as a gap; TYRE-64's POPIA answer defines the
-deactivation surface that decision 7 deliberately leaves unbuilt; a write
+constraint this ADR accepts as a gap; the deactivation surface that decision 7
+deliberately leaves unbuilt is scheduled (NFR-PRV-004 already governs the
+retained data, 84 months then pseudonymised, so nothing gates it); a write
 surface needs an update or a delete, which is the point decision 7 stops
 covering; or a client needs to retry a write idempotently, which decision 10
 assumes never happens because a human is always present at an admin form.
