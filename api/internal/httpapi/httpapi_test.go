@@ -797,23 +797,36 @@ func TestMyTasksAreActorScoped(t *testing.T) {
 
 // Rule 6's display half starts here: until /api/me carries it, the web app
 // cannot know it is a Johannesburg tenant and every date it renders is the
-// browser's guess.
+// browser's guess. Two tenants in different zones, both planted before either
+// read: a lone tenant cannot tell a scoped read of app.tenant from an
+// unscoped one, but no single arbitrary row can satisfy two actors expecting
+// two different zones (rule 1's read half).
 func TestMeCarriesTheTenantTimezone(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "tz")
-	_, err := admin.Exec(ctx,
-		`UPDATE app.tenant SET timezone = 'Pacific/Kiritimati' WHERE id = $1`, tenantID)
-	require.NoError(t, err)
-
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	actor := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
-	rec := get(t, h, "/api/me", tenantID.String(), actor.String())
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	var body struct {
-		Timezone string `json:"timezone"`
+	east, _ := plantTenant(t, ctx, admin, "tz-east")
+	west, _ := plantTenant(t, ctx, admin, "tz-west")
+	for tenantID, zone := range map[uuid.UUID]string{
+		east: "Pacific/Kiritimati",
+		west: "Pacific/Midway",
+	} {
+		_, err := admin.Exec(ctx,
+			`UPDATE app.tenant SET timezone = $2 WHERE id = $1`, tenantID, zone)
+		require.NoError(t, err)
 	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, "Pacific/Kiritimati", body.Timezone)
+
+	zoneSeen := func(tenantID uuid.UUID) string {
+		actor := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+		rec := get(t, h, "/api/me", tenantID.String(), actor.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body struct {
+			Timezone string `json:"timezone"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		return body.Timezone
+	}
+	require.Equal(t, "Pacific/Kiritimati", zoneSeen(east))
+	require.Equal(t, "Pacific/Midway", zoneSeen(west))
 }

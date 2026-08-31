@@ -481,8 +481,64 @@ func TestTieredInvite(t *testing.T) {
 			email := fmt.Sprintf("tiered-%d-%s@example.invalid", i, uuid.NewString()[:8])
 			rec := post(t, h, "/api/users", tenantID.String(), actor.String(), body(email, tt.makes))
 			require.Equal(t, tt.want, rec.Code, rec.Body.String())
+			if tt.want != http.StatusCreated {
+				return
+			}
+			// A status alone cannot see a wrong parameter binding — resolve
+			// the id the response names through the admin connection and hold
+			// the landed row to the requested role and the actor's tenant
+			// (D9; rule 1's write half).
+			var created userBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+			var landedRole, landedTenant string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT role::text, tenant_id FROM app.app_user WHERE id = $1`, created.ID).
+				Scan(&landedRole, &landedTenant))
+			require.Equal(t, tt.makes, landedRole)
+			require.Equal(t, tenantID.String(), landedTenant)
 		})
 	}
+}
+
+// D9's other edge, recorded as intentional on TYRE-83's PR: an actor holding
+// only InviteDriver may reactivate a former ORG_ADMIN, because mayCreateRole
+// bounds the REQUESTED role and the reactivate UPDATE's role = $4 makes the
+// row match it — a demotion to DRIVER, never an escalation. This is the test
+// that catches a later edit reordering mayCreateRole or dropping role = $4,
+// either of which would hand a controller a live ORG_ADMIN (TYRE-95).
+func TestInviteDriverReactivateDemotesAnOrgAdmin(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "demote")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	email := "demote-" + uuid.NewString()[:8] + "@example.invalid"
+	var former uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.app_user (tenant_id, email, display_name, role, active)
+		 VALUES ($1, $2, 'Former Admin', 'ORG_ADMIN', false) RETURNING id`,
+		tenantID, email).Scan(&former))
+
+	// A CONTROLLER holds InviteDriver and not ManageUsers, so DRIVER is the
+	// only role this request could name and survive mayCreateRole.
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	rec := post(t, h, "/api/users", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Former Admin","role":"DRIVER","reactivate":true}`, email))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var again userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again))
+	require.Equal(t, former.String(), again.ID, "a rehire is the same person, not a new row")
+
+	// Through the admin connection, not the response body: the row itself
+	// carries the demoted role, so a handler that echoed the request without
+	// binding role = $4 could not pass.
+	var landedRole string
+	var landedActive bool
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT role::text, active FROM app.app_user WHERE id = $1`, former).
+		Scan(&landedRole, &landedActive))
+	require.Equal(t, "DRIVER", landedRole)
+	require.True(t, landedActive)
 }
 
 // D10: leaving a company is active = false, never a delete, so a rehire meets
