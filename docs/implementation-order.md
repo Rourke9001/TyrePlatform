@@ -321,7 +321,7 @@ TYRE-81 does not build one — it picks from the axle configuration library and
 authoring stays ORG_ADMIN's through `ManageTemplates` (D8, TYRE-84) — so
 TYRE-58 waits for the surface that edits tenant configuration, not for this.
 
-### B4.5 — what sits on B4's code — **next**
+### B4.5 — what sits on B4's code — **delivered**
 
 **TYRE-83, then TYRE-89.**
 
@@ -348,7 +348,7 @@ information — 84 months, then pseudonymised — so nothing blocks the surface
 when it is scheduled. Build the invite and reactivate paths; leave deactivation
 for a later batch.
 
-### B5 — the asset flow
+### B5 — the asset flow — **next**
 
 **TYRE-48 with TYRE-91, then TYRE-92 with TYRE-93, then TYRE-94.** TYRE-87
 rides along.
