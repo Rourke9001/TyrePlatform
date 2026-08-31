@@ -346,7 +346,9 @@ BEGIN
   -- would need the very DELETE this check exists to forbid.
   INSERT INTO app.app_user (tenant_id, email, display_name, role)
   VALUES ('11111111-1111-1111-1111-111111111111', 'deleteme@example.invalid', 'Deletion probe', 'DRIVER')
-  ON CONFLICT (tenant_id, email) DO NOTHING;
+  -- lower(email): the arbiter must name 000027's folded index or inference
+  -- finds nothing and the insert errors instead of skipping.
+  ON CONFLICT (tenant_id, lower(email)) DO NOTHING;
   BEGIN
     DELETE FROM app.app_user WHERE email = 'deleteme@example.invalid';
   EXCEPTION WHEN insufficient_privilege THEN ok := true;
@@ -3623,6 +3625,41 @@ BEGIN
   END IF;
 
   RAISE NOTICE 'PASS  platform-admin emails unique; assignments cannot overlap themselves, OI-32 stays open, and the constraint is not a cross-tenant date oracle';
+END $$;
+ROLLBACK;
+
+\echo '== 35. Email uniqueness is case-folded per tenant (TYRE-95, FR-VEH-008)'
+-- 000027: one email comparison rule. A rehire retyped in different case must
+-- meet the same index the exact-case duplicate meets, or the INSERT path
+-- quietly splits one person into two rows. Folding is per tenant: the same
+-- address in another tenant is a different person and must stay insertable.
+-- Transaction-scoped: nothing persists.
+BEGIN;
+DO $$
+DECLARE
+  t_one constant uuid := '11111111-1111-1111-1111-111111111111';
+  t_two constant uuid := '22222222-2222-2222-2222-222222222222';
+  ok boolean := false;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_one::text, true);
+
+  -- The seeded address is lowercase; the probe differs only in case.
+  BEGIN
+    INSERT INTO app.app_user (tenant_id, email, display_name, role)
+         VALUES (t_one, 'MELUSI@Example.INVALID', 'Case probe', 'DRIVER');
+  EXCEPTION WHEN unique_violation THEN ok := true;
+  END;
+  IF NOT ok THEN
+    RAISE EXCEPTION 'FAIL: a case-variant of an existing email was accepted in the same tenant';
+  END IF;
+
+  -- The identical case-variant in ANOTHER tenant is not a collision: the
+  -- index folds case, not tenancy.
+  PERFORM set_config('app.tenant_id', t_two::text, true);
+  INSERT INTO app.app_user (tenant_id, email, display_name, role)
+       VALUES (t_two, 'MELUSI@Example.INVALID', 'Case probe two', 'DRIVER');
+
+  RAISE NOTICE 'PASS  email uniqueness folds case within a tenant and nowhere else';
 END $$;
 ROLLBACK;
 

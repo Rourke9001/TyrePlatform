@@ -383,9 +383,15 @@ func createUser(s *store.Store) http.HandlerFunc {
 			// caught. RLS scopes this lookup, so another tenant's address is
 			// simply not here and the request proceeds as a create — which is
 			// the honest answer for this tenant.
+			//
+			// lower() on both sides matches 000027's index — 000026's one
+			// email comparison rule in the schema, not two. The stored
+			// address keeps the case the admin typed; only comparison folds,
+			// here and in the reactivate UPDATE below.
 			var existingActive bool
 			lookup := tx.QueryRow(ctx,
-				`SELECT active FROM app.app_user WHERE email = $1`, ins.email).
+				`SELECT active FROM app.app_user WHERE lower(email) = lower($1)`,
+				ins.email).
 				Scan(&existingActive)
 			switch {
 			case lookup == nil && existingActive:
@@ -406,7 +412,7 @@ func createUser(s *store.Store) http.HandlerFunc {
 					    SET active = true, display_name = $2,
 					        staff_number = COALESCE($3, staff_number),
 					        role = $4::app.user_role
-					  WHERE email = $1 AND NOT active
+					  WHERE lower(email) = lower($1) AND NOT active
 					 RETURNING id, email, display_name, role::text, staff_number, active`,
 					ins.email, ins.displayName, ins.staffNumber, ins.role).
 					Scan(&createdID, &created.Email, &created.DisplayName, &created.Role,

@@ -636,6 +636,58 @@ func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 	require.True(t, landedActive)
 }
 
+// TYRE-95: a rehire's email is retyped, not pasted, so it arrives in whatever
+// case the admin's thumbs produce. 000027 folds both uniqueness indexes and
+// the handler folds its lookup to match; this proves the whole path — a
+// mixed-case retype classifies as the same person, and the reactivate lands
+// on the original row rather than minting a second one (FR-VEH-008).
+func TestRehireEmailDiffersOnlyInCase(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "rehire-case")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+
+	suffix := uuid.NewString()[:8]
+	stored := "thandi-" + suffix + "@example.invalid"
+	retyped := "Thandi-" + suffix + "@Example.INVALID"
+
+	var original uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.app_user (tenant_id, email, display_name, role, active)
+		 VALUES ($1, $2, 'Thandi Left', 'DRIVER', false) RETURNING id`,
+		tenantID, stored).Scan(&original))
+
+	// The retype must classify as "that person is inactive", not fall through
+	// to the INSERT and split the human in two.
+	create := fmt.Sprintf(
+		`{"email":%q,"displayName":"Thandi Returned","role":"DRIVER"}`, retyped)
+	rec := post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), create)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "email_inactive", errorCode(t, rec))
+
+	reactivate := fmt.Sprintf(
+		`{"email":%q,"displayName":"Thandi Returned","role":"DRIVER","reactivate":true}`, retyped)
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var again userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again))
+	require.Equal(t, original.String(), again.ID, "a case-variant rehire is the same person")
+	require.True(t, again.Active)
+
+	// Through the admin connection, not the response body: the id is
+	// unchanged, exactly one row holds the folded address, and it kept the
+	// case it was stored with — comparison folds, storage does not.
+	var rows int
+	var keptEmail string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*), min(email) FROM app.app_user
+		  WHERE tenant_id = $1 AND lower(email) = lower($2)`,
+		tenantID, retyped).Scan(&rows, &keptEmail))
+	require.Equal(t, 1, rows, "the rehire must not have minted a second row")
+	require.Equal(t, stored, keptEmail)
+}
+
 type userBody struct {
 	ID          string  `json:"id"`
 	Email       string  `json:"email"`
