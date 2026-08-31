@@ -4,13 +4,26 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { AddDriver } from "./AddDriver";
+import { ActorContext } from "../auth/actorContext";
+import type { Me } from "../auth/me";
 
-function renderScreen() {
+// Capabilities rather than a role name: the screen branches on useCan
+// (ADR-0011), so the test names what the screen reads.
+function renderScreen(capabilities: string[] = ["ManageUsers", "ManageAssignments"]) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const actor: Me = {
+    userId: "u0",
+    displayName: "Admin",
+    role: "ORG_ADMIN",
+    capabilities,
+    depots: [],
+  };
   return render(
-    <QueryClientProvider client={client}>
-      <AddDriver />
-    </QueryClientProvider>,
+    <ActorContext.Provider value={{ actor, settled: true }}>
+      <QueryClientProvider client={client}>
+        <AddDriver />
+      </QueryClientProvider>
+    </ActorContext.Provider>,
   );
 }
 
@@ -56,7 +69,7 @@ describe("adding a driver", () => {
     expect(await screen.findByLabelText(/unit/i)).toBeInTheDocument();
   });
 
-  it("names the rehire case rather than reporting a generic conflict", async () => {
+  it("names an active collision as an address already in use", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(409, {
         code: "email_taken",
@@ -149,5 +162,49 @@ describe("adding a driver", () => {
 
     expect(await screen.findByText(/assigned to H99/i)).toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls[2][0]).toBe("/api/vehicles/v1/drivers");
+  });
+
+  it("offers only DRIVER to an actor holding InviteDriver alone", () => {
+    renderScreen(["ManageAssignments", "InviteDriver"]);
+
+    const roles = screen.getAllByRole("option", { name: /driver|controller|admin|technician/i });
+    expect(roles).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "Driver" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Organisation admin" })).not.toBeInTheDocument();
+  });
+
+  it("offers every tenant role to an actor holding ManageUsers", () => {
+    renderScreen(["ManageUsers", "ManageAssignments"]);
+
+    expect(screen.getByRole("option", { name: "Organisation admin" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Driver" })).toBeInTheDocument();
+  });
+
+  // The refusal has to become an offer, or the admin's only reading is "pick
+  // another address" — which for a rehire is wrong and creates a second person.
+  it("offers reactivation when the email belongs to a deactivated user", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        respond(409, {
+          code: "email_inactive",
+          message:
+            "a user with this email address was deactivated; reactivate them instead of adding a new one",
+        }),
+      )
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, []));
+
+    renderScreen();
+    await fillAndSubmit();
+
+    const again = await screen.findByRole("button", { name: /reactivate/i });
+    await userEvent.click(again);
+
+    await screen.findByRole("status");
+    const [, init] = vi.mocked(fetch).mock.calls[1];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      email: "new@example.invalid",
+      reactivate: true,
+    });
   });
 });
