@@ -58,7 +58,10 @@ export interface CreatedUser {
 
 export interface NewAssignment {
   userId: string;
-  fromDate: string;
+  // Omitted means the tenant's today, computed server-side where the tenant's
+  // timezone lives (rule 6, TYRE-89). A browser-computed day is a day out for
+  // any admin not sitting in the tenant's zone.
+  fromDate?: string;
 }
 
 export interface Assignment {

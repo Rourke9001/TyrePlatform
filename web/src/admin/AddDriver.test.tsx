@@ -254,4 +254,24 @@ describe("adding a driver", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/New Driver/);
     expect(screen.queryByRole("button", { name: /reactivate/i })).not.toBeInTheDocument();
   });
+
+  // The browser's calendar day is the admin's, not the tenant's. Sending none
+  // lets the server compute it where the tenant's zone lives (TYRE-89).
+  it("sends no date with an assignment", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]))
+      .mockResolvedValueOnce(
+        respond(201, { id: "a1", vehicleId: "v1", userId: "u1", fromDate: "2026-08-28" }),
+      );
+
+    renderScreen();
+    await fillAndSubmit();
+    await screen.findByLabelText(/unit/i);
+    await userEvent.selectOptions(screen.getByLabelText(/unit/i), "v1");
+    await userEvent.click(screen.getByRole("button", { name: /assign/i }));
+    await screen.findByText(/assigned to H99/i);
+
+    expect(sentBody(2)).not.toHaveProperty("fromDate");
+  });
 });

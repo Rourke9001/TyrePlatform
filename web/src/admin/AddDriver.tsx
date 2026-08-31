@@ -42,17 +42,6 @@ function refusalMessage(error: unknown, action: "add a user" | "assign a unit"):
   return `Could not ${action}. Try again, or call support if it keeps happening.`;
 }
 
-// An assignment's from_date is a date, not a timestamp, and this reads the
-// browser's calendar day — the admin's own day, not the tenant's configured
-// timezone that rule 6 asks for. TYRE-89 moves this server-side
-// (app.tenant_today) and retires this function.
-function today(): string {
-  const now = new Date();
-  const month = `${now.getMonth() + 1}`.padStart(2, "0");
-  const day = `${now.getDate()}`.padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
-
 // FR-AUT-010's invite, gated on ManageUsers. The assignment step follows the
 // create rather than living on its own screen: a driver with no assignment
 // reaches no capture (FR-AUT-005, app.v_capture_vehicle), so the two steps are
@@ -97,7 +86,7 @@ export function AddDriver() {
   });
 
   const assign = useMutation({
-    mutationFn: (id: string) => assignDriver(id, { userId: created?.id ?? "", fromDate: today() }),
+    mutationFn: (id: string) => assignDriver(id, { userId: created?.id ?? "" }),
     onSuccess: (_, id) => {
       setAssignedTo(vehicles.data?.find((v) => v.id === id)?.fleetNumber ?? null);
     },
