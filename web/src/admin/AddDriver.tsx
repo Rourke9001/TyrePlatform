@@ -29,6 +29,7 @@ function refusalMessage(error: unknown, action: "add a user" | "assign a unit"):
       "invalid_submission",
       "email_taken",
       "email_inactive",
+      "nothing_to_reactivate",
       "assignment_overlaps",
       "staff_number_taken",
       "conflict",

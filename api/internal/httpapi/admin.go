@@ -282,8 +282,13 @@ type userInsert struct {
 	email       string
 	displayName string
 	staffNumber *string
-	role        string
-	reactivate  bool
+	// A staffNumber sent as "" is a decision, not an omission: the admin
+	// blanked the field, so a reactivate clears the column. text() collapses
+	// both to nil, which is right for the insert (NULL either way) but loses
+	// the distinction the reactivate UPDATE needs — this flag carries it.
+	clearStaffNumber bool
+	role             string
+	reactivate       bool
 }
 
 // tenantRoles is app.user_role minus PLATFORM_ADMIN. Platform staff carry a
@@ -333,6 +338,9 @@ func (b createUserRequest) validate() (userInsert, error) {
 	if u.staffNumber, err = text("staffNumber", b.StaffNumber); err != nil {
 		return u, err
 	}
+	// Absent keeps a rehire's number (FR-AUT-022 survives an omitting form);
+	// present-but-blank clears it. Only the reactivate UPDATE consults this.
+	u.clearStaffNumber = b.StaffNumber != nil && u.staffNumber == nil
 	u.reactivate = b.Reactivate
 	return u, nil
 }
@@ -373,6 +381,10 @@ func createUser(s *store.Store) http.HandlerFunc {
 
 		var created userJSON
 		var createdID uuid.UUID
+		// 201 promises a caller that a new person now exists; a reactivate is
+		// an in-place UPDATE of someone who may have years of history, so its
+		// arm answers 200 (TYRE-95).
+		status := http.StatusCreated
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := mayCreateRole(a, ins.role); err != nil {
 				return err
@@ -381,8 +393,9 @@ func createUser(s *store.Store) http.HandlerFunc {
 			// Classify the collision before inserting, because the unique
 			// index spans inactive rows and Postgres cannot say which kind it
 			// caught. RLS scopes this lookup, so another tenant's address is
-			// simply not here and the request proceeds as a create — which is
-			// the honest answer for this tenant.
+			// simply not here: a plain create proceeds, and a reactivate is
+			// refused — the honest answers for this tenant, and identical
+			// whether the address lives elsewhere or nowhere.
 			//
 			// lower() on both sides matches 000027's index — 000026's one
 			// email comparison rule in the schema, not two. The stored
@@ -404,31 +417,29 @@ func createUser(s *store.Store) http.HandlerFunc {
 				// UPDATE is granted on app_user — only DELETE was revoked
 				// (000002, 000018) — because a person is not an event.
 				//
-				// staff_number is COALESCEd: the reactivate form never pre-fills
-				// it, so an absent field means "not supplied," not "clear it" —
-				// FR-AUT-022's identifier must survive a rehire that omits it.
+				// staff_number: an absent field means "not supplied" — the
+				// reactivate form never pre-fills it, and FR-AUT-022's
+				// identifier must survive a rehire that omits it — while an
+				// explicitly blank one means "clear it". The clear flag
+				// carries the difference COALESCE alone cannot see.
+				status = http.StatusOK
 				err := tx.QueryRow(ctx,
 					`UPDATE app.app_user
 					    SET active = true, display_name = $2,
-					        staff_number = COALESCE($3, staff_number),
+					        staff_number = CASE WHEN $5 THEN NULL
+					                            ELSE COALESCE($3, staff_number) END,
 					        role = $4::app.user_role
 					  WHERE lower(email) = lower($1) AND NOT active
 					 RETURNING id, email, display_name, role::text, staff_number, active`,
-					ins.email, ins.displayName, ins.staffNumber, ins.role).
+					ins.email, ins.displayName, ins.staffNumber, ins.role, ins.clearStaffNumber).
 					Scan(&createdID, &created.Email, &created.DisplayName, &created.Role,
 						&created.StaffNumber, &created.Active)
 				if errors.Is(err, pgx.ErrNoRows) {
 					// Reactivated by someone else between the lookup and this
 					// update. That is an active collision now, and the admin's
-					// next action is the same as for any other one.
-					//
-					// Correct only under READ COMMITTED (store.InActorTx's
-					// pool.Begin default, unspecified isolation): the loser
-					// blocks on the winner's row lock, then re-evaluates WHERE
-					// against the now-committed row and matches nothing. Under
-					// REPEATABLE READ the same interleaving raises SQLSTATE
-					// 40001 instead, which submitStatus does not map, so this
-					// would answer 500 rather than the 409 a form can act on.
+					// next action is the same as for any other one. The loser
+					// matching nothing rather than raising 40001 depends on
+					// READ COMMITTED, which store.InActorTx pins.
 					return refusalError{refusal{http.StatusConflict, codeEmailTaken, msgEmailTaken}}
 				}
 				if err != nil {
@@ -436,6 +447,12 @@ func createUser(s *store.Store) http.HandlerFunc {
 				}
 				created.ID = createdID.String()
 				return nil
+			case errors.Is(lookup, pgx.ErrNoRows) && ins.reactivate:
+				// The admin answered a prompt about a row that has since been
+				// renamed or removed from view. Minting a new person here
+				// would report "was added" for a restore that restored
+				// nobody; refuse so the screen can say what actually holds.
+				return refusalError{refusal{http.StatusConflict, codeNothingToReactivate, msgNothingToReactivate}}
 			case errors.Is(lookup, pgx.ErrNoRows):
 				// Nothing here holds the address; fall through to the insert.
 			default:
@@ -460,7 +477,7 @@ func createUser(s *store.Store) http.HandlerFunc {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
+		w.WriteHeader(status)
 		writeJSON(ctx, w, created)
 	}
 }
