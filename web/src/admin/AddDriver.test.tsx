@@ -49,6 +49,17 @@ async function fillAndSubmit() {
   await userEvent.click(screen.getByRole("button", { name: /add user/i }));
 }
 
+// RequestInit types body as BodyInit, which includes Blob and FormData;
+// String() on those yields "[object Object]" and would assert nothing.
+// The client always sends a JSON string, so narrow rather than cast.
+function sentBody(call: number): unknown {
+  const init = vi.mocked(fetch).mock.calls[call][1];
+  if (typeof init?.body !== "string") {
+    throw new Error(`call ${call} did not send a string body`);
+  }
+  return JSON.parse(init.body);
+}
+
 describe("adding a driver", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
@@ -201,8 +212,7 @@ describe("adding a driver", () => {
     await userEvent.click(again);
 
     await screen.findByRole("status");
-    const [, init] = vi.mocked(fetch).mock.calls[1];
-    expect(JSON.parse(String(init?.body))).toMatchObject({
+    expect(sentBody(1)).toMatchObject({
       email: "new@example.invalid",
       reactivate: true,
     });
