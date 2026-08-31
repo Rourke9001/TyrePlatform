@@ -248,6 +248,12 @@ describe("adding a driver", () => {
     await userEvent.click(again);
 
     expect(again).toBeDisabled();
+    // Tanstack Query clears create.error the moment this second mutation
+    // starts, so this alert must still be reading state captured at the
+    // first refusal rather than re-deriving from the (now cleared) error —
+    // otherwise a live region announces the generic fallback sentence over a
+    // request that is in fact succeeding (D10).
+    expect(screen.getByRole("alert")).toHaveTextContent(/deactivated/i);
 
     release(respond(201, CREATED));
 
