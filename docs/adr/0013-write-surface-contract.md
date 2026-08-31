@@ -100,12 +100,14 @@ database in one place, and Go only names the refusal for a client.
    | Constraint | Wire code | Status |
    | --- | --- | --- |
    | `vehicle_tenant_id_fleet_number_key` | `fleet_number_taken` | 409 |
-   | `app_user_tenant_id_email_key` | `email_taken` | 409 |
+   | `app_user_tenant_email_key` | `email_taken` | 409 |
    | `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 |
 
    `23P01` is new to the map: nothing before this ADR's surfaces could raise
    it, since `vehicle_driver_no_overlap` is reachable only once an
-   assignment endpoint exists.
+   assignment endpoint exists. Migration 000027 replaced the original
+   `UNIQUE (tenant_id, email)` constraint with the case-folded unique index
+   `app_user_tenant_email_key`; the table names the live object.
 
    Two consequences of this decision are stated here rather than left to be
    discovered:

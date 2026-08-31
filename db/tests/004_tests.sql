@@ -3495,11 +3495,12 @@ DECLARE
 BEGIN
   PERFORM set_config('app.tenant_id', t_id::text, true);
 
-  -- (a) UNIQUE (tenant_id, email) treats NULL tenant_id as distinct, so two
+  -- (a) 000027's unique index app_user_tenant_email_key on
+  -- (tenant_id, lower(email)) treats NULL tenant_id as distinct, so two
   -- platform admins could share an email.
   --
   -- Asserted through the catalog, not by behaviour, and the reason is the
-  -- point of the constraint rather than a shortcut. The suite runs as
+  -- point of the uniqueness rule rather than a shortcut. The suite runs as
   -- app_login, which is a member of app_rw and nothing else — it cannot
   -- SET ROLE postgres, and app_rw's WITH CHECK rejects a NULL-tenant insert
   -- outright. The only actor that can reach this duplicate is the postgres
