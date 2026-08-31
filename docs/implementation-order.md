@@ -1,7 +1,7 @@
 # Implementation order
 
-Snapshot of **27 Aug 2026**, re-verified **28 Aug 2026** against `develop` @
-`04cee3e`.
+Snapshot of **27 Aug 2026**, re-verified **31 Aug 2026** against `develop` @
+`362c12e`.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase, the same way
@@ -11,6 +11,21 @@ before trusting a disposition below; the method is at the end.
 
 A batch here is a sequencing claim, not a scope claim. Each ticket's own
 definition of done governs what gets built.
+
+## Every commit hash below predates the 29 Aug promotion
+
+`develop` was promoted to `main` through a pull request (#34, rebase-merged
+29 Aug). GitHub's merge button cannot fast-forward, so the promotion **rewrote
+all 44 commits** — `20657e1` became `362c12e` — and `deleteBranchOnMerge` then
+**deleted `origin/develop`**. Trees are identical (`c526b35`), so nothing was
+lost, and `origin/develop` has been recreated from `main`'s tip.
+
+Two consequences for a session reading this page. Every hash cited below is the
+pre-promotion one and **no longer resolves**; the commit subjects still do,
+which is how to find them. And ADR-0004's promotion path is
+`git push origin origin/develop:main` from a terminal, never a pull request —
+CONTRIBUTING.md says so, and the repository setting that allowed the pull
+request is unchanged.
 
 ## What the verification found
 
@@ -47,17 +62,51 @@ which is why the batches keep its shape.
 | Key | What actually remains |
 |---|---|
 | TYRE-70 | The mobile-viewport projects and specs landed in `11230eb`. What is outstanding is the acceptance run itself — one real vehicle, on a phone, in airplane mode, with its duration measured against the three-minute target. That is a human sitting in a yard, not agent work |
-| TYRE-30 | ~~Two of its folded decisions were outstanding — the PLATFORM\_ADMIN email partial unique index and the `vehicle_driver` overlap constraint~~ — **closed by B1** in migration `000026`. DR-014b remains separate as TYRE-60 |
+| TYRE-30 | ~~Two of its folded decisions were outstanding — the PLATFORM\_ADMIN email partial unique index and the `vehicle_driver` overlap constraint~~ — **closed by B1** in migration `000026`; **Done on the board** as of the 31 Aug re-verification. DR-014b remains separate as TYRE-60 |
+| TYRE-90 | Its **homing** commit is on `develop`, not its implementation. A key whose only commit is documentation stays open — this row exists so the next re-verification does not read the subject line and close it |
 
 ### Raised after this page was written
 
 The 28 Aug re-verification found two keys the page predates rather than
-misses. Both came out of B1's delivery and neither is scheduled:
+misses. Both came out of B1's delivery:
 
 | Key | What it is | Home |
 | --- | --- | --- |
-| TYRE-87 | Sweep unique and exclusion constraints, and unique indexes, for a missing `tenant_id`. B1 found one cross-tenant oracle and fixed it; seven pre-existing constraints sit in the same blind spot, three of them standalone partial indexes with no `pg_constraint` row | The class of work B1 was. Cheap now, expensive after pilot data — pull it before the pilot, ahead of the analytics tail |
-| TYRE-88 | Harden the TY008/TY009 triggers: legacy NULL-odometer fitments and `unit_kind` edits | Follows B4, which adds the first writer that can create a unit whose kind is known. B4 requires `unit_kind` at the API and leaves the schema alone deliberately — that gap is this ticket's |
+| TYRE-87 | Sweep unique and exclusion constraints, and unique indexes, for a missing `tenant_id`. B1 found one cross-tenant oracle and fixed it; seven pre-existing constraints sit in the same blind spot, three of them standalone partial indexes with no `pg_constraint` row | **Rides with B5.** B5 adds exactly this class of constraint — D12's `display_code_policy` gate and the active-display-code index — and the ordering rule that put B1 first applies unchanged: an integrity rule is cheap before pilot data and expensive after |
+| TYRE-88 | Harden the TY008/TY009 triggers: legacy NULL-odometer fitments and `unit_kind` edits | **Rides with B5, ahead of TYRE-92.** B4 required `unit_kind` at the API and left the schema alone deliberately; that gap is this ticket's, and B5 is where it starts to matter — TYRE-92 writes the first fitment, TYRE-94 the first `unit_kind` edit |
+
+### The asset flow — four keys raised 30 Aug
+
+*Reconciliation — Asset Flow (30 Aug 2026)* (Confluence page 17170433, in space
+TYRE beside the D1–D11 decision records) reconciled the privileged-user asset
+surfaces against SRS v1.4, ADR-0004, ADR-0005 and the board. **That page is the
+authority; this table is a pointer to it.** It found that the tyre register and
+fitment — the platform's central loop — were owned by no story, and it decided
+three things (§4):
+
+| Decision | What it settles | Carried on |
+| --- | --- | --- |
+| **D12** | Per-tenant `display_code_policy` (`FREE` \| `GENERATED`). Under `GENERATED` the API issues the tyre's display code and refuses a hand-typed one; BAC is `GENERATED` for the pilot. FR-TYR-004 is amended from "warns, never blocks" to "warns, never blocks, **unless the tenant has opted into a generated scheme**". DB uniqueness stays active-only per tenant, so fleets branding licence+position can still onboard | TYRE-91 |
+| **D13** | `mount_orientation` on `app.fitment` — `MARK_OUTBOARD` / `MARK_INBOARD` / `UNKNOWN`, default `UNKNOWN`. **Distinct from the side of the vehicle:** left/right is a property of the position; this is the tyre's own orientation on the side it is fitted to. Neither is derivable from the other. No behaviour until per-casing irregular-wear analysis reads it | TYRE-92 |
+| **D14** | A tyre with an open fitment is never fitted elsewhere directly. Remove (reason, tyre to pool) then fit, or rotate atomically within one rig. **No cross-rig "move" in API or UI.** Already enforced by `one_open_fitment_per_tyre` (INV-3); D14 makes it a product rule so the screen never offers one | TYRE-92 |
+
+| Key | What it is | Home |
+| --- | --- | --- |
+| TYRE-91 | The tyre register surface: receive into fleet with and without a price, the awaiting-cost queue, bulk-create with generated codes, code lookup resolving **by date** across historical reuse, scrap / sell / lost | **B5**, with TYRE-48 |
+| TYRE-92 | The fitment surface: fit, remove, rotate, dispatch, on the unit's plan view. The largest unbuilt piece of the privileged-user flow | **B5**, after TYRE-91 |
+| TYRE-93 | Retread return propagates to the tyre — `retread_count`, status, tread, pattern, recomputed `rand_per_mm`, casing valuation, the `max_retreads` cap. Fixes the finding TYRE-55 records and nothing owned | **B5**, with TYRE-92 |
+| TYRE-94 | Unit edit and retire: `PATCH` non-configuration fields, status transitions, configuration read-only once history exists | **B5**, last |
+
+Three deliverables the reconciliation names that are **not** tickets, listed
+here because otherwise nothing carries them:
+
+- **An SRS erratum** for D12 — FR-TYR-004's amended sentence, and a
+  `display_code_policy` column on `tenant` in §5.1. SRS pages exceed the
+  Confluence MCP's limits, so this is prepared as a row and pasted by hand;
+  block TYRE-91's definition of done on the paste.
+- **A comment on TYRE-48** that the branding path must honour the policy.
+- **A front-end note on TYRE-68's navigation:** the Fleet tab is
+  **Units · Tyres · Rigs · Fitments**.
 
 ### Open and correctly scoped, verified still needed
 
@@ -74,8 +123,9 @@ Also open and unbuilt, against `develop` rather than any branch in flight — a
 key delivered on a branch that has not yet merged stays listed here until it
 lands: TYRE-36, TYRE-38, TYRE-41, TYRE-48, TYRE-51, TYRE-53, TYRE-58 to
 TYRE-64, TYRE-72, TYRE-73, TYRE-75, TYRE-76, TYRE-79, TYRE-83, TYRE-87,
-TYRE-88, TYRE-89. TYRE-86 — this page itself — closed on 28 Aug once its own
-method had been re-run against it.
+TYRE-88, TYRE-89, TYRE-90, TYRE-91 to TYRE-94. TYRE-86 — this page itself —
+closed on 28 Aug once its own method had been re-run against it; TYRE-30 closed
+on the board between the 28 and 31 Aug passes.
 
 ## The batches
 
@@ -244,8 +294,7 @@ next batch should expect rather than because they are history:
   fitment write. B4 only creates a vehicle and assigns a driver; it never
   updates a configuration or writes a fitment, so neither code is reachable
   yet and an entry in `submitStatus` could carry no test able to fail. The
-  deferral stays re-pointed at whichever batch builds one of those two
-  surfaces.
+  deferral is re-pointed at **B5**, which builds both — see that batch.
 - **Rule 6's display half has no infrastructure, owned by TYRE-89.** Storage
   is UTC throughout and `app.tenant_today(timezone)` exists, but no endpoint
   sends the tenant's timezone to the client and no screen formats in it —
@@ -269,7 +318,81 @@ TYRE-81 does not build one — it picks from the axle configuration library and
 authoring stays ORG_ADMIN's through `ManageTemplates` (D8, TYRE-84) — so
 TYRE-58 waits for the surface that edits tenant configuration, not for this.
 
-### B5 — the rig-setup surface
+### B4.5 — what sits on B4's code — **next**
+
+**TYRE-83, then TYRE-89.**
+
+Neither is large; both edit files B4 has just written, and the order matters in
+one direction only: TYRE-83 changes what a create may do, TYRE-89 changes when
+it does it.
+
+TYRE-83 refines the invite surface that did not exist until B4. ADR-0013
+recorded the D9/D10 constraints specifically so this would be an edit rather
+than a restructure, and the 409 already carries `email_taken` rather than a
+generic conflict, which is what the reactivate branch keys on.
+
+TYRE-89 is the reason this batch is not simply deferred into B5. Rule 6's
+storage half is done; its display half has no infrastructure at all, and **every
+batch after this one writes dates** — B5's branding, receipt and fitment events,
+B6's combination effective dates. The formatter, the `/api/me` field and the
+server-side `from_date` default are cheaper before those exist than retrofitted
+across them. Its eslint ban on bare `toLocale*` is what stops the rule decaying
+into a convention.
+
+One constraint from the ticket: TYRE-83's `active = false` half touches
+**TYRE-64's POPIA question**, which is open and with the sponsor. Build the
+invite and reactivate paths; leave deactivation alone. The definition of done
+does not need it.
+
+### B5 — the asset flow
+
+**TYRE-48 with TYRE-91, then TYRE-92 with TYRE-93, then TYRE-94.** TYRE-87
+rides along.
+
+The tyre register and fitment are the platform's central loop — a fleet tyre
+system that cannot receive a tyre or record where it is fitted does not
+demonstrate its own premise — and until 30 Aug no story owned either. The
+sequence is the reconciliation's own (§5) and each link is a real dependency,
+not a preference:
+
+- **TYRE-48 with TYRE-91**, not before it. The event vocabulary is frozen by
+  the code that first writes it; frozen in the abstract it will be wrong.
+- **TYRE-91 before TYRE-92** — you cannot fit what you cannot receive.
+- **TYRE-93 with TYRE-92**, because a retread return *is* a refit. Splitting
+  them means building the return path twice.
+- **TYRE-94 last.** Nothing corrupts while unit edit and retire wait.
+
+This batch carries the last schema changes that are cheap before pilot data:
+D13's `mount_orientation` column and D12's `display_code_policy`. That is also
+why TYRE-87's constraint sweep rides with it rather than waiting for the
+analytics tail — B5 is adding constraints of exactly the class TYRE-87 sweeps.
+
+**This batch discharges ADR-0012's TY008/TY009 deferral.** B3 kept both out of
+`submitStatus` because neither was reachable through any endpoint, so an entry
+could carry no test able to fail; B4 built no surface that changed this and
+re-pointed the deferral forward. B5 is that surface: **TYRE-92 writes the first
+fitment**, which is what `TY009` fires on, and **TYRE-94 makes the first
+`unit_kind` edit**, which is `TY008`'s other case. Both codes get their
+`submitStatus` entry and their wire code in the batch that makes them
+reachable, each with a test that fails without it. TYRE-88 hardens the two
+triggers and belongs ahead of TYRE-92 for the same reason B1 came first.
+
+TYRE-93 is SQL, not Go. It is a business rule about tyres — a recomputed
+`rand_per_mm` and a casing valuation — so it lands in `db/` with a test in
+`db/tests/`, and `make check` must stay green **including the Appendix E pins**.
+The valuation is the acceptance gate; there is exactly one implementation of it.
+
+**Before any screen in this batch is named, read §3 of the reconciliation.**
+"Configuration" is reserved for the axle-configuration template — ORG_ADMIN,
+`ManageTemplates`, immutable once a unit has history. Using it for the
+controller's rig and fitment work collides with that gating, with TYRE-82's
+trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
+**Units · Tyres · Rigs · Fitments**.
+
+### B6 — the rig-setup surface
+
+*Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
+`20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch.*
 
 **TYRE-72 with TYRE-90, then TYRE-73, then TYRE-75.**
 
@@ -278,13 +401,18 @@ lock the combination while in active transportation, then reconcile observed
 composition against membership. TYRE-90 (FR-INS-049's schedule surface) was
 named as "the natural sibling" in TYRE-72, TYRE-73 and TYRE-81 and owned by
 none of them until 28 Aug; TYRE-72's own text says to build the two together,
-and they share the `ManageAssignments` gate. The largest build on the
-board. It blocks D5's driver-confirm flow and FR-INS-049 scheduling, but
-nothing corrupts while it waits, which is why it sits behind the write-path
-foundations rather than in front of them.
+and they share the `ManageAssignments` gate. It blocks D5's driver-confirm flow
+and FR-INS-049 scheduling, but nothing corrupts while it waits, which is why it
+sits behind the write-path foundations rather than in front of them.
+
+**This batch may run in parallel with B5**, and the reconciliation says so
+explicitly: TYRE-72 touches units, not tyres. The two share no table and no
+endpoint. Sequenced here because one engineer cannot run both, not because B5
+blocks it — if a second pair of hands appears, this is what they take.
 
 TYRE-82's front-end consequence — disabling the configuration field once a unit
-has history — lands here, with B1 as its citation.
+has history — belongs to **TYRE-94** in B5, whose scope names it directly, with
+B1 as its citation.
 
 ### Parallel track — deployment
 
@@ -296,8 +424,10 @@ shown it.
 
 ### Tail — analytics and lifecycle
 
-**TYRE-41 (re-scoped first), TYRE-38, TYRE-36, TYRE-48, then TYRE-52's
-successors.** TYRE-36 only once the register shape is stable, since it reads it.
+**TYRE-41 (re-scoped first), TYRE-38, TYRE-36, then TYRE-52's successors.**
+TYRE-36 only once the register shape is stable, since it reads it. TYRE-48 left
+this tail on 31 Aug — the event vocabulary is frozen by the code that writes it,
+which is B5's.
 
 ### Homed, not scheduled
 
@@ -334,9 +464,18 @@ The method, so the next session can redo it rather than trust it:
 gh pr list --state open                        # open review work
 git log origin/develop --pretty=%s \           # keys actually on develop
   | grep -oE 'TYRE-[0-9]+' | sort -u
+git rev-parse origin/develop^{tree} \          # develop and main must agree
+             origin/main^{tree}                # after a promotion
 ```
 
 Match against the board with a `statusCategory != Done` search. A key present
 on `develop` and open on the board is a candidate, not a conclusion — read the
-ticket's definition of done before closing it. TYRE-30 is why: three of its
-commits are on `develop` and it is still genuinely open.
+ticket's definition of done before closing it. TYRE-90 is why: its only commit
+on `develop` is the one that homed it in this page.
+
+The third command is the 29 Aug lesson. Compare **trees**, never hashes: a
+promotion that went through a pull request rewrites every hash while leaving
+the tree identical, so equal trees mean the branches agree and unequal hashes
+alone mean nothing. If `origin/develop` is missing entirely, it was deleted by
+`deleteBranchOnMerge` and is restored with
+`git push origin origin/main:refs/heads/develop`.
