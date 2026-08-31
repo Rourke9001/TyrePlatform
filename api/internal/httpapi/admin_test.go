@@ -633,6 +633,24 @@ func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 		  WHERE tenant_id = $1 AND lower(email) = lower($2)`,
 		mine, email).Scan(&minted))
 	require.Zero(t, minted, "a refused reactivate must not create a user")
+
+	// The other direction of "identical whether the address lives elsewhere
+	// or nowhere": a plain create under the same cross-tenant shadow still
+	// falls through to the INSERT, and rule 1's write half says the row must
+	// land in MY tenant — proven by resolving the response id through the
+	// admin connection, so a handler that fabricated its body could not pass.
+	rec = post(t, h, "/api/users", mine.String(), mineAdmin.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Mine","role":"DRIVER"}`, email))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	var landedTenant string
+	var landedActive bool
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT tenant_id, active FROM app.app_user WHERE id = $1`, created.ID).
+		Scan(&landedTenant, &landedActive))
+	require.Equal(t, mine.String(), landedTenant)
+	require.True(t, landedActive)
 }
 
 // TYRE-95: a reactivate that reactivated nobody must refuse rather than fall

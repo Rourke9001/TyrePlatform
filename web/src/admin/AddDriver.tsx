@@ -66,6 +66,12 @@ export function AddDriver() {
   // when onError first learns it, and outlives the mutation that produced it
   // (D10).
   const [rehire, setRehire] = useState<{ email: string; message: string } | null>(null);
+  // Whether the success sentence says "restored" or "added" (TYRE-95): an
+  // admin who restored someone with years of history must not read that they
+  // added a stranger. Derived from the request that succeeded — a
+  // reactivate: true that matched nobody is refused, never a create, so the
+  // flag cannot lie about which happened.
+  const [restored, setRestored] = useState(false);
 
   // D9. ManageUsers offers the whole list; InviteDriver alone offers DRIVER.
   // The server decides the same question again (mayCreateRole) — this only
@@ -82,8 +88,9 @@ export function AddDriver() {
 
   const create = useMutation({
     mutationFn: createUser,
-    onSuccess: (user) => {
+    onSuccess: (user, variables) => {
       setCreated(user);
+      setRestored(variables.reactivate === true);
       setAssignedTo(null);
       setEmail("");
       setDisplayName("");
@@ -200,7 +207,11 @@ export function AddDriver() {
           </button>
         </>
       )}
-      {created && <p role="status">{created.displayName} was added.</p>}
+      {created && (
+        <p role="status">
+          {created.displayName} was {restored ? "restored" : "added"}.
+        </p>
+      )}
 
       {created && (
         <form onSubmit={submitAssignment}>
