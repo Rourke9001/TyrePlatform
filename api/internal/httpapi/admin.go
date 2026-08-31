@@ -331,9 +331,27 @@ func (b createUserRequest) validate() (userInsert, error) {
 	return u, nil
 }
 
-// createUser is FR-AUT-010's invite, gated on ManageUsers. It creates an
-// active user and nothing else: leaving a company is active = false and never
-// a delete (D10, FR-VEH-008), and that surface is TYRE-83's.
+// mayCreateRole answers D9. ManageUsers creates any role tenantRoles allows;
+// InviteDriver creates a DRIVER and nothing else. Both are capability
+// questions — the actor's role name never appears, so separating the
+// controller jobs later stays an edit to auth's table (ADR-0011).
+//
+// The pairing is what makes the guardrail hold: an actor without ManageUsers
+// cannot create an administrator, so no path here promotes anyone.
+func mayCreateRole(a auth.Actor, role string) error {
+	if a.Can(auth.ManageUsers) {
+		return nil
+	}
+	if a.Can(auth.InviteDriver) && role == string(auth.RoleDriver) {
+		return nil
+	}
+	return fmt.Errorf("%w: %s may not create %s", errForbidden, a.Role, role)
+}
+
+// createUser is FR-AUT-010's invite, gated on ManageUsers, or on InviteDriver
+// for a DRIVER alone (D9). It creates an active user and nothing else: leaving
+// a company is active = false and never a delete (D10, FR-VEH-008), and that
+// surface is TYRE-83's.
 func createUser(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -348,7 +366,7 @@ func createUser(s *store.Store) http.HandlerFunc {
 
 		var created userJSON
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
-			if err := require(a, auth.ManageUsers); err != nil {
+			if err := mayCreateRole(a, ins.role); err != nil {
 				return err
 			}
 			var id uuid.UUID
