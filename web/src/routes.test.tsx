@@ -15,6 +15,7 @@ const actor = (capabilities: string[]): Me => ({
   role: "CONTROLLER",
   capabilities,
   depots: [],
+  timezone: "Africa/Johannesburg",
 });
 
 // DriverHome and VehicleList both fetch through TanStack Query. `fetch` is
