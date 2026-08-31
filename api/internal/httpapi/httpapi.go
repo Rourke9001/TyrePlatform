@@ -270,11 +270,14 @@ type refusal struct {
 // translated, never forwarded, so ADR-0012 holds; an unrecognised constraint
 // keeps the generic conflict, which is the safe direction.
 //
-// A constraint renamed in a migration without an edit here fails the
-// integration test that asserts the code, not one that asserts the name.
+// These names are consulted only on the race the pre-insert classification
+// misses, so no integration test reaches them in anger.
+// TestConflictCodesNameLiveSchemaObjects asserts every key here names a live
+// constraint or index, which is the guarantee the suite actually provides
+// (TYRE-95).
 var conflictCodes = map[string]string{
 	"vehicle_tenant_id_fleet_number_key": codeFleetNumberTaken,
-	"app_user_tenant_id_email_key":       codeEmailTaken,
+	"app_user_tenant_email_key":          codeEmailTaken,
 	"vehicle_driver_no_overlap":          codeAssignmentOverlaps,
 	// A rehire preserves the returning employee's staff_number rather than
 	// blanking it (admin.go's COALESCE, FR-AUT-022), and 000019's partial
