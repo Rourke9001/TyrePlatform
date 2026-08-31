@@ -1,5 +1,24 @@
 # B4.5 — tiered invites and tenant time — Implementation Plan
 
+> **SUPERSEDED — 2026-09-01.** This plan was executed and merged as PR #37;
+> it is now a record of what was planned, not of what exists, and the
+> "verified against the code" note below no longer holds — it described
+> `develop @ efdf251` on 31 Aug. Do not execute this plan and do not treat
+> its samples as current: the code and its tests are the authority. The
+> shipped code diverges from the samples in at least these places, each
+> deliberate: the reactivate `UPDATE` does not set `staff_number = $3`
+> outright (an omitted staff number keeps the stored one; an explicitly
+> blank one clears it — TYRE-95); the rehire offer is not the bare button
+> over `refusalMessage(create.error, …)` shown in Task 4 (the message is
+> captured in state and the button disabled while the mutation is pending);
+> and Task 6's eslint block lacks the `Intl.DateTimeFormat` and `Intl`-alias
+> bans TYRE-95 added to close the routes the `toLocale*` selectors miss.
+> TYRE-95 fixed the defects that shipped with this plan's execution —
+> case-folded email uniqueness, the reactivate refusal contract, the
+> formatter's invalid-instant guard, the lint bypasses. The task bodies
+> below are left as written on purpose: the gap between them and the code
+> is the process signal PR #37 recorded.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **Verified against the code on 31 Aug 2026 (develop @ efdf251).** Every file path, function name, line reference, test helper and grant this plan names was checked against the tree that day, and the code samples were corrected where they disagreed. An executor should not spend tokens re-deriving them. Where a step still disagrees with the code, the code wins — report it, do not redesign.
