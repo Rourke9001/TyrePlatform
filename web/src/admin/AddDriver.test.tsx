@@ -217,4 +217,27 @@ describe("adding a driver", () => {
       reactivate: true,
     });
   });
+
+  // A double-click here reads as "Thandi was added" followed immediately by
+  // "already in use" for the same person — on the one screen meant to stop a
+  // rehire becoming a second one. The request never settling proves the
+  // button is disabled for the whole time it is in flight, not just at t=0.
+  it("disables the reactivate button while the reactivate request is in flight", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        respond(409, {
+          code: "email_inactive",
+          message: "a user with this email address was deactivated",
+        }),
+      )
+      .mockReturnValueOnce(new Promise(() => {}));
+
+    renderScreen();
+    await fillAndSubmit();
+
+    const again = await screen.findByRole("button", { name: /reactivate/i });
+    await userEvent.click(again);
+
+    expect(again).toBeDisabled();
+  });
 });

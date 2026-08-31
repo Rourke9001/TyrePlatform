@@ -175,10 +175,14 @@ export function AddDriver() {
         <p role="alert">{refusalMessage(create.error, "add a user")}</p>
       )}
       {rehire !== null && (
-        <p role="alert">
-          {refusalMessage(create.error, "add a user")}{" "}
+        <>
+          <p role="alert">{refusalMessage(create.error, "add a user")}</p>
+          {/* A focusable descendant of role="alert" is not reliably surfaced
+              by assistive tech, which announces the region's text and stops;
+              the button is a sibling so a screen-reader user can reach it. */}
           <button
             type="button"
+            disabled={create.isPending}
             onClick={() =>
               create.mutate({
                 email: rehire,
@@ -191,7 +195,7 @@ export function AddDriver() {
           >
             Reactivate {rehire}
           </button>
-        </p>
+        </>
       )}
       {created && <p role="status">{created.displayName} was added.</p>}
 
