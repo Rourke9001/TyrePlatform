@@ -498,14 +498,18 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 			refuseInvalid(w, r, invalid("userId", "must be a uuid"))
 			return
 		}
-		if strings.TrimSpace(body.FromDate) == "" {
-			refuseInvalid(w, r, invalid("fromDate", "is required"))
-			return
-		}
-		from, err := time.Parse(isoDate, strings.TrimSpace(body.FromDate))
-		if err != nil {
-			refuseInvalid(w, r, invalid("fromDate", "must be a date as YYYY-MM-DD"))
-			return
+		// Absent means "today in the tenant's zone", computed in SQL where
+		// that zone lives (rule 6). A browser's calendar day is the admin's,
+		// not the tenant's, and the two differ for most of every day.
+		// Malformed is still refused — only absence defaults.
+		var from *time.Time
+		if raw := strings.TrimSpace(body.FromDate); raw != "" {
+			parsed, err := time.Parse(isoDate, raw)
+			if err != nil {
+				refuseInvalid(w, r, invalid("fromDate", "must be a date as YYYY-MM-DD"))
+				return
+			}
+			from = &parsed
 		}
 
 		created := assignmentJSON{VehicleID: vehicleID.String(), UserID: userID.String()}
@@ -518,7 +522,10 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 			err := tx.QueryRow(ctx,
 				`INSERT INTO app.vehicle_driver
 				   (tenant_id, vehicle_id, user_id, from_date)
-				 VALUES (app.current_tenant_id(), $1, $2, $3)
+				 VALUES (app.current_tenant_id(), $1, $2,
+				         COALESCE($3::date,
+				                  app.tenant_today((SELECT timezone FROM app.tenant
+				                                     WHERE id = app.current_tenant_id()))))
 				 RETURNING id, from_date`,
 				vehicleID, userID, from).Scan(&id, &fromDate)
 			if err != nil {
