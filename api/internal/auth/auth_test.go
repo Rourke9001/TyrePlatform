@@ -21,7 +21,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "driver",
 			role: auth.RoleDriver,
 			can:  []auth.Capability{auth.CaptureInspection},
-			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates},
+			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates, auth.InviteDriver},
 		},
 		{
 			// FR-AUT-006 with §4.7: a technician reads, and has no lifecycle
@@ -29,7 +29,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "technician",
 			role: auth.RoleTechnician,
 			can:  []auth.Capability{auth.ViewFleet},
-			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageTemplates},
+			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageTemplates, auth.InviteDriver},
 		},
 		{
 			// FR-AUT-007 with FR-FIT-018: both controller jobs are this role.
@@ -38,7 +38,7 @@ func TestRoleCapabilities(t *testing.T) {
 			// is responsible for the drivers, and an ORG_ADMIN is not.
 			name: "controller",
 			role: auth.RoleController,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.InviteDriver},
 			cant: []auth.Capability{auth.ManageUsers, auth.ManageTemplates},
 		},
 		{
@@ -48,7 +48,7 @@ func TestRoleCapabilities(t *testing.T) {
 			// all, since app.configuration is keyed by tenant (D1).
 			name: "depot manager",
 			role: auth.RoleDepotManager,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.InviteDriver},
 			cant: []auth.Capability{auth.ManageUsers, auth.ManageTemplates},
 		},
 		{
@@ -58,7 +58,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "org admin",
 			role: auth.RoleOrgAdmin,
 			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates},
-			cant: nil,
+			cant: []auth.Capability{auth.InviteDriver},
 		},
 		{
 			// ADR-0011: platform admin rows carry a NULL tenant_id and are
@@ -67,7 +67,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "platform admin",
 			role: auth.RolePlatformAdmin,
 			can:  nil,
-			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ViewValuation, auth.ManageUsers},
+			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ViewValuation, auth.ManageUsers, auth.InviteDriver},
 		},
 		{
 			// A value the database grew and Go has not learned yet must fail
@@ -75,7 +75,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "unknown role",
 			role: auth.Role("NOT_A_ROLE"),
 			can:  nil,
-			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssets, auth.ViewValuation},
+			cant: []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssets, auth.ViewValuation, auth.InviteDriver},
 		},
 	}
 

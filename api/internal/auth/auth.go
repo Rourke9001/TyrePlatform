@@ -46,6 +46,13 @@ const (
 	// template authoring to both.
 	ManageTemplates Capability = "ManageTemplates"
 	ManageUsers     Capability = "ManageUsers"
+	// InviteDriver is ManageUsers narrowed to one role (D9, amending
+	// FR-AUT-010). Driver onboarding otherwise queues behind the one person
+	// holding ManageUsers, and the fleet stops capturing while it waits. It
+	// grants no path to create or promote an administrator: createUser pairs
+	// it with the requested role, and DRIVER is the only pairing it accepts,
+	// so there is no privilege escalation to reason about.
+	InviteDriver Capability = "InviteDriver"
 )
 
 // FR-AUT-005..009, carrying erratum D1. DEPOT_MANAGER holds everything
@@ -62,8 +69,8 @@ const (
 var capabilities = map[Role][]Capability{
 	RoleDriver:       {CaptureInspection},
 	RoleTechnician:   {ViewFleet},
-	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig},
-	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig},
+	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, InviteDriver},
+	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, InviteDriver},
 	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, ManageUsers, ManageTemplates},
 }
 
