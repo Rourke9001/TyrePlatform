@@ -224,7 +224,8 @@ describe("adding a driver", () => {
             "a user with this email address was deactivated; reactivate them instead of adding a new one",
         }),
       )
-      .mockResolvedValueOnce(respond(201, CREATED))
+      // 200, not 201: a reactivate is an in-place update (TYRE-95).
+      .mockResolvedValueOnce(respond(200, CREATED))
       .mockResolvedValueOnce(respond(200, []));
 
     renderScreen();
@@ -276,7 +277,8 @@ describe("adding a driver", () => {
     // request that is in fact succeeding (D10).
     expect(screen.getByRole("alert")).toHaveTextContent(/deactivated/i);
 
-    release(respond(201, CREATED));
+    // The reactivate path answers 200 (TYRE-95).
+    release(respond(200, CREATED));
 
     expect(await screen.findByRole("status")).toHaveTextContent(/New Driver/);
     expect(screen.queryByRole("button", { name: /reactivate/i })).not.toBeInTheDocument();

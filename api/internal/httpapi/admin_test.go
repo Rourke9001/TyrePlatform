@@ -524,11 +524,13 @@ func TestReactivateAnInactiveUser(t *testing.T) {
 	// The same request carrying the admin's answer reactivates in place: the
 	// id is the original person's, so their inspection history stays theirs
 	// (FR-VEH-008). It omits staffNumber, the way the reactivate form does —
-	// absence must not wipe FR-AUT-022's identifier.
+	// absence must not wipe FR-AUT-022's identifier. 200, not 201: nobody
+	// new exists, and an integration counting 201s must not count a person
+	// who has been on the fleet for years (TYRE-95).
 	reactivate := fmt.Sprintf(
 		`{"email":%q,"displayName":"Thandi Returned","role":"DRIVER","reactivate":true}`, email)
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var again userBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again))
 	require.Equal(t, first.ID, again.ID, "a rehire is the same person, not a new row")
@@ -585,12 +587,14 @@ func TestReactivateCollidesWithReusedStaffNumber(t *testing.T) {
 
 // An email that exists only in another tenant is invisible under
 // tenant_isolation's USING half, so the classification SELECT finds nothing
-// and the UPDATE's WHERE clause matches zero rows: the request falls through
-// to a create, which must land in the actor's own tenant (rule 1) — proven
-// below by resolving the response id through the admin connection, not by
-// trusting the 201 body. WITH CHECK is not exercised here, because an UPDATE
-// matching no rows never reaches it; that half of the policy is already
-// proven by TestWriteAimedAtAnotherTenantIsRefused_AppUser's INSERT.
+// and a reactivate is refused as having nothing to restore (TYRE-95) —
+// identically to an address no tenant holds at all, which is the non-leak
+// property this test guards: the refusal must not tell my admin whether the
+// address lives elsewhere. The other tenant's row stays untouched and no row
+// is minted in mine, both proven through the admin connection. WITH CHECK is
+// not exercised here, because an UPDATE matching no rows never reaches it;
+// that half of the policy is already proven by
+// TestWriteAimedAtAnotherTenantIsRefused_AppUser's INSERT.
 func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -606,12 +610,14 @@ func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 		theirs, email).Scan(&victim))
 
 	// My admin asks to reactivate an address only the other tenant holds. The
-	// row is invisible under RLS, so this must read as "nobody here has that
-	// address" and create a new user in MY tenant — never touch theirs.
+	// row is invisible under RLS, so to this tenant there is no deactivated
+	// user to restore, and the request must refuse — never touch theirs, and
+	// never mint a new person the admin did not ask for.
 	mineAdmin := plantUser(t, ctx, admin, mine, auth.RoleOrgAdmin)
 	rec := post(t, h, "/api/users", mine.String(), mineAdmin.String(),
 		fmt.Sprintf(`{"email":%q,"displayName":"Mine","role":"DRIVER","reactivate":true}`, email))
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "nothing_to_reactivate", errorCode(t, rec))
 
 	var stillInactive bool
 	var owner uuid.UUID
@@ -621,19 +627,75 @@ func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 	require.False(t, stillInactive, "the other tenant's row must not have been reactivated")
 	require.Equal(t, theirs, owner)
 
-	// Rule 1's write half: the cross-tenant assertions above prove the OTHER
-	// tenant's row was untouched, but not where the new row actually landed.
-	// Resolve it through the admin connection so a handler that fabricated
-	// its response body could not pass this test.
-	var created userBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	var landedTenant string
-	var landedActive bool
+	var minted int
 	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT tenant_id, active FROM app.app_user WHERE id = $1`, created.ID).
-		Scan(&landedTenant, &landedActive))
-	require.Equal(t, mine.String(), landedTenant)
-	require.True(t, landedActive)
+		`SELECT count(*) FROM app.app_user
+		  WHERE tenant_id = $1 AND lower(email) = lower($2)`,
+		mine, email).Scan(&minted))
+	require.Zero(t, minted, "a refused reactivate must not create a user")
+}
+
+// TYRE-95: a reactivate that reactivated nobody must refuse rather than fall
+// through to the insert. The admin clicked Reactivate against a row they were
+// shown; if it has since been renamed or removed, minting a fresh person and
+// announcing "was added" is the defect this arm exists to close.
+func TestReactivateWithNothingToRestoreRefuses(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "rehire-gone")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+
+	email := "gone-" + uuid.NewString()[:8] + "@example.invalid"
+	rec := post(t, h, "/api/users", tenantID.String(), orgAdmin.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Nobody","role":"DRIVER","reactivate":true}`, email))
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "nothing_to_reactivate", errorCode(t, rec))
+
+	var minted int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.app_user
+		  WHERE tenant_id = $1 AND lower(email) = lower($2)`,
+		tenantID, email).Scan(&minted))
+	require.Zero(t, minted, "a refused reactivate must not create a user")
+
+	// Without the reactivate flag the same request is a plain create and
+	// still proceeds — the refusal is scoped to the restore that had nothing
+	// to restore, not to the address.
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Somebody New","role":"DRIVER"}`, email))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// TYRE-95, FR-AUT-022's counterpart: absence keeps a rehire's staff number,
+// but an explicitly blank one is the admin clearing it — the same tri-state
+// display_name never needed because it is required. Proven through the admin
+// connection, not the response body.
+func TestReactivateClearsAnExplicitlyBlankStaffNumber(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "rehire-clear")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+
+	email := "clear-" + uuid.NewString()[:8] + "@example.invalid"
+	rec := post(t, h, "/api/users", tenantID.String(), orgAdmin.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Nomsa","role":"DRIVER","staffNumber":"BAC-9001"}`, email))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var first userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+
+	_, err := admin.Exec(ctx, `UPDATE app.app_user SET active = false WHERE id = $1`, first.ID)
+	require.NoError(t, err)
+
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Nomsa Returned","role":"DRIVER","staffNumber":"","reactivate":true}`, email))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var cleared *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT staff_number FROM app.app_user WHERE id = $1`, first.ID).Scan(&cleared))
+	require.Nil(t, cleared, "an explicitly blank staffNumber clears the column")
 }
 
 // TYRE-95: a rehire's email is retyped, not pasted, so it arrives in whatever
@@ -669,7 +731,8 @@ func TestRehireEmailDiffersOnlyInCase(t *testing.T) {
 	reactivate := fmt.Sprintf(
 		`{"email":%q,"displayName":"Thandi Returned","role":"DRIVER","reactivate":true}`, retyped)
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	// 200: the case-variant rehire updated the original row in place (TYRE-95).
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var again userBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again))
 	require.Equal(t, original.String(), again.ID, "a case-variant rehire is the same person")

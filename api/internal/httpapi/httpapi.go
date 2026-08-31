@@ -197,11 +197,12 @@ const (
 	codeRateLimited       = "rate_limited"
 	codeInternal          = "internal"
 
-	codeFleetNumberTaken   = "fleet_number_taken"
-	codeEmailTaken         = "email_taken"
-	codeEmailInactive      = "email_inactive"
-	codeAssignmentOverlaps = "assignment_overlaps"
-	codeStaffNumberTaken   = "staff_number_taken"
+	codeFleetNumberTaken    = "fleet_number_taken"
+	codeEmailTaken          = "email_taken"
+	codeEmailInactive       = "email_inactive"
+	codeNothingToReactivate = "nothing_to_reactivate"
+	codeAssignmentOverlaps  = "assignment_overlaps"
+	codeStaffNumberTaken    = "staff_number_taken"
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
@@ -217,11 +218,12 @@ const (
 	msgVehicleNotVisible = "vehicle not visible"
 	msgInternal          = "internal error"
 
-	msgFleetNumberTaken   = "a unit with that fleet number already exists"
-	msgEmailTaken         = "a user with that email address already exists in this tenant"
-	msgEmailInactive      = "a user with this email address was deactivated; reactivate them instead of adding a new one"
-	msgAssignmentOverlaps = "that driver already holds an overlapping assignment to this unit"
-	msgStaffNumberTaken   = "another active user already has that staff number; give this one a different number"
+	msgFleetNumberTaken    = "a unit with that fleet number already exists"
+	msgEmailTaken          = "a user with that email address already exists in this tenant"
+	msgEmailInactive       = "a user with this email address was deactivated; reactivate them instead of adding a new one"
+	msgNothingToReactivate = "no deactivated user holds that email address any more; refresh and add them as a new user if that is still the intent"
+	msgAssignmentOverlaps  = "that driver already holds an overlapping assignment to this unit"
+	msgStaffNumberTaken    = "another active user already has that staff number; give this one a different number"
 )
 
 var submitStatus = map[string]int{
