@@ -4,7 +4,12 @@ import { describe, expect, it } from "vitest";
 
 import { ActorContext } from "../auth/actorContext";
 import type { Me } from "../auth/me";
-import { formatTenantDate, INVALID_INSTANT, useTenantDate } from "./tenantTime";
+import {
+  formatTenantDate,
+  INVALID_INSTANT,
+  tenantDateFormatter,
+  useTenantDate,
+} from "./tenantTime";
 
 // A fixed instant in two zones 25 hours apart. Their civil dates can never
 // agree, so this asserts the zone is honoured no matter where it runs — which
@@ -44,6 +49,29 @@ describe("formatTenantDate", () => {
       INVALID_INSTANT,
     );
     expect(formatTenantDate(new Date("not-a-date"), "Africa/Johannesburg")).toBe(INVALID_INSTANT);
+  });
+});
+
+// The cache is keyed per zone. Reusing one instance is the optimisation;
+// the assertion that matters is the second one — a wrong key would render
+// every tenant in the first tenant's zone (rule 6), a far worse defect than
+// the construction cost the cache removes.
+describe("tenantDateFormatter", () => {
+  const instant = "2026-01-01T23:00:00Z";
+
+  it("returns the same instance for the same zone", () => {
+    expect(tenantDateFormatter("Pacific/Kiritimati")).toBe(
+      tenantDateFormatter("Pacific/Kiritimati"),
+    );
+  });
+
+  it("gives a different zone its own formatter, formatting in that zone", () => {
+    const kiritimati = tenantDateFormatter("Pacific/Kiritimati");
+    const midway = tenantDateFormatter("Pacific/Midway");
+    expect(midway).not.toBe(kiritimati);
+    // The two zones are 25 hours apart, so their civil dates can never agree.
+    expect(formatTenantDate(instant, "Pacific/Kiritimati")).toBe("02 Jan 2026");
+    expect(formatTenantDate(instant, "Pacific/Midway")).toBe("01 Jan 2026");
   });
 });
 
@@ -88,5 +116,17 @@ describe("useTenantDate", () => {
   it("never marks the invalid-instant marker provisional", () => {
     const { result } = renderHook(() => useTenantDate(), { wrapper: withActor(null, true) });
     expect(result.current("not-a-date")).toBe(INVALID_INSTANT);
+  });
+
+  // The identity matters, not just the output: a child that takes the
+  // formatter as a prop can only memoise on it if re-renders with the same
+  // actor state hand back the same function.
+  it("returns the same callback across re-renders with the same actor", () => {
+    const { result, rerender } = renderHook(() => useTenantDate(), {
+      wrapper: withActor(me, true),
+    });
+    const first = result.current;
+    rerender();
+    expect(result.current).toBe(first);
   });
 });

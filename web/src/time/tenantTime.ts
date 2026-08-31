@@ -1,3 +1,5 @@
+import { useCallback } from "react";
+
 import { useActor, useActorSettled } from "../auth/actorContext";
 
 // What an unparseable instant renders as. /api/my/tasks is typed as
@@ -21,12 +23,29 @@ export function formatTenantDate(instant: string | Date, timeZone: string): stri
   if (Number.isNaN(at.getTime())) {
     return INVALID_INSTANT;
   }
-  return new Intl.DateTimeFormat("en-ZA", {
-    timeZone,
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  }).format(at);
+  return tenantDateFormatter(timeZone).format(at);
+}
+
+// Constructing an Intl.DateTimeFormat costs roughly ten times a .format()
+// call on an existing instance, and a dashboard list or inspection history
+// pays it per cell on the phone the three-minute constraint is judged on
+// (NFR-USE-001). Keyed per zone because a session sees at most a handful —
+// the tenant's and the UTC fallback — and a wrong key would render every
+// tenant in the first tenant's zone (rule 6).
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+export function tenantDateFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = formatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-ZA", {
+      timeZone,
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+    });
+    formatters.set(timeZone, formatter);
+  }
+  return formatter;
 }
 
 // UTC is the fallback while GET /api/me has not resolved, and the two ways
@@ -50,10 +69,14 @@ export function useTenantDate(): (instant: string | Date) => string {
   // "anonymous but successful" /api/me would need an explicit errored flag
   // in ActorState instead.
   const provisional = settled && actor === null;
-  return (instant) => {
-    const text = formatTenantDate(instant, timeZone);
-    // An unparseable instant is unparseable in every zone; a provisional
-    // marker on it would imply the value could resolve once the actor does.
-    return provisional && text !== INVALID_INSTANT ? `${text} (UTC)` : text;
-  };
+  // Stable so a child that takes the formatter as a prop can memoise on it.
+  return useCallback(
+    (instant: string | Date) => {
+      const text = formatTenantDate(instant, timeZone);
+      // An unparseable instant is unparseable in every zone; a provisional
+      // marker on it would imply the value could resolve once the actor does.
+      return provisional && text !== INVALID_INSTANT ? `${text} (UTC)` : text;
+    },
+    [timeZone, provisional],
+  );
 }
