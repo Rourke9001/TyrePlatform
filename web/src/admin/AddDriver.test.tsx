@@ -96,6 +96,27 @@ describe("adding a driver", () => {
     expect(alert).toHaveTextContent(/already exists/i);
   });
 
+  // TYRE-83: the server names this refusal specifically (a rehire's
+  // preserved staff number colliding with a legitimate reuse). Without this
+  // code in refusalMessage's speakable list, the admin would see only the
+  // generic "could not add a user" sentence and never learn what to fix.
+  it("shows the server's message for a staff-number collision, not the generic fallback", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(409, {
+        code: "staff_number_taken",
+        message:
+          "another active user already has that staff number; give this one a different number",
+      }),
+    );
+
+    renderScreen();
+    await fillAndSubmit();
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/already has that staff number/i);
+    expect(alert).not.toHaveTextContent(/could not add a user/i);
+  });
+
   it("names the add-user action on a create refused as forbidden", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(403, { code: "forbidden", message: "no" }));
 

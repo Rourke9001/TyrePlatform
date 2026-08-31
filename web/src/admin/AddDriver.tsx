@@ -30,6 +30,7 @@ function refusalMessage(error: unknown, action: "add a user" | "assign a unit"):
       "email_taken",
       "email_inactive",
       "assignment_overlaps",
+      "staff_number_taken",
       "conflict",
     ];
     if (speakable.includes(error.code) && error.message !== "") {

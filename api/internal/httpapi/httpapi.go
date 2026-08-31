@@ -221,7 +221,7 @@ const (
 	msgEmailTaken         = "a user with that email address already exists in this tenant"
 	msgEmailInactive      = "a user with this email address was deactivated; reactivate them instead of adding a new one"
 	msgAssignmentOverlaps = "that driver already holds an overlapping assignment to this unit"
-	msgStaffNumberTaken   = "another active user already has that staff number; give this one a different number to reactivate them"
+	msgStaffNumberTaken   = "another active user already has that staff number; give this one a different number"
 )
 
 var submitStatus = map[string]int{
