@@ -199,6 +199,7 @@ const (
 
 	codeFleetNumberTaken   = "fleet_number_taken"
 	codeEmailTaken         = "email_taken"
+	codeEmailInactive      = "email_inactive"
 	codeAssignmentOverlaps = "assignment_overlaps"
 )
 
@@ -217,6 +218,7 @@ const (
 
 	msgFleetNumberTaken   = "a unit with that fleet number already exists"
 	msgEmailTaken         = "a user with that email address already exists in this tenant"
+	msgEmailInactive      = "a user with this email address was deactivated; reactivate them instead of adding a new one"
 	msgAssignmentOverlaps = "that driver already holds an overlapping assignment to this unit"
 )
 
@@ -323,7 +325,8 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		return false
 	}
 	err := s.InActorTx(ctx, id.TenantID, id.UserID, fn)
-	ref, isClient := refusalForPgError(err)
+	pgRef, isClient := refusalForPgError(err)
+	var ref refusalError
 	switch {
 	case err == nil:
 		return true
@@ -339,8 +342,11 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 	case errors.Is(err, errVehicleNotVisible):
 		writeError(ctx, w, http.StatusUnprocessableEntity, codeVehicleNotVisible, msgVehicleNotVisible)
 		return false
-	case isClient:
+	case errors.As(err, &ref):
 		writeError(ctx, w, ref.status, ref.code, ref.message)
+		return false
+	case isClient:
+		writeError(ctx, w, pgRef.status, pgRef.code, pgRef.message)
 		return false
 	default:
 		slog.ErrorContext(ctx, "actor transaction failed", "err", err)
@@ -353,6 +359,14 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 // withActor shape the response, so the capability check reads inline with the
 // query it guards rather than as a separate pre-flight.
 var errForbidden = errors.New("capability not held")
+
+// refusalError lets a handler refuse from inside its transaction with a
+// refusal it composes, the way errForbidden does for a fixed 403. ADR-0012 is
+// unchanged by it: the message is written in Go, names a request field and no
+// schema object, and is never one Postgres wrote.
+type refusalError struct{ refusal }
+
+func (e refusalError) Error() string { return e.code + ": " + e.message }
 
 // errVehicleNotVisible is the write path's FR-AUT-005 narrowing, answered as
 // 422 and not 403 — the status and the wording are TY007's, deliberately.

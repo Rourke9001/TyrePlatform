@@ -8,6 +8,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -272,6 +273,9 @@ type createUserRequest struct {
 	DisplayName string  `json:"displayName"`
 	StaffNumber *string `json:"staffNumber"`
 	Role        string  `json:"role"`
+	// D10's rehire answer. Absent means "add a new user"; true means the
+	// admin has been shown the deactivated row and asked for it back.
+	Reactivate bool `json:"reactivate"`
 }
 
 type userInsert struct {
@@ -279,6 +283,7 @@ type userInsert struct {
 	displayName string
 	staffNumber *string
 	role        string
+	reactivate  bool
 }
 
 // tenantRoles is app.user_role minus PLATFORM_ADMIN. Platform staff carry a
@@ -328,6 +333,7 @@ func (b createUserRequest) validate() (userInsert, error) {
 	if u.staffNumber, err = text("staffNumber", b.StaffNumber); err != nil {
 		return u, err
 	}
+	u.reactivate = b.Reactivate
 	return u, nil
 }
 
@@ -365,23 +371,69 @@ func createUser(s *store.Store) http.HandlerFunc {
 		}
 
 		var created userJSON
+		var createdID uuid.UUID
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := mayCreateRole(a, ins.role); err != nil {
 				return err
 			}
-			var id uuid.UUID
+
+			// Classify the collision before inserting, because the unique
+			// index spans inactive rows and Postgres cannot say which kind it
+			// caught. RLS scopes this lookup, so another tenant's address is
+			// simply not here and the request proceeds as a create — which is
+			// the honest answer for this tenant.
+			var existingActive bool
+			lookup := tx.QueryRow(ctx,
+				`SELECT active FROM app.app_user WHERE email = $1`, ins.email).
+				Scan(&existingActive)
+			switch {
+			case lookup == nil && existingActive:
+				return refusalError{refusal{http.StatusConflict, codeEmailTaken, msgEmailTaken}}
+			case lookup == nil && !ins.reactivate:
+				return refusalError{refusal{http.StatusConflict, codeEmailInactive, msgEmailInactive}}
+			case lookup == nil:
+				// A rehire is the same person: updating in place keeps the id
+				// their inspections are attributed through (FR-VEH-008).
+				// UPDATE is granted on app_user — only DELETE was revoked
+				// (000002, 000018) — because a person is not an event.
+				err := tx.QueryRow(ctx,
+					`UPDATE app.app_user
+					    SET active = true, display_name = $2, staff_number = $3,
+					        role = $4::app.user_role
+					  WHERE email = $1 AND NOT active
+					 RETURNING id, email, display_name, role::text, staff_number, active`,
+					ins.email, ins.displayName, ins.staffNumber, ins.role).
+					Scan(&createdID, &created.Email, &created.DisplayName, &created.Role,
+						&created.StaffNumber, &created.Active)
+				if errors.Is(err, pgx.ErrNoRows) {
+					// Reactivated by someone else between the lookup and this
+					// update. That is an active collision now, and the admin's
+					// next action is the same as for any other one.
+					return refusalError{refusal{http.StatusConflict, codeEmailTaken, msgEmailTaken}}
+				}
+				if err != nil {
+					return fmt.Errorf("reactivating user: %w", err)
+				}
+				created.ID = createdID.String()
+				return nil
+			case errors.Is(lookup, pgx.ErrNoRows):
+				// Nothing here holds the address; fall through to the insert.
+			default:
+				return fmt.Errorf("checking for an existing user: %w", lookup)
+			}
+
 			err := tx.QueryRow(ctx,
 				`INSERT INTO app.app_user
 				   (tenant_id, email, display_name, staff_number, role)
 				 VALUES (app.current_tenant_id(), $1, $2, $3, $4::app.user_role)
 				 RETURNING id, email, display_name, role::text, staff_number, active`,
 				ins.email, ins.displayName, ins.staffNumber, ins.role).
-				Scan(&id, &created.Email, &created.DisplayName, &created.Role,
+				Scan(&createdID, &created.Email, &created.DisplayName, &created.Role,
 					&created.StaffNumber, &created.Active)
 			if err != nil {
 				return fmt.Errorf("creating user: %w", err)
 			}
-			created.ID = id.String()
+			created.ID = createdID.String()
 			return nil
 		})
 		if !ok {
