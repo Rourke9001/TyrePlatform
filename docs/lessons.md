@@ -15,6 +15,55 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-08-31 — A grep cannot answer "have I updated every construction of this type"
+
+**What happened:** TYRE-89 made `timezone` a required field on `Me`. The plan
+named three fixtures to patch; an implementer searched the tree and reported
+"exactly three, no fourth"; a reviewer then searched independently and
+confirmed it. All three were wrong. A fourth lived at `routes.test.tsx:12` as
+`const actor = (capabilities: string[]): Me => ({ … })` — an arrow factory,
+which shares no searchable shape with an annotated object literal, and which
+a fixture could dodge entirely by carrying no annotation at all. `tsc` found
+it in seconds and the branch had been left not typechecking.
+
+**The rule:** when a change makes a field required on a shared type, find the
+call sites with the typechecker, never with a search — `make lint` runs
+`tsc`, so run it before believing the sweep is done. Never accept "I grepped
+and found them all" as evidence that every construction was updated, from a
+subagent or from a reviewer.
+
+## 2026-08-31 — `make web-test` passing says nothing about eslint
+
+**What happened:** two idioms that read as ordinary vitest cost a fix round
+each in B4.5, both invisible to the test run. `String(init?.body)` fails
+`@typescript-eslint/no-base-to-string`, because `RequestInit.body` is
+`BodyInit` and `String()` on a `Blob` or `FormData` yields `"[object Object]"`
+— which would also have made the assertion pass while testing nothing.
+`new Promise(() => {})`, the usual "request that never settles", fails
+`@typescript-eslint/no-empty-function`.
+
+**The rule:** run `make lint` after changing any web test file, not just
+`make web-test` — the type-aware rules live only there and test files are not
+exempt. To assert on a stubbed `fetch` body, narrow it with a `typeof` guard
+that throws, never a cast: the cast silences the linter and keeps the vacuous
+assertion. To hold a request in flight, use a deferred whose executor assigns
+the resolver, and release it before the test ends.
+
+## 2026-08-31 — eslint strips a trailing period, and a transcript missing one is not a forgery
+
+**What happened:** a reviewer compared a rule's committed message, ending
+`(rule 6).`, against the implementer's pasted lint transcript, which read
+`(rule 6)` with no period. It reasoned that the stylish formatter prints
+messages unmodified, concluded the evidence for the lint gate was not an
+authentic capture, and failed the task on that alone. Re-running the planted
+violation showed eslint does strip the trailing period. The evidence had been
+genuine and the code was never in question.
+
+**The rule:** when a finding turns on how a tool formats its output, reproduce
+it before acting — a minute of running beats an hour of adjudicating, and a
+confident byte-level argument can still rest on a false premise about the
+tool. Ask reviewers to say out loud when a finding depends on such a premise.
+
 ## 2026-08-31 — `gh pr merge` reports failure after the merge has already landed
 
 **What happened:** `gh pr merge 35 --rebase --delete-branch` ended in
