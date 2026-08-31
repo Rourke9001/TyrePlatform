@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -230,10 +231,10 @@ func TestCreateUser(t *testing.T) {
 	body := `{"email":"` + email + `","displayName":"New Driver",` +
 		`"staffNumber":"SBX-9001","role":"DRIVER"}`
 
-	// ManageUsers is ORG_ADMIN's alone today (D9 keeps it so). A CONTROLLER
-	// holds ManageAssets and not this.
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	rec := post(t, h, "/api/users", tenantID.String(), controller.String(), body)
+	// D9: a TECHNICIAN may not create any user, but a CONTROLLER may create a
+	// DRIVER through InviteDriver. ManageUsers remains ORG_ADMIN's alone.
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	rec := post(t, h, "/api/users", tenantID.String(), technician.String(), body)
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), body)
@@ -440,4 +441,43 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver(t *testing.T) {
 		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1 AND user_id = $2`,
 		vehicleBID, driverB).Scan(&landed))
 	require.Zero(t, landed)
+}
+
+// D9: the invite is narrowed by capability and not by role name, so the test
+// asserts the pairing of actor and requested role rather than the actor alone.
+// A CONTROLLER creating an ORG_ADMIN is the privilege-escalation path the
+// decision exists to close, and it is the case worth failing loudly.
+func TestTieredInvite(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "tiered")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	body := func(email, role string) string {
+		return fmt.Sprintf(`{"email":%q,"displayName":"Someone","role":%q}`, email, role)
+	}
+
+	tests := []struct {
+		name  string
+		role  auth.Role
+		makes string
+		want  int
+	}{
+		{"controller invites a driver", auth.RoleController, "DRIVER", http.StatusCreated},
+		{"depot manager invites a driver", auth.RoleDepotManager, "DRIVER", http.StatusCreated},
+		{"controller may not invite an org admin", auth.RoleController, "ORG_ADMIN", http.StatusForbidden},
+		{"controller may not invite a controller", auth.RoleController, "CONTROLLER", http.StatusForbidden},
+		{"depot manager may not invite an org admin", auth.RoleDepotManager, "ORG_ADMIN", http.StatusForbidden},
+		{"org admin invites any role", auth.RoleOrgAdmin, "ORG_ADMIN", http.StatusCreated},
+		{"technician invites nobody", auth.RoleTechnician, "DRIVER", http.StatusForbidden},
+		{"driver invites nobody", auth.RoleDriver, "DRIVER", http.StatusForbidden},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			actor := plantUser(t, ctx, admin, tenantID, tt.role)
+			email := fmt.Sprintf("tiered-%d-%s@example.invalid", i, uuid.NewString()[:8])
+			rec := post(t, h, "/api/users", tenantID.String(), actor.String(), body(email, tt.makes))
+			require.Equal(t, tt.want, rec.Code, rec.Body.String())
+		})
+	}
 }
