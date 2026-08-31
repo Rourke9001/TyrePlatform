@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router";
 
-import { useActorSettled, useCan } from "./auth/actorContext";
+import { useActorSettled, useCan, useCanAny } from "./auth/actorContext";
 import { RequireCapability } from "./auth/RequireCapability";
 import { AddDriver } from "./admin/AddDriver";
 import { AddUnit } from "./admin/AddUnit";
@@ -45,8 +45,19 @@ function CaptureRoute() {
 
 // A destination someone navigated to says why it is refused; a menu item just
 // disappears. RequireCapability is the second, so these routes are the first.
-function AdminRoute({ capability, children }: { capability: string; children: ReactNode }) {
-  const can = useCan(capability);
+//
+// A single capability is the common case; an array is any-of (D9: the invite
+// screen is reachable by ManageUsers or the narrower InviteDriver,
+// ADR-0011). useCanAny takes the fixed-arity form so this stays one hook call
+// regardless of which shape `capability` arrives in.
+function AdminRoute({
+  capability,
+  children,
+}: {
+  capability: string | readonly string[];
+  children: ReactNode;
+}) {
+  const can = useCanAny(typeof capability === "string" ? [capability] : capability);
   const settled = useActorSettled();
   if (!settled) return null;
   if (!can) return <p role="alert">You do not have permission to use this screen.</p>;
@@ -78,7 +89,7 @@ export function AppRoutes() {
       <Route
         path="/admin/users/new"
         element={
-          <AdminRoute capability="ManageUsers">
+          <AdminRoute capability={["ManageUsers", "InviteDriver"]}>
             <AddDriver />
           </AdminRoute>
         }

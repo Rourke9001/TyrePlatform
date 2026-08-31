@@ -30,3 +30,14 @@ export function useCan(capability: string): boolean {
   const actor = useActor();
   return actor?.capabilities.includes(capability) ?? false;
 }
+
+// A screen can be reachable by more than one capability since D9 split the
+// invite (ManageUsers or the narrower InviteDriver, ADR-0011): rules-of-hooks
+// forbids calling useCan in a loop or conditionally at the call site, so the
+// any-of check reads the actor once here instead.
+export function useCanAny(capabilities: readonly string[]): boolean {
+  const actor = useActor();
+  return (
+    actor !== null && capabilities.some((capability) => actor.capabilities.includes(capability))
+  );
+}

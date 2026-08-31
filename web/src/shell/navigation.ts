@@ -12,20 +12,27 @@
 export interface NavItem {
   readonly to: string;
   readonly label: string;
-  readonly capability: string;
+  readonly capability: string | readonly string[];
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/fleet", label: "Vehicles", capability: "ViewFleet" },
   { to: "/my", label: "My inspections", capability: "CaptureInspection" },
-  // D8 puts add-a-unit on ManageAssets and invites on ManageUsers, which are
-  // held by different roles — so they are two items and never one "Admin"
-  // group, which would appear for a controller who cannot use half of it.
+  // Add-a-unit and add-a-user stay two items, never one "Admin" group: a
+  // CONTROLLER holds InviteDriver but not ManageAssets, so a merged group
+  // would show them half a menu they cannot use.
   { to: "/admin/units/new", label: "Add a unit", capability: "ManageAssets" },
-  { to: "/admin/users/new", label: "Add a user", capability: "ManageUsers" },
+  // D9 reaches the invite two ways — ORG_ADMIN via ManageUsers, CONTROLLER
+  // and DEPOT_MANAGER via the narrower InviteDriver (ADR-0011) — so this
+  // item's gate is any-of, not the single capability the others use.
+  { to: "/admin/users/new", label: "Add a user", capability: ["ManageUsers", "InviteDriver"] },
 ] as const;
 
 export function navItemsFor(capabilities: string[]): NavItem[] {
   const held = new Set(capabilities);
-  return NAV_ITEMS.filter((item) => held.has(item.capability));
+  return NAV_ITEMS.filter((item) =>
+    typeof item.capability === "string"
+      ? held.has(item.capability)
+      : item.capability.some((capability) => held.has(capability)),
+  );
 }
