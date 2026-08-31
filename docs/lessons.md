@@ -15,6 +15,38 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-08-31 — `gh pr merge` reports failure after the merge has already landed
+
+**What happened:** `gh pr merge 35 --rebase --delete-branch` ended in
+`fatal: Not possible to fast-forward, aborting.` The merge had in fact
+succeeded — the failure came from gh's *post*-merge step, updating the local
+`develop`, which could not fast-forward because local `develop` still pointed
+at pre-promotion hashes. Re-running the merge would have hit an already-merged
+PR, and reading the exit code alone would have reported the work as unmerged.
+
+**The rule:** after any `gh pr merge` failure, check
+`gh pr view <n> --json state,mergeCommit` before concluding anything or
+retrying. gh's exit code covers the local housekeeping as well as the merge,
+and the two fail independently.
+
+## 2026-08-31 — A promotion through the merge button deletes the branch it promotes
+
+**What happened:** `develop` was promoted to `main` through pull request #34.
+GitHub cannot fast-forward, so it rebase-merged — rewriting all 44 hashes —
+and `deleteBranchOnMerge: true` then deleted `origin/develop`, leaving the
+repository with no integration branch. Nothing was lost: the trees were
+identical. But every hash cited in `docs/implementation-order.md` stopped
+resolving, and a local `develop` left unreset silently became a fork.
+
+**The rule:** promote with `git push origin origin/develop:main` from a
+terminal, never a pull request (ADR-0004, CONTRIBUTING.md). To check whether
+two branches agree after any promotion, compare
+`git rev-parse <ref>^{tree}` — **trees, never hashes**, because a rebase leaves
+the tree equal and every hash different. Cut feature branches as
+`git checkout -b <name> origin/develop`, naming the remote, so a stale local
+`develop` cannot seed one. A ruleset now blocks deletion of `develop`; nothing
+yet blocks a pull request into `main`.
+
 ## 2026-08-28 — A WITH CHECK kill can be masked by an unrelated FK (TYRE-81)
 
 **What happened:** Task 3's proof that `app.vehicle`'s `tenant_isolation`
