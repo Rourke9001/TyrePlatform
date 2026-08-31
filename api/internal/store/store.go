@@ -84,7 +84,15 @@ var ErrNoSuchActor = errors.New("actor not found or inactive")
 // is what makes deactivation bite on the next request rather than at token
 // expiry (ADR-0011, NFR-SEC-006).
 func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn func(pgx.Tx, auth.Actor) error) error {
-	tx, err := s.pool.Begin(ctx)
+	// READ COMMITTED is pinned, not assumed: createUser's reactivate race is
+	// a 409 only because the losing UPDATE re-evaluates its WHERE against the
+	// winner's committed row and matches nothing — under REPEATABLE READ the
+	// same interleaving raises 40001, which submitStatus does not map, so a
+	// form would see a 500. default_transaction_isolation is a server
+	// parameter a DBA can flip with no test failing; a guarantee handlers
+	// lean on is stated here, the way append-only is enforced by revoked
+	// grants rather than convention (TYRE-95).
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("beginning actor transaction: %w", err)
 	}
