@@ -34,6 +34,9 @@ export function formatTenantDate(instant: string | Date, timeZone: string): stri
 // tenant in the first tenant's zone (rule 6).
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
+// Exported for the cache's identity tests only. Nothing renders through it:
+// formatTenantDate carries the INVALID_INSTANT guard this does not, and it is
+// the single path an instant takes to a screen (rule 6).
 export function tenantDateFormatter(timeZone: string): Intl.DateTimeFormat {
   let formatter = formatters.get(timeZone);
   if (!formatter) {
