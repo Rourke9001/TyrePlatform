@@ -535,9 +535,15 @@ func TestReactivateAnInactiveUser(t *testing.T) {
 	require.Equal(t, "email_taken", errorCode(t, rec))
 }
 
-// A reactivate is an UPDATE, which is a write path of its own and needs its
-// own proof that tenant_isolation's WITH CHECK holds it (rule 1).
-func TestReactivateAimedAtAnotherTenantIsRefused(t *testing.T) {
+// An email that exists only in another tenant is invisible under
+// tenant_isolation's USING half, so the classification SELECT finds nothing
+// and the UPDATE's WHERE clause matches zero rows: the request falls through
+// to a create, which must land in the actor's own tenant (rule 1) — proven
+// below by resolving the response id through the admin connection, not by
+// trusting the 201 body. WITH CHECK is not exercised here, because an UPDATE
+// matching no rows never reaches it; that half of the policy is already
+// proven by TestWriteAimedAtAnotherTenantIsRefused_AppUser's INSERT.
+func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	mine, _ := plantTenantWithVehicle(t, ctx, admin, "rehire-mine")
