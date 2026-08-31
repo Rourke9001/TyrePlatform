@@ -73,7 +73,7 @@ misses. Both came out of B1's delivery:
 | Key | What it is | Home |
 | --- | --- | --- |
 | TYRE-87 | Sweep unique and exclusion constraints, and unique indexes, for a missing `tenant_id`. B1 found one cross-tenant oracle and fixed it; seven pre-existing constraints sit in the same blind spot, three of them standalone partial indexes with no `pg_constraint` row | **Rides with B5.** B5 adds exactly this class of constraint — D12's `display_code_policy` gate and the active-display-code index — and the ordering rule that put B1 first applies unchanged: an integrity rule is cheap before pilot data and expensive after |
-| TYRE-88 | Harden the TY008/TY009 triggers: legacy NULL-odometer fitments and `unit_kind` edits | **Rides with B5, ahead of TYRE-92.** B4 required `unit_kind` at the API and left the schema alone deliberately; that gap is this ticket's, and B5 is where it starts to matter — TYRE-92 writes the first fitment, TYRE-94 the first `unit_kind` edit |
+| TYRE-88 | Harden the TY008/TY009 triggers: legacy NULL-odometer fitments and `unit_kind` edits | **Rides with B5, ahead of TYRE-92**, which writes the first fitment and so is the first caller that can meet `TY009` on real data. B4 required `unit_kind` at the API and left the schema alone deliberately; that gap is this ticket's. Note the triggers stay backstops — B5 exposes no endpoint that edits a configuration or a unit kind |
 
 ### The asset flow — four keys raised 30 Aug
 
@@ -294,7 +294,10 @@ next batch should expect rather than because they are history:
   fitment write. B4 only creates a vehicle and assigns a driver; it never
   updates a configuration or writes a fitment, so neither code is reachable
   yet and an entry in `submitStatus` could carry no test able to fail. The
-  deferral is re-pointed at **B5**, which builds both — see that batch.
+  deferral resolves in **B5**, though not the way this note assumed: `TY009`
+  becomes reachable there and gets its entry; `TY008` never does, because the
+  only ticket that touches a unit after creation refuses `configuration_id`
+  outright. See that batch.
 - **Rule 6's display half has no infrastructure, owned by TYRE-89.** Storage
   is UTC throughout and `app.tenant_today(timezone)` exists, but no endpoint
   sends the tenant's timezone to the client and no screen formats in it —
@@ -367,15 +370,25 @@ D13's `mount_orientation` column and D12's `display_code_policy`. That is also
 why TYRE-87's constraint sweep rides with it rather than waiting for the
 analytics tail — B5 is adding constraints of exactly the class TYRE-87 sweeps.
 
-**This batch discharges ADR-0012's TY008/TY009 deferral.** B3 kept both out of
-`submitStatus` because neither was reachable through any endpoint, so an entry
-could carry no test able to fail; B4 built no surface that changed this and
-re-pointed the deferral forward. B5 is that surface: **TYRE-92 writes the first
-fitment**, which is what `TY009` fires on, and **TYRE-94 makes the first
-`unit_kind` edit**, which is `TY008`'s other case. Both codes get their
-`submitStatus` entry and their wire code in the batch that makes them
-reachable, each with a test that fails without it. TYRE-88 hardens the two
-triggers and belongs ahead of TYRE-92 for the same reason B1 came first.
+**This batch discharges ADR-0012's deferral — but only half of it, and the
+other half resolves rather than moves again.**
+
+`TY009` becomes reachable here. **TYRE-92 writes the first fitment**, which is
+exactly what it fires on, so it gets its `submitStatus` entry and its wire code
+in this batch, with a test that fails without it.
+
+`TY008` does **not**, and no later batch will change that. It fires on an
+*update* of `vehicle.configuration_id`, and TYRE-94 — the only ticket that
+touches a unit after creation — refuses `configuration_id` on `PATCH`
+outright: correcting a wrong configuration is a documented migration or a
+retire-and-re-add (D11(ii)), and `unit_kind` is the same. So the trigger is a
+pure database backstop against a path the API deliberately does not offer, and
+an entry in `submitStatus` could carry no test able to fail — not yet, but
+ever, unless some later decision reopens configuration editing. Leave it out
+and record why; do not re-point it a third time.
+
+TYRE-88 hardens both triggers and belongs ahead of TYRE-92, for the reason B1
+came first: it is cheap before pilot fitments exist.
 
 TYRE-93 is SQL, not Go. It is a business rule about tyres — a recomputed
 `rand_per_mm` and a casing valuation — so it lands in `db/` with a test in
