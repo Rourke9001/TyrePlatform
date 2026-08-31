@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -480,4 +481,124 @@ func TestTieredInvite(t *testing.T) {
 			require.Equal(t, tt.want, rec.Code, rec.Body.String())
 		})
 	}
+}
+
+// D10: leaving a company is active = false, never a delete, so a rehire meets
+// a unique constraint that spans inactive rows. The refusal has to say which
+// collision it is, or the screen can only offer "that email is taken" to an
+// admin whose next action is to reactivate the person.
+func TestReactivateAnInactiveUser(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "rehire")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+
+	email := "rehire-" + uuid.NewString()[:8] + "@example.invalid"
+	create := fmt.Sprintf(`{"email":%q,"displayName":"Thandi First","role":"DRIVER"}`, email)
+
+	rec := post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), create)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var first userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+
+	// An active collision stays email_taken: there is nothing to reactivate.
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), create)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "email_taken", errorCode(t, rec))
+
+	_, err := admin.Exec(ctx, `UPDATE app.app_user SET active = false WHERE id = $1`, first.ID)
+	require.NoError(t, err)
+
+	// Now the same request is a rehire, and must say so rather than repeat
+	// the sentence that tells the admin to pick another address.
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), create)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "email_inactive", errorCode(t, rec))
+
+	// The same request carrying the admin's answer reactivates in place: the
+	// id is the original person's, so their inspection history stays theirs
+	// (FR-VEH-008).
+	reactivate := fmt.Sprintf(
+		`{"email":%q,"displayName":"Thandi Returned","role":"DRIVER","reactivate":true}`, email)
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var again userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &again))
+	require.Equal(t, first.ID, again.ID, "a rehire is the same person, not a new row")
+	require.True(t, again.Active)
+	require.Equal(t, "Thandi Returned", again.DisplayName)
+
+	// And reactivating what is already active is not a silent no-op.
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Equal(t, "email_taken", errorCode(t, rec))
+}
+
+// A reactivate is an UPDATE, which is a write path of its own and needs its
+// own proof that tenant_isolation's WITH CHECK holds it (rule 1).
+func TestReactivateAimedAtAnotherTenantIsRefused(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	mine, _ := plantTenantWithVehicle(t, ctx, admin, "rehire-mine")
+	theirs, _ := plantTenantWithVehicle(t, ctx, admin, "rehire-theirs")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	email := "cross-" + uuid.NewString()[:8] + "@example.invalid"
+	var victim uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.app_user (tenant_id, email, display_name, role, active)
+		 VALUES ($1, $2, 'Their Person', 'DRIVER', false) RETURNING id`,
+		theirs, email).Scan(&victim))
+
+	// My admin asks to reactivate an address only the other tenant holds. The
+	// row is invisible under RLS, so this must read as "nobody here has that
+	// address" and create a new user in MY tenant — never touch theirs.
+	mineAdmin := plantUser(t, ctx, admin, mine, auth.RoleOrgAdmin)
+	rec := post(t, h, "/api/users", mine.String(), mineAdmin.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Mine","role":"DRIVER","reactivate":true}`, email))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var stillInactive bool
+	var owner uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT active, tenant_id FROM app.app_user WHERE id = $1`, victim).
+		Scan(&stillInactive, &owner))
+	require.False(t, stillInactive, "the other tenant's row must not have been reactivated")
+	require.Equal(t, theirs, owner)
+
+	// Rule 1's write half: the cross-tenant assertions above prove the OTHER
+	// tenant's row was untouched, but not where the new row actually landed.
+	// Resolve it through the admin connection so a handler that fabricated
+	// its response body could not pass this test.
+	var created userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	var landedTenant string
+	var landedActive bool
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT tenant_id, active FROM app.app_user WHERE id = $1`, created.ID).
+		Scan(&landedTenant, &landedActive))
+	require.Equal(t, mine.String(), landedTenant)
+	require.True(t, landedActive)
+}
+
+type userBody struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Role        string `json:"role"`
+	Active      bool   `json:"active"`
+}
+
+// errorCode reads the refusal envelope's machine-readable half (ADR-0012), so
+// an assertion names the contract rather than a sentence that may be reworded.
+// The envelope is flat — errorBody is {"code": …, "message": …} — with no
+// wrapper key.
+func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
+	t.Helper()
+	var body struct {
+		Code string `json:"code"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	return body.Code
 }
