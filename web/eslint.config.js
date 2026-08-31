@@ -65,7 +65,28 @@ export default tseslint.config(
           message:
             "Render dates through web/src/time/tenantTime.ts — the browser's zone is not the tenant's (rule 6).",
         },
+        {
+          // Intl.DateTimeFormat formats in the browser's zone, same as the
+          // toLocale* forms above, without touching toLocale* at all — a gap
+          // in the ban that a bare Date method check cannot see (rule 6,
+          // TYRE-89).
+          selector:
+            "NewExpression[callee.object.name='Intl'][callee.property.name='DateTimeFormat']",
+          message:
+            "Render dates through formatTenantDate/useTenantDate (web/src/time/tenantTime.ts) — the browser's zone is not the tenant's (rule 6).",
+        },
       ],
+    },
+  },
+  // web/src/time/tenantTime.ts is the one legitimate home the three date
+  // bans above all point to — the funnel every other file is required to
+  // render through (rule 6, TYRE-89) — so the funnel's own implementation
+  // must be free to call Date/Intl directly, or nothing could ever satisfy
+  // the ban it exists to enforce.
+  {
+    files: ["src/time/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-syntax": "off",
     },
   },
   // Config, tooling and e2e files are not part of the app's tsconfig
