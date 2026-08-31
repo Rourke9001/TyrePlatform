@@ -42,10 +42,11 @@ function refusalMessage(error: unknown, action: "add a user" | "assign a unit"):
   return `Could not ${action}. Try again, or call support if it keeps happening.`;
 }
 
-// FR-AUT-010's invite, gated on ManageUsers. The assignment step follows the
-// create rather than living on its own screen: a driver with no assignment
-// reaches no capture (FR-AUT-005, app.v_capture_vehicle), so the two steps are
-// one piece of work even though they are two writes.
+// FR-AUT-010's invite, gated on ManageUsers or InviteDriver (D9, ADR-0011).
+// The assignment step follows the create rather than living on its own
+// screen: a driver with no assignment reaches no capture (FR-AUT-005,
+// app.v_capture_vehicle), so the two steps are one piece of work even though
+// they are two writes.
 export function AddDriver() {
   const tenantKey = getDevTenantId() ?? "default";
   const [email, setEmail] = useState("");

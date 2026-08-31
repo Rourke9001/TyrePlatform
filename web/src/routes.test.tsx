@@ -192,4 +192,12 @@ describe("AppRoutes", () => {
     renderAt("/admin/users/new", actor(["ManageUsers"]));
     expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
   });
+
+  // D9 split the invite: a CONTROLLER or DEPOT_MANAGER holds InviteDriver and
+  // not ManageUsers, and the whole point of the split is that they reach this
+  // screen anyway (ADR-0011).
+  it("renders the add-a-user screen for an actor holding InviteDriver alone", () => {
+    renderAt("/admin/users/new", actor(["InviteDriver"]));
+    expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
+  });
 });

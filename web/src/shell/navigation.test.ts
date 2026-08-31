@@ -56,4 +56,14 @@ describe("navItemsFor", () => {
     // again regardless (NFR-SEC-006).
     expect(navItemsFor(["CaptureInspection"]).map((i) => i.to)).toEqual(["/my"]);
   });
+
+  // D9 split the invite in two: CONTROLLER and DEPOT_MANAGER hold
+  // InviteDriver and not ManageUsers, and the whole point of the split is
+  // that they see "Add a user" too, without also seeing "Add a unit"
+  // (ADR-0011).
+  it("offers add-a-user, but not add-a-unit, to an actor holding InviteDriver alone", () => {
+    const items = navItemsFor(["InviteDriver"]).map((i) => i.to);
+    expect(items).toContain("/admin/users/new");
+    expect(items).not.toContain("/admin/units/new");
+  });
 });
