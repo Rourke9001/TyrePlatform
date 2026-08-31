@@ -15,6 +15,51 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-01 — A ban proven against the forms that were written is unproven against the forms that are reachable (TYRE-95)
+
+**What happened:** B4.5's rule 6 lint gate banned the `toLocale*` methods and
+proved each selector with a planted violation. Every plant was a form already
+in the tree, and three routes to the same browser-zone formatting sailed
+past: `Intl.DateTimeFormat(...)` called without `new` (ECMA-402 permits it),
+`const { DateTimeFormat } = Intl`, and aliasing `Intl` itself. TYRE-95 closed
+them with two further selectors, each proven by its own plant.
+
+**The rule:** when banning behaviour with an AST selector, enumerate the
+syntactic routes the platform offers to that behaviour — call-without-`new`,
+destructuring, aliasing, bracket access — and plant one violation per route,
+not per selector written. Extends the 2026-08-20 "prove the test can fail"
+entry: these plants did fail, but only against the shapes someone had
+happened to type, which proves the selector, not the ban.
+
+## 2026-09-01 — A migration that renames a schema object orphans every Go string naming it (TYRE-95)
+
+**What happened:** migration 000027 folded email uniqueness to
+`(tenant_id, lower(email))`, replacing the unique index the reactivate race
+translates through. `conflictCodes` kept the old index name as its key, so
+the new index's `23505` would no longer map to the intended refusal, and a
+full green `make check` said nothing — no test drove the race into the
+renamed index. Review caught it; the fix re-keyed the map and added
+`TestConflictCodesNameLiveSchemaObjects`, which resolves every key against
+the live schema.
+
+**The rule:** when a migration renames, replaces or drops a named schema
+object, `rg` the Go tree for the old name as a string literal before calling
+the migration done — error translation couples to names the compiler never
+checks. Any new map keyed on schema object names needs a test that resolves
+its keys against the live schema, as `conflictCodes` now has.
+
+## 2026-09-01 — A post-merge review that skips the PR body re-reports the author's recorded decisions (TYRE-95)
+
+**What happened:** the TYRE-95 review read B4.5's diff and its plan and
+raised its findings; four of them were decisions PR #37's body had already
+recorded as accepted, the transient UTC flash on `/my` among them. Each cost
+an adjudication round to separate from the real defects.
+
+**The rule:** hand a post-merge reviewer the PR body alongside the diff, and
+read it before writing findings. A decision the author recorded there is
+context — challenge it explicitly as a disagreement if it is wrong, never
+re-report it as a discovery.
+
 ## 2026-08-31 — A grep cannot answer "have I updated every construction of this type"
 
 **What happened:** TYRE-89 made `timezone` a required field on `Me`. The plan
