@@ -77,7 +77,7 @@ describe("adding a driver", () => {
     renderScreen();
     await fillAndSubmit();
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/New Driver/);
+    expect(await screen.findByRole("status")).toHaveTextContent(/New Driver was added/);
     expect(await screen.findByLabelText(/unit/i)).toBeInTheDocument();
   });
 
@@ -234,7 +234,7 @@ describe("adding a driver", () => {
     const again = await screen.findByRole("button", { name: /reactivate/i });
     await userEvent.click(again);
 
-    await screen.findByRole("status");
+    expect(await screen.findByRole("status")).toHaveTextContent(/was restored/);
     expect(sentBody(1)).toMatchObject({
       email: "new@example.invalid",
       reactivate: true,
@@ -280,7 +280,9 @@ describe("adding a driver", () => {
     // The reactivate path answers 200 (TYRE-95).
     release(respond(200, CREATED));
 
-    expect(await screen.findByRole("status")).toHaveTextContent(/New Driver/);
+    // "restored", not "added": the admin brought back someone with history,
+    // and the sentence must not claim a stranger joined (TYRE-95).
+    expect(await screen.findByRole("status")).toHaveTextContent(/New Driver was restored/);
     expect(screen.queryByRole("button", { name: /reactivate/i })).not.toBeInTheDocument();
   });
 

@@ -52,6 +52,11 @@ func (s *Store) Pool() *pgxpool.Pool {
 // one tenant's context into the next request. SET LOCAL itself cannot take a
 // bind parameter, and string-interpolating the tenant id is exactly the kind
 // of shortcut rule 1 exists to forbid.
+//
+// Unlike InActorTx, no isolation level is pinned here: nothing routes through
+// this today, so no handler's refusal shape leans on one. A future
+// read-then-write here whose behaviour differs under REPEATABLE READ must
+// carry the same pin, for the reasons InActorTx states.
 func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
