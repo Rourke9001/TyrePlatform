@@ -18,12 +18,13 @@ export function formatTenantDate(instant: string | Date, timeZone: string): stri
   }).format(at);
 }
 
-// UTC is the fallback only while GET /api/me is in flight. Most screens are
-// gated on the actor settling and never see it. /my is not — DriverHome
-// renders before that race resolves — so on a reload or bookmark of it a
-// date can briefly show in UTC instead of the tenant's zone until /api/me
-// lands. A fallback that persists past that would be a bug in the screen,
-// not here.
+// UTC is the fallback only while GET /api/me is in flight. A screen gated by
+// RequireCapability renders nothing until the actor settles — a pre-settle
+// useCan reads false — so it never reaches a date to show. /my carries no
+// such gate: DriverHome renders before that race resolves, so on a reload or
+// bookmark of it a date can briefly show in UTC instead of the tenant's zone
+// until /api/me lands. A fallback that persists past that would be a bug in
+// the screen, not here.
 export function useTenantDate(): (instant: string | Date) => string {
   const timeZone = useActor()?.timezone ?? "UTC";
   return (instant) => formatTenantDate(instant, timeZone);
