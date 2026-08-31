@@ -497,12 +497,15 @@ func TestReactivateAnInactiveUser(t *testing.T) {
 	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
 
 	email := "rehire-" + uuid.NewString()[:8] + "@example.invalid"
-	create := fmt.Sprintf(`{"email":%q,"displayName":"Thandi First","role":"DRIVER"}`, email)
+	create := fmt.Sprintf(
+		`{"email":%q,"displayName":"Thandi First","role":"DRIVER","staffNumber":"BAC-4471"}`, email)
 
 	rec := post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), create)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var first userBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &first))
+	require.NotNil(t, first.StaffNumber)
+	require.Equal(t, "BAC-4471", *first.StaffNumber)
 
 	// An active collision stays email_taken: there is nothing to reactivate.
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), create)
@@ -520,7 +523,8 @@ func TestReactivateAnInactiveUser(t *testing.T) {
 
 	// The same request carrying the admin's answer reactivates in place: the
 	// id is the original person's, so their inspection history stays theirs
-	// (FR-VEH-008).
+	// (FR-VEH-008). It omits staffNumber, the way the reactivate form does —
+	// absence must not wipe FR-AUT-022's identifier.
 	reactivate := fmt.Sprintf(
 		`{"email":%q,"displayName":"Thandi Returned","role":"DRIVER","reactivate":true}`, email)
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
@@ -530,6 +534,8 @@ func TestReactivateAnInactiveUser(t *testing.T) {
 	require.Equal(t, first.ID, again.ID, "a rehire is the same person, not a new row")
 	require.True(t, again.Active)
 	require.Equal(t, "Thandi Returned", again.DisplayName)
+	require.NotNil(t, again.StaffNumber, "a rehire that omits staffNumber must not clear it")
+	require.Equal(t, "BAC-4471", *again.StaffNumber, "the returning employee's identifier survives")
 
 	// And reactivating what is already active is not a silent no-op.
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
@@ -591,11 +597,12 @@ func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 }
 
 type userBody struct {
-	ID          string `json:"id"`
-	Email       string `json:"email"`
-	DisplayName string `json:"displayName"`
-	Role        string `json:"role"`
-	Active      bool   `json:"active"`
+	ID          string  `json:"id"`
+	Email       string  `json:"email"`
+	DisplayName string  `json:"displayName"`
+	Role        string  `json:"role"`
+	StaffNumber *string `json:"staffNumber"`
+	Active      bool    `json:"active"`
 }
 
 // errorCode reads the refusal envelope's machine-readable half (ADR-0012), so

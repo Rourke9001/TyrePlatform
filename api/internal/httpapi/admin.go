@@ -396,9 +396,14 @@ func createUser(s *store.Store) http.HandlerFunc {
 				// their inspections are attributed through (FR-VEH-008).
 				// UPDATE is granted on app_user — only DELETE was revoked
 				// (000002, 000018) — because a person is not an event.
+				//
+				// staff_number is COALESCEd: the reactivate form never pre-fills
+				// it, so an absent field means "not supplied," not "clear it" —
+				// FR-AUT-022's identifier must survive a rehire that omits it.
 				err := tx.QueryRow(ctx,
 					`UPDATE app.app_user
-					    SET active = true, display_name = $2, staff_number = $3,
+					    SET active = true, display_name = $2,
+					        staff_number = COALESCE($3, staff_number),
 					        role = $4::app.user_role
 					  WHERE email = $1 AND NOT active
 					 RETURNING id, email, display_name, role::text, staff_number, active`,
