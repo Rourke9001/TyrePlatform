@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
+> **Verified against the code on 31 Aug 2026 (develop @ efdf251).** Every file path, function name, line reference, test helper and grant this plan names was checked against the tree that day, and the code samples were corrected where they disagreed. An executor should not spend tokens re-deriving them. Where a step still disagrees with the code, the code wins — report it, do not redesign.
+
 **Goal:** Let a CONTROLLER or DEPOT_MANAGER invite a driver without going through the owner, and make every date a screen shows the tenant's date rather than the browser's.
 
 **Architecture:** Two tickets, both edits to code B4 delivered last week. TYRE-83 adds one finer capability and one handler rule; the role narrowing is a capability question answered in `auth`, never a role-name branch in a handler (ADR-0011). TYRE-89 puts the tenant's IANA timezone on `/api/me`, routes every rendered date through one formatter, and moves an assignment's default `from_date` out of the browser and into SQL.
@@ -385,19 +387,19 @@ type userBody struct {
 
 // errorCode reads the refusal envelope's machine-readable half (ADR-0012), so
 // an assertion names the contract rather than a sentence that may be reworded.
+// The envelope is flat — errorBody is {"code": …, "message": …} — with no
+// wrapper key.
 func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
 	var body struct {
-		Error struct {
-			Code string `json:"code"`
-		} `json:"error"`
+		Code string `json:"code"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	return body.Error.Code
+	return body.Code
 }
 ```
 
-> Check the envelope's shape against `writeError` in `httpapi.go` before running — if the code sits at a different key, fix `errorCode` to match the code, never the code to match the helper.
+> The envelope shape above is `errorBody` in `httpapi.go` (`Code`/`Message`, tagged `code`/`message`, written by `writeError`). Verified 31 Aug; it is flat, not nested under `error`.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -496,6 +498,12 @@ Then replace the body of `createUser`'s transaction — everything from `if err 
 					ins.email, ins.displayName, ins.staffNumber, ins.role).
 					Scan(&createdID, &created.Email, &created.DisplayName, &created.Role,
 						&created.StaffNumber, &created.Active)
+				if errors.Is(err, pgx.ErrNoRows) {
+					// Reactivated by someone else between the lookup and this
+					// update. That is an active collision now, and the admin's
+					// next action is the same as for any other one.
+					return refusalError{refusal{http.StatusConflict, codeEmailTaken, msgEmailTaken}}
+				}
 				if err != nil {
 					return fmt.Errorf("reactivating user: %w", err)
 				}
@@ -523,6 +531,8 @@ Then replace the body of `createUser`'s transaction — everything from `if err 
 ```
 
 Declare `var createdID uuid.UUID` above the `withActor` call rather than inside, since both branches assign it. Ensure `errors` and `pgx` are imported in this file.
+
+> **A rehire takes the requested role.** The UPDATE overwrites `role` with `ins.role`, which `mayCreateRole` has already bounded: an actor holding only `InviteDriver` can therefore reactivate a former ORG_ADMIN *as a DRIVER*. That is a demotion, never an escalation, and it is deliberate — the person is being rehired into the job the actor may hire for. Say so in the PR body.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -552,53 +562,86 @@ git commit -m "feat(api): TYRE-83 offer reactivation when a rehire meets the ema
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `web/src/admin/AddDriver.test.tsx`, following whatever render helper the file already uses to supply an actor and a query client:
+`web/src/admin/AddDriver.test.tsx` (verified 31 Aug) has **no** actor provider, **no** request spy and **no** `ApiError` injection. Its conventions are: `renderScreen()` wraps only a `QueryClientProvider`; `fetch` is stubbed with `vi.stubGlobal("fetch", vi.fn())` in `beforeEach`; responses are built with `respond(status, body)`; `fillAndSubmit()` types the email and name and clicks *Add user*; `CREATED` is the created-user fixture. Never construct `ApiError` in a test — its signature is `(status, message, code)` and stubbing `fetch` reaches the same branch through the real client.
+
+First extend the render helper so a test can supply capabilities. Replace `renderScreen` with:
 
 ```tsx
-it("offers only DRIVER to an actor holding InviteDriver alone", () => {
-  renderAddDriver({ capabilities: ["ManageAssignments", "InviteDriver"] });
+import { ActorContext } from "../auth/actorContext";
+import type { Me } from "../auth/me";
 
-  const roles = screen.getAllByRole("option", { name: /driver|controller|admin|technician/i });
-  expect(roles).toHaveLength(1);
-  expect(screen.getByRole("option", { name: "Driver" })).toBeInTheDocument();
-  expect(screen.queryByRole("option", { name: "Organisation admin" })).not.toBeInTheDocument();
-});
-
-it("offers every tenant role to an actor holding ManageUsers", () => {
-  renderAddDriver({ capabilities: ["ManageUsers", "ManageAssignments"] });
-
-  expect(screen.getByRole("option", { name: "Organisation admin" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "Driver" })).toBeInTheDocument();
-});
-
-// The refusal has to become an offer, or the admin's only reading is "pick
-// another address" — which for a rehire is wrong and creates a second person.
-it("offers reactivation when the email belongs to a deactivated user", async () => {
-  const user = userEvent.setup();
-  postSpy.mockRejectedValueOnce(
-    new ApiError(409, "email_inactive", "a user with this email address was deactivated; reactivate them instead of adding a new one"),
+// Capabilities rather than a role name: the screen branches on useCan
+// (ADR-0011), so the test names what the screen reads.
+function renderScreen(capabilities: string[] = ["ManageUsers", "ManageAssignments"]) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const actor: Me = {
+    userId: "u0",
+    displayName: "Admin",
+    role: "ORG_ADMIN",
+    capabilities,
+    depots: [],
+  };
+  return render(
+    <ActorContext.Provider value={{ actor, settled: true }}>
+      <QueryClientProvider client={client}>
+        <AddDriver />
+      </QueryClientProvider>
+    </ActorContext.Provider>,
   );
-  renderAddDriver({ capabilities: ["ManageUsers", "ManageAssignments"] });
-
-  await user.type(screen.getByLabelText("Email address"), "thandi@example.invalid");
-  await user.type(screen.getByLabelText("Name"), "Thandi");
-  await user.click(screen.getByRole("button", { name: "Add user" }));
-
-  const again = await screen.findByRole("button", { name: /reactivate/i });
-  postSpy.mockResolvedValueOnce({
-    id: "u1", email: "thandi@example.invalid", displayName: "Thandi",
-    role: "DRIVER", staffNumber: null, active: true,
-  });
-  await user.click(again);
-
-  expect(postSpy).toHaveBeenLastCalledWith(
-    "/api/users",
-    expect.objectContaining({ reactivate: true }),
-  );
-});
+}
 ```
 
-> Match `ApiError`'s real constructor signature and the file's existing spy name and render helper before running — the names above follow B4's conventions but the file is the authority.
+(Task 5 adds `timezone` to `Me`; add `timezone: "Africa/Johannesburg"` to this fixture then.) Then rename the existing test `"names the rehire case rather than reporting a generic conflict"` to `"names an active collision as an address already in use"` — it drives `email_taken`, and once `email_inactive` exists its old name describes the wrong case.
+
+Append these tests inside the `describe`:
+
+```tsx
+  it("offers only DRIVER to an actor holding InviteDriver alone", () => {
+    renderScreen(["ManageAssignments", "InviteDriver"]);
+
+    const roles = screen.getAllByRole("option", { name: /driver|controller|admin|technician/i });
+    expect(roles).toHaveLength(1);
+    expect(screen.getByRole("option", { name: "Driver" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Organisation admin" })).not.toBeInTheDocument();
+  });
+
+  it("offers every tenant role to an actor holding ManageUsers", () => {
+    renderScreen(["ManageUsers", "ManageAssignments"]);
+
+    expect(screen.getByRole("option", { name: "Organisation admin" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Driver" })).toBeInTheDocument();
+  });
+
+  // The refusal has to become an offer, or the admin's only reading is "pick
+  // another address" — which for a rehire is wrong and creates a second person.
+  it("offers reactivation when the email belongs to a deactivated user", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        respond(409, {
+          code: "email_inactive",
+          message:
+            "a user with this email address was deactivated; reactivate them instead of adding a new one",
+        }),
+      )
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, []));
+
+    renderScreen();
+    await fillAndSubmit();
+
+    const again = await screen.findByRole("button", { name: /reactivate/i });
+    await userEvent.click(again);
+
+    await screen.findByRole("status");
+    const [, init] = vi.mocked(fetch).mock.calls[1];
+    expect(JSON.parse(String(init?.body))).toMatchObject({
+      email: "new@example.invalid",
+      reactivate: true,
+    });
+  });
+```
+
+> `fetch` receives the body as a JSON string in `init.body`, so assertions on what was sent parse it. The existing tests use the default `renderScreen()` and are unaffected by the narrowing: the default actor holds `ManageUsers`, and the form's default role is already `DRIVER`.
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
@@ -795,7 +838,7 @@ In `web/src/auth/me.ts`, add to the `Me` interface:
   timezone: string;
 ```
 
-Fix any test fixture that constructs a `Me` and now fails to typecheck by adding `timezone: "Africa/Johannesburg"`.
+Three fixtures construct a `Me` and will fail to typecheck; add `timezone: "Africa/Johannesburg"` to each: `web/src/routes.test.tsx` (the `controller` fixture near line 136), `web/src/auth/RequireCapability.test.tsx` (the `actor` factory near line 8), and the `renderScreen` fixture Task 4 added to `web/src/admin/AddDriver.test.tsx`. Run `make lint` (its `tsc` step) to catch any other.
 
 - [ ] **Step 6: Run everything to verify it passes**
 
@@ -843,16 +886,17 @@ import { formatTenantDate } from "./tenantTime";
 describe("formatTenantDate", () => {
   const instant = "2026-01-01T23:00:00Z";
 
+  // Exact strings, not toContain: "2026" contains "02", so a substring
+  // assertion on the day could never fail (docs/lessons.md, 20 Aug).
   it("renders the tenant's civil date, not the runner's", () => {
-    expect(formatTenantDate(instant, "Pacific/Kiritimati")).toContain("2026");
-    expect(formatTenantDate(instant, "Pacific/Kiritimati")).toContain("02");
-    expect(formatTenantDate(instant, "Pacific/Midway")).toContain("01");
+    expect(formatTenantDate(instant, "Pacific/Kiritimati")).toBe("02 Jan 2026");
+    expect(formatTenantDate(instant, "Pacific/Midway")).toBe("01 Jan 2026");
   });
 
   it("puts a South African tenant on its own day for an instant captured abroad", () => {
     // 22:30 UTC is already the next day in Johannesburg (UTC+2).
-    expect(formatTenantDate("2026-03-14T22:30:00Z", "Africa/Johannesburg")).toContain("15");
-    expect(formatTenantDate("2026-03-14T22:30:00Z", "America/Los_Angeles")).toContain("14");
+    expect(formatTenantDate("2026-03-14T22:30:00Z", "Africa/Johannesburg")).toBe("15 Mar 2026");
+    expect(formatTenantDate("2026-03-14T22:30:00Z", "America/Los_Angeles")).toBe("14 Mar 2026");
   });
 
   it("accepts a Date as readily as an ISO string", () => {
@@ -1156,20 +1200,29 @@ git commit -m "feat(api): TYRE-89 default an assignment to the tenant's day"
 Append to `web/src/admin/AddDriver.test.tsx`:
 
 ```tsx
-// The browser's calendar day is the admin's, not the tenant's. Sending none
-// lets the server compute it where the tenant's zone lives (TYRE-89).
-it("sends no date with an assignment", async () => {
-  const user = userEvent.setup();
-  renderAddDriver({ capabilities: ["ManageUsers", "ManageAssignments"] });
+  // The browser's calendar day is the admin's, not the tenant's. Sending none
+  // lets the server compute it where the tenant's zone lives (TYRE-89).
+  it("sends no date with an assignment", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]))
+      .mockResolvedValueOnce(
+        respond(201, { id: "a1", vehicleId: "v1", userId: "u1", fromDate: "2026-08-28" }),
+      );
 
-  await createAndAssign(user);
+    renderScreen();
+    await fillAndSubmit();
+    await screen.findByLabelText(/unit/i);
+    await userEvent.selectOptions(screen.getByLabelText(/unit/i), "v1");
+    await userEvent.click(screen.getByRole("button", { name: /assign/i }));
+    await screen.findByText(/assigned to H99/i);
 
-  const [, body] = postSpy.mock.calls.at(-1) ?? [];
-  expect(body).not.toHaveProperty("fromDate");
-});
+    const [, init] = vi.mocked(fetch).mock.calls[2];
+    expect(JSON.parse(String(init?.body))).not.toHaveProperty("fromDate");
+  });
 ```
 
-> `createAndAssign` stands for whatever the file already does to drive the create-then-assign path in its existing assignment test — reuse that, do not write a second driver.
+> This mirrors the setup of the existing `"records the assignment against the unit chosen"` test, which is the file's create-then-assign driver. `fetch` carries the body as a JSON string in `init.body`, so the assertion parses it — `not.toHaveProperty` on the raw string would pass vacuously.
 
 - [ ] **Step 2: Run the test to verify it fails**
 
@@ -1246,4 +1299,4 @@ git commit -m "feat(web): TYRE-89 let the server date an assignment"
 
 **Type consistency.** `formatTenantDate(instant, timeZone)` and `useTenantDate()` are named identically in Tasks 6 and 8's imports. `mayCreateRole(a, role)` is defined in Task 2 and unchanged in Task 3. `refusalError{refusal{…}}` is constructed the same way in every use. `plantTenantInZone` is defined in Task 7 Step 1 before its use in Step 2. `userBody` and `errorCode` are defined in Task 3 and reused in Task 7.
 
-**Two things the executor must verify against the files rather than trust here.** The refusal envelope's JSON shape, which `errorCode` in Task 3 depends on; and `AddDriver.test.tsx`'s existing render helper and spy names, which Tasks 4 and 8 borrow. Both are named at their step. Where this plan and the code disagree, the code wins and the plan was wrong.
+**Verified against the code, 31 Aug 2026.** The refusal envelope is flat (`errorBody`, `httpapi.go`) and Task 3's `errorCode` reads it that way. `AddDriver.test.tsx` stubs `fetch` and has no actor provider; Tasks 4 and 8 now extend its `renderScreen` and assert on parsed request bodies. `app.tenant_today` (000015), `tenant.timezone` (000001), the `UPDATE` grant on `app_user` (only `DELETE` revoked, 000002), every Go test helper Task 5 and 7 call, `useCan`, the `ROLES` labels and the `DRIVER` default role all exist as this plan uses them. Where a step and the code still disagree, the code wins and the plan was wrong — report it rather than redesign.
