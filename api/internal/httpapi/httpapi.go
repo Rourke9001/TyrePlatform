@@ -394,6 +394,10 @@ type meJSON struct {
 	Role         string   `json:"role"`
 	Capabilities []string `json:"capabilities"`
 	Depots       []string `json:"depots"`
+	// The tenant's IANA zone, so the client can render a stored UTC instant
+	// as the tenant's civil time (rule 6, FR-TEN-005). Sent here rather than
+	// per-response because it changes about never and every screen needs it.
+	Timezone string `json:"timezone"`
 }
 
 // me tells the client what to render. Presentation only — every other
@@ -403,13 +407,20 @@ func me(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		var body meJSON
-		ok := withActor(w, r, s, func(_ pgx.Tx, a auth.Actor) error {
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			body = meJSON{
 				UserID:       a.UserID.String(),
 				DisplayName:  a.DisplayName,
 				Role:         string(a.Role),
 				Capabilities: []string{},
 				Depots:       []string{},
+			}
+			// In the actor's own transaction, so RLS answers for this tenant
+			// and the row cannot be another's.
+			if err := tx.QueryRow(ctx,
+				`SELECT timezone FROM app.tenant WHERE id = app.current_tenant_id()`).
+				Scan(&body.Timezone); err != nil {
+				return fmt.Errorf("reading tenant timezone: %w", err)
 			}
 			for _, c := range a.Capabilities() {
 				body.Capabilities = append(body.Capabilities, string(c))

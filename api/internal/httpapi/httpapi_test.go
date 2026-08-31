@@ -783,3 +783,26 @@ func TestMyTasksAreActorScoped(t *testing.T) {
 	_, perr := time.Parse(time.RFC3339, tasks[0].DueAt)
 	require.NoError(t, perr, "dueAt is RFC3339")
 }
+
+// Rule 6's display half starts here: until /api/me carries it, the web app
+// cannot know it is a Johannesburg tenant and every date it renders is the
+// browser's guess.
+func TestMeCarriesTheTenantTimezone(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "tz")
+	_, err := admin.Exec(ctx,
+		`UPDATE app.tenant SET timezone = 'Pacific/Kiritimati' WHERE id = $1`, tenantID)
+	require.NoError(t, err)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	actor := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	rec := get(t, h, "/api/me", tenantID.String(), actor.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var body struct {
+		Timezone string `json:"timezone"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "Pacific/Kiritimati", body.Timezone)
+}

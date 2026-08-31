@@ -139,6 +139,7 @@ describe("AppRoutes", () => {
       role: "CONTROLLER",
       capabilities: ["ViewFleet", "CaptureInspection"],
       depots: [],
+      timezone: "Africa/Johannesburg",
     };
     // Deliberately not resolved yet: the assertion below is that nothing has
     // navigated while it is outstanding.
