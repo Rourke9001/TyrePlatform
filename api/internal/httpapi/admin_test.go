@@ -543,6 +543,46 @@ func TestReactivateAnInactiveUser(t *testing.T) {
 	require.Equal(t, "email_taken", errorCode(t, rec))
 }
 
+// FR-AUT-022, D2: 000019's partial index permits a second active user to
+// reuse a staff number once no active member holds it, so a rehire that
+// preserves the returning employee's number (admin.go's COALESCE) can
+// collide with a reuse that happened while they were away. The refusal must
+// name which collision this is, or the admin only sees a bare conflict with
+// no way to tell it apart from any other.
+func TestReactivateCollidesWithReusedStaffNumber(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "staffnum")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+
+	aliceEmail := "alice-" + uuid.NewString()[:8] + "@example.invalid"
+	create := fmt.Sprintf(
+		`{"email":%q,"displayName":"Alice First","role":"DRIVER","staffNumber":"SBX-100"}`, aliceEmail)
+	rec := post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), create)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var alice userBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &alice))
+
+	_, err := admin.Exec(ctx, `UPDATE app.app_user SET active = false WHERE id = $1`, alice.ID)
+	require.NoError(t, err)
+
+	// Legitimate under D2: Alice is inactive, so Bob may hold her old number.
+	bobEmail := "bob-" + uuid.NewString()[:8] + "@example.invalid"
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(),
+		fmt.Sprintf(`{"email":%q,"displayName":"Bob","role":"DRIVER","staffNumber":"SBX-100"}`, bobEmail))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	// Alice returns. The reactivate omits staffNumber, so admin.go's COALESCE
+	// preserves SBX-100 — which Bob now legitimately, and actively, holds.
+	reactivate := fmt.Sprintf(
+		`{"email":%q,"displayName":"Alice Returned","role":"DRIVER","reactivate":true}`, aliceEmail)
+	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	require.Equal(t, "staff_number_taken", errorCode(t, rec))
+	require.NotContains(t, rec.Body.String(), "one_active_staff_number_per_tenant")
+}
+
 // An email that exists only in another tenant is invisible under
 // tenant_isolation's USING half, so the classification SELECT finds nothing
 // and the UPDATE's WHERE clause matches zero rows: the request falls through
