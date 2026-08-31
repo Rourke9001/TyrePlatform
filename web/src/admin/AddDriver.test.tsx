@@ -220,9 +220,16 @@ describe("adding a driver", () => {
 
   // A double-click here reads as "Thandi was added" followed immediately by
   // "already in use" for the same person — on the one screen meant to stop a
-  // rehire becoming a second one. The request never settling proves the
-  // button is disabled for the whole time it is in flight, not just at t=0.
-  it("disables the reactivate button while the reactivate request is in flight", async () => {
+  // rehire becoming a second one.
+  it("disables the reactivate button while the reactivate request is in flight, then completes", async () => {
+    // Hold the reactivate request open so "in flight" is a state the test can
+    // inspect rather than race, then release it so the component does not
+    // tear down mid-request.
+    let release!: (value: Response) => void;
+    const inFlight = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+
     vi.mocked(fetch)
       .mockResolvedValueOnce(
         respond(409, {
@@ -230,7 +237,8 @@ describe("adding a driver", () => {
           message: "a user with this email address was deactivated",
         }),
       )
-      .mockReturnValueOnce(new Promise(() => {}));
+      .mockReturnValueOnce(inFlight)
+      .mockResolvedValueOnce(respond(200, []));
 
     renderScreen();
     await fillAndSubmit();
@@ -239,5 +247,10 @@ describe("adding a driver", () => {
     await userEvent.click(again);
 
     expect(again).toBeDisabled();
+
+    release(respond(201, CREATED));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/New Driver/);
+    expect(screen.queryByRole("button", { name: /reactivate/i })).not.toBeInTheDocument();
   });
 });
