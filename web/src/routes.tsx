@@ -46,10 +46,12 @@ function CaptureRoute() {
 // A destination someone navigated to says why it is refused; a menu item just
 // disappears. RequireCapability is the second, so these routes are the first.
 //
-// A single capability is the common case; an array is any-of (D9: the invite
-// screen is reachable by ManageUsers or the narrower InviteDriver,
-// ADR-0011). useCanAny takes the fixed-arity form so this stays one hook call
-// regardless of which shape `capability` arrives in.
+// capability accepts a bare string or an array so a caller with one
+// capability need not wrap it, but useCanAny needs the fixed-arity array
+// form — rules-of-hooks forbids calling useCan conditionally per shape at
+// this call site — so this normalises before the one hook call. See
+// useCanAny's doc comment (auth/actorContext.ts) for why a route needs an
+// any-of gate at all (D9, ADR-0011).
 function AdminRoute({
   capability,
   children,

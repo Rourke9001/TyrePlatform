@@ -356,8 +356,9 @@ func mayCreateRole(a auth.Actor, role string) error {
 
 // createUser is FR-AUT-010's invite, gated on ManageUsers, or on InviteDriver
 // for a DRIVER alone (D9). It creates an active user and nothing else: leaving
-// a company is active = false and never a delete (D10, FR-VEH-008), and that
-// surface is TYRE-64's, blocked on the sponsor's POPIA question.
+// a company is active = false and never a delete (D10, FR-VEH-008). That
+// deactivation surface is not built here — nothing blocks it; NFR-PRV-004
+// already governs a deactivated driver's data until OI-17 says otherwise.
 func createUser(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
