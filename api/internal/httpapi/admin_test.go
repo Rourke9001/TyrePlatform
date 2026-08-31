@@ -253,7 +253,7 @@ func TestCreateUser(t *testing.T) {
 	var ref refusalBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
 	require.Equal(t, "email_taken", ref.Code)
-	require.NotContains(t, rec.Body.String(), "app_user_tenant_id_email_key")
+	require.NotContains(t, rec.Body.String(), "app_user_tenant_email_key")
 
 	// ADR-0011: platform staff are never the subject of a tenant-scoped
 	// request any more than they are its actor. Refused as an invalid role,

@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	// Aliased: this file shares package httpapi with httpapi.go's own
@@ -158,7 +160,7 @@ func TestConflictConstraintsTranslateToTheirOwnCode(t *testing.T) {
 		wantStatus int
 	}{
 		{"duplicate fleet number", "23505", "vehicle_tenant_id_fleet_number_key", "fleet_number_taken", http.StatusConflict},
-		{"duplicate email", "23505", "app_user_tenant_id_email_key", "email_taken", http.StatusConflict},
+		{"duplicate email", "23505", "app_user_tenant_email_key", "email_taken", http.StatusConflict},
 		{"overlapping assignment", "23P01", "vehicle_driver_no_overlap", "assignment_overlaps", http.StatusConflict},
 		{"an unmapped unique constraint", "23505", "some_other_key", "conflict", http.StatusConflict},
 		{"an unmapped exclusion constraint", "23P01", "some_other_excl", "conflict", http.StatusConflict},
@@ -176,5 +178,34 @@ func TestConflictConstraintsTranslateToTheirOwnCode(t *testing.T) {
 			req.NotContains(t, ref.message, tt.constraint,
 				"a constraint name reached the wire")
 		})
+	}
+}
+
+// A conflictCodes key that names no constraint or index in the schema is a
+// mapping the database can never fire, so its refusal silently degrades to
+// the generic conflict (TYRE-95). White-box on purpose: the map is
+// unexported, and asserting through behaviour would mean provoking every
+// race each constraint guards.
+func TestConflictCodesNameLiveSchemaObjects(t *testing.T) {
+	ctx := context.Background()
+	adminURL := os.Getenv("TEST_ADMIN_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("TEST_ADMIN_DATABASE_URL not set; this check needs a migrated Postgres")
+	}
+	conn, err := pgx.Connect(ctx, adminURL)
+	req.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+
+	for name := range conflictCodes {
+		// pg_constraint misses plain unique indexes (000027's email key is an
+		// index, not a table constraint), so an index by the name also counts:
+		// a 23505 from either carries the name in ConstraintName.
+		var exists bool
+		req.NoError(t, conn.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = $1)
+			     OR EXISTS (SELECT 1 FROM pg_class WHERE relname = $1 AND relkind = 'i')`,
+			name).Scan(&exists))
+		req.True(t, exists,
+			"conflictCodes names %q, which no constraint or index in the schema carries; its refusal can never fire", name)
 	}
 }
