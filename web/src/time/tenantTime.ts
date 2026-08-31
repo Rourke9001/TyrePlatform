@@ -2,10 +2,10 @@ import { useActor, useActorSettled } from "../auth/actorContext";
 
 // What an unparseable instant renders as. /api/my/tasks is typed as
 // returning ISO strings, but the server is the authority over the wire:
-// Intl.DateTimeFormat.format() throws RangeError on an invalid Date where
-// the toLocaleDateString it replaced returned "Invalid Date", and a throw
-// here unwinds the whole route — a blank screen on the one page a driver
-// opens to start a capture, against the three-minute constraint (TYRE-95).
+// Intl.DateTimeFormat.format() throws RangeError on an invalid Date, and a
+// throw here unwinds the whole route — a blank screen on the one page a
+// driver opens to start a capture, against the three-minute constraint
+// (TYRE-95).
 export const INVALID_INSTANT = "invalid date";
 
 // The only path a stored instant takes to a screen (rule 6, DR-010,

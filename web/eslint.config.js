@@ -60,7 +60,7 @@ const intlDateTimeFormatBan = {
 const intlAliasBan = {
   selector: "VariableDeclarator[init.name='Intl']",
   message:
-    "Do not alias or destructure Intl — it reaches DateTimeFormat around the rule 6 ban. Call Intl.NumberFormat directly; dates go through web/src/time/tenantTime.ts.",
+    "Do not alias or destructure Intl — it reaches DateTimeFormat around the rule 6 ban. Reach the other Intl formatters through the global; dates go through web/src/time/tenantTime.ts.",
 };
 
 export default tseslint.config(
