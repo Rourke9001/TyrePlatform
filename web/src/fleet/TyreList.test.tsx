@@ -170,6 +170,38 @@ describe("the tyre register", () => {
     expect(screen.getByLabelText(/proceeds for pos1/i)).toBeInTheDocument();
   });
 
+  // A disposed row has no active-only filter to leave it behind (the e2e
+  // spec's own comment says so): DisposeForm must not stay on offer once a
+  // tyre is terminal, or its refusal reads as advice for a tyre that is not
+  // scrapped. Both rows are awaiting cost so CostForm, not a dash, owns the
+  // Set-cost cell — the only dash left in POS1's row is the Dispose cell's.
+  it("shows a dash, never a dispose form, for a terminal tyre, while a non-terminal row keeps the form", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [
+          tyre({ id: "t1", displayCode: "POS1", state: "SCRAPPED", awaitingCost: true }),
+          tyre({ id: "t2", displayCode: "POS2", state: "IN_STOCK", awaitingCost: true }),
+        ],
+      }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    const scrapped = screen.getByRole("rowheader", { name: "POS1" }).closest("tr");
+    if (!scrapped) throw new Error("row for POS1 not found");
+    expect(within(scrapped).getByText("—")).toBeInTheDocument();
+    expect(
+      within(scrapped).queryByRole("combobox", { name: /disposal for pos1/i }),
+    ).not.toBeInTheDocument();
+    expect(within(scrapped).queryByRole("button", { name: /^dispose$/i })).not.toBeInTheDocument();
+
+    const active = screen.getByRole("rowheader", { name: "POS2" }).closest("tr");
+    if (!active) throw new Error("row for POS2 not found");
+    expect(
+      within(active).getByRole("combobox", { name: /disposal for pos2/i }),
+    ).toBeInTheDocument();
+  });
+
   it("renders the server's own refusal for a disposal it will not allow", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1" })] }))
