@@ -16,6 +16,7 @@ const actor = (capabilities: string[]): Me => ({
   capabilities,
   depots: [],
   timezone: "Africa/Johannesburg",
+  displayCodePolicy: "FREE",
 });
 
 // DriverHome and VehicleList both fetch through TanStack Query. `fetch` is
@@ -141,6 +142,7 @@ describe("AppRoutes", () => {
       capabilities: ["ViewFleet", "CaptureInspection"],
       depots: [],
       timezone: "Africa/Johannesburg",
+      displayCodePolicy: "FREE",
     };
     // Deliberately not resolved yet: the assertion below is that nothing has
     // navigated while it is outstanding.

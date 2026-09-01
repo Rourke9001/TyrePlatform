@@ -18,6 +18,7 @@ function renderScreen(capabilities: string[] = ["ManageUsers", "ManageAssignment
     capabilities,
     depots: [],
     timezone: "Africa/Johannesburg",
+    displayCodePolicy: "FREE",
   };
   return render(
     <ActorContext.Provider value={{ actor, settled: true }}>
