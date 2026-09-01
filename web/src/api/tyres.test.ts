@@ -152,9 +152,9 @@ describe("the tyre register API module", () => {
       expect(result).toBeUndefined();
     });
 
-    it("carries TY011's message and code", async () => {
+    it("carries TY013's message and code", async () => {
       vi.mocked(fetch).mockResolvedValue(
-        respond(409, { code: "TY011", message: "this tyre already carries a cost" }),
+        respond(409, { code: "TY013", message: "this tyre already carries a cost" }),
       );
 
       const error = await setTyreCost("t1", { price: "1218.78", source: "INVOICE" }).catch(
@@ -162,7 +162,7 @@ describe("the tyre register API module", () => {
       );
 
       expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).code).toBe("TY011");
+      expect((error as ApiError).code).toBe("TY013");
       expect((error as ApiError).message).toBe("this tyre already carries a cost");
     });
   });
@@ -180,9 +180,9 @@ describe("the tyre register API module", () => {
       expect(result).toBeUndefined();
     });
 
-    it("carries TY013's message and code", async () => {
+    it("carries TY012's message and code", async () => {
       vi.mocked(fetch).mockResolvedValue(
-        respond(409, { code: "TY013", message: "no such transition from this state" }),
+        respond(409, { code: "TY012", message: "no such transition from this state" }),
       );
 
       const error = await disposeTyre("t1", { disposal: "SOLD", proceeds: "500.00" }).catch(
@@ -190,7 +190,7 @@ describe("the tyre register API module", () => {
       );
 
       expect(error).toBeInstanceOf(ApiError);
-      expect((error as ApiError).code).toBe("TY013");
+      expect((error as ApiError).code).toBe("TY012");
       expect((error as ApiError).message).toBe("no such transition from this state");
     });
   });
