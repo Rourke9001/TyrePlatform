@@ -46,7 +46,8 @@ ALTER TABLE app.valuation_snapshot
 -- from the exact column set, so the old (tyre_id, as_at) target now matches
 -- no constraint and every call would fail with "no unique or exclusion
 -- constraint matching the ON CONFLICT specification" instead of upserting.
--- Restated verbatim from 000016 except for that one line.
+-- Restated from 000016 -- its inline rationale comments live there, not
+-- repeated here -- with one functional change: the ON CONFLICT target.
 CREATE OR REPLACE FUNCTION app.reconcile_valuation_snapshots(
     p_tenant uuid,
     p_as_at  date,
