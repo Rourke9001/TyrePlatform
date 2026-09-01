@@ -698,11 +698,11 @@ func writeError(ctx context.Context, w http.ResponseWriter, status int, code, me
 	writeStatus(ctx, w, status, errorBody{Code: code, Message: message})
 }
 
-// writeStatus is the only way a handler answers with a status other than
-// the implicit 200. Content-Type is set before WriteHeader because
-// WriteHeader locks the header map in: writeJSON's own Set would be
-// dropped and the response would go out as text/plain with every status
-// and body assertion still green.
+// writeStatus is how a handler sends a JSON body under an explicit status;
+// a bodiless 204 writes its header directly. Content-Type is set before
+// WriteHeader because WriteHeader locks the header map in: writeJSON's own
+// Set would be dropped and the response would go out as text/plain with
+// every status and body assertion still green.
 func writeStatus(ctx context.Context, w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
