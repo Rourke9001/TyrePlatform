@@ -608,3 +608,22 @@ output.
 at write time (CLAUDE.md) or enforced on the artefact afterwards (hook,
 lint, CI) — ideally both. A standalone standards document with neither is
 decoration. See `docs/comments.md` for the pattern applied.
+
+## 2026-09-01 — A flow narrated in a plan is a claim about UI, not a fact
+
+**What happened:** B5's Task 13 brief described an e2e flow — "set its cost
+via the register's inline flow," "a hand-typed code shows the TY011
+message," "scrap it and see it leave the active register" — that read as
+settled fact but wasn't: no landed task had built a cost-setting control,
+Task 11's own DoD required the hand-typed code field be *absent* under
+GENERATED (so nothing could ever type into it), and the register has no
+"active only" filter to leave. All three surfaced only by reading Tasks
+10/11/12's actual briefs and the landed component files line by line, not
+by trusting the plan's prose.
+
+**The rule:** before writing a spec against a flow a plan narrates, check
+each step against the specific task brief that was supposed to build that
+step's UI surface — not against the plan document's description of the
+flow. A plan's prose is written once, ahead of implementation, and nothing
+re-verifies it against what actually landed; the task briefs and the
+component source are the only things that do.
