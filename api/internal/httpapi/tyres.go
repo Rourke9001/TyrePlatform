@@ -7,6 +7,7 @@ package httpapi
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -95,7 +96,9 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 // code is reissued after a tyre leaves the estate, so "which tyre carried
 // this code" is only answerable for a specific date, never the code alone.
 // awaitingCost narrows to app.v_tyre_awaiting_cost, the CFL-002 backlog of
-// tyres received with no purchase price recorded yet.
+// tyres received with no purchase price recorded and not yet disposed; the
+// per-row flag on every other request reads the same view, so a disposed,
+// never-costed tyre never claims to be awaiting cost in the unfiltered list.
 func listTyres(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -107,6 +110,17 @@ func listTyres(s *store.Store) http.HandlerFunc {
 				"a code lookup names both code and on (FR-TYR-042 resolves by date)")
 			return
 		}
+		// Validated before any transaction opens (ADR-0013 decision 5,
+		// admin.go's assignDriver does the same for fromDate): a malformed
+		// on would otherwise reach $2::date as a raw string, and Postgres's
+		// resulting 22007/22008 is not in submitStatus, so withActor would
+		// answer 500 for what is really a client typo.
+		if on != "" {
+			if _, err := time.Parse(isoDate, on); err != nil {
+				refuseInvalid(w, r, invalid("on", "must be a date as YYYY-MM-DD"))
+				return
+			}
+		}
 
 		var out []tyreJSON
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
@@ -117,24 +131,30 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			// (FR-AUT-005a, NFR-SEC-006): projected out here, never filtered
 			// client-side.
 			canSeeMoney := a.Can(auth.ViewValuation)
+			// v_tyre_awaiting_cost is joined rather than reimplemented inline:
+			// its WHERE (purchase_price IS NULL AND state NOT IN
+			// ('SCRAPPED','LOST','SOLD'), migration 000012) is the one
+			// definition of "awaiting cost", so the per-row flag below and
+			// the filter both read v.tyre_id rather than each stating the
+			// rule its own way and drifting apart — a disposed, never-costed
+			// tyre must report awaitingCost:false, matching the row the
+			// filter itself would show.
 			sql := `SELECT t.id, t.display_code, t.state::text, t.status::text,
 			               t.retread_count, s.name, b.name, p.name,
-			               t.received_date::text, (t.purchase_price IS NULL),
+			               t.received_date::text, (v.tyre_id IS NOT NULL),
 			               t.purchase_price::text, t.rand_per_mm::text, t.casing_value::text
 			          FROM app.tyre t
 			          LEFT JOIN app.tyre_size    s ON s.id = t.size_id
 			          LEFT JOIN app.tyre_brand   b ON b.id = t.brand_id
-			          LEFT JOIN app.tyre_pattern p ON p.id = t.pattern_id`
+			          LEFT JOIN app.tyre_pattern p ON p.id = t.pattern_id
+			          LEFT JOIN app.v_tyre_awaiting_cost v ON v.tyre_id = t.id`
 			var args []any
 			switch {
 			case code != "":
 				sql += ` WHERE t.id IN (SELECT app.tyre_for_code($1, $2::date))`
 				args = append(args, code, on)
 			case awaitingOnly:
-				// tyre_id, not id: app.v_tyre_awaiting_cost's identifying
-				// column (000012), confirmed against the view's own
-				// definition rather than assumed.
-				sql += ` WHERE t.id IN (SELECT tyre_id FROM app.v_tyre_awaiting_cost)`
+				sql += ` WHERE v.tyre_id IS NOT NULL`
 			}
 			sql += ` ORDER BY t.received_date DESC NULLS LAST, t.display_code`
 			rows, err := tx.Query(ctx, sql, args...)

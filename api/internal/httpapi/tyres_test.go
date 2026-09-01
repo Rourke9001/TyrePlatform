@@ -51,6 +51,21 @@ func plantTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid
 	return tyreID
 }
 
+// plantScrappedTyre plants a tyre with no purchase price that has already
+// left the estate — the case that distinguishes app.v_tyre_awaiting_cost's
+// actual predicate (migration 000012: purchase_price IS NULL AND state NOT
+// IN ('SCRAPPED','LOST','SOLD')) from a bare "purchase_price IS NULL" check.
+func plantScrappedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, code string) uuid.UUID {
+	t.Helper()
+	var tyreID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre (tenant_id, display_code, new_tread_mm, state)
+		 VALUES ($1, $2, 14.0, 'SCRAPPED') RETURNING id`,
+		tenantID, code,
+	).Scan(&tyreID))
+	return tyreID
+}
+
 // plantBrandedEvent records the dated event app.tyre_for_code resolves
 // through (FR-TYR-042), in the same shape app.receive_tyres writes it
 // (migration 000031).
@@ -155,11 +170,23 @@ func TestListTyresCodeAndDateLookup(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	rec = get(t, h, "/api/tyres?on="+on, tenantID.String(), controller.String())
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+
+	// A malformed on is a client mistake refused before any query runs — not
+	// a 500 from Postgres failing to cast it to ::date (ADR-0013 decision 5).
+	rec = get(t, h, "/api/tyres?code="+code+"&on=not-a-date", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Equal(t, "on must be a date as YYYY-MM-DD", ref.Message)
 }
 
 // CFL-002: a tyre received with no purchase price yet is the awaiting-cost
-// backlog app.v_tyre_awaiting_cost names. The filter must return only that
-// set, and the unfiltered list must still show both.
+// backlog app.v_tyre_awaiting_cost names — but that view also excludes a
+// disposed tyre (SCRAPPED/LOST/SOLD), so a never-costed tyre that has since
+// left the estate must not be reported as awaiting cost either by the filter
+// or by the per-row flag in the unfiltered list; the two must agree, because
+// they read the same view (migration 000012).
 func TestListTyresAwaitingCostFilter(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -173,6 +200,8 @@ func TestListTyresAwaitingCostFilter(t *testing.T) {
 	plantTyre(t, ctx, admin, tenantID, costed, &price)
 	uncosted := "UNCOSTED-" + suffix
 	plantTyre(t, ctx, admin, tenantID, uncosted, nil)
+	scrapped := "SCRAPPED-" + suffix
+	plantScrappedTyre(t, ctx, admin, tenantID, scrapped)
 
 	rec := get(t, h, "/api/tyres?awaitingCost=true", tenantID.String(), controller.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -184,16 +213,24 @@ func TestListTyresAwaitingCostFilter(t *testing.T) {
 	}
 	require.Contains(t, codes, uncosted)
 	require.NotContains(t, codes, costed, "a tyre with a recorded purchase price is not awaiting cost")
+	require.NotContains(t, codes, scrapped, "a disposed tyre is not awaiting cost even with no purchase price recorded")
 
+	// Unfiltered, all three tyres are visible, and each one's own flag must
+	// match the set the filter above just proved.
 	rec = get(t, h, "/api/tyres", tenantID.String(), controller.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	codes = nil
+	byCode := map[string]tyreBody{}
 	for _, ty := range body.Tyres {
-		codes = append(codes, ty.DisplayCode)
+		byCode[ty.DisplayCode] = ty
 	}
-	require.Contains(t, codes, uncosted)
-	require.Contains(t, codes, costed, "the unfiltered list still shows a costed tyre")
+	require.Contains(t, byCode, uncosted)
+	require.Contains(t, byCode, costed, "the unfiltered list still shows a costed tyre")
+	require.Contains(t, byCode, scrapped, "the unfiltered list still shows a disposed tyre")
+	require.True(t, byCode[uncosted].AwaitingCost)
+	require.False(t, byCode[costed].AwaitingCost)
+	require.False(t, byCode[scrapped].AwaitingCost,
+		"a disposed tyre's own flag must not claim it is awaiting cost, even though purchase_price IS NULL alone would say so")
 }
 
 // Every role that can reach this endpoint (ManageAssets) also holds
