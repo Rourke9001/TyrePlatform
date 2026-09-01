@@ -33,14 +33,12 @@ ALTER TABLE app.reading_measurement
   ADD  CONSTRAINT reading_measurement_tenant_id_reading_id_ordinal_key
        UNIQUE (tenant_id, reading_id, ordinal);
 
--- one_open_exception_per_subject (000001) is vehicle_driver_no_overlap's
--- shape, not the all-uuid reading-tuple shape it was first filed under: two
--- opaque uuids (rule_id, subject_id) plus a caller-chosen natural value
--- (subject_type, a four-tag text discriminator) -- exactly the
--- uuid-pair-plus-natural-value pattern 000026 already re-keyed despite its
--- own two uuids. subject_id is also polymorphic (no REFERENCES, no CHECK
--- tying it to subject_type), so nothing in the schema makes subject_type
--- redundant the way this migration first assumed. exception.rule_id is
+-- one_open_exception_per_subject (000001) pairs two opaque uuids (rule_id,
+-- subject_id) with a caller-chosen natural value (subject_type, a four-tag
+-- text discriminator) -- vehicle_driver_no_overlap's shape (000026), which
+-- 000026 already re-keyed despite its own two uuids. subject_id is
+-- polymorphic (no REFERENCES, no CHECK tying it to subject_type), so
+-- nothing in the schema makes subject_type redundant; exception.rule_id is
 -- also a bare single-column FK, unlike position.configuration_id's
 -- composite (tenant_id, id) hardening from 000004 -- one fewer reason to
 -- call this key merely opaque. Kept its descriptive name and exact partial

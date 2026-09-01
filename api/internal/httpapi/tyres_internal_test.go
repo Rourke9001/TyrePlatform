@@ -11,13 +11,9 @@ import (
 	req "github.com/stretchr/testify/require"
 )
 
-// Every role that can reach listTyres today holds ManageAssets, and every
-// role holding ManageAssets also holds ViewValuation (auth.go's capability
-// table), so canSeeMoney=false never fires by driving the handler — this
-// unit test is the only place the hidden branch runs. FR-AUT-005a's
-// projection exists anyway: it is what a role that gains ManageAssets
-// without ViewValuation would rely on, and this test is what keeps it
-// working the day such a role is added.
+// tyreJSONFor's doc comment (tyres.go) explains why canSeeMoney=false is
+// untestable through the handler — this is the only place the hidden branch
+// runs.
 func TestTyreJSONForProjectsMoneyByCapability(t *testing.T) {
 	price, rate, casing := "1500.00", "250.0000", "800.00"
 	row := tyreRow{

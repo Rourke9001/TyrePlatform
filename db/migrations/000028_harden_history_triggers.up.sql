@@ -50,8 +50,7 @@ END $$;
 -- but any change FROM a known kind is refused, including to NULL: allowing
 -- known→NULL would let two legal steps launder the edit the rule refuses.
 -- That last clause exceeds TYRE-88's literal wording (which names only
--- known→known); the PR body states the strengthening and this comment is
--- its rationale. The EXISTS fold is the ticket's cosmetic rider.
+-- known→known). The EXISTS fold is the ticket's cosmetic rider.
 CREATE OR REPLACE FUNCTION app.reject_configuration_change_with_history()
 RETURNS trigger
 LANGUAGE plpgsql

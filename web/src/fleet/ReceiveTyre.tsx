@@ -13,11 +13,9 @@ const COST_SOURCES: { value: CostSource; label: string }[] = [
   { value: "PRICE_LIST_ESTIMATE", label: "Price list estimate" },
 ];
 
-// A refused receive says what happened in the words of whoever knows: the
-// tyre lifecycle's own refusals (TY011..TY013, ADR-0012's TY class) and the
-// register's own conflict code are safe to render verbatim (ADR-0013);
-// anything else gets the general sentence rather than a wrong specific one.
-// Shape mirrors AddUnit.tsx:22-33.
+// refusalMessage: AddUnit.tsx:19-21's shape, extended with this endpoint's
+// speakable codes (TY011..TY013, ADR-0012's TY class, and the register's own
+// conflict code).
 function refusalMessage(error: unknown): string {
   if (error instanceof ApiError && error.code !== null) {
     const speakable = [
@@ -38,7 +36,7 @@ function refusalMessage(error: unknown): string {
   return "The tyres could not be received. Try again, or call support if it keeps happening.";
 }
 
-// FR-TYR-040, gated on ManageAssets (routed in Task 12) and policy-aware
+// FR-TYR-040, gated on ManageAssets (at the route in routes.tsx, not here) and policy-aware
 // (D12): under GENERATED a hand-typed code is refused server-side
 // (app.receive_tyres's own TY011), so this screen never offers the field at
 // all rather than offering it and losing the submission to a refusal the

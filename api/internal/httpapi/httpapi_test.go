@@ -837,7 +837,6 @@ func TestMeCarriesTheTenantDisplayCodePolicy(t *testing.T) {
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	tenantID, _ := plantTenant(t, ctx, admin, "dcp-test")
-	// Set the display_code_policy to GENERATED for this tenant.
 	_, err := admin.Exec(ctx,
 		`UPDATE app.tenant SET display_code_policy = 'GENERATED' WHERE id = $1`, tenantID)
 	require.NoError(t, err)
