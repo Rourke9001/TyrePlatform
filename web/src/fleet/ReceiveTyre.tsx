@@ -1,40 +1,25 @@
 import { useMutation } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
-import { ApiError } from "../api/client";
-import { receiveTyres, type NewTyres, type ReceivedTyre } from "../api/tyres";
+import { refusalMessage } from "../api/refusal";
+import {
+  COST_SOURCES,
+  receiveTyres,
+  type CostSource,
+  type NewTyres,
+  type ReceivedTyre,
+} from "../api/tyres";
 import { useActor } from "../auth/actorContext";
 import "./fleet.css";
 
-type CostSource = "INVOICE" | "PRICE_LIST_ESTIMATE";
-
-const COST_SOURCES: { value: CostSource; label: string }[] = [
-  { value: "INVOICE", label: "Invoice" },
-  { value: "PRICE_LIST_ESTIMATE", label: "Price list estimate" },
-];
-
-// refusalMessage: AddUnit.tsx:19-21's shape, extended with this endpoint's
-// speakable codes (TY011..TY013, ADR-0012's TY class, and the register's own
-// conflict code).
-function refusalMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code !== null) {
-    const speakable = [
-      "display_code_taken",
-      "TY011",
-      "TY012",
-      "TY013",
-      "invalid_submission",
-      "conflict",
-    ];
-    if (speakable.includes(error.code) && error.message !== "") {
-      return error.message;
-    }
-    if (error.code === "forbidden") {
-      return "You do not have permission to receive tyres.";
-    }
-  }
-  return "The tyres could not be received. Try again, or call support if it keeps happening.";
-}
+// TY011 is app.receive_tyres' policy refusal and display_code_taken its
+// conflict; the lifecycle's other two codes belong to endpoints this screen
+// never calls.
+const RECEIVE_WORDING = {
+  speakable: ["display_code_taken", "TY011"],
+  forbidden: "You do not have permission to receive tyres.",
+  fallback: "The tyres could not be received. Try again, or call support if it keeps happening.",
+};
 
 // FR-TYR-040, gated on ManageAssets (at the route in routes.tsx, not here) and policy-aware
 // (D12): under GENERATED a hand-typed code is refused server-side
@@ -163,7 +148,7 @@ export function ReceiveTyre() {
         </button>
       </form>
 
-      {receive.isError && <p role="alert">{refusalMessage(receive.error)}</p>}
+      {receive.isError && <p role="alert">{refusalMessage(receive.error, RECEIVE_WORDING)}</p>}
 
       {received && (
         // NFR-USE-010: success is shown explicitly, never inferred from the

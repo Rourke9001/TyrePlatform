@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { assignDriver, createUser, type CreatedUser, type TenantRole } from "../api/admin";
 import { ApiError } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
+import { refusalMessage } from "../api/refusal";
 import { fetchVehicles } from "../api/vehicles";
 import { useCan } from "../auth/actorContext";
 import "./admin.css";
@@ -23,25 +24,18 @@ const ROLES: { value: TenantRole; label: string }[] = [
 // action that was refused: ManageUsers and ManageAssignments are separate
 // capabilities (TYRE-83 narrows the first), and a refusal on the assignment
 // that speaks of adding a user points at the wrong one.
-function refusalMessage(error: unknown, action: "add a user" | "assign a unit"): string {
-  if (error instanceof ApiError && error.code !== null) {
-    const speakable = [
-      "invalid_submission",
+function refused(error: unknown, action: "add a user" | "assign a unit"): string {
+  return refusalMessage(error, {
+    speakable: [
       "email_taken",
       "email_inactive",
       "nothing_to_reactivate",
       "assignment_overlaps",
       "staff_number_taken",
-      "conflict",
-    ];
-    if (speakable.includes(error.code) && error.message !== "") {
-      return error.message;
-    }
-    if (error.code === "forbidden") {
-      return `You do not have permission to ${action}.`;
-    }
-  }
-  return `Could not ${action}. Try again, or call support if it keeps happening.`;
+    ],
+    forbidden: `You do not have permission to ${action}.`,
+    fallback: `Could not ${action}. Try again, or call support if it keeps happening.`,
+  });
 }
 
 // FR-AUT-010's invite, gated on ManageUsers or InviteDriver (D9, ADR-0011).
@@ -100,7 +94,7 @@ export function AddDriver() {
     onError: (error) => {
       setRehire(
         error instanceof ApiError && error.code === "email_inactive"
-          ? { email, message: refusalMessage(error, "add a user") }
+          ? { email, message: refused(error, "add a user") }
           : null,
       );
     },
@@ -182,7 +176,7 @@ export function AddDriver() {
       </form>
 
       {create.isError && rehire === null && (
-        <p role="alert">{refusalMessage(create.error, "add a user")}</p>
+        <p role="alert">{refused(create.error, "add a user")}</p>
       )}
       {rehire !== null && (
         <>
@@ -246,7 +240,7 @@ export function AddDriver() {
         </form>
       )}
 
-      {assign.isError && <p role="alert">{refusalMessage(assign.error, "assign a unit")}</p>}
+      {assign.isError && <p role="alert">{refused(assign.error, "assign a unit")}</p>}
       {assignedTo && <p role="status">Assigned to {assignedTo}.</p>}
     </section>
   );
