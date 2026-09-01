@@ -353,6 +353,26 @@ for a later batch.
 **TYRE-48 with TYRE-91, then TYRE-92 with TYRE-93, then TYRE-94.** TYRE-87
 rides along.
 
+**B5 runs as two slices, planned separately (decided 1 Sep 2026).** The
+batch's own rule forces the split: the vocabulary is frozen by the code that
+first writes it, so slice 2 cannot be planned to executable detail before
+slice 1's writes exist — a full-B5 plan would be the abstract freeze this
+section warns against.
+
+- **Slice 1 — planned, in flight.** TYRE-88 → TYRE-87 → the D12/D13 schema
+  and TYRE-48's vocabulary → TYRE-91's register surface. Plan at
+  `docs/superpowers/plans/2026-09-01-b5-tyre-register.md`, design at
+  `docs/superpowers/specs/2026-09-01-b5-tyre-register-design.md`; branch
+  `TYRE-91-tyre-register`; migrations `000028`–`000031`; suite sections
+  36–39. When it lands, TYRE-88 and TYRE-87 close; TYRE-91 closes only once
+  the D12 SRS erratum row is pasted by hand; **TYRE-48 stays open** — its
+  retread paths are slice 2's.
+- **Slice 2 — plan after slice 1 merges, against the then-frozen
+  vocabulary.** TYRE-92 with TYRE-93, then TYRE-94. It discharges TY009's
+  `submitStatus` deferral; TY008 never enters (below). Pick up here: read
+  slice 1's design doc §Out-of-scope table first — it names what was
+  deliberately deferred and to which ticket.
+
 The tyre register and fitment are the platform's central loop — a fleet tyre
 system that cannot receive a tyre or record where it is fitted does not
 demonstrate its own premise — and until 30 Aug no story owned either. The
