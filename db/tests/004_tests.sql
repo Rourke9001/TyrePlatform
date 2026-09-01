@@ -3722,5 +3722,70 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 37. TYRE-87: unique/exclusion keys on tenant tables lead with tenant_id'
+BEGIN;
+DO $$
+DECLARE bad text;
+BEGIN
+  -- The generalisation of B1's cross-tenant date oracle: a unique or
+  -- exclusion check whose key omits tenant_id fires before RLS and before
+  -- the composite FK, so its distinguishable error discloses another
+  -- tenant's values to a caller who chose the probe value. PKs are excluded
+  -- (opaque uuids; and every PK index carries a pg_constraint row the second
+  -- arm skips). The allowlist names each deliberate exception and why.
+  WITH tenant_tables AS (
+    SELECT c.oid, c.relname
+      FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'app' AND c.relkind = 'r'
+       AND EXISTS (SELECT 1 FROM pg_attribute a
+                    WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
+  ),
+  keys AS (
+    SELECT t.relname AS tbl, con.conname AS keyname,
+           (SELECT a.attname FROM pg_attribute a
+             WHERE a.attrelid = t.oid AND a.attnum = con.conkey[1]) AS first_col
+      FROM pg_constraint con JOIN tenant_tables t ON t.oid = con.conrelid
+     WHERE con.contype IN ('u','x')
+    UNION ALL
+    -- Standalone unique indexes with no pg_constraint row — the three-of-seven
+    -- blind spot the ticket names. indkey[0] = 0 (an expression) yields NULL
+    -- and is treated as an offender unless allowlisted.
+    SELECT t.relname, ic.relname,
+           (SELECT a.attname FROM pg_attribute a
+             WHERE a.attrelid = t.oid AND a.attnum = i.indkey[0])
+      FROM pg_index i
+      JOIN pg_class ic ON ic.oid = i.indexrelid
+      JOIN tenant_tables t ON t.oid = i.indrelid
+     WHERE i.indisunique
+       AND NOT EXISTS (SELECT 1 FROM pg_constraint c2 WHERE c2.conindid = i.indexrelid)
+  )
+  SELECT string_agg(tbl || '.' || keyname, ', ') INTO bad
+    FROM keys
+   WHERE first_col IS DISTINCT FROM 'tenant_id'
+     AND keyname NOT IN (
+       -- Allowlist. Every entry states its reason; an unexplained entry is a
+       -- review defect.
+       'app_user_platform_admin_email_key',    -- 000026: PLATFORM_ADMIN rows are tenant-free by design; unreachable by app_rw (PR #29 RLS audit: informational)
+       -- TYRE-87 sweep (D9): keys over opaque uuids alone carry no
+       -- caller-chosen natural value for a probe to exploit, unlike
+       -- vehicle_driver_no_overlap's uuid-pair-plus-daterange shape, which
+       -- was re-keyed in 000026 because a date IS such a value.
+       'reading_inspection_id_position_id_vehicle_id_key',  -- 000001: (inspection_id, position_id, vehicle_id) is three opaque uuids; none is a value a caller chooses to probe
+       'one_open_fitment_per_position',  -- 000001: (position_id, vehicle_id) is two opaque uuids
+       'one_open_fitment_per_tyre',      -- 000001: tyre_id alone is one opaque uuid
+       -- subject_type is one of four schema-defined tags implied by which
+       -- entity subject_id names ('TYRE' names a tyre uuid, and so on) — it
+       -- carries no tenant value independent of the two uuids either side of
+       -- it, so this is functionally the reading-tuple shape, not the
+       -- vehicle_driver_no_overlap shape.
+       'one_open_exception_per_subject'  -- 000001: rule_id and subject_id are opaque uuids; subject_type adds no independently guessable information
+     );
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: unique/exclusion keys not led by tenant_id: %', bad;
+  END IF;
+  RAISE NOTICE 'PASS  37 every tenant-table unique/exclusion key leads with tenant_id or is allowlisted';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
