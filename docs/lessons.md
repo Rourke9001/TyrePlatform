@@ -15,6 +15,27 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-01 — A staging guard with assertions inside it is a test that runs once (TYRE-97)
+
+**What happened:** the TYRE-85 entry below recorded one suite section that
+persisted its probe rows behind `IF NOT EXISTS` and so ran only on a fresh
+database. A structural audit found the same shape in eight sections, and
+two of them (20 and 23) kept their assertions *inside* the guard — on a warm
+database those assertions were not vacuous, they were never reached. Six
+were wrapped in `BEGIN`/`ROLLBACK`. The three that could not be had a
+consumer of their persisted rows elsewhere in the file — one of them
+(section 26 scheduling section 21's `t2veh3`) 400 lines away and missed by
+a static identifier trace; only the per-section cold run caught it.
+
+**The rule:** a suite section stages its rows inside `BEGIN;`/`ROLLBACK;`,
+never behind a bare existence guard, and never puts an assertion inside the
+guard. Before wrapping an existing unwrapped section, `rg` every identifier
+it plants across the whole file, then wrap one section at a time with
+`make db-reset && make db-test` between — a green run after each is the
+attribution; a trace, from a person or an agent, is a lead. Keep the
+trailing `set_config(..., false)` reset when you wrap: a session GUC
+survives the rollback.
+
 ## 2026-09-01 — Renaming a CSS class is unchecked by every gate we have (TYRE-91)
 
 **What happened:** a review commit renamed `.tyre-dispose` to `.tyres-row-form`
