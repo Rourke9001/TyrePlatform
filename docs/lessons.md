@@ -15,6 +15,47 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-01 — A function parameter's `numeric(p,s)` is discarded; only a local rounds (TYRE-91)
+
+**What happened:** `app.set_tyre_cost` and `app.receive_tyres` both computed
+`rand_per_mm` through the one permitted implementation, with what looked like
+identical arguments — and stored different rates for the same input.
+`receive_tyres` assigns the price into a `numeric(12,2)` *local*, which
+applies the type modifier and rounds to cents before the divide;
+`set_tyre_cost` used its `p_price` argument directly. Postgres discards type
+modifiers on parameters, so declaring `p_price numeric(12,2)` would not have
+helped either — the argument arrives as bare `numeric` regardless. The
+column rounded afterwards, leaving a row whose stored rate could not be
+reproduced from the price stored beside it: a cent of divergence at
+Appendix E magnitude, against the acceptance gate itself.
+
+**The rule:** never rely on a parameter's declared precision — it is
+documentation, not behaviour. Round money explicitly, into a typmod'd local
+or with `round(x, 2)`, before any arithmetic whose result is stored. And
+when two writers must agree to the cent, pin the invariant with a value that
+can actually break it: the existing check used a 2dp price, which no
+rounding-order bug can fail.
+
+## 2026-09-01 — A calendar date cast to `timestamptz` can land in the future (TYRE-91)
+
+**What happened:** `app.receive_tyres` stamped its `RECEIVED` and `BRANDED`
+events at `received_date::timestamptz` — midnight of that date. Two ways
+that outruns `now()`: a caller-supplied future date, which nothing bounded,
+and simply being east of UTC, where the tenant's calendar day begins up to
+14 hours before UTC midnight. `app.tyre_in_estate_asof` reads the *latest*
+`to_state` event, so a tyre disposed afterwards kept `RECEIVED` as its
+governing event and sat in the valuation estate permanently. The suite's own
+section 39b had already sidestepped the hazard by pinning `received_date` to
+the past — the workaround was written, the defect was not seen.
+
+**The rule:** an event instant is `least(derived_date::timestamptz, now())`,
+never a bare date cast, and a user-supplied date that drives one is bounded
+against `app.tenant_today()`. Separately: comparing `occurred_at::date`
+reads the session `TimeZone`, which nothing in this deployment pins — use
+the `< ((d + 1)::timestamp AT TIME ZONE 'UTC')` boundary `000016` uses, so
+two predicates in one `WHERE` cannot disagree by a day. And when a test
+avoids a shape rather than asserting on it, ask what it is avoiding.
+
 ## 2026-09-01 — `display_code_counter` has no `ON DELETE CASCADE` on `tenant_id`, unlike every other tenant FK (TYRE-91)
 
 **What happened:** a Task 8 test fixture (`plantGeneratedPolicyTenant`)
