@@ -1,9 +1,11 @@
 import { apiGet, apiPost } from "./client";
 
 // Wire shapes of the tyre register (api/internal/httpapi/tyres.go, TYRE-91).
-// Each mirrors the server's projection exactly, so a screen that just
-// received or costed a tyre holds the same shape it would have read from
-// the register.
+// Tyre mirrors the server's projection exactly, so a screen that just
+// received or costed a tyre holds the same shape it would have read from the
+// register. The request shapes carry only what a screen actually sends —
+// receiveTyresRequest accepts more, and a field is added here when something
+// produces it, not before.
 
 // Money fields carry the server's own omission: absent (never null) unless
 // the actor holds ViewValuation, or the tyre has none recorded yet
@@ -38,20 +40,24 @@ export interface ReceivedTyre {
 export interface NewTyres {
   quantity?: number;
   displayCode?: string;
-  sizeId?: string;
-  brandId?: string;
-  patternId?: string;
   purchasePrice?: string;
   costSource?: string;
-  newTreadMm?: string;
-  receivedDate?: string;
-  depotId?: string;
 }
 
 // Mirrors app.tyre_state's disposal-reachable members (Appendix C's
 // transition table). Which transitions are legal from which state is
 // app.dispose_tyre's rule, not this client's.
 export type Disposal = "SCRAPPED" | "SOLD" | "LOST";
+
+// app.cost_source's third member, UNKNOWN, is app.receive_tyres' own default
+// for an omitted source and never a choice a human makes, so it is not here.
+// Shared by the receive form and the register's per-row cost form.
+export type CostSource = "INVOICE" | "PRICE_LIST_ESTIMATE";
+
+export const COST_SOURCES: { value: CostSource; label: string }[] = [
+  { value: "INVOICE", label: "Invoice" },
+  { value: "PRICE_LIST_ESTIMATE", label: "Price list estimate" },
+];
 
 // fetchTyres is the register read (FR-TYR-040..042). code and on together
 // resolve a display code as of a date (a code is reissued after a tyre
