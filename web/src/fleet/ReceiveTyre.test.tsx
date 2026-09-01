@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
@@ -86,6 +86,28 @@ describe("receiving tyres into the fleet", () => {
     expect(screen.queryByLabelText(/quantity/i)).not.toBeInTheDocument();
   });
 
+  // ReceiveTyre.tsx's own guard (`if (isFree && displayCode.trim() === "")
+  // return;`), proven independently of the `required` attribute. Two
+  // non-obvious things had to be worked around, both confirmed with a
+  // temporary spike against the real component before writing this: a real
+  // click on the submit button never even reaches React's onSubmit here —
+  // jsdom's constraint validation intercepts it first — so fireEvent.submit
+  // dispatches the "submit" event directly, skipping that interception. And
+  // useMutation's mutate() does not call fetch synchronously, so asserting
+  // "not called" right after firing the event passes whether or not the
+  // guard exists; the setTimeout flush lets a wrongly-removed guard's fetch
+  // call actually land before the assertion runs.
+  it("never calls the API for an empty code under FREE, guarding independently of the required attribute", async () => {
+    const { container } = renderScreen("FREE");
+
+    const form = container.querySelector("form");
+    if (form === null) throw new Error("expected a form element");
+    fireEvent.submit(form);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("hints at the awaiting-cost queue while the price is blank and hides the cost source select", () => {
     renderScreen("FREE");
 
@@ -141,11 +163,15 @@ describe("receiving tyres into the fleet", () => {
     });
 
     // No price this time round the form was just cleared by the success it
-    // just had, so costSource must not survive as a stray field.
+    // just had, so costSource must not survive as a stray field. The code
+    // field must have cleared too: userEvent.type appends to whatever is
+    // already there, so a dropped setDisplayCode("") in onSuccess would send
+    // "TYRE1TYRE2" here and nothing else in this test would catch it.
     await userEvent.type(screen.getByLabelText(/display code/i), "TYRE2");
     await submit();
     await screen.findByRole("status");
 
+    expect(sentBody(1)).toMatchObject({ displayCode: "TYRE2" });
     expect(sentBody(1)).not.toHaveProperty("costSource");
     expect(sentBody(1)).not.toHaveProperty("purchasePrice");
   });
