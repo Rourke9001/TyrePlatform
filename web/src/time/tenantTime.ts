@@ -19,6 +19,15 @@ export const INVALID_INSTANT = "invalid date";
 // tenant's, and a date that reorders its parts per viewer is harder to read
 // against a printed sheet, not easier.
 export function formatTenantDate(instant: string | Date, timeZone: string): string {
+  // A calendar date has no instant to project from a timezone: the tenant's
+  // clerk wrote "5 January", and 5 January is what they must read back in
+  // every zone. new Date("2026-01-05") parses as UTC midnight; projecting
+  // THAT through the tenant's zone shifts the day for any tenant west of
+  // UTC — the mirror of the bug rule 6 exists to prevent. Format it in UTC
+  // instead, which always returns the same calendar date it was given.
+  if (typeof instant === "string" && /^\d{4}-\d{2}-\d{2}$/.test(instant)) {
+    return tenantDateFormatter("UTC").format(new Date(`${instant}T00:00:00Z`));
+  }
   const at = instant instanceof Date ? instant : new Date(instant);
   if (Number.isNaN(at.getTime())) {
     return INVALID_INSTANT;

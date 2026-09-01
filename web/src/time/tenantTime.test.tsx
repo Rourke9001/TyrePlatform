@@ -30,6 +30,35 @@ describe("formatTenantDate", () => {
     expect(formatTenantDate("2026-03-14T22:30:00Z", "America/Los_Angeles")).toBe("14 Mar 2026");
   });
 
+  // A calendar date (Postgres `date`, serialised bare — no time component)
+  // has no instant to project through a zone: the tenant's clerk wrote "5
+  // January", and 5 January is what every viewer must read back. Pinned
+  // against Pacific/Midway (UTC-11) because that is the zone where the old
+  // instant-formatter behaviour (new Date("2026-01-05") parses as UTC
+  // midnight, then re-projects west) visibly loses a day; the pilot tenant's
+  // +02:00 zone rolls forward instead of back and hid this bug entirely.
+  it("formats a bare YYYY-MM-DD date in the date itself, not the instant UTC midnight becomes in the zone", () => {
+    expect(formatTenantDate("2026-01-05", "Pacific/Midway")).toBe("05 Jan 2026");
+  });
+
+  // The pilot tenant's own zone (+02:00) rolls a UTC-midnight instant
+  // forward rather than back, so it read correctly even under the old
+  // instant-projecting behaviour. Pin it too, so the date-only branch is
+  // proven right for both directions, not just the one that used to fail.
+  it("keeps the pilot tenant's zone correct for a calendar date", () => {
+    expect(formatTenantDate("2026-01-05", "Africa/Johannesburg")).toBe("05 Jan 2026");
+  });
+
+  // The date-only branch is gated on a strict YYYY-MM-DD regex; a full ISO
+  // instant must still take the zone-projecting path, which is the one this
+  // module exists for (rule 6) and the case above already pins in both
+  // directions. This is the same assertion restated with the module's
+  // top-level `instant` fixture, so a regex broad enough to swallow instants
+  // fails here even if it happened to agree with the case above by luck.
+  it("still projects a full ISO instant through the tenant zone, not the date-only path", () => {
+    expect(formatTenantDate(instant, "Africa/Johannesburg")).toBe("02 Jan 2026");
+  });
+
   it("accepts a Date as readily as an ISO string", () => {
     expect(formatTenantDate(new Date(instant), "Pacific/Midway")).toEqual(
       formatTenantDate(instant, "Pacific/Midway"),
