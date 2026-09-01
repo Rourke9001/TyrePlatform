@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { TyreList } from "./TyreList";
@@ -22,7 +23,11 @@ function renderScreen(capabilities: string[] = ["ManageAssets", "ViewValuation"]
   return render(
     <ActorContext.Provider value={{ actor, settled: true }}>
       <QueryClientProvider client={client}>
-        <TyreList />
+        {/* TyreList links to ReceiveTyre (/fleet/tyres/new); react-router's
+            Link throws outside a Router. */}
+        <MemoryRouter>
+          <TyreList />
+        </MemoryRouter>
       </QueryClientProvider>
     </ActorContext.Provider>,
   );
@@ -251,6 +256,19 @@ describe("the tyre register", () => {
     await screen.findAllByRole("rowheader");
     expect(screen.getByRole("columnheader", { name: /purchase price/i })).toBeInTheDocument();
     expect(screen.getByText(/1200\.00/)).toBeInTheDocument();
+  });
+
+  // ReceiveTyre (/fleet/tyres/new) is otherwise reachable by URL alone; the
+  // register is its one discoverable entry point. Every actor who can render
+  // this screen already holds ManageAssets (AdminRoute in routes.tsx), so the
+  // link needs no capability check of its own — renderScreen's default
+  // capabilities cover that gate the same way the route does.
+  it("links to the receive-tyres screen", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [] }));
+    renderScreen();
+
+    const link = await screen.findByRole("link", { name: /receive tyres/i });
+    expect(link).toHaveAttribute("href", "/fleet/tyres/new");
   });
 
   it("shows an alert with a retry action when the register fails to load, and recovers on retry", async () => {

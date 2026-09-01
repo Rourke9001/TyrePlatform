@@ -4,6 +4,13 @@
   max-width: 68rem;
 }
 
+.tyres-heading-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
 .tyres h1 {
   margin: 0 0 1rem;
   font-family: var(--font-display);

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router";
 
 import { ApiError } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
@@ -94,7 +95,13 @@ export function TyreList() {
 
   return (
     <section aria-labelledby="tyres-heading" className="tyres">
-      <h1 id="tyres-heading">Tyres</h1>
+      <div className="tyres-heading-row">
+        <h1 id="tyres-heading">Tyres</h1>
+        {/* The register's only route to intake (FR-TYR-040): ReceiveTyre is
+            otherwise reachable by URL alone, and a screen someone cannot find
+            their way to might as well not exist. */}
+        <Link to="/fleet/tyres/new">Receive tyres</Link>
+      </div>
 
       <form className="tyres-lookup" onSubmit={submitLookup}>
         <label htmlFor="lookup-code">Display code</label>
