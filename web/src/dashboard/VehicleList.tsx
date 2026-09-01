@@ -21,7 +21,7 @@ export function VehicleList() {
           type="search"
           className="vehicles-search"
           placeholder="Search fleet number or registration"
-          aria-label="Search vehicles by fleet number or registration"
+          aria-label="Search units by fleet number or registration"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -49,9 +49,9 @@ export function VehicleList() {
 
       {vehicles.isSuccess && vehicles.data.length === 0 && (
         <div className="vehicles-note">
-          <h2>No vehicles yet</h2>
+          <h2>No units yet</h2>
           <p>
-            Your fleet appears here once vehicles are registered. Vehicle registration opens in an
+            Your fleet appears here once units are registered. Unit registration opens in an
             upcoming release.
           </p>
         </div>
@@ -83,7 +83,7 @@ function VehicleRows({
         <h2>No matches</h2>
         <p>
           No fleet number or registration contains “{query.trim()}”. Clear the search to see all{" "}
-          {total} vehicles.
+          {total} units.
         </p>
       </div>
     );
@@ -91,7 +91,7 @@ function VehicleRows({
   return (
     <>
       <p className="vehicles-count">
-        {rows.length === total ? `${total} vehicles` : `${rows.length} of ${total} vehicles`}
+        {rows.length === total ? `${total} units` : `${rows.length} of ${total} units`}
       </p>
       <ul className="vehicle-rows">
         {rows.map((v) => (
