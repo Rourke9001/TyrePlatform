@@ -403,13 +403,10 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		// Content-Type must be set before WriteHeader locks the header map in:
-		// writeJSON also sets it, but only the first call before the status is
-		// written actually reaches the wire.
-		w.Header().Set("Content-Type", "application/json")
+		status := http.StatusOK
 		if created {
-			w.WriteHeader(http.StatusCreated)
+			status = http.StatusCreated
 		}
-		writeJSON(r.Context(), w, map[string]string{"inspectionId": id.String()})
+		writeStatus(r.Context(), w, status, map[string]string{"inspectionId": id.String()})
 	}
 }

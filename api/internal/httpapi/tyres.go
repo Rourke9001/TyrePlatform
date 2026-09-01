@@ -317,9 +317,7 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		writeJSON(ctx, w, map[string]any{"tyres": received})
+		writeStatus(ctx, w, http.StatusCreated, map[string]any{"tyres": received})
 	}
 }
 

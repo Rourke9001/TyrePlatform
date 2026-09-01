@@ -259,12 +259,7 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		// Content-Type before WriteHeader: WriteHeader locks the header map
-		// in, so writeJSON's own Set would be dropped and the response would
-		// go out as text/plain with the status assertion still green.
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		writeJSON(ctx, w, created)
+		writeStatus(ctx, w, http.StatusCreated, created)
 	}
 }
 
@@ -476,9 +471,7 @@ func createUser(s *store.Store) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		writeJSON(ctx, w, created)
+		writeStatus(ctx, w, status, created)
 	}
 }
 
@@ -575,8 +568,6 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 		if !ok {
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
-		writeJSON(ctx, w, created)
+		writeStatus(ctx, w, http.StatusCreated, created)
 	}
 }
