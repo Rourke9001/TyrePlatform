@@ -38,12 +38,9 @@ ALTER TABLE app.reading_measurement
 -- text discriminator) -- vehicle_driver_no_overlap's shape (000026), which
 -- 000026 already re-keyed despite its own two uuids. subject_id is
 -- polymorphic (no REFERENCES, no CHECK tying it to subject_type), so
--- nothing in the schema makes subject_type redundant; exception.rule_id is
--- also a bare single-column FK, unlike position.configuration_id's
--- composite (tenant_id, id) hardening from 000004 -- one fewer reason to
--- call this key merely opaque. Kept its descriptive name and exact partial
--- WHERE clause from 000001: the business rule it enforces is unchanged,
--- only the leading column.
+-- nothing in the schema makes subject_type redundant. Kept its descriptive
+-- name and exact partial WHERE clause from 000001: the business rule it
+-- enforces is unchanged, only the leading column.
 DROP INDEX app.one_open_exception_per_subject;
 CREATE UNIQUE INDEX one_open_exception_per_subject
   ON app.exception (tenant_id, rule_id, subject_type, subject_id)
