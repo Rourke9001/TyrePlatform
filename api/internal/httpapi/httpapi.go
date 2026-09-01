@@ -110,6 +110,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		)).Post("/inspections", submitInspection(s))
 		r.Get("/org/branding", orgBranding(s))
 		r.Get("/axle-configurations", listAxleConfigurations(s))
+		r.Get("/tyres", listTyres(s))
 		r.Post("/users", createUser(s))
 		r.Post("/vehicles/{vehicleID}/drivers", assignDriver(s))
 	})
