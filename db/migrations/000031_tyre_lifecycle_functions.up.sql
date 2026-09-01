@@ -19,27 +19,41 @@ LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
   pol   app.display_code_policy;
+  tz    text;
   qty   int  := COALESCE((payload->>'quantity')::int, 1);
   hand  text := NULLIF(btrim(COALESCE(payload->>'display_code','')), '');
+  -- numeric(12,2) on the local, not on the argument: the cents rounding has
+  -- to happen BEFORE app.rand_per_mm divides, or the stored rate is not
+  -- reproducible from the stored price. app.set_tyre_cost holds the same
+  -- invariant the same way and cites this comment (FR-VAL-006).
   price numeric(12,2) := (payload->>'purchase_price')::numeric;
   tread numeric(4,1)  := (payload->>'new_tread_mm')::numeric;
   src   app.cost_source := COALESCE(payload->>'cost_source',
                                     CASE WHEN payload->>'purchase_price' IS NULL
                                          THEN 'UNKNOWN' ELSE 'INVOICE' END)::app.cost_source;
   rcv   date;
+  stamp timestamptz;
   code  text;
   new_id uuid;
 BEGIN
+  SELECT t.timezone, t.display_code_policy INTO tz, pol
+    FROM app.tenant t WHERE t.id = app.current_tenant_id();
+
   -- Defaulted server-side to the tenant's calendar day, never the caller's
   -- (rule 6; B4.5's from_date precedent). app.tenant_today(p_tz, p_at)
   -- defaults p_at to now(), so the single-argument call below is its
   -- ordinary one-arg form, not a partial application.
-  rcv := COALESCE((payload->>'received_date')::date,
-                  app.tenant_today((SELECT timezone FROM app.tenant
-                                     WHERE id = app.current_tenant_id())));
-
-  SELECT t.display_code_policy INTO pol
-    FROM app.tenant t WHERE t.id = app.current_tenant_id();
+  rcv := COALESCE((payload->>'received_date')::date, app.tenant_today(tz));
+  IF rcv > app.tenant_today(tz) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'a tyre is received on or before today, never on a future date';
+  END IF;
+  -- The event instant is clamped to now(), which the calendar date alone does
+  -- not guarantee: for a tenant east of UTC, today's date cast to timestamptz
+  -- is still up to 14 hours ahead. An event stamped in the future outranks
+  -- every later one in app.tyre_in_estate_asof's ORDER BY, which would leave
+  -- a disposed tyre inside the valuation estate for good (FR-VAL-022).
+  stamp := least(rcv::timestamptz, now());
 
   IF qty < 1 OR qty > 200 THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
@@ -91,9 +105,9 @@ BEGIN
     -- becomes trackable (FR-TYR-040), and branding is a dated event so the
     -- code resolves by date across reuse (FR-TYR-042, ADR-0008 rule 2).
     INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state)
-    VALUES (app.current_tenant_id(), new_id, 'RECEIVED', rcv::timestamptz, 'IN_STOCK');
+    VALUES (app.current_tenant_id(), new_id, 'RECEIVED', stamp, 'IN_STOCK');
     INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, payload)
-    VALUES (app.current_tenant_id(), new_id, 'BRANDED', rcv::timestamptz,
+    VALUES (app.current_tenant_id(), new_id, 'BRANDED', stamp,
             jsonb_build_object('display_code', code));
 
     tyre_id := new_id; display_code := code;
@@ -105,7 +119,14 @@ CREATE FUNCTION app.set_tyre_cost(p_tyre uuid, p_price numeric, p_source app.cos
 RETURNS void
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
-DECLARE cur numeric;
+DECLARE
+  cur   numeric;
+  -- A parameter's type modifier is discarded by Postgres, so p_price arrives
+  -- unrounded however it is declared; only assignment to a typmod'd local
+  -- rounds it. Rounding before the divide is what makes the stored rate
+  -- reproducible from the stored price — see app.receive_tyres' own price
+  -- local for the invariant.
+  price numeric(12,2);
 BEGIN
   SELECT purchase_price INTO cur FROM app.tyre WHERE id = p_tyre FOR UPDATE;
   IF NOT FOUND THEN
@@ -119,11 +140,12 @@ BEGIN
   IF p_price IS NULL OR p_price < 0 THEN
     RAISE EXCEPTION USING ERRCODE = 'TY013', MESSAGE = 'a cost is a non-negative amount';
   END IF;
+  price := p_price;
   -- No event: cost entry is provenance, not a lifecycle transition. The rate
   -- goes through the one permitted implementation (db/CLAUDE.md, FR-VAL-006).
   UPDATE app.tyre
-     SET purchase_price = p_price, cost_source = p_source,
-         rand_per_mm = app.rand_per_mm(p_price, new_tread_mm, app.current_removal_threshold_mm())
+     SET purchase_price = price, cost_source = p_source,
+         rand_per_mm = app.rand_per_mm(price, new_tread_mm, app.current_removal_threshold_mm())
    WHERE id = p_tyre;
 END $$;
 
@@ -133,7 +155,12 @@ CREATE FUNCTION app.dispose_tyre(p_tyre uuid, p_disposal app.tyre_state,
 RETURNS void
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
-DECLARE cur app.tyre_state; why text := NULLIF(btrim(COALESCE(p_reason,'')), '');
+DECLARE
+  cur  app.tyre_state;
+  why  text := NULLIF(btrim(COALESCE(p_reason,'')), '');
+  -- Rounded on the way in rather than silently by the column, so the amount
+  -- this function guards on is the amount it stores (see set_tyre_cost).
+  paid numeric(12,2) := p_proceeds;
 BEGIN
   IF p_disposal NOT IN ('SCRAPPED','SOLD','LOST') THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012',
@@ -159,17 +186,17 @@ BEGIN
   IF p_disposal = 'SCRAPPED' AND why IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'a scrap records its reason';
   END IF;
-  IF p_disposal = 'SOLD' AND p_proceeds IS NULL THEN
+  IF p_disposal = 'SOLD' AND paid IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'a sale records its proceeds (FR-FIT-023)';
   END IF;
-  IF p_disposal <> 'SOLD' AND p_proceeds IS NOT NULL THEN
+  IF p_disposal <> 'SOLD' AND paid IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'only a sale carries proceeds';
   END IF;
 
   INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at,
                               from_state, to_state, reason, proceeds)
   VALUES (app.current_tenant_id(), p_tyre, p_disposal::text, p_occurred,
-          cur, p_disposal, why, p_proceeds);
+          cur, p_disposal, why, paid);
   UPDATE app.tyre SET state = p_disposal WHERE id = p_tyre;
 END $$;
 
@@ -189,7 +216,12 @@ SET search_path = app, pg_temp AS $$
   SELECT latest.tyre_id FROM (
     SELECT DISTINCT ON (e.tyre_id) e.tyre_id, e.payload->>'display_code' AS code
       FROM app.tyre_event e
-     WHERE e.type = 'BRANDED' AND e.occurred_at::date <= p_on
+     -- The same UTC day boundary app.tyre_in_estate_asof uses (000016), not
+     -- occurred_at::date: that cast reads the session's TimeZone, which
+     -- nothing pins, so the two halves of this predicate would disagree by a
+     -- day wherever the server is not set to UTC.
+     WHERE e.type = 'BRANDED'
+       AND e.occurred_at < ((p_on + 1)::timestamp AT TIME ZONE 'UTC')
      ORDER BY e.tyre_id, e.occurred_at DESC
   ) latest
   WHERE latest.code = p_code

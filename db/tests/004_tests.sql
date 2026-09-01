@@ -3838,7 +3838,8 @@ ROLLBACK;
 \echo '== 39. Tyre lifecycle: receive, cost, dispose, dated lookup (TYRE-48/91, FR-TYR-040..043, D12)'
 BEGIN;
 DO $$
-DECLARE r record; a uuid; b uuid; c uuid; n int; rate numeric;
+DECLARE r record; a uuid; b uuid; c uuid; d uuid; e uuid; n int; rate numeric;
+        stored_price numeric; stored_rate numeric;
 BEGIN
   -- BAC is GENERATED (D12): a hand-typed code is refused, an issued one is
   -- sequential from the counter
@@ -3960,6 +3961,47 @@ BEGIN
     RAISE EXCEPTION 'FAIL: cross-tenant cost entry was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN RAISE NOTICE 'PASS  39m cross-tenant tyre invisible to costing';
   END;
+
+  -- FR-VAL-006: the two writers of rand_per_mm must agree to the cent. They
+  -- diverged once because only receive_tyres rounded the price before the
+  -- divide, so a 3dp price set through the cost path stored a rate that could
+  -- not be reproduced from the price stored beside it. Pinned at 3dp
+  -- deliberately: a 2dp price cannot fail this.
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT tyre_id INTO d FROM app.receive_tyres(
+    '{"display_code":"RATE-3DP","new_tread_mm":"25.0","received_date":"2026-01-05"}'::jsonb);
+  PERFORM app.set_tyre_cost(d, 4319.915, 'INVOICE');
+  SELECT purchase_price, rand_per_mm INTO stored_price, stored_rate
+    FROM app.tyre WHERE id = d;
+  IF stored_rate IS DISTINCT FROM
+     app.rand_per_mm(stored_price, 25.0, app.current_removal_threshold_mm()) THEN
+    RAISE EXCEPTION 'FAIL: set_tyre_cost stored a rate (%) not reproducible from its own stored price (%)',
+      stored_rate, stored_price;
+  END IF;
+  RAISE NOTICE 'PASS  39n cost-path rate reproducible from the stored price: %', stored_rate;
+
+  -- A receive dated in the future would stamp its RECEIVED event after every
+  -- later event, and app.tyre_in_estate_asof reads the LATEST to_state — so a
+  -- tyre disposed afterwards would sit in the valuation estate for good
+  -- (FR-VAL-022). Refused outright.
+  BEGIN
+    PERFORM app.receive_tyres(
+      format('{"display_code":"FUTURE-1","received_date":"%s"}', current_date + 30)::jsonb);
+    RAISE EXCEPTION 'FAIL: a receive dated in the future was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    RAISE NOTICE 'PASS  39o a future received_date is refused';
+  END;
+
+  -- The clamp behind that refusal, which the refusal alone does not cover:
+  -- today's date cast to timestamptz is still ahead of now() for a tenant
+  -- east of UTC, so the stamp is least(date, now()) and never outruns a
+  -- disposal recorded moments later.
+  SELECT tyre_id INTO e FROM app.receive_tyres('{"display_code":"CLAMP-1"}'::jsonb);
+  PERFORM app.dispose_tyre(e, 'SCRAPPED', 'audit', NULL, now());
+  IF app.tyre_in_estate_asof(e, current_date + 365) THEN
+    RAISE EXCEPTION 'FAIL: a disposed tyre is back in the estate — its receipt outranks its disposal';
+  END IF;
+  RAISE NOTICE 'PASS  39p a same-day receipt never outranks a later disposal';
 END $$;
 ROLLBACK;
 
