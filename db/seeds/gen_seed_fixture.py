@@ -147,7 +147,9 @@ for seq,(fleet,reg,cfg,kind,label) in UNIT.items():
 L.append("")
 L.append("-- Tyres. rand_per_mm follows BR-VAL-002 from an R4,319.91 purchase over 25mm")
 L.append("-- new tread and a 4mm removal threshold => R205.7100/mm exactly, matching the")
-L.append("-- SRS Appendix E derivation check (4319.91 / 21).")
+L.append("-- SRS Appendix E derivation check (4319.91 / 21). The seed states the three")
+L.append("-- inputs and lets app.rand_per_mm derive the rate: the fixture must not carry")
+L.append("-- a second copy of the acceptance arithmetic's answer (rule 2).")
 L.append("-- display_code keeps the sheet's branded strings verbatim: codes are opaque")
 L.append("-- display data, not keys (CHG-021, ADR-0008), and the historical sheet is the")
 L.append("-- fixture's source of truth. cost_source INVOICE: these prices are the SRS")
@@ -158,7 +160,7 @@ allpos=[(p,member(p)) for p in sorted(R)]+[('S',(3,'S'))]
 for p,(mseq,own) in allpos:
     tid=f"tyre{p}"
     L.append(f"INSERT INTO app.tyre (id,tenant_id,display_code,size_id,brand_id,pattern_id,status,purchase_date,received_date,purchase_price,cost_source,new_tread_mm,rand_per_mm,casing_value,state)")
-    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01','2024-03-01',4319.91,'INVOICE',25.0,205.7100,1837.50,'FITTED');")
+    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01','2024-03-01',4319.91,'INVOICE',25.0,app.rand_per_mm(4319.91,25.0,4.0),1837.50,'FITTED');")
 L.append("")
 L.append("-- Fitments: each tyre on its own unit's own position code (BR-VEH-003).")
 L.append("-- Trailers have no odometer (CFL-003): their fitments carry NULL and the")
