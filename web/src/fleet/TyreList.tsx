@@ -31,11 +31,9 @@ const COST_SOURCES: { value: CostSource; label: string }[] = [
   { value: "PRICE_LIST_ESTIMATE", label: "Price list estimate" },
 ];
 
-// A refused disposal says what happened in the words of whoever knows: the
-// tyre lifecycle's own refusals (TY011..TY013, ADR-0012's TY class) and the
-// register's own conflict codes are safe to render verbatim (ADR-0013);
-// anything else gets the general sentence rather than a wrong specific one.
-// Shape mirrors AddUnit.tsx:22-33.
+// refusalMessage: AddUnit.tsx:19-21's shape, extended with this endpoint's
+// speakable codes (TY011..TY013, ADR-0012's TY class, and the register's own
+// conflict codes). Shared by DisposeForm and CostForm below.
 function refusalMessage(error: unknown): string {
   if (error instanceof ApiError && error.code !== null) {
     const speakable = [

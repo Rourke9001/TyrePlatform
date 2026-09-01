@@ -101,11 +101,7 @@ describe("the refusal envelope", () => {
     expect((error as ApiError).message).toContain("502");
   });
 
-  // The tyre lifecycle's cost/dispose steps (api/internal/httpapi/tyres.go)
-  // are the API's first 204 responses. A 204 body is empty by spec, and
-  // Response#json() rejects on an empty stream — without this case, a
-  // successful write throws a SyntaxError that looks like a transport
-  // failure rather than resolving.
+  // Pins apiPost's 204 handling — see client.ts's own comment for why.
   it("resolves with nothing on a 204, without trying to parse an empty body", async () => {
     vi.stubGlobal("fetch", vi.fn());
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));

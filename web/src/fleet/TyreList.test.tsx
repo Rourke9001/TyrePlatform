@@ -40,10 +40,7 @@ function respond(status: number, body: unknown): Response {
   });
 }
 
-// RequestInit types body as BodyInit, which includes Blob and FormData;
-// String() on those yields "[object Object]" and would assert nothing. The
-// client always sends a JSON string, so narrow rather than cast (mirrors
-// AddDriver.test.tsx's sentBody).
+// sentBody: same narrowing as AddDriver.test.tsx's helper of the same name.
 function sentBody(call: number): unknown {
   const init = vi.mocked(fetch).mock.calls[call][1];
   if (typeof init?.body !== "string") {

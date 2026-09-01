@@ -85,7 +85,8 @@ export function setTyreCost(
   return apiPost<void>(`/api/tyres/${tyreId}/cost`, body);
 }
 
-// disposeTyre is FR-TYR's disposal step (Appendix C): scrap, sale or loss.
+// disposeTyre is the disposal step (Appendix C's transition table): scrap,
+// sale or loss.
 // The transition table, the reason/proceeds pairing and TY012's
 // cross-tenant refusal are all app.dispose_tyre's, forwarded verbatim.
 export function disposeTyre(

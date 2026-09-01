@@ -34,10 +34,7 @@ function respond(status: number, body: unknown): Response {
   });
 }
 
-// RequestInit types body as BodyInit, which includes Blob and FormData;
-// String() on those yields "[object Object]" and would assert nothing. The
-// client always sends a JSON string, so narrow rather than cast (mirrors
-// AddDriver.test.tsx's sentBody).
+// sentBody: same narrowing as AddDriver.test.tsx's helper of the same name.
 function sentBody(call: number): unknown {
   const init = vi.mocked(fetch).mock.calls[call][1];
   if (typeof init?.body !== "string") {
@@ -88,15 +85,14 @@ describe("receiving tyres into the fleet", () => {
 
   // ReceiveTyre.tsx's own guard (`if (isFree && displayCode.trim() === "")
   // return;`), proven independently of the `required` attribute. Two
-  // non-obvious things had to be worked around, both confirmed with a
-  // temporary spike against the real component before writing this: a real
-  // click on the submit button never even reaches React's onSubmit here —
-  // jsdom's constraint validation intercepts it first — so fireEvent.submit
-  // dispatches the "submit" event directly, skipping that interception. And
-  // useMutation's mutate() does not call fetch synchronously, so asserting
-  // "not called" right after firing the event passes whether or not the
-  // guard exists; the setTimeout flush lets a wrongly-removed guard's fetch
-  // call actually land before the assertion runs.
+  // non-obvious things: a real click on the submit button never even reaches
+  // React's onSubmit here — jsdom's constraint validation intercepts it
+  // first — so fireEvent.submit dispatches the "submit" event directly,
+  // skipping that interception. And useMutation's mutate() does not call
+  // fetch synchronously, so asserting "not called" right after firing the
+  // event passes whether or not the guard exists; the setTimeout flush lets
+  // a wrongly-removed guard's fetch call actually land before the assertion
+  // runs.
   it("never calls the API for an empty code under FREE, guarding independently of the required attribute", async () => {
     const { container } = renderScreen("FREE");
 
@@ -124,10 +120,11 @@ describe("receiving tyres into the fleet", () => {
     expect(screen.queryByText(/awaiting-cost queue/i)).not.toBeInTheDocument();
   });
 
-  // The whole point of the brief's ban: Number("10.50") stringifies back as
-  // "10.5", silently dropping the trailing zero. Asserting the exact string
-  // (never re-derived with Number/parseFloat in this test either) is the
-  // only check that would actually fail if the component coerced.
+  // The whole point of web/CLAUDE.md's money-stays-a-string rule:
+  // Number("10.50") stringifies back as "10.5", silently dropping the
+  // trailing zero. Asserting the exact string (never re-derived with
+  // Number/parseFloat in this test either) is the only check that would
+  // actually fail if the component coerced.
   it("never coerces the price to a number: the exact string, trailing zero included, reaches receiveTyres", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(201, { tyres: [{ id: "t1", displayCode: "TYRE1" }] }),

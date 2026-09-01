@@ -38,8 +38,8 @@ type tyresListBody struct {
 // plantTyre inserts a tyre directly through the admin connection, the way
 // every other fixture in this package plants data (httpapi_test.go's
 // plantCaptureFixture): app.receive_tyres needs a tenant bound in session
-// state that the admin connection does not carry, so the register's own
-// write path is not available to a test fixture yet — Task 8 builds it.
+// state that the admin connection does not carry, so a fixture cannot drive
+// it directly regardless of which handlers exist.
 func plantTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, code string, purchasePrice *string) uuid.UUID {
 	t.Helper()
 	var tyreID uuid.UUID
@@ -181,12 +181,9 @@ func TestListTyresCodeAndDateLookup(t *testing.T) {
 	require.Equal(t, "on must be a date as YYYY-MM-DD", ref.Message)
 }
 
-// CFL-002: a tyre received with no purchase price yet is the awaiting-cost
-// backlog app.v_tyre_awaiting_cost names — but that view also excludes a
-// disposed tyre (SCRAPPED/LOST/SOLD), so a never-costed tyre that has since
-// left the estate must not be reported as awaiting cost either by the filter
-// or by the per-row flag in the unfiltered list; the two must agree, because
-// they read the same view (migration 000012).
+// CFL-002: listTyres's doc comment (tyres.go — the awaitingCost filter and
+// the per-row flag must agree) is what this pins, for both a costed and a
+// disposed tyre.
 func TestListTyresAwaitingCostFilter(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -233,11 +230,9 @@ func TestListTyresAwaitingCostFilter(t *testing.T) {
 		"a disposed tyre's own flag must not claim it is awaiting cost, even though purchase_price IS NULL alone would say so")
 }
 
-// Every role that can reach this endpoint (ManageAssets) also holds
-// ViewValuation today, so this is the handler-level half of the money
-// projection: money is genuinely sent, not merely absent because the
-// fixture forgot to check. tyres_internal_test.go proves the hidden half,
-// which no handler-driven test can reach (FR-AUT-005a).
+// The handler-level half of tyreJSONFor's projection (tyres.go's doc
+// comment): money is genuinely sent, not merely absent because the fixture
+// forgot to check. tyres_internal_test.go proves the hidden half.
 func TestListTyresIncludesMoneyForAViewValuationHolder(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

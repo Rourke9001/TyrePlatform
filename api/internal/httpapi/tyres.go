@@ -1,6 +1,6 @@
 // The tyre register (TYRE-91): listTyres reads it, and receiveTyres,
-// setTyreCost and disposeTyre write to it through the lifecycle functions
-// Task 4 landed in migration 000031. Every business rule any of these four
+// setTyreCost and disposeTyre write to it through the lifecycle functions in
+// migration 000031. Every business rule any of these four
 // depends on — the dated code lookup, the awaiting-cost set, the
 // display-code policy, the disposal transition table — lives in SQL, per
 // db/CLAUDE.md; nothing here does more than shape a request and read back a
@@ -46,7 +46,8 @@ type tyreRow struct {
 // tyreJSON is the wire shape. Money fields carry omitempty: a nil pointer
 // must vanish from the payload rather than round-trip as a JSON null, which
 // is what "hidden" means for a projection a client cannot be trusted to
-// enforce itself (NFR-SEC-006). Task 10's wire type mirrors this one.
+// enforce itself (NFR-SEC-006). web/src/api/tyres.ts's Tyre type mirrors
+// this one.
 type tyreJSON struct {
 	ID            string  `json:"id"`
 	DisplayCode   string  `json:"displayCode"`
@@ -69,7 +70,7 @@ type tyreJSON struct {
 // no-money branch is unit-testable directly — every role that can reach
 // listTyres today (gated on ManageAssets) also holds ViewValuation, so that
 // branch is not reachable by driving the handler; see
-// TestTyreJSONForHidesMoneyWithoutViewValuation.
+// TestTyreJSONForProjectsMoneyByCapability.
 func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 	j := tyreJSON{
 		ID:            row.id.String(),
@@ -137,14 +138,10 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			// (FR-AUT-005a, NFR-SEC-006): projected out here, never filtered
 			// client-side.
 			canSeeMoney := a.Can(auth.ViewValuation)
-			// v_tyre_awaiting_cost is joined rather than reimplemented inline:
-			// its WHERE (purchase_price IS NULL AND state NOT IN
-			// ('SCRAPPED','LOST','SOLD'), migration 000012) is the one
-			// definition of "awaiting cost", so the per-row flag below and
-			// the filter both read v.tyre_id rather than each stating the
-			// rule its own way and drifting apart — a disposed, never-costed
-			// tyre must report awaitingCost:false, matching the row the
-			// filter itself would show.
+			// v_tyre_awaiting_cost is joined rather than reimplemented inline
+			// (WHERE purchase_price IS NULL AND state NOT IN
+			// ('SCRAPPED','LOST','SOLD'), migration 000012) — see this
+			// function's doc comment for why the flag and the filter share it.
 			sql := `SELECT t.id, t.display_code, t.state::text, t.status::text,
 			               t.retread_count, s.name, b.name, p.name,
 			               t.received_date::text, (v.tyre_id IS NOT NULL),
@@ -266,7 +263,7 @@ type receivedTyreJSON struct {
 }
 
 // receiveTyres is FR-TYR-040's intake, the first write over the lifecycle
-// functions Task 4 landed (migration 000031). Every rule — the display-code
+// functions in migration 000031. Every rule — the display-code
 // policy refusal (D12/TY011), the 1..200 bulk bound, the code's own
 // uniqueness (one_active_display_code_per_tenant) — belongs to
 // app.receive_tyres, not here: this handler only decodes the request shape,
@@ -357,8 +354,8 @@ func setTyreCost(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// disposeTyre is FR-TYR's disposal step (Appendix C's transition table):
-// scrap, sale or loss. The tyre id is the URL's, refused before any
+// disposeTyre is the disposal step (Appendix C's transition table): scrap,
+// sale or loss. The tyre id is the URL's, refused before any
 // transaction opens if it does not parse. Everything else — which
 // transitions are legal from which state, that a scrap records its reason,
 // that a sale records its proceeds, and TY012's cross-tenant/RLS-hidden
@@ -386,9 +383,7 @@ func disposeTyre(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
-			// Every rule — the transition table, reason, proceeds — is
-			// app.dispose_tyre's; its TY012 arrives via refusalForPgError
-			// with the message intact (ADR-0013 decision 5).
+			// TY012 arrives via refusalForPgError with the message intact.
 			if _, err := tx.Exec(ctx,
 				`SELECT app.dispose_tyre($1, $2::app.tyre_state, $3, $4::numeric, now())`,
 				tyreID, body.Disposal, body.Reason, body.Proceeds); err != nil {
