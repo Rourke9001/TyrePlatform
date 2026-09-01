@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { ActorContext } from "../auth/actorContext";
 import type { Me } from "../auth/me";
+import { me } from "../test/fixtures";
 import {
   formatTenantDate,
   INVALID_INSTANT,
@@ -115,15 +116,12 @@ describe("tenantDateFormatter", () => {
 describe("useTenantDate", () => {
   const instant = "2026-03-14T22:30:00Z";
 
-  const me: Me = {
+  const driver = me({
     userId: "u1",
     displayName: "Driver",
     role: "driver",
     capabilities: ["CaptureInspection"],
-    depots: [],
-    timezone: "Africa/Johannesburg",
-    displayCodePolicy: "FREE",
-  };
+  });
 
   function withActor(actor: Me | null, settled: boolean) {
     return function Wrapper({ children }: { children: ReactNode }) {
@@ -132,7 +130,7 @@ describe("useTenantDate", () => {
   }
 
   it("renders the tenant's zone once the actor arrives", () => {
-    const { result } = renderHook(() => useTenantDate(), { wrapper: withActor(me, true) });
+    const { result } = renderHook(() => useTenantDate(), { wrapper: withActor(driver, true) });
     expect(result.current(instant)).toBe("15 Mar 2026");
   });
 
@@ -161,7 +159,7 @@ describe("useTenantDate", () => {
   // actor state hand back the same function.
   it("returns the same callback across re-renders with the same actor", () => {
     const { result, rerender } = renderHook(() => useTenantDate(), {
-      wrapper: withActor(me, true),
+      wrapper: withActor(driver, true),
     });
     const first = result.current;
     rerender();

@@ -2,13 +2,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { disposeTyre, receiveTyres, setTyreCost, fetchTyres } from "./tyres";
 import { ApiError } from "./client";
-
-function respond(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
+import { respond } from "../test/fixtures";
 
 // setTyreCost and disposeTyre answer 204 (tyres.go): a body would violate the
 // Response spec for that status, so the no-content success case gets its own

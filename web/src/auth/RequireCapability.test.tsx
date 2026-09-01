@@ -4,16 +4,10 @@ import { render, screen } from "@testing-library/react";
 import { ActorContext } from "./actorContext";
 import { RequireCapability } from "./RequireCapability";
 import type { Me } from "./me";
+import { me } from "../test/fixtures";
 
-const actor = (capabilities: string[]): Me => ({
-  userId: "00000000-0000-0000-0000-000000000001",
-  displayName: "Test",
-  role: "CONTROLLER",
-  capabilities,
-  depots: [],
-  timezone: "Africa/Johannesburg",
-  displayCodePolicy: "FREE",
-});
+const actor = (capabilities: string[]): Me =>
+  me({ userId: "00000000-0000-0000-0000-000000000001", capabilities });
 
 describe("RequireCapability", () => {
   it("renders its children when the actor holds the capability", () => {

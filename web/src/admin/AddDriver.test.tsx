@@ -1,39 +1,23 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { AddDriver } from "./AddDriver";
 import { ActorContext } from "../auth/actorContext";
-import type { Me } from "../auth/me";
+import { me, respond, sentBody, testQueryClient } from "../test/fixtures";
 
 // Capabilities rather than a role name: the screen branches on useCan
 // (ADR-0011), so the test names what the screen reads.
 function renderScreen(capabilities: string[] = ["ManageUsers", "ManageAssignments"]) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const actor: Me = {
-    userId: "u0",
-    displayName: "Admin",
-    role: "ORG_ADMIN",
-    capabilities,
-    depots: [],
-    timezone: "Africa/Johannesburg",
-    displayCodePolicy: "FREE",
-  };
+  const actor = me({ displayName: "Admin", role: "ORG_ADMIN", capabilities });
   return render(
     <ActorContext.Provider value={{ actor, settled: true }}>
-      <QueryClientProvider client={client}>
+      <QueryClientProvider client={testQueryClient()}>
         <AddDriver />
       </QueryClientProvider>
     </ActorContext.Provider>,
   );
-}
-
-function respond(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }
 
 const CREATED = {
@@ -49,17 +33,6 @@ async function fillAndSubmit() {
   await userEvent.type(screen.getByLabelText(/email/i), "new@example.invalid");
   await userEvent.type(screen.getByLabelText(/name/i), "New Driver");
   await userEvent.click(screen.getByRole("button", { name: /add user/i }));
-}
-
-// RequestInit types body as BodyInit, which includes Blob and FormData;
-// String() on those yields "[object Object]" and would assert nothing.
-// The client always sends a JSON string, so narrow rather than cast.
-function sentBody(call: number): unknown {
-  const init = vi.mocked(fetch).mock.calls[call][1];
-  if (typeof init?.body !== "string") {
-    throw new Error(`call ${call} did not send a string body`);
-  }
-  return JSON.parse(init.body);
 }
 
 describe("adding a driver", () => {
