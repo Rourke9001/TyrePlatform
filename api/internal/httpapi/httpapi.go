@@ -413,6 +413,8 @@ type meJSON struct {
 	// as the tenant's civil time (rule 6, FR-TEN-005). Sent here rather than
 	// per-response because it changes about never and every screen needs it.
 	Timezone string `json:"timezone"`
+	// The tenant's display code policy, either "FREE" or "GENERATED".
+	DisplayCodePolicy string `json:"displayCodePolicy"`
 }
 
 // me tells the client what to render. Presentation only — every other
@@ -433,9 +435,9 @@ func me(s *store.Store) http.HandlerFunc {
 			// In the actor's own transaction, so RLS answers for this tenant
 			// and the row cannot be another's.
 			if err := tx.QueryRow(ctx,
-				`SELECT timezone FROM app.tenant WHERE id = app.current_tenant_id()`).
-				Scan(&body.Timezone); err != nil {
-				return fmt.Errorf("reading tenant timezone: %w", err)
+				`SELECT timezone, display_code_policy FROM app.tenant WHERE id = app.current_tenant_id()`).
+				Scan(&body.Timezone, &body.DisplayCodePolicy); err != nil {
+				return fmt.Errorf("reading tenant timezone and display-code policy: %w", err)
 			}
 			for _, c := range a.Capabilities() {
 				body.Capabilities = append(body.Capabilities, string(c))

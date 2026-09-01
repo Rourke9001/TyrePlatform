@@ -830,3 +830,24 @@ func TestMeCarriesTheTenantTimezone(t *testing.T) {
 	require.Equal(t, "Pacific/Kiritimati", zoneSeen(east))
 	require.Equal(t, "Pacific/Midway", zoneSeen(west))
 }
+
+func TestMeCarriesTheTenantDisplayCodePolicy(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	tenantID, _ := plantTenant(t, ctx, admin, "dcp-test")
+	// Set the display_code_policy to GENERATED for this tenant.
+	_, err := admin.Exec(ctx,
+		`UPDATE app.tenant SET display_code_policy = 'GENERATED' WHERE id = $1`, tenantID)
+	require.NoError(t, err)
+
+	actor := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	rec := get(t, h, "/api/me", tenantID.String(), actor.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		DisplayCodePolicy string `json:"displayCodePolicy"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "GENERATED", body.DisplayCodePolicy)
+}
