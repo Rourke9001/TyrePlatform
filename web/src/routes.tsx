@@ -8,6 +8,8 @@ import { AddUnit } from "./admin/AddUnit";
 import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
 import { VehicleList } from "./dashboard/VehicleList";
+import { ReceiveTyre } from "./fleet/ReceiveTyre";
+import { TyreList } from "./fleet/TyreList";
 
 function NotFound() {
   return <p>Not found.</p>;
@@ -76,6 +78,22 @@ export function AppRoutes() {
           <RequireCapability capability="ViewFleet">
             <VehicleList />
           </RequireCapability>
+        }
+      />
+      <Route
+        path="/fleet/tyres"
+        element={
+          <AdminRoute capability="ManageAssets">
+            <TyreList />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/fleet/tyres/new"
+        element={
+          <AdminRoute capability="ManageAssets">
+            <ReceiveTyre />
+          </AdminRoute>
         }
       />
       <Route path="/my" element={<DriverHome />} />

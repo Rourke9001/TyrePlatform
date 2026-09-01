@@ -26,7 +26,7 @@ test("a controller lands on the fleet and sees seeded vehicles", async ({ page }
   await page.goto("/");
   // FR-DSH-001: the landing view follows the role.
   await expect(page).toHaveURL(/\/fleet$/);
-  await expect(page.getByRole("heading", { name: "Vehicles" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Units" })).toBeVisible();
   // Seeded fixture fleet numbers (db/seeds/gen_seed_fixture.py).
   await expect(page.getByText("HORSE", { exact: true }).first()).toBeVisible();
 });
@@ -49,7 +49,7 @@ test("the capability guard hides the fleet from a driver", async ({ page }) => {
   await settled;
   // RequireCapability renders nothing rather than an explanation; assert
   // after /api/me resolves so the count-0 cannot pass on an unrendered page.
-  await expect(page.getByRole("heading", { name: "Vehicles" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Units" })).toHaveCount(0);
 });
 
 test("the server, not the screen, is the control", async ({ request }) => {
