@@ -121,6 +121,7 @@ LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
   cur   numeric;
+  st    app.tyre_state;
   -- A parameter's type modifier is discarded by Postgres, so p_price arrives
   -- unrounded however it is declared; only assignment to a typmod'd local
   -- rounds it. Rounding before the divide is what makes the stored rate
@@ -128,9 +129,18 @@ DECLARE
   -- local for the invariant.
   price numeric(12,2);
 BEGIN
-  SELECT purchase_price INTO cur FROM app.tyre WHERE id = p_tyre FOR UPDATE;
+  SELECT purchase_price, state INTO cur, st FROM app.tyre WHERE id = p_tyre FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such tyre in this fleet';
+  END IF;
+  -- Extends D5, which specified no state guard: costing recomputes
+  -- rand_per_mm, and doing that to a tyre that has left the estate rewrites
+  -- the rate behind valuations already taken against it. Only the three
+  -- terminal states are refused — a FITTED tyre is still in
+  -- v_tyre_awaiting_cost and must stay costable (CFL-002).
+  IF st IN ('SCRAPPED','SOLD','LOST') THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = format('this tyre is %s and has left the fleet; its cost cannot be recorded now', st);
   END IF;
   IF cur IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY013',
@@ -156,8 +166,9 @@ RETURNS void
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
-  cur  app.tyre_state;
-  why  text := NULLIF(btrim(COALESCE(p_reason,'')), '');
+  cur     app.tyre_state;
+  last_at timestamptz;
+  why     text := NULLIF(btrim(COALESCE(p_reason,'')), '');
   -- Rounded on the way in rather than silently by the column, so the amount
   -- this function guards on is the amount it stores (see set_tyre_cost).
   paid numeric(12,2) := p_proceeds;
@@ -191,6 +202,22 @@ BEGIN
   END IF;
   IF p_disposal <> 'SOLD' AND paid IS NOT NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'only a sale carries proceeds';
+  END IF;
+
+  -- The same ordering invariant app.receive_tyres' clamp protects, from the
+  -- other end: app.tyre_in_estate_asof reads the LATEST to_state event, so a
+  -- disposal stamped before the tyre's last movement would be overruled by it
+  -- and the tyre would stay in the estate (FR-VAL-022). The Go handler passes
+  -- now() today; this holds if a backdating surface is ever built (TYRE-92).
+  IF p_occurred > now() THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'a disposal is recorded as at now or earlier, never in the future';
+  END IF;
+  SELECT max(e.occurred_at) INTO last_at
+    FROM app.tyre_event e WHERE e.tyre_id = p_tyre AND e.to_state IS NOT NULL;
+  IF last_at IS NOT NULL AND p_occurred < last_at THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = format('this tyre''s last recorded movement is %s; a disposal cannot predate it', last_at);
   END IF;
 
   INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at,
