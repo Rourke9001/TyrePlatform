@@ -39,7 +39,7 @@ export function VehicleList() {
 
       {vehicles.isError && (
         <div className="vehicles-note" role="alert">
-          <h2>Vehicles didn't load</h2>
+          <h2>Units didn't load</h2>
           <p>The server could not be reached. Check your connection, then retry.</p>
           <button type="button" onClick={() => void vehicles.refetch()}>
             Retry
