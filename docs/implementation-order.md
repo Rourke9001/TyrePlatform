@@ -359,14 +359,37 @@ first writes it, so slice 2 cannot be planned to executable detail before
 slice 1's writes exist — a full-B5 plan would be the abstract freeze this
 section warns against.
 
-- **Slice 1 — planned, in flight.** TYRE-88 → TYRE-87 → the D12/D13 schema
-  and TYRE-48's vocabulary → TYRE-91's register surface. Plan at
-  `docs/superpowers/plans/2026-09-01-b5-tyre-register.md`, design at
+- **Slice 1 — built, PR open, not yet merged.** TYRE-88 → TYRE-87 → the
+  D12/D13 schema and TYRE-48's vocabulary → TYRE-91's register surface.
+  Plan at `docs/superpowers/plans/2026-09-01-b5-tyre-register.md`, design at
   `docs/superpowers/specs/2026-09-01-b5-tyre-register-design.md`; branch
   `TYRE-91-tyre-register`; migrations `000028`–`000031`; suite sections
   36–39. When it lands, TYRE-88 and TYRE-87 close; TYRE-91 closes only once
   the D12 SRS erratum row is pasted by hand; **TYRE-48 stays open** — its
   retread paths are slice 2's.
+
+  **TYRE-87's actual sweep found eight offenders, not the ticket's seven** —
+  the ticket's manual audit missed `reading`'s 3-uuid tuple. Final
+  disposition: five re-keyed tenant-first in migration `000029`
+  (`position`/`code`, `combination_member`/`sequence`,
+  `reading_measurement`/`ordinal`, `valuation_snapshot`/`as_at`,
+  `exception.one_open_exception_per_subject`), three allowlisted as
+  opaque-uuid-only (`reading`'s 3-uuid tuple, two `fitment` partial
+  indexes). The `valuation_snapshot` cross-tenant oracle was confirmed
+  empirically the same way B1's was — `23505`, not `23503` — before the
+  re-key, so the blind spot B1 first named was real, not theoretical, in
+  a second constraint too.
+
+  **The plan also inserted one small task the original 14 did not
+  anticipate.** Task 13's e2e implementer found the plan narrated a
+  cost-setting UI flow that no task (10/11/12) had ever been briefed to
+  build — the server endpoint (Task 8) sat idle. An advisor-consulted
+  ruling inserted Task 10b to build it (a per-row cost form on
+  `TyreList.tsx`, gated to awaiting-cost rows only) before Task 13 could
+  write a truthful spec; Task 13's TY011 step was separately reframed to
+  assert D12's UI contract rather than an unreachable on-screen refusal.
+  See the branch's `docs/lessons.md` entry dated 2026-09-01 and the PR
+  body for the full rulings.
 - **Slice 2 — plan after slice 1 merges, against the then-frozen
   vocabulary.** TYRE-92 with TYRE-93, then TYRE-94. It discharges TY009's
   `submitStatus` deferral; TY008 never enters (below). Pick up here: read
