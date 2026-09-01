@@ -106,6 +106,12 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 // tyres received with no purchase price recorded and not yet disposed; the
 // per-row flag on every other request reads the same view, so a disposed,
 // never-costed tyre never claims to be awaiting cost in the unfiltered list.
+//
+// Depot scope is deliberately not applied here, unlike listVehicles:
+// v_depot_tyre (migration 000014) exists and is intentionally unused by this
+// endpoint, which answers tenant-wide regardless of actor scope.
+// Widening or narrowing this read is TYRE-76's open scope question to
+// answer, not this slice's — see design D6. Do not "fix" this in passing.
 func listTyres(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
