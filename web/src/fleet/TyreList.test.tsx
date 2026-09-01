@@ -261,6 +261,27 @@ describe("the tyre register", () => {
     expect(screen.getByRole("button", { name: /set cost/i })).toBeInTheDocument();
   });
 
+  // The server-side handler for POST /api/tyres/{id}/cost requires only
+  // ManageAssets, not ViewValuation (api/internal/httpapi/tyres.go) — the
+  // cost control must render for every actor who reaches this route the
+  // same way DisposeForm already does, never behind an invented
+  // ViewValuation gate. Every other awaiting-cost test above renders with
+  // the default (ViewValuation included), so this is the one case that
+  // would catch a regression re-adding that gate to CostForm specifically.
+  it("offers the cost form to an actor without ViewValuation, same as DisposeForm", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: true })],
+      }),
+    );
+    renderScreen(["ManageAssets"]);
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByLabelText(/purchase price for pos1/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /cost source for pos1/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /set cost/i })).toBeInTheDocument();
+  });
+
   // D5/TY013: a correction later is a decision this surface does not take,
   // so an already-costed row must never offer a second submission — not a
   // form, not a disabled form, nothing that invites one.
