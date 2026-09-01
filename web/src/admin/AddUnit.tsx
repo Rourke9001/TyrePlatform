@@ -2,7 +2,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
 import { createUnit, fetchAxleConfigurations, type CreatedUnit, type UnitKind } from "../api/admin";
-import { ApiError } from "../api/client";
+import { refusalMessage } from "../api/refusal";
 import { getDevTenantId } from "../api/devTenant";
 import "./admin.css";
 
@@ -16,21 +16,11 @@ const KINDS: { value: UnitKind; label: string }[] = [
   { value: "LIGHT", label: "Light vehicle" },
 ];
 
-// A refused create says what happened in the words of whoever knows: our own
-// validation and conflict messages are safe to render (ADR-0013), and anything
-// else gets the general sentence rather than a wrong specific one.
-function refusalMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code !== null) {
-    const speakable = ["invalid_submission", "fleet_number_taken", "conflict"];
-    if (speakable.includes(error.code) && error.message !== "") {
-      return error.message;
-    }
-    if (error.code === "forbidden") {
-      return "You do not have permission to add a unit.";
-    }
-  }
-  return "The unit could not be added. Try again, or call support if it keeps happening.";
-}
+const CREATE_WORDING = {
+  speakable: ["fleet_number_taken"],
+  forbidden: "You do not have permission to add a unit.",
+  fallback: "The unit could not be added. Try again, or call support if it keeps happening.",
+};
 
 // FR-VEH-001..005, gated on ManageAssets (D8). Authoring an axle configuration
 // is not here and is ORG_ADMIN's alone through ManageTemplates (TYRE-84) — this
@@ -135,7 +125,7 @@ export function AddUnit() {
         </form>
       )}
 
-      {create.isError && <p role="alert">{refusalMessage(create.error)}</p>}
+      {create.isError && <p role="alert">{refusalMessage(create.error, CREATE_WORDING)}</p>}
       {added && <p role="status">{added.fleetNumber} was added.</p>}
     </section>
   );

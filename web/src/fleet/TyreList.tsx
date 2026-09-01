@@ -2,9 +2,17 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
-import { ApiError } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
-import { disposeTyre, fetchTyres, setTyreCost, type Disposal, type Tyre } from "../api/tyres";
+import { refusalMessage } from "../api/refusal";
+import {
+  COST_SOURCES,
+  disposeTyre,
+  fetchTyres,
+  setTyreCost,
+  type CostSource,
+  type Disposal,
+  type Tyre,
+} from "../api/tyres";
 import { useCan } from "../auth/actorContext";
 import { useTenantDate } from "../time/tenantTime";
 import "./fleet.css";
@@ -27,39 +35,21 @@ function isDisposed(state: string): boolean {
   return DISPOSALS.some((d) => d.value === state);
 }
 
-// app.cost_source has a third member, UNKNOWN, but that is
-// app.receive_tyres's own default for an omitted source, never a choice a
-// human makes here — mirrors ReceiveTyre.tsx's CostSource/COST_SOURCES
-// exactly, same two values and labels.
-type CostSource = "INVOICE" | "PRICE_LIST_ESTIMATE";
+// The two forms on this screen refuse for different reasons and must say so:
+// app.dispose_tyre raises TY012 and app.set_tyre_cost raises TY013, and
+// neither can raise the other's. One shared sentence for both is how the
+// cost form came to tell an operator their tyre "could not be disposed of".
+const DISPOSE_WORDING = {
+  speakable: ["TY012"],
+  forbidden: "You do not have permission to dispose of a tyre.",
+  fallback: "The tyre could not be disposed of. Try again, or call support if it keeps happening.",
+};
 
-const COST_SOURCES: { value: CostSource; label: string }[] = [
-  { value: "INVOICE", label: "Invoice" },
-  { value: "PRICE_LIST_ESTIMATE", label: "Price list estimate" },
-];
-
-// refusalMessage: AddUnit.tsx:19-21's shape, extended with this endpoint's
-// speakable codes (TY011..TY013, ADR-0012's TY class, and the register's own
-// conflict codes). Shared by DisposeForm and CostForm below.
-function refusalMessage(error: unknown): string {
-  if (error instanceof ApiError && error.code !== null) {
-    const speakable = [
-      "display_code_taken",
-      "TY011",
-      "TY012",
-      "TY013",
-      "invalid_submission",
-      "conflict",
-    ];
-    if (speakable.includes(error.code) && error.message !== "") {
-      return error.message;
-    }
-    if (error.code === "forbidden") {
-      return "You do not have permission to dispose of a tyre.";
-    }
-  }
-  return "The tyre could not be disposed of. Try again, or call support if it keeps happening.";
-}
+const COST_WORDING = {
+  speakable: ["TY013"],
+  forbidden: "You do not have permission to record a tyre's cost.",
+  fallback: "The cost could not be recorded. Try again, or call support if it keeps happening.",
+};
 
 // NFR-USE-012: natural order, not lexicographic (POS2 before POS10).
 // vehicleSearch.ts holds the sibling comparator, but as a module-private
@@ -253,7 +243,7 @@ function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
   }
 
   return (
-    <form onSubmit={submit} className="tyre-dispose">
+    <form onSubmit={submit} className="tyres-row-form">
       <select
         aria-label={`Disposal for ${tyre.displayCode}`}
         value={disposal}
@@ -290,7 +280,7 @@ function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
         {dispose.isPending ? "Disposing…" : "Dispose"}
       </button>
 
-      {dispose.isError && <p role="alert">{refusalMessage(dispose.error)}</p>}
+      {dispose.isError && <p role="alert">{refusalMessage(dispose.error, DISPOSE_WORDING)}</p>}
     </form>
   );
 }
@@ -325,7 +315,7 @@ function CostForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
   }
 
   return (
-    <form onSubmit={submit} className="tyre-dispose">
+    <form onSubmit={submit} className="tyres-row-form">
       <input
         aria-label={`Purchase price for ${tyre.displayCode}`}
         value={price}
@@ -350,7 +340,7 @@ function CostForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
         {cost.isPending ? "Saving…" : "Set cost"}
       </button>
 
-      {cost.isError && <p role="alert">{refusalMessage(cost.error)}</p>}
+      {cost.isError && <p role="alert">{refusalMessage(cost.error, COST_WORDING)}</p>}
     </form>
   );
 }

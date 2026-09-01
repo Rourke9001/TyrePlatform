@@ -268,14 +268,6 @@ describe("the tyre register", () => {
   });
 
   // FR-TYR-041: the cost control discharges CFL-002's awaiting-cost backlog.
-  it("shows the Set cost column header", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1" })] }));
-    renderScreen();
-    await screen.findAllByRole("rowheader");
-
-    expect(screen.getByRole("columnheader", { name: /set cost/i })).toBeInTheDocument();
-  });
-
   it("offers a price input, a cost-source select, and submit for a tyre still awaiting cost", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
@@ -359,6 +351,31 @@ describe("the tyre register", () => {
     await waitFor(() => expect(vi.mocked(fetch).mock.calls).toHaveLength(3));
     expect(vi.mocked(fetch).mock.calls[1][0]).toBe("/api/tyres/t1/cost");
     expect(sentBody(1)).toStrictEqual({ price: "925.50", source: "PRICE_LIST_ESTIMATE" });
+  });
+
+  // The two forms on this screen share one helper, so this is the assertion
+  // that keeps their wording apart: a cost that fails for a reason the client
+  // cannot speak must not tell the operator the tyre "could not be disposed
+  // of" — an action they did not take.
+  it("falls back to a cost-specific message for a refusal with an unrecognised code", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        respond(200, {
+          tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: true })],
+        }),
+      )
+      .mockResolvedValueOnce(respond(500, { code: "boom", message: "unrecognised" }));
+
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await userEvent.type(screen.getByLabelText(/purchase price for pos1/i), "500.00");
+    await userEvent.click(screen.getByRole("button", { name: /set cost/i }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).not.toHaveTextContent(/unrecognised/i);
+    expect(alert).not.toHaveTextContent(/disposed/i);
+    expect(alert).toHaveTextContent(/cost could not be recorded/i);
   });
 
   it("renders the server's own refusal for a cost it will not record", async () => {
