@@ -23,12 +23,12 @@ test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) =
   // this spec can prove, on screen, is that the contract it exists to
   // enforce actually holds — no code field, and the operator told the
   // platform issues one instead (ReceiveTyre.tsx's AS-014 hint).
-  await expect(page.getByLabel(/display code/i)).toHaveCount(0);
   await expect(
     page.getByText(
       /the platform assigns the next code.*mark the sidewall with the code shown after saving/i,
     ),
   ).toBeVisible();
+  await expect(page.getByLabel(/display code/i)).toHaveCount(0);
 
   // Receive one tyre, no price: CFL-002's normal shape for intake, and what
   // puts it in the awaiting-cost backlog the next step reads from.
