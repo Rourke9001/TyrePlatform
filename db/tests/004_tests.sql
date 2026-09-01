@@ -3835,5 +3835,111 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 39. Tyre lifecycle: receive, cost, dispose, dated lookup (TYRE-48/91, FR-TYR-040..043, D12)'
+BEGIN;
+DO $$
+DECLARE r record; a uuid; b uuid; c uuid; n int; rate numeric;
+BEGIN
+  -- BAC is GENERATED (D12): a hand-typed code is refused, an issued one is
+  -- sequential from the counter
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  BEGIN
+    PERFORM app.receive_tyres('{"display_code":"HAND-1"}'::jsonb);
+    RAISE EXCEPTION 'FAIL: hand-typed code accepted under GENERATED';
+  EXCEPTION WHEN sqlstate 'TY011' THEN RAISE NOTICE 'PASS  39a hand-typed code refused (D12)';
+  END;
+
+  -- received_date is pinned to the past, not left to default to the tenant's
+  -- calendar day: tenant_today() near a UTC day boundary can land a few hours
+  -- ahead of a session-timezone now(), which would let 39h's later disposal
+  -- (stamped now()) sort BEFORE this receipt and appear to still be in stock.
+  SELECT * INTO r FROM app.receive_tyres('{"new_tread_mm":"25.0","received_date":"2026-08-25"}'::jsonb);
+  a := r.tyre_id;
+  IF r.display_code !~ '^BAC-\d{5}$' THEN
+    RAISE EXCEPTION 'FAIL: issued code % is not the ADR-0008 scheme', r.display_code;
+  END IF;
+  RAISE NOTICE 'PASS  39b generated code issued: %', r.display_code;
+
+  -- Unpriced receipt sits in the awaiting-cost queue (FR-TYR-041) with no
+  -- invented rate; costing it computes rand_per_mm through the one permitted
+  -- implementation (rule: check 7 pins the arithmetic, this pins the wiring)
+  SELECT count(*) INTO n FROM app.v_tyre_awaiting_cost WHERE tyre_id = a;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL: unpriced tyre not in awaiting-cost queue'; END IF;
+  PERFORM app.set_tyre_cost(a, 4319.91, 'INVOICE');
+  SELECT rand_per_mm INTO rate FROM app.tyre WHERE id = a;
+  IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, app.current_removal_threshold_mm()) THEN
+    RAISE EXCEPTION 'FAIL: costing did not recompute rand_per_mm through app.rand_per_mm';
+  END IF;
+  RAISE NOTICE 'PASS  39c awaiting-cost discharged, rate recomputed: %', rate;
+  BEGIN
+    PERFORM app.set_tyre_cost(a, 1.00, 'INVOICE');
+    RAISE EXCEPTION 'FAIL: a second costing was accepted';
+  EXCEPTION WHEN sqlstate 'TY013' THEN RAISE NOTICE 'PASS  39d re-pricing refused';
+  END;
+
+  -- Bulk issue is sequential and atomic
+  SELECT count(DISTINCT display_code) INTO n FROM app.receive_tyres('{"quantity":3}'::jsonb);
+  IF n <> 3 THEN RAISE EXCEPTION 'FAIL: bulk receive issued % codes, expected 3', n; END IF;
+  RAISE NOTICE 'PASS  39e bulk receive issues distinct sequential codes';
+
+  -- Disposal transitions (Appendix C): SOLD from REMOVED only; a scrap
+  -- carries its reason; a sale its proceeds; events append with to_state so
+  -- app.tyre_in_estate_asof sees them
+  BEGIN
+    PERFORM app.dispose_tyre(a, 'SOLD', NULL, 100.00, now());
+    RAISE EXCEPTION 'FAIL: sale from IN_STOCK accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN RAISE NOTICE 'PASS  39f REMOVED→SOLD only';
+  END;
+  BEGIN
+    PERFORM app.dispose_tyre(a, 'SCRAPPED', NULL, NULL, now());
+    RAISE EXCEPTION 'FAIL: scrap without reason accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN RAISE NOTICE 'PASS  39g a scrap records its reason';
+  END;
+  PERFORM app.dispose_tyre(a, 'SCRAPPED', 'sidewall breach', NULL, now());
+  IF (SELECT state FROM app.tyre WHERE id = a) <> 'SCRAPPED'
+     OR NOT EXISTS (SELECT 1 FROM app.tyre_event
+                     WHERE tyre_id = a AND type = 'SCRAPPED' AND to_state = 'SCRAPPED') THEN
+    RAISE EXCEPTION 'FAIL: scrap did not move state and event together';
+  END IF;
+  IF app.tyre_in_estate_asof(a, current_date + 1) THEN
+    RAISE EXCEPTION 'FAIL: a scrapped tyre is still in the estate as-of tomorrow';
+  END IF;
+  RAISE NOTICE 'PASS  39h disposal appends the event, moves the state, leaves the estate';
+
+  -- FREE tenant (2): the code is the tenant''s own, required, and reusable
+  -- across history with the dated lookup resolving by date (FR-TYR-042)
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  BEGIN
+    PERFORM app.receive_tyres('{}'::jsonb);
+    RAISE EXCEPTION 'FAIL: FREE receive without a code accepted';
+  EXCEPTION WHEN sqlstate 'TY011' THEN RAISE NOTICE 'PASS  39i FREE requires the tenant''s code';
+  END;
+  SELECT tyre_id INTO b FROM app.receive_tyres('{"display_code":"CA123-11","received_date":"2026-01-10"}'::jsonb);
+  BEGIN
+    PERFORM app.receive_tyres('{"display_code":"CA123-11"}'::jsonb);
+    RAISE EXCEPTION 'FAIL: second active tyre with the same code accepted';
+  EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'PASS  39j duplicate active code refused by the DB';
+  END;
+  PERFORM app.dispose_tyre(b, 'SCRAPPED', 'worn out', NULL, '2026-06-01T08:00:00Z');
+  SELECT tyre_id INTO c FROM app.receive_tyres('{"display_code":"CA123-11","received_date":"2026-06-15"}'::jsonb);
+  IF (SELECT app.tyre_for_code('CA123-11', '2026-03-01')) IS DISTINCT FROM b
+     OR (SELECT app.tyre_for_code('CA123-11', '2026-07-01')) IS DISTINCT FROM c THEN
+    RAISE EXCEPTION 'FAIL: dated code lookup did not resolve historical reuse';
+  END IF;
+  RAISE NOTICE 'PASS  39k code lookup resolves by date across reuse';
+
+  -- Cross-tenant: tenant 2 disposing tenant 1''s tyre finds nothing to
+  -- dispose — RLS makes another tenant''s uuid indistinguishable from a
+  -- missing one, which is the point. md5('tyre1') is 003_seed_fixture.sql's
+  -- own tyre1, seeded outside any rolled-back section so it persists here;
+  -- section 38's md5('t48tyre') does not (its own transaction rolls back).
+  BEGIN
+    PERFORM app.dispose_tyre(md5('tyre1')::uuid, 'LOST', NULL, NULL, now());
+    RAISE EXCEPTION 'FAIL: cross-tenant disposal was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN RAISE NOTICE 'PASS  39l cross-tenant tyre invisible to disposal';
+  END;
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
