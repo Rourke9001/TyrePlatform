@@ -1,0 +1,175 @@
+/* The tyre register (TYRE-91). Custom properties only, per web/CLAUDE.md. */
+
+.tyres {
+  max-width: 68rem;
+}
+
+.tyres h1 {
+  margin: 0 0 1rem;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+}
+
+.tyres-lookup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.tyres-lookup label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.tyres-lookup input,
+.tyres-lookup button,
+.tyres-filter input {
+  min-height: 2.75rem;
+  font: inherit;
+}
+
+.tyres-lookup input {
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.4rem 0.6rem;
+}
+
+.tyres-lookup button {
+  font-family: var(--font-ui);
+  font-weight: 600;
+  font-size: var(--text-body);
+  color: var(--on-primary);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+.tyres-lookup button:hover {
+  background: var(--primary-hover);
+}
+
+.tyres-lookup button:active {
+  background: var(--primary-pressed);
+}
+
+/* NFR-USE-009: the ambiguity this names is never conveyed by colour alone,
+   so this pairs the caution tone with the sentence itself, not a swatch. */
+.tyres-lookup-note {
+  color: var(--status-caution);
+  font-weight: 600;
+  margin: 0 0 var(--space-3);
+}
+
+.tyres-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+  margin-bottom: var(--space-3);
+}
+
+.tyres-note {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 1.5rem;
+}
+
+.tyres-note button {
+  margin-top: 1rem;
+  font-family: var(--font-ui);
+  font-weight: 600;
+  color: var(--on-primary);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+.tyres-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+}
+
+.tyres-table th,
+.tyres-table td {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  border-bottom: 1px solid var(--line);
+}
+
+.tyres-table thead th {
+  font-family: var(--font-condensed);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-eyebrow);
+  color: var(--ink-muted);
+}
+
+.tyres-table tbody th[scope="row"] {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.tyre-dispose {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.tyre-dispose select,
+.tyre-dispose input,
+.tyre-dispose button {
+  min-height: 2.25rem;
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+}
+
+.tyre-dispose select,
+.tyre-dispose input {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.25rem 0.4rem;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.tyre-dispose button {
+  color: var(--on-primary);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 0.3rem 0.7rem;
+  cursor: pointer;
+}
+
+.tyre-dispose button:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
