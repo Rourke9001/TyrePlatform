@@ -3772,13 +3772,11 @@ BEGIN
        -- was re-keyed in 000026 because a date IS such a value.
        'reading_inspection_id_position_id_vehicle_id_key',  -- 000001: (inspection_id, position_id, vehicle_id) is three opaque uuids; none is a value a caller chooses to probe
        'one_open_fitment_per_position',  -- 000001: (position_id, vehicle_id) is two opaque uuids
-       'one_open_fitment_per_tyre',      -- 000001: tyre_id alone is one opaque uuid
-       -- subject_type is one of four schema-defined tags implied by which
-       -- entity subject_id names ('TYRE' names a tyre uuid, and so on) — it
-       -- carries no tenant value independent of the two uuids either side of
-       -- it, so this is functionally the reading-tuple shape, not the
-       -- vehicle_driver_no_overlap shape.
-       'one_open_exception_per_subject'  -- 000001: rule_id and subject_id are opaque uuids; subject_type adds no independently guessable information
+       'one_open_fitment_per_tyre'       -- 000001: tyre_id alone is one opaque uuid
+       -- exception.one_open_exception_per_subject is NOT here: it paired two
+       -- opaque uuids with subject_type, a caller-chosen natural value — the
+       -- vehicle_driver_no_overlap shape, not this arm's — so 000029
+       -- re-keyed it tenant-first instead of allowlisting it.
      );
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: unique/exclusion keys not led by tenant_id: %', bad;
