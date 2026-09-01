@@ -68,5 +68,12 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
     const { code, message } = await refusal(res);
     throw new ApiError(res.status, message ?? `POST ${path} failed: ${res.status}`, code);
   }
+  // The tyre lifecycle's cost/dispose steps (api/internal/httpapi/tyres.go)
+  // answer 204: no body, by spec. res.json() rejects on an empty stream, so
+  // a bare parse here would turn a successful write into a thrown
+  // SyntaxError indistinguishable from a transport failure.
+  if (res.status === 204) {
+    return undefined as unknown as T;
+  }
   return res.json() as Promise<T>;
 }

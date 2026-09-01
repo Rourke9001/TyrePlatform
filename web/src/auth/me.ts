@@ -13,6 +13,11 @@ export interface Me {
   // The tenant's IANA timezone. Every date a screen shows is formatted in it
   // (rule 6) — see web/src/time/tenantTime.ts, which is the only path.
   timezone: string;
+  // D12: "FREE" or "GENERATED". A string rather than a union for the same
+  // deploy-ordering reason as capabilities — the server owns the
+  // vocabulary, and a client built against today's two values must not
+  // break on a third it has not heard of yet.
+  displayCodePolicy: string;
 }
 
 export function fetchMe(): Promise<Me> {

@@ -85,6 +85,7 @@ describe("useTenantDate", () => {
     capabilities: ["CaptureInspection"],
     depots: [],
     timezone: "Africa/Johannesburg",
+    displayCodePolicy: "FREE",
   };
 
   function withActor(actor: Me | null, settled: boolean) {

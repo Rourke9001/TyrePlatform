@@ -12,6 +12,7 @@ const actor = (capabilities: string[]): Me => ({
   capabilities,
   depots: [],
   timezone: "Africa/Johannesburg",
+  displayCodePolicy: "FREE",
 });
 
 describe("RequireCapability", () => {
