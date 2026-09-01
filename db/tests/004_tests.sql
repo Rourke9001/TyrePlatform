@@ -4008,6 +4008,40 @@ BEGIN
     RAISE EXCEPTION 'FAIL: a disposed tyre is back in the estate — its receipt outranks its disposal';
   END IF;
   RAISE NOTICE 'PASS  39p a same-day receipt never outranks a later disposal';
+
+  -- Costing recomputes rand_per_mm, so a tyre that has left the estate must
+  -- not be re-rated behind valuations already taken against it. Extends D5,
+  -- which specified no state guard; e is the tyre 39p just scrapped.
+  BEGIN
+    PERFORM app.set_tyre_cost(e, 500.00, 'INVOICE');
+    RAISE EXCEPTION 'FAIL: a scrapped tyre was costed';
+  EXCEPTION WHEN sqlstate 'TY013' THEN
+    RAISE NOTICE 'PASS  39q a disposed tyre cannot be costed';
+  END;
+
+  -- A FITTED tyre is unpriced-but-in-service: still in v_tyre_awaiting_cost
+  -- (CFL-002) and still costable. This is the check that keeps 39q's guard
+  -- from being written as "not IN_STOCK".
+  SELECT tyre_id INTO d FROM app.receive_tyres('{"display_code":"FITGUARD-1","new_tread_mm":"20.0"}'::jsonb);
+  UPDATE app.tyre SET state = 'FITTED' WHERE id = d;
+  PERFORM app.set_tyre_cost(d, 900.00, 'INVOICE');
+  RAISE NOTICE 'PASS  39r a fitted tyre is still costable';
+
+  -- The disposal side of the same ordering invariant 39p guards on receipt.
+  SELECT tyre_id INTO d FROM app.receive_tyres(
+    '{"display_code":"BACKDATE-1","received_date":"2026-02-01"}'::jsonb);
+  BEGIN
+    PERFORM app.dispose_tyre(d, 'SCRAPPED', 'audit', NULL, now() + interval '1 day');
+    RAISE EXCEPTION 'FAIL: a disposal dated in the future was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    RAISE NOTICE 'PASS  39s a future disposal is refused';
+  END;
+  BEGIN
+    PERFORM app.dispose_tyre(d, 'SCRAPPED', 'audit', NULL, '2026-01-01T00:00:00Z');
+    RAISE EXCEPTION 'FAIL: a disposal predating the receipt was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    RAISE NOTICE 'PASS  39t a disposal cannot predate the tyre''s last movement';
+  END;
 END $$;
 ROLLBACK;
 

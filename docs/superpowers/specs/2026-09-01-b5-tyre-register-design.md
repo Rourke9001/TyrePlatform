@@ -108,7 +108,17 @@ application of ADR-0013, not a new decision — no new ADR.
 - `app.set_tyre_cost(uuid, numeric, app.cost_source)` — discharges the
   awaiting-cost queue; recomputes `rand_per_mm`; refuses a re-price with
   **TY013** (a correction later is a decision this slice does not take).
-  No event: cost entry is not a lifecycle transition.
+  No event: cost entry is not a lifecycle transition. **Amended after the
+  whole-branch review:** it also refuses a tyre in one of the three terminal
+  states (TY013). This design originally specified no state guard; costing
+  recomputes `rand_per_mm`, so allowing it on a tyre that has left the estate
+  rewrites the rate behind valuations already taken against it. A `FITTED`
+  tyre stays costable — it is still in `v_tyre_awaiting_cost` (CFL-002).
+- `app.dispose_tyre` likewise refuses an `occurred_at` in the future or
+  earlier than the tyre's last `to_state` event (TY012), which is the same
+  ordering invariant `receive_tyres`' stamp clamp protects from the other
+  end. Unreachable through today's handler, which passes `now()`; it binds
+  if TYRE-92 ever builds a backdating surface.
 - `app.dispose_tyre(uuid, app.tyre_state, reason, proceeds, occurred_at)` —
   Appendix C transitions: `SOLD` from `REMOVED` only (TYRE-91 verbatim);
   `SCRAPPED`/`LOST` from `IN_STOCK` or `REMOVED`. Anything else — including
