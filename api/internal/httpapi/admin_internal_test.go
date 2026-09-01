@@ -17,8 +17,8 @@ import (
 // naming the field rather than a canned 500 (ADR-0013). A mirror the enum
 // has outgrown refuses a value the database would accept; one that has
 // outgrown the enum lets a value through to a cast error. Both are silent
-// without this, the same way a renamed constraint was before
-// TestConflictCodesNameLiveSchemaObjects.
+// without this — the same class of drift TestConflictCodesNameLiveSchemaObjects
+// catches for constraint names.
 func TestEnumMirrorsMatchTheLiveSchema(t *testing.T) {
 	ctx := context.Background()
 	adminURL := os.Getenv("TEST_ADMIN_DATABASE_URL")
