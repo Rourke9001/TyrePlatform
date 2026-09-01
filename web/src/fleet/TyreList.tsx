@@ -4,7 +4,7 @@ import { Link } from "react-router";
 
 import { ApiError } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
-import { disposeTyre, fetchTyres, type Disposal, type Tyre } from "../api/tyres";
+import { disposeTyre, fetchTyres, setTyreCost, type Disposal, type Tyre } from "../api/tyres";
 import { useCan } from "../auth/actorContext";
 import { useTenantDate } from "../time/tenantTime";
 import "./fleet.css";
@@ -18,6 +18,17 @@ const DISPOSALS: { value: Disposal; label: string }[] = [
   { value: "SCRAPPED", label: "Scrapped" },
   { value: "SOLD", label: "Sold" },
   { value: "LOST", label: "Lost" },
+];
+
+// app.cost_source has a third member, UNKNOWN, but that is
+// app.receive_tyres's own default for an omitted source, never a choice a
+// human makes here — mirrors ReceiveTyre.tsx's CostSource/COST_SOURCES
+// exactly, same two values and labels.
+type CostSource = "INVOICE" | "PRICE_LIST_ESTIMATE";
+
+const COST_SOURCES: { value: CostSource; label: string }[] = [
+  { value: "INVOICE", label: "Invoice" },
+  { value: "PRICE_LIST_ESTIMATE", label: "Price list estimate" },
 ];
 
 // A refused disposal says what happened in the words of whoever knows: the
@@ -167,6 +178,7 @@ export function TyreList() {
               <th scope="col">State</th>
               <th scope="col">Received</th>
               <th scope="col">Awaiting cost</th>
+              <th scope="col">Set cost</th>
               {canSeeMoney && <th scope="col">Purchase price</th>}
               {canSeeMoney && <th scope="col">Rand/mm</th>}
               {canSeeMoney && <th scope="col">Casing value</th>}
@@ -183,6 +195,7 @@ export function TyreList() {
                 <td>{t.state}</td>
                 <td>{t.receivedDate ? asOf(t.receivedDate) : "Not received"}</td>
                 <td>{t.awaitingCost ? "Yes" : "No"}</td>
+                <td>{t.awaitingCost ? <CostForm tyre={t} tenantKey={tenantKey} /> : "—"}</td>
                 {canSeeMoney && <td>{t.purchasePrice ? `R ${t.purchasePrice}` : "—"}</td>}
                 {canSeeMoney && <td>{t.randPerMm ? `R ${t.randPerMm}` : "—"}</td>}
                 {canSeeMoney && <td>{t.casingValue ? `R ${t.casingValue}` : "—"}</td>}
@@ -267,6 +280,66 @@ function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
       </button>
 
       {dispose.isError && <p role="alert">{refusalMessage(dispose.error)}</p>}
+    </form>
+  );
+}
+
+// FR-TYR-041's costing step, the discharge for the awaiting-cost backlog
+// CFL-002 names. Rendered only on a row where awaitingCost is true (the
+// caller's job, not this component's): D5's own TY013 rationale — "a
+// correction later is a decision this surface does not take" — means an
+// already-costed row must never offer a second submission, not even a
+// disabled one. Every rule about a re-costed or negative price is
+// app.set_tyre_cost's alone (ADR-0013 decision 5).
+function CostForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
+  const queryClient = useQueryClient();
+  const [price, setPrice] = useState("");
+  const [costSource, setCostSource] = useState<CostSource>("INVOICE");
+
+  const cost = useMutation({
+    // Price stays a string end to end (rule 2) — never Number()'d, here or
+    // in setTyreCost itself.
+    mutationFn: () => setTyreCost(tyre.id, { price, source: costSource }),
+    onSuccess: () => {
+      setPrice("");
+      setCostSource("INVOICE");
+      void queryClient.invalidateQueries({ queryKey: ["tyres", tenantKey] });
+    },
+  });
+
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    if (price.trim() === "") return;
+    cost.mutate();
+  }
+
+  return (
+    <form onSubmit={submit} className="tyre-dispose">
+      <input
+        aria-label={`Purchase price for ${tyre.displayCode}`}
+        value={price}
+        onChange={(e) => setPrice(e.target.value)}
+        inputMode="decimal"
+        required
+      />
+
+      <select
+        aria-label={`Cost source for ${tyre.displayCode}`}
+        value={costSource}
+        onChange={(e) => setCostSource(e.target.value as CostSource)}
+      >
+        {COST_SOURCES.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+
+      <button type="submit" disabled={price.trim() === "" || cost.isPending}>
+        {cost.isPending ? "Saving…" : "Set cost"}
+      </button>
+
+      {cost.isError && <p role="alert">{refusalMessage(cost.error)}</p>}
     </form>
   );
 }

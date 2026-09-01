@@ -238,6 +238,101 @@ describe("the tyre register", () => {
     expect(alert).toHaveTextContent(/could not be disposed/i);
   });
 
+  // FR-TYR-041: the cost control discharges CFL-002's awaiting-cost backlog.
+  it("shows the Set cost column header", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1" })] }));
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByRole("columnheader", { name: /set cost/i })).toBeInTheDocument();
+  });
+
+  it("offers a price input, a cost-source select, and submit for a tyre still awaiting cost", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: true })],
+      }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByLabelText(/purchase price for pos1/i)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /cost source for pos1/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /set cost/i })).toBeInTheDocument();
+  });
+
+  // D5/TY013: a correction later is a decision this surface does not take,
+  // so an already-costed row must never offer a second submission — not a
+  // form, not a disabled form, nothing that invites one.
+  it("shows a dash, never a cost form, for a tyre that already has a cost recorded", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: false })],
+      }),
+    );
+    // No ViewValuation: the money columns are absent, so the only dash left
+    // in this row is the Set-cost cell's — nothing else to confuse it with.
+    renderScreen(["ManageAssets"]);
+    await screen.findAllByRole("rowheader");
+
+    const row = screen.getByRole("rowheader", { name: "POS1" }).closest("tr");
+    if (!row) throw new Error("row for POS1 not found");
+    expect(within(row).getByText("—")).toBeInTheDocument();
+    expect(within(row).queryByLabelText(/purchase price for pos1/i)).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /set cost/i })).not.toBeInTheDocument();
+  });
+
+  it("posts the typed price and cost source, then refreshes the register", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        respond(200, {
+          tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: true })],
+        }),
+      )
+      .mockResolvedValueOnce(respond(204, undefined))
+      .mockResolvedValueOnce(
+        respond(200, {
+          tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: false })],
+        }),
+      );
+
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await userEvent.type(screen.getByLabelText(/purchase price for pos1/i), "925.50");
+    await userEvent.selectOptions(
+      screen.getByRole("combobox", { name: /cost source for pos1/i }),
+      "PRICE_LIST_ESTIMATE",
+    );
+    await userEvent.click(screen.getByRole("button", { name: /set cost/i }));
+
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls).toHaveLength(3));
+    expect(vi.mocked(fetch).mock.calls[1][0]).toBe("/api/tyres/t1/cost");
+    expect(sentBody(1)).toStrictEqual({ price: "925.50", source: "PRICE_LIST_ESTIMATE" });
+  });
+
+  it("renders the server's own refusal for a cost it will not record", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        respond(200, {
+          tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: true })],
+        }),
+      )
+      .mockResolvedValueOnce(
+        respond(422, { code: "TY013", message: "this tyre's cost is already recorded" }),
+      );
+
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await userEvent.type(screen.getByLabelText(/purchase price for pos1/i), "500.00");
+    await userEvent.click(screen.getByRole("button", { name: /set cost/i }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /this tyre's cost is already recorded/i,
+    );
+  });
+
   it("hides the money columns from an actor without ViewValuation", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1" })] }));
     renderScreen(["ManageAssets"]);
