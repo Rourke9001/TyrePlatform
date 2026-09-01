@@ -7,6 +7,7 @@ import { applyCssVars, cssVars, palette } from "./tokens";
 import { ThemeContext } from "./themeContext";
 import "./fonts";
 import "./base.css";
+import "./controls.css";
 
 // What renders when no tenant branding is known yet — also exactly what the
 // API serves for a tenant that never configured the key (TYRE-26), so first

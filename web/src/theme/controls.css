@@ -1,0 +1,80 @@
+/* The control and surface patterns more than one screen needs, in one place
+   so they cannot drift apart. Loaded beside base.css (ThemeProvider) rather
+   than from a feature's own stylesheet: a screen must never reach into
+   another feature's file for a class, which is what made the same primary
+   button exist five times before this file did.
+
+   Custom properties only, per web/CLAUDE.md. capture.css is deliberately not
+   a client — the capture surface answers to the three-minute constraint and
+   sizes its own controls against gloves and sunlight, so it is allowed to
+   disagree with everything here. */
+
+/* The heading a management screen opens with. Margin is the caller's: a
+   heading in a flex bar wants none, one above a form wants rhythm below it. */
+.page-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+}
+
+.btn-primary {
+  /* NFR-USE-004's 44px target, in rem so it survives a browser text-size
+     setting. The capture keypad uses the same floor. */
+  min-height: 2.75rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: 600;
+  color: var(--on-primary);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+
+.btn-primary:active {
+  background: var(--primary-pressed);
+}
+
+.btn-primary:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+/* The compact variant, for a control that sits inside a table row rather than
+   under a form. Below the 44px floor deliberately: these rows are a desk
+   surface, never the gloved-and-in-the-sun one NFR-USE-004 is about. */
+.btn-primary.btn-compact {
+  min-height: 2.25rem;
+  font-size: var(--text-small);
+  padding: 0.3rem 0.7rem;
+}
+
+/* The card an empty, loading or failed screen speaks from. */
+.note-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 1.5rem;
+}
+
+.note-card h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+}
+
+.note-card p {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.note-card .btn-primary {
+  margin-top: 1rem;
+}

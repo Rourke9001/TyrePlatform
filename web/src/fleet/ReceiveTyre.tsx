@@ -75,7 +75,9 @@ export function ReceiveTyre() {
 
   return (
     <section aria-labelledby="receive-tyre-heading" className="tyres-receive">
-      <h1 id="receive-tyre-heading">Receive tyres</h1>
+      <h1 className="page-title" id="receive-tyre-heading">
+        Receive tyres
+      </h1>
 
       <form onSubmit={submit}>
         {isFree ? (
@@ -143,7 +145,7 @@ export function ReceiveTyre() {
           </p>
         )}
 
-        <button type="submit" disabled={receive.isPending}>
+        <button className="btn-primary" type="submit" disabled={receive.isPending}>
           {receive.isPending ? "Receiving…" : "Receive"}
         </button>
       </form>
@@ -154,7 +156,7 @@ export function ReceiveTyre() {
         // NFR-USE-010: success is shown explicitly, never inferred from the
         // absence of an error — and every code minted here is one the
         // operator still has to go mark a sidewall with.
-        <div role="status" className="tyres-receive-success">
+        <div role="status" className="tyres-receive-success note-card">
           <p>{received.length === 1 ? "1 tyre" : `${received.length} tyres`} received.</p>
           <ul>
             {received.map((t) => (

@@ -133,13 +133,6 @@
   margin-bottom: 1rem;
 }
 
-.vehicles-bar h1 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: 700;
-}
-
 .vehicles-search {
   flex: 1 1 16rem;
   max-width: 24rem;
@@ -214,45 +207,6 @@
 }
 
 /* ----------------------------------------------- empty / error / loading */
-
-.vehicles-note {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  padding: 1.5rem;
-}
-
-.vehicles-note h2 {
-  margin: 0 0 0.35rem;
-  font-family: var(--font-display);
-  font-size: var(--text-title);
-}
-
-.vehicles-note p {
-  margin: 0;
-  color: var(--ink-muted);
-}
-
-.vehicles-note button {
-  margin-top: 1rem;
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
-  font-weight: 600;
-  color: var(--on-primary);
-  background: var(--primary);
-  border: none;
-  border-radius: var(--radius-control);
-  padding: 0.5rem 1.1rem;
-  cursor: pointer;
-}
-
-.vehicles-note button:hover {
-  background: var(--primary-hover);
-}
-
-.vehicles-note button:active {
-  background: var(--primary-pressed);
-}
 
 .vehicle-row-skeleton {
   padding: 1.05rem 1rem;
