@@ -174,7 +174,9 @@ Per the reconciliation §3, the word **"Configuration" is never used** for any
 of this. Nav: the existing `/fleet` item is relabelled **Units**; a **Tyres**
 item (`/fleet/tyres`, `ManageAssets`) joins it. Rigs and Fitments appear when
 slice 2 builds them — no stubs. Screens: `TyreList` (register, awaiting-cost
-filter, code+date lookup, inline dispose) and `ReceiveTyre`
+filter, code+date lookup, inline dispose, and — added mid-build as Task 10b —
+the per-row cost form, rendered only on an awaiting-cost row) and
+`ReceiveTyre`
 (`/fleet/tyres/new`, policy-aware: GENERATED hides the code field and offers
 quantity; FREE requires the code). Dates render only through
 `useTenantDate` (TYRE-89's ban is active). The e2e spec runs on `chromium`
@@ -187,8 +189,9 @@ The TY009 pass-through gate is exactly
 — explicitly **not** a bare `TG_OP = 'INSERT'` gate and **not** a bare
 `OLD.fitted_odometer IS NULL` pass-through (the ticket says why: the first
 re-breaks the backfill path, the second lets a repoint escape). The
-`unit_kind` guard refuses only a change **between two non-NULL kinds** once
-history exists — NULL→known backfill stays legal (CHG-027). Plus the
+`unit_kind` guard refuses any change **from** a known kind once history
+exists — known→NULL included, the plan's deliberate strengthening beyond
+TYRE-88's own wording. NULL→known backfill stays legal (CHG-027). Plus the
 RAISE WARNING validation pass over legacy rows and the cosmetic
 `IF EXISTS ... OR EXISTS` fold in 000024's function.
 
