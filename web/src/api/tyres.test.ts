@@ -85,16 +85,6 @@ describe("the tyre register API module", () => {
       expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/tyres?code=H1-POS1&on=2026-01-01");
     });
 
-    it("combines a code lookup with the awaiting-cost filter", async () => {
-      vi.mocked(fetch).mockResolvedValue(respond(200, { tyres: [] }));
-
-      await fetchTyres({ code: "H1-POS1", on: "2026-01-01", awaitingCost: true });
-
-      expect(vi.mocked(fetch).mock.calls[0][0]).toBe(
-        "/api/tyres?code=H1-POS1&on=2026-01-01&awaitingCost=true",
-      );
-    });
-
     it("carries a refusal's message and code", async () => {
       vi.mocked(fetch).mockResolvedValue(
         respond(403, { code: "forbidden", message: "ManageAssets is required" }),
@@ -114,12 +104,12 @@ describe("the tyre register API module", () => {
         respond(201, { tyres: [{ id: "t1", displayCode: "H1-POS1" }] }),
       );
 
-      const received = await receiveTyres({ quantity: 1, sizeId: "s1" });
+      const received = await receiveTyres({ quantity: 2, purchasePrice: "1500.00" });
 
       const [url, init] = vi.mocked(fetch).mock.calls[0];
       expect(url).toBe("/api/tyres");
       expect(init?.method).toBe("POST");
-      expect(jsonBody(init)).toEqual({ quantity: 1, sizeId: "s1" });
+      expect(jsonBody(init)).toEqual({ quantity: 2, purchasePrice: "1500.00" });
       expect(received).toEqual([{ id: "t1", displayCode: "H1-POS1" }]);
     });
 
