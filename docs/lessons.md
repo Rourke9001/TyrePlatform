@@ -15,6 +15,26 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-01 — Renaming a CSS class is unchecked by every gate we have (TYRE-91)
+
+**What happened:** a review commit renamed `.tyre-dispose` to `.tyres-row-form`
+in `TyreList.tsx` and did not rename the eight rules in `fleet.css`. Both row
+forms on the register lost their styling entirely — controls fell back to
+browser defaults. `make check` and `make e2e` were green over it, because
+nothing in this codebase connects a `className` string to a stylesheet:
+TypeScript does not see CSS, eslint does not see CSS, and every e2e assertion
+is deliberately on roles and text rather than CSS (web/CLAUDE.md, correctly).
+It was found only by screenshotting the screen before and after an unrelated
+change. A whole-file scan for orphaned selectors was tried as a possible gate
+and abandoned: `capture.css` composes class names dynamically
+(`cap-pos--${band}`), so the check is noise without real work.
+
+**The rule:** a CSS class rename is a two-file edit — grep the old name across
+`web/src` and confirm zero hits before committing. When a change touches a
+stylesheet or a `className` at all, screenshot the affected screens before and
+after; four of five screens being byte-identical is what makes the fifth one's
+difference worth reading. Do not trust a green gate for anything visual.
+
 ## 2026-09-01 — A function parameter's `numeric(p,s)` is discarded; only a local rounds (TYRE-91)
 
 **What happened:** `app.set_tyre_cost` and `app.receive_tyres` both computed

@@ -102,7 +102,9 @@ export function TyreList() {
   return (
     <section aria-labelledby="tyres-heading" className="tyres">
       <div className="tyres-heading-row">
-        <h1 id="tyres-heading">Tyres</h1>
+        <h1 className="page-title" id="tyres-heading">
+          Tyres
+        </h1>
         {/* The register's only route to intake (FR-TYR-040): ReceiveTyre is
             otherwise reachable by URL alone, and a screen someone cannot find
             their way to might as well not exist. */}
@@ -125,9 +127,11 @@ export function TyreList() {
           onChange={(e) => setDateInput(e.target.value)}
           required
         />
-        <button type="submit">Find tyre</button>
+        <button className="btn-primary" type="submit">
+          Find tyre
+        </button>
         {lookup && (
-          <button type="button" onClick={clearLookup}>
+          <button className="btn-primary" type="button" onClick={clearLookup}>
             Show full register
           </button>
         )}
@@ -151,16 +155,16 @@ export function TyreList() {
       {tyres.isPending && <p>Loading…</p>}
 
       {tyres.isError && (
-        <div className="tyres-note" role="alert">
+        <div className="note-card" role="alert">
           <h2>Tyres didn&apos;t load</h2>
           <p>The server could not be reached. Check your connection, then retry.</p>
-          <button type="button" onClick={() => void tyres.refetch()}>
+          <button className="btn-primary" type="button" onClick={() => void tyres.refetch()}>
             Retry
           </button>
         </div>
       )}
 
-      {tyres.isSuccess && rows.length === 0 && <p className="tyres-note">No tyres match.</p>}
+      {tyres.isSuccess && rows.length === 0 && <p className="note-card">No tyres match.</p>}
 
       {tyres.isSuccess && rows.length > 0 && (
         <table className="tyres-table">
@@ -276,7 +280,11 @@ function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
         />
       )}
 
-      <button type="submit" disabled={disposal === "" || dispose.isPending}>
+      <button
+        className="btn-primary btn-compact"
+        type="submit"
+        disabled={disposal === "" || dispose.isPending}
+      >
         {dispose.isPending ? "Disposing…" : "Dispose"}
       </button>
 
@@ -336,7 +344,11 @@ function CostForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
         ))}
       </select>
 
-      <button type="submit" disabled={price.trim() === "" || cost.isPending}>
+      <button
+        className="btn-primary btn-compact"
+        type="submit"
+        disabled={price.trim() === "" || cost.isPending}
+      >
         {cost.isPending ? "Saving…" : "Set cost"}
       </button>
 

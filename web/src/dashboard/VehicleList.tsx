@@ -16,7 +16,9 @@ export function VehicleList() {
   return (
     <section aria-labelledby="vehicles-heading">
       <div className="vehicles-bar">
-        <h1 id="vehicles-heading">Units</h1>
+        <h1 className="page-title" id="vehicles-heading">
+          Units
+        </h1>
         <input
           type="search"
           className="vehicles-search"
@@ -38,17 +40,17 @@ export function VehicleList() {
       )}
 
       {vehicles.isError && (
-        <div className="vehicles-note" role="alert">
+        <div className="note-card" role="alert">
           <h2>Units didn't load</h2>
           <p>The server could not be reached. Check your connection, then retry.</p>
-          <button type="button" onClick={() => void vehicles.refetch()}>
+          <button className="btn-primary" type="button" onClick={() => void vehicles.refetch()}>
             Retry
           </button>
         </div>
       )}
 
       {vehicles.isSuccess && vehicles.data.length === 0 && (
-        <div className="vehicles-note">
+        <div className="note-card">
           <h2>No units yet</h2>
           <p>
             Your fleet appears here once units are registered. Unit registration opens in an
@@ -79,7 +81,7 @@ function VehicleRows({
 }) {
   if (rows.length === 0) {
     return (
-      <div className="vehicles-note">
+      <div className="note-card">
         <h2>No matches</h2>
         <p>
           No fleet number or registration contains “{query.trim()}”. Clear the search to see all{" "}

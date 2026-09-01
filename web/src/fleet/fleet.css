@@ -11,11 +11,9 @@
   gap: var(--space-3);
 }
 
+/* .page-title supplies the type; the margin is this layout's own. */
 .tyres h1 {
-  margin: 0 0 1rem;
-  font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: 700;
+  margin-bottom: 1rem;
 }
 
 .tyres-lookup {
@@ -36,7 +34,6 @@
 }
 
 .tyres-lookup input,
-.tyres-lookup button,
 .tyres-filter input {
   min-height: 2.75rem;
   font: inherit;
@@ -50,26 +47,6 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   padding: 0.4rem 0.6rem;
-}
-
-.tyres-lookup button {
-  font-family: var(--font-ui);
-  font-weight: 600;
-  font-size: var(--text-body);
-  color: var(--on-primary);
-  background: var(--primary);
-  border: none;
-  border-radius: var(--radius-control);
-  padding: 0.5rem 1.1rem;
-  cursor: pointer;
-}
-
-.tyres-lookup button:hover {
-  background: var(--primary-hover);
-}
-
-.tyres-lookup button:active {
-  background: var(--primary-pressed);
 }
 
 /* NFR-USE-009: the ambiguity this names is never conveyed by colour alone,
@@ -88,25 +65,6 @@
   font-size: var(--text-body);
   color: var(--ink);
   margin-bottom: var(--space-3);
-}
-
-.tyres-note {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  padding: 1.5rem;
-}
-
-.tyres-note button {
-  margin-top: 1rem;
-  font-family: var(--font-ui);
-  font-weight: 600;
-  color: var(--on-primary);
-  background: var(--primary);
-  border: none;
-  border-radius: var(--radius-control);
-  padding: 0.5rem 1.1rem;
-  cursor: pointer;
 }
 
 .tyres-table {
@@ -141,24 +99,19 @@
   color: var(--ink);
 }
 
-.tyre-dispose {
+.tyres-row-form {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
   align-items: center;
 }
 
-.tyre-dispose select,
-.tyre-dispose input,
-.tyre-dispose button {
+.tyres-row-form select,
+.tyres-row-form input {
   min-height: 2.25rem;
   font: inherit;
   font-family: var(--font-ui);
   font-size: var(--text-small);
-}
-
-.tyre-dispose select,
-.tyre-dispose input {
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
   padding: 0.25rem 0.4rem;
@@ -166,33 +119,14 @@
   background: var(--surface);
 }
 
-.tyre-dispose button {
-  color: var(--on-primary);
-  background: var(--primary);
-  border: none;
-  border-radius: var(--radius-control);
-  padding: 0.3rem 0.7rem;
-  cursor: pointer;
-}
-
-.tyre-dispose button:disabled {
-  background: var(--surface-sunken);
-  color: var(--ink-muted);
-  cursor: not-allowed;
-}
-
-/* The receive-into-fleet form (TYRE-91). Same stacked-form shape as
-   admin.css's .adm-form — reachable from the same phone as the capture app,
-   so a two-column layout at 360px is a horizontal scroll. */
+/* The receive-into-fleet form (TYRE-91). Stacked for the reason admin.css's
+   .adm-form states. */
 .tyres-receive {
   max-width: 32rem;
 }
 
 .tyres-receive h1 {
-  margin: 0 0 1rem;
-  font-family: var(--font-display);
-  font-size: var(--text-title);
-  font-weight: 700;
+  margin-bottom: 1rem;
 }
 
 .tyres-receive form {
@@ -208,10 +142,7 @@
 }
 
 .tyres-receive input,
-.tyres-receive select,
-.tyres-receive button {
-  /* NFR-USE-004's 44px target, in rem so it survives a browser text-size
-     setting. */
+.tyres-receive select {
   min-height: 2.75rem;
   font: inherit;
   font-family: var(--font-ui);
@@ -227,30 +158,6 @@
   padding: 0.4rem 0.6rem;
 }
 
-.tyres-receive button {
-  font-weight: 600;
-  color: var(--on-primary);
-  background: var(--primary);
-  border: none;
-  border-radius: var(--radius-control);
-  padding: 0.5rem 1.1rem;
-  cursor: pointer;
-}
-
-.tyres-receive button:hover {
-  background: var(--primary-hover);
-}
-
-.tyres-receive button:active {
-  background: var(--primary-pressed);
-}
-
-.tyres-receive button:disabled {
-  background: var(--surface-sunken);
-  color: var(--ink-muted);
-  cursor: not-allowed;
-}
-
 .tyres-receive-hint {
   font-family: var(--font-ui);
   font-size: var(--text-small);
@@ -258,11 +165,10 @@
   margin: 0;
 }
 
+/* A .note-card with its own rhythm and a tighter box — it follows a form
+   rather than standing in for a screen's content. */
 .tyres-receive-success {
   margin-top: var(--space-3);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
   padding: 1rem 1.5rem;
 }
 
