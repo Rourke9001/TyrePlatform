@@ -3933,10 +3933,32 @@ BEGIN
   -- missing one, which is the point. md5('tyre1') is 003_seed_fixture.sql's
   -- own tyre1, seeded outside any rolled-back section so it persists here;
   -- section 38's md5('t48tyre') does not (its own transaction rolls back).
+  --
+  -- md5('tyre1') is seeded FITTED, which is ALSO an invalid source state for
+  -- a LOST disposal on its own terms — TY012 fires from either "RLS hid the
+  -- row" or "RLS leaked it but the state check refused it anyway", so a bare
+  -- `WHEN sqlstate 'TY012'` cannot tell an isolation hole from a correctly
+  -- working one (TYRE-91 RLS audit: proven by rerunning this probe with RLS
+  -- bypassed and watching it still print PASS). The message text pins which
+  -- branch actually fired.
   BEGIN
     PERFORM app.dispose_tyre(md5('tyre1')::uuid, 'LOST', NULL, NULL, now());
     RAISE EXCEPTION 'FAIL: cross-tenant disposal was accepted';
-  EXCEPTION WHEN sqlstate 'TY012' THEN RAISE NOTICE 'PASS  39l cross-tenant tyre invisible to disposal';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such tyre in this fleet' THEN
+      RAISE EXCEPTION 'FAIL: TY012 fired for the wrong reason (%), not RLS invisibility', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  39l cross-tenant tyre invisible to disposal';
+  END;
+
+  -- A second, independent probe so the section does not rest on message-text
+  -- matching alone: md5('tyre1')''s cost is already set (seeded 4319.91,
+  -- INVOICE), so a leaked row raises TY013 (already-priced) from a wholly
+  -- different function, never TY012 — any outcome but TY012 here is a leak.
+  BEGIN
+    PERFORM app.set_tyre_cost(md5('tyre1')::uuid, 1.00, 'INVOICE');
+    RAISE EXCEPTION 'FAIL: cross-tenant cost entry was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN RAISE NOTICE 'PASS  39m cross-tenant tyre invisible to costing';
   END;
 END $$;
 ROLLBACK;

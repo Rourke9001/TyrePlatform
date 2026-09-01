@@ -15,6 +15,33 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-01 — Two refusal branches sharing a SQLSTATE make a cross-tenant probe vacuous (TYRE-91)
+
+**What happened:** suite section 39l probed cross-tenant isolation by calling
+`app.dispose_tyre` on another tenant's tyre and expecting `TY012`. The chosen
+fixture tyre was seeded `FITTED`, which `dispose_tyre` *also* refuses with
+`TY012` on its own terms (an invalid source state for the disposal
+attempted), independent of RLS. A follow-on RLS audit ran the probe with RLS
+bypassed and it still printed PASS: the row leaked, but the state check fired
+before anyone could tell, and the shared SQLSTATE hid it. The fix needed two
+parts, and either alone would still be vacuous — matching the caught error's
+message text against the RLS-correct branch's exact string (`'no such tyre in
+this fleet'`), *and* a second, independent probe (`set_tyre_cost` on the same
+row) whose refusal comes from a different function and a different SQLSTATE
+entirely, so the section does not rest on message-text matching alone.
+
+**The rule:** a cross-tenant refusal probe must target an operation whose
+*observable outcome* genuinely differs between "RLS correctly hid the row"
+and "RLS leaked the row but something else also refused it" — asserting only
+a shared SQLSTATE is not enough, because two different code paths can raise
+the same SQLSTATE for entirely different reasons. Before trusting such a
+probe, check whether the fixture row would independently fail the same
+check for a non-RLS reason, and if there is any doubt, add a second probe
+through a different function so no single error code (or message string) is
+carrying the whole proof. Extends the 2026-08-20 "a test that cannot fail is
+worse than no test" entry and the 2026-08-28 WITH-CHECK-mask entry: same
+family — a security-relevant assertion that passes for the wrong reason.
+
 ## 2026-09-01 — A ban proven against the forms that were written is unproven against the forms that are reachable (TYRE-95)
 
 **What happened:** B4.5's rule 6 lint gate banned the `toLocale*` methods and
