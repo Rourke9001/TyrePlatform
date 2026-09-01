@@ -79,6 +79,14 @@ describe("formatTenantDate", () => {
     );
     expect(formatTenantDate(new Date("not-a-date"), "Africa/Johannesburg")).toBe(INVALID_INSTANT);
   });
+
+  // The date-only branch's regex shapes the string (four digits, two, two)
+  // but does not validate calendar semantics — "2026-13-01" matches it and
+  // is not a real date. Same failure mode as the instant branch above, same
+  // fix: the marker, not a thrown RangeError.
+  it("returns the marker rather than throwing on a regex-shaped but invalid calendar date", () => {
+    expect(formatTenantDate("2026-13-01", "Africa/Johannesburg")).toBe(INVALID_INSTANT);
+  });
 });
 
 // The cache is keyed per zone. Reusing one instance is the optimisation;

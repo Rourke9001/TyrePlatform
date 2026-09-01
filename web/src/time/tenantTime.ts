@@ -26,7 +26,14 @@ export function formatTenantDate(instant: string | Date, timeZone: string): stri
   // UTC — the mirror of the bug rule 6 exists to prevent. Format it in UTC
   // instead, which always returns the same calendar date it was given.
   if (typeof instant === "string" && /^\d{4}-\d{2}-\d{2}$/.test(instant)) {
-    return tenantDateFormatter("UTC").format(new Date(`${instant}T00:00:00Z`));
+    const asUtcMidnight = new Date(`${instant}T00:00:00Z`);
+    // The regex only shapes the string; "2026-13-01" matches it but is not a
+    // real date. Same guard as the instant branch below, for the same
+    // reason — .format() throws on an Invalid Date rather than returning one.
+    if (Number.isNaN(asUtcMidnight.getTime())) {
+      return INVALID_INSTANT;
+    }
+    return tenantDateFormatter("UTC").format(asUtcMidnight);
   }
   const at = instant instanceof Date ? instant : new Date(instant);
   if (Number.isNaN(at.getTime())) {
