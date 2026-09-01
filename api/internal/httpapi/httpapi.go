@@ -111,6 +111,9 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Get("/org/branding", orgBranding(s))
 		r.Get("/axle-configurations", listAxleConfigurations(s))
 		r.Get("/tyres", listTyres(s))
+		r.Post("/tyres", receiveTyres(s))
+		r.Post("/tyres/{tyreID}/cost", setTyreCost(s))
+		r.Post("/tyres/{tyreID}/dispose", disposeTyre(s))
 		r.Post("/users", createUser(s))
 		r.Post("/vehicles/{vehicleID}/drivers", assignDriver(s))
 	})
@@ -204,6 +207,7 @@ const (
 	codeNothingToReactivate = "nothing_to_reactivate"
 	codeAssignmentOverlaps  = "assignment_overlaps"
 	codeStaffNumberTaken    = "staff_number_taken"
+	codeDisplayCodeTaken    = "display_code_taken"
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
@@ -225,6 +229,7 @@ const (
 	msgNothingToReactivate = "no deactivated user holds that email address any more; refresh and add them as a new user if that is still the intent"
 	msgAssignmentOverlaps  = "that driver already holds an overlapping assignment to this unit"
 	msgStaffNumberTaken    = "another active user already has that staff number; give this one a different number"
+	msgDisplayCodeTaken    = "an active tyre already carries that display code; two active tyres may never share one (FR-TYR-004/DR-002)"
 )
 
 var submitStatus = map[string]int{
@@ -240,6 +245,13 @@ var submitStatus = map[string]int{
 	// by a ScopeTenant actor (CONTROLLER/ORG_ADMIN), who skips the Go-side
 	// v_capture_vehicle check above.
 	"TY007": http.StatusUnprocessableEntity,
+
+	// TY011/TY012/TY013 are the tyre lifecycle's refusals (000031). TY009 is
+	// still deliberately absent: TYRE-92 writes the first fitment and adds it
+	// with a test that can fail; an entry now could not be exercised (ADR-0012).
+	"TY011": http.StatusUnprocessableEntity,
+	"TY012": http.StatusUnprocessableEntity,
+	"TY013": http.StatusUnprocessableEntity,
 
 	"23502": http.StatusUnprocessableEntity, // not-null violation
 	"23503": http.StatusUnprocessableEntity, // foreign key: an id this tenant cannot see
@@ -289,6 +301,10 @@ var conflictCodes = map[string]string{
 	// reactivation. That is a state an admin must be told how to resolve,
 	// not a bare conflict.
 	"one_active_staff_number_per_tenant": codeStaffNumberTaken,
+	// A unique index, not a table constraint (000011:49), scoped to ACTIVE
+	// tyres only — historical reuse across a scrapped/sold/lost tyre is
+	// valid and does not collide (FR-TYR-004/DR-002).
+	"one_active_display_code_per_tenant": codeDisplayCodeTaken,
 }
 
 var conflictMessages = map[string]string{
@@ -296,6 +312,7 @@ var conflictMessages = map[string]string{
 	codeEmailTaken:         msgEmailTaken,
 	codeAssignmentOverlaps: msgAssignmentOverlaps,
 	codeStaffNumberTaken:   msgStaffNumberTaken,
+	codeDisplayCodeTaken:   msgDisplayCodeTaken,
 }
 
 // Forwarding is decided by the TY class rather than by a list of safe codes.

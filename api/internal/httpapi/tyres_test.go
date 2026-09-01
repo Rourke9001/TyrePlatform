@@ -265,3 +265,332 @@ func TestListTyresIncludesMoneyForAViewValuationHolder(t *testing.T) {
 	require.NotNil(t, found.PurchasePrice)
 	require.Equal(t, "2000.00", *found.PurchasePrice)
 }
+
+type receivedTyresBody struct {
+	Tyres []struct {
+		ID          string `json:"id"`
+		DisplayCode string `json:"displayCode"`
+	} `json:"tyres"`
+}
+
+// plantGeneratedPolicyTenant is a tenant under D12's GENERATED display-code
+// scheme (BAC's own policy) — the counter row app.receive_tyres's issuing
+// branch reads is seeded here rather than relying on a seed fixture, per
+// plantTenant's own rationale: the Go suite runs against a migrated but
+// unseeded database.
+//
+// display_code_counter.tenant_id (000030) is the one tenant-scoped FK in the
+// whole schema with no ON DELETE CASCADE — every other one has it. Without
+// this explicit cleanup, plantTenant's own t.Cleanup (already registered)
+// tries to delete the tenant first and dies on
+// display_code_counter_tenant_id_fkey; t.Cleanup runs LIFO, so registering
+// this one after plantTenant's runs it first.
+func plantGeneratedPolicyTenant(t *testing.T, ctx context.Context, admin *pgx.Conn, label, prefix string) uuid.UUID {
+	t.Helper()
+	tenantID, _ := plantTenant(t, ctx, admin, label)
+	_, err := admin.Exec(ctx,
+		`UPDATE app.tenant SET display_code_policy = 'GENERATED' WHERE id = $1`, tenantID)
+	require.NoError(t, err)
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.display_code_counter (tenant_id, prefix) VALUES ($1, $2)`, tenantID, prefix)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := admin.Exec(context.Background(),
+			`DELETE FROM app.display_code_counter WHERE tenant_id = $1`, tenantID)
+		require.NoError(t, err)
+	})
+	return tenantID
+}
+
+// FR-TYR-040: receiving a tyre is the point it becomes trackable. A FREE
+// tenant (plantTenant's default policy, migration 000030) brands its own,
+// so a hand-typed code is required and forwarded straight through.
+func TestReceiveTyresHappyPath(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-happy")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	code := "RECV-" + uuid.NewString()[:8]
+	body := `{"displayCode":"` + code + `","newTreadMm":"14.0"}`
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var out receivedTyresBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	require.Len(t, out.Tyres, 1)
+	require.Equal(t, code, out.Tyres[0].DisplayCode)
+	require.NotEmpty(t, out.Tyres[0].ID)
+
+	var landedTenant, state string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT tenant_id, state::text FROM app.tyre WHERE id = $1`, out.Tyres[0].ID).
+		Scan(&landedTenant, &state))
+	require.Equal(t, tenantID.String(), landedTenant)
+	require.Equal(t, "IN_STOCK", state)
+}
+
+// Gated on ManageAssets like the other write paths — a TECHNICIAN holds
+// ViewFleet and no more.
+func TestReceiveTyresIsCapabilityGated(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-gate")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	tech := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+
+	body := `{"displayCode":"GATE-` + uuid.NewString()[:8] + `"}`
+	rec := post(t, h, "/api/tyres", tenantID.String(), tech.String(), body)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
+// D12: the display-code policy is enforced by app.receive_tyres itself
+// (TY011), and its own message is forwarded verbatim (ADR-0012's TY class) —
+// this pins both directions of the policy through the handler.
+func TestReceiveTyresDisplayCodePolicyRefusals(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	// GENERATED (BAC's own policy): a hand-typed code is refused outright,
+	// never merely warned about (D12).
+	genTenant := plantGeneratedPolicyTenant(t, ctx, admin, "receive-gen", "GEN")
+	genController := plantUser(t, ctx, admin, genTenant, auth.RoleController)
+	rec := post(t, h, "/api/tyres", genTenant.String(), genController.String(),
+		`{"displayCode":"HAND-TYPED"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY011", ref.Code)
+	require.Equal(t,
+		"this fleet's display codes are issued by the platform; leave the code blank and the next one is assigned",
+		ref.Message)
+
+	// FREE (the default): the tenant brands its own, so omitting the code
+	// is refused rather than silently generating one.
+	freeTenant, _ := plantTenant(t, ctx, admin, "receive-free")
+	freeController := plantUser(t, ctx, admin, freeTenant, auth.RoleController)
+	rec = post(t, h, "/api/tyres", freeTenant.String(), freeController.String(), `{}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY011", ref.Code)
+	require.Equal(t, "this fleet brands its own tyres; enter the code branded on the sidewall", ref.Message)
+}
+
+// one_active_display_code_per_tenant (000011) scopes uniqueness to ACTIVE
+// tyres, but a second receive of the same code while the first is still
+// active collides, and ADR-0013 decision 3 names it its own wire code rather
+// than a bare conflict.
+func TestReceiveTyresDuplicateDisplayCodeIsConflict(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-dup")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	code := "DUP-" + uuid.NewString()[:8]
+	body := `{"displayCode":"` + code + `"}`
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	rec = post(t, h, "/api/tyres", tenantID.String(), controller.String(), body)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "display_code_taken", ref.Code)
+	require.NotContains(t, rec.Body.String(), "one_active_display_code_per_tenant",
+		"the constraint name is translated, never forwarded (ADR-0012)")
+}
+
+// A negative quantity must reach app.receive_tyres and be refused as its own
+// TY011, not be silently coerced to the COALESCE default of 1 by payload()'s
+// omission logic — the bound is the function's rule, and a client that sends
+// garbage is told so rather than having a tyre minted from it (ADR-0013
+// decision 5: the bound is not re-checked in Go, but it must not be swallowed
+// either).
+func TestReceiveTyresNegativeQuantityIsRefusedNotCoerced(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-negqty")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	code := "NEGQTY-" + uuid.NewString()[:8]
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		`{"quantity":-5,"displayCode":"`+code+`"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY011", ref.Code)
+	require.Equal(t, "a receive is between 1 and 200 tyres", ref.Message)
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.tyre WHERE display_code = $1`, code).Scan(&landed))
+	require.Zero(t, landed, "a refused receive must not have minted a tyre from the coerced default")
+}
+
+// FR-TYR-041: costing discharges the awaiting-cost backlog CFL-002 names.
+func TestSetTyreCostHappyPath(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "cost-happy")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	tyreID := plantTyre(t, ctx, admin, tenantID, "COST-"+uuid.NewString()[:8], nil)
+	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/cost", tenantID.String(), controller.String(),
+		`{"price":"1500.00","source":"INVOICE"}`)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+
+	var price string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT purchase_price::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&price))
+	require.Equal(t, "1500.00", price)
+}
+
+func TestSetTyreCostIsCapabilityGated(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "cost-gate")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	tech := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+
+	tyreID := plantTyre(t, ctx, admin, tenantID, "COSTGATE-"+uuid.NewString()[:8], nil)
+	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/cost", tenantID.String(), tech.String(),
+		`{"price":"1500.00","source":"INVOICE"}`)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
+// app.set_tyre_cost's own TY013: a second costing is refused rather than
+// silently overwriting provenance already recorded (000031's own comment —
+// a correction is a decision this surface does not take).
+func TestSetTyreCostTwiceIsRefused(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "cost-twice")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	price := "900.00"
+	tyreID := plantTyre(t, ctx, admin, tenantID, "COSTTWICE-"+uuid.NewString()[:8], &price)
+	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/cost", tenantID.String(), controller.String(),
+		`{"price":"1.00","source":"INVOICE"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY013", ref.Code)
+	require.Equal(t, "this tyre's cost is already recorded", ref.Message)
+}
+
+// Appendix C's disposal vocabulary: a scrap moves a tyre out of the estate
+// and records why.
+func TestDisposeTyreHappyPath(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "dispose-happy")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	tyreID := plantTyre(t, ctx, admin, tenantID, "DISPOSE-"+uuid.NewString()[:8], nil)
+	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispose", tenantID.String(), controller.String(),
+		`{"disposal":"SCRAPPED","reason":"sidewall breach"}`)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+
+	var state string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+	require.Equal(t, "SCRAPPED", state)
+}
+
+func TestDisposeTyreIsCapabilityGated(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "dispose-gate")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	tech := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+
+	tyreID := plantTyre(t, ctx, admin, tenantID, "DISPOSEGATE-"+uuid.NewString()[:8], nil)
+	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispose", tenantID.String(), tech.String(),
+		`{"disposal":"SCRAPPED","reason":"sidewall breach"}`)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
+// Appendix C: a sale is REMOVED -> SOLD only. A freshly received tyre sits
+// IN_STOCK, so a sale attempt is refused by app.dispose_tyre's own
+// transition check.
+func TestDisposeTyreSaleFromInStockIsRefused(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "dispose-sale")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	tyreID := plantTyre(t, ctx, admin, tenantID, "SALEBAD-"+uuid.NewString()[:8], nil)
+	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispose", tenantID.String(), controller.String(),
+		`{"disposal":"SOLD","proceeds":"100.00"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY012", ref.Code)
+	require.Equal(t, "a tyre is sold from REMOVED only; this one is IN_STOCK (Appendix C)", ref.Message)
+}
+
+// The cross-tenant probe (B4's TestWriteAimedAtAnotherTenantIsRefused shape,
+// adapted): these two endpoints take the tyre id from the URL and the tenant
+// only from the session, so RLS's USING half — not WITH CHECK — is what has
+// to refuse a tenant-2 actor naming a tenant-1 id. app.set_tyre_cost and
+// app.dispose_tyre answer 422 TY012 "no such tyre in this fleet" for both a
+// genuinely missing id and one RLS has hidden (db/tests/004_tests.sql
+// section 39l/39m), so each fixture below is planted so that a leak — RLS
+// letting the row through — would make the call SUCCEED instead of merely
+// changing the error text: tenant A's tyre is deliberately uncosted for the
+// costing probe, and deliberately REMOVED (a legal SOLD source) for the
+// disposal probe. Either endpoint answering anything but 422 TY012 here
+// means the row leaked.
+func TestTyreWriteCrossTenantIsInvisible(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, _ := plantTenant(t, ctx, admin, "crosstenant-a")
+	tenantB, _ := plantTenant(t, ctx, admin, "crosstenant-b")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
+
+	t.Run("costing", func(t *testing.T) {
+		uncostedA := plantTyre(t, ctx, admin, tenantA, "XTEN-COST-"+uuid.NewString()[:8], nil)
+		rec := post(t, h, "/api/tyres/"+uncostedA.String()+"/cost", tenantB.String(), controllerB.String(),
+			`{"price":"50.00","source":"INVOICE"}`)
+		require.Equal(t, http.StatusUnprocessableEntity, rec.Code,
+			"tenant B costed tenant A's tyre: RLS leaked the row (got %s)", rec.Body.String())
+		var ref refusalBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+		require.Equal(t, "TY012", ref.Code)
+		require.Equal(t, "no such tyre in this fleet", ref.Message)
+
+		var stillUncosted *string
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT purchase_price::text FROM app.tyre WHERE id = $1`, uncostedA).Scan(&stillUncosted))
+		require.Nil(t, stillUncosted, "tenant A's tyre must not have been priced by tenant B's request")
+	})
+
+	t.Run("disposal", func(t *testing.T) {
+		removedA := plantTyre(t, ctx, admin, tenantA, "XTEN-DISP-"+uuid.NewString()[:8], nil)
+		_, err := admin.Exec(ctx, `UPDATE app.tyre SET state = 'REMOVED' WHERE id = $1`, removedA)
+		require.NoError(t, err)
+
+		rec := post(t, h, "/api/tyres/"+removedA.String()+"/dispose", tenantB.String(), controllerB.String(),
+			`{"disposal":"SOLD","proceeds":"100.00"}`)
+		require.Equal(t, http.StatusUnprocessableEntity, rec.Code,
+			"tenant B disposed tenant A's tyre: RLS leaked the row (got %s)", rec.Body.String())
+		var ref refusalBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+		require.Equal(t, "TY012", ref.Code)
+		require.Equal(t, "no such tyre in this fleet", ref.Message)
+
+		var state string
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT state::text FROM app.tyre WHERE id = $1`, removedA).Scan(&state))
+		require.Equal(t, "REMOVED", state, "tenant A's tyre must not have been disposed by tenant B's request")
+	})
+}
