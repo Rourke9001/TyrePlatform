@@ -695,7 +695,16 @@ type errorBody struct {
 // so writeJSON's own Set would be dropped and the response would go out as
 // text/plain with every status assertion still green.
 func writeError(ctx context.Context, w http.ResponseWriter, status int, code, message string) {
+	writeStatus(ctx, w, status, errorBody{Code: code, Message: message})
+}
+
+// writeStatus is the only way a handler answers with a status other than
+// the implicit 200. Content-Type is set before WriteHeader because
+// WriteHeader locks the header map in: writeJSON's own Set would be
+// dropped and the response would go out as text/plain with every status
+// and body assertion still green.
+func writeStatus(ctx context.Context, w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	writeJSON(ctx, w, errorBody{Code: code, Message: message})
+	writeJSON(ctx, w, body)
 }

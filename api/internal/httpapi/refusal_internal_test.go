@@ -41,6 +41,19 @@ func TestWriteErrorEnvelope(t *testing.T) {
 	req.Equal(t, "a unit in this submit was already inspected within 6 hours", body.Message)
 }
 
+// The same invariant for the success path: every handler that answers 201
+// goes through writeStatus, so this is the one place the header order is
+// pinned for all of them.
+func TestWriteStatusKeepsContentTypeAcrossTheStatus(t *testing.T) {
+	rec := httptest.NewRecorder()
+
+	writeStatus(context.Background(), rec, http.StatusCreated, map[string]string{"id": "x"})
+
+	req.Equal(t, http.StatusCreated, rec.Code)
+	req.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+	req.JSONEq(t, `{"id":"x"}`, rec.Body.String())
+}
+
 // The refusal vocabulary, asserted as a set (ADR-0012). The canned rows are
 // the point: a Postgres-authored message names a constraint and a table, and
 // neither may reach a client.
