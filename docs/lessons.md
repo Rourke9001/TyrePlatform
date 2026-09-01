@@ -15,6 +15,24 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-01 — `display_code_counter` has no `ON DELETE CASCADE` on `tenant_id`, unlike every other tenant FK (TYRE-91)
+
+**What happened:** a Task 8 test fixture (`plantGeneratedPolicyTenant`)
+seeded a row in `app.display_code_counter` for a GENERATED-policy tenant,
+then let `plantTenant`'s existing `t.Cleanup` delete the tenant as usual.
+Cleanup failed on `display_code_counter_tenant_id_fkey` (23503). Every other
+tenant-scoped table in the schema declares `tenant_id ... REFERENCES
+app.tenant(id) ON DELETE CASCADE` (migration 000001 onward); migration
+000030's `display_code_counter` is the one exception, plain `REFERENCES
+app.tenant(id)` with no cascade.
+
+**The rule:** any test (or future write path) that plants a row in
+`app.display_code_counter` must delete it explicitly before the owning
+tenant is deleted — register the counter's own `t.Cleanup` after the
+tenant's, since `t.Cleanup` runs LIFO. Do not assume a tenant delete cascades
+through every tenant-scoped table in this schema; `display_code_counter` is
+the one it does not.
+
 ## 2026-09-01 — Two refusal branches sharing a SQLSTATE make a cross-tenant probe vacuous (TYRE-91)
 
 **What happened:** suite section 39l probed cross-tenant isolation by calling
