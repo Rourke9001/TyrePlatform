@@ -3996,6 +3996,12 @@ BEGIN
   -- today's date cast to timestamptz is still ahead of now() for a tenant
   -- east of UTC, so the stamp is least(date, now()) and never outruns a
   -- disposal recorded moments later.
+  --
+  -- Honest about its own reach: without the clamp this fails only while the
+  -- tenant's calendar day runs ahead of UTC's, so it discriminates for part
+  -- of the day, not all of it. Making it deterministic needs a clock
+  -- injected into receive_tyres, which is not worth the seam. 39o is the
+  -- check with teeth; this one guards the half 39o cannot reach.
   SELECT tyre_id INTO e FROM app.receive_tyres('{"display_code":"CLAMP-1"}'::jsonb);
   PERFORM app.dispose_tyre(e, 'SCRAPPED', 'audit', NULL, now());
   IF app.tyre_in_estate_asof(e, current_date + 365) THEN
