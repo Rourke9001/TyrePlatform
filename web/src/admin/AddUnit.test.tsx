@@ -1,24 +1,17 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { AddUnit } from "./AddUnit";
+import { respond, testQueryClient } from "../test/fixtures";
 
 function renderScreen() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={client}>
+    <QueryClientProvider client={testQueryClient()}>
       <AddUnit />
     </QueryClientProvider>,
   );
-}
-
-function respond(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
 }
 
 const CONFIGS = [{ id: "c1", code: "HORSE_6X4", name: "Horse 6x4", version: 1, axleCount: 3 }];

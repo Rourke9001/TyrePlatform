@@ -2,22 +2,16 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 
 import { ActorContext } from "./auth/actorContext";
 import { ActorProvider } from "./auth/ActorProvider";
 import { AppRoutes } from "./routes";
 import type { Me } from "./auth/me";
+import { me, testQueryClient } from "./test/fixtures";
 
-const actor = (capabilities: string[]): Me => ({
-  userId: "00000000-0000-0000-0000-000000000001",
-  displayName: "Test",
-  role: "CONTROLLER",
-  capabilities,
-  depots: [],
-  timezone: "Africa/Johannesburg",
-  displayCodePolicy: "FREE",
-});
+const actor = (capabilities: string[]): Me =>
+  me({ userId: "00000000-0000-0000-0000-000000000001", capabilities });
 
 // DriverHome and VehicleList both fetch through TanStack Query. `fetch` is
 // stubbed with a real Response so every route can be driven to a specific
@@ -37,16 +31,9 @@ afterEach(() => {
   window.localStorage.removeItem(DEV_ACTOR_STORAGE_KEY);
 });
 
-// Shared by every test that needs a QueryClient: the default retries a
-// failed request three times with backoff, which would otherwise schedule
-// timers that outlive the test body.
-function testClient(): QueryClient {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
-}
-
 function renderAt(path: string, me: Me) {
   render(
-    <QueryClientProvider client={testClient()}>
+    <QueryClientProvider client={testQueryClient()}>
       <ActorContext value={{ actor: me, settled: true }}>
         <MemoryRouter initialEntries={[path]}>
           <AppRoutes />
@@ -135,15 +122,11 @@ describe("AppRoutes", () => {
   // that: renderAt injects the actor synchronously and cannot see this class
   // of bug.
   it("waits for the actor before choosing a landing view", async () => {
-    const controller: Me = {
+    const controller = me({
       userId: "u1",
       displayName: "Nomsa",
-      role: "CONTROLLER",
       capabilities: ["ViewFleet", "CaptureInspection"],
-      depots: [],
-      timezone: "Africa/Johannesburg",
-      displayCodePolicy: "FREE",
-    };
+    });
     // Deliberately not resolved yet: the assertion below is that nothing has
     // navigated while it is outstanding.
     let release!: (value: Response) => void;
@@ -153,7 +136,7 @@ describe("AppRoutes", () => {
     );
 
     render(
-      <QueryClientProvider client={testClient()}>
+      <QueryClientProvider client={testQueryClient()}>
         <MemoryRouter initialEntries={["/"]}>
           <ActorProvider>
             <AppRoutes />

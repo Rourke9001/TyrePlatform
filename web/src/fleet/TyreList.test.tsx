@@ -1,4 +1,4 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
@@ -6,23 +6,14 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { TyreList } from "./TyreList";
 import { ActorContext } from "../auth/actorContext";
-import type { Me } from "../auth/me";
 import type { Tyre } from "../api/tyres";
+import { me, respond, sentBody, testQueryClient } from "../test/fixtures";
 
 function renderScreen(capabilities: string[] = ["ManageAssets", "ViewValuation"]) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const actor: Me = {
-    userId: "u0",
-    displayName: "Controller",
-    role: "CONTROLLER",
-    capabilities,
-    depots: [],
-    timezone: "Africa/Johannesburg",
-    displayCodePolicy: "FREE",
-  };
+  const actor = me({ displayName: "Controller", capabilities });
   return render(
     <ActorContext.Provider value={{ actor, settled: true }}>
-      <QueryClientProvider client={client}>
+      <QueryClientProvider client={testQueryClient()}>
         {/* TyreList links to ReceiveTyre (/fleet/tyres/new); react-router's
             Link throws outside a Router. */}
         <MemoryRouter>
@@ -31,22 +22,6 @@ function renderScreen(capabilities: string[] = ["ManageAssets", "ViewValuation"]
       </QueryClientProvider>
     </ActorContext.Provider>,
   );
-}
-
-function respond(status: number, body: unknown): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "Content-Type": "application/json" },
-  });
-}
-
-// sentBody: same narrowing as AddDriver.test.tsx's helper of the same name.
-function sentBody(call: number): unknown {
-  const init = vi.mocked(fetch).mock.calls[call][1];
-  if (typeof init?.body !== "string") {
-    throw new Error(`call ${call} did not send a string body`);
-  }
-  return JSON.parse(init.body);
 }
 
 function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {

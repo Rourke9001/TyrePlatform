@@ -2,8 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClientProvider } from "@tanstack/react-query";
 
+import { testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
@@ -14,9 +15,8 @@ import { listOutbox } from "./outbox";
 // throws before any assertion runs. retry:false matters too: the default
 // three retries would make the "refuses to start" test wait them out.
 function renderFlow() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={client}>
+    <QueryClientProvider client={testQueryClient()}>
       <CaptureFlow vehicleId="v1" taskId={null} />
     </QueryClientProvider>,
   );
