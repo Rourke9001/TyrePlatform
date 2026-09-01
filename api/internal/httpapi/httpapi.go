@@ -431,7 +431,9 @@ type meJSON struct {
 	// as the tenant's civil time (rule 6, FR-TEN-005). Sent here rather than
 	// per-response because it changes about never and every screen needs it.
 	Timezone string `json:"timezone"`
-	// The tenant's display code policy, either "FREE" or "GENERATED".
+	// D12: under GENERATED the receive screen must not offer a code field at
+	// all (a hand-typed one is refused server-side, TY011) — sent here so
+	// ReceiveTyre.tsx can branch before the user ever sees the wrong form.
 	DisplayCodePolicy string `json:"displayCodePolicy"`
 }
 
