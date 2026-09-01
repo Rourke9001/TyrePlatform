@@ -20,6 +20,13 @@ const DISPOSALS: { value: Disposal; label: string }[] = [
   { value: "LOST", label: "Lost" },
 ];
 
+// DISPOSALS' three values ARE the terminal states (app.dispose_tyre never
+// transitions out of one); reused here rather than duplicated so the two
+// lists cannot drift apart.
+function isDisposed(state: string): boolean {
+  return DISPOSALS.some((d) => d.value === state);
+}
+
 // app.cost_source has a third member, UNKNOWN, but that is
 // app.receive_tyres's own default for an omitted source, never a choice a
 // human makes here — mirrors ReceiveTyre.tsx's CostSource/COST_SOURCES
@@ -198,7 +205,13 @@ export function TyreList() {
                 {canSeeMoney && <td>{t.randPerMm ? `R ${t.randPerMm}` : "—"}</td>}
                 {canSeeMoney && <td>{t.casingValue ? `R ${t.casingValue}` : "—"}</td>}
                 <td>
-                  <DisposeForm tyre={t} tenantKey={tenantKey} />
+                  {/* No active-only filter exists on this register (TYRE-91):
+                      a disposed row stays visible, and DisposeForm's own
+                      refusal for it (dispose_tyre's invalid-transition
+                      message) reads as advice for a tyre that is not
+                      scrapped. Hide the form once the state is terminal,
+                      matching the Set-cost column's dash pattern. */}
+                  {isDisposed(t.state) ? "—" : <DisposeForm tyre={t} tenantKey={tenantKey} />}
                 </td>
               </tr>
             ))}
