@@ -1253,6 +1253,11 @@ END $$;
 -- 09:00Z reading governs however late the 07:00Z one arrives. 9.0mm over the
 -- 4mm threshold at R100/mm = R500.00; taking the arrival order instead gives
 -- 11.0mm and R700.00, which is the divergence this check exists to catch.
+--
+-- One transaction for the five blocks: the later ones read what the first
+-- two stage, and the rollback is what makes the staging guards re-run on a
+-- warm database rather than skip the assertions inside them.
+BEGIN;
 DO $$
 DECLARE mm numeric; v numeric; posid uuid;
 BEGIN
@@ -1487,6 +1492,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: % foreign reading(s) visible from tenant 1', n; END IF;
   RAISE NOTICE 'PASS  nothing check 20 stages in tenant 2 is reachable from tenant 1';
 END $$;
+ROLLBACK;
 
 -- TYRE-52 / BR-VAL-008 (errata E1): a month-end snapshot asserts estate
 -- membership AT ITS DATE, judged from the event history — never from
@@ -1787,6 +1793,7 @@ END $$;
 -- probe would sit inside the pinned figures above forever, and these dates
 -- are past check 18's month end. The tyre carries no purchase price, so it
 -- never enters a valuation or a snapshot.
+BEGIN;
 DO $$
 DECLARE r numeric; st text; km numeric; posid uuid;
 BEGIN
@@ -1841,6 +1848,7 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  zero measured wear is a rate of zero and a withheld projection, not a missing rate';
 END $$;
+ROLLBACK;
 
 -- Two shapes the fixture cannot contain, both of which the horizon list has to
 -- survive: a vehicle that is inspected without moving, and a vehicle with only
@@ -2002,8 +2010,10 @@ ROLLBACK;
 \echo '== 23. Casing value: absent not zero, event-sourced with labelled bases (CFL-002, CHG-015..018)'
 -- The register's casing side resolves latest valuation event -> size estimate
 -- -> onboarding audit figure, each under its own label (CHG-016, ADR-0010).
--- casing_valuation is append-only, so these probes stage once and persist;
--- they are stock tyres with no readings, so no pinned figure sees them.
+-- casing_valuation is append-only, so the staging is rolled back rather than
+-- deleted; the probes are stock tyres with no readings, so no pinned figure
+-- sees them while they exist.
+BEGIN;
 DO $$
 DECLARE v numeric; got text; ok boolean;
 BEGIN
@@ -2085,8 +2095,10 @@ BEGIN
     RAISE EXCEPTION 'FAIL: onboarding casing reads [%], expected 1837.50/AUDIT', got; END IF;
   RAISE NOTICE 'PASS  casing value is event-sourced and labelled ACTUAL/ESTIMATED/AUDIT, absent means UNVALUED';
 END $$;
+ROLLBACK;
 
 \echo '== 24. Trailers are recordable; the odometer is a vehicle timeline (CFL-003/005, CHG-024/042)'
+BEGIN;
 DO $$
 DECLARE ok boolean; src text;
 BEGIN
@@ -2149,8 +2161,10 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  trailer fitments and inspections record without an odometer; the timeline rejects bad readings';
 END $$;
+ROLLBACK;
 
 \echo '== 25. One pressure model: admin targets, banded tolerances, hot/cold label (CHG-034/035/112)'
+BEGIN;
 DO $$
 DECLARE ok boolean; cold bigint; hot bigint; n bigint;
 BEGIN
@@ -2200,6 +2214,7 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  pressure targets are one table; the hot/cold basis is labelled per band';
 END $$;
+ROLLBACK;
 
 \echo '== 26. Assigned inspections: schedules, tasks, skip and escalation (CHG-028/032/033)'
 -- Transaction-scoped: schedules, tasks and the PARKED probe unit all roll
@@ -2273,6 +2288,7 @@ END $$;
 ROLLBACK;
 
 \echo '== 27. Vocabulary, provenance columns and disposal semantics (CHG-011/012/027/030/036/037/039, CFL-006..008)'
+BEGIN;
 DO $$
 DECLARE n int; got text;
 BEGIN
@@ -2366,6 +2382,7 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  vocabulary, provenance columns, disposal semantics and reference data all hold';
 END $$;
+ROLLBACK;
 
 \echo '== 28. Actor scope predicates: depot and task views (FR-AUT-006/008, FR-DSH-012)'
 DO $$
