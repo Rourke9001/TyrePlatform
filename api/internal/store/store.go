@@ -38,7 +38,8 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
-// Pool is for tenant-free work only (health checks, connection stats). Any
+// Pool is for tenant-free work only. Nothing on the request path takes it;
+// its only callers are the tests proving what an unbound query sees. Any
 // tenant-scoped query on it runs with no tenant bound, and RLS returns zero
 // rows — which looks like a data bug and is actually a missing transaction.
 func (s *Store) Pool() *pgxpool.Pool {
