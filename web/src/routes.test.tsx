@@ -66,7 +66,7 @@ describe("AppRoutes", () => {
   it("lands a ViewFleet holder on the fleet view rather than the driver view", () => {
     mockFetchJson(200, []);
     renderAt("/", actor(["ViewFleet"]));
-    expect(screen.getByRole("heading", { name: /vehicles/i })).toBeDefined();
+    expect(screen.getByRole("heading", { name: /units/i })).toBeDefined();
   });
 
   it("renders a not-found view for an unknown path", () => {
@@ -80,7 +80,7 @@ describe("AppRoutes", () => {
   // so "refused" reads as the heading never appearing rather than an error.
   it("shows nothing at /fleet for an actor who can only capture inspections", () => {
     renderAt("/fleet", actor(["CaptureInspection"]));
-    expect(screen.queryByRole("heading", { name: /vehicles/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /units/i })).toBeNull();
   });
 
   // GET /api/my/tasks returns 200 with [] for an unassigned driver — an empty
@@ -163,10 +163,10 @@ describe("AppRoutes", () => {
     );
 
     expect(screen.queryByRole("heading", { name: /inspections/i })).toBeNull();
-    expect(screen.queryByRole("heading", { name: /vehicles/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: /units/i })).toBeNull();
 
     release(new Response(JSON.stringify(controller), { status: 200 }));
-    expect(await screen.findByRole("heading", { name: /vehicles/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: /units/i })).toBeDefined();
   });
 
   it("tells an actor without the capability, rather than blanking the screen", () => {
@@ -201,5 +201,26 @@ describe("AppRoutes", () => {
   it("renders the add-a-user screen for an actor holding InviteDriver alone", () => {
     renderAt("/admin/users/new", actor(["InviteDriver"]));
     expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
+  });
+
+  it("tells an actor without the capability, rather than blanking the screen, at /fleet/tyres", () => {
+    renderAt("/fleet/tyres", actor(["ViewFleet"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
+  });
+
+  it("renders the tyre register for an actor holding ManageAssets", async () => {
+    mockFetchJson(200, { tyres: [] });
+    renderAt("/fleet/tyres", actor(["ViewFleet", "ManageAssets"]));
+    expect(await screen.findByRole("heading", { name: /tyres/i })).toBeInTheDocument();
+  });
+
+  it("tells an actor without the capability, rather than blanking the screen, at /fleet/tyres/new", () => {
+    renderAt("/fleet/tyres/new", actor(["ViewFleet"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
+  });
+
+  it("renders the receive-tyre screen for an actor holding ManageAssets", () => {
+    renderAt("/fleet/tyres/new", actor(["ViewFleet", "ManageAssets"]));
+    expect(screen.getByRole("heading", { name: /receive tyres/i })).toBeInTheDocument();
   });
 });

@@ -16,7 +16,10 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
-  { to: "/fleet", label: "Vehicles", capability: "ViewFleet" },
+  { to: "/fleet", label: "Units", capability: "ViewFleet" },
+  // Rigs and Fitments join this row when TYRE-72/92 build them — no stubs; a
+  // menu item that 404s is worse than an absent one.
+  { to: "/fleet/tyres", label: "Tyres", capability: "ManageAssets" },
   { to: "/my", label: "My inspections", capability: "CaptureInspection" },
   // Add-a-unit and add-a-user stay two items, never one "Admin" group: a
   // CONTROLLER holds InviteDriver but not ManageAssets, so a merged group

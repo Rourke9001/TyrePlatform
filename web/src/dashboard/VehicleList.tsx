@@ -16,7 +16,7 @@ export function VehicleList() {
   return (
     <section aria-labelledby="vehicles-heading">
       <div className="vehicles-bar">
-        <h1 id="vehicles-heading">Vehicles</h1>
+        <h1 id="vehicles-heading">Units</h1>
         <input
           type="search"
           className="vehicles-search"

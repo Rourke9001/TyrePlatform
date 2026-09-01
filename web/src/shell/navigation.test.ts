@@ -66,4 +66,37 @@ describe("navItemsFor", () => {
     expect(items).toContain("/admin/users/new");
     expect(items).not.toContain("/admin/units/new");
   });
+
+  // TYRE-91: the fleet vocabulary is Units · Tyres · Rigs · Fitments.
+  it("labels the /fleet entry Units, not Vehicles", () => {
+    const fleet = navItemsFor(["ViewFleet"]).find((i) => i.to === "/fleet");
+    expect(fleet?.label).toBe("Units");
+  });
+
+  // Tyres is gated on ManageAssets, a capability distinct from the ViewFleet
+  // that governs Units itself — holding one must not imply the other, so
+  // this actor sees Units and nothing else.
+  it("shows Units without Tyres to an actor who can view the fleet but not manage assets", () => {
+    const items = navItemsFor(["ViewFleet"]).map((i) => i.to);
+    expect(items).toContain("/fleet");
+    expect(items).not.toContain("/fleet/tyres");
+  });
+
+  it("shows Tyres, labelled and gated on ManageAssets, to an actor who holds it", () => {
+    const tyres = navItemsFor(["ViewFleet", "ManageAssets"]).find((i) => i.to === "/fleet/tyres");
+    expect(tyres?.label).toBe("Tyres");
+    expect(tyres?.capability).toBe("ManageAssets");
+  });
+
+  // A CONTROLLER sees both; a DRIVER — holding only CaptureInspection — sees
+  // neither Units nor its Tyres sibling.
+  it("gives a controller both Units and Tyres, and a driver neither", () => {
+    const controller = navItemsFor(["ViewFleet", "ManageAssets"]).map((i) => i.to);
+    expect(controller).toContain("/fleet");
+    expect(controller).toContain("/fleet/tyres");
+
+    const driver = navItemsFor(["CaptureInspection"]).map((i) => i.to);
+    expect(driver).not.toContain("/fleet");
+    expect(driver).not.toContain("/fleet/tyres");
+  });
 });
