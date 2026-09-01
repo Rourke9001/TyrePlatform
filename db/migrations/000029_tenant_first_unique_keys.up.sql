@@ -4,17 +4,20 @@
 --  section 37).
 -- ============================================================================
 
--- Each of these four unique constraints omitted tenant_id, so its
+-- Each of these unique/exclusion keys omitted tenant_id, so its
 -- duplicate-key check fires during index insertion -- before RLS and before
 -- the composite FK's AFTER ROW trigger -- letting a caller who supplies the
 -- non-tenant columns learn whether another tenant already holds that
 -- combination (23505) rather than merely an invalid cross-tenant reference
--- (23503). Each key pairs an opaque uuid with a caller-chosen natural value
--- (a capture code, a sequence ordinal, a valuation date), the same shape as
--- vehicle_driver_no_overlap (000026) -- the closed oracle this generalises.
--- Names keep the table-prefix convention 000004 already uses for its
--- composite keys (axle_configuration_tenant_id_id_key), so nothing that
--- might one day name them meets a silent rename.
+-- (23503). Each key pairs one or more opaque uuids with a caller-chosen
+-- natural value (a capture code, a sequence ordinal, a valuation date, a
+-- four-tag discriminator), the same shape as vehicle_driver_no_overlap
+-- (000026) -- the closed oracle this generalises. The four table
+-- constraints (position, combination_member, reading_measurement,
+-- valuation_snapshot) keep the table-prefix convention 000004 already uses
+-- for its composite keys (axle_configuration_tenant_id_id_key);
+-- exception's standalone partial index keeps its own descriptive name
+-- instead, called out at its own site below.
 ALTER TABLE app.position
   DROP CONSTRAINT position_configuration_id_code_key,
   ADD  CONSTRAINT position_tenant_id_configuration_id_code_key
@@ -29,6 +32,24 @@ ALTER TABLE app.reading_measurement
   DROP CONSTRAINT reading_measurement_reading_id_ordinal_key,
   ADD  CONSTRAINT reading_measurement_tenant_id_reading_id_ordinal_key
        UNIQUE (tenant_id, reading_id, ordinal);
+
+-- one_open_exception_per_subject (000001) is vehicle_driver_no_overlap's
+-- shape, not the all-uuid reading-tuple shape it was first filed under: two
+-- opaque uuids (rule_id, subject_id) plus a caller-chosen natural value
+-- (subject_type, a four-tag text discriminator) -- exactly the
+-- uuid-pair-plus-natural-value pattern 000026 already re-keyed despite its
+-- own two uuids. subject_id is also polymorphic (no REFERENCES, no CHECK
+-- tying it to subject_type), so nothing in the schema makes subject_type
+-- redundant the way this migration first assumed. exception.rule_id is
+-- also a bare single-column FK, unlike position.configuration_id's
+-- composite (tenant_id, id) hardening from 000004 -- one fewer reason to
+-- call this key merely opaque. Kept its descriptive name and exact partial
+-- WHERE clause from 000001: the business rule it enforces is unchanged,
+-- only the leading column.
+DROP INDEX app.one_open_exception_per_subject;
+CREATE UNIQUE INDEX one_open_exception_per_subject
+  ON app.exception (tenant_id, rule_id, subject_type, subject_id)
+  WHERE state IN ('RAISED','ACKNOWLEDGED','ACTIONED');
 
 -- valuation_snapshot (tyre_id, as_at) is TYRE-87's named case, empirically
 -- confirmed rather than assumed: a tenant-2 session inserting a tenant-1

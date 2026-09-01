@@ -1,6 +1,8 @@
--- Restores the pre-000029 constraint shapes and the pre-000029 body of
--- app.reconcile_valuation_snapshots (000016's version, ON CONFLICT back on
--- (tyre_id, as_at)) -- the mirror image of the up migration, nothing more.
+-- Restores the pre-000029 constraint shapes and, for
+-- app.reconcile_valuation_snapshots, its 000016 body -- its inline
+-- rationale comments live there, not repeated here -- with ON CONFLICT
+-- back on (tyre_id, as_at). The mirror image of the up migration, nothing
+-- more.
 
 ALTER TABLE app.position
   DROP CONSTRAINT position_tenant_id_configuration_id_code_key,
@@ -16,6 +18,11 @@ ALTER TABLE app.reading_measurement
   DROP CONSTRAINT reading_measurement_tenant_id_reading_id_ordinal_key,
   ADD  CONSTRAINT reading_measurement_reading_id_ordinal_key
        UNIQUE (reading_id, ordinal);
+
+DROP INDEX app.one_open_exception_per_subject;
+CREATE UNIQUE INDEX one_open_exception_per_subject
+  ON app.exception (rule_id, subject_type, subject_id)
+  WHERE state IN ('RAISED','ACKNOWLEDGED','ACTIONED');
 
 ALTER TABLE app.valuation_snapshot
   DROP CONSTRAINT valuation_snapshot_tenant_id_tyre_id_as_at_key,
