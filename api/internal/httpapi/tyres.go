@@ -194,13 +194,14 @@ func listTyres(s *store.Store) http.HandlerFunc {
 // receiveTyresRequest is FR-TYR-040's intake body. Every field but Quantity
 // is optional — most of what a tenant eventually knows about a tyre (its
 // size, its cost) is often not known at receipt, which is exactly the
-// awaiting-cost backlog CFL-002 names. Quantity is a plain int rather than
-// *int: the zero value doubles as "not specified" in payload() below, which
-// lets app.receive_tyres's own COALESCE supply its default of 1. The
-// function's 1..200 bound is its rule, not one this struct duplicates
-// (ADR-0013 decision 5 — no threshold in a Go validator).
+// awaiting-cost backlog CFL-002 names. Quantity is *int so that "absent" and
+// "zero" stay distinguishable: an absent key lets app.receive_tyres's own
+// COALESCE supply its default of 1, while an explicit 0 is forwarded and
+// comes back as that function's TY011. The 1..200 bound is its rule, not one
+// this struct duplicates (ADR-0013 decision 5 — no threshold in a Go
+// validator).
 type receiveTyresRequest struct {
-	Quantity      int     `json:"quantity"`
+	Quantity      *int    `json:"quantity"`
 	DisplayCode   *string `json:"displayCode"`
 	SizeID        *string `json:"sizeId"`
 	BrandID       *string `json:"brandId"`
@@ -217,15 +218,15 @@ type receiveTyresRequest struct {
 // every field the caller did not send. A present key with a NULL value and
 // an absent key mean different things to the function's own COALESCE/NULLIF
 // logic — quantity's default of 1 only applies when the key is missing
-// entirely, so a zero (Quantity's unset value) is left out rather than sent
-// as 0. A negative value is still forwarded: refusing it here would be a
-// bound check this struct does not own (ADR-0013 decision 5), so an
-// out-of-range quantity reaches app.receive_tyres and comes back as its own
-// TY011 rather than being silently coerced to the default.
+// entirely. Every value the caller did send is forwarded verbatim, zero and
+// negative included: refusing one here would be a bound check this struct
+// does not own (ADR-0013 decision 5), so an out-of-range quantity reaches
+// app.receive_tyres and comes back as its own TY011 rather than being
+// silently coerced to the default and minting a tyre nobody asked for.
 func (b receiveTyresRequest) payload() map[string]any {
 	p := map[string]any{}
-	if b.Quantity != 0 {
-		p["quantity"] = b.Quantity
+	if b.Quantity != nil {
+		p["quantity"] = *b.Quantity
 	}
 	if b.DisplayCode != nil {
 		p["display_code"] = *b.DisplayCode

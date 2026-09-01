@@ -398,32 +398,46 @@ func TestReceiveTyresDuplicateDisplayCodeIsConflict(t *testing.T) {
 		"the constraint name is translated, never forwarded (ADR-0012)")
 }
 
-// A negative quantity must reach app.receive_tyres and be refused as its own
-// TY011, not be silently coerced to the COALESCE default of 1 by payload()'s
-// omission logic — the bound is the function's rule, and a client that sends
-// garbage is told so rather than having a tyre minted from it (ADR-0013
-// decision 5: the bound is not re-checked in Go, but it must not be swallowed
-// either).
-func TestReceiveTyresNegativeQuantityIsRefusedNotCoerced(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "receive-negqty")
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+// An out-of-range quantity must reach app.receive_tyres and be refused as its
+// own TY011, not be silently coerced to the COALESCE default of 1 by
+// payload()'s omission logic — the bound is the function's rule, and a client
+// that sends garbage is told so rather than having a tyre minted from it
+// (ADR-0013 decision 5: the bound is not re-checked in Go, but it must not be
+// swallowed either). Zero is the case that made Quantity a pointer: it is
+// both out of range and Go's zero value, so an int field could not tell it
+// apart from an absent key and answered 201 with a tyre minted and a display
+// code burned.
+func TestReceiveTyresOutOfRangeQuantityIsRefusedNotCoerced(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		quantity string
+	}{
+		{"negative", "-5"},
+		{"zero", "0"},
+		{"above the bulk bound", "201"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, admin := testStore(t, ctx)
+			tenantID, _ := plantTenant(t, ctx, admin, "receive-qty-"+tc.name)
+			h := httpapi.New(s, httpapi.HeaderActorResolver{})
+			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 
-	code := "NEGQTY-" + uuid.NewString()[:8]
-	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
-		`{"quantity":-5,"displayCode":"`+code+`"}`)
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "TY011", ref.Code)
-	require.Equal(t, "a receive is between 1 and 200 tyres", ref.Message)
+			code := "QTY-" + uuid.NewString()[:8]
+			rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+				`{"quantity":`+tc.quantity+`,"displayCode":"`+code+`"}`)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "TY011", ref.Code)
+			require.Equal(t, "a receive is between 1 and 200 tyres", ref.Message)
 
-	var landed int
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT count(*) FROM app.tyre WHERE display_code = $1`, code).Scan(&landed))
-	require.Zero(t, landed, "a refused receive must not have minted a tyre from the coerced default")
+			var landed int
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT count(*) FROM app.tyre WHERE tenant_id = $1`, tenantID).Scan(&landed))
+			require.Zero(t, landed, "a refused receive must not have minted a tyre from the coerced default")
+		})
+	}
 }
 
 // FR-TYR-041: costing discharges the awaiting-cost backlog CFL-002 names.
