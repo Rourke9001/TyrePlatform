@@ -173,3 +173,96 @@
   color: var(--ink-muted);
   cursor: not-allowed;
 }
+
+/* The receive-into-fleet form (TYRE-91). Same stacked-form shape as
+   admin.css's .adm-form — reachable from the same phone as the capture app,
+   so a two-column layout at 360px is a horizontal scroll. */
+.tyres-receive {
+  max-width: 32rem;
+}
+
+.tyres-receive h1 {
+  margin: 0 0 1rem;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+}
+
+.tyres-receive form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.tyres-receive label {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.tyres-receive input,
+.tyres-receive select,
+.tyres-receive button {
+  /* NFR-USE-004's 44px target, in rem so it survives a browser text-size
+     setting. */
+  min-height: 2.75rem;
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+}
+
+.tyres-receive input,
+.tyres-receive select {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.4rem 0.6rem;
+}
+
+.tyres-receive button {
+  font-weight: 600;
+  color: var(--on-primary);
+  background: var(--primary);
+  border: none;
+  border-radius: var(--radius-control);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+.tyres-receive button:hover {
+  background: var(--primary-hover);
+}
+
+.tyres-receive button:active {
+  background: var(--primary-pressed);
+}
+
+.tyres-receive button:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+.tyres-receive-hint {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  margin: 0;
+}
+
+.tyres-receive-success {
+  margin-top: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: 1rem 1.5rem;
+}
+
+.tyres-receive-success ul {
+  margin: 0.5rem 0 0;
+  padding-left: 1.25rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink);
+}
