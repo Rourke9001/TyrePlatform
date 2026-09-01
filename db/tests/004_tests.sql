@@ -3664,5 +3664,63 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 36. TYRE-88: history triggers pass backfill and legacy rows, refuse edits (TY008/TY009)'
+BEGIN;
+DO $$
+DECLARE cfg uuid; pos uuid; veh uuid := md5('t88veh')::uuid; veh2 uuid := md5('t88veh2')::uuid;
+        fit uuid := md5('t88fit')::uuid; t1 uuid := md5('t88tyre1')::uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT configuration_id INTO cfg FROM app.vehicle WHERE id = md5('veh1')::uuid;
+  SELECT id INTO pos FROM app.position WHERE configuration_id = cfg ORDER BY id LIMIT 1;
+
+  -- A unit of unknown kind takes an odometer-less fitment (legal, CHG-027)...
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status)
+  VALUES (veh, '11111111-1111-1111-1111-111111111111', 'T88-1', 'T88 GP', cfg, 'ACTIVE');
+  INSERT INTO app.tyre (id, tenant_id, display_code, status, state)
+  VALUES (t1, '11111111-1111-1111-1111-111111111111', 'T88TYRE1', 'NEW', 'IN_STOCK');
+  INSERT INTO app.fitment (id, tenant_id, tyre_id, vehicle_id, position_id, fitted_at)
+  VALUES (fit, '11111111-1111-1111-1111-111111111111', t1, veh, pos, now() - interval '30 days');
+
+  -- ...then its kind is backfilled to HORSE with history present (must pass)...
+  UPDATE app.vehicle SET unit_kind = 'HORSE' WHERE id = veh;
+
+  -- (a) the legacy NULL-odometer fitment can still be closed
+  UPDATE app.fitment SET removed_at = now(), removed_odometer = 120000,
+         removed_tread_mm = 9.0, removal_reason = 'WORN'
+   WHERE id = fit;
+  RAISE NOTICE 'PASS  36a legacy NULL-odometer fitment closed on a HORSE';
+
+  -- (b) an UPDATE cannot null out a supplied fitted_odometer — proven on a
+  -- fitment this section creates, so the probe cannot silently match nothing
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (veh2, '11111111-1111-1111-1111-111111111111', 'T88-2', 'T88B GP', cfg, 'HORSE', 'ACTIVE');
+  INSERT INTO app.tyre (id, tenant_id, display_code, status, state)
+  VALUES (md5('t88tyre2')::uuid, '11111111-1111-1111-1111-111111111111', 'T88TYRE2', 'NEW', 'IN_STOCK');
+  INSERT INTO app.fitment (id, tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+  VALUES (md5('t88fit2')::uuid, '11111111-1111-1111-1111-111111111111',
+          md5('t88tyre2')::uuid, veh2, pos, now(), 100000);
+  BEGIN
+    UPDATE app.fitment SET fitted_odometer = NULL WHERE id = md5('t88fit2')::uuid;
+    RAISE EXCEPTION 'FAIL: nulling a fitted_odometer was accepted';
+  EXCEPTION WHEN sqlstate 'TY009' THEN RAISE NOTICE 'PASS  36b nulling fitted_odometer refused';
+  END;
+
+  -- (c) a vehicle repoint does not ride the legacy gate out of TY009
+  BEGIN
+    UPDATE app.fitment SET vehicle_id = veh2 WHERE id = fit;
+    RAISE EXCEPTION 'FAIL: repointing a NULL-odometer fitment was accepted';
+  EXCEPTION WHEN sqlstate 'TY009' THEN RAISE NOTICE 'PASS  36c repoint refused';
+  END;
+
+  -- (d) known-to-different unit_kind with history raises; the NULL backfill above passed
+  BEGIN
+    UPDATE app.vehicle SET unit_kind = 'RIGID' WHERE id = veh;
+    RAISE EXCEPTION 'FAIL: unit_kind edit with history was accepted';
+  EXCEPTION WHEN sqlstate 'TY008' THEN RAISE NOTICE 'PASS  36d unit_kind edit refused with history';
+  END;
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
