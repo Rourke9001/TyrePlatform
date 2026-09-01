@@ -28,8 +28,10 @@ That procedure does `ENABLE`, `FORCE`, and a policy with both `USING` and
 the role migrations run as. Without `WITH CHECK`, a caller can *write* rows
 into another tenant even though it cannot read them.
 
-Then add the table name to the sweep array in the isolation test so the suite
-checks it.
+Nothing to add to the isolation test: its sweep reads `pg_class` for every
+table with RLS on and a `tenant_id` column, so a new table enrols itself. If
+it does *not* appear, that is the finding — check 12 fails a tenant-scoped
+table that was never enrolled.
 
 ## Adding a view
 
