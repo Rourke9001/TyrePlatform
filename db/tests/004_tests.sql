@@ -1510,7 +1510,7 @@ BEGIN
   -- scrapped mid-September: the September month-end refuses a row
   INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, from_state, to_state, reason)
   VALUES ('11111111-1111-1111-1111-111111111111', md5('scrapprobe')::uuid,
-          'SCRAP', '2026-09-15T12:00:00Z', 'IN_STOCK', 'SCRAPPED', 'estate membership probe');
+          'SCRAPPED', '2026-09-15T12:00:00Z', 'IN_STOCK', 'SCRAPPED', 'estate membership probe');
   UPDATE app.tyre SET state = 'SCRAPPED' WHERE id = md5('scrapprobe')::uuid;
   PERFORM app.reconcile_valuation_snapshots('11111111-1111-1111-1111-111111111111',
                                             '2026-09-30', md5('scrapprobe')::uuid, 'ALWAYS');
@@ -3782,6 +3782,56 @@ BEGIN
     RAISE EXCEPTION 'FAIL: unique/exclusion keys not led by tenant_id: %', bad;
   END IF;
   RAISE NOTICE 'PASS  37 every tenant-table unique/exclusion key leads with tenant_id or is allowlisted';
+END $$;
+ROLLBACK;
+
+\echo '== 38. D12/D13 schema and the TYRE-48 event vocabulary (CHG-023/CHG-037, FR-TYR-004 as amended)'
+BEGIN;
+DO $$
+DECLARE t1 uuid := md5('t48tyre')::uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, status, state)
+  VALUES (t1, '11111111-1111-1111-1111-111111111111', 'T48TYRE', 'NEW', 'IN_STOCK');
+
+  -- The vocabulary is closed
+  BEGIN
+    INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state)
+    VALUES ('11111111-1111-1111-1111-111111111111', t1, 'REBALANCED', now(), 'IN_STOCK');
+    RAISE EXCEPTION 'FAIL: an off-vocabulary event type was accepted';
+  EXCEPTION WHEN check_violation THEN RAISE NOTICE 'PASS  38a vocabulary is closed';
+  END;
+
+  -- A state-changing event must say what state it produced, or
+  -- app.tyre_in_estate_asof (000016) cannot see it
+  BEGIN
+    INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at)
+    VALUES ('11111111-1111-1111-1111-111111111111', t1, 'SCRAPPED', now());
+    RAISE EXCEPTION 'FAIL: a SCRAPPED event with no to_state was accepted';
+  EXCEPTION WHEN check_violation THEN RAISE NOTICE 'PASS  38b state changes carry to_state';
+  END;
+
+  -- Only a sale carries proceeds, and a sale must (CHG-037, FR-FIT-023)
+  BEGIN
+    INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, from_state, to_state)
+    VALUES ('11111111-1111-1111-1111-111111111111', t1, 'SOLD', now(), 'REMOVED', 'SOLD');
+    RAISE EXCEPTION 'FAIL: a SOLD event with no proceeds was accepted';
+  EXCEPTION WHEN check_violation THEN RAISE NOTICE 'PASS  38c a sale records proceeds';
+  END;
+
+  -- D12: policies are seeded as decided — BAC and Sandbox generate, and a
+  -- FREE tenant exists so both branches stay provable (tenant 2)
+  IF (SELECT display_code_policy FROM app.tenant
+       WHERE id = '11111111-1111-1111-1111-111111111111') <> 'GENERATED' THEN
+    RAISE EXCEPTION 'FAIL: BAC is not GENERATED (D12)';
+  END IF;
+  RAISE NOTICE 'PASS  38d display_code_policy seeded per D12';
+
+  -- D13: the column exists, defaulted UNKNOWN, and is not yet load-bearing
+  IF (SELECT count(*) FROM app.fitment WHERE mount_orientation <> 'UNKNOWN') <> 0 THEN
+    RAISE EXCEPTION 'FAIL: mount_orientation carries a value nothing has written';
+  END IF;
+  RAISE NOTICE 'PASS  38e mount_orientation defaults UNKNOWN (D13)';
 END $$;
 ROLLBACK;
 
