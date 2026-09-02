@@ -1,14 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 
 import { ActorContext } from "./auth/actorContext";
 import { ActorProvider } from "./auth/ActorProvider";
-import { AppRoutes } from "./routes";
+import { AppRoutes, UnitRoute } from "./routes";
 import type { Me } from "./auth/me";
-import { me, testQueryClient } from "./test/fixtures";
+import {
+  fitmentRow,
+  me,
+  requestedUrl,
+  respond,
+  testQueryClient,
+  unit,
+  unitPosition,
+} from "./test/fixtures";
 
 const actor = (capabilities: string[]): Me =>
   me({ userId: "00000000-0000-0000-0000-000000000001", capabilities });
@@ -205,5 +213,77 @@ describe("AppRoutes", () => {
   it("renders the receive-tyre screen for an actor holding ManageAssets", () => {
     renderAt("/fleet/tyres/new", actor(["ViewFleet", "ManageAssets"]));
     expect(screen.getByRole("heading", { name: /receive tyres/i })).toBeInTheDocument();
+  });
+
+  it("renders the unit screen at /fleet/units/:unitId for a ViewFleet holder", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = requestedUrl(input);
+        if (url === "/api/vehicles/u9")
+          return Promise.resolve(
+            respond(
+              200,
+              unit({ id: "u9", fleetNumber: "HORSE-1", positions: [unitPosition({ id: "p1" })] }),
+            ),
+          );
+        if (url === "/api/vehicles/u9/fitments")
+          return Promise.resolve(respond(200, [fitmentRow({ fitmentId: "f1" })]));
+        throw new Error(`unstubbed ${url}`);
+      }),
+    );
+    renderAt("/fleet/units/u9", actor(["ViewFleet"]));
+    expect(await screen.findByRole("heading", { name: "HORSE-1" })).toBeInTheDocument();
+  });
+
+  // RequireCapability hides silently — a reader who lands on a unit link
+  // they cannot follow sees nothing, the same as at /fleet.
+  it("shows nothing at /fleet/units/:unitId for an actor without ViewFleet", () => {
+    renderAt("/fleet/units/u9", actor(["CaptureInspection"]));
+    expect(screen.queryByRole("heading", { name: "HORSE-1" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Distinguishes RequireCapability's silent hide from the catch-all
+    // NotFound route: the route must exist and hide, not be absent.
+    expect(screen.queryByText(/not found/i)).toBeNull();
+  });
+
+  // Unreachable through AppRoutes' own path table (:unitId never matches an
+  // empty segment) — mirrors CaptureRoute's defensive shape, so this drives
+  // UnitRoute directly rather than through a URL nothing can produce.
+  it("renders not-found from UnitRoute itself when unitId is absent", () => {
+    render(
+      <MemoryRouter initialEntries={["/no-id"]}>
+        <Routes>
+          <Route path="/no-id" element={<UnitRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+    expect(screen.getByText(/not found/i)).toBeDefined();
+  });
+
+  it("renders the fitments list at /fleet/fitments for a ViewFleet holder", async () => {
+    mockFetchJson(200, []);
+    renderAt("/fleet/fitments", actor(["ViewFleet"]));
+    expect(await screen.findByRole("heading", { name: /fitments/i })).toBeInTheDocument();
+  });
+
+  it("shows nothing at /fleet/fitments for an actor without ViewFleet", () => {
+    renderAt("/fleet/fitments", actor(["CaptureInspection"]));
+    expect(screen.queryByRole("heading", { name: /fitments/i })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    // Distinguishes RequireCapability's silent hide from the catch-all
+    // NotFound route: the route must exist and hide, not be absent.
+    expect(screen.queryByText(/not found/i)).toBeNull();
+  });
+
+  it("tells an actor without the capability, rather than blanking the screen, at /fleet/tyres/retreads", () => {
+    renderAt("/fleet/tyres/retreads", actor(["ViewFleet"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
+  });
+
+  it("renders the retread queue for an actor holding LogRetread", async () => {
+    mockFetchJson(200, []);
+    renderAt("/fleet/tyres/retreads", actor(["LogRetread"]));
+    expect(await screen.findByRole("heading", { name: /retreads/i })).toBeInTheDocument();
   });
 });

@@ -99,4 +99,19 @@ describe("navItemsFor", () => {
     expect(driver).not.toContain("/fleet");
     expect(driver).not.toContain("/fleet/tyres");
   });
+
+  // D7: Fitments is a ViewFleet read like Units, not gated on ManageAssets —
+  // a reader who cannot manage a tyre can still see what is fitted where.
+  it("gives a ViewFleet holder Units and Fitments, and nothing else", () => {
+    const labels = navItemsFor(["ViewFleet"]).map((i) => i.label);
+    expect(labels).toEqual(["Units", "Fitments"]);
+  });
+
+  // Retreads is gated on LogRetread alone: it is the alert-on-refusal admin
+  // surface (AdminRoute), not the hide-silently ViewFleet read Fitments
+  // shares with Units.
+  it("gives a LogRetread holder Retreads alone", () => {
+    const labels = navItemsFor(["LogRetread"]).map((i) => i.label);
+    expect(labels).toEqual(["Retreads"]);
+  });
 });
