@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "react-router";
 import { fetchVehicles } from "../api/vehicles";
 import { getDevTenantId } from "../api/devTenant";
-import { AxleSchematic } from "./AxleSchematic";
 import { searchVehicles } from "./vehicleSearch";
 
 export function VehicleList() {
@@ -53,8 +53,7 @@ export function VehicleList() {
         <div className="note-card">
           <h2>No units yet</h2>
           <p>
-            Your fleet appears here once units are registered. Unit registration opens in an
-            upcoming release.
+            Add one from <Link to="/admin/units/new">Add a unit</Link>.
           </p>
         </div>
       )}
@@ -97,10 +96,14 @@ function VehicleRows({
       </p>
       <ul className="vehicle-rows">
         {rows.map((v) => (
-          <li key={v.id} className="vehicle-row">
-            <AxleSchematic />
-            <span className="vehicle-fleet">{v.fleetNumber}</span>
-            <span className="vehicle-reg">{v.registration ?? "No registration"}</span>
+          <li key={v.id}>
+            {/* The whole row is the target, not a word inside it: D7 makes the
+                list the way into a unit, and a link the width of the row is
+                what a finger hits. */}
+            <Link className="vehicle-row" to={`/fleet/units/${v.id}`}>
+              <span className="vehicle-fleet">{v.fleetNumber}</span>
+              <span className="vehicle-reg">{v.registration ?? "No registration"}</span>
+            </Link>
           </li>
         ))}
       </ul>

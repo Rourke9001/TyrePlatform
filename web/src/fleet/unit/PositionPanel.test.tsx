@@ -1,0 +1,262 @@
+import { QueryClientProvider } from "@tanstack/react-query";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+
+import { PositionPanel } from "./PositionPanel";
+import { ActorContext } from "../../auth/actorContext";
+import type { Tyre } from "../../api/tyres";
+import type { Unit, UnitPosition } from "../../api/units";
+import {
+  me,
+  openFitment,
+  requestedUrl,
+  respond,
+  sentBody,
+  testQueryClient,
+  unit,
+  unitPosition,
+} from "../../test/fixtures";
+
+const STOCK: Tyre[] = [
+  {
+    id: "t7",
+    displayCode: "TY007",
+    state: "IN_STOCK",
+    status: "OK",
+    retreadCount: 0,
+    sizeName: "295/80R22.5",
+    brandName: "Bridgestone",
+    patternName: "R150",
+    receivedDate: "2026-01-05",
+    awaitingCost: false,
+  },
+  {
+    id: "t8",
+    displayCode: "TY008",
+    state: "FITTED",
+    status: "OK",
+    retreadCount: 0,
+    sizeName: "295/80R22.5",
+    brandName: "Bridgestone",
+    patternName: "R150",
+    receivedDate: "2026-01-05",
+    awaitingCost: false,
+  },
+];
+
+function renderPanel(
+  position: UnitPosition,
+  overrides: Partial<Unit> = {},
+  capabilities: string[] = ["ManageAssets", "ViewFleet"],
+) {
+  const u = unit({ ...overrides, positions: [position] });
+  return render(
+    <ActorContext.Provider value={{ actor: me({ capabilities }), settled: true }}>
+      <QueryClientProvider client={testQueryClient()}>
+        <PositionPanel unit={u} position={position} />
+      </QueryClientProvider>
+    </ActorContext.Provider>,
+  );
+}
+
+// Every request the panel makes, answered by path: the tyre read and the
+// write race, and mockResolvedValueOnce would hand whichever landed first
+// the other's body.
+function stubFetch(fitResponse: unknown = { fitmentId: "f9", warnings: [] }) {
+  vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+    const url = requestedUrl(input);
+    if (url.startsWith("/api/tyres")) return Promise.resolve(respond(200, { tyres: STOCK }));
+    if (url.endsWith("/remove")) return Promise.resolve(new Response(null, { status: 204 }));
+    if (url.endsWith("/fitments")) return Promise.resolve(respond(201, fitResponse));
+    throw new Error(`unstubbed ${url}`);
+  });
+}
+
+describe("a position panel", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("offers a fit for an empty position and a removal for an occupied one", async () => {
+    stubFetch();
+    const { unmount } = renderPanel(unitPosition({ id: "p1", code: "POS1" }));
+    expect(await screen.findByRole("combobox", { name: "Tyre" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Reason" })).toBeNull();
+    unmount();
+
+    renderPanel(unitPosition({ id: "p2", code: "POS2", fitment: openFitment() }));
+    expect(await screen.findByRole("combobox", { name: "Reason" })).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Tyre" })).toBeNull();
+  });
+
+  it("offers only tyres the register holds in stock", async () => {
+    stubFetch();
+    renderPanel(unitPosition({ id: "p1" }));
+    const picker = await screen.findByRole("combobox", { name: "Tyre" });
+    // The register read is in flight when the select first renders, so the
+    // option has to be awaited rather than the control that will hold it.
+    expect(await within(picker).findByRole("option", { name: "TY007" })).toBeTruthy();
+    expect(within(picker).queryByRole("option", { name: "TY008" })).toBeNull();
+  });
+
+  // A trailer has no odometer, so neither form may ask for one. Both halves:
+  // a panel that never rendered the field would pass the absence assertion
+  // on its own (docs/lessons.md, 26 Aug 2026).
+  it("asks for an odometer on a unit that has one and never on a unit that does not", async () => {
+    stubFetch();
+    const { unmount } = renderPanel(unitPosition({ id: "p1" }), { hasOdometer: true });
+    expect(await screen.findByRole("textbox", { name: "Odometer" })).toBeTruthy();
+    unmount();
+
+    renderPanel(unitPosition({ id: "p1" }), { hasOdometer: false, unitKind: "TRAILER" });
+    await screen.findByRole("combobox", { name: "Tyre" });
+    expect(screen.queryByRole("textbox", { name: "Odometer" })).toBeNull();
+  });
+
+  it("sends the fit under the server's own field names", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(unitPosition({ id: "p1", code: "POS1" }), { id: "u9", hasOdometer: true });
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.click(screen.getByRole("radio", { name: "Mark inboard" }));
+    await user.type(screen.getByRole("textbox", { name: "Odometer" }), "123456");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(sentBody(1)).toEqual({
+      tyreId: "t7",
+      positionId: "p1",
+      treadMm: "15.5",
+      mountOrientation: "MARK_INBOARD",
+      odometer: 123456,
+    });
+  });
+
+  it("shows a fit's warnings as status text, never as a refusal", async () => {
+    stubFetch({
+      fitmentId: "f9",
+      warnings: [{ code: "dual_mate_tread_gap", message: "Its dual mate is 4.0 mm shallower." }],
+    });
+    const user = userEvent.setup();
+    renderPanel(unitPosition({ id: "p1" }), { hasOdometer: false });
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+    const warnings = await screen.findByRole("status", { name: "Warnings" });
+    expect(within(warnings).getByText("Its dual mate is 4.0 mm shallower.")).toBeTruthy();
+    expect(warnings.closest('[role="alert"]')).toBeNull();
+  });
+
+  it("renders no warning list at all when the fit raised none", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(unitPosition({ id: "p1", code: "POS1" }), { hasOdometer: false });
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+    await screen.findByText("TY007 was fitted to POS1.");
+    expect(screen.queryAllByRole("status", { name: "Warnings" })).toHaveLength(0);
+  });
+
+  it("offers the tenant's own removal reasons and sends the removal", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ fitmentId: "f4" }) }),
+      {
+        hasOdometer: false,
+        removalReasons: ["Worn out", "Sidewall damage"],
+      },
+    );
+
+    const reason = await screen.findByRole("combobox", { name: "Reason" });
+    expect(within(reason).getByRole("option", { name: "Sidewall damage" })).toBeTruthy();
+    await user.selectOptions(reason, "Sidewall damage");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(0);
+    });
+    const last = vi.mocked(fetch).mock.calls.length - 1;
+    expect(requestedUrl(vi.mocked(fetch).mock.calls[last][0])).toBe("/api/fitments/f4/remove");
+    expect(sentBody(last)).toEqual({ reason: "Sidewall damage", treadMm: "4.5" });
+  });
+
+  // The panel holds both mutations so a fit's warnings survive the swap to the
+  // remove form. Neither mutation forgets its success, so the confirmation has
+  // to name the write that was actually last: two sentences about one tyre,
+  // one of them false, is worse than none (NFR-USE-010).
+  it("replaces the fit's confirmation with the removal's rather than showing both", async () => {
+    stubFetch({
+      fitmentId: "f4",
+      warnings: [{ code: "dual_mate_tread_gap", message: "Its dual mate is 4.0 mm shallower." }],
+    });
+    const user = userEvent.setup();
+    const empty = unitPosition({ id: "p1", code: "POS1" });
+    const u = unit({ hasOdometer: false, removalReasons: ["Worn out"], positions: [empty] });
+    const tree = (position: UnitPosition) => (
+      <ActorContext.Provider
+        value={{ actor: me({ capabilities: ["ManageAssets"] }), settled: true }}
+      >
+        <QueryClientProvider client={client}>
+          <PositionPanel unit={u} position={position} />
+        </QueryClientProvider>
+      </ActorContext.Provider>
+    );
+    const client = testQueryClient();
+    const { rerender } = render(tree(empty));
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+    await screen.findByText("TY007 was fitted to POS1.");
+    expect(screen.getByRole("status", { name: "Warnings" })).toBeTruthy();
+
+    // The invalidated read comes back with the position occupied, which is
+    // what swaps the form under the same panel.
+    const occupied = unitPosition({
+      id: "p1",
+      code: "POS1",
+      fitment: openFitment({ fitmentId: "f4", displayCode: "TY007" }),
+    });
+    rerender(tree(occupied));
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    await screen.findByText("TY007 was removed from POS1.");
+    expect(screen.queryByText("TY007 was fitted to POS1.")).toBeNull();
+    expect(screen.queryAllByRole("status", { name: "Warnings" })).toHaveLength(0);
+  });
+
+  it("shows the occupant but no write form to a reader who cannot manage assets", async () => {
+    stubFetch();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ displayCode: "TY100" }) }),
+      {},
+      ["ViewFleet"],
+    );
+
+    expect(await screen.findByText("TY100")).toBeTruthy();
+    expect(screen.queryByRole("combobox", { name: "Reason" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Remove tyre" })).toBeNull();
+  });
+});
