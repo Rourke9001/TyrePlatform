@@ -108,8 +108,11 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await trailerPanel.getByRole("combobox", { name: "Tyre" }).selectOption({ label: stockA });
   await trailerPanel.getByLabel("Tread (mm)").fill("14");
   // CHG-010: which sidewall carries the manufacturer's mark is a fact about
-  // the mounting, recorded at the fit.
-  await trailerPanel.getByRole("radio", { name: "Mark outboard" }).check();
+  // the mounting, recorded at the fit. Inboard, not outboard: PositionPanel
+  // defaults to MOUNT_ORIENTATIONS[0] (mark outboard), so checking that one
+  // would leave the form exactly as it was found and prove nothing about the
+  // control — the read-back at the closed leg below is what it earns.
+  await trailerPanel.getByRole("radio", { name: "Mark inboard" }).check();
   await Promise.all([
     posted(page, new RegExp(`^/api/vehicles/${TRAILER}/fitments$`)),
     trailerPanel.getByRole("button", { name: "Fit tyre" }).click(),
@@ -156,8 +159,11 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // FR-FIT-010: one set of moves, applied whole. Targets are named by
   // position id rather than by code, which is what the select carries.
   //
-  // Every name here is matched exactly: the horse's codes run to 10, and a
-  // substring match on "Rotate 1" would take the row for position 10 with it.
+  // Every name here is matched exactly: the horse's codes run to 10, so a
+  // non-exact "Rotate 1" would resolve to positions 1 and 10 together and
+  // fail Playwright's strict mode outright, never quietly act on the wrong
+  // row. Position 10 carries nothing in this flow, so exact is a guard
+  // against a fixture that grows, not a fix for a failure seen here.
   const rotate = page.getByRole("region", { name: "Rotate" });
   await rotate.getByRole("checkbox", { name: `Rotate ${horseFirst.code}`, exact: true }).check();
   await rotate.getByRole("checkbox", { name: `Rotate ${horseSecond.code}`, exact: true }).check();
@@ -219,7 +225,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // CHG-010, read back off the closed leg: the orientation picked at the fit
   // is a fact about the mounting the register keeps, so the radio is worth
   // exercising only if something downstream shows what it recorded.
-  await expect(trailerLeg.getByRole("cell", { name: "Mark outboard", exact: true })).toBeVisible();
+  await expect(trailerLeg.getByRole("cell", { name: "Mark inboard", exact: true })).toBeVisible();
 
   await page.goto("/fleet/tyres");
   const casingA = page.getByRole("row").filter({ hasText: stockA });

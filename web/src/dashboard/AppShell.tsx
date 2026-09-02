@@ -107,6 +107,12 @@ function ActorBadge() {
 
 // navItemsFor has already filtered against the registry (../shell/navigation,
 // which holds the one-list rationale), so no per-link gating here.
+//
+// end on every link: the registry's paths nest (/fleet, /fleet/tyres,
+// /fleet/tyres/retreads), and NavLink's default prefix match would mark all
+// three current at once, so "you are here" would name three places. The cost
+// is that a path with no item of its own — /fleet/tyres/new, a unit — marks
+// nothing current, which is honest: none of them is a menu destination.
 function MainNav() {
   const actor = useActor();
   const items = navItemsFor(actor?.capabilities ?? []);
@@ -114,7 +120,7 @@ function MainNav() {
   return (
     <nav className="shell-nav" aria-label="Main">
       {items.map((item) => (
-        <NavLink key={item.to} to={item.to}>
+        <NavLink key={item.to} to={item.to} end>
           {item.label}
         </NavLink>
       ))}

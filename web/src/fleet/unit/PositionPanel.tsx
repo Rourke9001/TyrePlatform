@@ -16,7 +16,7 @@ import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { useFormMutation } from "../useFormMutation";
 import { ODOMETER_REFUSAL, readOdometer } from "./odometer";
-import { tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
+import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { MOUNT_ORIENTATIONS, orientationLabel } from "./vocabulary";
 
 // A fit and a removal refuse for different reasons and must say so. Only the
@@ -76,7 +76,12 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
     enabled: canManage && position.fitment === null,
   });
 
-  const invalidate = [unitKey(unit.id), unitFitmentsKey(unit.id), tyresKey(tenantKey)];
+  const invalidate = [
+    unitKey(unit.id),
+    unitFitmentsKey(unit.id),
+    tyresKey(tenantKey),
+    openFitmentsKey(tenantKey),
+  ];
 
   const fit = useFormMutation({
     mutate: (vars: NewFitment) => fitTyre(unit.id, vars),

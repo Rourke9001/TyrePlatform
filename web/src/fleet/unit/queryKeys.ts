@@ -25,3 +25,16 @@ export function tyresKey(tenantKey: string): QueryKey {
 export function depotsKey(tenantKey: string): QueryKey {
   return ["depots", tenantKey];
 }
+
+// The fleet-wide open fitments (fleet/FitmentList.tsx), which every fitment
+// write makes stale even though none of them is made from that screen: a fit,
+// a removal or a rotation changes which positions are occupied, and a key
+// that only the list itself named would leave it showing a fitment that has
+// since been closed for as long as gcTime holds the entry.
+export function openFitmentsKey(tenantKey: string): QueryKey {
+  return ["open-fitments", tenantKey];
+}
+
+export function retreadJobsKey(tenantKey: string): QueryKey {
+  return ["retread-jobs", tenantKey];
+}

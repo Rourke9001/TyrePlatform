@@ -4,7 +4,7 @@ import { type FormEvent, useState } from "react";
 import { refusalMessage } from "../../api/refusal";
 import { dispatchTyre, type Tyre } from "../../api/tyres";
 import { fetchDepots } from "../../api/units";
-import { depotsKey } from "../unit/queryKeys";
+import { depotsKey, retreadJobsKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
 // app.dispatch_tyre reaches TY012 (no such tyre, or its own REMOVED-only
@@ -68,7 +68,7 @@ export function DispatchForm({
   const dispatch = useFormMutation({
     mutate: (vars: { destination: string; depotId: string; sentOn?: string }) =>
       dispatchTyre(tyre.id, vars),
-    invalidate: [["tyres", tenantKey], ["retread-jobs"]],
+    invalidate: [["tyres", tenantKey], retreadJobsKey(tenantKey)],
     onSuccess: () => {
       if (destination !== "") onSuccess?.(destination);
       setDestination("");

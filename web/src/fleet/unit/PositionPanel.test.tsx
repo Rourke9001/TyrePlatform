@@ -4,7 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { PositionPanel } from "./PositionPanel";
+import { openFitmentsKey } from "./queryKeys";
 import { ActorContext } from "../../auth/actorContext";
+import { getDevTenantId } from "../../api/devTenant";
 import type { Tyre } from "../../api/tyres";
 import type { Unit, UnitPosition } from "../../api/units";
 import {
@@ -302,6 +304,44 @@ describe("a position panel", () => {
     await screen.findByText("TY007 was removed from POS1.");
     expect(screen.queryByText("TY007 was fitted to POS1.")).toBeNull();
     expect(screen.queryAllByRole("status", { name: "Warnings" })).toHaveLength(0);
+  });
+
+  // Nothing on this screen reads the fleet-wide fitments list, so the only
+  // thing that can mark it stale is this write's own invalidation list: an
+  // entry left valid is served to /fleet/fitments for as long as gcTime
+  // holds it, showing a position this fit has just occupied as empty.
+  it("invalidates the fleet-wide fitments list its fit makes stale", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    const client = testQueryClient();
+    const key = openFitmentsKey(getDevTenantId() ?? "default");
+    // Seeded first: invalidateQueries on a key with no cache entry is
+    // silently a no-op, and the assertion below would then hold whatever the
+    // invalidation list said.
+    client.setQueryData(key, []);
+    const position = unitPosition({ id: "p1", code: "POS1" });
+
+    render(
+      <ActorContext.Provider
+        value={{ actor: me({ capabilities: ["ManageAssets"] }), settled: true }}
+      >
+        <QueryClientProvider client={client}>
+          <PositionPanel
+            unit={unit({ hasOdometer: false, positions: [position] })}
+            position={position}
+          />
+        </QueryClientProvider>
+      </ActorContext.Provider>,
+    );
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+    await waitFor(() => {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    });
   });
 
   it("shows the occupant but no write form to a reader who cannot manage assets", async () => {
