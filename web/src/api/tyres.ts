@@ -45,8 +45,7 @@ export interface NewTyres {
 }
 
 // Mirrors app.tyre_state's disposal-reachable members (Appendix C's
-// transition table). Which transitions are legal from which state is
-// app.dispose_tyre's rule, not this client's.
+// transition table).
 export type Disposal = "SCRAPPED" | "SOLD" | "LOST";
 
 export const DISPOSALS: { value: Disposal; label: string }[] = [
@@ -54,6 +53,18 @@ export const DISPOSALS: { value: Disposal; label: string }[] = [
   { value: "SOLD", label: "Sold" },
   { value: "LOST", label: "Lost" },
 ];
+
+// app.dispose_tyre (000031) sells from REMOVED alone and scraps or loses from
+// IN_STOCK or REMOVED; every other pairing it refuses with TY012. Enforcement
+// stays there (ADR-0013 decision 5) — this narrows the menu so a screen never
+// offers a choice the write is certain to reject, which reads as a broken
+// button rather than as a rule (NFR-USE-005). One mapping, here, because the
+// register and its row form must not each carry their own copy of it.
+export function disposalsFor(state: string): { value: Disposal; label: string }[] {
+  return DISPOSALS.filter((d) =>
+    d.value === "SOLD" ? state === "REMOVED" : state === "IN_STOCK" || state === "REMOVED",
+  );
+}
 
 // DISPOSALS' three values ARE the terminal states (app.dispose_tyre never
 // transitions out of one); reused here rather than duplicated so the two

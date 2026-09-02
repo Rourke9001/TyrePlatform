@@ -19,7 +19,20 @@ const COST_WORDING = {
 // already-costed row must never offer a second submission, not even a
 // disabled one. Every rule about a re-costed or negative price is
 // app.set_tyre_cost's alone (ADR-0013 decision 5).
-export function CostForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
+//
+// onSuccess names nothing further: the confirmation this write earns lives at
+// the register, since costing a tyre clears its awaiting-cost flag and the
+// cell holding this form becomes a dash on the refetch, before anyone could
+// read a line left inside it.
+export function CostForm({
+  tyre,
+  tenantKey,
+  onSuccess,
+}: {
+  tyre: Tyre;
+  tenantKey: string;
+  onSuccess?: () => void;
+}) {
   const [price, setPrice] = useState("");
   const [costSource, setCostSource] = useState<CostSource>("INVOICE");
 
@@ -31,6 +44,7 @@ export function CostForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string })
     onSuccess: () => {
       setPrice("");
       setCostSource("INVOICE");
+      onSuccess?.();
     },
   });
 

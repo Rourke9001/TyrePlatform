@@ -32,18 +32,30 @@ function multiMatchNote(count: number, code: string): string {
 }
 
 // The last write this screen's rows made, held here rather than inside the
-// row that made it: a dispatch or a return moves the tyre off the state that
-// offered the control, the refetch swaps the row's own cell for a different
+// row that made it: every one of them moves the tyre off the state or the
+// flag that offered the control, the refetch swaps that cell for a different
 // one, and a line left inside the old cell would show for one round-trip and
-// vanish before anyone could read it.
+// vanish before anyone could read it (NFR-USE-010).
 type ActedOn =
   | { kind: "dispatch"; code: string; destination: "AT_RETREADER" | "AT_BREAKDOWN_SUPPLIER" }
-  | { kind: "return"; code: string };
+  | { kind: "return"; code: string }
+  | { kind: "dispose"; code: string }
+  | { kind: "cost"; code: string };
 
 function actedMessage(acted: ActedOn): string {
-  if (acted.kind === "return") return `Tyre ${acted.code} was returned to stock.`;
-  const place = acted.destination === "AT_RETREADER" ? "the retreader" : "the breakdown supplier";
-  return `Tyre ${acted.code} was sent to ${place}.`;
+  switch (acted.kind) {
+    case "return":
+      return `Tyre ${acted.code} was returned to stock.`;
+    case "dispose":
+      return `Tyre ${acted.code} was disposed of.`;
+    case "cost":
+      return `Tyre ${acted.code}'s cost was recorded.`;
+    default: {
+      const place =
+        acted.destination === "AT_RETREADER" ? "the retreader" : "the breakdown supplier";
+      return `Tyre ${acted.code} was sent to ${place}.`;
+    }
+  }
 }
 
 // Row actions by tyre.state (TYRE-92/93 D7, U1/U2): which write a row
@@ -57,7 +69,13 @@ function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => voi
   if (isDisposed(t.state)) return "—";
   switch (t.state) {
     case "IN_STOCK":
-      return <DisposeForm tyre={t} tenantKey={tenantKey} />;
+      return (
+        <DisposeForm
+          tyre={t}
+          tenantKey={tenantKey}
+          onSuccess={() => onActed({ kind: "dispose", code: t.displayCode })}
+        />
+      );
     case "REMOVED":
       return (
         <div className="tyres-row-actions">
@@ -73,7 +91,11 @@ function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => voi
               onActed({ kind: "dispatch", code: t.displayCode, destination })
             }
           />
-          <DisposeForm tyre={t} tenantKey={tenantKey} />
+          <DisposeForm
+            tyre={t}
+            tenantKey={tenantKey}
+            onSuccess={() => onActed({ kind: "dispose", code: t.displayCode })}
+          />
         </div>
       );
     case "AT_BREAKDOWN_SUPPLIER":
@@ -239,7 +261,17 @@ export function TyreList() {
                 <td>{t.state}</td>
                 <td>{t.receivedDate ? asOf(t.receivedDate) : "Not received"}</td>
                 <td>{t.awaitingCost ? "Yes" : "No"}</td>
-                <td>{t.awaitingCost ? <CostForm tyre={t} tenantKey={tenantKey} /> : "—"}</td>
+                <td>
+                  {t.awaitingCost ? (
+                    <CostForm
+                      tyre={t}
+                      tenantKey={tenantKey}
+                      onSuccess={() => setActed({ kind: "cost", code: t.displayCode })}
+                    />
+                  ) : (
+                    "—"
+                  )}
+                </td>
                 {canSeeMoney && <td>{t.purchasePrice ? `R ${t.purchasePrice}` : "—"}</td>}
                 {canSeeMoney && <td>{t.randPerMm ? `R ${t.randPerMm}` : "—"}</td>}
                 {canSeeMoney && <td>{t.casingValue ? `R ${t.casingValue}` : "—"}</td>}

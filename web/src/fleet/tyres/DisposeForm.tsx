@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 
 import { refusalMessage } from "../../api/refusal";
-import { DISPOSALS, disposeTyre, type Disposal, type Tyre } from "../../api/tyres";
+import { disposalsFor, disposeTyre, type Disposal, type Tyre } from "../../api/tyres";
 import { useFormMutation } from "../useFormMutation";
 
 // DisposeForm and CostForm refuse for different reasons and must say so:
@@ -14,13 +14,29 @@ const DISPOSE_WORDING = {
   fallback: "The tyre could not be disposed of. Try again, or call support if it keeps happening.",
 };
 
-// Every rule about which transitions are legal, and about reason/proceeds,
-// is app.dispose_tyre's alone (ADR-0013 decision 5) — this only shapes the
-// request and shows the field the chosen disposal actually needs.
-export function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
+// Every rule about which transitions are legal, and about reason/proceeds, is
+// app.dispose_tyre's alone (ADR-0013 decision 5) — this only shapes the
+// request and shows the field the chosen disposal actually needs. Which
+// disposals the state even makes offerable is disposalsFor's (api/tyres.ts),
+// which holds the rationale for narrowing the menu at all.
+//
+// onSuccess names nothing further: the confirmation this write earns lives at
+// the register, since a disposal moves the tyre to a terminal state and
+// rowActions replaces this whole cell with a dash on the refetch, before
+// anyone could read a line left inside it.
+export function DisposeForm({
+  tyre,
+  tenantKey,
+  onSuccess,
+}: {
+  tyre: Tyre;
+  tenantKey: string;
+  onSuccess?: () => void;
+}) {
   const [disposal, setDisposal] = useState<Disposal | "">("");
   const [reason, setReason] = useState("");
   const [proceeds, setProceeds] = useState("");
+  const offered = disposalsFor(tyre.state);
 
   const dispose = useFormMutation({
     mutate: (vars: { disposal: Disposal; reason?: string; proceeds?: string }) =>
@@ -30,6 +46,7 @@ export function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string
       setDisposal("");
       setReason("");
       setProceeds("");
+      onSuccess?.();
     },
   });
 
@@ -51,7 +68,7 @@ export function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string
         onChange={(e) => setDisposal(e.target.value as Disposal | "")}
       >
         <option value="">Choose…</option>
-        {DISPOSALS.map((d) => (
+        {offered.map((d) => (
           <option key={d.value} value={d.value}>
             {d.label}
           </option>
