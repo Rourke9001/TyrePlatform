@@ -243,8 +243,14 @@ describe("AppRoutes", () => {
     expect(screen.queryByRole("heading", { name: "HORSE-1" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     // Distinguishes RequireCapability's silent hide from the catch-all
-    // NotFound route: the route must exist and hide, not be absent.
+    // NotFound route: the route must exist and hide, not be absent. The same
+    // rationale gates /fleet/fitments' equivalent test below.
     expect(screen.queryByText(/not found/i)).toBeNull();
+    // renderAt is synchronous: with the wrapper gone, UnitDetail would still
+    // mount and its query would still be pending on this first render, so
+    // the two assertions above pass whether or not the capability gate is
+    // there at all — this is the one that would actually fail.
+    expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // Unreachable through AppRoutes' own path table (:unitId never matches an
@@ -271,8 +277,7 @@ describe("AppRoutes", () => {
     renderAt("/fleet/fitments", actor(["CaptureInspection"]));
     expect(screen.queryByRole("heading", { name: /fitments/i })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    // Distinguishes RequireCapability's silent hide from the catch-all
-    // NotFound route: the route must exist and hide, not be absent.
+    // Same rationale as the /fleet/units/:unitId test above.
     expect(screen.queryByText(/not found/i)).toBeNull();
   });
 

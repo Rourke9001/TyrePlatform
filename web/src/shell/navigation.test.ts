@@ -114,4 +114,11 @@ describe("navItemsFor", () => {
     const labels = navItemsFor(["LogRetread"]).map((i) => i.label);
     expect(labels).toEqual(["Retreads"]);
   });
+
+  // ManageAssets alone, without ViewFleet, must not surface Units — Tyres
+  // and its own Add-a-unit gate are independent of the fleet read.
+  it("gives a ManageAssets holder Tyres and Add a unit, without Units", () => {
+    const labels = navItemsFor(["ManageAssets"]).map((i) => i.label);
+    expect(labels).toEqual(["Tyres", "Add a unit"]);
+  });
 });
