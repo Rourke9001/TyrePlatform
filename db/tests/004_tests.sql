@@ -5006,5 +5006,286 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 43. TYRE-94: unit status transitions and the audited row (FR-VEH-005/006, FR-INS-054, FR-AUD-001, ADR-0014)'
+BEGIN;
+DO $$
+DECLARE
+  bac   uuid := '11111111-1111-1111-1111-111111111111';
+  t_two uuid := '22222222-2222-2222-2222-222222222222';
+  -- A seeded BAC user, not a fresh uuid: app.vehicle.created_by and
+  -- app.inspection_schedule.created_by both default to app.current_actor_id()
+  -- behind a composite FK, so an invented actor would kill a plant on the FK
+  -- and read as a fault in the surface under test (2026-08-28).
+  act   uuid := md5('controller1')::uuid;
+  veh1  uuid := md5('veh1')::uuid;  -- seeded, ACTIVE, BAC: 43g's cross-tenant target
+  vu    uuid := md5('t43u')::uuid;  -- TRAILER: owes no fitment odometer (TY009)
+  ghost uuid := md5('t43ghost')::uuid;
+  sch   uuid := md5('t43sch')::uuid;
+  ty    uuid := md5('t43ty')::uuid;
+  tag   uuid := md5('t43tag')::uuid;
+  sz1   uuid := md5('sz1')::uuid;
+  cfg uuid; pos uuid; fit uuid; r record; a app.audit_log;
+  n int; before_n int; got app.vehicle_status;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- Planted with no actor bound, which is what 43i reads back: the INSERT
+  -- audit row carries a NULL actor because app.current_actor_id() returns
+  -- NULL rather than raising when no session actor exists (ADR-0014).
+  PERFORM set_config('app.actor_id', '', true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = veh1;
+  SELECT p.id INTO pos FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  IF cfg IS NULL OR pos IS NULL THEN
+    RAISE EXCEPTION 'FAIL: section 43 cannot resolve the configuration it plants against';
+  END IF;
+  -- The seed fills every position on veh1, so the unit under test is planted
+  -- on the same configuration to have an empty one (as sections 36 and 41 do).
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (vu, bac, 'T43-U', 'T43U GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state)
+  VALUES (ty, bac, 'T43TYRE1', sz1, 'NEW', 0, 'IN_STOCK');
+  INSERT INTO app.vehicle_tag (id, tenant_id, name) VALUES (tag, bac, 'T43 Long Haul');
+  INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES (bac, vu, tag);
+  SELECT * INTO r FROM app.fit_tyre(ty, vu, pos, 14.0, 'MARK_OUTBOARD');
+  fit := r.fitment_id;
+
+  -- (a) INV-2, FR-VEH-005. The reason is supplied, so the only rule that can
+  -- refuse this call is the open fitment: the tyres go back to the pool
+  -- before the unit leaves the fleet, or a casing is stranded on a unit whose
+  -- record has ended, with no removal path left to take it off.
+  BEGIN
+    PERFORM app.set_vehicle_status(vu, 'DISPOSED', 'sold');
+    RAISE EXCEPTION 'FAIL 43a: a unit with a fitted tyre was disposed';
+  EXCEPTION WHEN sqlstate 'TY016' THEN
+    IF SQLERRM NOT LIKE '%still has fitted tyres%' THEN
+      RAISE EXCEPTION 'FAIL 43a: the disposal was refused by another rule: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  43a a unit with an open fitment cannot be disposed';
+  END;
+
+  -- (b) FR-AUD-001, ADR-0014. Counted as a delta rather than against a
+  -- literal: the planting above already wrote INSERT rows for this unit, and
+  -- an absolute count would pass on those alone (2026-08-26). The actor is
+  -- bound here and only here, so a NULL would be visible as a failure rather
+  -- than as the planting's own "loaded, not acted" NULL.
+  PERFORM set_config('app.actor_id', act::text, true);
+  SELECT count(*) INTO before_n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'UPDATE';
+  PERFORM app.set_vehicle_status(vu, 'PARKED');
+  SELECT v.status INTO got FROM app.vehicle v WHERE v.id = vu;
+  IF got <> 'PARKED' THEN
+    RAISE EXCEPTION 'FAIL 43b: the unit is % after a park', got;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'UPDATE';
+  IF n <> before_n + 1 THEN
+    RAISE EXCEPTION 'FAIL 43b: one status change wrote % audit rows, not one', n - before_n;
+  END IF;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'UPDATE'
+   ORDER BY al.id DESC LIMIT 1;
+  -- IS DISTINCT FROM, not <>: a trigger that wrote NULL into before on an
+  -- UPDATE would make <> evaluate to NULL and the branch fall through, so the
+  -- one assertion the audit mechanism rests on would pass on a missing value
+  -- (2026-08-26).
+  IF a.before->>'status' IS DISTINCT FROM 'ACTIVE'
+     OR a.after->>'status' IS DISTINCT FROM 'PARKED' THEN
+    RAISE EXCEPTION 'FAIL 43b: the audit row reads % to %', a.before->>'status', a.after->>'status';
+  END IF;
+  -- Against the literal bound above, not against app.current_actor_id(): two
+  -- NULLs compare equal under IS NOT DISTINCT FROM, so reading the setting
+  -- back would let a trigger that never resolved an actor pass vacuously.
+  IF a.actor_id IS DISTINCT FROM act THEN
+    RAISE EXCEPTION 'FAIL 43b: the audit row names actor %, not the one bound', a.actor_id;
+  END IF;
+  -- ADR-0014 chose a full-row snapshot over a changed-columns diff, so the
+  -- stamp columns the BEFORE trigger wrote are in it too: after carries every
+  -- column of app.vehicle, not just the one this call set.
+  IF a.after->>'updated_by' IS DISTINCT FROM act::text THEN
+    RAISE EXCEPTION 'FAIL 43b: the snapshot records updated_by %, not the actor', a.after->>'updated_by';
+  END IF;
+  -- The SECURITY INVOKER half of ADR-0014: the trigger runs as the writer, so
+  -- the row lands under the writer's tenant and tenant_isolation's USING
+  -- clause lets that writer read it back.
+  IF a.tenant_id IS DISTINCT FROM bac THEN
+    RAISE EXCEPTION 'FAIL 43b: the audit row landed under tenant %', a.tenant_id;
+  END IF;
+  RAISE NOTICE 'PASS  43b a status change writes exactly one audit row, actored and tenant-scoped';
+
+  -- (c) Two refusals that share TY016 with 43a and 43e, so each pins its own
+  -- fragment: a no-op would otherwise pass on the terminal branch and an
+  -- invisible unit on the no-op branch.
+  BEGIN
+    PERFORM app.set_vehicle_status(vu, 'PARKED');
+    RAISE EXCEPTION 'FAIL 43c: a no-op transition was accepted';
+  EXCEPTION WHEN sqlstate 'TY016' THEN
+    IF SQLERRM NOT LIKE '%already PARKED%' THEN
+      RAISE EXCEPTION 'FAIL 43c: the no-op was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.set_vehicle_status(ghost, 'PARKED');
+    RAISE EXCEPTION 'FAIL 43c: an unknown unit was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such unit in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 43c: wrong TY012 message: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  43c a no-op and an unknown unit are each refused on their own rule';
+  END;
+
+  -- (d) FR-VEH-006, FR-INS-054. Asserted as behaviour rather than trusted to
+  -- app.generate_inspection_tasks' v.status filter (000012): the pause is the
+  -- reason a fleet parks a unit, and a filter that drifts would show up here
+  -- and nowhere else. The same as-of date drives both calls, so the only
+  -- difference between them is the unit's status.
+  INSERT INTO app.inspection_schedule (id, tenant_id, vehicle_id, interval_days)
+  VALUES (sch, bac, vu, 7);
+  PERFORM app.generate_inspection_tasks(current_date);
+  SELECT count(*) INTO n FROM app.inspection_task t WHERE t.vehicle_id = vu;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 43d: a parked unit was issued % inspection task(s)', n;
+  END IF;
+  PERFORM app.set_vehicle_status(vu, 'ACTIVE');
+  PERFORM app.generate_inspection_tasks(current_date);
+  SELECT count(*) INTO n FROM app.inspection_task t WHERE t.vehicle_id = vu;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 43d: an active unit with a due schedule got % task(s), not one', n;
+  END IF;
+  RAISE NOTICE 'PASS  43d a parked unit issues no inspection task; reactivating it issues one';
+
+  -- (e) The casing goes back to the pool first, and then the three remaining
+  -- TY016 branches in the order a disposal meets them. The missing reason is
+  -- probed on a unit with no open fitment and the terminal refusal on a unit
+  -- that is genuinely DISPOSED, so neither can pass on 43a's rule.
+  PERFORM app.remove_tyre(fit, 'vehicle_disposal', 10.0);
+  BEGIN
+    PERFORM app.set_vehicle_status(vu, 'DISPOSED');
+    RAISE EXCEPTION 'FAIL 43e: a disposal without a reason was accepted';
+  EXCEPTION WHEN sqlstate 'TY016' THEN
+    IF SQLERRM NOT LIKE '%reason%' THEN
+      RAISE EXCEPTION 'FAIL 43e: the reasonless disposal was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  PERFORM app.set_vehicle_status(vu, 'DISPOSED', 'sold at auction');
+  SELECT v.status INTO got FROM app.vehicle v WHERE v.id = vu;
+  IF got <> 'DISPOSED' THEN
+    RAISE EXCEPTION 'FAIL 43e: the unit is % after a disposal', got;
+  END IF;
+  BEGIN
+    PERFORM app.set_vehicle_status(vu, 'ACTIVE');
+    RAISE EXCEPTION 'FAIL 43e: a disposed unit was returned to service';
+  EXCEPTION WHEN sqlstate 'TY016' THEN
+    IF SQLERRM NOT LIKE '%DISPOSED%' THEN
+      RAISE EXCEPTION 'FAIL 43e: the terminal refusal fired for another reason: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  43e disposal needs an empty unit and a reason, and is terminal';
+  END;
+
+  -- (f) CR-004 / DR-011 reaching the new writer: the trigger may add rows and
+  -- nothing may rewrite them. The suite runs as app_login, not a superuser,
+  -- so the revoke at 000001:585 is what has to refuse this.
+  BEGIN
+    UPDATE app.audit_log SET action = 'x' WHERE entity_id = vu;
+    RAISE EXCEPTION 'FAIL 43f: an audit row was rewritten through the app role';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS  43f audit rows stay append-only for the app role';
+  END;
+
+  -- (g) Two cross-tenant probes (2026-09-01). veh1 is a seeded BAC unit that
+  -- is ACTIVE with no open-fitment bar on a park, so a leaked row would have
+  -- been parked rather than refused, and a TY016 here would mean the row was
+  -- visible. The raw UPDATE writes description, which carries no constraint
+  -- and no history trigger, so 0 rows can only mean the policy hid it.
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM set_config('app.tenant_id', t_two::text, true);
+  BEGIN
+    PERFORM app.set_vehicle_status(veh1, 'PARKED');
+    RAISE EXCEPTION 'FAIL 43g: another fleet''s unit was parked';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such unit in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 43g: TY012 fired for the wrong reason (%), not RLS invisibility', SQLERRM;
+    END IF;
+  END;
+  UPDATE app.vehicle SET description = 'x' WHERE id = veh1;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 43g: a raw update reached % of another fleet''s unit rows', n;
+  END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  RAISE NOTICE 'PASS  43g another fleet''s unit is invisible to the function and to a raw update';
+
+  -- (h) FR-VEH-041, U6: a tag map row is a current label, so the tag edit
+  -- replaces the set in one transaction and needs DELETE on the map alone.
+  -- app.vehicle_tag itself stays undeletable (000018) — a tag other units
+  -- still carry must not vanish with one unit's edit.
+  DELETE FROM app.vehicle_tag_map m WHERE m.vehicle_id = vu;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 43h: the tag map delete reached % rows, not the one planted', n;
+  END IF;
+  DELETE FROM app.vehicle_tag_map m WHERE m.vehicle_id = vu;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 43h: a second tag map delete reached % rows', n;
+  END IF;
+  BEGIN
+    DELETE FROM app.vehicle_tag t WHERE t.id = tag;
+    RAISE EXCEPTION 'FAIL 43h: a tag name was deleted through the app role';
+  EXCEPTION WHEN insufficient_privilege THEN
+    RAISE NOTICE 'PASS  43h the tag map is deletable and the tag itself is not';
+  END;
+
+  -- (i) ADR-0014's "loaded, not acted": the unit was planted with no actor
+  -- bound, so the INSERT audit row exists with a NULL actor rather than the
+  -- insert failing. before IS NULL is the other half of ADR-0014's row shape:
+  -- an insert has no prior state, and a log that shows one — the reading a
+  -- trigger stamping to_jsonb(NEW) into both columns would produce — makes
+  -- the creation of a unit indistinguishable from an edit that changed
+  -- nothing.
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'INSERT';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 43i: planting one unit wrote % INSERT audit rows', n;
+  END IF;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'INSERT';
+  IF a.actor_id IS NOT NULL OR a.before IS NOT NULL
+     OR a.tenant_id IS DISTINCT FROM bac
+     OR a.after->>'status' IS DISTINCT FROM 'ACTIVE' THEN
+    RAISE EXCEPTION 'FAIL 43i: the unactored insert audited as actor %, before %, tenant %',
+      a.actor_id, a.before, a.tenant_id;
+  END IF;
+  -- The seed loads veh1 as a superuser with no tenant bound, which is the case
+  -- ADR-0014 departs from ADR-0013 decision 2 for: tenant_id comes from NEW,
+  -- so the row is readable here. Sourced from app.current_tenant_id() it would
+  -- be NULL and tenant_isolation's USING clause would hide it from this
+  -- session — an audit entry that exists and that no one can read.
+  -- actor_id IS NULL is the genuinely-unset-GUC path, which nothing else
+  -- reaches: this section binds app.actor_id to the empty string, the seed
+  -- loader never sets it at all, and both have to resolve to NULL.
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = veh1
+     AND al.action = 'INSERT' AND al.tenant_id = bac AND al.actor_id IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 43i: the seed-loaded unit has % readable unactored insert audit rows', n;
+  END IF;
+  RAISE NOTICE 'PASS  43i a row loaded with no actor bound is audited as loaded, not acted';
+
+  -- (j) The fifth TY016 branch. Probed on veh1, which is ACTIVE and visible
+  -- here, so no other rule in the function can reach a refusal first: without
+  -- the guard the UPDATE would fail app.vehicle.status's NOT NULL as a bare
+  -- 23502 that ADR-0012 says the outbox retries for ever.
+  BEGIN
+    PERFORM app.set_vehicle_status(veh1, NULL::app.vehicle_status);
+    RAISE EXCEPTION 'FAIL 43j: a status change with no status was accepted';
+  EXCEPTION WHEN sqlstate 'TY016' THEN
+    IF SQLERRM NOT LIKE '%names the status%' THEN
+      RAISE EXCEPTION 'FAIL 43j: the empty target was refused by another rule: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  43j a status change naming no target status is refused as an input';
+  END;
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
