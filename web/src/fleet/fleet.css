@@ -238,6 +238,12 @@
   fill: var(--ink);
 }
 
+/* The only font sizes in the tree that are not type tokens, and deliberately
+   so: inside an SVG a font-size is measured in the viewBox's user-space
+   units, which the drawing's own geometry defines (POS_H is 24 of them). A
+   token here would size the text in CSS pixels against a box that is not
+   measured in them, and the label would not fit its position at any viewport
+   (web/CLAUDE.md's tokens rule, TYRE-27). */
 .unit-plan-code {
   font-family: var(--font-mono);
   font-size: 8px;
@@ -385,4 +391,10 @@
 .unit-edit-note {
   display: block;
   color: var(--status-caution);
+}
+
+/* A row form, like the register's, rather than the stacked shape .unit-edit
+   uses: one select and at most one input. */
+.unit-status {
+  max-width: 32rem;
 }

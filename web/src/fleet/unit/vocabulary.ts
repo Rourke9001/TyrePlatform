@@ -1,9 +1,7 @@
 // The unit screen's shared wording. Enum values are the database's and the
 // labels are not: a screen says "mark outboard", app.mount_orientation says
-// MARK_OUTBOARD, and neither should have to become the other. Kept out of
-// the component files because react-refresh's only-export-components rule
-// refuses a non-component export beside a component, and more than one
-// component on this screen needs each list.
+// MARK_OUTBOARD, and neither should have to become the other. Its own module
+// for the reason queryKeys.ts is one.
 
 // CHG-010 (OI-28's answer): outer/centre/inner are relative to the vehicle
 // centreline, so which sidewall carries the manufacturer's mark is a fact

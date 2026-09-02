@@ -58,17 +58,29 @@ describe("the unit plan", () => {
     expect(pressed[0].getAttribute("data-position-id")).toBe("p3");
   });
 
-  it("selects on click and on Enter, so the plan is reachable without a mouse", async () => {
+  // A <g> has no activation behaviour of its own, so both keys a button
+  // answers to have to be handled — and each must fire exactly once, since a
+  // second call would select a position the user did not pick.
+  it("selects on click, on Enter and on Space, so the plan needs no mouse", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     render(<UnitPlan positions={POSITIONS} selectedId={null} onSelect={onSelect} />);
 
     await user.click(screen.getByRole("button", { name: "Position POS2: empty" }));
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith("p2");
 
+    onSelect.mockClear();
     screen.getByRole("button", { name: "Position POS5: empty" }).focus();
     await user.keyboard("{Enter}");
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith("p5");
+
+    onSelect.mockClear();
+    screen.getByRole("button", { name: "Position POS6: empty" }).focus();
+    await user.keyboard(" ");
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith("p6");
   });
 
   it("labels each axle group so a reader can tell axle 2 from axle 3", () => {

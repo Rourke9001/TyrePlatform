@@ -71,6 +71,24 @@ describe("setting a unit's status", () => {
     });
     expect(requestedUrl(vi.mocked(fetch).mock.calls[0][0])).toBe("/api/vehicles/u9/status");
     expect(sentBody(0)).toEqual({ status: "DISPOSED", reason: "Sold at auction" });
+    expect(await screen.findByText("The status was changed.")).toBeTruthy();
+  });
+
+  // Both halves of the reason rule: DISPOSED carries one, and no other
+  // transition sends the key at all.
+  it("sends no reason at all for a transition that is not a disposal", async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Status" }), "WORKSHOP");
+    await user.click(screen.getByRole("button", { name: "Set status" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.length).toBe(1);
+    });
+    expect(sentBody(0)).toEqual({ status: "WORKSHOP" });
+    expect(await screen.findByText("The status was changed.")).toBeTruthy();
   });
 
   // TY016 names the unit and counts its open fitments. A generic sentence

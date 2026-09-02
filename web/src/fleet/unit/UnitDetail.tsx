@@ -27,7 +27,7 @@ export function UnitDetail({ unitId }: { unitId: string }) {
     queryFn: () => fetchUnitFitments(unitId),
   });
 
-  if (unit.isPending) return <p>Loading…</p>;
+  if (unit.isPending) return <p className="note-card">Loading…</p>;
 
   if (unit.isError) {
     return (
@@ -72,7 +72,7 @@ export function UnitDetail({ unitId }: { unitId: string }) {
       {canManage && <UnitStatusForm unit={unit.data} />}
 
       <h2>Fitment history</h2>
-      {fitments.isPending && <p>Loading…</p>}
+      {fitments.isPending && <p className="note-card">Loading…</p>}
       {fitments.isError && (
         <p role="alert">The fitment history could not be loaded. Retry from the unit list.</p>
       )}
