@@ -16,9 +16,9 @@ function fitment(overrides: Partial<FleetFitment> & { fitmentId: string }): Flee
     positionCode: "POS1",
     tyreId: "t1",
     displayCode: "TY001",
-    // Wire-shaped (units.go:454's own fittedAt.UTC().Format(time.RFC3339)),
-    // not a bare date: an instant, not a calendar date, is what this field
-    // carries over the wire.
+    // Wire-shaped (units.go's listOpenFitments handler, whose own
+    // fittedAt.UTC().Format(time.RFC3339) writes this field), not a bare
+    // date: an instant, not a calendar date, is what carries over the wire.
     fittedAt: "2026-08-01T22:30:00Z",
     daysFitted: 10,
     ...overrides,

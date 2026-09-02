@@ -40,9 +40,9 @@ describe("the retread queue", () => {
     vi.unstubAllGlobals();
   });
 
-  // sentAt is genuinely date-only on the wire (retreads.go:53's own
-  // `sent_at::text`, a date column) and renders in UTC unshifted; daysOut is
-  // the server's own arithmetic, rendered as given.
+  // sentAt is genuinely date-only on the wire (retreads.go's own
+  // `sent_at::text` select, a date column) and renders in UTC unshifted;
+  // daysOut is the server's own arithmetic, rendered as given.
   it("renders sent on through useTenantDate and days out from the server", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, [job({ id: "j1", sentAt: "2026-08-01", daysOut: 12 })]),
@@ -152,9 +152,9 @@ describe("the retread queue", () => {
     });
   });
 
-  // fix round 1 ruling: the confirmation lives at RetreadQueue, not inside
-  // the row — the same refetch that surfaces it also removes the closed
-  // job's row, proving the message did not come from a row still on screen.
+  // The confirmation lives at RetreadQueue, not inside the row — the same
+  // refetch that surfaces it also removes the closed job's row, proving the
+  // message did not come from a row still on screen.
   it("shows the confirmation once the job's own row has left the list on the refetch", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(respond(200, [job({ id: "j1" })]))

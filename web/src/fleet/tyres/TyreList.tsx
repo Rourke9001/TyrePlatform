@@ -32,10 +32,10 @@ function multiMatchNote(count: number, code: string): string {
 }
 
 // The last write this screen's rows made, held here rather than inside the
-// row that made it (fix round 1 ruling): a dispatch or a return moves the
-// tyre off the state that offered the control, the refetch swaps the row's
-// own cell for a different one, and a line left inside the old cell would
-// show for one round-trip and vanish before anyone could read it.
+// row that made it: a dispatch or a return moves the tyre off the state that
+// offered the control, the refetch swaps the row's own cell for a different
+// one, and a line left inside the old cell would show for one round-trip and
+// vanish before anyone could read it.
 type ActedOn =
   | { kind: "dispatch"; code: string; destination: "AT_RETREADER" | "AT_BREAKDOWN_SUPPLIER" }
   | { kind: "return"; code: string };
@@ -193,8 +193,8 @@ export function TyreList() {
         <p className="tyres-lookup-note">{multiMatchNote(rows.length, lookup.code)}</p>
       )}
 
-      {/* One confirmation region for every row write (fix round 1 ruling) —
-          see ActedOn above for why this cannot live inside the row. */}
+      {/* One confirmation region for every row write — see ActedOn above
+          for why this cannot live inside the row. */}
       {acted !== null && <p role="status">{actedMessage(acted)}</p>}
 
       {tyres.isPending && <p>Loading…</p>}

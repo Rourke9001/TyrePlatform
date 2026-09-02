@@ -421,10 +421,10 @@
 
 /* A REMOVED row's Actions cell (TYRE-93): more than one form stacked, where
    every other cell on the register holds at most one. .tyres-row-form
-   still styles each form inside it unchanged; this only stacks them. The
-   retread queue and the fitments list take their table and page-width
-   rules by selector, added to .tyres/.tyres-table's own declarations
-   above, rather than a second copy of either. */
+   styles each form inside it; this only stacks them. The retread queue and
+   the fitments list take their table and page-width rules by selector,
+   added to .tyres/.tyres-table's own declarations above, rather than a
+   second copy of either. */
 .tyres-row-actions {
   display: flex;
   flex-direction: column;

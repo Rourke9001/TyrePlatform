@@ -40,8 +40,8 @@ describe("returning a tyre to stock", () => {
 
   // The decoder refuses no body at all (an empty stream), so the button must
   // send a JSON body of {} rather than nothing. The confirmation itself is a
-  // TyreList-level concern now (fix round 1 ruling — see TyreList.test.tsx);
-  // this only proves the button calls back rather than swallowing the write.
+  // TyreList-level concern (see TyreList.test.tsx); this only proves the
+  // button calls back rather than swallowing the write.
   it("posts an empty body and calls onSuccess", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
     const onSuccess = vi.fn();

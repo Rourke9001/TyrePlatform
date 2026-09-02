@@ -40,9 +40,9 @@ type Outcome = "accepted" | "rejected";
 // this slice inventing one.
 //
 // onSuccess names nothing further: the confirmation this write earns lives
-// at RetreadQueue (fix round 1 ruling), since a successful return closes the
-// job and this row leaves the list on the refetch before anyone could read a
-// line left inside it.
+// at RetreadQueue, since a successful return closes the job and this row
+// leaves the list on the refetch before anyone could read a line left
+// inside it.
 function RetreadReturnRow({
   job,
   tenantKey,
@@ -209,7 +209,7 @@ export function RetreadQueue() {
   // closed it: a successful return invalidates ["retread-jobs"], the row's
   // own job leaves the refetched list, and RetreadReturnRow unmounts with
   // it — a line left inside that row would show for one round-trip and
-  // vanish (fix round 1 ruling, NFR-USE-010).
+  // vanish (NFR-USE-010).
   const [closedCode, setClosedCode] = useState<string | null>(null);
 
   const jobs = useQuery({ queryKey: ["retread-jobs"], queryFn: fetchRetreadJobs });
