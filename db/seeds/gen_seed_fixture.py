@@ -95,6 +95,9 @@ L.append("")
 # would hide a regression in that constraint rather than expose it.
 T3="33333333-3333-3333-3333-333333333333"
 L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('sbdepot1')::uuid,'%s','Sandbox Depot','DEPOT');"%T3)
+# Dispatch (TYRE-92) needs a destination of each kind, and nothing creates a
+# depot through the API yet. Sandbox only — BAC's rows are the fixture.
+L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('sbretreader1')::uuid,'%s','Sandbox Retreaders','RETREADER'),(md5('sbbreakdown1')::uuid,'%s','Sandbox Roadside','BREAKDOWN_SUPPLIER');"%(T3,T3))
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
 L.append("  (md5('sbdriver1')::uuid,'%s','sandbox-driver@example.invalid','Sandbox Driver','SBX-0001','DRIVER'),"%T3)
 L.append("  (md5('sbcontroller1')::uuid,'%s','sandbox-controller@example.invalid','Sandbox Controller','SBX-0002','CONTROLLER'),"%T3)

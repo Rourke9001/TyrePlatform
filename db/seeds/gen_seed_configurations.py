@@ -60,6 +60,11 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 ('spare_capture_scope','COMBINATION'),
                 ('width_spread_warn_mm',4),('dual_mate_warn_mm',3),('axle_divergence_warn_mm',3),
                 ('tread_bands',[[0,4],[5,7],[8,10],[11,13],[14,None]]),
+                # FR-FIT-008's minimum plus the two this platform writes itself
+                # (rotation closes a fitment; a correction is FR-FIT-015's
+                # compensating close). Tenant configuration, never a constant.
+                ('removal_reasons',["worn_to_threshold","damage","irregular_wear","casing_failure",
+                                    "vehicle_disposal","rotation","correction","puncture"]),
                 # FR-VAL-021 staleness indication. 28 = 4 x the configured
                 # inspection interval (FR-CFG-017, default 7 days), not a
                 # free-standing constant: a reading older than four missed

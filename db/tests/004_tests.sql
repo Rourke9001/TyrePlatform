@@ -1761,23 +1761,39 @@ BEGIN
 END $$;
 
 -- BR-ANL-004: a fitment between the two readings makes them readings of the
--- same position rather than of the same tyre's wear. Moving a fitment date is
--- reversible in a way an extra reading is not -- readings are append-only, so
--- staging this with one would leave residue in every pinned figure above.
+-- same position rather than of the same tyre's wear. 000032's
+-- fitment_written_once trigger (TY014, rule 3) freezes every identity column
+-- of an open fitment, fitted_at included, so the window is staged as a
+-- compensating close-and-refit (FR-FIT-015) inside a rolled-back transaction;
+-- readings are append-only, so an extra reading would leave residue in every
+-- pinned figure above rather than none.
+BEGIN;
 DO $$
-DECLARE st text; r numeric;
+DECLARE st text; r numeric; pos uuid;
 BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  UPDATE app.fitment SET fitted_at = '2026-07-10T06:00:00Z'
-   WHERE tyre_id = md5('tyre2')::uuid;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT position_id INTO pos FROM app.fitment
+   WHERE tyre_id = md5('tyre2')::uuid AND removed_at IS NULL;
+
+  -- veh1 is a HORSE (TY009): the close and the refit both carry an odometer.
+  UPDATE app.fitment SET removed_at = '2025-06-15T06:00:00Z', removed_odometer = 385000,
+         removal_reason = 'correction'
+   WHERE tyre_id = md5('tyre2')::uuid AND removed_at IS NULL;
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+  VALUES ('11111111-1111-1111-1111-111111111111', md5('tyre2')::uuid, md5('veh1')::uuid, pos,
+          '2026-07-10T06:00:00Z', 400000);
 
   SELECT wear_rate_status, wear_rate_mm_per_1000km INTO st, r
     FROM app.v_tyre_wear_rate WHERE display_code = '2102BAC2';
   IF st IS DISTINCT FROM 'FITMENT_BETWEEN' OR r IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: refitted tyre [% / %], expected FITMENT_BETWEEN / NULL', st, r; END IF;
+END $$;
+ROLLBACK;
 
-  UPDATE app.fitment SET fitted_at = '2025-06-01T06:00:00Z'
-   WHERE tyre_id = md5('tyre2')::uuid;
+DO $$
+DECLARE st text; r numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT wear_rate_status, wear_rate_mm_per_1000km INTO st, r
     FROM app.v_tyre_wear_rate WHERE display_code = '2102BAC2';
   IF st IS DISTINCT FROM 'MEASURED' OR r IS DISTINCT FROM 0.1000 THEN
@@ -4059,6 +4075,81 @@ BEGIN
   EXCEPTION WHEN sqlstate 'TY012' THEN
     RAISE NOTICE 'PASS  39t a disposal cannot predate the tyre''s last movement';
   END;
+END $$;
+ROLLBACK;
+
+\echo '== 40. TYRE-92: a fitment is written once and closed once (TY014); the vocabulary carries the breakdown dispatch'
+BEGIN;
+DO $$
+DECLARE cfg uuid; pos uuid; pos2 uuid; veh uuid := md5('t40veh')::uuid;
+        t1 uuid := md5('t40tyre1')::uuid; fit uuid := md5('t40fit')::uuid; n int; tid text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT configuration_id INTO cfg FROM app.vehicle WHERE id = md5('veh1')::uuid;
+  SELECT id INTO pos  FROM app.position WHERE configuration_id = cfg ORDER BY sequence LIMIT 1;
+  SELECT id INTO pos2 FROM app.position WHERE configuration_id = cfg ORDER BY sequence OFFSET 1 LIMIT 1;
+  -- TRAILER, deliberately: require_odometer_where_unit_has_one (000025:31-33)
+  -- short-circuits on a TRAILER, so 40c/40d reach TY014 rather than TY009.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (veh, '11111111-1111-1111-1111-111111111111', 'T40-1', 'T40 GP', cfg, 'TRAILER', 'ACTIVE');
+  INSERT INTO app.tyre (id, tenant_id, display_code, status, state)
+  VALUES (t1, '11111111-1111-1111-1111-111111111111', 'T40TYRE1', 'NEW', 'IN_STOCK');
+  INSERT INTO app.fitment (id, tenant_id, tyre_id, vehicle_id, position_id, fitted_at, mount_orientation)
+  VALUES (fit, '11111111-1111-1111-1111-111111111111', t1, veh, pos, now() - interval '10 days', 'MARK_OUTBOARD');
+
+  -- (a) an identity column cannot change on an open fitment
+  BEGIN
+    UPDATE app.fitment SET position_id = pos2 WHERE id = fit;
+    RAISE EXCEPTION 'FAIL: repositioning an open fitment was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN RAISE NOTICE 'PASS  40a open fitment identity is immutable';
+  END;
+  -- (b) nor can the orientation (a flip is a remove-and-fit, D13)
+  BEGIN
+    UPDATE app.fitment SET mount_orientation = 'MARK_INBOARD' WHERE id = fit;
+    RAISE EXCEPTION 'FAIL: flipping an open fitment was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN RAISE NOTICE 'PASS  40b mount_orientation is immutable';
+  END;
+  -- (g) nor the row's own primary key
+  BEGIN
+    UPDATE app.fitment SET id = gen_random_uuid() WHERE id = fit;
+    RAISE EXCEPTION 'FAIL: changing an open fitment''s id was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN RAISE NOTICE 'PASS  40g the fitment id is immutable';
+  END;
+  -- (c) closure is the one permitted UPDATE, and it stamps updated_at
+  UPDATE app.fitment SET removed_at = now(), removed_tread_mm = 9.0, removal_reason = 'damage',
+         distance_source = 'UNAVAILABLE' WHERE id = fit;
+  SELECT count(*) INTO n FROM app.fitment WHERE id = fit AND removed_at IS NOT NULL AND updated_at IS NOT NULL;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL: closure did not land'; END IF;
+  RAISE NOTICE 'PASS  40c closure is permitted';
+  -- (d) a closed fitment is frozen entirely, even its closure columns
+  BEGIN
+    UPDATE app.fitment SET removal_reason = 'worn_to_threshold' WHERE id = fit;
+    RAISE EXCEPTION 'FAIL: editing a closed fitment was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN RAISE NOTICE 'PASS  40d closed fitment is frozen';
+  END;
+  -- (e) the vocabulary accepts the breakdown dispatch and still refuses a stranger
+  INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state)
+  VALUES ('11111111-1111-1111-1111-111111111111', t1, 'SENT_TO_BREAKDOWN_SUPPLIER', now(), 'AT_BREAKDOWN_SUPPLIER');
+  BEGIN
+    INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at, to_state)
+    VALUES ('11111111-1111-1111-1111-111111111111', t1, 'REBALANCED', now(), 'FITTED');
+    RAISE EXCEPTION 'FAIL: REBALANCED accepted';
+  EXCEPTION WHEN check_violation THEN RAISE NOTICE 'PASS  40e vocabulary gained exactly the breakdown dispatch';
+  END;
+  -- (f) every seeded tenant carries removal_reasons with the FR-FIT-008
+  -- minimum. Looped per-tenant, not a single count under tenant 1: app.
+  -- configuration is RLS-scoped, so one tenant's count cannot see another
+  -- tenant's seed gap.
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222',
+                             '33333333-3333-3333-3333-333333333333'] LOOP
+    PERFORM set_config('app.tenant_id', tid, true);
+    SELECT count(*) INTO n FROM app.configuration
+     WHERE key = 'removal_reasons' AND value ? 'worn_to_threshold' AND value ? 'rotation' AND value ? 'correction';
+    IF n < 1 THEN RAISE EXCEPTION 'FAIL: removal_reasons not seeded for tenant %', tid; END IF;
+  END LOOP;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  RAISE NOTICE 'PASS  40f removal_reasons is tenant configuration';
 END $$;
 ROLLBACK;
 
