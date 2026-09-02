@@ -8,8 +8,11 @@ import { AddUnit } from "./admin/AddUnit";
 import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
 import { VehicleList } from "./dashboard/VehicleList";
+import { FitmentList } from "./fleet/FitmentList";
+import { RetreadQueue } from "./fleet/RetreadQueue";
 import { ReceiveTyre } from "./fleet/ReceiveTyre";
 import { TyreList } from "./fleet/tyres/TyreList";
+import { UnitDetail } from "./fleet/unit/UnitDetail";
 
 function NotFound() {
   return <p>Not found.</p>;
@@ -43,6 +46,17 @@ function CaptureRoute() {
   if (!can) return <p role="alert">You do not have permission to capture inspections.</p>;
   if (!vehicleId) return <NotFound />;
   return <CaptureFlow vehicleId={vehicleId} taskId={params.get("taskId")} />;
+}
+
+// D7's unit screen is a ViewFleet read, hidden like /fleet rather than
+// refused out loud (RequireCapability wraps this at the call site, not
+// here). A param segment never matches empty, so this guard covers
+// UnitDetail's non-empty-id contract, not a reachable URL — CaptureRoute's
+// shape, for the same reason.
+export function UnitRoute() {
+  const { unitId } = useParams();
+  if (!unitId) return <NotFound />;
+  return <UnitDetail unitId={unitId} />;
 }
 
 // A destination someone navigated to says why it is refused; a menu item just
@@ -94,6 +108,30 @@ export function AppRoutes() {
           <AdminRoute capability="ManageAssets">
             <ReceiveTyre />
           </AdminRoute>
+        }
+      />
+      <Route
+        path="/fleet/tyres/retreads"
+        element={
+          <AdminRoute capability="LogRetread">
+            <RetreadQueue />
+          </AdminRoute>
+        }
+      />
+      <Route
+        path="/fleet/units/:unitId"
+        element={
+          <RequireCapability capability="ViewFleet">
+            <UnitRoute />
+          </RequireCapability>
+        }
+      />
+      <Route
+        path="/fleet/fitments"
+        element={
+          <RequireCapability capability="ViewFleet">
+            <FitmentList />
+          </RequireCapability>
         }
       />
       <Route path="/my" element={<DriverHome />} />
