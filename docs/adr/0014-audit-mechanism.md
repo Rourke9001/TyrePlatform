@@ -31,11 +31,11 @@ one. `app.tyre` has carried unaudited update paths since B5 slice 1 —
 `app.set_tyre_cost` and `app.dispose_tyre` both `UPDATE app.tyre`
 (`db/migrations/000031_tyre_lifecycle_functions.up.sql:156`, `:227`),
 reachable from `POST /api/tyres/{tyreID}/cost` and `/dispose` — and
-`app.app_user` has carried one since B4.5: the reactivate branch of
-`POST /api/users` issues `UPDATE app.app_user`
-(`api/internal/httpapi/admin.go:422`). `app.vehicle` gains its first update
-endpoint in this slice (TYRE-92/93), which is what turns the gap from a
-table nobody could mutate yet into a table someone can mutate silently.
+`app.app_user` has carried one since B4.5: the rehire branch of `createUser`
+(`POST /api/users`) issues `UPDATE app.app_user` when a deactivated email is
+re-invited. `app.vehicle` gains its first update endpoint in this slice
+(TYRE-94), which is what turns the gap from a table nobody could mutate yet
+into a table someone can mutate silently.
 
 TYRE-94 (AUD-001) is the first ticket that names audit as its subject rather
 than a paragraph inside another surface's scope. It requires FR-AUD-001 hold
@@ -119,7 +119,7 @@ superuser-written audit row — a row `tenant_isolation`'s `USING` clause then
 hides from every tenant-bound session, an audit entry that exists and that
 no one can read.
 
-This slice attaches the trigger to `app.vehicle` only, the one table TYRE-92
+This slice attaches the trigger to `app.vehicle` only, the one table TYRE-94
 gives an update endpoint to.
 
 ## Consequences

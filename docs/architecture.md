@@ -140,3 +140,6 @@ is the one in-progress inspection.
 | [0009](adr/0009-client-platform-and-on-device-data.md) | Client platform and on-device data | Accepted |
 | [0010](adr/0010-provenance-measured-vs-derived.md) | Provenance — measured vs derived | Accepted |
 | [0011](adr/0011-actor-context-and-authorisation.md) | How the actor is established and the role resolved | Accepted |
+| [0012](adr/0012-api-error-envelope.md) | The API error envelope | Accepted |
+| [0013](adr/0013-write-surface-contract.md) | The write-surface contract | Accepted |
+| [0014](adr/0014-audit-mechanism.md) | How mutations are audited | Accepted |
