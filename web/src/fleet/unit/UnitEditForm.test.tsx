@@ -115,15 +115,36 @@ describe("editing a unit's description", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     await screen.findByText("The unit was saved.");
 
-    // Typed back to the value the read carries, so the second click has
-    // nothing to send. (The screen holds the loaded unit until its query
-    // refetches, which is what makes this reachable at all.)
-    await user.clear(registration);
-    await user.type(registration, "SBX001GP");
+    // Nothing touched since, so the second click has nothing to send: what
+    // the fields hold is what the save just put on the server.
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(screen.getByRole("alert").textContent).toContain("Nothing has changed");
     expect(screen.queryByText("The unit was saved.")).toBeNull();
+  });
+
+  // The saved value is what the next edit is measured against. Diffed against
+  // the mount value for ever, a field could be edited once per sitting and no
+  // more: typing back what was there a minute ago would read as no change
+  // while the server holds something else.
+  it("sends a field edited back to what it held before the last save", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    const description = await screen.findByRole("textbox", { name: "Description" });
+
+    await user.clear(description);
+    await user.type(description, "Short haul");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("The unit was saved.");
+
+    await user.clear(description);
+    await user.type(description, "Long haul");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.length).toBe(3);
+    });
+    expect(sentBody(2)).toEqual({ description: "Long haul" });
   });
 
   // A blank on a text column is read as absence, not as a clear (see
