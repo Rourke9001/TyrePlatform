@@ -1,10 +1,11 @@
-// The tyre register (TYRE-91): listTyres reads it, and receiveTyres,
+// The tyre register (TYRE-91, TYRE-93): listTyres reads it, and receiveTyres,
 // setTyreCost and disposeTyre write to it through the lifecycle functions in
-// migration 000031. Every business rule any of these four
-// depends on — the dated code lookup, the awaiting-cost set, the
-// display-code policy, the disposal transition table — lives in SQL, per
-// db/CLAUDE.md; nothing here does more than shape a request and read back a
-// result.
+// migration 000031, while dispatchTyre and returnTyreToStock send a casing
+// off site and take it back, over the functions in migration 000033. Every
+// business rule any of these depends on — the dated code lookup, the
+// awaiting-cost set, the display-code policy, the disposal transition
+// table, the retread cap — lives in SQL, per db/CLAUDE.md; nothing here
+// does more than shape a request and read back a result.
 package httpapi
 
 import (
@@ -398,6 +399,136 @@ func disposeTyre(s *store.Store) http.HandlerFunc {
 				`SELECT app.dispose_tyre($1, $2::app.tyre_state, $3, $4::numeric, now())`,
 				tyreID, body.Disposal, body.Reason, body.Proceeds); err != nil {
 				return fmt.Errorf("disposing tyre %s: %w", tyreID, err)
+			}
+			return nil
+		})
+		if !ok {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// dispatchTyreRequest is app.dispatch_tyre's body. Destination is a bare
+// string: which states are a dispatch destination is app.tyre_state's and
+// the function's own list (FR-FIT-011/012), so a value outside it reaches
+// the enum cast as 22P02 rather than a second list kept in step here.
+// SentOn is *string so an absent date reaches the function's own
+// tenant_today default — today is the tenant's civil day (rule 6), which a
+// Go clock cannot name.
+type dispatchTyreRequest struct {
+	Destination string  `json:"destination"`
+	DepotID     string  `json:"depotId"`
+	SentOn      *string `json:"sentOn"`
+}
+
+// dispatchTyreResponse carries the retread job the dispatch opened.
+// omitempty for tyreJSON's reason: a dispatch to the breakdown supplier
+// opens no job, and the key must vanish rather than round-trip as a null a
+// client has to special-case.
+type dispatchTyreResponse struct {
+	RetreadJobID *string `json:"retreadJobId,omitempty"`
+}
+
+// dispatchTyre is FR-FIT-011/012's write: a removed casing leaves the
+// workshop for the retreader or for the breakdown supplier. Everything the
+// dispatch means — that only a REMOVED casing goes (U2, Appendix C), that
+// the depot's type must match the destination, that BR-FIT-009's retread cap
+// refuses a casing with no retread left in it, and that the retreader branch
+// is what opens the job — is app.dispatch_tyre's alone (ADR-0013 decision
+// 5). A cross-tenant tyre id meets the same "no such tyre in this fleet" a
+// missing one does, because RLS makes the two indistinguishable.
+func dispatchTyre(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tyreID, ok := pathID(w, r, "tyreID")
+		if !ok {
+			return
+		}
+		var body dispatchTyreRequest
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		destination, err := requiredText("destination", body.Destination)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		depotID, err := uuidField("depotId", body.DepotID)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		sentOn, err := dateField("sentOn", body.SentOn)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+
+		var jobID *uuid.UUID
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageAssets); err != nil {
+				return err
+			}
+			// TY012, TY014 and TY015 arrive via refusalForPgError with their
+			// messages intact.
+			if err := tx.QueryRow(ctx,
+				`SELECT retread_job_id
+				   FROM app.dispatch_tyre($1, $2::app.tyre_state, $3, $4::date)`,
+				tyreID, destination, depotID, sentOn).Scan(&jobID); err != nil {
+				return fmt.Errorf("dispatching tyre %s: %w", tyreID, err)
+			}
+			return nil
+		})
+		if !ok {
+			return
+		}
+		var out dispatchTyreResponse
+		if jobID != nil {
+			opened := jobID.String()
+			out.RetreadJobID = &opened
+		}
+		writeStatus(ctx, w, http.StatusCreated, out)
+	}
+}
+
+// returnTyreRequest is app.return_tyre_to_stock's body. DepotID is optional:
+// a NULL leaves the casing where the register already has it, because the
+// return says the fleet has it back rather than that it moved.
+type returnTyreRequest struct {
+	DepotID *string `json:"depotId"`
+}
+
+// returnTyreToStock is FR-FIT-013's receipt back, for the casing the
+// workshop has in hand again. No occurred-at field: a receipt is recorded
+// when it happens, so the function's own now() default is the instant, and
+// backdating one is not a screen this slice builds. Which states restock
+// (never AT_RETREADER — that casing comes back through Log Retread, which
+// records the tread, the cost and the casing decision) and which depot types
+// may hold stock are app.return_tyre_to_stock's rules.
+func returnTyreToStock(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tyreID, ok := pathID(w, r, "tyreID")
+		if !ok {
+			return
+		}
+		var body returnTyreRequest
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		var depotID *uuid.UUID
+		if body.DepotID != nil {
+			parsed, err := uuidField("depotId", *body.DepotID)
+			if refuseInvalid(w, r, err) {
+				return
+			}
+			depotID = &parsed
+		}
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageAssets); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx,
+				`SELECT app.return_tyre_to_stock($1, $2)`, tyreID, depotID); err != nil {
+				return fmt.Errorf("returning tyre %s to stock: %w", tyreID, err)
 			}
 			return nil
 		})
