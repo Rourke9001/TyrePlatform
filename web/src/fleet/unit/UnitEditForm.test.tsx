@@ -126,9 +126,9 @@ describe("editing a unit's description", () => {
     expect(screen.queryByText("The unit was saved.")).toBeNull();
   });
 
-  // units.go:513-520: "" on a text column is read as absence, so a blanked
-  // field cannot be sent — the save would claim an edit the server declined
-  // to make.
+  // A blank on a text column is read as absence, not as a clear (see
+  // patchUnit's comment in api/units.ts), so a blanked field cannot be sent —
+  // the save would claim an edit the server declined to make.
   it("omits a text field the user blanked rather than sending an empty string", async () => {
     const user = userEvent.setup();
     renderForm();
