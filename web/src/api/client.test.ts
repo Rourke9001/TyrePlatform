@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, apiGet, apiPatch, apiPost } from "./client";
+import { clearDevActorId, clearDevTenantId, setDevActorId, setDevTenantId } from "./devTenant";
+import { sentBody } from "../test/fixtures";
 
 function stubFetch(status: number, body: unknown, ok = false) {
   vi.stubGlobal(
@@ -110,15 +112,12 @@ describe("the refusal envelope", () => {
 });
 
 describe("apiPatch", () => {
-  const DEV_TENANT_STORAGE_KEY = "tyre.dev.tenant-id";
-  const DEV_ACTOR_STORAGE_KEY = "tyre.dev.user-id";
-
   beforeEach(() => {
     vi.unstubAllGlobals();
   });
   afterEach(() => {
-    window.localStorage.removeItem(DEV_TENANT_STORAGE_KEY);
-    window.localStorage.removeItem(DEV_ACTOR_STORAGE_KEY);
+    clearDevTenantId();
+    clearDevActorId();
   });
 
   // The unit PATCH answers with the same body the unit read does (D6), so
@@ -127,8 +126,8 @@ describe("apiPatch", () => {
   it("sends PATCH with the JSON body and the dev headers", async () => {
     const devTenantId = "11111111-1111-1111-1111-111111111111";
     const devActorId = "b85aef08-6081-80db-9d4d-dad38ae40545";
-    window.localStorage.setItem(DEV_TENANT_STORAGE_KEY, devTenantId);
-    window.localStorage.setItem(DEV_ACTOR_STORAGE_KEY, devActorId);
+    setDevTenantId(devTenantId);
+    setDevActorId(devActorId);
     vi.stubGlobal("fetch", vi.fn());
     vi.mocked(fetch).mockResolvedValue(
       new Response(JSON.stringify({ id: "v1" }), {
@@ -142,8 +141,7 @@ describe("apiPatch", () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe("/api/vehicles/v1");
     expect(init?.method).toBe("PATCH");
-    expect(typeof init?.body).toBe("string");
-    expect(JSON.parse(init?.body as string)).toEqual({ fleetNumber: "H1" });
+    expect(sentBody(0)).toEqual({ fleetNumber: "H1" });
     expect(new Headers(init?.headers).get("X-Tenant-ID")).toBe(devTenantId);
     expect(new Headers(init?.headers).get("X-User-ID")).toBe(devActorId);
     expect(result).toEqual({ id: "v1" });

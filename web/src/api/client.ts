@@ -41,32 +41,26 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
   }
 }
 
-export async function apiGet<T>(path: string): Promise<T> {
+// The one implementation of identity attribution, refusal shaping and 204
+// handling: apiGet, apiPost and apiPatch differ only in HTTP method and
+// whether a body exists, so every verb below delegates here rather than
+// carrying its own copy of headers/refusal/204 to drift from the others'.
+async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
+  if (body !== undefined) headers["Content-Type"] = "application/json";
   const devTenant = getDevTenantId();
   const devActor = getDevActorId();
   if (devTenant) headers["X-Tenant-ID"] = devTenant;
   if (devActor) headers["X-User-ID"] = devActor;
 
-  const res = await fetch(path, { headers });
+  const res = await fetch(path, {
+    method,
+    headers,
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+  });
   if (!res.ok) {
     const { code, message } = await refusal(res);
-    throw new ApiError(res.status, message ?? `GET ${path} failed: ${res.status}`, code);
-  }
-  return res.json() as Promise<T>;
-}
-
-export async function apiPost<T>(path: string, body: unknown): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const devTenant = getDevTenantId();
-  const devActor = getDevActorId();
-  if (devTenant) headers["X-Tenant-ID"] = devTenant;
-  if (devActor) headers["X-User-ID"] = devActor;
-
-  const res = await fetch(path, { method: "POST", headers, body: JSON.stringify(body) });
-  if (!res.ok) {
-    const { code, message } = await refusal(res);
-    throw new ApiError(res.status, message ?? `POST ${path} failed: ${res.status}`, code);
+    throw new ApiError(res.status, message ?? `${method} ${path} failed: ${res.status}`, code);
   }
   // The tyre lifecycle's cost/dispose steps (api/internal/httpapi/tyres.go)
   // answer 204: no body, by spec. res.json() rejects on an empty stream, so
@@ -78,25 +72,18 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-// apiPost's shape with one different verb: the unit PATCH (D5/D6) is the
-// descriptive edit, distinct from the POSTs that call into a SQL rule
-// (ADR-0013 decision 1), but it carries the same identity headers and the
-// same refusal and 204 handling — a second implementation here would be a
-// second place for that shaping to drift from apiPost's.
-export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const devTenant = getDevTenantId();
-  const devActor = getDevActorId();
-  if (devTenant) headers["X-Tenant-ID"] = devTenant;
-  if (devActor) headers["X-User-ID"] = devActor;
+export function apiGet<T>(path: string): Promise<T> {
+  return send<T>("GET", path);
+}
 
-  const res = await fetch(path, { method: "PATCH", headers, body: JSON.stringify(body) });
-  if (!res.ok) {
-    const { code, message } = await refusal(res);
-    throw new ApiError(res.status, message ?? `PATCH ${path} failed: ${res.status}`, code);
-  }
-  if (res.status === 204) {
-    return undefined as unknown as T;
-  }
-  return res.json() as Promise<T>;
+export function apiPost<T>(path: string, body: unknown): Promise<T> {
+  return send<T>("POST", path, body);
+}
+
+// PATCH is the unit's descriptive edit (D5): the fields a plain UPDATE owns
+// because no SQL rule governs them, distinct from the POSTs on this surface
+// that call into a function precisely because one does (ADR-0013 decision
+// 1). The distinction is server-side; this function only carries the verb.
+export function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  return send<T>("PATCH", path, body);
 }

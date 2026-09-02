@@ -13,6 +13,11 @@ export interface UseFormMutationOptions<TVars, TResult> {
 export interface UseFormMutationResult<TVars, TResult> {
   submit: (vars: TVars) => void;
   isPending: boolean;
+  // Separate from `result`, which stays permanently null for a Promise<void>
+  // mutation (a 204 endpoint carries nothing to show back): a form built on
+  // one of those still owes NFR-USE-010's explicit success, and isSuccess is
+  // what it renders that from.
+  isSuccess: boolean;
   error: unknown;
   result: TResult | null;
 }
@@ -40,8 +45,18 @@ export function useFormMutation<TVars, TResult>(
   });
 
   return {
-    submit: (vars: TVars) => mutation.mutate(vars),
+    // TanStack does not dedupe concurrent calls to the same mutation. A
+    // fitment or rotation write is an event, immutable once recorded (rule
+    // 3) — a second tap inside one pending window must not become a second
+    // real event, so this guard, not a disabled button alone, is what stops
+    // it (the button's own disabled state is one render behind the click
+    // that caused it).
+    submit: (vars: TVars) => {
+      if (mutation.isPending) return;
+      mutation.mutate(vars);
+    },
     isPending: mutation.isPending,
+    isSuccess: mutation.isSuccess,
     error: mutation.error,
     result: mutation.data ?? null,
   };
