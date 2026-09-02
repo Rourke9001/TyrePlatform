@@ -28,6 +28,18 @@ const RETURN_WORDING = {
 const INCOMPLETE_RETURN =
   "An outcome, a report reference and a returned-on date are all required before a return can be logged.";
 
+// An absent optional is an omitted key, never "": app.log_retread_return takes
+// these as numeric, and the cast rejects an empty or all-space string as 22P02
+// — a refusal with no code this screen can speak, so it would surface as the
+// generic fallback rather than as anything about the field. The `required`
+// attributes stop a genuinely empty submit; whitespace satisfies them, which
+// is the case this closes. DispatchForm.tsx omits its own optional the same
+// way.
+function omitIfBlank(value: string): string | undefined {
+  const trimmed = value.trim();
+  return trimmed === "" ? undefined : trimmed;
+}
+
 type Outcome = "accepted" | "rejected";
 
 // A per-job return form. Kept out of RetreadQueue's own JSX rather than
@@ -97,9 +109,9 @@ function RetreadReturnRow({
         returnedOn,
         casingAccepted: true,
         reportReference: reference,
-        retreadCost: retreadCost.trim(),
-        postTreadMm: postTreadMm.trim(),
-        casingValue: casingValue.trim(),
+        retreadCost: omitIfBlank(retreadCost),
+        postTreadMm: omitIfBlank(postTreadMm),
+        casingValue: omitIfBlank(casingValue),
       });
     } else {
       logReturn.submit({
