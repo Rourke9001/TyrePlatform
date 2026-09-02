@@ -15,7 +15,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -76,9 +75,10 @@ func listAxleConfigurations(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// maxCreateBytes caps an admin create body. It is a transport limit, not a
-// policy one: the largest of these requests is a handful of short strings.
-const maxCreateBytes = 16 << 10
+// maxWriteBytes caps every write body — a create, a PATCH, a fitment write.
+// It is a transport limit, not a policy one: the largest of these requests is
+// a handful of short strings.
+const maxWriteBytes = 16 << 10
 
 // maxTextLen caps every free-text field on a create. A transport limit for the
 // same reason — the columns are unbounded text, and the database is not the
@@ -105,7 +105,7 @@ func invalid(field, why string) error {
 // business reaching the database, and opening a transaction to reject one is
 // work a caller can ask for freely.
 func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxCreateBytes))
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBytes))
 	if err != nil {
 		writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "body too large or unreadable")
 		return false
@@ -514,9 +514,8 @@ const isoDate = "2006-01-02"
 func assignDriver(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		vehicleID, err := uuid.Parse(chi.URLParam(r, "vehicleID"))
-		if err != nil {
-			refuseInvalid(w, r, invalid("vehicleId", "must be a uuid"))
+		vehicleID, ok := pathID(w, r, "vehicleID")
+		if !ok {
 			return
 		}
 		var body assignDriverRequest
@@ -543,7 +542,7 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 		}
 
 		created := assignmentJSON{VehicleID: vehicleID.String(), UserID: userID.String()}
-		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssignments); err != nil {
 				return err
 			}

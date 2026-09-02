@@ -14,7 +14,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -321,6 +320,13 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 	}
 }
 
+// setTyreCostRequest is set_tyre_cost's body, so a test can name the request
+// shape (D6).
+type setTyreCostRequest struct {
+	Price  string `json:"price"` // money stays a string; the DB casts and refuses
+	Source string `json:"source"`
+}
+
 // setTyreCost is FR-TYR-041's costing step, the discharge for the
 // awaiting-cost backlog CFL-002 names. The tyre id is the URL's, refused
 // before any transaction opens if it does not even parse as a uuid — every
@@ -329,19 +335,15 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 func setTyreCost(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		tyreID, err := uuid.Parse(chi.URLParam(r, "tyreID"))
-		if err != nil {
-			writeError(ctx, w, http.StatusUnprocessableEntity, codeInvalidSubmission, msgInvalidSubmission)
+		tyreID, ok := pathID(w, r, "tyreID")
+		if !ok {
 			return
 		}
-		var body struct {
-			Price  string `json:"price"` // money stays a string; the DB casts and refuses
-			Source string `json:"source"`
-		}
+		var body setTyreCostRequest
 		if !decodeJSON(w, r, &body) {
 			return
 		}
-		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
@@ -359,6 +361,14 @@ func setTyreCost(s *store.Store) http.HandlerFunc {
 	}
 }
 
+// disposeTyreRequest is dispose_tyre's body, so a test can name the request
+// shape (D6).
+type disposeTyreRequest struct {
+	Disposal string  `json:"disposal"`
+	Reason   *string `json:"reason"`
+	Proceeds *string `json:"proceeds"`
+}
+
 // disposeTyre is the disposal step (Appendix C's transition table): scrap,
 // sale or loss. The tyre id is the URL's, refused before any
 // transaction opens if it does not parse. Everything else — which
@@ -371,20 +381,15 @@ func setTyreCost(s *store.Store) http.HandlerFunc {
 func disposeTyre(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		tyreID, err := uuid.Parse(chi.URLParam(r, "tyreID"))
-		if err != nil {
-			writeError(ctx, w, http.StatusUnprocessableEntity, codeInvalidSubmission, msgInvalidSubmission)
+		tyreID, ok := pathID(w, r, "tyreID")
+		if !ok {
 			return
 		}
-		var body struct {
-			Disposal string  `json:"disposal"`
-			Reason   *string `json:"reason"`
-			Proceeds *string `json:"proceeds"`
-		}
+		var body disposeTyreRequest
 		if !decodeJSON(w, r, &body) {
 			return
 		}
-		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}

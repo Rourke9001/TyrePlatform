@@ -546,6 +546,30 @@ func TestDisposeTyreSaleFromInStockIsRefused(t *testing.T) {
 	require.Equal(t, "a tyre is sold from REMOVED only; this one is IN_STOCK (Appendix C)", ref.Message)
 }
 
+// U7: a path id that does not even parse as a uuid is a malformed request,
+// not an invalid submission, so it never reaches app.set_tyre_cost or
+// app.dispose_tyre (pathID, TYRE-92).
+func TestTyreWriteMalformedIDIsBadRequest(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "malformed-id")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	for _, tt := range []struct{ name, path, body string }{
+		{"cost", "/api/tyres/not-a-uuid/cost", `{"price":"1.00","source":"INVOICE"}`},
+		{"dispose", "/api/tyres/not-a-uuid/dispose", `{"disposal":"SCRAPPED","reason":"x"}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := post(t, h, tt.path, tenantID.String(), controller.String(), tt.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "bad_request", ref.Code)
+		})
+	}
+}
+
 // The cross-tenant probe (B4's TestWriteAimedAtAnotherTenantIsRefused shape,
 // adapted): these two endpoints take the tyre id from the URL and the tenant
 // only from the session, so RLS's USING half — not WITH CHECK — is what has
