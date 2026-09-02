@@ -15,6 +15,22 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-03 — Parallel agents in one worktree share one git index (TYRE-92)
+
+**What happened:** two fix-wave agents worked concurrently in the same
+checkout, each staging only the files it owned. `git add <my files>` followed
+by `git commit` still committed the sibling's files: `git add` and `git commit`
+write and read the one `.git/index`, so anything the sibling staged in between
+was swept into the commit under the wrong message and author intent. Staging by
+name is not enough — the index is shared state, not per-agent.
+
+**The rule:** when more than one agent shares a worktree, commit with
+`git commit -- <paths>`, which takes the working-tree contents of exactly those
+paths and ignores the rest of the index. Never `git add` followed by a bare
+`git commit`. Verify with `git show --stat HEAD` immediately afterwards, and if
+a commit has already swallowed a sibling's work, report it rather than
+rewriting history the sibling is still committing onto.
+
 ## 2026-09-03 — A long-lived `make api-run` cannot survive `make e2e`'s reseed (TYRE-92)
 
 **What happened:** `make e2e` was run against an API container that had been
