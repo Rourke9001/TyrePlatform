@@ -27,9 +27,11 @@ export async function actAsOrgAdmin(page: Page): Promise<void> {
   await actAs(page, ORG_ADMIN, TENANT);
 }
 
-// For a user this run created rather than seeded — a driver just assigned a
-// unit, whose reach into a capture is TYRE-81's DoD. Always the sandbox
-// tenant: everything admin.spec.ts creates lives there.
+// For any sandbox actor a spec names by id: a driver this run created and
+// just assigned a unit, whose reach into a capture is TYRE-81's DoD, or a
+// seeded one whose capabilities the flow needs, such as the sandbox
+// controller. Always the sandbox tenant — everything these specs write lives
+// there (TYRE-80).
 export async function actAsUser(page: Page, userId: string): Promise<void> {
   await actAs(page, userId, TENANT);
 }

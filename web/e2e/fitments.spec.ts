@@ -55,7 +55,8 @@ function panel(page: Page, positionCode: string) {
 async function mountedPositions(page: Page): Promise<{ id: string; code: string }[]> {
   const buttons = page
     .getByRole("group", { name: "Unit plan view" })
-    .locator('g[aria-label^="Axle "] > g[data-position-id]');
+    .getByRole("group", { name: /^Axle / })
+    .locator("[data-position-id]");
   await expect(buttons.first()).toBeVisible();
   const found: { id: string; code: string }[] = [];
   for (const button of await buttons.all()) {
@@ -143,9 +144,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
       posted(page, new RegExp(`^/api/vehicles/${HORSE}/fitments$`)),
       horsePanel.getByRole("button", { name: "Fit tyre" }).click(),
     ]);
-    // The plan is read before the next position is picked: the fit
-    // invalidates the unit read, and clicking into a stale drawing would
-    // select a position out of the previous render.
+    // Proof the fit landed, position by position: the plan names each
+    // position's occupant, and RotateForm below builds its rows from the same
+    // read, so both fitments have to be visible here before a rotation can
+    // pick them up.
     await expect(
       page.getByRole("button", { name: `Position ${position.code}: ${code}`, exact: true }),
     ).toBeVisible();
@@ -153,17 +155,20 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
 
   // FR-FIT-010: one set of moves, applied whole. Targets are named by
   // position id rather than by code, which is what the select carries.
+  //
+  // Every name here is matched exactly: the horse's codes run to 10, and a
+  // substring match on "Rotate 1" would take the row for position 10 with it.
   const rotate = page.getByRole("region", { name: "Rotate" });
-  await rotate.getByRole("checkbox", { name: `Rotate ${horseFirst.code}` }).check();
-  await rotate.getByRole("checkbox", { name: `Rotate ${horseSecond.code}` }).check();
+  await rotate.getByRole("checkbox", { name: `Rotate ${horseFirst.code}`, exact: true }).check();
+  await rotate.getByRole("checkbox", { name: `Rotate ${horseSecond.code}`, exact: true }).check();
   await rotate
-    .getByRole("combobox", { name: `Target for ${horseFirst.code}` })
+    .getByRole("combobox", { name: `Target for ${horseFirst.code}`, exact: true })
     .selectOption(horseSecond.id);
   await rotate
-    .getByRole("combobox", { name: `Target for ${horseSecond.code}` })
+    .getByRole("combobox", { name: `Target for ${horseSecond.code}`, exact: true })
     .selectOption(horseFirst.id);
-  await rotate.getByLabel(`Tread for ${horseFirst.code}`).fill("15");
-  await rotate.getByLabel(`Tread for ${horseSecond.code}`).fill("15");
+  await rotate.getByLabel(`Tread for ${horseFirst.code}`, { exact: true }).fill("15");
+  await rotate.getByLabel(`Tread for ${horseSecond.code}`, { exact: true }).fill("15");
   // Scoped to the rotate section: the position panel offers an odometer of
   // its own, and the unit has one reading at the moment of the rotation.
   await rotate.getByLabel("Odometer").fill("251000");
@@ -183,7 +188,12 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // CR-012: the closed legs carry a distance and where it came from, together
   // in one cell. 900 km is 251000 less the 250100 both were fitted at, and it
   // is measured because the horse records an odometer.
-  const rotated = page.getByRole("row").filter({ hasText: "rotation" });
+  // Keyed on the Reason cell, not on the row's text: "rotation" appearing
+  // anywhere in a row would be satisfied by a column this assertion is not
+  // about.
+  const rotated = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: "rotation", exact: true }) });
   await expect(rotated).toHaveCount(2);
   for (const code of [stockB, stockC]) {
     await expect(rotated.filter({ hasText: code })).toContainText("900 km (Measured)");
@@ -206,6 +216,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // difference, so the cell states the absence rather than a number.
   const trailerLeg = page.getByRole("row").filter({ hasText: stockA });
   await expect(trailerLeg.getByRole("cell", { name: "Unavailable", exact: true })).toBeVisible();
+  // CHG-010, read back off the closed leg: the orientation picked at the fit
+  // is a fact about the mounting the register keeps, so the radio is worth
+  // exercising only if something downstream shows what it recorded.
+  await expect(trailerLeg.getByRole("cell", { name: "Mark outboard", exact: true })).toBeVisible();
 
   await page.goto("/fleet/tyres");
   const casingA = page.getByRole("row").filter({ hasText: stockA });
@@ -275,7 +289,15 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await page.goto("/fleet/tyres/retreads");
   const job = page.getByRole("row").filter({ hasText: stockB });
   await expect(job.getByRole("cell", { name: "Sandbox Retreaders", exact: true })).toBeVisible();
-  await expect(job.getByRole("cell", { name: "0", exact: true })).toBeVisible();
+  // A casing dispatched today has been out zero days, read from the column
+  // its own header names rather than from whichever cell happens to hold a
+  // "0". The queue's first column is the display code as a row header, which
+  // getByRole("cell") does not return, so the header list runs one ahead of
+  // the cells beside it; a column added anywhere still resolves correctly.
+  const columns = await page.getByRole("columnheader").allTextContents();
+  const daysOut = columns.indexOf("Days out");
+  expect(daysOut).toBeGreaterThan(0);
+  await expect(job.getByRole("cell").nth(daysOut - 1)).toHaveText("0");
 
   // The returned-on date comes from the job the dispatch opened, which the
   // API carries as the tenant's own civil date: a date typed from this
@@ -327,7 +349,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     statusForm.getByRole("button", { name: "Set status" }).click(),
   ]);
   await expect(statusForm.getByText("The status was changed.", { exact: true })).toBeVisible();
-  await expect(statusForm.getByRole("combobox", { name: "Status" })).toHaveValue("PARKED");
+  // The select's value is the form's own state, seeded once from the unit and
+  // never re-read, so the confirmation and the unit read are what can say the
+  // status actually moved.
   expect((await actorGet(page, `/api/vehicles/${HORSE}`)) as { status: string }).toMatchObject({
     status: "PARKED",
   });
@@ -358,6 +382,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     lastPanel.getByText(`${stockC} was removed from ${horseFirst.code}.`, { exact: true }),
   ).toBeVisible();
 
+  // A precondition on the control, not a claim about the server: the refused
+  // submit and the removal that followed both leave the form mounted, and
+  // this click means nothing unless it is still sending DISPOSED.
+  await expect(statusForm.getByRole("combobox", { name: "Status" })).toHaveValue("DISPOSED");
   await Promise.all([
     posted(page, new RegExp(`^/api/vehicles/${HORSE}/status$`)),
     statusForm.getByRole("button", { name: "Set status" }).click(),
