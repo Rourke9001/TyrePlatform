@@ -18,11 +18,12 @@ const BLANK_KEPT =
   "A blank field is left unchanged: registration, description, body type and unit descriptor are edited here, never emptied.";
 
 // The five text columns each hold three states server-side and this form can
-// reach only two of them: units.go:513-520 reads "" as absence — "edited,
-// never emptied" — so a blanked field is deliberately not sent, and the form
-// says so rather than reporting a save the server declined to make. The two
-// nullable ids are the opposite: "" is how they are cleared, which is why
-// the depot picker's None option sends one (D5, FR-VEH-041).
+// reach only two of them: a blank is read as absence, not as a clear, so a
+// blanked field is deliberately not sent and the form says so rather than
+// reporting a save the server declined to make. The two nullable ids are the
+// opposite — "" is how they are cleared, which is why the depot picker's None
+// option sends one. See patchUnit's comment in api/units.ts for the wire
+// contract this follows (D5, FR-VEH-041).
 function changedText(current: string, loaded: string | null): string | undefined {
   const trimmed = current.trim();
   if (trimmed === "" || trimmed === (loaded ?? "")) return undefined;
@@ -47,7 +48,11 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   const [unitDescriptor, setUnitDescriptor] = useState(unit.unitDescriptor ?? "");
   const [homeDepotId, setHomeDepotId] = useState(unit.homeDepotId ?? "");
   const [tags, setTags] = useState(unit.tags.join(", "));
-  const [note, setNote] = useState("");
+  // Two slots, not one: "nothing was saved" is a refusal and belongs in an
+  // alert, while "your blank was left alone" is something to know about a
+  // save that may well have happened (NFR-USE-005/010).
+  const [refusal, setRefusal] = useState("");
+  const [advisory, setAdvisory] = useState("");
 
   const save = useFormMutation({
     mutate: (body: UnitPatch) => patchUnit(unit.id, body),
@@ -75,13 +80,13 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
     ].some(([current, loaded]) => (current ?? "").trim() === "" && (loaded ?? "") !== "");
 
     // fleet_number is NOT NULL (000001), so a blank one is asking for
-    // something the column cannot hold rather than for no change.
+    // something the column cannot hold rather than for no change. The input is
+    // `required` and patchUnit's validate() owns the rule either way
+    // (ADR-0013 decision 5), so an empty one is simply not a change to send.
     const trimmedFleet = fleetNumber.trim();
-    if (trimmedFleet === "") {
-      setNote("A unit must keep a fleet number.");
-      return;
+    if (trimmedFleet !== "" && trimmedFleet !== unit.fleetNumber) {
+      body.fleetNumber = trimmedFleet;
     }
-    if (trimmedFleet !== unit.fleetNumber) body.fleetNumber = trimmedFleet;
 
     if (homeDepotId !== (unit.homeDepotId ?? "")) body.homeDepotId = homeDepotId;
 
@@ -91,11 +96,12 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
       .filter((t) => t !== "");
     if (!sameTags(nextTags, unit.tags)) body.tags = nextTags;
 
+    setAdvisory(blanked ? BLANK_KEPT : "");
     if (Object.keys(body).length === 0) {
-      setNote(blanked ? BLANK_KEPT : NOTHING_CHANGED);
+      setRefusal(NOTHING_CHANGED);
       return;
     }
-    setNote(blanked ? BLANK_KEPT : "");
+    setRefusal("");
     save.submit(body);
   }
 
@@ -143,6 +149,10 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
           onChange={(e) => setUnitDescriptor(e.target.value)}
         />
 
+        {/* operating_group_id is a patchable column with no field here: the API
+            lists depots but exposes no read of the operating groups, so a
+            picker could only invent the list. It is edited from this form when
+            that read exists. */}
         <label htmlFor="unit-home-depot">Home depot</label>
         <select
           id="unit-home-depot"
@@ -168,8 +178,12 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
         </button>
       </form>
 
-      {save.isSuccess && <p role="status">The unit was saved.</p>}
-      {note !== "" && <p role="alert">{note}</p>}
+      {/* useFormMutation keeps isSuccess for the life of the form, so a later
+          click that sends nothing must not leave "The unit was saved"
+          standing beside the sentence saying it was not. */}
+      {save.isSuccess && refusal === "" && <p role="status">The unit was saved.</p>}
+      {advisory !== "" && <p role="status">{advisory}</p>}
+      {refusal !== "" && <p role="alert">{refusal}</p>}
       {save.error !== null && <p role="alert">{refusalMessage(save.error, EDIT_WORDING)}</p>}
     </section>
   );

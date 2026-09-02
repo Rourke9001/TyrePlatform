@@ -74,12 +74,16 @@ describe("a unit's fitment history", () => {
     expect(within(rowFor("TY004")).getByText("Fitted")).toBeTruthy();
   });
 
-  it("renders dates in the tenant's calendar, not the browser's", () => {
-    renderHistory([
-      fitmentRow({ fitmentId: "f5", displayCode: "TY005", fittedAt: "2026-08-01T06:00:00Z" }),
-    ]);
+  // 22:00Z is already the next day in Africa/Johannesburg (UTC+2). An instant
+  // in the middle of the UTC day would read the same in both zones, so a
+  // component formatting in UTC would pass the assertion without honouring
+  // rule 6 at all.
+  it("renders dates in the tenant's calendar, not in UTC", () => {
+    const lateEvening = "2026-08-01T22:00:00Z";
+    renderHistory([fitmentRow({ fitmentId: "f5", displayCode: "TY005", fittedAt: lateEvening })]);
 
-    const expected = formatTenantDate("2026-08-01T06:00:00Z", "Africa/Johannesburg");
+    const expected = formatTenantDate(lateEvening, "Africa/Johannesburg");
+    expect(expected).not.toBe(formatTenantDate(lateEvening, "UTC"));
     expect(within(rowFor("TY005")).getByText(expected)).toBeTruthy();
   });
 

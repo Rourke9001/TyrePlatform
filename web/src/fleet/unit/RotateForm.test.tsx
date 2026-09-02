@@ -84,7 +84,54 @@ describe("rotating tyres within a unit", () => {
       ],
       odometer: 220000,
     });
+    expect(await screen.findByText("The rotation was applied.")).toBeTruthy();
   });
+
+  // useFormMutation keeps isSuccess, so without gating the confirmation the
+  // next refused attempt would read "The rotation was applied" beside "Pick at
+  // least two positions".
+  it("drops the standing confirmation when the next attempt is refused", async () => {
+    vi.mocked(fetch).mockResolvedValue(respond(200, { moves: [] }));
+    const user = userEvent.setup();
+    renderForm({ hasOdometer: false });
+
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS1" }), "p2");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS2" }), "p1");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS1" }), "11.0");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS2" }), "12.5");
+    await user.click(screen.getByRole("button", { name: "Rotate" }));
+    await screen.findByText("The rotation was applied.");
+
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+    await user.click(screen.getByRole("button", { name: "Rotate" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("two positions");
+    expect(screen.queryByText("The rotation was applied.")).toBeNull();
+  });
+
+  // CLAUDE.md rule 3 / CR-012: a truncated reading lands on an immutable
+  // event, so the form refuses rather than parses what it can.
+  it.each(["125 000", "125.7"])(
+    "refuses the odometer %s rather than sending a truncated reading",
+    async (typed) => {
+      const user = userEvent.setup();
+      renderForm({ hasOdometer: true });
+
+      await user.click(screen.getByRole("checkbox", { name: "Rotate POS1" }));
+      await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+      await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS1" }), "p2");
+      await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS2" }), "p1");
+      await user.type(screen.getByRole("textbox", { name: "Tread for POS1" }), "11.0");
+      await user.type(screen.getByRole("textbox", { name: "Tread for POS2" }), "12.5");
+      await user.type(screen.getByRole("textbox", { name: "Odometer" }), typed);
+      await user.click(screen.getByRole("button", { name: "Rotate" }));
+
+      expect(screen.getByRole("alert").textContent).toContain("digits only");
+      expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+    },
+  );
 
   // D7: a rotation is two or more positions swapping. One checked position
   // is a removal and a fit, which this form is not.

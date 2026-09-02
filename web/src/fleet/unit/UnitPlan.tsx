@@ -21,9 +21,14 @@ const SLOT_GAP = 4;
 const BEAM_GAP = 15;
 const AXLE_PITCH = POS_W + 26;
 const PAD = 6;
+// A stroke straddles its path, so half of it falls outside the rect's own
+// box. Without this margin the outermost positions — flush against the top
+// and bottom of the drawing — would have that half clipped by the viewBox,
+// and the selected position's heavier stroke would clip worse than the rest.
+const STROKE_MARGIN = 2;
 // Two slots deep is app.axle_slot's maximum (OUTER/INNER), so the drawing's
 // height is fixed even though its width is not.
-const HALF_H = BEAM_GAP + 2 * POS_H + SLOT_GAP;
+const HALF_H = BEAM_GAP + 2 * POS_H + SLOT_GAP + STROKE_MARGIN;
 const HEIGHT = 2 * HALF_H;
 const CENTRE_Y = HALF_H;
 
@@ -64,10 +69,11 @@ export function UnitPlan({
   const axleNumbers = [...new Set(mounted.map((p) => p.axleNumber ?? 0))].sort((a, b) => a - b);
 
   const spareColumn = spares.length > 0 ? POS_W + 20 : 0;
-  const width = PAD * 2 + spareColumn + Math.max(axleNumbers.length, 1) * AXLE_PITCH;
+  const width =
+    (PAD + STROKE_MARGIN) * 2 + spareColumn + Math.max(axleNumbers.length, 1) * AXLE_PITCH;
 
   function axleX(index: number): number {
-    return PAD + spareColumn + index * AXLE_PITCH;
+    return PAD + STROKE_MARGIN + spareColumn + index * AXLE_PITCH;
   }
 
   return (
@@ -122,7 +128,7 @@ export function UnitPlan({
             <PlanPosition
               key={position.id}
               position={position}
-              x={PAD}
+              x={PAD + STROKE_MARGIN}
               y={CENTRE_Y - POS_H / 2 + i * (POS_H + SLOT_GAP)}
               selected={position.id === selectedId}
               onSelect={onSelect}

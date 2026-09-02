@@ -117,6 +117,63 @@ describe("a position panel", () => {
     expect(screen.queryByRole("textbox", { name: "Odometer" })).toBeNull();
   });
 
+  // The remove form carries its own hasOdometer guard, which the fit form's
+  // pair above never renders. Both halves again, on an occupied position.
+  it("asks a removal for an odometer on a unit that has one and never otherwise", async () => {
+    stubFetch();
+    const occupied = unitPosition({ id: "p2", code: "POS2", fitment: openFitment() });
+    const { unmount } = renderPanel(occupied, { hasOdometer: true });
+    await screen.findByRole("combobox", { name: "Reason" });
+    expect(screen.getByRole("textbox", { name: "Odometer" })).toBeTruthy();
+    unmount();
+
+    renderPanel(occupied, { hasOdometer: false, unitKind: "TRAILER" });
+    await screen.findByRole("combobox", { name: "Reason" });
+    expect(screen.queryByRole("textbox", { name: "Odometer" })).toBeNull();
+  });
+
+  // CLAUDE.md rule 3: the reading lands on an event nothing can edit, and
+  // CR-012 turns it into a distance. Number.parseInt would have read each of
+  // these as 125 and sent it.
+  it.each(["125 000", "125.7", "12a"])(
+    "refuses the odometer %s rather than sending a truncated reading",
+    async (typed) => {
+      stubFetch();
+      const user = userEvent.setup();
+      renderPanel(unitPosition({ id: "p1", code: "POS1" }), { hasOdometer: true });
+
+      await screen.findByRole("option", { name: "TY007" });
+      await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+      await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+      await user.type(screen.getByRole("textbox", { name: "Odometer" }), typed);
+      await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+      expect((await screen.findByRole("alert")).textContent).toContain("digits only");
+      // One call, the register read: no fit was sent.
+      expect(vi.mocked(fetch).mock.calls.length).toBe(1);
+    },
+  );
+
+  it("refuses a malformed odometer on a removal too", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ fitmentId: "f4" }) }),
+      {
+        hasOdometer: true,
+        removalReasons: ["Worn out"],
+      },
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    await user.type(screen.getByRole("textbox", { name: "Odometer" }), "125 000");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("digits only");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it("sends the fit under the server's own field names", async () => {
     stubFetch();
     const user = userEvent.setup();

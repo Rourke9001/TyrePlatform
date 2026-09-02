@@ -175,10 +175,9 @@
   text-decoration: none;
 }
 
-/* The rule sits on the list item, not on the row: the row is a link inside
-   each item, so adjacent rows are no longer siblings of each other. The
-   loading skeleton still carries .vehicle-row on the item itself and is
-   separated by the same rule. */
+/* The row is a link inside each item, so the separator sits on the item. The
+   loading skeleton carries .vehicle-row on the item itself and is separated
+   by the same rule. */
 .vehicle-rows > li + li {
   border-top: 1px solid var(--line);
 }

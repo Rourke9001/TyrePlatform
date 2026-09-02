@@ -15,6 +15,7 @@ import {
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { useFormMutation } from "../useFormMutation";
+import { ODOMETER_REFUSAL, readOdometer } from "./odometer";
 import { tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { MOUNT_ORIENTATIONS, orientationLabel } from "./vocabulary";
 
@@ -33,16 +34,6 @@ const REMOVE_WORDING = {
   forbidden: "You do not have permission to remove a tyre.",
   fallback: "The tyre could not be removed. Try again, or call support if it keeps happening.",
 };
-
-// An odometer is a whole kilometre reading, not money: parsed to a number
-// here because that is what the wire carries (units.go's odometer is *int64),
-// while tread stays a string all the way down.
-function odometerOrUndefined(raw: string): number | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === "") return undefined;
-  const value = Number.parseInt(trimmed, 10);
-  return Number.isNaN(value) ? undefined : value;
-}
 
 // The selected position: what it carries, and the one write it admits — a
 // fit when it is empty, a removal when it is not (D7). Both mutations are
@@ -69,9 +60,18 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   // followed by a removal would otherwise leave the fit's sentence standing
   // beside the removal's — two claims about one tyre, one of them false.
   const [acted, setActed] = useState<{ kind: "fit" | "remove"; code: string } | null>(null);
+  // A refusal this screen raised rather than the server. Setting it drops
+  // `acted`, so a standing confirmation never sits beside the sentence saying
+  // the next attempt went nowhere.
+  const [refused, setRefused] = useState("");
 
+  // GET /api/tyres takes no state parameter (fetchTyres' own options are code,
+  // on and awaitingCost), so the register is read whole and narrowed to stock
+  // below. The key segment says "register" because that is what is cached; a
+  // segment naming a filter the request never sent would be a claim the next
+  // reader has to disprove.
   const stock = useQuery({
-    queryKey: [...tyresKey(tenantKey), "in-stock"],
+    queryKey: [...tyresKey(tenantKey), "register"],
     queryFn: () => fetchTyres(),
     enabled: canManage && position.fitment === null,
   });
@@ -106,13 +106,20 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   function submitFit(e: FormEvent) {
     e.preventDefault();
     if (tyreId === "" || fitTread.trim() === "") return;
+    const odometer = readOdometer(unit.hasOdometer ? fitOdometer : "");
+    if (!odometer.ok) {
+      setRefused(ODOMETER_REFUSAL);
+      setActed(null);
+      return;
+    }
+    setRefused("");
     setActed({ kind: "fit", code: inStock.find((t) => t.id === tyreId)?.displayCode ?? "" });
     fit.submit({
       tyreId,
       positionId: position.id,
       treadMm: fitTread.trim(),
       mountOrientation: orientation,
-      odometer: unit.hasOdometer ? odometerOrUndefined(fitOdometer) : undefined,
+      odometer: odometer.value,
     });
   }
 
@@ -120,14 +127,17 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
     e.preventDefault();
     const open = position.fitment;
     if (open === null || reason === "" || removeTread.trim() === "") return;
+    const odometer = readOdometer(unit.hasOdometer ? removeOdometer : "");
+    if (!odometer.ok) {
+      setRefused(ODOMETER_REFUSAL);
+      setActed(null);
+      return;
+    }
+    setRefused("");
     setActed({ kind: "remove", code: open.displayCode });
     remove.submit({
       fitmentId: open.fitmentId,
-      body: {
-        reason,
-        treadMm: removeTread.trim(),
-        odometer: unit.hasOdometer ? odometerOrUndefined(removeOdometer) : undefined,
-      },
+      body: { reason, treadMm: removeTread.trim(), odometer: odometer.value },
     });
   }
 
@@ -268,8 +278,13 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
         </ul>
       )}
 
-      {fit.error !== null && <p role="alert">{refusalMessage(fit.error, FIT_WORDING)}</p>}
-      {remove.error !== null && <p role="alert">{refusalMessage(remove.error, REMOVE_WORDING)}</p>}
+      {refused !== "" && <p role="alert">{refused}</p>}
+      {fit.error !== null && acted?.kind === "fit" && (
+        <p role="alert">{refusalMessage(fit.error, FIT_WORDING)}</p>
+      )}
+      {remove.error !== null && acted?.kind === "remove" && (
+        <p role="alert">{refusalMessage(remove.error, REMOVE_WORDING)}</p>
+      )}
     </section>
   );
 }

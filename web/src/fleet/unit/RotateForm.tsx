@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { refusalMessage } from "../../api/refusal";
 import { rotateTyres, type RotationMove, type Unit } from "../../api/units";
 import { useFormMutation } from "../useFormMutation";
+import { ODOMETER_REFUSAL, readOdometer } from "./odometer";
 import { unitFitmentsKey, unitKey } from "./queryKeys";
 
 // app.rotate_tyres refuses the whole set or none of it, and the codes it can
@@ -17,13 +18,6 @@ const ROTATE_WORDING = {
 const TOO_FEW =
   "Pick at least two positions: a rotation moves tyres between positions of this unit.";
 const INCOMPLETE = "Every picked position needs a target and a tread reading.";
-
-function odometerOrUndefined(raw: string): number | undefined {
-  const trimmed = raw.trim();
-  if (trimmed === "") return undefined;
-  const value = Number.parseInt(trimmed, 10);
-  return Number.isNaN(value) ? undefined : value;
-}
 
 // FR-FIT-010: one set of moves within one unit, applied whole or not at all.
 // The odometer is asked once because the unit has one reading at the moment
@@ -70,11 +64,13 @@ export function RotateForm({ unit }: { unit: Unit }) {
       }
       moves.push({ tyreId: position.fitment.tyreId, toPositionId: target, treadMm: tread });
     }
+    const reading = readOdometer(unit.hasOdometer ? odometer : "");
+    if (!reading.ok) {
+      setRefused(ODOMETER_REFUSAL);
+      return;
+    }
     setRefused("");
-    rotate.submit({
-      moves,
-      odometer: unit.hasOdometer ? odometerOrUndefined(odometer) : undefined,
-    });
+    rotate.submit({ moves, odometer: reading.value });
   }
 
   if (occupied.length === 0) {
@@ -145,7 +141,10 @@ export function RotateForm({ unit }: { unit: Unit }) {
         </button>
       </form>
 
-      {rotate.isSuccess && <p role="status">The rotation was applied.</p>}
+      {/* useFormMutation keeps isSuccess for the life of the form, so a guard
+          that stops the next attempt would otherwise leave "The rotation was
+          applied" standing beside the sentence saying nothing was sent. */}
+      {rotate.isSuccess && refused === "" && <p role="status">The rotation was applied.</p>}
       {refused !== "" && <p role="alert">{refused}</p>}
       {rotate.error !== null && <p role="alert">{refusalMessage(rotate.error, ROTATE_WORDING)}</p>}
     </section>

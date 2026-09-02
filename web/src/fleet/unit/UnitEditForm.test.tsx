@@ -82,6 +82,48 @@ describe("editing a unit's description", () => {
       expect(vi.mocked(fetch).mock.calls.length).toBe(2);
     });
     expect(sentBody(1)).toEqual({ registration: "SBX999GP" });
+    expect(await screen.findByText("The unit was saved.")).toBeTruthy();
+  });
+
+  // The ruling's case: a blank is not a change, but it does not swallow the
+  // change made beside it.
+  it("sends the field that changed and omits the one that was blanked", async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    await user.clear(await screen.findByRole("textbox", { name: "Description" }));
+    const registration = screen.getByRole("textbox", { name: "Registration" });
+    await user.clear(registration);
+    await user.type(registration, "SBX999GP");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.length).toBe(2);
+    });
+    expect(sentBody(1)).toEqual({ registration: "SBX999GP" });
+  });
+
+  // useFormMutation keeps isSuccess, so a later click that sends nothing must
+  // not leave "The unit was saved" standing beside "Nothing has changed".
+  it("drops the standing confirmation when the next save sends nothing", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    const registration = await screen.findByRole("textbox", { name: "Registration" });
+
+    await user.clear(registration);
+    await user.type(registration, "SBX999GP");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await screen.findByText("The unit was saved.");
+
+    // Typed back to the value the read carries, so the second click has
+    // nothing to send. (The screen holds the loaded unit until its query
+    // refetches, which is what makes this reachable at all.)
+    await user.clear(registration);
+    await user.type(registration, "SBX001GP");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    expect(screen.getByRole("alert").textContent).toContain("Nothing has changed");
+    expect(screen.queryByText("The unit was saved.")).toBeNull();
   });
 
   // units.go:513-520: "" on a text column is read as absence, so a blanked
@@ -94,7 +136,10 @@ describe("editing a unit's description", () => {
     await user.click(screen.getByRole("button", { name: "Save changes" }));
 
     expect(vi.mocked(fetch).mock.calls.length).toBe(1);
-    expect(screen.getByRole("alert").textContent).toContain("left unchanged");
+    // Advisory, not a refusal: it explains a save that may well have happened
+    // (here it did not, and the alert beside it says so).
+    expect(screen.getByRole("status").textContent).toContain("left unchanged");
+    expect(screen.getByRole("alert").textContent).toContain("Nothing has changed");
   });
 
   it("sends an empty string to clear the home depot, which is how the API clears an id", async () => {
