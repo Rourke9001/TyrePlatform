@@ -127,6 +127,45 @@ describe("the retread queue", () => {
     });
   });
 
+  // Whitespace satisfies `required`, so jsdom's constraint validation lets a
+  // space-only cost through and it reaches the wire — where the numeric cast
+  // in app.log_retread_return rejects it as 22P02, a code this screen cannot
+  // speak, so the operator gets the generic fallback instead of anything
+  // about the field. The client omits the key rather than refusing locally:
+  // the field is genuinely optional on the accepted branch's own contract.
+  it("omits a money field typed as whitespace rather than sending an empty string", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(200, [job({ id: "j1" })]))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(respond(200, []));
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole("rowheader", { name: "POS1" });
+
+    await user.click(screen.getByRole("radio", { name: "Accepted" }));
+    await user.type(screen.getByLabelText(/report reference for pos1/i), "RPT-3");
+    fireEvent.change(screen.getByLabelText(/returned on for pos1/i), {
+      target: { value: "2026-08-20" },
+    });
+    await user.type(screen.getByLabelText(/retread cost for pos1/i), "   ");
+    await user.type(screen.getByLabelText(/post-tread for pos1/i), "16");
+    await user.type(screen.getByLabelText(/casing value for pos1/i), "800");
+    // A real click, not fireEvent.submit: the point is that the browser's own
+    // required check passes on whitespace, so the write is reached.
+    await user.click(screen.getByRole("button", { name: /log return/i }));
+
+    await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(requestedUrl(vi.mocked(fetch).mock.calls[1][0])).toBe("/api/retread-jobs/j1/return");
+    expect(sentBody(1)).not.toHaveProperty("retreadCost");
+    expect(sentBody(1)).toStrictEqual({
+      returnedOn: "2026-08-20",
+      casingAccepted: true,
+      reportReference: "RPT-3",
+      postTreadMm: "16",
+      casingValue: "800",
+    });
+  });
+
   it("posts the rejected body without a cost or a casing value", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(respond(200, [job({ id: "j1" })]))
