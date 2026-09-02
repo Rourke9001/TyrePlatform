@@ -6,6 +6,7 @@ import { getDevTenantId } from "../../api/devTenant";
 import { fetchTyres, isDisposed, type Tyre } from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
+import { byNaturalCode } from "../unit/naturalOrder";
 import { CostForm } from "./CostForm";
 import { DispatchForm } from "./DispatchForm";
 import { DisposeForm } from "./DisposeForm";
@@ -16,13 +17,6 @@ import "../fleet.css";
 // contract, and the query key below carries this object verbatim so a query
 // key idiom used elsewhere (AddUnit.tsx) applies unchanged here.
 type TyreFilters = NonNullable<Parameters<typeof fetchTyres>[0]>;
-
-// NFR-USE-012: natural order, not lexicographic (POS2 before POS10).
-// vehicleSearch.ts holds the sibling comparator, but as a module-private
-// const typed around Vehicle, so it is not reachable from here.
-function byDisplayCode(a: Tyre, b: Tyre): number {
-  return a.displayCode.localeCompare(b.displayCode, undefined, { numeric: true });
-}
 
 // FR-TYR-043: two active tyres carrying one code is a state the register
 // must surface, never resolve on the user's behalf (ADR-0008 rule 3).
@@ -156,7 +150,9 @@ export function TyreList() {
     setDateInput("");
   }
 
-  const rows = tyres.isSuccess ? [...tyres.data].sort(byDisplayCode) : [];
+  const rows = tyres.isSuccess
+    ? [...tyres.data].sort((a, b) => byNaturalCode(a.displayCode, b.displayCode))
+    : [];
 
   return (
     <section aria-labelledby="tyres-heading" className="tyres">
