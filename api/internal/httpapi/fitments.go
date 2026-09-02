@@ -65,6 +65,25 @@ func instantField(field string, raw *string) (*time.Time, error) {
 	return &at, nil
 }
 
+// dateField is instantField for a civil date rather than an instant, and it
+// answers the validated TEXT rather than a time.Time: a dispatch and a
+// retread return carry a date the tenant's own zone resolves to an instant
+// (000033, 000034), so the text is bound to $n::date and the resolution
+// stays in SQL — listTyres validates its on the same way. Without this,
+// "yesterday" reaches the cast raw and Postgres's 22007/22008, which is in
+// no map here, answers 500 for a client typo. A nil raw stays nil so the
+// function's own default applies rather than a Go clock's idea of today.
+func dateField(field string, raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if _, err := time.Parse(isoDate, trimmed); err != nil {
+		return nil, invalid(field, "must be a date as YYYY-MM-DD")
+	}
+	return &trimmed, nil
+}
+
 // fitTyreRequest is app.fit_tyre's body. Odometer is *int64 so a unit with
 // none sends nothing rather than a zero reading (000025 exempts a trailer),
 // and OccurredAt is *string so an absent instant reaches the function's own
