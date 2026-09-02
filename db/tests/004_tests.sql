@@ -4115,6 +4115,26 @@ BEGIN
     RAISE EXCEPTION 'FAIL: changing an open fitment''s id was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN RAISE NOTICE 'PASS  40g the fitment id is immutable';
   END;
+  -- (h), (i) The closure columns, on a row that is not being closed.
+  -- removal_is_complete (000001) ties removed_at to removal_reason and says
+  -- nothing about the other four, so a removal tread, a distance or a
+  -- provenance can otherwise be written onto a fitment that is still open —
+  -- closure figures on a fitment nobody closed, which the register, the wear
+  -- rate and the cost-per-kilometre then read as fact (FR-FIT-014). Split in
+  -- two because the two shapes reach the rule by different columns: a
+  -- reordered guard that covered only the tread would leave (i) passing.
+  BEGIN
+    UPDATE app.fitment SET removed_tread_mm = 7.0 WHERE id = fit;
+    RAISE EXCEPTION 'FAIL: a removal tread was written to an open fitment';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    RAISE NOTICE 'PASS  40h an open fitment takes no removal tread';
+  END;
+  BEGIN
+    UPDATE app.fitment SET distance_km = 1000, distance_source = 'MEASURED' WHERE id = fit;
+    RAISE EXCEPTION 'FAIL: a distance was written to an open fitment';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    RAISE NOTICE 'PASS  40i an open fitment takes no distance';
+  END;
   -- (c) closure is the one permitted UPDATE, and it stamps updated_at
   UPDATE app.fitment SET removed_at = now(), removed_tread_mm = 9.0, removal_reason = 'damage',
          distance_source = 'UNAVAILABLE' WHERE id = fit;
@@ -4664,6 +4684,9 @@ DECLARE
   tj    uuid := md5('t42tj')::uuid;   -- the REMOVED BAC tyre tenant 2 probes
   tk1   uuid := md5('t42tk1')::uuid;  -- same-day return
   tk2   uuid := md5('t42tk2')::uuid;  -- a return that would predate the dispatch
+  tl    uuid := md5('t42tl')::uuid;   -- fitted, worn, retreaded: 42l's tread
+  vl    uuid := md5('t42vl')::uuid;   -- TRAILER: owes no fitment odometer (TY009)
+  cfgl uuid; posl uuid; fitl uuid; jl uuid; reg record; last_at_l timestamptz;
   ja uuid; jb uuid; jf uuid; ji uuid;
   jg  uuid := md5('t42jg')::uuid;
   jk2 uuid := md5('t42jk2')::uuid;
@@ -4819,7 +4842,7 @@ BEGIN
   -- (f) The inputs this surface does not accept, each probe leaving the other
   -- parameters valid so only the rule under test can refuse. A caught
   -- exception rolls its own subtransaction back, so jf is still open after
-  -- all eight. Each probe pins a fragment of its own message: the function
+  -- all ten. Each probe pins a fragment of its own message: the function
   -- raises TY014 at every input gate, and a reordered guard would otherwise
   -- let one probe pass on another rule's refusal.
   SELECT * INTO r FROM app.dispatch_tyre(tf, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
@@ -4893,7 +4916,32 @@ BEGIN
     IF SQLERRM NOT LIKE '%records what the retread cost%' THEN
       RAISE EXCEPTION 'FAIL 42f: a missing cost was refused by another rule: %', SQLERRM;
     END IF;
-    RAISE NOTICE 'PASS  42f eight inputs this surface does not accept, each refused by its own rule';
+  END;
+  -- The two money parameters, past what numeric(12,2) can hold. Bounded on
+  -- the parameter for the reason the tread bound is (ADR-0012): the locals
+  -- carry the column's type, so an unbounded figure raises a bare 22003 at
+  -- the assignment — a numeric-overflow SQLSTATE outside the TY class, which
+  -- the wire maps to a 500 and the outbox then retries for ever. The excess
+  -- is one cent past the ceiling, so the probe fails on the bound rather than
+  -- on being obviously absurd.
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
+                                   10000000000.00, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42f: a retread cost wider than its column was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%a retread cost is a non-negative amount%' THEN
+      RAISE EXCEPTION 'FAIL 42f: an oversized cost was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
+                                   1000.00, 16.0, 10000000000.00);
+    RAISE EXCEPTION 'FAIL 42f: a casing value wider than its column was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%a casing value is an amount%' THEN
+      RAISE EXCEPTION 'FAIL 42f: an oversized casing value was refused by another rule: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  42f ten inputs this surface does not accept, each refused by its own rule';
   END;
 
   -- (g) BR-FIT-009, FR-CFG-044, U5: the cap is read again here because the
@@ -5003,6 +5051,77 @@ BEGIN
     END IF;
     RAISE NOTICE 'PASS  42k a return is stamped now, and never predates the movement before it';
   END;
+
+  -- (l) FR-TYR-018, U10, CR-012. The whole journey, because the defect only
+  -- exists at the join: app.remove_tyre leaves last_tread_mm at the depth the
+  -- casing was pulled at, and a return that re-treads and re-rates the casing
+  -- without moving that column leaves the register pricing a 16.0 mm retread
+  -- at its 4.5 mm worn figure — a new rate against an old tread, which is
+  -- neither of the two answers.
+  --
+  -- The instants are spread deliberately: last_tread_at only moves forward
+  -- (U10), so a return dated tenant_today - 1 has to sit after the removal
+  -- for the write to be reached at all. Twelve days back puts the removal
+  -- clear of that edge at every hour of the day, where a six-day gap closes
+  -- to minutes late in the tenant's evening.
+  SELECT v.configuration_id INTO cfgl FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO posl FROM app.position p WHERE p.configuration_id = cfgl AND p.code = '1';
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, status)
+  VALUES (vl, bac, 'T42-L', 'T42L GP', cfgl, 'TRAILER', 'ACTIVE');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status,
+                        retread_count, purchase_price, cost_source, new_tread_mm,
+                        rand_per_mm, state)
+  VALUES (tl, bac, 'T42TYREL', sz1, pt1, 'NEW', 0, 4319.91, 'INVOICE', 22.0,
+          app.rand_per_mm(4319.91, 22.0, thr), 'IN_STOCK');
+  SELECT * INTO r FROM app.fit_tyre(tl, vl, posl, 22.0, 'MARK_OUTBOARD', NULL,
+                                    now() - interval '20 days', 'fitted from a paper card');
+  fitl := r.fitment_id;
+  PERFORM app.remove_tyre(fitl, 'worn_to_threshold', 4.5, NULL,
+                          now() - interval '12 days', 'removed from a paper card');
+  IF (SELECT t.last_tread_mm FROM app.tyre t WHERE t.id = tl) IS DISTINCT FROM 4.5 THEN
+    RAISE EXCEPTION 'FAIL 42l: the removal did not leave the worn tread this probe starts from';
+  END IF;
+  SELECT * INTO r FROM app.dispatch_tyre(tl, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
+  jl := r.retread_job_id;
+  PERFORM app.log_retread_return(jl, app.tenant_today(tz) - 1, true, 'T42-RPT-L',
+                                 2500.00, 16.0, 800.00);
+  -- The event's own instant, not now(): the return is dated, and a column
+  -- stamped at the moment of logging would make a backdated return outrank a
+  -- measurement taken after it.
+  SELECT e.occurred_at INTO last_at_l FROM app.tyre_event e
+   WHERE e.tyre_id = tl AND e.type = 'RETURNED';
+  SELECT t.last_tread_mm, t.last_tread_at, t.rand_per_mm INTO r
+    FROM app.tyre t WHERE t.id = tl;
+  IF r.last_tread_mm IS DISTINCT FROM 16.0 OR r.last_tread_at IS DISTINCT FROM last_at_l THEN
+    RAISE EXCEPTION 'FAIL 42l: the casing came back at 16.0 and the tyre reads % at %',
+      r.last_tread_mm, r.last_tread_at;
+  END IF;
+  -- The money. tl has no readings, so the register reads the fallback and
+  -- labels it AUDIT; the expected figure comes from app.tread_value against
+  -- the row's own rate and the register's own threshold, never from
+  -- arithmetic restated here (FR-VAL-006, one implementation). At a 4.0 mm
+  -- threshold that is 12.0 mm of usable tread at 2500.00/12 per mm — the
+  -- retread cost back out again, which is what makes 4.5 mm's answer
+  -- (R104.17 of the same rate) visibly wrong.
+  SELECT v.current_tread_mm, v.tread_source, v.tread_value, v.rand_per_mm,
+         v.removal_threshold_mm
+    INTO reg FROM app.v_tyre_valuation v WHERE v.tyre_id = tl;
+  IF reg.current_tread_mm IS DISTINCT FROM 16.0 OR reg.tread_source IS DISTINCT FROM 'AUDIT' THEN
+    RAISE EXCEPTION 'FAIL 42l: the register prices the retread at % (%)',
+      reg.current_tread_mm, reg.tread_source;
+  END IF;
+  IF reg.rand_per_mm IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, thr) THEN
+    RAISE EXCEPTION 'FAIL 42l: the register carries rate % rather than the retread rate',
+      reg.rand_per_mm;
+  END IF;
+  IF reg.tread_value IS DISTINCT FROM
+     app.tread_value(16.0, reg.removal_threshold_mm, reg.rand_per_mm) THEN
+    RAISE EXCEPTION 'FAIL 42l: tread value % is not the 16.0 mm value at the register''s own rate and threshold',
+      reg.tread_value;
+  END IF;
+  RAISE NOTICE 'PASS  42l an accepted return moves the tread the register prices: % mm / %',
+    reg.current_tread_mm, reg.tread_value;
 END $$;
 ROLLBACK;
 
@@ -5316,6 +5435,169 @@ BEGIN
     END IF;
     RAISE NOTICE 'PASS  43k a disposed unit accepts neither a fit nor a rotation';
   END;
+
+  -- (l) FR-AUD-001, ADR-0014. app.set_vehicle_status refuses a transition
+  -- that changes nothing (43c) so the log never claims a change that did not
+  -- happen; the unit PATCH reaches the table as a COALESCE UPDATE instead, so
+  -- a client resending an unchanged field produces the identical statement
+  -- from the other side. Written in the handler's own shape, COALESCE and
+  -- all, rather than as a bare self-assignment: the point is that the path
+  -- which actually produced the rows is the one covered.
+  SELECT count(*) INTO before_n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'UPDATE';
+  UPDATE app.vehicle v
+     SET registration = COALESCE(NULL, v.registration),
+         description  = COALESCE(NULL, v.description),
+         body_type    = COALESCE(NULL, v.body_type)
+   WHERE v.id = vu;
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'UPDATE';
+  IF n <> before_n THEN
+    RAISE EXCEPTION 'FAIL 43l: an update that changed nothing wrote % audit rows', n - before_n;
+  END IF;
+  -- The other half, and the reason the comparison cannot be over whole
+  -- records: app.stamp_updated (000017) writes updated_at on every UPDATE
+  -- before this trigger sees the row, so a guard that compared OLD to NEW
+  -- entire would find both statements distinct and cover neither.
+  UPDATE app.vehicle v SET description = 'T43 edited' WHERE v.id = vu;
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'UPDATE';
+  IF n <> before_n + 1 THEN
+    RAISE EXCEPTION 'FAIL 43l: a real edit wrote % audit rows, not one', n - before_n;
+  END IF;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = vu AND al.action = 'UPDATE'
+   ORDER BY al.id DESC LIMIT 1;
+  IF a.after->>'description' IS DISTINCT FROM 'T43 edited'
+     OR a.before->>'description' IS NOT DISTINCT FROM a.after->>'description' THEN
+    RAISE EXCEPTION 'FAIL 43l: the audit row for a real edit reads % to %',
+      a.before->>'description', a.after->>'description';
+  END IF;
+  RAISE NOTICE 'PASS  43l an update that changes nothing is not audited; a real edit is';
+END $$;
+ROLLBACK;
+
+\echo '== 44. TYRE-92: the as-at register reads a dated tread only from its own date on (FR-VAL-020, CR-012, U10)'
+BEGIN;
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  tp   uuid := md5('t44tp')::uuid;   -- an onboarding figure with no date
+  vp   uuid := md5('t44vp')::uuid;   -- TRAILER: owes no fitment odometer (TY009)
+  sz1  uuid := md5('sz1')::uuid;
+  cfg uuid; pos uuid; today date; r record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- The register slices its own window at the UTC day (000011:397), so the
+  -- probe asks its questions in the same calendar the function answers in.
+  today := (now() AT TIME ZONE 'UTC')::date;
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO pos FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, status)
+  VALUES (vp, bac, 'T44-P', 'T44P GP', cfg, 'TRAILER', 'ACTIVE');
+  -- last_tread_at deliberately NULL: this is the onboarding audit figure, the
+  -- shape CR-012 says must keep answering for every date because absence of a
+  -- measurement date is absence, not a date that fails a test.
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count,
+                        purchase_price, cost_source, new_tread_mm, rand_per_mm,
+                        last_tread_mm, last_tread_at, state)
+  VALUES (tp, bac, 'T44TYREP', sz1, 'NEW', 0, 4319.91, 'INVOICE', 25.0,
+          app.rand_per_mm(4319.91, 25.0, app.current_removal_threshold_mm()),
+          12.0, NULL, 'IN_STOCK');
+
+  -- (a) The undated figure prices yesterday. Without this first read the rest
+  -- of the probe cannot tell "the guard removed the value" from "the tyre was
+  -- never valued here".
+  SELECT a.current_tread_mm, a.tread_source, a.tread_value INTO r
+    FROM app.tyre_valuation_asof(today - 1) a WHERE a.tyre_id = tp;
+  IF r.current_tread_mm IS DISTINCT FROM 12.0 OR r.tread_source IS DISTINCT FROM 'AUDIT'
+     OR r.tread_value IS NULL THEN
+    RAISE EXCEPTION 'FAIL 44a: an undated onboarding figure reads % / % / % as at yesterday',
+      r.current_tread_mm, r.tread_source, r.tread_value;
+  END IF;
+  RAISE NOTICE 'PASS  44a an onboarding figure with no measurement date values every date';
+
+  -- (b) FR-VAL-020, U10. The fit dates the column. Yesterday is then a date
+  -- this casing had not been measured on, and the register declines to price
+  -- it rather than pricing it at a depth nobody had read yet; today, the day
+  -- of the measurement, carries the measured depth.
+  PERFORM app.fit_tyre(tp, vp, pos, 20.0, 'MARK_OUTBOARD');
+  SELECT a.current_tread_mm, a.tread_source, a.tread_value, a.casing_value INTO r
+    FROM app.tyre_valuation_asof(today - 1) a WHERE a.tyre_id = tp;
+  IF r.current_tread_mm IS NOT NULL OR r.tread_source IS NOT NULL
+     OR r.tread_value IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 44b: a tread measured today priced yesterday at % / % / %',
+      r.current_tread_mm, r.tread_source, r.tread_value;
+  END IF;
+  SELECT a.current_tread_mm, a.tread_source, a.tread_value INTO r
+    FROM app.tyre_valuation_asof(today) a WHERE a.tyre_id = tp;
+  IF r.current_tread_mm IS DISTINCT FROM 20.0 OR r.tread_source IS DISTINCT FROM 'AUDIT'
+     OR r.tread_value IS NULL THEN
+    RAISE EXCEPTION 'FAIL 44b: the day of the measurement reads % / % / %',
+      r.current_tread_mm, r.tread_source, r.tread_value;
+  END IF;
+  RAISE NOTICE 'PASS  44b a dated tread prices its own date and declines the one before it';
+END $$;
+ROLLBACK;
+
+-- (c) and (d) run in a transaction of their own because they read section
+-- 18's whole-fixture counts back: the tyre (a) and (b) plant would be a
+-- twenty-eighth row in the register and would move the very figure the pin
+-- exists to hold still.
+BEGIN;
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  fitb uuid; odo bigint; r record; n int; c int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- (c) Section 18's pins, against the writer that would move them. 2102BAC1
+  -- is fitted in the fixture and its casing carries no dated tread, so a
+  -- removal logged today is the first thing to date the column — and with an
+  -- undated read of it, June 2026 and June 2021 both pick up today's 5.0 mm.
+  -- Measured before the guard existed: 27 rows / 1 valued at 2026-06-01,
+  -- against the 27/0 section 18 pins (2026-09-02). The odometer is derived
+  -- from the row rather than typed, so the removal is refused by the rule
+  -- under test or by nothing.
+  SELECT f.id, COALESCE(f.fitted_odometer, 0) + 100000 INTO fitb, odo
+    FROM app.fitment f JOIN app.tyre t ON t.id = f.tyre_id
+   WHERE t.display_code = '2102BAC1' AND f.removed_at IS NULL;
+  IF fitb IS NULL THEN
+    RAISE EXCEPTION 'FAIL 44c: the fixture has no open fitment on 2102BAC1 to remove';
+  END IF;
+  PERFORM app.remove_tyre(fitb, 'worn_to_threshold', 5.0, odo);
+  -- Non-vacuity: the writer under test has to have fired, or (c) passes on a
+  -- removal that never touched the column.
+  SELECT t.last_tread_mm, t.last_tread_at INTO r
+    FROM app.tyre t WHERE t.display_code = '2102BAC1';
+  IF r.last_tread_mm IS DISTINCT FROM 5.0 OR r.last_tread_at IS NULL THEN
+    RAISE EXCEPTION 'FAIL 44c: the removal did not date the column (% at %)',
+      r.last_tread_mm, r.last_tread_at;
+  END IF;
+  SELECT count(*), count(a.tread_value) INTO n, c FROM app.tyre_valuation_asof('2026-06-01') a;
+  IF n <> 27 OR c <> 0 THEN
+    RAISE EXCEPTION 'FAIL 44c: as at 2026-06-01 rows=% valued=%, expected section 18''s 27/0', n, c;
+  END IF;
+  SELECT count(*), count(a.tread_value) INTO n, c FROM app.tyre_valuation_asof('2021-06-30') a;
+  IF n <> 27 OR c <> 0 THEN
+    RAISE EXCEPTION 'FAIL 44c: as at 2021-06-30 rows=% valued=%, expected 27/0', n, c;
+  END IF;
+  RAISE NOTICE 'PASS  44c a removal logged today leaves the historical as-at register where it was';
+
+  -- (d) The rank between the two sources, which (c) cannot see: a reading
+  -- outranks this column wherever one exists, whatever the two dates are.
+  -- 2102BAC1 was read on 2026-07-23, so the live register still prices it
+  -- from that reading and the 5.0 mm removal is invisible there — which is
+  -- what app.tyre.last_tread_mm's comment claims and what the as-at
+  -- register's AUDIT branch is a fallback FROM.
+  SELECT v.tread_source, v.current_tread_mm INTO r
+    FROM app.v_tyre_valuation v WHERE v.display_code = '2102BAC1';
+  IF r.tread_source IS DISTINCT FROM 'READING' THEN
+    RAISE EXCEPTION 'FAIL 44d: the live register reads 2102BAC1 as % / %, not from its reading',
+      r.tread_source, r.current_tread_mm;
+  END IF;
+  RAISE NOTICE 'PASS  44d a reading outranks the dated fallback in the live register';
 END $$;
 ROLLBACK;
 

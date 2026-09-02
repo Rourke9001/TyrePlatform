@@ -135,6 +135,23 @@ LANGUAGE plpgsql
 SECURITY INVOKER
 SET search_path = app, pg_temp AS $$
 BEGIN
+  -- FR-AUD-001 logs mutations, and an UPDATE that leaves the row identical is
+  -- not one. app.set_vehicle_status refuses a no-op transition outright
+  -- (TY016) for that reason; the unit PATCH is a COALESCE UPDATE, so a client
+  -- resending an unchanged field would otherwise write an entry whose before
+  -- and after are the same row — a log that claims a change nobody made.
+  --
+  -- updated_at/updated_by are out of the comparison because app.stamp_updated
+  -- (000017) is a BEFORE UPDATE trigger and has already written them into NEW
+  -- by the time this AFTER trigger sees it; comparing whole records would
+  -- find every UPDATE distinct. The comparison is on jsonb rather than a
+  -- column list so the function stays attachable to any table by one CREATE
+  -- TRIGGER: '-' on a key the row does not have is a no-op.
+  IF TG_OP = 'UPDATE'
+     AND (to_jsonb(OLD) - 'updated_at' - 'updated_by')
+         IS NOT DISTINCT FROM (to_jsonb(NEW) - 'updated_at' - 'updated_by') THEN
+    RETURN NULL;
+  END IF;
   INSERT INTO app.audit_log (tenant_id, actor_id, action, entity_type, entity_id,
                              before, after)
   VALUES (NEW.tenant_id, app.current_actor_id(), TG_OP, TG_TABLE_NAME, NEW.id,

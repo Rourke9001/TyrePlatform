@@ -3,9 +3,11 @@
 -- app.fitment is not in the append-only grant set: closing a fitment IS an
 -- UPDATE of its removed_* columns, so UPDATE stays granted (000001) and only
 -- DELETE is revoked (000018). Nothing else bounds the shape of that UPDATE.
--- This trigger permits exactly one shape — an open row gaining its closure —
--- and refuses the rest with TY014. Corrections are compensating events
--- (FR-FIT-015, CR-004).
+-- This trigger bounds it to one shape: on an open row, the statement that
+-- sets removed_at is the only one that may write a removal tread, odometer,
+-- reason or distance, and no column of the fitting may move at all. A closed
+-- row is frozen entire. Everything else is TY014, and a correction is a
+-- compensating event (FR-FIT-015, CR-004).
 --
 -- The trigger's NAME is load-bearing: BEFORE triggers on one table fire in
 -- name order, and fitment_odometer_matches_unit_kind (TY009) must keep
@@ -38,6 +40,23 @@ BEGIN
       ERRCODE = 'TY014',
       MESSAGE = 'an open fitment can only be closed, never edited',
       HINT    = 'close it with a reason and fit again; a flip is a remove-and-fit (D13)';
+  END IF;
+  -- The other half of "closed once": removal_is_complete (000001) ties
+  -- removed_at to removal_reason and says nothing about the four columns
+  -- beside them, so a distance or a removal tread can be written onto a row
+  -- that is still open — a closure figure on a fitment that was never closed,
+  -- which the register and the wear rate then read as fact. A closure column
+  -- moves only in the statement that sets removed_at.
+  IF NEW.removed_at IS NULL
+  AND (NEW.removed_odometer IS DISTINCT FROM OLD.removed_odometer
+    OR NEW.removed_tread_mm IS DISTINCT FROM OLD.removed_tread_mm
+    OR NEW.removal_reason   IS DISTINCT FROM OLD.removal_reason
+    OR NEW.distance_km      IS DISTINCT FROM OLD.distance_km
+    OR NEW.distance_source  IS DISTINCT FROM OLD.distance_source) THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY014',
+      MESSAGE = 'an open fitment can only be closed, never edited',
+      HINT    = 'a removal tread, distance or reason is part of the closure; set removed_at in the same statement (FR-FIT-014)';
   END IF;
   RETURN NEW;
 END $$;
