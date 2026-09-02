@@ -48,7 +48,7 @@ export interface NewTyres {
 // transition table).
 export type Disposal = "SCRAPPED" | "SOLD" | "LOST";
 
-export const DISPOSALS: { value: Disposal; label: string }[] = [
+const DISPOSALS: { value: Disposal; label: string }[] = [
   { value: "SCRAPPED", label: "Scrapped" },
   { value: "SOLD", label: "Sold" },
   { value: "LOST", label: "Lost" },

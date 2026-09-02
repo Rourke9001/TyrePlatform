@@ -111,7 +111,7 @@ describe("the retread queue", () => {
     await user.type(screen.getByLabelText(/casing value for pos1/i), "800");
     await user.click(screen.getByRole("button", { name: /log return/i }));
 
-    // A success invalidates ["retread-jobs"], and this screen's own query is
+    // A success invalidates retreadJobsKey, and this screen's own query is
     // an active observer, so a third refetch call can land before this
     // check runs — asserted by position (call 1 is the return write), not
     // by a total the refetch would otherwise race.
