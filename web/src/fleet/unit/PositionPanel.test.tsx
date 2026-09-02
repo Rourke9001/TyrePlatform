@@ -476,13 +476,30 @@ describe("a position panel", () => {
   // with nothing beside it for anyone who can see the screen.
   it("names every field on screen, not only to a screen reader", async () => {
     stubFetch();
-    renderPanel(unitPosition({ id: "p1" }), { hasOdometer: true });
-
+    // Both forms: they are separate JSX, and an empty position renders none of
+    // the removal's three fields, so a fit-only sweep passes while the remove
+    // form names nothing on screen.
+    const { unmount } = renderPanel(unitPosition({ id: "p1" }), { hasOdometer: true });
     await screen.findByRole("combobox", { name: "Tyre" });
     // Reached through each control's own id: a label that names nothing is
     // not a label, and the accessible name has to survive the change.
     for (const [role, name] of [
       ["combobox", "Tyre"],
+      ["textbox", "Tread (mm)"],
+      ["textbox", "Odometer"],
+    ]) {
+      const field = screen.getByRole(role, { name });
+      expect(document.querySelector(`label[for="${field.id}"]`)?.textContent).toBe(name);
+    }
+    unmount();
+
+    renderPanel(unitPosition({ id: "p2", code: "POS2", fitment: openFitment() }), {
+      hasOdometer: true,
+      removalReasons: ["Worn out"],
+    });
+    await screen.findByRole("combobox", { name: "Reason" });
+    for (const [role, name] of [
+      ["combobox", "Reason"],
       ["textbox", "Tread (mm)"],
       ["textbox", "Odometer"],
     ]) {

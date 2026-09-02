@@ -34,6 +34,27 @@ function sameTags(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((tag, i) => tag === b[i]);
 }
 
+// The snapshot after a save: what was sent, folded into what was loaded. The
+// response's own unit is deliberately not taken whole — it also carries the
+// fields this form did not send, and a change someone else made to one of
+// those would enter the snapshot without ever reaching the screen, which is
+// the revert the snapshot exists to prevent.
+function withSaved(loaded: Unit, sent: UnitPatch): Unit {
+  const next = { ...loaded };
+  if (sent.fleetNumber !== undefined) next.fleetNumber = sent.fleetNumber;
+  if (sent.registration !== undefined) next.registration = sent.registration;
+  if (sent.description !== undefined) next.description = sent.description;
+  if (sent.bodyType !== undefined) next.bodyType = sent.bodyType;
+  if (sent.unitDescriptor !== undefined) next.unitDescriptor = sent.unitDescriptor;
+  // "" on a nullable id is the clear, not a value (patchUnit's comment in
+  // api/units.ts), so the snapshot holds the NULL the next read will.
+  if (sent.homeDepotId !== undefined) {
+    next.homeDepotId = sent.homeDepotId === "" ? null : sent.homeDepotId;
+  }
+  if (sent.tags !== undefined) next.tags = sent.tags;
+  return next;
+}
+
 // FR-VEH-041's descriptive edit (D5). The axle layout is not a field and has
 // no PATCH path at all: the API's refusal is what protects it, and this only
 // shows what the unit is so nobody looks for the control (TYRE-94).
@@ -41,13 +62,16 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const depots = useQuery({ queryKey: depotsKey(tenantKey), queryFn: () => fetchDepots() });
 
-  // What the fields were seeded from, which the prop stops being the moment
-  // the unit read refetches — on a window focus, or on any write's
-  // invalidation. The diff below has to be against what the person editing
-  // was shown: measured against a refetch carrying someone else's change,
-  // an untouched field reads as an edit back to the old value and the PATCH
-  // reverts them (FR-VEH-041, D5).
+  // What the fields were last known to hold server-side, which the prop stops
+  // saying the moment the unit read refetches — on a window focus, or on any
+  // write's invalidation. The diff below has to be against what the person
+  // editing was shown: measured against a refetch carrying someone else's
+  // change, an untouched field reads as an edit back to the old value and the
+  // PATCH reverts them (FR-VEH-041, D5). It advances on each save, or a field
+  // could not be edited twice in one sitting — typing back what was saved a
+  // moment ago would match the mount value and be dropped as no change.
   const seed = useRef(unit);
+  const sentPatch = useRef<UnitPatch | null>(null);
 
   const [fleetNumber, setFleetNumber] = useState(unit.fleetNumber);
   const [registration, setRegistration] = useState(unit.registration ?? "");
@@ -63,8 +87,18 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   const [advisory, setAdvisory] = useState("");
 
   const save = useFormMutation({
-    mutate: (body: UnitPatch) => patchUnit(unit.id, body),
+    // Recorded here rather than at submit: useFormMutation drops a second
+    // submit while one is in flight (rule 3 — a write is an event), and only
+    // a body that was actually sent may advance the snapshot.
+    mutate: (body: UnitPatch) => {
+      sentPatch.current = body;
+      return patchUnit(unit.id, body);
+    },
     invalidate: [unitKey(unit.id)],
+    onSuccess: () => {
+      if (sentPatch.current !== null) seed.current = withSaved(seed.current, sentPatch.current);
+      sentPatch.current = null;
+    },
   });
 
   function submit(e: FormEvent) {
