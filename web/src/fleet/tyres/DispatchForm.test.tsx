@@ -117,6 +117,12 @@ describe("dispatching a tyre", () => {
     await within(depotSelect).findByRole("option", { name: "Roadside Rescue" });
     expect(within(depotSelect).queryByRole("option", { name: "Retread Co" })).toBeNull();
     expect(depotSelect).toHaveValue("");
+    // A controlled select whose value matches no option renders the first
+    // non-disabled one instead — "" reads the same whether depotId actually
+    // cleared or is stale at "r1". The submit button's own disabled check
+    // does not share that ambiguity: a stale depotId leaves it enabled and
+    // would dispatch to the wrong depot.
+    expect(screen.getByRole("button", { name: /^dispatch$/i })).toBeDisabled();
   });
 
   it("sends destination and depotId, omitting sentOn when it is left blank", async () => {
@@ -153,9 +159,9 @@ describe("dispatching a tyre", () => {
     });
   });
 
-  // The confirmation itself is a TyreList-level concern now (fix round 1
-  // ruling — see TyreList.test.tsx); this only proves the form hands the
-  // chosen destination up rather than swallowing it.
+  // The confirmation itself is a TyreList-level concern (see
+  // TyreList.test.tsx); this only proves the form hands the chosen
+  // destination up rather than swallowing it.
   it("calls onSuccess with the chosen destination once the dispatch is recorded", async () => {
     const onSuccess = vi.fn();
     const user = userEvent.setup();

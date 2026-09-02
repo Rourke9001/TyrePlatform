@@ -433,9 +433,9 @@ describe("the tyre register", () => {
     expect(screen.getByRole("combobox", { name: /disposal for pos1/i })).toBeInTheDocument();
   });
 
-  // app.dispose_tyre (000031:192) refuses SCRAPPED and LOST alike unless the
-  // tyre is IN_STOCK or REMOVED, so no disposal reaches AT_BREAKDOWN_SUPPLIER
-  // directly — only Return to stock is offered from here.
+  // app.dispose_tyre's own SCRAPPED/LOST guard (000031) refuses both unless
+  // the tyre is IN_STOCK or REMOVED, so no disposal reaches
+  // AT_BREAKDOWN_SUPPLIER directly — only Return to stock is offered here.
   it("offers only return to stock, no dispose control, for a tyre AT_BREAKDOWN_SUPPLIER", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
@@ -476,11 +476,11 @@ describe("the tyre register", () => {
     expect(screen.queryByRole("combobox", { name: /disposal for pos1/i })).not.toBeInTheDocument();
   });
 
-  // fix round 1 ruling: a dispatch's own invalidation swaps this row's cell
-  // (REMOVED's controls for AT_RETREADER's text) on the very refetch that
-  // would carry a row-level confirmation away with it — proven here by
-  // mocking that refetch with the server's real post-dispatch answer, not
-  // the tyre left standing at REMOVED.
+  // A dispatch's own invalidation swaps this row's cell (REMOVED's controls
+  // for AT_RETREADER's text) on the very refetch that would carry a
+  // row-level confirmation away with it — proven here by mocking that
+  // refetch with the server's real post-dispatch answer, not the tyre left
+  // standing at REMOVED.
   it("shows the confirmation and swaps the row once a dispatch's refetch reports the new state", async () => {
     let dispatched = false;
     vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
@@ -521,10 +521,13 @@ describe("the tyre register", () => {
       await screen.findByText(/at the retreader.*log the return under retreads/i),
     ).toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: /destination/i })).not.toBeInTheDocument();
+    // Still there once the row has settled on its new state: this
+    // distinguishes surviving the refetch from a flash that already faded.
+    expect(screen.getByRole("status")).toHaveTextContent(/tyre pos1 was sent to the retreader/i);
   });
 
-  // Same ruling, the return-to-stock path: REMOVED's controls give way to
-  // IN_STOCK's Dispose control on the refetch, proven the same way.
+  // The return-to-stock path, proven the same way: REMOVED's controls give
+  // way to IN_STOCK's Dispose control on the refetch.
   it("shows the confirmation and swaps the row once a return's refetch reports the new state", async () => {
     let returned = false;
     vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
@@ -556,6 +559,9 @@ describe("the tyre register", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(/tyre pos1 was returned to stock/i);
     expect(await screen.findByRole("combobox", { name: /disposal for pos1/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /return to stock/i })).not.toBeInTheDocument();
+    // Still there once the row has settled on its new state: this
+    // distinguishes surviving the refetch from a flash that already faded.
+    expect(screen.getByRole("status")).toHaveTextContent(/tyre pos1 was returned to stock/i);
   });
 
   it("links to the retread queue for an actor with LogRetread", async () => {

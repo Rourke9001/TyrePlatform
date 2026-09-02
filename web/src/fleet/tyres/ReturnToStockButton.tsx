@@ -2,11 +2,11 @@ import { refusalMessage } from "../../api/refusal";
 import { returnTyreToStock, type Tyre } from "../../api/tyres";
 import { useFormMutation } from "../useFormMutation";
 
-// TY012 only (no such tyre, or a state that is not REMOVED/AT_BREAKDOWN_
-// SUPPLIER — 000033:696-703): this button never sends a depotId, so
-// app.return_tyre_to_stock's TY014 branches — both gated on `p_depot IS NOT
-// NULL` — can never fire from here (refusal.ts's own rule: list only what a
-// screen's endpoints can actually raise).
+// TY012 only (no such tyre, or app.return_tyre_to_stock's own state guard —
+// a tyre that is not REMOVED/AT_BREAKDOWN_SUPPLIER): this button never sends
+// a depotId, so app.return_tyre_to_stock's TY014 branches — both gated on
+// `p_depot IS NOT NULL` — can never fire from here (refusal.ts's own rule:
+// list only what a screen's endpoints can actually raise).
 const RETURN_WORDING = {
   speakable: ["TY012"],
   forbidden: "You do not have permission to return a tyre to stock.",
@@ -23,9 +23,9 @@ const RETURN_WORDING = {
 // at the depot it already has.
 //
 // onSuccess names nothing further: the confirmation this write earns lives
-// at the register (fix round 1 ruling), since a successful return moves the
-// tyre off REMOVED/AT_BREAKDOWN_SUPPLIER and this row unmounts on the
-// refetch before anyone could read a line left inside it.
+// at the register, since a successful return moves the tyre off REMOVED/
+// AT_BREAKDOWN_SUPPLIER and this row unmounts on the refetch before anyone
+// could read a line left inside it.
 export function ReturnToStockButton({
   tyre,
   tenantKey,

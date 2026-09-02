@@ -7,12 +7,12 @@ import { fetchDepots } from "../../api/units";
 import { depotsKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
-// app.dispatch_tyre reaches TY012 (no such tyre, or a tyre that is not
-// REMOVED — 000033:589-592), TY014 (the depot: none, the wrong type, or
-// inactive; or a sentOn in the future — 000033's depot/date branches) and
-// TY015 (BR-FIT-009's retread cap), rendered verbatim since TY015's own
-// sentence — "a purchase, not a retread candidate" — is the whole content of
-// the refusal (NFR-USE-005).
+// app.dispatch_tyre reaches TY012 (no such tyre, or its own REMOVED-only
+// state guard), TY014 (the depot: none, the wrong type, or inactive; or a
+// sentOn in the future — 000033's depot/date branches) and TY015 (BR-FIT-009's
+// retread cap), rendered verbatim since TY015's own sentence — "a purchase,
+// not a retread candidate" — is the whole content of the refusal
+// (NFR-USE-005).
 const DISPATCH_WORDING = {
   speakable: ["TY012", "TY014", "TY015"],
   forbidden: "You do not have permission to dispatch a tyre.",
@@ -43,9 +43,9 @@ function depotTypeFor(destination: Destination | ""): string {
 // all app.dispatch_tyre's alone, forwarded verbatim (ADR-0013 decision 5).
 //
 // onSuccess names the destination a caller dispatched to: the confirmation
-// this write earns lives at the register (fix round 1 ruling), since a
-// successful dispatch moves the tyre off REMOVED and this form's own row
-// unmounts on the refetch before anyone could read a line left inside it.
+// this write earns lives at the register, since a successful dispatch moves
+// the tyre off REMOVED and this form's own row unmounts on the refetch
+// before anyone could read a line left inside it.
 export function DispatchForm({
   tyre,
   tenantKey,
@@ -84,8 +84,8 @@ export function DispatchForm({
       destination,
       depotId,
       // Empty stays unsent rather than "": an absent sentOn reaches
-      // app.dispatch_tyre's own tenant_today default (tyres.go:412-417's
-      // own comment), which an empty string is not a stand-in for.
+      // app.dispatch_tyre's own tenant_today default (dispatchTyreRequest's
+      // own comment, tyres.go), which an empty string is not a stand-in for.
       sentOn: sentOn === "" ? undefined : sentOn,
     });
   }
