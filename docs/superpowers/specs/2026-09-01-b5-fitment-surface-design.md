@@ -286,15 +286,22 @@ rests on one implementation of the arithmetic.
   `p_casing_value` are required (TY014). The tyre row: `retread_count + 1`,
   `status = 'RETREAD'`, `new_tread_mm = p_post_tread_mm`, `pattern_id =
   COALESCE(p_new_pattern_id, pattern_id)`, and
-  `rand_per_mm = app.rand_per_mm(cost, p_post_tread_mm,
-  app.current_removal_threshold_mm())` where `cost` is a `numeric(12,2)`
-  **local** the parameter is assigned into first — the 2026-09-01 lesson,
-  applied so the stored rate reproduces from the stored cost to the cent
-  (FR-TYR-019, BR-VAL-006). `p_post_tread_mm` must exceed the threshold
-  (TY014), so the rate is never NULL after a paid retread. State to
-  `IN_STOCK`, `current_depot_id = NULL`. One `casing_valuation` row:
-  `value = p_casing_value`, `source = 'RETREADER'`, `retread_job_id =
-  p_job`, `effective_from = p_returned_on` (FR-FIT-022). Event `RETURNED`,
+  `rand_per_mm = app.rand_per_mm(cost, tread,
+  app.current_removal_threshold_mm())` where `cost` (`numeric(12,2)`) and
+  `tread` (`numeric(4,1)`) are **locals** the parameters are assigned into
+  first — the 2026-09-01 lesson, applied to every figure the rate is derived
+  from, not only the money one, so the stored rate reproduces from the stored
+  row to the cent (FR-TYR-019, BR-VAL-006). A parameter's typmod is discarded,
+  so a raw tread divides at a scale the `numeric(4,1)` column can never hold.
+  `tread` must exceed the threshold (TY014), so the rate is never NULL after a
+  paid retread, and the parameter is bounded `(0, 30]` before the assignment
+  because the assignment itself overflows above 999.9. An accepted casing
+  value must be **above zero** (TY014): a zero is what a rejection means, and
+  the register labels both `ACTUAL` from the `RETREADER` source alone
+  (FR-TYR-009, BR-VAL-004). State to `IN_STOCK`, `current_depot_id = NULL`.
+  One `casing_valuation` row: `value = cval` (the `numeric(12,2)` local),
+  `source = 'RETREADER'`, `retread_job_id = p_job`,
+  `effective_from = p_returned_on` (FR-FIT-022). Event `RETURNED`,
   `to_state = 'IN_STOCK'`, payload `{"retread_job_id","retread_count"}`.
   `tyre.casing_value` is **not** written: 000013's register precedence reads
   the valuation row first and treats the column as the `AUDIT` fallback.

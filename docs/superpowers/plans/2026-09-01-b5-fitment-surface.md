@@ -334,20 +334,30 @@ git commit -m "feat(db): TYRE-92 fit, remove, rotate, dispatch and return as lif
 - [ ] **Step 3: Write the migration.** The one arithmetic line, with the local:
 
 ```sql
-DECLARE cost numeric(12,2); thr numeric;
+DECLARE cost numeric(12,2); tread numeric(4,1); cval numeric(12,2); thr numeric;
 ...
-  cost := p_retread_cost;                     -- rounds to cents HERE, before the divide
+  -- EVERY stored figure is rounded into its column's own type first. A
+  -- parameter's typmod is discarded, so a raw p_post_tread_mm divides at a
+  -- scale the tyre row can never hold and the rate stops reproducing.
+  cost  := p_retread_cost;
+  tread := p_post_tread_mm;      -- bound (0, 30] on the PARAMETER first: the
+                                 -- assignment overflows numeric(4,1) above 999.9
+  cval  := p_casing_value;
+  IF cval <= 0 THEN              -- FR-TYR-009: a zero belongs to a rejection
+    RAISE EXCEPTION USING ERRCODE = 'TY014',
+      MESSAGE = 'an accepted casing carries a value above zero; a zero belongs to a rejection (FR-TYR-009)';
+  END IF;
   thr  := app.current_removal_threshold_mm();
-  IF p_post_tread_mm IS NULL OR p_post_tread_mm <= thr THEN
+  IF tread IS NULL OR tread <= thr THEN
     RAISE EXCEPTION USING ERRCODE = 'TY014',
       MESSAGE = format('post-retread tread must exceed the removal threshold of %s mm', thr);
   END IF;
   UPDATE app.tyre
      SET retread_count = retread_count + 1,
          status        = 'RETREAD',
-         new_tread_mm  = p_post_tread_mm,
+         new_tread_mm  = tread,
          pattern_id    = COALESCE(p_new_pattern_id, pattern_id),
-         rand_per_mm   = app.rand_per_mm(cost, p_post_tread_mm, thr),   -- FR-TYR-019, BR-VAL-006
+         rand_per_mm   = app.rand_per_mm(cost, tread, thr),   -- FR-TYR-019, BR-VAL-006
          state         = 'IN_STOCK',
          current_depot_id = NULL
    WHERE id = ty.id;

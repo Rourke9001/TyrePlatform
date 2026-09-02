@@ -4645,5 +4645,366 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 42. TYRE-93: a retread return propagates to the tyre (FR-FIT-021/022, FR-TYR-009/018/019, BR-VAL-004/006, D3)'
+BEGIN;
+DO $$
+DECLARE
+  bac   uuid := '11111111-1111-1111-1111-111111111111';
+  t_two uuid := '22222222-2222-2222-2222-222222222222';
+  tz    text;
+  sz1   uuid := md5('sz1')::uuid;
+  pt1   uuid := md5('pt1')::uuid;
+  d_rt  uuid := md5('t42rt')::uuid;
+  ta    uuid := md5('t42ta')::uuid;   -- accepted return: the money path
+  tb    uuid := md5('t42tb')::uuid;   -- rejected casing
+  tf    uuid := md5('t42tf')::uuid;   -- the refused inputs
+  tg    uuid := md5('t42tg')::uuid;   -- already at the cap
+  th    uuid := md5('t42th')::uuid;   -- at the retreader, probed by dispose_tyre
+  ti    uuid := md5('t42ti')::uuid;   -- the open BAC job tenant 2 probes
+  tj    uuid := md5('t42tj')::uuid;   -- the REMOVED BAC tyre tenant 2 probes
+  tk1   uuid := md5('t42tk1')::uuid;  -- same-day return
+  tk2   uuid := md5('t42tk2')::uuid;  -- a return that would predate the dispatch
+  ja uuid; jb uuid; jf uuid; ji uuid;
+  jg  uuid := md5('t42jg')::uuid;
+  jk2 uuid := md5('t42jk2')::uuid;
+  r record; n int; thr numeric;
+  sent_at_k timestamptz; ret_at_k timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  thr := app.current_removal_threshold_mm();
+
+  INSERT INTO app.depot (id, tenant_id, name, type)
+  VALUES (d_rt, bac, 'T42 Retreaders', 'RETREADER');
+  -- ta carries a complete cost record so 42a's rate assertion is about the
+  -- retread arithmetic and not about a missing input; the rest need only a
+  -- state and a size.
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status,
+                        retread_count, purchase_price, cost_source, new_tread_mm,
+                        rand_per_mm, state)
+  VALUES (ta, bac, 'T42TYREA', sz1, pt1, 'NEW', 0, 4319.91, 'INVOICE', 25.0,
+          app.rand_per_mm(4319.91, 25.0, thr), 'REMOVED');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status,
+                        retread_count, state) VALUES
+    (tb,  bac, 'T42TYREB',  sz1, pt1, 'NEW',     0, 'REMOVED'),
+    (tf,  bac, 'T42TYREF',  sz1, pt1, 'NEW',     0, 'REMOVED'),
+    (tg,  bac, 'T42TYREG',  sz1, pt1, 'RETREAD', 1, 'AT_RETREADER'),
+    (th,  bac, 'T42TYREH',  sz1, pt1, 'NEW',     0, 'AT_RETREADER'),
+    (ti,  bac, 'T42TYREI',  sz1, pt1, 'NEW',     0, 'REMOVED'),
+    (tj,  bac, 'T42TYREJ',  sz1, pt1, 'NEW',     0, 'REMOVED'),
+    (tk1, bac, 'T42TYREK1', sz1, pt1, 'NEW',     0, 'REMOVED'),
+    (tk2, bac, 'T42TYREK2', sz1, pt1, 'NEW',     0, 'REMOVED');
+
+  -- The dated send and return sit in the past deliberately.
+  -- app.v_tyre_valuation slices at (now() AT TIME ZONE 'UTC')::date
+  -- (000011:397) while casing_valuation.effective_from is a date in the
+  -- tenant's calendar (rule 6), so a valuation effective on the tenant's
+  -- today is outside the register's window for the hours that day runs ahead
+  -- of UTC's — a return logged at 00:30 SAST is invisible to 42b's read until
+  -- the UTC day rolls over. Dating the return at tenant_today - 1 sidesteps
+  -- that window at every hour. The five-day send also gives 42c a turnaround
+  -- that is not zero.
+  SELECT * INTO r FROM app.dispatch_tyre(ta, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
+  ja := r.retread_job_id;
+
+  -- (a) FR-TYR-018/019, BR-VAL-006. Both stored figures are quoted past
+  -- their column's scale so the rounding order is observable: a cost at three
+  -- decimals and a tread at two, each rounded into its column's own type
+  -- before the divide, yield a rate reproducible from the row it is stored
+  -- beside; dividing either raw parameter does not (2026-09-01). Both inputs
+  -- are read back off the rows rather than restated, so only the stored
+  -- figures are on trial.
+  PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T42-RPT-A',
+                                 2500.005, 16.04, 800.00);
+  SELECT t.retread_count, t.status, t.new_tread_mm, t.pattern_id, t.state,
+         t.current_depot_id, t.rand_per_mm
+    INTO r FROM app.tyre t WHERE t.id = ta;
+  IF r.retread_count <> 1 OR r.status <> 'RETREAD' OR r.new_tread_mm <> 16.0
+     OR r.pattern_id IS DISTINCT FROM pt1 OR r.state <> 'IN_STOCK'
+     OR r.current_depot_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 42a: the return did not propagate to the tyre: %', r;
+  END IF;
+  IF (SELECT j.retread_cost FROM app.retread_job j WHERE j.id = ja) <> 2500.01 THEN
+    RAISE EXCEPTION 'FAIL 42a: the job stored % rather than the cost rounded to cents',
+      (SELECT j.retread_cost FROM app.retread_job j WHERE j.id = ja);
+  END IF;
+  IF r.rand_per_mm IS DISTINCT FROM
+     (SELECT app.rand_per_mm(j.retread_cost, t.new_tread_mm, app.current_removal_threshold_mm())
+        FROM app.retread_job j JOIN app.tyre t ON t.id = j.tyre_id WHERE j.id = ja) THEN
+    RAISE EXCEPTION 'FAIL 42a: stored rate % is not reproducible from the stored cost and tread',
+      r.rand_per_mm;
+  END IF;
+  RAISE NOTICE 'PASS  42a a retread return re-rates the casing from the cost it stores: %', r.rand_per_mm;
+
+  -- (b) FR-FIT-022: the casing figure is the retreader's, on a report, and
+  -- the register reads it as ACTUAL rather than as an estimate (000013's
+  -- precedence). app.tyre.casing_value stays untouched — it is that
+  -- precedence's AUDIT fallback, and writing both would give one casing two
+  -- figures of different provenance with no rule to choose between them.
+  SELECT count(*) INTO n FROM app.casing_valuation c WHERE c.tyre_id = ta;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 42b: % casing valuations for one return, expected 1', n; END IF;
+  SELECT count(*) INTO n FROM app.casing_valuation c
+   WHERE c.tyre_id = ta AND c.value = 800.00 AND c.source = 'RETREADER'
+     AND c.retread_job_id = ja AND c.effective_from = app.tenant_today(tz) - 1;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 42b: the valuation row does not cite the job at the return date';
+  END IF;
+  IF (SELECT t.casing_value FROM app.tyre t WHERE t.id = ta) IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 42b: the return also wrote the AUDIT fallback column';
+  END IF;
+  SELECT v.casing_value, v.casing_basis INTO r FROM app.v_tyre_valuation v WHERE v.tyre_id = ta;
+  IF r.casing_value IS DISTINCT FROM 800.00 OR r.casing_basis IS DISTINCT FROM 'ACTUAL' THEN
+    RAISE EXCEPTION 'FAIL 42b: the register reads % / %, not the retreader''s actual figure',
+      r.casing_value, r.casing_basis;
+  END IF;
+  RAISE NOTICE 'PASS  42b the retreader''s casing figure reaches the register as ACTUAL';
+
+  -- (c) FR-FIT-021: turnaround is the table's generated column, so the job
+  -- carries it without the function entering it.
+  SELECT count(*) INTO n FROM app.tyre_event e
+   WHERE e.tyre_id = ta AND e.type = 'RETURNED' AND e.from_state = 'AT_RETREADER'
+     AND e.to_state = 'IN_STOCK' AND e.payload->>'retread_job_id' = ja::text
+     AND e.payload->>'retread_count' = '1';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 42c: the RETURNED event did not land once carrying the job'; END IF;
+  SELECT count(*) INTO n FROM app.retread_job j
+   WHERE j.id = ja AND j.returned_at = app.tenant_today(tz) - 1
+     AND j.casing_accepted AND j.report_reference = 'T42-RPT-A'
+     AND j.post_tread_mm = 16.0 AND j.casing_value = 800.00 AND j.turnaround_days = 4;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 42c: the job did not close with every return field'; END IF;
+  RAISE NOTICE 'PASS  42c the return closes the job, its turnaround and the event together';
+
+  -- (d) A closed job is not an open one. The message is exact because the
+  -- API surface (D6) maps this one string to its 404.
+  BEGIN
+    PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T42-RPT-A',
+                                   2500.005, 16.04, 800.00);
+    RAISE EXCEPTION 'FAIL 42d: a job was returned twice';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such open retread job in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 42d: wrong TY012 message: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  42d a returned job cannot be returned again';
+  END;
+
+  -- (e) FR-TYR-009, BR-VAL-004, U9: a rejected casing is the one legitimate
+  -- source of a zero casing value, and it is recorded as a valuation citing
+  -- the job rather than as an absence — an absent figure reads as UNVALUED
+  -- downstream, a different claim from "the retreader looked at it and it is
+  -- worth nothing".
+  SELECT * INTO r FROM app.dispatch_tyre(tb, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
+  jb := r.retread_job_id;
+  PERFORM app.log_retread_return(jb, app.tenant_today(tz) - 1, false, 'T42-RPT-B');
+  SELECT t.state, t.status, t.retread_count, t.new_tread_mm INTO r FROM app.tyre t WHERE t.id = tb;
+  IF r.state <> 'SCRAPPED' OR r.status <> 'NEW' OR r.retread_count <> 0
+     OR r.new_tread_mm IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 42e: a rejected casing was retreaded rather than scrapped: %', r;
+  END IF;
+  SELECT count(*) INTO n FROM app.casing_valuation c
+   WHERE c.tyre_id = tb AND c.value = 0 AND c.source = 'RETREADER' AND c.retread_job_id = jb;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 42e: the rejection did not write a zero valuation citing the job';
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_event e
+   WHERE e.tyre_id = tb AND e.type = 'SCRAPPED' AND e.from_state = 'AT_RETREADER'
+     AND e.to_state = 'SCRAPPED' AND e.reason = 'casing rejected by retreader'
+     AND e.payload->>'retread_job_id' = jb::text;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 42e: the scrap event does not name the rejection'; END IF;
+  SELECT v.casing_value, v.casing_basis INTO r FROM app.v_tyre_valuation v WHERE v.tyre_id = tb;
+  IF r.casing_value IS DISTINCT FROM 0.00 OR r.casing_basis IS DISTINCT FROM 'ACTUAL' THEN
+    RAISE EXCEPTION 'FAIL 42e: the register reads % / % for a rejected casing',
+      r.casing_value, r.casing_basis;
+  END IF;
+  RAISE NOTICE 'PASS  42e a rejected casing scraps the tyre and books an actual zero';
+
+  -- (f) The inputs this surface does not accept, each probe leaving the other
+  -- parameters valid so only the rule under test can refuse. A caught
+  -- exception rolls its own subtransaction back, so jf is still open after
+  -- all eight. Each probe pins a fragment of its own message: the function
+  -- raises TY014 at every input gate, and a reordered guard would otherwise
+  -- let one probe pass on another rule's refusal.
+  SELECT * INTO r FROM app.dispatch_tyre(tf, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
+  jf := r.retread_job_id;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, false, 'T42-RPT-F', NULL, NULL, 900.00);
+    RAISE EXCEPTION 'FAIL 42f: a rejected casing was given a value';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%a rejected casing carries no retread cost%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a valued rejection was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, thr, 500.00);
+    RAISE EXCEPTION 'FAIL 42f: a post-retread tread at the removal threshold was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%must exceed the removal threshold%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a threshold tread was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  -- A tread that rounds ONTO the threshold: numeric(4,1) is the column's
+  -- scale, so the guard has to see the rounded figure or it admits a casing
+  -- whose stored tread yields no rate at all (BR-VAL-002).
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, thr + 0.04, 500.00);
+    RAISE EXCEPTION 'FAIL 42f: a tread that rounds onto the removal threshold was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%must exceed the removal threshold%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a rounding tread was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 6, true, 'T42-RPT-F', 1000.00, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42f: a return dated before the send was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%on or after the day it was sent%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a backwards date was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) + 1, true, 'T42-RPT-F', 1000.00, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42f: a return dated in the future was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%never on a future date%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a future date was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  -- FR-TYR-009, BR-VAL-004: a zero on an accepted casing would reach the
+  -- register as an ACTUAL zero indistinguishable from a rejection, so it is
+  -- refused — including the zero a sub-cent figure rounds into.
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, 16.0, 0.00);
+    RAISE EXCEPTION 'FAIL 42f: an accepted casing was valued at zero';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%a zero belongs to a rejection%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a zero casing value was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, 16.0, 0.004);
+    RAISE EXCEPTION 'FAIL 42f: an accepted casing value that rounds to zero was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%a zero belongs to a rejection%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a rounding casing value was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', NULL, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42f: a paid retread was logged without its cost';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%records what the retread cost%' THEN
+      RAISE EXCEPTION 'FAIL 42f: a missing cost was refused by another rule: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  42f eight inputs this surface does not accept, each refused by its own rule';
+  END;
+
+  -- (g) BR-FIT-009, FR-CFG-044, U5: the cap is read again here because the
+  -- policy can be lowered between the send and the return, and a casing with
+  -- no axle class resolves to the tenant-wide row. jg goes in directly —
+  -- app.dispatch_tyre would have refused this casing at the door, which is
+  -- precisely the job this backstop exists to catch.
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+                                    warning_threshold_mm, max_retreads, effective_from)
+  VALUES (md5('t42pol')::uuid, bac, 4.0, 4.0, 6.0, 1, now() - interval '1 minute');
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
+  VALUES (jg, bac, tg, d_rt, app.tenant_today(tz) - 3);
+  BEGIN
+    PERFORM app.log_retread_return(jg, app.tenant_today(tz) - 1, true, 'T42-RPT-G', 1000.00, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42g: a casing past its cap was retreaded on return';
+  EXCEPTION WHEN sqlstate 'TY015' THEN
+    IF SQLERRM NOT LIKE '%a purchase, not a retread candidate%' THEN
+      RAISE EXCEPTION 'FAIL 42g: wrong TY015 message: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  42g the cap is re-checked on return, not only on dispatch';
+  END;
+
+  -- (h) FR-TYR-009: the rejected-casing scrap belongs to this function, so
+  -- the general disposal surface has to keep refusing a casing the retreader
+  -- still holds — otherwise the same scrap exists twice, once without the
+  -- report and the casing figure that go with it.
+  BEGIN
+    PERFORM app.dispose_tyre(th, 'SCRAPPED', 'audit', NULL, now());
+    RAISE EXCEPTION 'FAIL 42h: a casing at the retreader was scrapped outside Log Retread';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM NOT LIKE '%AT_RETREADER%' THEN
+      RAISE EXCEPTION 'FAIL 42h: TY012 fired for the wrong reason: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  42h the only scrap path from the retreader is the retread return';
+  END;
+
+  -- (i) Two cross-tenant probes through two functions (2026-09-01). Neither
+  -- target can refuse for a reason other than invisibility: ji is genuinely
+  -- open on a tyre genuinely AT_RETREADER and the arguments are the accepted
+  -- ones 42a used, so a leaked row would have been returned rather than
+  -- refused; tj is genuinely REMOVED with no events of its own, so a leaked
+  -- row would have been dispatched. app.actor_id is left unset throughout, so
+  -- nothing here can fail on the created_by FK instead (2026-08-28).
+  SELECT * INTO r FROM app.dispatch_tyre(ti, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
+  ji := r.retread_job_id;
+  PERFORM set_config('app.tenant_id', t_two::text, true);
+  BEGIN
+    PERFORM app.log_retread_return(ji, app.tenant_today(tz) - 1, true, 'T42-RPT-I', 1000.00, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42i: another fleet''s retread job was returned';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such open retread job in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 42i: TY012 fired for the wrong reason (%), not RLS invisibility', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.dispatch_tyre(tj, 'AT_RETREADER', d_rt);
+    RAISE EXCEPTION 'FAIL 42i: another fleet''s tyre was dispatched';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such tyre in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 42i: TY012 fired for the wrong reason (%), not RLS invisibility', SQLERRM;
+    END IF;
+  END;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  RAISE NOTICE 'PASS  42i another fleet''s open job and removed casing are invisible here';
+
+  -- (j) The local sentinel for check 7's Appendix E pin: nothing in this
+  -- section may redefine the one implementation of the rate (FR-VAL-006).
+  IF app.rand_per_mm(4319.91, 25.0, 4.0) <> 205.7100 THEN
+    RAISE EXCEPTION 'FAIL 42j: rand_per_mm no longer derives Appendix E, got %',
+      app.rand_per_mm(4319.91, 25.0, 4.0);
+  END IF;
+  RAISE NOTICE 'PASS  42j the Appendix E rate derivation is untouched by this surface';
+
+  -- (k) FR-FIT-016, FR-VAL-022. A return dated today means now(), not the
+  -- calendar day's opening midnight: app.tyre_in_estate_asof resolves a tyre
+  -- from its LATEST to_state event, so a midnight return would sort behind
+  -- the same day's dispatch. Strict ordering between the two events is not
+  -- assertable — now() is fixed for the whole transaction, so both land on
+  -- one instant; what is asserted is that the return is stamped at now() and
+  -- never behind the dispatch, which a midnight stamp fails by being refused.
+  SELECT * INTO r FROM app.dispatch_tyre(tk1, 'AT_RETREADER', d_rt);
+  PERFORM app.log_retread_return(r.retread_job_id, app.tenant_today(tz), true,
+                                 'T42-RPT-K', 1000.00, 16.0, 500.00);
+  SELECT e.occurred_at INTO sent_at_k FROM app.tyre_event e
+   WHERE e.tyre_id = tk1 AND e.type = 'SENT_FOR_RETREAD';
+  SELECT e.occurred_at INTO ret_at_k FROM app.tyre_event e
+   WHERE e.tyre_id = tk1 AND e.type = 'RETURNED';
+  IF ret_at_k IS DISTINCT FROM now() OR sent_at_k IS NULL OR ret_at_k < sent_at_k THEN
+    RAISE EXCEPTION 'FAIL 42k: a same-day return is stamped % against a dispatch at % and a now() of %',
+      ret_at_k, sent_at_k, now();
+  END IF;
+  -- The other half of the same rule: an instant that would fall behind the
+  -- tyre's last movement is refused, never clamped onto it. jk2 goes in
+  -- directly because app.dispatch_tyre cannot produce the divergence — it
+  -- stamps the send from the same date it stores — while a job carried over
+  -- from a paper record can.
+  PERFORM app.dispatch_tyre(tk2, 'AT_RETREADER', d_rt);
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
+  VALUES (jk2, bac, tk2, d_rt, app.tenant_today(tz) - 3);
+  BEGIN
+    PERFORM app.log_retread_return(jk2, app.tenant_today(tz) - 2, true,
+                                   'T42-RPT-K2', 1000.00, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42k: a return predating the dispatch it follows was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM NOT LIKE '%cannot predate it%' THEN
+      RAISE EXCEPTION 'FAIL 42k: TY012 fired for the wrong reason: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  42k a return is stamped now, and never predates the movement before it';
+  END;
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
