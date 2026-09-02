@@ -15,6 +15,27 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-03 — A long-lived `make api-run` cannot survive `make e2e`'s reseed (TYRE-92)
+
+**What happened:** `make e2e` was run against an API container that had been
+serving for seven hours across earlier reseeds. `make e2e` reseeds by dropping
+and re-creating schema `app`, which mints new OIDs for every enum and composite
+type, but the API's pgx pool still held prepared statements and type OIDs from
+before the drop. The suite failed on `admin.spec.ts` — "The unit could not be
+added" on screen, `creating vehicle: ERROR: cache lookup failed for type 908424
+(SQLSTATE XX000)` and `cached plan must not change result type (SQLSTATE 0A000)`
+in the API log — which reads exactly like a regression in a spec nobody touched.
+A restart of the same container, giving it a cold pool, made the identical suite
+green.
+
+**The rule:** restart the API immediately before `make e2e`, every time, and
+never reuse one that has already served a query — one warmed request is enough,
+and the first reseed is as dangerous as the fifth. When
+a spec you did not touch fails with a generic "could not be added"/"could not be
+saved" fallback, read `docker logs` on the API before reading the spec: a
+`0A000` or `XX000` there means the process predates the schema it is querying,
+not that anything in the branch is wrong.
+
 ## 2026-09-01 — A staging guard with assertions inside it is a test that runs once (TYRE-97)
 
 **What happened:** the TYRE-85 entry below recorded one suite section that
