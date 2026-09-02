@@ -4,13 +4,15 @@ import { type FormEvent, useState } from "react";
 import { refusalMessage } from "../../api/refusal";
 import { dispatchTyre, type Tyre } from "../../api/tyres";
 import { fetchDepots } from "../../api/units";
+import { depotsKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
-// app.dispatch_tyre reaches TY012 (no such tyre), TY014 (an input this
-// surface does not accept — the wrong state, the wrong depot type) and TY015
-// (BR-FIT-009's retread cap), rendered verbatim since TY015's own sentence —
-// "a purchase, not a retread candidate" — is the whole content of the
-// refusal (NFR-USE-005).
+// app.dispatch_tyre reaches TY012 (no such tyre, or a tyre that is not
+// REMOVED — 000033:589-592), TY014 (the depot: none, the wrong type, or
+// inactive; or a sentOn in the future — 000033's depot/date branches) and
+// TY015 (BR-FIT-009's retread cap), rendered verbatim since TY015's own
+// sentence — "a purchase, not a retread candidate" — is the whole content of
+// the refusal (NFR-USE-005).
 const DISPATCH_WORDING = {
   speakable: ["TY012", "TY014", "TY015"],
   forbidden: "You do not have permission to dispatch a tyre.",
@@ -26,23 +28,40 @@ const DESTINATIONS: { value: Destination; label: string }[] = [
 
 // app.dispatch_tyre's own destination-to-depot-type mapping (000033): a
 // depot picker must offer only depots the write will accept, not every
-// depot in the fleet.
-function depotTypeFor(destination: Destination): string {
-  return destination === "AT_RETREADER" ? "RETREADER" : "BREAKDOWN_SUPPLIER";
+// depot in the fleet. Accepts the unpicked "" so the query below needs no
+// cast to call it — the query itself never runs against that branch
+// (`enabled: destination !== ""`).
+function depotTypeFor(destination: Destination | ""): string {
+  if (destination === "AT_RETREADER") return "RETREADER";
+  if (destination === "AT_BREAKDOWN_SUPPLIER") return "BREAKDOWN_SUPPLIER";
+  return "";
 }
 
 // FR-FIT-011/012: a REMOVED casing leaves the workshop for the retreader or
 // the breakdown supplier. Which destinations a depot's type may receive,
 // the BR-FIT-009 retread cap and which state a casing must be in to go are
 // all app.dispatch_tyre's alone, forwarded verbatim (ADR-0013 decision 5).
-export function DispatchForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
+//
+// onSuccess names the destination a caller dispatched to: the confirmation
+// this write earns lives at the register (fix round 1 ruling), since a
+// successful dispatch moves the tyre off REMOVED and this form's own row
+// unmounts on the refetch before anyone could read a line left inside it.
+export function DispatchForm({
+  tyre,
+  tenantKey,
+  onSuccess,
+}: {
+  tyre: Tyre;
+  tenantKey: string;
+  onSuccess?: (destination: Destination) => void;
+}) {
   const [destination, setDestination] = useState<Destination | "">("");
   const [depotId, setDepotId] = useState("");
   const [sentOn, setSentOn] = useState("");
 
   const depots = useQuery({
-    queryKey: ["depots", tenantKey, destination],
-    queryFn: () => fetchDepots(depotTypeFor(destination as Destination)),
+    queryKey: [...depotsKey(tenantKey), destination],
+    queryFn: () => fetchDepots(depotTypeFor(destination)),
     enabled: destination !== "",
   });
 
@@ -51,6 +70,7 @@ export function DispatchForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: strin
       dispatchTyre(tyre.id, vars),
     invalidate: [["tyres", tenantKey], ["retread-jobs"]],
     onSuccess: () => {
+      if (destination !== "") onSuccess?.(destination);
       setDestination("");
       setDepotId("");
       setSentOn("");
@@ -63,9 +83,9 @@ export function DispatchForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: strin
     dispatch.submit({
       destination,
       depotId,
-      // Empty stays unsent rather than "": the server defaults sentOn to
-      // the tenant's own today (units.go's own comment), which an empty
-      // string is not a stand-in for.
+      // Empty stays unsent rather than "": an absent sentOn reaches
+      // app.dispatch_tyre's own tenant_today default (tyres.go:412-417's
+      // own comment), which an empty string is not a stand-in for.
       sentOn: sentOn === "" ? undefined : sentOn,
     });
   }
@@ -82,6 +102,9 @@ export function DispatchForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: strin
               checked={destination === d.value}
               onChange={() => {
                 setDestination(d.value);
+                // Cleared, not carried over: a depot valid for the previous
+                // destination's type is not necessarily valid for this one
+                // (app.dispatch_tyre's type check would refuse it as TY014).
                 setDepotId("");
               }}
             />
@@ -90,13 +113,25 @@ export function DispatchForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: strin
         ))}
       </div>
 
-      {destination !== "" && (
+      {destination !== "" && depots.isError && (
+        <div className="note-card" role="alert">
+          <h2>Depots didn&apos;t load</h2>
+          <p>The server could not be reached. Check your connection, then retry.</p>
+          <button className="btn-primary" type="button" onClick={() => void depots.refetch()}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {destination !== "" && !depots.isError && (
         <select
           aria-label={`Depot for ${tyre.displayCode}`}
           value={depotId}
           onChange={(e) => setDepotId(e.target.value)}
         >
-          <option value="">Choose…</option>
+          <option value="" disabled={depots.isPending}>
+            {depots.isPending ? "Loading…" : "Choose…"}
+          </option>
           {(depots.data ?? []).map((d) => (
             <option key={d.id} value={d.id}>
               {d.name}
@@ -120,7 +155,6 @@ export function DispatchForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: strin
         {dispatch.isPending ? "Dispatching…" : "Dispatch"}
       </button>
 
-      {dispatch.isSuccess && <p role="status">{`${tyre.displayCode} was dispatched.`}</p>}
       {dispatch.error !== null && (
         <p role="alert">{refusalMessage(dispatch.error, DISPATCH_WORDING)}</p>
       )}

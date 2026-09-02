@@ -24,25 +24,35 @@ const RETURN_WORDING = {
   fallback: "The return could not be logged. Try again, or call support if it keeps happening.",
 };
 
+const INCOMPLETE_RETURN =
+  "An outcome, a report reference and a returned-on date are all required before a return can be logged.";
+
 type Outcome = "accepted" | "rejected";
 
 // A per-job return form. Kept out of RetreadQueue's own JSX rather than
 // inlined in the map: each row owns its own field state, and a return that
 // clears on success must not disturb the row beside it.
 //
-// TYRE-93/Task 17: newPatternId is not offered here. No pattern-list read
-// exists yet, and a raw uuid text box is not a usable control for a driver
-// or a controller — app.log_retread_return already accepts the field, so
-// Task 17 raises the picker as a follow-up rather than this slice inventing
-// one.
+// newPatternId is not offered here, and is unlikely to be soon: no
+// pattern-list read exists yet, and a raw uuid text box is not a usable
+// control for a driver or a controller — app.log_retread_return already
+// accepts the field, so a follow-up ticket raises the picker rather than
+// this slice inventing one.
+//
+// onSuccess names nothing further: the confirmation this write earns lives
+// at RetreadQueue (fix round 1 ruling), since a successful return closes the
+// job and this row leaves the list on the refetch before anyone could read a
+// line left inside it.
 function RetreadReturnRow({
   job,
   tenantKey,
   sentOnDisplay,
+  onSuccess,
 }: {
   job: RetreadJob;
   tenantKey: string;
   sentOnDisplay: string;
+  onSuccess?: () => void;
 }) {
   const [outcome, setOutcome] = useState<Outcome | "">("");
   const [returnedOn, setReturnedOn] = useState("");
@@ -50,6 +60,10 @@ function RetreadReturnRow({
   const [retreadCost, setRetreadCost] = useState("");
   const [postTreadMm, setPostTreadMm] = useState("");
   const [casingValue, setCasingValue] = useState("");
+  // A refusal this row raised itself, distinct from the server's own
+  // (rendered below from logReturn.error) — the pattern PositionPanel.tsx
+  // uses for its own client-side guard.
+  const [refused, setRefused] = useState("");
 
   const logReturn = useFormMutation<RetreadReturn, void>({
     mutate: (vars) => logRetreadReturn(job.id, vars),
@@ -61,24 +75,30 @@ function RetreadReturnRow({
       setRetreadCost("");
       setPostTreadMm("");
       setCasingValue("");
+      onSuccess?.();
     },
   });
 
   function submit(e: FormEvent) {
     e.preventDefault();
     const reference = reportReference.trim();
-    if (outcome === "" || returnedOn === "" || reference === "") return;
+    if (outcome === "" || returnedOn === "" || reference === "") {
+      setRefused(INCOMPLETE_RETURN);
+      return;
+    }
+    setRefused("");
 
     // D3: money stays a string all the way to the wire (rule 2), never
-    // Number()'d — the database rounds, this does not.
+    // Number()'d — the database rounds, this does not. Trimmed like every
+    // other free-text field on this row; still a string either way.
     if (outcome === "accepted") {
       logReturn.submit({
         returnedOn,
         casingAccepted: true,
         reportReference: reference,
-        retreadCost,
-        postTreadMm,
-        casingValue,
+        retreadCost: retreadCost.trim(),
+        postTreadMm: postTreadMm.trim(),
+        casingValue: casingValue.trim(),
       });
     } else {
       logReturn.submit({
@@ -170,7 +190,7 @@ function RetreadReturnRow({
           </button>
         </form>
 
-        {logReturn.isSuccess && <p role="status">{`${job.displayCode}'s return was logged.`}</p>}
+        {refused !== "" && <p role="alert">{refused}</p>}
         {logReturn.error !== null && (
           <p role="alert">{refusalMessage(logReturn.error, RETURN_WORDING)}</p>
         )}
@@ -185,6 +205,12 @@ function RetreadReturnRow({
 export function RetreadQueue() {
   const tenantKey = getDevTenantId() ?? "default";
   const asDate = useTenantDate();
+  // The last job this screen closed, held here rather than in the row that
+  // closed it: a successful return invalidates ["retread-jobs"], the row's
+  // own job leaves the refetched list, and RetreadReturnRow unmounts with
+  // it — a line left inside that row would show for one round-trip and
+  // vanish (fix round 1 ruling, NFR-USE-010).
+  const [closedCode, setClosedCode] = useState<string | null>(null);
 
   const jobs = useQuery({ queryKey: ["retread-jobs"], queryFn: fetchRetreadJobs });
 
@@ -196,6 +222,8 @@ export function RetreadQueue() {
         </h1>
         <Link to="/fleet/tyres">Back to register</Link>
       </div>
+
+      {closedCode !== null && <p role="status">{`The return for ${closedCode} was logged.`}</p>}
 
       {jobs.isPending && <p>Loading…</p>}
 
@@ -231,6 +259,7 @@ export function RetreadQueue() {
                 job={job}
                 tenantKey={tenantKey}
                 sentOnDisplay={asDate(job.sentAt)}
+                onSuccess={() => setClosedCode(job.displayCode)}
               />
             ))}
           </tbody>

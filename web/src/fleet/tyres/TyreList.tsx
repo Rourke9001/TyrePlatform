@@ -31,13 +31,29 @@ function multiMatchNote(count: number, code: string): string {
   return `${subject} carried code ${code} on that date — resolve by eye, the system never guesses.`;
 }
 
+// The last write this screen's rows made, held here rather than inside the
+// row that made it (fix round 1 ruling): a dispatch or a return moves the
+// tyre off the state that offered the control, the refetch swaps the row's
+// own cell for a different one, and a line left inside the old cell would
+// show for one round-trip and vanish before anyone could read it.
+type ActedOn =
+  | { kind: "dispatch"; code: string; destination: "AT_RETREADER" | "AT_BREAKDOWN_SUPPLIER" }
+  | { kind: "return"; code: string };
+
+function actedMessage(acted: ActedOn): string {
+  if (acted.kind === "return") return `Tyre ${acted.code} was returned to stock.`;
+  const place = acted.destination === "AT_RETREADER" ? "the retreader" : "the breakdown supplier";
+  return `Tyre ${acted.code} was sent to ${place}.`;
+}
+
 // Row actions by tyre.state (TYRE-92/93 D7, U1/U2): which write a row
 // offers is a fact about where the casing currently sits, not a flag this
 // screen invents. Every transition rule enforced past this point belongs to
 // the write it fronts (app.dispatch_tyre, app.return_tyre_to_stock,
 // app.dispose_tyre) — this only decides which form the state makes
-// reachable.
-function rowActions(t: Tyre, tenantKey: string) {
+// reachable. onActed carries a row's success up to the screen-level
+// confirmation (see ActedOn above).
+function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => void) {
   if (isDisposed(t.state)) return "—";
   switch (t.state) {
     case "IN_STOCK":
@@ -45,24 +61,37 @@ function rowActions(t: Tyre, tenantKey: string) {
     case "REMOVED":
       return (
         <div className="tyres-row-actions">
-          <ReturnToStockButton tyre={t} tenantKey={tenantKey} />
-          <DispatchForm tyre={t} tenantKey={tenantKey} />
+          <ReturnToStockButton
+            tyre={t}
+            tenantKey={tenantKey}
+            onSuccess={() => onActed({ kind: "return", code: t.displayCode })}
+          />
+          <DispatchForm
+            tyre={t}
+            tenantKey={tenantKey}
+            onSuccess={(destination) =>
+              onActed({ kind: "dispatch", code: t.displayCode, destination })
+            }
+          />
           <DisposeForm tyre={t} tenantKey={tenantKey} />
         </div>
       );
     case "AT_BREAKDOWN_SUPPLIER":
-      // LOST only: app.dispose_tyre's SCRAPPED/SOLD branches do not reach
-      // this state (000031's own transition table).
+      // No disposal reaches this state directly: app.dispose_tyre (000031)
+      // refuses SCRAPPED and LOST alike unless the tyre is IN_STOCK or
+      // REMOVED. The path today is return to stock, then dispose from
+      // IN_STOCK — this offers only the write that actually succeeds.
       return (
-        <div className="tyres-row-actions">
-          <ReturnToStockButton tyre={t} tenantKey={tenantKey} />
-          <DisposeForm tyre={t} tenantKey={tenantKey} allowedDisposals={["LOST"]} />
-        </div>
+        <ReturnToStockButton
+          tyre={t}
+          tenantKey={tenantKey}
+          onSuccess={() => onActed({ kind: "return", code: t.displayCode })}
+        />
       );
     case "AT_RETREADER":
-      // Tyre carries no depot field (api/tyres.ts's own comment on why): the
-      // register cannot name which retreader without one, so this reads
-      // generically rather than a Go field added for one row's text.
+      // Tyre carries no depot field: the register cannot name which
+      // retreader without one, so this reads generically rather than a Go
+      // field added for one row's text.
       return "At the retreader — log the return under Retreads";
     case "FITTED":
       return "Fitted — see the unit";
@@ -81,6 +110,7 @@ export function TyreList() {
   const [codeInput, setCodeInput] = useState("");
   const [dateInput, setDateInput] = useState("");
   const [lookup, setLookup] = useState<{ code: string; on: string } | null>(null);
+  const [acted, setActed] = useState<ActedOn | null>(null);
 
   // code+on take over from the awaiting-cost toggle when a lookup is active
   // (FR-TYR-042 resolves by date, not by the backlog filter) — the same
@@ -163,6 +193,10 @@ export function TyreList() {
         <p className="tyres-lookup-note">{multiMatchNote(rows.length, lookup.code)}</p>
       )}
 
+      {/* One confirmation region for every row write (fix round 1 ruling) —
+          see ActedOn above for why this cannot live inside the row. */}
+      {acted !== null && <p role="status">{actedMessage(acted)}</p>}
+
       {tyres.isPending && <p>Loading…</p>}
 
       {tyres.isError && (
@@ -215,7 +249,7 @@ export function TyreList() {
                     reads as advice for a tyre that is not reachable from
                     here. rowActions hides every form once the state is
                     terminal, matching the Set-cost column's dash pattern. */}
-                <td>{rowActions(t, tenantKey)}</td>
+                <td>{rowActions(t, tenantKey, setActed)}</td>
               </tr>
             ))}
           </tbody>

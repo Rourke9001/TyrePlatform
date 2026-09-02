@@ -16,7 +16,10 @@ function fitment(overrides: Partial<FleetFitment> & { fitmentId: string }): Flee
     positionCode: "POS1",
     tyreId: "t1",
     displayCode: "TY001",
-    fittedAt: "2026-08-01",
+    // Wire-shaped (units.go:454's own fittedAt.UTC().Format(time.RFC3339)),
+    // not a bare date: an instant, not a calendar date, is what this field
+    // carries over the wire.
+    fittedAt: "2026-08-01T22:30:00Z",
     daysFitted: 10,
     ...overrides,
   };
@@ -63,6 +66,19 @@ describe("the fitments list", () => {
     const row = (await screen.findByRole("link", { name: "HORSE-1" })).closest("tr");
     if (!row) throw new Error("row not found");
     expect(within(row).getByText("42")).toBeInTheDocument();
+  });
+
+  // rule 6: an instant renders in the tenant's own zone, not the browser's —
+  // 22:30Z is 00:30 the next day in Africa/Johannesburg (me()'s own zone).
+  it("renders fitted on through useTenantDate", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, [fitment({ fitmentId: "f1", fittedAt: "2026-08-01T22:30:00Z" })]),
+    );
+    renderScreen();
+
+    const row = (await screen.findByRole("link", { name: "HORSE-1" })).closest("tr");
+    if (!row) throw new Error("row not found");
+    expect(within(row).getByText("02 Aug 2026")).toBeInTheDocument();
   });
 
   it("shows a note card when no positions are fitted", async () => {
