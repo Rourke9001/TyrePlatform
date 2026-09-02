@@ -119,6 +119,20 @@ func post(t *testing.T, h http.Handler, path, tenant, user, body string) *httpte
 	return rec
 }
 
+// patch is post for an edit. The method is the whole of it: chi routes on the
+// method, so a request built with the wrong one reaches MethodNotAllowed
+// rather than the handler under test.
+func patch(t *testing.T, h http.Handler, path, tenant, user, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPatch, path, strings.NewReader(body))
+	req.Header.Set("X-Tenant-ID", tenant)
+	req.Header.Set("X-User-ID", user)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	return rec
+}
+
 // plantUser adds a user to a planted tenant. The parameter is bound like any
 // other; the cast is what tells Postgres the text is a user_role.
 func plantUser(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, role auth.Role) uuid.UUID {

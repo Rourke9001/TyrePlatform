@@ -97,6 +97,8 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Get("/vehicles", listVehicles(s))
 		r.Post("/vehicles", createVehicle(s))
 		r.Get("/vehicles/{vehicleID}", getUnit(s))
+		r.Patch("/vehicles/{vehicleID}", patchUnit(s))
+		r.Post("/vehicles/{vehicleID}/status", setUnitStatus(s))
 		r.Get("/vehicles/{vehicleID}/fitments", listUnitFitments(s))
 		r.Get("/fitments", listOpenFitments(s))
 		r.Get("/depots", listDepots(s))

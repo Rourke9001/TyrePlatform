@@ -9,6 +9,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
 	"tyreplatform/api/internal/auth"
@@ -178,6 +179,11 @@ type unitBody struct {
 	ID                string             `json:"id"`
 	FleetNumber       string             `json:"fleetNumber"`
 	Registration      *string            `json:"registration"`
+	Description       *string            `json:"description"`
+	BodyType          *string            `json:"bodyType"`
+	UnitDescriptor    *string            `json:"unitDescriptor"`
+	HomeDepotID       *string            `json:"homeDepotId"`
+	OperatingGroupID  *string            `json:"operatingGroupId"`
 	UnitKind          *string            `json:"unitKind"`
 	Status            string             `json:"status"`
 	ConfigurationID   string             `json:"configurationId"`
@@ -515,4 +521,575 @@ func TestGetUnitAnswersEmptyShapesForABareUnit(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.False(t, body.HasHistory, "no fitment, inspection or reading row exists for this unit")
 	require.False(t, body.HasOdometer, "plantTenantWithVehicle leaves unit_kind NULL")
+}
+
+// plantOperatingGroup plants the grouping row a unit can be assigned to.
+// Nothing but a name is needed: app.operating_group carries its own defaults
+// for active and created_at (000012), and the edit under test names only its
+// id.
+func plantOperatingGroup(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var groupID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.operating_group (tenant_id, name) VALUES ($1, $2) RETURNING id`,
+		tenantID, "group-"+uuid.NewString()[:8],
+	).Scan(&groupID))
+	return groupID
+}
+
+// patchedUnit sends one edit and answers the unit body it came back with.
+// The 200 is asserted here so every test below reads the unit read's own
+// shape (D6) rather than discovering a refusal three assertions later.
+func patchedUnit(t *testing.T, h http.Handler, vehicleID, tenant, user, body string) unitBody {
+	t.Helper()
+	rec := patch(t, h, "/api/vehicles/"+vehicleID, tenant, user, body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var out unitBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &out))
+	return out
+}
+
+// D5: the descriptive edit is one parameterised UPDATE, and three separate
+// PATCHes are what prove the three column shapes it carries. A single
+// "everything at once" edit would pass against an implementation that wrote
+// NULL into every column the caller did not name, and against one that could
+// not clear a nullable id at all. The second PATCH names one field only, so
+// the COALESCE is load-bearing; the third clears the depot with "", the only
+// shape that distinguishes "unchanged" from "cleared" on the wire.
+func TestPatchUnitEditsDescriptiveFields(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-fields")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	depotID, _ := plantDepotOfType(t, ctx, admin, tenantID, "DEPOT")
+	// This PATCH is the only write surface for operating_group_id, and two
+	// rules nowhere near it read the column: threshold_policy resolution and
+	// schedule targeting (000012). An untested edit here is an untested input
+	// to both.
+	groupID := plantOperatingGroup(t, ctx, admin, tenantID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	written := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"registration":"CA 123-456","description":"Long haul horse","bodyType":"TAUTLINER",`+
+			`"unitDescriptor":"Horse A","homeDepotId":"`+depotID.String()+`",`+
+			`"operatingGroupId":"`+groupID.String()+`"}`)
+	require.NotNil(t, written.Registration)
+	require.Equal(t, "CA 123-456", *written.Registration)
+	require.NotNil(t, written.Description)
+	require.Equal(t, "Long haul horse", *written.Description)
+	require.NotNil(t, written.BodyType)
+	require.Equal(t, "TAUTLINER", *written.BodyType)
+	require.NotNil(t, written.UnitDescriptor)
+	require.Equal(t, "Horse A", *written.UnitDescriptor)
+	require.NotNil(t, written.HomeDepotID)
+	require.Equal(t, depotID.String(), *written.HomeDepotID)
+	require.NotNil(t, written.OperatingGroupID)
+	require.Equal(t, groupID.String(), *written.OperatingGroupID)
+	require.Len(t, written.Positions, 3, "the PATCH answers with the unit read's own body")
+
+	newFleet := "PATCHED-" + uuid.NewString()[:8]
+	kept := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"fleetNumber":"`+newFleet+`"}`)
+	require.Equal(t, newFleet, kept.FleetNumber)
+	require.NotNil(t, kept.Description)
+	require.Equal(t, "Long haul horse", *kept.Description, "an absent key leaves its column alone")
+	require.NotNil(t, kept.BodyType)
+	require.Equal(t, "TAUTLINER", *kept.BodyType)
+	require.NotNil(t, kept.HomeDepotID)
+	require.Equal(t, depotID.String(), *kept.HomeDepotID)
+	require.NotNil(t, kept.OperatingGroupID)
+	require.Equal(t, groupID.String(), *kept.OperatingGroupID)
+
+	cleared := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"homeDepotId":"","operatingGroupId":""}`)
+	require.Nil(t, cleared.HomeDepotID, "an empty string clears a nullable id")
+	require.Nil(t, cleared.OperatingGroupID)
+	require.NotNil(t, cleared.Description)
+	require.Equal(t, "Long haul horse", *cleared.Description, "clearing one field changes no other")
+	require.Equal(t, newFleet, cleared.FleetNumber)
+
+	// D5 gives the text columns no clear at all, so a blank one reads as
+	// absence: the column keeps what it holds rather than emptying.
+	blankText := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"description":""}`)
+	require.NotNil(t, blankText.Description)
+	require.Equal(t, "Long haul horse", *blankText.Description,
+		"a text column is edited through this surface, never cleared")
+
+	// Another fleet's operating group is not an id this unit may hold, and
+	// the composite FK (000012) is the only thing that says so: it reaches Go
+	// as 23503 and comes back canned, never naming the constraint.
+	tenantB, _ := plantTenant(t, ctx, admin, "patch-fields-b")
+	groupB := plantOperatingGroup(t, ctx, admin, tenantB)
+	crossTenant := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(),
+		`{"operatingGroupId":"`+groupB.String()+`"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, crossTenant.Code, crossTenant.Body.String())
+	var crossRef refusalBody
+	require.NoError(t, json.Unmarshal(crossTenant.Body.Bytes(), &crossRef))
+	require.Equal(t, "invalid_submission", crossRef.Code)
+	var groupAfter *uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT operating_group_id FROM app.vehicle WHERE id = $1`, mine).Scan(&groupAfter))
+	require.Nil(t, groupAfter, "a refused edit leaves the column as it stood")
+
+	// A TECHNICIAN holds ViewFleet alone (auth.go), so it reads this unit and
+	// may not edit it — the capability gate, not the route, is what refuses.
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	require.Equal(t, http.StatusOK,
+		get(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), technician.String()).Code)
+	require.Equal(t, http.StatusForbidden,
+		patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), technician.String(),
+			`{"description":"a technician may not edit this"}`).Code)
+}
+
+// D5: configuration_id and unit_kind are not fields of this request, in any
+// spelling, and the decoder is what says so — before a transaction opens, so
+// TY008 (000028's trigger) stays a pure database backstop no endpoint can
+// reach (docs/implementation-order.md §B5). Each refusal names the key the
+// caller sent, because "invalid_submission" alone leaves a form with nothing
+// to point at.
+func TestPatchUnitRefusesConfigurationID(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-refuses")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var configBefore uuid.UUID
+	var kindBefore string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT configuration_id, unit_kind::text FROM app.vehicle WHERE id = $1`, mine,
+	).Scan(&configBefore, &kindBefore))
+
+	for _, tc := range []struct{ key, value string }{
+		{"configurationId", uuid.NewString()},
+		{"unitKind", "TRAILER"},
+		{"configuration_id", uuid.NewString()},
+		{"unit_kind", "TRAILER"},
+	} {
+		t.Run(tc.key, func(t *testing.T) {
+			rec := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(),
+				`{"`+tc.key+`":"`+tc.value+`"}`)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Contains(t, ref.Message, tc.key, "the refusal names the field the caller sent")
+			require.NotContains(t, ref.Message, "app.vehicle",
+				"a decoder refusal names no schema object (ADR-0012)")
+		})
+	}
+
+	var configAfter uuid.UUID
+	var kindAfter string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT configuration_id, unit_kind::text FROM app.vehicle WHERE id = $1`, mine,
+	).Scan(&configAfter, &kindAfter))
+	require.Equal(t, configBefore, configAfter, "a refused PATCH moves no configuration")
+	require.Equal(t, kindBefore, kindAfter)
+
+	// The other two bodies this decoder refuses. encoding/json accepts both
+	// where the json.Unmarshal beside it does not: Decode reads one value and
+	// stops, and it fills a struct from a literal null without complaint. A
+	// body this surface cannot read is malformed rather than invalid, because
+	// nothing in it is a field the caller got wrong.
+	for _, tc := range []struct{ name, body string }{
+		{"a second value after the first", `{"description":"first"}{"configurationId":"smuggled"}`},
+		{"a literal null", `null`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(), tc.body)
+			require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "malformed_json", ref.Code)
+		})
+	}
+	var description *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT description FROM app.vehicle WHERE id = $1`, mine).Scan(&description))
+	require.Nil(t, description, "a malformed body lands none of the values it did parse")
+
+	// The control: the same route, the same actor, a field that IS of this
+	// request. Without it every refusal above would also pass against a route
+	// that refused everything.
+	edited := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"description":"still editable"}`)
+	require.NotNil(t, edited.Description)
+	require.Equal(t, "still editable", *edited.Description)
+}
+
+// FR-VEH-041/U6: tags replace, they do not merge. The three edits are set,
+// narrow and clear, each read back — a merging implementation passes the
+// first and fails the second, and one that ignored an empty array passes
+// both and fails the third. The tag NAME survives a clear (000035 restores
+// DELETE on the map alone, never on app.vehicle_tag), which the second unit
+// still carrying it is what proves.
+func TestPatchUnitReplacesTags(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, other, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-tags")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	countTag := func(name string) int {
+		var n int
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT count(*) FROM app.vehicle_tag WHERE tenant_id = $1 AND name = $2`, tenantID, name,
+		).Scan(&n))
+		return n
+	}
+
+	set := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"tags":["LONG HAUL","REEFER"]}`)
+	require.ElementsMatch(t, []string{"LONG HAUL", "REEFER"}, set.Tags)
+
+	// The second unit takes one of the same names: a tag row is created once
+	// per tenant and shared, so this is also the upsert's ON CONFLICT branch.
+	shared := patchedUnit(t, h, other.String(), tenantID.String(), controller.String(),
+		`{"tags":["REEFER"]}`)
+	require.Equal(t, []string{"REEFER"}, shared.Tags)
+	require.Equal(t, 1, countTag("REEFER"), "a tag name is created once per tenant, not once per unit")
+
+	narrowed := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"tags":["REEFER"]}`)
+	require.Equal(t, []string{"REEFER"}, narrowed.Tags, "the set is replaced, not merged")
+
+	// A blank name is not a tag, and the refusal leaves the set as it stood.
+	blank := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(),
+		`{"tags":["REEFER","  "]}`)
+	require.Equal(t, http.StatusUnprocessableEntity, blank.Code, blank.Body.String())
+	var blankRef refusalBody
+	require.NoError(t, json.Unmarshal(blank.Body.Bytes(), &blankRef))
+	require.Equal(t, "invalid_submission", blankRef.Code)
+	require.Contains(t, blankRef.Message, "tags")
+
+	// A repeated name is one tag. Without the de-duplication the second map
+	// insert would meet the map primary key and answer 409, so this asserts
+	// how the handler reads the request rather than what the constraint does.
+	deduped := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"tags":["REEFER","REEFER"]}`)
+	require.Equal(t, []string{"REEFER"}, deduped.Tags)
+
+	// An absent key is not an empty set.
+	untouched := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"description":"tags untouched"}`)
+	require.Equal(t, []string{"REEFER"}, untouched.Tags)
+
+	emptied := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"tags":[]}`)
+	require.Empty(t, emptied.Tags, "an empty array clears the set")
+
+	stillTagged := get(t, h, "/api/vehicles/"+other.String(), tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, stillTagged.Code, stillTagged.Body.String())
+	var otherBody unitBody
+	require.NoError(t, json.Unmarshal(stillTagged.Body.Bytes(), &otherBody))
+	require.Equal(t, []string{"REEFER"}, otherBody.Tags,
+		"one unit's clear must not strip the name from another unit")
+	require.Equal(t, 1, countTag("REEFER"), "the tag name itself is never deleted by an edit")
+}
+
+// DR-003's uniqueness is the constraint's alone: the PATCH carries no
+// pre-check, so vehicle_tenant_id_fleet_number_key is what refuses this and
+// conflictCodes is what names it for the caller. This is the one test on the
+// surface that reaches a conflictCodes entry in anger rather than only
+// asserting the key names a live schema object.
+func TestPatchUnitFleetNumberConflictIs409(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, other, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-conflict")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var taken, mineBefore string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT fleet_number FROM app.vehicle WHERE id = $1`, other).Scan(&taken))
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT fleet_number FROM app.vehicle WHERE id = $1`, mine).Scan(&mineBefore))
+
+	rec := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(),
+		`{"fleetNumber":"`+taken+`","description":"landed anyway?"}`)
+	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "fleet_number_taken", ref.Code)
+
+	var mineAfter string
+	var description *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT fleet_number, description FROM app.vehicle WHERE id = $1`, mine,
+	).Scan(&mineAfter, &description))
+	require.Equal(t, mineBefore, mineAfter)
+	require.Nil(t, description, "a refused edit lands none of its fields")
+
+	// Another tenant may hold the same fleet number: the constraint is
+	// per-tenant, so the refusal above is DR-003's and not a global
+	// uniqueness this surface invented.
+	tenantB, mineB, _, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-conflict-b")
+	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
+	require.Equal(t, taken,
+		patchedUnit(t, h, mineB.String(), tenantB.String(), controllerB.String(),
+			`{"fleetNumber":"`+taken+`"}`).FleetNumber)
+}
+
+// FR-AUD-001: the edit is audited by 000035's vehicle_audited trigger, which
+// is why the handler carries no audit code at all — an implementation that
+// wrote its own row would fail the "exactly one" count. action is filtered to
+// UPDATE because the fixture's own INSERT already wrote a row for this unit
+// with a NULL actor (the trigger fires on both).
+func TestPatchUnitAuditsTheChange(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-audit")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	countUpdates := func() int {
+		var n int
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT count(*) FROM app.audit_log
+			  WHERE entity_type = 'vehicle' AND entity_id = $1 AND action = 'UPDATE'`, mine,
+		).Scan(&n))
+		return n
+	}
+	require.Zero(t, countUpdates(), "no edit has happened yet")
+
+	patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
+		`{"description":"audited edit"}`)
+	require.Equal(t, 1, countUpdates(), "one edit writes exactly one audit row")
+
+	var actorID, tenantOnRow uuid.UUID
+	var afterDescription string
+	var beforeDescription *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT actor_id, tenant_id, after->>'description', before->>'description'
+		   FROM app.audit_log
+		  WHERE entity_type = 'vehicle' AND entity_id = $1 AND action = 'UPDATE'
+		  ORDER BY at DESC, id DESC LIMIT 1`, mine,
+	).Scan(&actorID, &tenantOnRow, &afterDescription, &beforeDescription))
+	require.Equal(t, controller, actorID, "the acting user is the one the actor transaction bound")
+	require.Equal(t, tenantID, tenantOnRow)
+	require.Equal(t, "audited edit", afterDescription)
+	require.Nil(t, beforeDescription, "the row before the edit carried no description")
+}
+
+// The WITH CHECK kill for the tag map, the shape admin_test.go's
+// TestWriteAimedAtAnotherTenantIsRefused established. Every id is tenant B's
+// own — its unit and its tag — so a composite FK (000012) cannot be what
+// refuses this row: the one thing wrong with it is that tenant A is writing
+// it (lesson 2026-08-28). app.vehicle_tag_map has no created_by column, so
+// that lesson's FK trap has no counterpart to fall into here.
+func TestWriteAimedAtAnotherTenantIsRefused_VehicleTag(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, _, _, _, _, _ := plantUnitFixture(t, ctx, admin, "tagmap-withcheck-a")
+	tenantB, mineB, _, _, _, _ := plantUnitFixture(t, ctx, admin, "tagmap-withcheck-b")
+	userA := plantUser(t, ctx, admin, tenantA, auth.RoleController)
+
+	var tagB uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle_tag (tenant_id, name) VALUES ($1, $2) RETURNING id`,
+		tenantB, "SMUGGLED-"+uuid.NewString()[:8],
+	).Scan(&tagB))
+
+	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx,
+			`INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES ($1, $2, $3)`,
+			tenantB, mineB, tagB)
+		return err
+	})
+	require.Error(t, err, "a tag map row aimed at another tenant was accepted")
+
+	var pgErr *pgconn.PgError
+	require.ErrorAs(t, err, &pgErr)
+	// 42501 is insufficient_privilege, which is how row-level security
+	// refuses a write it will not admit.
+	require.Equal(t, "42501", pgErr.Code)
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.vehicle_tag_map WHERE tag_id = $1`, tagB).Scan(&landed))
+	require.Zero(t, landed)
+}
+
+// FR-VEH-005/FR-VEH-006 and INV-2, end to end over app.set_vehicle_status.
+//
+// The parked half deliberately does NOT assert "the driver's task list stops
+// showing the unit": app.generate_inspection_tasks skips any unit already
+// holding an OPEN or ESCALATED task whatever its status, so a second generate
+// creates nothing for either unit and that assertion would pass with the
+// v.status = 'ACTIVE' filter deleted. What is asserted instead is generation
+// itself, with a control — both units are scheduled and both generate a task;
+// the tasks are then cancelled and one unit parked; a later generate, later
+// than the interval so the due-date window is not what answers, issues a task
+// for the ACTIVE unit and none for the PARKED one. The driver's own
+// /api/my/tasks read is what reads that difference back.
+func TestSetUnitStatusParksAndDisposes(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, other, leftPos, _, _ := plantUnitFixture(t, ctx, admin, "unit-status")
+	plantRemovalReasons(t, ctx, admin, tenantID, "WORN")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, mine, driver)
+	assignVehicleDriver(t, ctx, admin, tenantID, other, driver)
+	// interval_days 1, not the table's default 7: the generator also skips a
+	// unit whose newest task is due within one interval of the as-of date, so
+	// a short interval is what leaves the status filter as the only thing
+	// that can answer the second generate below.
+	for _, vehicleID := range []uuid.UUID{mine, other} {
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.inspection_schedule (tenant_id, vehicle_id, interval_days, active)
+			 VALUES ($1, $2, 1, true)`, tenantID, vehicleID)
+		require.NoError(t, err)
+	}
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	// Generation runs inside an actor transaction, never on the admin
+	// connection: the function is invoker-rights and RLS is what scopes it to
+	// one tenant, so a superuser session would issue tasks for every tenant
+	// in the database.
+	generate := func(offsetDays int) int {
+		t.Helper()
+		var n int
+		require.NoError(t, s.InActorTx(ctx, tenantID, controller, func(tx pgx.Tx, _ auth.Actor) error {
+			return tx.QueryRow(ctx,
+				`SELECT app.generate_inspection_tasks(current_date + $1::int)`, offsetDays).Scan(&n)
+		}))
+		return n
+	}
+	myTaskVehicles := func() []string {
+		t.Helper()
+		rec := get(t, h, "/api/my/tasks", tenantID.String(), driver.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var tasks []struct {
+			VehicleID string `json:"vehicleId"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tasks))
+		out := []string{}
+		for _, task := range tasks {
+			out = append(out, task.VehicleID)
+		}
+		return out
+	}
+
+	require.Equal(t, 2, generate(0), "both units are ACTIVE and scheduled")
+	require.ElementsMatch(t, []string{mine.String(), other.String()}, myTaskVehicles())
+
+	parked := post(t, h, "/api/vehicles/"+mine.String()+"/status", tenantID.String(), controller.String(),
+		`{"status":"PARKED"}`)
+	require.Equal(t, http.StatusNoContent, parked.Code, parked.Body.String())
+
+	_, err := admin.Exec(ctx,
+		`UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = 'fixture reset'
+		  WHERE tenant_id = $1`, tenantID)
+	require.NoError(t, err)
+	require.Empty(t, myTaskVehicles(), "the planted tasks are out of the way")
+
+	require.Equal(t, 1, generate(3), "the parked unit is skipped; the ACTIVE one is not")
+	require.Equal(t, []string{other.String()}, myTaskVehicles(),
+		"FR-VEH-006: a parked unit stops being issued tasks, and only that unit does")
+
+	refused := func(vehicleID uuid.UUID, body string) refusalBody {
+		t.Helper()
+		rec := post(t, h, "/api/vehicles/"+vehicleID.String()+"/status",
+			tenantID.String(), controller.String(), body)
+		require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+		var ref refusalBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+		require.Equal(t, "TY016", ref.Code)
+		return ref
+	}
+
+	require.Contains(t, refused(mine, `{"status":"PARKED"}`).Message, "already PARKED",
+		"a no-op transition would put a row in the audit log claiming a change that did not happen")
+
+	// Shape, and only shape (ADR-0013 decision 5): a status outside the enum
+	// reaches the ::app.vehicle_status cast as 22P02 and comes back canned,
+	// and a status the request never names is refused before the transaction
+	// opens. Neither is a rule about units, so app.vehicle_status gets no
+	// second copy in Go to drift from the enum.
+	for _, tc := range []struct{ name, body, code, message string }{
+		{"a status outside the enum", `{"status":"SIDEWAYS"}`, "invalid_submission",
+			"the submission was refused as invalid"},
+		{"a blank status", `{"status":""}`, "invalid_submission", "status is required"},
+		{"no status at all", `{}`, "invalid_submission", "status is required"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := post(t, h, "/api/vehicles/"+mine.String()+"/status",
+				tenantID.String(), controller.String(), tc.body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, tc.code, ref.Code)
+			require.Equal(t, tc.message, ref.Message)
+		})
+	}
+	var parkedStill string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT status::text FROM app.vehicle WHERE id = $1`, mine).Scan(&parkedStill))
+	require.Equal(t, "PARKED", parkedStill, "a refused shape moves no status")
+
+	// INV-2: a unit leaves the fleet empty. other is a TRAILER, so no fitted
+	// odometer is required (000025) and the only thing standing between it
+	// and disposal is the casing on it.
+	tyreID := plantTyre(t, ctx, admin, tenantID, "STATUS-TYRE-"+uuid.NewString()[:8], nil)
+	fitmentID := fitTyreViaActor(t, ctx, s, tenantID, controller, tyreID, other, leftPos, "9.0", "MARK_OUTBOARD", nil)
+	require.Contains(t, refused(other, `{"status":"DISPOSED","reason":"sold at auction"}`).Message,
+		"still has fitted tyres")
+
+	var statusNow string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT status::text FROM app.vehicle WHERE id = $1`, other).Scan(&statusNow))
+	require.Equal(t, "ACTIVE", statusNow, "a refused transition moves nothing")
+
+	removeTyreViaActor(t, ctx, s, tenantID, controller, fitmentID, "WORN", "4.0", nil)
+	require.Contains(t, refused(other, `{"status":"DISPOSED"}`).Message, "records the reason",
+		"a disposal states why the unit left the fleet")
+
+	disposed := post(t, h, "/api/vehicles/"+other.String()+"/status", tenantID.String(), controller.String(),
+		`{"status":"DISPOSED","reason":"sold at auction"}`)
+	require.Equal(t, http.StatusNoContent, disposed.Code, disposed.Body.String())
+
+	require.Contains(t, refused(other, `{"status":"ACTIVE"}`).Message, "that is where a unit",
+		"DISPOSED is terminal (FR-VEH-005)")
+
+	// A DRIVER holds CaptureInspection alone: it captures on the unit and
+	// does not decide what state the unit is in.
+	require.Equal(t, http.StatusForbidden,
+		post(t, h, "/api/vehicles/"+mine.String()+"/status", tenantID.String(), driver.String(),
+			`{"status":"ACTIVE"}`).Code)
+}
+
+// The handler-level invisibility probe. Tenant A's unit is ACTIVE and the
+// target is PARKED, so a leak would let this call SUCCEED outright rather
+// than meet a second refusal sharing TY016's SQLSTATE (lesson 2026-09-01) —
+// and tenant A performing the identical transition afterwards is what proves
+// the move itself was legal.
+func TestUnitStatusCrossTenantIsInvisible(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, mineA, _, _, _, _ := plantUnitFixture(t, ctx, admin, "status-xten-a")
+	controllerA := plantUser(t, ctx, admin, tenantA, auth.RoleController)
+	tenantB, _, _, _, _, _ := plantUnitFixture(t, ctx, admin, "status-xten-b")
+	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := post(t, h, "/api/vehicles/"+mineA.String()+"/status", tenantB.String(), controllerB.String(),
+		`{"status":"PARKED"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code,
+		"tenant B reached tenant A's unit: RLS leaked it (got %s)", rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY012", ref.Code)
+	require.Equal(t, "no such unit in this fleet", ref.Message)
+
+	var statusNow string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT status::text FROM app.vehicle WHERE id = $1`, mineA).Scan(&statusNow))
+	require.Equal(t, "ACTIVE", statusNow)
+
+	own := post(t, h, "/api/vehicles/"+mineA.String()+"/status", tenantA.String(), controllerA.String(),
+		`{"status":"PARKED"}`)
+	require.Equal(t, http.StatusNoContent, own.Code, own.Body.String())
 }
