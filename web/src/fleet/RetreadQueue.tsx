@@ -219,7 +219,7 @@ export function RetreadQueue() {
   const tenantKey = getDevTenantId() ?? "default";
   const asDate = useTenantDate();
   // The last job this screen closed, held here rather than in the row that
-  // closed it: a successful return invalidates ["retread-jobs"], the row's
+  // closed it: a successful return invalidates retreadJobsKey, the row's
   // own job leaves the refetched list, and RetreadReturnRow unmounts with
   // it — a line left inside that row would show for one round-trip and
   // vanish (NFR-USE-010).
