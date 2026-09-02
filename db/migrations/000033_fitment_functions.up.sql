@@ -106,9 +106,24 @@ BEGIN
       HINT    = 'return it to stock first (Appendix C, FR-FIT-003)';
   END IF;
 
-  SELECT * INTO veh FROM app.vehicle v WHERE v.id = p_vehicle;
+  SELECT * INTO veh FROM app.vehicle v WHERE v.id = p_vehicle FOR SHARE;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+  END IF;
+  -- INV-2's converse. app.set_vehicle_status (000035) refuses a disposal
+  -- while the unit has an open fitment, which holds the invariant only at the
+  -- instant that call runs; this is what holds it afterwards. FOR SHARE on
+  -- the row is what makes the pair race-free in both directions — the
+  -- disposal's FOR UPDATE waits for an in-flight fit, and a fit that starts
+  -- after one sees the committed status — while two fits on the same unit
+  -- still do not queue behind each other, which FOR UPDATE here would force.
+  --
+  -- DISPOSED alone is refused. A PARKED, WORKSHOP, INACTIVE or OUT_OF_SERVICE
+  -- unit still has tyres changed: FR-VEH-006 pauses a unit's inspection
+  -- schedule, not the workshop's work on it.
+  IF veh.status = 'DISPOSED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'this unit is disposed; nothing is fitted to it';
   END IF;
   -- The composite FK proves the position belongs to this tenant, not that it
   -- belongs to THIS unit: position ids are shared by every unit of one axle
@@ -375,9 +390,15 @@ DECLARE
   new_fit  uuid;
   to_code  text;
 BEGIN
-  SELECT * INTO veh FROM app.vehicle v WHERE v.id = p_vehicle;
+  SELECT * INTO veh FROM app.vehicle v WHERE v.id = p_vehicle FOR SHARE;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+  END IF;
+  -- INV-2's converse, on the other writer that opens a fitment; the lock and
+  -- the DISPOSED-only scope are app.fit_tyre's, for its reasons.
+  IF veh.status = 'DISPOSED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'this unit is disposed; nothing is fitted to it';
   END IF;
   -- The shape is checked before it is walked: jsonb_array_elements on a
   -- scalar raises a bare 22023 the client cannot map to anything (D6).

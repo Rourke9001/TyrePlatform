@@ -5022,6 +5022,7 @@ DECLARE
   ghost uuid := md5('t43ghost')::uuid;
   sch   uuid := md5('t43sch')::uuid;
   ty    uuid := md5('t43ty')::uuid;
+  ty2   uuid := md5('t43ty2')::uuid;  -- IN_STOCK throughout: 43k's fit must reach the unit
   tag   uuid := md5('t43tag')::uuid;
   sz1   uuid := md5('sz1')::uuid;
   cfg uuid; pos uuid; fit uuid; r record; a app.audit_log;
@@ -5042,8 +5043,9 @@ BEGIN
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
                            unit_kind, home_depot_id, status)
   VALUES (vu, bac, 'T43-U', 'T43U GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
-  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state)
-  VALUES (ty, bac, 'T43TYRE1', sz1, 'NEW', 0, 'IN_STOCK');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (ty,  bac, 'T43TYRE1', sz1, 'NEW', 0, 'IN_STOCK'),
+    (ty2, bac, 'T43TYRE2', sz1, 'NEW', 0, 'IN_STOCK');
   INSERT INTO app.vehicle_tag (id, tenant_id, name) VALUES (tag, bac, 'T43 Long Haul');
   INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES (bac, vu, tag);
   SELECT * INTO r FROM app.fit_tyre(ty, vu, pos, 14.0, 'MARK_OUTBOARD');
@@ -5283,6 +5285,36 @@ BEGIN
       RAISE EXCEPTION 'FAIL 43j: the empty target was refused by another rule: %', SQLERRM;
     END IF;
     RAISE NOTICE 'PASS  43j a status change naming no target status is refused as an input';
+  END;
+
+  -- (k) INV-2's converse. app.set_vehicle_status proves the unit is empty at
+  -- the instant it is disposed; nothing kept it empty afterwards, so a fit
+  -- onto a disposed unit would strand a casing on a unit whose record has
+  -- ended. vu is DISPOSED by 43e with its position free, and ty2 is IN_STOCK
+  -- and never fitted, so app.fit_tyre reaches the unit rather than refusing
+  -- on the casing's own state first.
+  BEGIN
+    PERFORM app.fit_tyre(ty2, vu, pos, 12.0, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 43k: a tyre was fitted to a disposed unit';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'this unit is disposed; nothing is fitted to it' THEN
+      RAISE EXCEPTION 'FAIL 43k: the fit was refused by another rule: %', SQLERRM;
+    END IF;
+  END;
+  -- The rotation guard sits on the same read, ahead of every input check, so
+  -- the refusal names the unit rather than the payload. A disposed unit has
+  -- no open fitments to rotate by construction, which is why the moves here
+  -- only have to carry the shape the next check would look at.
+  BEGIN
+    PERFORM app.rotate_tyres(vu, jsonb_build_array(
+      jsonb_build_object('tyre_id', ty2, 'to_position_id', pos),
+      jsonb_build_object('tyre_id', ty,  'to_position_id', pos)));
+    RAISE EXCEPTION 'FAIL 43k: a rotation ran on a disposed unit';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'this unit is disposed; nothing is fitted to it' THEN
+      RAISE EXCEPTION 'FAIL 43k: the rotation was refused by another rule: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  43k a disposed unit accepts neither a fit nor a rotation';
   END;
 END $$;
 ROLLBACK;
