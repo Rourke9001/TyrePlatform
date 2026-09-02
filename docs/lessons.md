@@ -36,6 +36,95 @@ saved" fallback, read `docker logs` on the API before reading the spec: a
 `0A000` or `XX000` there means the process predates the schema it is querying,
 not that anything in the branch is wrong.
 
+## 2026-09-03 — A banner-delimited slice of `make db-test` output is not a stable baseline (TYRE-93)
+
+**What happened:** the standard way of proving a slice left the pinned
+sections alone — `make db-test 2>&1 | sed -n '/== 7\./,/== 9\./p'`, diffed
+before and after — reported a PASS line as *missing* when nothing had
+changed. `\echo` banners go to stdout and psql's `NOTICE` lines to stderr, so
+`2>&1` interleaves two streams whose relative order is not fixed: the last
+`NOTICE` of section 18 printed one line after the `== 19.` banner on the
+second run and fell outside the range. Chasing it as a real regression costs
+a reset cycle; believing it costs more.
+
+**The rule:** diff the ordered `NOTICE`/`PASS` stream, never a
+banner-delimited range. `diff <(grep PASS before.log) <(grep PASS after.log)`
+with the new section's own lines filtered out is order-stable and covers the
+whole suite; slice it with `sed -n '/<first pinned PASS text>/,/<last>/p'` on
+that stream if a section-scoped diff is wanted.
+
+## 2026-09-03 — An idempotency guard makes a "does nothing after X" assertion vacuous (TYRE-94)
+
+**What happened:** `app.generate_inspection_tasks` skips any unit that
+already holds an OPEN or ESCALATED task, so "park the unit, generate again,
+no new task appears" passed even with the `v.status = 'ACTIVE'` filter
+deleted — the second call creates nothing for any unit, parked or not, so the
+assertion could not have caught the regression it was meant to guard.
+
+**The rule:** before asserting that a filter excluded something, clear
+whatever the guard keys on (here: cancel the existing tasks, and move the
+as-of date past the due-date window) and pair the claim with a control the
+same call still acts on. If the assertion cannot fail when the rule under
+test is removed, it is testing the guard, not the rule.
+
+## 2026-09-03 — A date-driven event instant needs a floor at the tyre's own history, not just today (TYRE-93)
+
+**What happened:** `dispatch_tyre`'s event instant was `least(p_sent_on::timestamptz, now())`, cast in the session's time zone rather than the
+tenant's, which stamped a same-day dispatch at midnight — behind the removal
+it follows. `app.tyre_in_estate_asof` then read `REMOVED` while
+`app.tyre.state` read `AT_RETREADER` for the gap between midnight and the
+removal's real timestamp: two views of the same tyre disagreeing about where
+it was.
+
+**The rule:** a date-driven event instant is `now()` when the date equals
+the tenant's today, otherwise `least(date::timestamptz, now())` cast in the
+*tenant's* zone — and the function must refuse the write when that instant
+is earlier than the tyre's latest recorded movement, rather than clamping to
+it (a clamp ties two events at the same instant, which makes
+`tyre_in_estate_asof` ambiguous). Applies to any event whose caller supplies
+a date rather than a timestamp.
+
+## 2026-09-03 — A TanStack `mutate` spy read inside `fireEvent`'s act is blind to a missing guard (TYRE-92)
+
+**What happened:** a double-submit test asserted the mutate spy's call count
+immediately after `fireEvent.click`, inside the click's own synchronous
+`act()`. It read `1` whether or not the double-submit guard was present,
+because neither the guard nor its absence had run yet at that point — the
+assertion passed for a component that could not have failed it.
+
+**The rule:** a mutation call count proves nothing until the mutation has
+actually resolved. Assert after the success text renders (`await
+findByText(...)`), not inside the event's synchronous `act`, and confirm the
+assertion fails with the guard removed before trusting it.
+
+## 2026-09-03 — "Wait for the sibling" on both sides of a shared file deadlocks (TYRE-92)
+
+**What happened:** two agents were both told to wait for the other's commit
+before touching a file they shared (`web/src/fleet/fleet.css`) mid-round.
+After several minutes of polling, neither had committed, because each was
+waiting on the other by the same rule. The deadlock was broken by staging one
+agent's two hunks directly into the git index — built as `HEAD` plus its own
+hunks only, via `hash-object`/`update-index`, never touching the sibling's
+working copy — rather than committing the sibling's uncommitted work.
+
+**The rule:** when two agents share one file in one worktree, name which one
+commits first; do not tell both sides to wait for the other. If a deadlock
+happens anyway, resolve it by writing only your own hunks to the index, never
+by committing or reverting the sibling's working tree.
+
+## 2026-09-03 — `scripts/check-comment-style.mjs` does not see `.css` (a follow-up ticket)
+
+**What happened:** a narrating comment ("no longer …") slipped into
+`dashboard.css` and passed every gate — `make lint`, the pre-commit hook, and
+CI — because `scripts/check-comment-style.mjs` only checks the file
+extensions it was written against, and `.css` is not one of them. The
+comment-style standard (`docs/comments.md`) applies to every language in the
+repo; the gate does not yet enforce that.
+
+**The rule:** until the gate covers `.css`, check CSS comments by eye —
+during review and at `/comment-audit` time — rather than trusting a clean
+`make lint` to mean CSS narration was caught.
+
 ## 2026-09-01 — A staging guard with assertions inside it is a test that runs once (TYRE-97)
 
 **What happened:** the TYRE-85 entry below recorded one suite section that

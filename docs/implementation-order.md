@@ -348,7 +348,7 @@ information — 84 months, then pseudonymised — so nothing blocks the surface
 when it is scheduled. Build the invite and reactivate paths; leave deactivation
 for a later batch.
 
-### B5 — the asset flow — **next**
+### B5 — the asset flow — **delivered**
 
 **TYRE-48 with TYRE-91, then TYRE-92 with TYRE-93, then TYRE-94.** TYRE-87
 rides along.
@@ -395,6 +395,43 @@ section warns against.
   `submitStatus` deferral; TY008 never enters (below). Pick up here: read
   slice 1's design doc §Out-of-scope table first — it names what was
   deliberately deferred and to which ticket.
+
+  **Slice 2 — delivered 2026-09-03 (TYRE-92/93/94/48, PR TBD).** Plan and
+  design at `docs/superpowers/plans/2026-09-01-b5-fitment-surface.md` and
+  `docs/superpowers/specs/2026-09-01-b5-fitment-surface-design.md`; branch
+  `TYRE-92-fitment-surface`.
+
+  | Migration | What it does |
+  |---|---|
+  | `000032_fitment_written_once` | a fitment is written once and closed once; the breakdown dispatch joins the vocabulary; removal reasons; Sandbox depots |
+  | `000033_fitment_functions` | the fitment lifecycle functions — fit, remove, rotate, dispatch, return |
+  | `000034_log_retread_return` | a retread return propagates to the tyre — the cap and the rejected-casing valuation |
+  | `000035_vehicle_status_and_audit` | unit status transitions, audited per ADR-0014 |
+  | `000036` | not present at this branch's HEAD (`c8b5be5`) — landing in parallel on the DB agent's wave; the as-at valuation fallback honouring `last_tread_at`, per that wave's brief |
+
+  Thirteen routes reach `/api` for the first time in this slice: the unit
+  read and its PATCH (`GET`/`PATCH /vehicles/{id}`), status transitions
+  (`POST /vehicles/{id}/status`), fitment history and the fleet-wide open
+  list (`GET /vehicles/{id}/fitments`, `GET /fitments`), depots and retread
+  jobs (`GET /depots`, `GET /retread-jobs`), the three fitment writes
+  (`POST /vehicles/{id}/fitments`, `POST /fitments/{id}/remove`,
+  `POST /vehicles/{id}/rotations`), and dispatch, return-to-stock and Log
+  Retread (`POST /tyres/{id}/dispatch`, `POST /tyres/{id}/return`,
+  `POST /retread-jobs/{id}/return`). `TY008`'s non-entry in `submitStatus`
+  is done in code, not merely decided: `patchUnit`'s request type carries no
+  `configurationId`/`unitKind` field, and `decodeJSONStrict` refuses either
+  key outright (ADR-0012's amendment).
+
+  The web surface: the unit screen (`UnitDetail` — a data-driven plan view,
+  fit, remove, rotate, edit and status), the register's dispatch and
+  return-to-stock actions, the retread queue, and the fleet-wide fitments
+  list, routed behind their capabilities per the corrected D7 (spec
+  correction, 2026-09-03). `web/e2e/fitments.spec.ts` is the proof: one
+  continuous, serial Playwright run against Sandbox Fleet that receives
+  stock, fits a trailer and a horse, rotates, removes, dispatches a casing
+  to the retreader, logs its return, then parks and disposes the unit —
+  every write this slice added, in one chain where each step reads what the
+  step before it wrote.
 
 The tyre register and fitment are the platform's central loop — a fleet tyre
 system that cannot receive a tyre or record where it is fitted does not
@@ -446,7 +483,7 @@ controller's rig and fitment work collides with that gating, with TYRE-82's
 trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 **Units · Tyres · Rigs · Fitments**.
 
-### B6 — the rig-setup surface
+### B6 — the rig-setup surface — **next**
 
 *Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
 `20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch.*

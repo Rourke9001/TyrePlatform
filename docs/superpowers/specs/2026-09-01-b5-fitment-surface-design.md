@@ -483,6 +483,15 @@ Rigs when B6 builds it. "Configuration" appears nowhere.
   (hide) stays on `/fleet` and `/fleet/fitments` as the read routes. The
   two components are deliberate (routes.tsx) and are not unified here.
 
+  **Corrected 2026-09-03 (Task 17 ruling).** The rule is not "new screens
+  alert, read routes hide" — it is which kind of route each one is. `hide`
+  is for the nav's own entry points, reached by someone who can see the link
+  or not: `/fleet` and `/fleet/fitments` alone. `alert` is for every route
+  someone can be deep-linked to, because a URL typed or bookmarked is a
+  destination they navigated to, not a link they saw or didn't — and that
+  includes `/fleet/units/:unitId`, which the draft above left on
+  `RequireCapability`. It moves to `AdminRoute capability="ViewFleet"`.
+
 ### D8. Test data
 
 Sandbox Fleet gains, in the seed generator: a `RETREADER` depot and a

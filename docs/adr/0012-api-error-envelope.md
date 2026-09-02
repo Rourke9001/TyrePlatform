@@ -173,3 +173,14 @@ refusal in front of the API carries none — so `ApiError.code` is
 a code the capture app does not use today; or the vocabulary passes roughly
 a dozen codes and a generated shared definition starts to pay for itself
 over two hand-maintained lists.
+
+**Amended 2026-09-03 (TYRE-92):** consequence 2's premise held for exactly
+one batch. `TY009` is reachable now — B5 slice 2 gave `app.fitment` its first
+writers, `app.fit_tyre`/`app.remove_tyre`/`app.rotate_tyres`, and
+`submitStatus` carries the entry with a test that fails without it.
+`TY008` stays out permanently rather than temporarily: TYRE-94, the batch
+that could have reopened `vehicle.configuration_id`/`unit_kind` editing,
+instead has the unit `PATCH` decoder refuse both fields outright before a
+transaction ever opens (`docs/implementation-order.md` §B5) — a database
+backstop against a path the API deliberately never offers. An entry for it
+would still carry no test able to fail.
