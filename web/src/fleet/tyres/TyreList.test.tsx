@@ -408,6 +408,95 @@ describe("the tyre register", () => {
     expect(link).toHaveAttribute("href", "/fleet/tyres/new");
   });
 
+  // U1/U2: dispatch is offered on REMOVED only, never on IN_STOCK.
+  it("offers only Dispose for a tyre IN_STOCK, never dispatch or return", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1", state: "IN_STOCK" })] }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByRole("combobox", { name: /disposal for pos1/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /return to stock/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: /destination/i })).not.toBeInTheDocument();
+  });
+
+  it("offers return to stock, dispatch and dispose for a REMOVED tyre", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1", state: "REMOVED" })] }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByRole("button", { name: /return to stock/i })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: /destination/i })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: /disposal for pos1/i })).toBeInTheDocument();
+  });
+
+  // AT_BREAKDOWN_SUPPLIER offers a LOST-only disposal: app.dispose_tyre's
+  // SCRAPPED/SOLD branches never reach this state (000031).
+  it("offers return to stock and a lost-only dispose for a tyre AT_BREAKDOWN_SUPPLIER", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [tyre({ id: "t1", displayCode: "POS1", state: "AT_BREAKDOWN_SUPPLIER" })],
+      }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByRole("button", { name: /return to stock/i })).toBeInTheDocument();
+    const disposalSelect = screen.getByRole("combobox", { name: /disposal for pos1/i });
+    const options = within(disposalSelect)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options).toEqual(["Choose…", "Lost"]);
+    expect(screen.queryByRole("radiogroup", { name: /destination/i })).not.toBeInTheDocument();
+  });
+
+  it("tells the operator to log the return under Retreads for a tyre AT_RETREADER, and offers no form", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1", state: "AT_RETREADER" })] }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(
+      screen.getByText(/at the retreader.*log the return under retreads/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /return to stock/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /disposal for pos1/i })).not.toBeInTheDocument();
+  });
+
+  it("shows a see-the-unit note for a FITTED tyre, and offers no form", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1", state: "FITTED" })] }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByText(/fitted — see the unit/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /return to stock/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("combobox", { name: /disposal for pos1/i })).not.toBeInTheDocument();
+  });
+
+  it("links to the retread queue for an actor with LogRetread", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [] }));
+    renderScreen(["ManageAssets", "LogRetread"]);
+
+    expect(await screen.findByRole("link", { name: /^retreads$/i })).toHaveAttribute(
+      "href",
+      "/fleet/tyres/retreads",
+    );
+  });
+
+  it("hides the retreads link for an actor without LogRetread", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [] }));
+    renderScreen(["ManageAssets"]);
+
+    await screen.findByRole("link", { name: /receive tyres/i });
+    expect(screen.queryByRole("link", { name: /^retreads$/i })).not.toBeInTheDocument();
+  });
+
   it("shows an alert with a retry action when the register fails to load, and recovers on retry", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(500, { code: "boom", message: "down" }));
     renderScreen();

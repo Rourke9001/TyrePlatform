@@ -7,7 +7,9 @@ import { fetchTyres, isDisposed, type Tyre } from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { CostForm } from "./CostForm";
+import { DispatchForm } from "./DispatchForm";
 import { DisposeForm } from "./DisposeForm";
+import { ReturnToStockButton } from "./ReturnToStockButton";
 import "../fleet.css";
 
 // fetchTyres's own optional-filter shape, not redeclared: the two are one
@@ -29,9 +31,50 @@ function multiMatchNote(count: number, code: string): string {
   return `${subject} carried code ${code} on that date — resolve by eye, the system never guesses.`;
 }
 
+// Row actions by tyre.state (TYRE-92/93 D7, U1/U2): which write a row
+// offers is a fact about where the casing currently sits, not a flag this
+// screen invents. Every transition rule enforced past this point belongs to
+// the write it fronts (app.dispatch_tyre, app.return_tyre_to_stock,
+// app.dispose_tyre) — this only decides which form the state makes
+// reachable.
+function rowActions(t: Tyre, tenantKey: string) {
+  if (isDisposed(t.state)) return "—";
+  switch (t.state) {
+    case "IN_STOCK":
+      return <DisposeForm tyre={t} tenantKey={tenantKey} />;
+    case "REMOVED":
+      return (
+        <div className="tyres-row-actions">
+          <ReturnToStockButton tyre={t} tenantKey={tenantKey} />
+          <DispatchForm tyre={t} tenantKey={tenantKey} />
+          <DisposeForm tyre={t} tenantKey={tenantKey} />
+        </div>
+      );
+    case "AT_BREAKDOWN_SUPPLIER":
+      // LOST only: app.dispose_tyre's SCRAPPED/SOLD branches do not reach
+      // this state (000031's own transition table).
+      return (
+        <div className="tyres-row-actions">
+          <ReturnToStockButton tyre={t} tenantKey={tenantKey} />
+          <DisposeForm tyre={t} tenantKey={tenantKey} allowedDisposals={["LOST"]} />
+        </div>
+      );
+    case "AT_RETREADER":
+      // Tyre carries no depot field (api/tyres.ts's own comment on why): the
+      // register cannot name which retreader without one, so this reads
+      // generically rather than a Go field added for one row's text.
+      return "At the retreader — log the return under Retreads";
+    case "FITTED":
+      return "Fitted — see the unit";
+    default:
+      return "—";
+  }
+}
+
 export function TyreList() {
   const tenantKey = getDevTenantId() ?? "default";
   const canSeeMoney = useCan("ViewValuation");
+  const canLogRetread = useCan("LogRetread");
   const asOf = useTenantDate();
 
   const [awaitingCost, setAwaitingCost] = useState(false);
@@ -73,6 +116,10 @@ export function TyreList() {
             otherwise reachable by URL alone, and a screen someone cannot find
             their way to might as well not exist. */}
         <Link to="/fleet/tyres/new">Receive tyres</Link>
+        {/* The queue's only discoverable entry point (routes and nav are
+            Task 15's) — gated on LogRetread since an actor who cannot log a
+            return has nothing to do on that screen. */}
+        {canLogRetread && <Link to="/fleet/tyres/retreads">Retreads</Link>}
       </div>
 
       <form className="tyres-lookup" onSubmit={submitLookup}>
@@ -145,7 +192,7 @@ export function TyreList() {
               {canSeeMoney && <th scope="col">Purchase price</th>}
               {canSeeMoney && <th scope="col">Rand/mm</th>}
               {canSeeMoney && <th scope="col">Casing value</th>}
-              <th scope="col">Dispose</th>
+              <th scope="col">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -162,15 +209,13 @@ export function TyreList() {
                 {canSeeMoney && <td>{t.purchasePrice ? `R ${t.purchasePrice}` : "—"}</td>}
                 {canSeeMoney && <td>{t.randPerMm ? `R ${t.randPerMm}` : "—"}</td>}
                 {canSeeMoney && <td>{t.casingValue ? `R ${t.casingValue}` : "—"}</td>}
-                <td>
-                  {/* No active-only filter exists on this register (TYRE-91):
-                      a disposed row stays visible, and DisposeForm's own
-                      refusal for it (dispose_tyre's invalid-transition
-                      message) reads as advice for a tyre that is not
-                      scrapped. Hide the form once the state is terminal,
-                      matching the Set-cost column's dash pattern. */}
-                  {isDisposed(t.state) ? "—" : <DisposeForm tyre={t} tenantKey={tenantKey} />}
-                </td>
+                {/* No active-only filter exists on this register (TYRE-91):
+                    a disposed row stays visible, and a state's own form's
+                    refusal for it (a *_tyre invalid-transition message)
+                    reads as advice for a tyre that is not reachable from
+                    here. rowActions hides every form once the state is
+                    terminal, matching the Set-cost column's dash pattern. */}
+                <td>{rowActions(t, tenantKey)}</td>
               </tr>
             ))}
           </tbody>
