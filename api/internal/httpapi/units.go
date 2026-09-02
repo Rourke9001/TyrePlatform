@@ -1,7 +1,10 @@
-// The unit read surface (TYRE-92): a manager-facing view of one unit's
-// positions and current fitments, its fitment history, and the fleet-wide
-// open-fitments list the Fitments screen drives from. Nothing here writes —
-// the fitment and unit write surfaces this data supports are separate.
+// The unit surface (TYRE-92/TYRE-94): a manager-facing view of one unit's
+// positions and current fitments, its fitment history, the fleet-wide
+// open-fitments list the Fitments screen drives from, and the two writes that
+// edit a unit — its descriptive fields and tags, and its status. The split
+// between those two writes is the point: the descriptive edit is a plain
+// UPDATE because no rule governs it, and the status change is a call into
+// app.set_vehicle_status because rules do (D5).
 package httpapi
 
 import (
@@ -10,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -131,9 +135,9 @@ var depotTypes = map[string]bool{
 	"BREAKDOWN_SUPPLIER": true,
 }
 
-// unitByID is the one query shape for a manager-facing unit read. Task 11's
-// PATCH reuses it for its own 200 body, so it stays free of HTTP concerns and
-// returns pgx.ErrNoRows — the same value a genuinely missing id produces —
+// unitByID is the one query shape for a manager-facing unit read. The unit
+// PATCH answers with this same body (D6), so it stays free of HTTP concerns
+// and returns pgx.ErrNoRows — the same value a genuinely missing id produces —
 // when RLS hides the unit, rather than a distinguishable error: whether the
 // unit is another tenant's or does not exist at all is not the caller's to
 // learn (ADR-0011).
@@ -504,5 +508,303 @@ func listDepots(s *store.Store) http.HandlerFunc {
 			return
 		}
 		writeJSON(ctx, w, out)
+	}
+}
+
+// patchUnitRequest is the descriptive edit (D5). Every field is a pointer
+// because absence is this request's own vocabulary: a key the caller did not
+// send leaves its column exactly as it stands, which is what lets a form
+// submit only what someone actually changed. The two nullable ids also take
+// "" to clear, the one intent a bare pointer cannot express; the five text
+// columns have no clear at all — a unit's description is edited through this
+// surface, never emptied.
+//
+// configuration_id and unit_kind are deliberately not fields here, and
+// decodeJSONStrict refuses any key matching none of them — as encoding/json
+// matches, case-insensitively, so no spelling of either gets through — which
+// is what keeps TY008 (000028) unreachable from the API (D5,
+// docs/implementation-order.md §B5).
+type patchUnitRequest struct {
+	FleetNumber      *string `json:"fleetNumber"`
+	Registration     *string `json:"registration"`
+	Description      *string `json:"description"`
+	BodyType         *string `json:"bodyType"`
+	UnitDescriptor   *string `json:"unitDescriptor"`
+	HomeDepotID      *string `json:"homeDepotId"`
+	OperatingGroupID *string `json:"operatingGroupId"`
+	// FR-VEH-041, U6: nil leaves the unit's tags alone, an empty array clears
+	// them. A plain []string could not tell those two apart.
+	Tags *[]string `json:"tags"`
+}
+
+// patchUnitArgs is the validated request. The two ids are carried as text
+// rather than *uuid.UUID because one parameter has to express three states —
+// unchanged, cleared, set — and NULL is already taken by "unchanged".
+type patchUnitArgs struct {
+	fleetNumber, registration, description, bodyType, unitDescriptor *string
+	homeDepotID, operatingGroupID                                    *string
+	tags                                                             *[]string
+}
+
+// optionalIDOrClear reads a nullable id with the three states above. A value
+// that is neither absent nor empty must parse as a uuid here rather than
+// reach the ::uuid cast as a 22P02 naming no field at all (ADR-0013
+// decision 5).
+func optionalIDOrClear(field string, raw *string) (*string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return &trimmed, nil
+	}
+	if _, err := uuidField(field, trimmed); err != nil {
+		return nil, err
+	}
+	return &trimmed, nil
+}
+
+// cleanTags trims, refuses a blank name and drops repeats while keeping the
+// caller's order. De-duplication is case-sensitive because the constraint it
+// stands in front of is: app.vehicle_tag's UNIQUE (tenant_id, name) holds
+// "Reefer" and "REEFER" as two names, so folding case here would quietly
+// merge two labels a fleet deliberately keeps apart.
+func cleanTags(in []string) ([]string, error) {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]bool, len(in))
+	for _, raw := range in {
+		name := strings.TrimSpace(raw)
+		if name == "" {
+			return nil, invalid("tags", "may not contain a blank name")
+		}
+		if len(name) > maxTextLen {
+			return nil, invalid("tags", "contains a name that is too long")
+		}
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		out = append(out, name)
+	}
+	return out, nil
+}
+
+func (b patchUnitRequest) validate() (patchUnitArgs, error) {
+	var a patchUnitArgs
+
+	// fleet_number is NOT NULL (000001), so a blank one is asking for
+	// something the column cannot hold; answering "unchanged" would hide that
+	// from whoever typed it. The other four text fields take text()'s
+	// reading, where blank is absence — D5 gives them no clear.
+	if b.FleetNumber != nil {
+		fleetNumber := strings.TrimSpace(*b.FleetNumber)
+		if fleetNumber == "" {
+			return a, invalid("fleetNumber", "may not be blank")
+		}
+		if len(fleetNumber) > maxTextLen {
+			return a, invalid("fleetNumber", "is too long")
+		}
+		a.fleetNumber = &fleetNumber
+	}
+
+	var err error
+	if a.registration, err = text("registration", b.Registration); err != nil {
+		return a, err
+	}
+	if a.description, err = text("description", b.Description); err != nil {
+		return a, err
+	}
+	if a.bodyType, err = text("bodyType", b.BodyType); err != nil {
+		return a, err
+	}
+	if a.unitDescriptor, err = text("unitDescriptor", b.UnitDescriptor); err != nil {
+		return a, err
+	}
+	if a.homeDepotID, err = optionalIDOrClear("homeDepotId", b.HomeDepotID); err != nil {
+		return a, err
+	}
+	if a.operatingGroupID, err = optionalIDOrClear("operatingGroupId", b.OperatingGroupID); err != nil {
+		return a, err
+	}
+	if b.Tags != nil {
+		tags, err := cleanTags(*b.Tags)
+		if err != nil {
+			return a, err
+		}
+		a.tags = &tags
+	}
+	return a, nil
+}
+
+// patchUnit is FR-VEH-041's descriptive edit (D5, ADR-0013 decision 1): one
+// parameterised UPDATE, because no rule governs these columns. Fleet-number
+// uniqueness is a constraint that already states itself (23505 →
+// conflictCodes), and the two rules that do govern a unit — its configuration
+// and kind once it has history (TY008), and its status (FR-VEH-005) — are
+// reached through neither this body nor this statement.
+//
+// The UPDATE runs even when the body names no column, because it is doing two
+// further jobs. It is the existence check — RLS is what makes "no such unit"
+// and "another tenant's unit" the same 404 (ADR-0011) — and its row lock is
+// what serialises two concurrent tag replacements on one unit, which a bare
+// SELECT in its place would not. The cost is that a tags-only edit still
+// touches the vehicle row and 000035's trigger audits it with before and
+// after equal: an honest record of an edit that moved nothing, not an
+// invented one.
+func patchUnit(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		vehicleID, ok := pathID(w, r, "vehicleID")
+		if !ok {
+			return
+		}
+		var body patchUnitRequest
+		if !decodeJSONStrict(w, r, &body) {
+			return
+		}
+		args, err := body.validate()
+		if refuseInvalid(w, r, err) {
+			return
+		}
+
+		var out unitJSON
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageAssets); err != nil {
+				return err
+			}
+			// COALESCE for the text columns: a nil parameter leaves the column
+			// alone. The two ids cannot use it, because NULL is a value they
+			// may legitimately be set to and COALESCE would read that as
+			// "unchanged" — hence the three-way CASE.
+			tag, err := tx.Exec(ctx, `
+				UPDATE app.vehicle SET
+				       fleet_number       = COALESCE($2::text, fleet_number),
+				       registration       = COALESCE($3::text, registration),
+				       description        = COALESCE($4::text, description),
+				       body_type          = COALESCE($5::text, body_type),
+				       unit_descriptor    = COALESCE($6::text, unit_descriptor),
+				       home_depot_id      = CASE WHEN $7::text IS NULL THEN home_depot_id
+				                                 WHEN $7::text = ''     THEN NULL
+				                                 ELSE $7::uuid END,
+				       operating_group_id = CASE WHEN $8::text IS NULL THEN operating_group_id
+				                                 WHEN $8::text = ''     THEN NULL
+				                                 ELSE $8::uuid END
+				 WHERE id = $1`,
+				vehicleID, args.fleetNumber, args.registration, args.description, args.bodyType,
+				args.unitDescriptor, args.homeDepotID, args.operatingGroupID)
+			if err != nil {
+				return fmt.Errorf("editing unit %s: %w", vehicleID, err)
+			}
+			if tag.RowsAffected() == 0 {
+				return refusalError{refusal{
+					status:  http.StatusNotFound,
+					code:    codeNotFound,
+					message: "no such unit in this fleet",
+				}}
+			}
+			if args.tags != nil {
+				if err := replaceUnitTags(ctx, tx, vehicleID, *args.tags); err != nil {
+					return err
+				}
+			}
+			out, err = unitByID(ctx, tx, vehicleID)
+			if err != nil {
+				return fmt.Errorf("reading back unit %s: %w", vehicleID, err)
+			}
+			return nil
+		})
+		if !ok {
+			return
+		}
+		writeJSON(ctx, w, out)
+	}
+}
+
+// replaceUnitTags is U6's replace-all, in the caller's own transaction so no
+// other session ever sees the unit briefly untagged. It is the one write on
+// this surface that deletes a row, and the named exception to ADR-0013
+// decision 7: a map row is a unit's current label rather than a record of
+// anything that happened, which is why 000035 restores DELETE for
+// app.vehicle_tag_map alone — a tag NAME is shared across units, and one
+// unit's edit must never delete the name the rest of the fleet still carries.
+//
+// tenant_id is app.current_tenant_id() and never the request's (ADR-0013
+// decision 2). The DO UPDATE is not a change: it is what makes RETURNING
+// answer with the existing row's id instead of nothing at all.
+func replaceUnitTags(ctx context.Context, tx pgx.Tx, vehicleID uuid.UUID, tags []string) error {
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM app.vehicle_tag_map WHERE vehicle_id = $1`, vehicleID); err != nil {
+		return fmt.Errorf("clearing the tags of unit %s: %w", vehicleID, err)
+	}
+	for _, name := range tags {
+		var tagID uuid.UUID
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (app.current_tenant_id(), $1)
+			 ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
+			 RETURNING id`, name).Scan(&tagID); err != nil {
+			return fmt.Errorf("resolving a tag name for unit %s: %w", vehicleID, err)
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id)
+			 VALUES (app.current_tenant_id(), $1, $2)`, vehicleID, tagID); err != nil {
+			return fmt.Errorf("tagging unit %s: %w", vehicleID, err)
+		}
+	}
+	return nil
+}
+
+// setUnitStatusRequest is app.set_vehicle_status's body. Reason is *string so
+// an absent one reaches the function's own DEFAULT NULL: a disposal is the
+// transition that requires it, and which transitions require what is
+// FR-VEH-005's rule, held in the function and not restated here.
+type setUnitStatusRequest struct {
+	Status string  `json:"status"`
+	Reason *string `json:"reason"`
+}
+
+// setUnitStatus is FR-VEH-005/FR-VEH-006's write. Status is deliberately not
+// a column the PATCH above updates: rules govern the move — DISPOSED is
+// terminal, a disposal needs an empty unit (INV-2) and a stated reason, a
+// no-op is refused so the audit log carries no row claiming a change that did
+// not happen — and a bare UPDATE walks past every one of them, so the whole
+// transition is app.set_vehicle_status's (000035).
+//
+// Nothing is narrowed here but the shape: an unrecognised status reaches the
+// enum cast as 22P02, which submitStatus already answers 422, so this handler
+// keeps no second copy of app.vehicle_status to drift from it.
+func setUnitStatus(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		vehicleID, ok := pathID(w, r, "vehicleID")
+		if !ok {
+			return
+		}
+		var body setUnitStatusRequest
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		status, err := requiredText("status", body.Status)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageAssets); err != nil {
+				return err
+			}
+			// TY012 and TY016 arrive via refusalForPgError with their messages
+			// intact; each names the rule that refused the transition, which
+			// is the whole reason those messages are written in SQL.
+			if _, err := tx.Exec(ctx,
+				`SELECT app.set_vehicle_status($1, $2::app.vehicle_status, $3)`,
+				vehicleID, status, body.Reason); err != nil {
+				return fmt.Errorf("setting the status of unit %s: %w", vehicleID, err)
+			}
+			return nil
+		})
+		if !ok {
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }

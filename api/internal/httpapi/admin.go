@@ -7,11 +7,13 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -115,6 +117,68 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 		return false
 	}
 	return true
+}
+
+// decodeJSONStrict is decodeJSON for a body whose unknown keys are a refusal
+// rather than something to ignore — unknown as encoding/json matches, which
+// is case-insensitively. The unit PATCH is the one caller: a request naming
+// configurationId or unitKind is refused here, before a transaction opens, which is what keeps TY008 (000028's trigger) a database
+// backstop no endpoint can reach (docs/implementation-order.md §B5).
+//
+// The decoder's own error text is never forwarded — ADR-0012 keeps a message
+// a library or Postgres wrote off the wire — but the key it names is the
+// caller's own input, bounded by maxWriteBytes, and a refusal that withholds
+// it leaves a form with nothing to point at.
+func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
+	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBytes))
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "body too large or unreadable")
+		return false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(into); err != nil {
+		if field, found := unknownJSONField(err); found {
+			// Clipped to the length every free-text field on a write is held
+			// to: the key is caller text, and maxWriteBytes alone would let a
+			// refusal message carry kilobytes of it back out.
+			if len(field) > maxTextLen {
+				field = strings.ToValidUTF8(field[:maxTextLen], "")
+			}
+			writeError(r.Context(), w, http.StatusUnprocessableEntity, codeInvalidSubmission,
+				field+" is not a field of this request")
+			return false
+		}
+		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
+		return false
+	}
+	// Two bodies Decode accepts and json.Unmarshal does not, and this decoder
+	// must not be the laxer of the pair: a literal null, which fills the
+	// target with nothing at all and would read as an edit naming no field,
+	// and a second value after the first, which Decode simply stops before.
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || dec.More() {
+		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
+		return false
+	}
+	return true
+}
+
+// unknownFieldPrefix is encoding/json's own wording. The error it comes from
+// is an untyped errors.errorString, so the key has to be recovered from the
+// text; should that wording ever change, the caller degrades to the generic
+// malformed-json refusal rather than to a confidently wrong field name.
+const unknownFieldPrefix = `json: unknown field `
+
+func unknownJSONField(err error) (string, bool) {
+	msg := err.Error()
+	if !strings.HasPrefix(msg, unknownFieldPrefix) {
+		return "", false
+	}
+	name, unquoteErr := strconv.Unquote(strings.TrimPrefix(msg, unknownFieldPrefix))
+	if unquoteErr != nil {
+		return "", false
+	}
+	return name, true
 }
 
 // refuseInvalid answers a validation failure and reports whether it did, so a
