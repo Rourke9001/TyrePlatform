@@ -77,3 +77,26 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   }
   return res.json() as Promise<T>;
 }
+
+// apiPost's shape with one different verb: the unit PATCH (D5/D6) is the
+// descriptive edit, distinct from the POSTs that call into a SQL rule
+// (ADR-0013 decision 1), but it carries the same identity headers and the
+// same refusal and 204 handling — a second implementation here would be a
+// second place for that shaping to drift from apiPost's.
+export async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const devTenant = getDevTenantId();
+  const devActor = getDevActorId();
+  if (devTenant) headers["X-Tenant-ID"] = devTenant;
+  if (devActor) headers["X-User-ID"] = devActor;
+
+  const res = await fetch(path, { method: "PATCH", headers, body: JSON.stringify(body) });
+  if (!res.ok) {
+    const { code, message } = await refusal(res);
+    throw new ApiError(res.status, message ?? `PATCH ${path} failed: ${res.status}`, code);
+  }
+  if (res.status === 204) {
+    return undefined as unknown as T;
+  }
+  return res.json() as Promise<T>;
+}

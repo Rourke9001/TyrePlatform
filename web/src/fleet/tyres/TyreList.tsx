@@ -1,55 +1,19 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 
-import { getDevTenantId } from "../api/devTenant";
-import { refusalMessage } from "../api/refusal";
-import {
-  COST_SOURCES,
-  disposeTyre,
-  fetchTyres,
-  setTyreCost,
-  type CostSource,
-  type Disposal,
-  type Tyre,
-} from "../api/tyres";
-import { useCan } from "../auth/actorContext";
-import { useTenantDate } from "../time/tenantTime";
-import "./fleet.css";
+import { getDevTenantId } from "../../api/devTenant";
+import { fetchTyres, isDisposed, type Tyre } from "../../api/tyres";
+import { useCan } from "../../auth/actorContext";
+import { useTenantDate } from "../../time/tenantTime";
+import { CostForm } from "./CostForm";
+import { DisposeForm } from "./DisposeForm";
+import "../fleet.css";
 
 // fetchTyres's own optional-filter shape, not redeclared: the two are one
 // contract, and the query key below carries this object verbatim so a query
 // key idiom used elsewhere (AddUnit.tsx) applies unchanged here.
 type TyreFilters = NonNullable<Parameters<typeof fetchTyres>[0]>;
-
-const DISPOSALS: { value: Disposal; label: string }[] = [
-  { value: "SCRAPPED", label: "Scrapped" },
-  { value: "SOLD", label: "Sold" },
-  { value: "LOST", label: "Lost" },
-];
-
-// DISPOSALS' three values ARE the terminal states (app.dispose_tyre never
-// transitions out of one); reused here rather than duplicated so the two
-// lists cannot drift apart.
-function isDisposed(state: string): boolean {
-  return DISPOSALS.some((d) => d.value === state);
-}
-
-// The two forms on this screen refuse for different reasons and must say so:
-// app.dispose_tyre raises TY012 and app.set_tyre_cost raises TY013, and
-// neither can raise the other's. One shared sentence for both is how the
-// cost form came to tell an operator their tyre "could not be disposed of".
-const DISPOSE_WORDING = {
-  speakable: ["TY012"],
-  forbidden: "You do not have permission to dispose of a tyre.",
-  fallback: "The tyre could not be disposed of. Try again, or call support if it keeps happening.",
-};
-
-const COST_WORDING = {
-  speakable: ["TY013"],
-  forbidden: "You do not have permission to record a tyre's cost.",
-  fallback: "The cost could not be recorded. Try again, or call support if it keeps happening.",
-};
 
 // NFR-USE-012: natural order, not lexicographic (POS2 before POS10).
 // vehicleSearch.ts holds the sibling comparator, but as a module-private
@@ -213,146 +177,5 @@ export function TyreList() {
         </table>
       )}
     </section>
-  );
-}
-
-// Every rule about which transitions are legal, and about reason/proceeds,
-// is app.dispose_tyre's alone (ADR-0013 decision 5) — this only shapes the
-// request and shows the field the chosen disposal actually needs.
-function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
-  const queryClient = useQueryClient();
-  const [disposal, setDisposal] = useState<Disposal | "">("");
-  const [reason, setReason] = useState("");
-  const [proceeds, setProceeds] = useState("");
-
-  const dispose = useMutation({
-    mutationFn: (vars: { disposal: Disposal; reason?: string; proceeds?: string }) =>
-      disposeTyre(tyre.id, vars),
-    onSuccess: () => {
-      setDisposal("");
-      setReason("");
-      setProceeds("");
-      void queryClient.invalidateQueries({ queryKey: ["tyres", tenantKey] });
-    },
-  });
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (disposal === "") return;
-    dispose.mutate({
-      disposal,
-      reason: disposal === "SCRAPPED" ? reason : undefined,
-      proceeds: disposal === "SOLD" ? proceeds : undefined,
-    });
-  }
-
-  return (
-    <form onSubmit={submit} className="tyres-row-form">
-      <select
-        aria-label={`Disposal for ${tyre.displayCode}`}
-        value={disposal}
-        onChange={(e) => setDisposal(e.target.value as Disposal | "")}
-      >
-        <option value="">Choose…</option>
-        {DISPOSALS.map((d) => (
-          <option key={d.value} value={d.value}>
-            {d.label}
-          </option>
-        ))}
-      </select>
-
-      {disposal === "SCRAPPED" && (
-        <input
-          aria-label={`Reason for ${tyre.displayCode}`}
-          value={reason}
-          onChange={(e) => setReason(e.target.value)}
-          required
-        />
-      )}
-
-      {disposal === "SOLD" && (
-        <input
-          aria-label={`Proceeds for ${tyre.displayCode}`}
-          value={proceeds}
-          onChange={(e) => setProceeds(e.target.value)}
-          inputMode="decimal"
-          required
-        />
-      )}
-
-      <button
-        className="btn-primary btn-compact"
-        type="submit"
-        disabled={disposal === "" || dispose.isPending}
-      >
-        {dispose.isPending ? "Disposing…" : "Dispose"}
-      </button>
-
-      {dispose.isError && <p role="alert">{refusalMessage(dispose.error, DISPOSE_WORDING)}</p>}
-    </form>
-  );
-}
-
-// FR-TYR-041's costing step, the discharge for the awaiting-cost backlog
-// CFL-002 names. Rendered only on a row where awaitingCost is true (the
-// caller's job, not this component's): D5's own TY013 rationale — "a
-// correction later is a decision this surface does not take" — means an
-// already-costed row must never offer a second submission, not even a
-// disabled one. Every rule about a re-costed or negative price is
-// app.set_tyre_cost's alone (ADR-0013 decision 5).
-function CostForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
-  const queryClient = useQueryClient();
-  const [price, setPrice] = useState("");
-  const [costSource, setCostSource] = useState<CostSource>("INVOICE");
-
-  const cost = useMutation({
-    // Price stays a string end to end (rule 2) — never Number()'d, here or
-    // in setTyreCost itself.
-    mutationFn: () => setTyreCost(tyre.id, { price, source: costSource }),
-    onSuccess: () => {
-      setPrice("");
-      setCostSource("INVOICE");
-      void queryClient.invalidateQueries({ queryKey: ["tyres", tenantKey] });
-    },
-  });
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (price.trim() === "") return;
-    cost.mutate();
-  }
-
-  return (
-    <form onSubmit={submit} className="tyres-row-form">
-      <input
-        aria-label={`Purchase price for ${tyre.displayCode}`}
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        inputMode="decimal"
-        required
-      />
-
-      <select
-        aria-label={`Cost source for ${tyre.displayCode}`}
-        value={costSource}
-        onChange={(e) => setCostSource(e.target.value as CostSource)}
-      >
-        {COST_SOURCES.map((c) => (
-          <option key={c.value} value={c.value}>
-            {c.label}
-          </option>
-        ))}
-      </select>
-
-      <button
-        className="btn-primary btn-compact"
-        type="submit"
-        disabled={price.trim() === "" || cost.isPending}
-      >
-        {cost.isPending ? "Saving…" : "Set cost"}
-      </button>
-
-      {cost.isError && <p role="alert">{refusalMessage(cost.error, COST_WORDING)}</p>}
-    </form>
   );
 }

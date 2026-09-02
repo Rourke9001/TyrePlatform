@@ -5,9 +5,9 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { TyreList } from "./TyreList";
-import { ActorContext } from "../auth/actorContext";
-import type { Tyre } from "../api/tyres";
-import { me, respond, sentBody, testQueryClient } from "../test/fixtures";
+import { ActorContext } from "../../auth/actorContext";
+import type { Tyre } from "../../api/tyres";
+import { me, respond, sentBody, testQueryClient } from "../../test/fixtures";
 
 function renderScreen(capabilities: string[] = ["ManageAssets", "ViewValuation"]) {
   const actor = me({ displayName: "Controller", capabilities });

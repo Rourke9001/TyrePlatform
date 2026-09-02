@@ -1,6 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { disposeTyre, receiveTyres, setTyreCost, fetchTyres } from "./tyres";
+import {
+  disposeTyre,
+  dispatchTyre,
+  receiveTyres,
+  returnTyreToStock,
+  setTyreCost,
+  fetchTyres,
+} from "./tyres";
 import { ApiError } from "./client";
 import { respond } from "../test/fixtures";
 
@@ -176,6 +183,75 @@ describe("the tyre register API module", () => {
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).code).toBe("TY012");
       expect((error as ApiError).message).toBe("no such transition from this state");
+    });
+  });
+
+  describe("dispatchTyre", () => {
+    it("posts the dispatch under the tyre it moves and unwraps the opened job id", async () => {
+      vi.mocked(fetch).mockResolvedValue(respond(201, { retreadJobId: "rj1" }));
+
+      const result = await dispatchTyre("t1", { destination: "AT_RETREADER", depotId: "d1" });
+
+      const [url, init] = vi.mocked(fetch).mock.calls[0];
+      expect(url).toBe("/api/tyres/t1/dispatch");
+      expect(init?.method).toBe("POST");
+      expect(jsonBody(init)).toEqual({ destination: "AT_RETREADER", depotId: "d1" });
+      expect(result).toEqual({ retreadJobId: "rj1" });
+    });
+
+    // A dispatch to the breakdown supplier opens no job: the key is omitted
+    // (dispatchTyreResponse's omitempty), not sent as null.
+    it("omits retreadJobId when the destination opens no job", async () => {
+      vi.mocked(fetch).mockResolvedValue(respond(201, {}));
+
+      const result = await dispatchTyre("t1", {
+        destination: "AT_BREAKDOWN_SUPPLIER",
+        depotId: "d2",
+        sentOn: "2026-02-01",
+      });
+
+      expect(jsonBody(vi.mocked(fetch).mock.calls[0][1])).toEqual({
+        destination: "AT_BREAKDOWN_SUPPLIER",
+        depotId: "d2",
+        sentOn: "2026-02-01",
+      });
+      expect(result.retreadJobId).toBeUndefined();
+    });
+
+    it("carries TY015's message and code", async () => {
+      vi.mocked(fetch).mockResolvedValue(
+        respond(409, { code: "TY015", message: "this casing has no retread left in it" }),
+      );
+
+      const error = await dispatchTyre("t1", {
+        destination: "AT_RETREADER",
+        depotId: "d1",
+      }).catch((e: unknown) => e);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).code).toBe("TY015");
+    });
+  });
+
+  describe("returnTyreToStock", () => {
+    it("posts the return under the tyre it belongs to and resolves with nothing", async () => {
+      vi.mocked(fetch).mockResolvedValue(respondNoContent());
+
+      const result = await returnTyreToStock("t1", { depotId: "d1" });
+
+      const [url, init] = vi.mocked(fetch).mock.calls[0];
+      expect(url).toBe("/api/tyres/t1/return");
+      expect(init?.method).toBe("POST");
+      expect(jsonBody(init)).toEqual({ depotId: "d1" });
+      expect(result).toBeUndefined();
+    });
+
+    it("sends no depotId when the casing returns to where the register already has it", async () => {
+      vi.mocked(fetch).mockResolvedValue(respondNoContent());
+
+      await returnTyreToStock("t1", {});
+
+      expect(jsonBody(vi.mocked(fetch).mock.calls[0][1])).toEqual({});
     });
   });
 });

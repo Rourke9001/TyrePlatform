@@ -49,6 +49,21 @@ export interface NewTyres {
 // app.dispose_tyre's rule, not this client's.
 export type Disposal = "SCRAPPED" | "SOLD" | "LOST";
 
+export const DISPOSALS: { value: Disposal; label: string }[] = [
+  { value: "SCRAPPED", label: "Scrapped" },
+  { value: "SOLD", label: "Sold" },
+  { value: "LOST", label: "Lost" },
+];
+
+// DISPOSALS' three values ARE the terminal states (app.dispose_tyre never
+// transitions out of one); reused here rather than duplicated so the two
+// lists cannot drift apart. Lives beside Disposal rather than in
+// fleet/tyres/DisposeForm.tsx: react-refresh's only-export-components rule
+// refuses a non-component export from a file that also exports a component.
+export function isDisposed(state: string): boolean {
+  return DISPOSALS.some((d) => d.value === state);
+}
+
 // app.cost_source's third member, UNKNOWN, is app.receive_tyres' own default
 // for an omitted source and never a choice a human makes, so it is not here.
 // Shared by the receive form and the register's per-row cost form.
@@ -100,4 +115,32 @@ export function disposeTyre(
   body: { disposal: Disposal; reason?: string; proceeds?: string },
 ): Promise<void> {
   return apiPost<void>(`/api/tyres/${tyreId}/dispose`, body);
+}
+
+// dispatchTyreResponse's own contract (tyres.go): retreadJobId is present
+// only for the retreader destination, omitted rather than null for the
+// breakdown-supplier branch that opens no job.
+export interface DispatchResult {
+  retreadJobId?: string;
+}
+
+// dispatchTyre is FR-FIT-011/012's write: a removed casing leaves the
+// workshop for the retreader or the breakdown supplier. Which destinations a
+// depot's type may receive, the BR-FIT-009 retread cap and which state a
+// casing must be in to go are all app.dispatch_tyre's alone, forwarded
+// verbatim.
+export function dispatchTyre(
+  tyreId: string,
+  body: { destination: string; depotId: string; sentOn?: string },
+): Promise<DispatchResult> {
+  return apiPost<DispatchResult>(`/api/tyres/${tyreId}/dispatch`, body);
+}
+
+// returnTyreToStock is FR-FIT-013's receipt back, answering 204. depotId is
+// optional: an absent one leaves the casing where the register already has
+// it (tyres.go's own comment) — this says the fleet has it back, not that it
+// moved. Which states restock and which depot types may hold stock are
+// app.return_tyre_to_stock's rules.
+export function returnTyreToStock(tyreId: string, body: { depotId?: string }): Promise<void> {
+  return apiPost<void>(`/api/tyres/${tyreId}/return`, body);
 }
