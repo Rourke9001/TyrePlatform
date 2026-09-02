@@ -167,6 +167,15 @@ describe("useFormMutation", () => {
   // itself, the way a stray Enter-key resubmission or a second
   // form.requestSubmit() would — to prove the hook's guard, not the DOM, is
   // what holds a fitment or rotation write to one event (rule 3).
+  //
+  // The assertion sits after the awaited findByText, not right after the
+  // second fireEvent.submit: TanStack's own execute() yields at its
+  // onMutate await before ever reaching mutationFn, so a synchronous read
+  // immediately after fireEvent.submit reads 1 whether or not the guard
+  // exists — it is checking a call that has not had a chance to happen yet,
+  // guarded or not. Only once every microtask this test's own `promise`
+  // resolution can trigger has drained — which findByText's wait forces —
+  // would an unguarded second execute() have reached the spy.
   it("fires one request for two submits inside one pending window", async () => {
     const { promise, resolve } = deferred<{ id: string }>();
     const mutate = vi.fn(() => promise);
@@ -179,10 +188,10 @@ describe("useFormMutation", () => {
     if (!form) throw new Error("form not found");
     fireEvent.submit(form);
 
-    expect(mutate).toHaveBeenCalledTimes(1);
-
     resolve({ id: "p1" });
     await screen.findByText(/saved p1/i);
+
+    expect(mutate).toHaveBeenCalledTimes(1);
   });
 
   // result stays permanently null for a Promise<void> mutation (nothing to

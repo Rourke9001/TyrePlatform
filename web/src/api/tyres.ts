@@ -57,7 +57,7 @@ export const DISPOSALS: { value: Disposal; label: string }[] = [
 
 // DISPOSALS' three values ARE the terminal states (app.dispose_tyre never
 // transitions out of one); reused here rather than duplicated so the two
-// lists cannot drift apart. Sits beside the sibling COST_SOURCES list below.
+// lists cannot drift apart.
 export function isDisposed(state: string): boolean {
   return DISPOSALS.some((d) => d.value === state);
 }
