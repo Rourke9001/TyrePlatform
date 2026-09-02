@@ -248,7 +248,7 @@ describe("AppRoutes", () => {
     expect(screen.queryByText(/not found/i)).toBeNull();
     // renderAt is synchronous: with the wrapper gone, UnitDetail would still
     // mount and its query would still be pending on this first render, so
-    // the two assertions above pass whether or not the capability gate is
+    // the three assertions above pass whether or not the capability gate is
     // there at all — this is the one that would actually fail.
     expect(screen.queryByText(/loading/i)).toBeNull();
   });
