@@ -2,10 +2,13 @@ import { refusalMessage } from "../../api/refusal";
 import { returnTyreToStock, type Tyre } from "../../api/tyres";
 import { useFormMutation } from "../useFormMutation";
 
-// app.return_tyre_to_stock reaches TY012 (no such tyre, or the wrong state
-// to restock) and TY014 (an input this surface does not accept).
+// TY012 only (no such tyre, or a state that is not REMOVED/AT_BREAKDOWN_
+// SUPPLIER — 000033:696-703): this button never sends a depotId, so
+// app.return_tyre_to_stock's TY014 branches — both gated on `p_depot IS NOT
+// NULL` — can never fire from here (refusal.ts's own rule: list only what a
+// screen's endpoints can actually raise).
 const RETURN_WORDING = {
-  speakable: ["TY012", "TY014"],
+  speakable: ["TY012"],
   forbidden: "You do not have permission to return a tyre to stock.",
   fallback:
     "The tyre could not be returned to stock. Try again, or call support if it keeps happening.",
@@ -14,17 +17,32 @@ const RETURN_WORDING = {
 // FR-FIT-013: a casing comes back from the retreader or the breakdown
 // supplier. No depot picker this slice (D2) — the tyre keeps its
 // current_depot_id, so this only says the fleet has it back, never that it
-// moved; a location correction is a separate surface. The body posted is
-// always {} — the server accepts an empty JSON body and refuses no body at
-// all (an empty stream), so returnTyreToStock's own {} default carries this.
-export function ReturnToStockButton({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
+// moved; a location correction is a separate surface. This button sends {}
+// itself — there is no default body to fall back on — and app.
+// return_tyre_to_stock's own NULL branch (000033) is what leaves the casing
+// at the depot it already has.
+//
+// onSuccess names nothing further: the confirmation this write earns lives
+// at the register (fix round 1 ruling), since a successful return moves the
+// tyre off REMOVED/AT_BREAKDOWN_SUPPLIER and this row unmounts on the
+// refetch before anyone could read a line left inside it.
+export function ReturnToStockButton({
+  tyre,
+  tenantKey,
+  onSuccess,
+}: {
+  tyre: Tyre;
+  tenantKey: string;
+  onSuccess?: () => void;
+}) {
   const ret = useFormMutation<undefined, void>({
     mutate: () => returnTyreToStock(tyre.id, {}),
     invalidate: [["tyres", tenantKey]],
+    onSuccess: () => onSuccess?.(),
   });
 
   return (
-    <span className="tyres-row-form">
+    <>
       <button
         className="btn-primary btn-compact"
         type="button"
@@ -34,8 +52,7 @@ export function ReturnToStockButton({ tyre, tenantKey }: { tyre: Tyre; tenantKey
         {ret.isPending ? "Returning…" : "Return to stock"}
       </button>
 
-      {ret.isSuccess && <p role="status">{`${tyre.displayCode} was returned to stock.`}</p>}
       {ret.error !== null && <p role="alert">{refusalMessage(ret.error, RETURN_WORDING)}</p>}
-    </span>
+    </>
   );
 }

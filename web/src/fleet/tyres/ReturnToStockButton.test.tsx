@@ -22,10 +22,10 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
   };
 }
 
-function renderButton(t: Tyre = tyre({ id: "t1" })) {
+function renderButton(t: Tyre = tyre({ id: "t1" }), onSuccess?: () => void) {
   return render(
     <QueryClientProvider client={testQueryClient()}>
-      <ReturnToStockButton tyre={t} tenantKey="tenant-a" />
+      <ReturnToStockButton tyre={t} tenantKey="tenant-a" onSuccess={onSuccess} />
     </QueryClientProvider>,
   );
 }
@@ -39,18 +39,21 @@ describe("returning a tyre to stock", () => {
   });
 
   // The decoder refuses no body at all (an empty stream), so the button must
-  // send a JSON body of {} rather than nothing.
-  it("posts an empty body and shows the explicit success line", async () => {
+  // send a JSON body of {} rather than nothing. The confirmation itself is a
+  // TyreList-level concern now (fix round 1 ruling — see TyreList.test.tsx);
+  // this only proves the button calls back rather than swallowing the write.
+  it("posts an empty body and calls onSuccess", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
+    const onSuccess = vi.fn();
     const user = userEvent.setup();
-    renderButton();
+    renderButton(tyre({ id: "t1" }), onSuccess);
 
     await user.click(screen.getByRole("button", { name: /return to stock/i }));
 
     await waitFor(() => expect(vi.mocked(fetch).mock.calls).toHaveLength(1));
     expect(requestedUrl(vi.mocked(fetch).mock.calls[0][0])).toBe("/api/tyres/t1/return");
     expect(sentBody(0)).toStrictEqual({});
-    expect(await screen.findByRole("status")).toHaveTextContent(/pos1 was returned to stock/i);
+    expect(onSuccess).toHaveBeenCalledTimes(1);
   });
 
   it("renders the server's own refusal for a return it will not allow", async () => {

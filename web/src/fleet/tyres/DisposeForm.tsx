@@ -17,22 +17,7 @@ const DISPOSE_WORDING = {
 // Every rule about which transitions are legal, and about reason/proceeds,
 // is app.dispose_tyre's alone (ADR-0013 decision 5) — this only shapes the
 // request and shows the field the chosen disposal actually needs.
-//
-// allowedDisposals narrows the select's options (TYRE-92 U1/U2): a casing
-// AT_BREAKDOWN_SUPPLIER offers LOST only, since app.dispose_tyre's own
-// transition table for SCRAPPED and SOLD does not reach that state. Omitted,
-// every disposal DISPOSALS lists is offered, unchanged from before this prop
-// existed.
-export function DisposeForm({
-  tyre,
-  tenantKey,
-  allowedDisposals = DISPOSALS.map((d) => d.value),
-}: {
-  tyre: Tyre;
-  tenantKey: string;
-  allowedDisposals?: Disposal[];
-}) {
-  const options = DISPOSALS.filter((d) => allowedDisposals.includes(d.value));
+export function DisposeForm({ tyre, tenantKey }: { tyre: Tyre; tenantKey: string }) {
   const [disposal, setDisposal] = useState<Disposal | "">("");
   const [reason, setReason] = useState("");
   const [proceeds, setProceeds] = useState("");
@@ -66,7 +51,7 @@ export function DisposeForm({
         onChange={(e) => setDisposal(e.target.value as Disposal | "")}
       >
         <option value="">Choose…</option>
-        {options.map((d) => (
+        {DISPOSALS.map((d) => (
           <option key={d.value} value={d.value}>
             {d.label}
           </option>

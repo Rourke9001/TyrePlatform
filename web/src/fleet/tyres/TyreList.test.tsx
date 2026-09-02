@@ -7,7 +7,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { TyreList } from "./TyreList";
 import { ActorContext } from "../../auth/actorContext";
 import type { Tyre } from "../../api/tyres";
-import { me, respond, sentBody, testQueryClient } from "../../test/fixtures";
+import { me, requestedUrl, respond, sentBody, testQueryClient } from "../../test/fixtures";
 
 function renderScreen(capabilities: string[] = ["ManageAssets", "ViewValuation"]) {
   const actor = me({ displayName: "Controller", capabilities });
@@ -433,9 +433,10 @@ describe("the tyre register", () => {
     expect(screen.getByRole("combobox", { name: /disposal for pos1/i })).toBeInTheDocument();
   });
 
-  // AT_BREAKDOWN_SUPPLIER offers a LOST-only disposal: app.dispose_tyre's
-  // SCRAPPED/SOLD branches never reach this state (000031).
-  it("offers return to stock and a lost-only dispose for a tyre AT_BREAKDOWN_SUPPLIER", async () => {
+  // app.dispose_tyre (000031:192) refuses SCRAPPED and LOST alike unless the
+  // tyre is IN_STOCK or REMOVED, so no disposal reaches AT_BREAKDOWN_SUPPLIER
+  // directly — only Return to stock is offered from here.
+  it("offers only return to stock, no dispose control, for a tyre AT_BREAKDOWN_SUPPLIER", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
         tyres: [tyre({ id: "t1", displayCode: "POS1", state: "AT_BREAKDOWN_SUPPLIER" })],
@@ -445,11 +446,7 @@ describe("the tyre register", () => {
     await screen.findAllByRole("rowheader");
 
     expect(screen.getByRole("button", { name: /return to stock/i })).toBeInTheDocument();
-    const disposalSelect = screen.getByRole("combobox", { name: /disposal for pos1/i });
-    const options = within(disposalSelect)
-      .getAllByRole("option")
-      .map((o) => o.textContent);
-    expect(options).toEqual(["Choose…", "Lost"]);
+    expect(screen.queryByRole("combobox", { name: /disposal for pos1/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("radiogroup", { name: /destination/i })).not.toBeInTheDocument();
   });
 
@@ -477,6 +474,88 @@ describe("the tyre register", () => {
     expect(screen.getByText(/fitted — see the unit/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /return to stock/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: /disposal for pos1/i })).not.toBeInTheDocument();
+  });
+
+  // fix round 1 ruling: a dispatch's own invalidation swaps this row's cell
+  // (REMOVED's controls for AT_RETREADER's text) on the very refetch that
+  // would carry a row-level confirmation away with it — proven here by
+  // mocking that refetch with the server's real post-dispatch answer, not
+  // the tyre left standing at REMOVED.
+  it("shows the confirmation and swaps the row once a dispatch's refetch reports the new state", async () => {
+    let dispatched = false;
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url.startsWith("/api/depots")) {
+        return Promise.resolve(respond(200, [{ id: "r1", name: "Retread Co", type: "RETREADER" }]));
+      }
+      if (url === "/api/tyres/t1/dispatch") {
+        dispatched = true;
+        return Promise.resolve(respond(201, {}));
+      }
+      return Promise.resolve(
+        respond(200, {
+          tyres: [
+            tyre({
+              id: "t1",
+              displayCode: "POS1",
+              state: dispatched ? "AT_RETREADER" : "REMOVED",
+            }),
+          ],
+        }),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await user.click(screen.getByRole("radio", { name: "Retreader" }));
+    const depotSelect = await screen.findByRole("combobox", { name: /depot for pos1/i });
+    await user.selectOptions(depotSelect, "r1");
+    await user.click(screen.getByRole("button", { name: /^dispatch$/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      /tyre pos1 was sent to the retreader/i,
+    );
+    expect(
+      await screen.findByText(/at the retreader.*log the return under retreads/i),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: /destination/i })).not.toBeInTheDocument();
+  });
+
+  // Same ruling, the return-to-stock path: REMOVED's controls give way to
+  // IN_STOCK's Dispose control on the refetch, proven the same way.
+  it("shows the confirmation and swaps the row once a return's refetch reports the new state", async () => {
+    let returned = false;
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url === "/api/tyres/t1/return") {
+        returned = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(
+        respond(200, {
+          tyres: [
+            tyre({
+              id: "t1",
+              displayCode: "POS1",
+              state: returned ? "IN_STOCK" : "REMOVED",
+              awaitingCost: false,
+            }),
+          ],
+        }),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await user.click(screen.getByRole("button", { name: /return to stock/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/tyre pos1 was returned to stock/i);
+    expect(await screen.findByRole("combobox", { name: /disposal for pos1/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /return to stock/i })).not.toBeInTheDocument();
   });
 
   it("links to the retread queue for an actor with LogRetread", async () => {

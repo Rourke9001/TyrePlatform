@@ -1,6 +1,10 @@
 /* The tyre register (TYRE-91). Custom properties only, per web/CLAUDE.md. */
 
-.tyres {
+/* .retreads and .fitments (TYRE-93) share this register's page width — one
+   rule, not a clone, so the three screens cannot drift apart by accident. */
+.tyres,
+.retreads,
+.fitments {
   max-width: 68rem;
 }
 
@@ -12,7 +16,9 @@
 }
 
 /* .page-title supplies the type; the margin is this layout's own. */
-.tyres h1 {
+.tyres h1,
+.retreads h1,
+.fitments h1 {
   margin-bottom: 1rem;
 }
 
@@ -67,7 +73,13 @@
   margin-bottom: var(--space-3);
 }
 
-.tyres-table {
+/* .retreads-table and .fitments-table (TYRE-93) are this same table, so
+   they take these four rules by selector, not by a second copy — the
+   register, the retread queue and the fitments list cannot render three
+   different tables by accident. */
+.tyres-table,
+.retreads-table,
+.fitments-table {
   width: 100%;
   border-collapse: collapse;
   background: var(--surface);
@@ -77,7 +89,11 @@
 }
 
 .tyres-table th,
-.tyres-table td {
+.tyres-table td,
+.retreads-table th,
+.retreads-table td,
+.fitments-table th,
+.fitments-table td {
   padding: 0.5rem 0.75rem;
   text-align: left;
   font-family: var(--font-ui);
@@ -85,7 +101,9 @@
   border-bottom: 1px solid var(--line);
 }
 
-.tyres-table thead th {
+.tyres-table thead th,
+.retreads-table thead th,
+.fitments-table thead th {
   font-family: var(--font-condensed);
   font-weight: 500;
   text-transform: uppercase;
@@ -93,7 +111,9 @@
   color: var(--ink-muted);
 }
 
-.tyres-table tbody th[scope="row"] {
+.tyres-table tbody th[scope="row"],
+.retreads-table tbody th[scope="row"],
+.fitments-table tbody th[scope="row"] {
   font-family: var(--font-mono);
   font-weight: 600;
   color: var(--ink);
@@ -399,61 +419,14 @@
   max-width: 32rem;
 }
 
-/* The register's row actions (a REMOVED or AT_BREAKDOWN_SUPPLIER row can
-   offer more than one form in its Actions cell), the retread queue
-   (/fleet/tyres/retreads) and the fitments list (/fleet/fitments) — TYRE-93.
-   .tyres-table, .tyres-row-form, .page-title and .note-card are reused
-   unchanged from the register above. */
-
+/* A REMOVED row's Actions cell (TYRE-93): more than one form stacked, where
+   every other cell on the register holds at most one. .tyres-row-form
+   still styles each form inside it unchanged; this only stacks them. The
+   retread queue and the fitments list take their table and page-width
+   rules by selector, added to .tyres/.tyres-table's own declarations
+   above, rather than a second copy of either. */
 .tyres-row-actions {
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
-}
-
-.retreads,
-.fitments {
-  max-width: 68rem;
-}
-
-.retreads h1,
-.fitments h1 {
-  margin-bottom: 1rem;
-}
-
-.retreads-table,
-.fitments-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  overflow: hidden;
-}
-
-.retreads-table th,
-.retreads-table td,
-.fitments-table th,
-.fitments-table td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  border-bottom: 1px solid var(--line);
-}
-
-.retreads-table thead th,
-.fitments-table thead th {
-  font-family: var(--font-condensed);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-eyebrow);
-  color: var(--ink-muted);
-}
-
-.retreads-table tbody th[scope="row"],
-.fitments-table tbody th[scope="row"] {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--ink);
 }
