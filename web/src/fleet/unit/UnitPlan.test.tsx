@@ -83,6 +83,33 @@ describe("the unit plan", () => {
     expect(onSelect).toHaveBeenCalledWith("p6");
   });
 
+  // How many spares a unit carries is tenant data (FR-VEH-002), and the spare
+  // column runs downward past the axle stack: a height fixed to the axles
+  // draws the fourth spare outside the viewBox, where it is invisible and
+  // unclickable.
+  it("holds every spare inside the viewBox, however many there are", () => {
+    const spares = [1, 2, 3, 4].map((n) =>
+      unitPosition({
+        id: `sp${n}`,
+        code: `SPARE${n}`,
+        axleNumber: null,
+        side: null,
+        slot: null,
+        axleClass: "SPARE",
+        isSpare: true,
+      }),
+    );
+    render(<UnitPlan positions={[...POSITIONS, ...spares]} selectedId={null} onSelect={vi.fn()} />);
+
+    const svg = screen.getByRole("group", { name: "Unit plan view" });
+    const viewBoxHeight = Number(svg.getAttribute("viewBox")?.split(" ")[3]);
+    for (const spare of spares) {
+      const rect = svg.querySelector(`[data-position-id="${spare.id}"] rect`);
+      const bottom = Number(rect?.getAttribute("y")) + Number(rect?.getAttribute("height"));
+      expect(bottom).toBeLessThanOrEqual(viewBoxHeight);
+    }
+  });
+
   it("labels each axle group so a reader can tell axle 2 from axle 3", () => {
     render(<UnitPlan positions={POSITIONS} selectedId={null} onSelect={vi.fn()} />);
 

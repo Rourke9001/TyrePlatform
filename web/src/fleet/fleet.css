@@ -395,7 +395,11 @@
   gap: 0.4rem;
 }
 
-.unit-edit label {
+/* Direct children only: the mount-orientation radios wrap their own labels,
+   which carry the option's wording rather than a field name. */
+.unit-edit label,
+.unit-panel-form > label,
+.unit-status form > label {
   font-family: var(--font-ui);
   font-size: var(--text-small);
   color: var(--ink-muted);

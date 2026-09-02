@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 
 import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
@@ -41,6 +41,14 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const depots = useQuery({ queryKey: depotsKey(tenantKey), queryFn: () => fetchDepots() });
 
+  // What the fields were seeded from, which the prop stops being the moment
+  // the unit read refetches — on a window focus, or on any write's
+  // invalidation. The diff below has to be against what the person editing
+  // was shown: measured against a refetch carrying someone else's change,
+  // an untouched field reads as an edit back to the old value and the PATCH
+  // reverts them (FR-VEH-041, D5).
+  const seed = useRef(unit);
+
   const [fleetNumber, setFleetNumber] = useState(unit.fleetNumber);
   const [registration, setRegistration] = useState(unit.registration ?? "");
   const [description, setDescription] = useState(unit.description ?? "");
@@ -63,38 +71,40 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
     e.preventDefault();
     const body: UnitPatch = {};
 
-    const nextRegistration = changedText(registration, unit.registration);
+    const loaded = seed.current;
+
+    const nextRegistration = changedText(registration, loaded.registration);
     if (nextRegistration !== undefined) body.registration = nextRegistration;
-    const nextDescription = changedText(description, unit.description);
+    const nextDescription = changedText(description, loaded.description);
     if (nextDescription !== undefined) body.description = nextDescription;
-    const nextBodyType = changedText(bodyType, unit.bodyType);
+    const nextBodyType = changedText(bodyType, loaded.bodyType);
     if (nextBodyType !== undefined) body.bodyType = nextBodyType;
-    const nextDescriptor = changedText(unitDescriptor, unit.unitDescriptor);
+    const nextDescriptor = changedText(unitDescriptor, loaded.unitDescriptor);
     if (nextDescriptor !== undefined) body.unitDescriptor = nextDescriptor;
 
     const blanked = [
-      [registration, unit.registration],
-      [description, unit.description],
-      [bodyType, unit.bodyType],
-      [unitDescriptor, unit.unitDescriptor],
-    ].some(([current, loaded]) => (current ?? "").trim() === "" && (loaded ?? "") !== "");
+      [registration, loaded.registration],
+      [description, loaded.description],
+      [bodyType, loaded.bodyType],
+      [unitDescriptor, loaded.unitDescriptor],
+    ].some(([current, was]) => (current ?? "").trim() === "" && (was ?? "") !== "");
 
     // fleet_number is NOT NULL (000001), so a blank one is asking for
     // something the column cannot hold rather than for no change. The input is
     // `required` and patchUnit's validate() owns the rule either way
     // (ADR-0013 decision 5), so an empty one is simply not a change to send.
     const trimmedFleet = fleetNumber.trim();
-    if (trimmedFleet !== "" && trimmedFleet !== unit.fleetNumber) {
+    if (trimmedFleet !== "" && trimmedFleet !== loaded.fleetNumber) {
       body.fleetNumber = trimmedFleet;
     }
 
-    if (homeDepotId !== (unit.homeDepotId ?? "")) body.homeDepotId = homeDepotId;
+    if (homeDepotId !== (loaded.homeDepotId ?? "")) body.homeDepotId = homeDepotId;
 
     const nextTags = tags
       .split(",")
       .map((t) => t.trim())
       .filter((t) => t !== "");
-    if (!sameTags(nextTags, unit.tags)) body.tags = nextTags;
+    if (!sameTags(nextTags, loaded.tags)) body.tags = nextTags;
 
     setAdvisory(blanked ? BLANK_KEPT : "");
     if (Object.keys(body).length === 0) {
@@ -153,19 +163,36 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
             lists depots but exposes no read of the operating groups, so a
             picker could only invent the list. It is edited from this form when
             that read exists. */}
-        <label htmlFor="unit-home-depot">Home depot</label>
-        <select
-          id="unit-home-depot"
-          value={homeDepotId}
-          onChange={(e) => setHomeDepotId(e.target.value)}
-        >
-          <option value="">None</option>
-          {(depots.data ?? []).map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+        {depots.isError ? (
+          <div className="note-card" role="alert">
+            <h3>Depots didn&apos;t load</h3>
+            <p>The server could not be reached. Check your connection, then retry.</p>
+            <button className="btn-primary" type="button" onClick={() => void depots.refetch()}>
+              Retry
+            </button>
+          </div>
+        ) : (
+          <>
+            <label htmlFor="unit-home-depot">Home depot</label>
+            <select
+              id="unit-home-depot"
+              value={homeDepotId}
+              onChange={(e) => setHomeDepotId(e.target.value)}
+            >
+              {/* None stays selectable while the list loads: "" is how the
+                  API clears the id, not a placeholder standing in for one
+                  (patchUnit's comment in api/units.ts). The pending option
+                  therefore carries no value of its own. */}
+              <option value="">None</option>
+              {depots.isPending && <option disabled>Loading…</option>}
+              {(depots.data ?? []).map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
 
         {/* One field, comma separated: app.vehicle_tag holds a replacement
             list per unit (FR-VEH-041, U6), so this posts the whole list and

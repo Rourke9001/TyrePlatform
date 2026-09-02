@@ -185,9 +185,31 @@ describe("rotating tyres within a unit", () => {
     });
   });
 
+  // Every move inserts a fitment row, and 000025's trigger refuses one on a
+  // unit that has an odometer without the reading (FR-FIT-002). A rotation
+  // sent from a stale unit read gets that refusal, and a general sentence
+  // would leave the controller retrying the same thing (ADR-0012).
+  it("speaks TY009 rather than the general sentence", async () => {
+    const message = "fitment odometer is required for a unit that has one";
+    vi.mocked(fetch).mockResolvedValue(respond(422, { code: "TY009", message }));
+    const user = userEvent.setup();
+    renderForm({ hasOdometer: false });
+
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS1" }), "p2");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS2" }), "p1");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS1" }), "11.0");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS2" }), "12.5");
+    await user.click(screen.getByRole("button", { name: "Rotate" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(message);
+  });
+
   it("never asks a trailer for an odometer and asks a horse for one", () => {
     const { unmount } = renderForm({ hasOdometer: true });
-    expect(screen.getByRole("textbox", { name: "Odometer" })).toBeTruthy();
+    // Required, not optional: without it the write is refused as TY009.
+    expect(screen.getByRole("textbox", { name: "Odometer" }).hasAttribute("required")).toBe(true);
     unmount();
 
     renderForm({ hasOdometer: false, unitKind: "TRAILER" });

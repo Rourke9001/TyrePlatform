@@ -107,11 +107,13 @@ describe("a position panel", () => {
 
   // A trailer has no odometer, so neither form may ask for one. Both halves:
   // a panel that never rendered the field would pass the absence assertion
-  // on its own (docs/lessons.md, 26 Aug 2026).
+  // on its own (docs/lessons.md, 26 Aug 2026). Required, not optional: the
+  // write is refused as TY009 without it (FR-FIT-002).
   it("asks for an odometer on a unit that has one and never on a unit that does not", async () => {
     stubFetch();
     const { unmount } = renderPanel(unitPosition({ id: "p1" }), { hasOdometer: true });
-    expect(await screen.findByRole("textbox", { name: "Odometer" })).toBeTruthy();
+    const field = await screen.findByRole("textbox", { name: "Odometer" });
+    expect(field.hasAttribute("required")).toBe(true);
     unmount();
 
     renderPanel(unitPosition({ id: "p1" }), { hasOdometer: false, unitKind: "TRAILER" });
@@ -126,7 +128,7 @@ describe("a position panel", () => {
     const occupied = unitPosition({ id: "p2", code: "POS2", fitment: openFitment() });
     const { unmount } = renderPanel(occupied, { hasOdometer: true });
     await screen.findByRole("combobox", { name: "Reason" });
-    expect(screen.getByRole("textbox", { name: "Odometer" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Odometer" }).hasAttribute("required")).toBe(true);
     unmount();
 
     renderPanel(occupied, { hasOdometer: false, unitKind: "TRAILER" });
@@ -342,6 +344,151 @@ describe("a position panel", () => {
     await waitFor(() => {
       expect(client.getQueryState(key)?.isInvalidated).toBe(true);
     });
+  });
+
+  // The removal's closing UPDATE answers to 000025's trigger as the fit's
+  // INSERT does, so a unit read that says "no odometer" while the server says
+  // otherwise refuses here too. Without TY009 in REMOVE_WORDING the sentence
+  // is the general one, which does not say what to do next (ADR-0012).
+  it("speaks TY009 on a removal, not the general sentence", async () => {
+    const message = "fitment odometer is required for a unit that has one";
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url.startsWith("/api/tyres")) return Promise.resolve(respond(200, { tyres: STOCK }));
+      return Promise.resolve(respond(422, { code: "TY009", message }));
+    });
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ fitmentId: "f4" }) }),
+      { hasOdometer: false, removalReasons: ["Worn out"] },
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe(message);
+  });
+
+  // CR-012 reads the distance out of the two odometers, and app.fitment's
+  // odometer_does_not_decrease refuses the pair as a 23514 the API can only
+  // report generically.
+  it("refuses a removal odometer below the fitted one, naming the reading to beat", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({
+        id: "p2",
+        code: "POS2",
+        fitment: openFitment({ fitmentId: "f4", fittedOdometer: 100000 }),
+      }),
+      { hasOdometer: true, removalReasons: ["Worn out"] },
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    await user.type(screen.getByRole("textbox", { name: "Odometer" }), "99999");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("100000");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
+  // NFR-USE-012: a controller looks for TY2 where TY2 belongs, and the read
+  // arrives in received-date order.
+  it("offers the stock in natural code order, not the order the register returned", async () => {
+    vi.mocked(fetch).mockImplementation(() =>
+      Promise.resolve(
+        respond(200, {
+          tyres: [
+            { ...STOCK[0], id: "a", displayCode: "TY10" },
+            { ...STOCK[0], id: "b", displayCode: "TY2" },
+          ],
+        }),
+      ),
+    );
+    renderPanel(unitPosition({ id: "p1" }));
+
+    const picker = await screen.findByRole("combobox", { name: "Tyre" });
+    await within(picker).findByRole("option", { name: "TY2" });
+    expect(
+      within(picker)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Choose…", "TY2", "TY10"]);
+  });
+
+  it("says the stock read is loading, and offers a retry when it failed", async () => {
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => undefined));
+    const { unmount } = renderPanel(unitPosition({ id: "p1" }));
+    const picker = await screen.findByRole("combobox", { name: "Tyre" });
+    expect(within(picker).getByRole("option", { name: "Loading…" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+    unmount();
+
+    vi.mocked(fetch).mockResolvedValue(respond(500, { code: "internal", message: "boom" }));
+    renderPanel(unitPosition({ id: "p1" }));
+    expect(await screen.findByRole("heading", { name: "Tyres didn't load" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
+  });
+
+  // A rotation elsewhere on the unit puts a different tyre here. The panel
+  // reads the same position it always did, so only the fitment id says the
+  // confirmation is about a vehicle that has since changed (NFR-USE-010).
+  it("drops the fit's confirmation once another fitment holds the position", async () => {
+    stubFetch({ fitmentId: "f9", warnings: [] });
+    const user = userEvent.setup();
+    const client = testQueryClient();
+    const empty = unitPosition({ id: "p1", code: "POS1" });
+    const u = unit({ hasOdometer: false, positions: [empty] });
+    const tree = (position: UnitPosition) => (
+      <ActorContext.Provider
+        value={{ actor: me({ capabilities: ["ManageAssets"] }), settled: true }}
+      >
+        <QueryClientProvider client={client}>
+          <PositionPanel unit={u} position={position} />
+        </QueryClientProvider>
+      </ActorContext.Provider>
+    );
+    const { rerender } = render(tree(empty));
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+    await screen.findByText("TY007 was fitted to POS1.");
+
+    rerender(
+      tree(
+        unitPosition({
+          id: "p1",
+          code: "POS1",
+          fitment: openFitment({ fitmentId: "f11", displayCode: "TY050" }),
+        }),
+      ),
+    );
+
+    expect(screen.queryByText("TY007 was fitted to POS1.")).toBeNull();
+  });
+
+  // NFR-USE-009 and the gloves: a field named only by an aria-label is a box
+  // with nothing beside it for anyone who can see the screen.
+  it("names every field on screen, not only to a screen reader", async () => {
+    stubFetch();
+    renderPanel(unitPosition({ id: "p1" }), { hasOdometer: true });
+
+    await screen.findByRole("combobox", { name: "Tyre" });
+    // Reached through each control's own id: a label that names nothing is
+    // not a label, and the accessible name has to survive the change.
+    for (const [role, name] of [
+      ["combobox", "Tyre"],
+      ["textbox", "Tread (mm)"],
+      ["textbox", "Odometer"],
+    ]) {
+      const field = screen.getByRole(role, { name });
+      expect(document.querySelector(`label[for="${field.id}"]`)?.textContent).toBe(name);
+    }
   });
 
   it("shows the occupant but no write form to a reader who cannot manage assets", async () => {

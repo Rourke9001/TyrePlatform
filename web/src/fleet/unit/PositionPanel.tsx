@@ -15,14 +15,18 @@ import {
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { useFormMutation } from "../useFormMutation";
+import { byNaturalCode } from "./naturalOrder";
 import { ODOMETER_REFUSAL, readOdometer } from "./odometer";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { MOUNT_ORIENTATIONS, orientationLabel } from "./vocabulary";
 
 // A fit and a removal refuse for different reasons and must say so. Only the
 // codes each endpoint can actually raise are listed: app.fit_tyre reaches
-// TY009 (a horse fitted without an odometer), TY012, TY014 and the two
-// occupancy conflicts, and app.remove_tyre reaches neither occupancy code.
+// TY009 (FR-FIT-002: a unit that has an odometer needs the reading), TY012,
+// TY014 and the two occupancy conflicts, and app.remove_tyre reaches TY009 and
+// neither occupancy code — 000025's fitment_odometer_matches_unit_kind fires
+// BEFORE INSERT OR UPDATE, so the removal's own closing UPDATE answers to it
+// as the fit's INSERT does.
 const FIT_WORDING = {
   speakable: ["TY009", "TY012", "TY014", "position_occupied", "tyre_already_fitted"],
   forbidden: "You do not have permission to fit a tyre.",
@@ -30,10 +34,18 @@ const FIT_WORDING = {
 };
 
 const REMOVE_WORDING = {
-  speakable: ["TY012", "TY014"],
+  speakable: ["TY009", "TY012", "TY014"],
   forbidden: "You do not have permission to remove a tyre.",
   fallback: "The tyre could not be removed. Try again, or call support if it keeps happening.",
 };
+
+// CR-012 subtracts the fitted reading from this one to get the distance the
+// tyre ran, and app.fitment's odometer_does_not_decrease (000001) refuses a
+// smaller one as a 23514 the API can only report as a generic
+// invalid_submission. Refusing here instead names the reading to beat.
+function belowFittedOdometer(fitted: number): string {
+  return `The odometer cannot be below ${fitted}, the reading this tyre was fitted at.`;
+}
 
 // The selected position: what it carries, and the one write it admits — a
 // fit when it is empty, a removal when it is not (D7). Both mutations are
@@ -53,13 +65,21 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   const [reason, setReason] = useState("");
   const [removeTread, setRemoveTread] = useState("");
   const [removeOdometer, setRemoveOdometer] = useState("");
-  // Which write was made last, and what it named. Both are needed: the fields
-  // clear on success and the read behind them has moved on, so a confirmation
-  // could not otherwise name what it confirmed (NFR-USE-010); and both
-  // mutations keep their isSuccess for the life of the panel, so a fit
-  // followed by a removal would otherwise leave the fit's sentence standing
-  // beside the removal's — two claims about one tyre, one of them false.
-  const [acted, setActed] = useState<{ kind: "fit" | "remove"; code: string } | null>(null);
+  // Which write was made last, what it named, and which fitment it acted on.
+  // The first two are needed because the fields clear on success and the read
+  // behind them has moved on, so a confirmation could not otherwise name what
+  // it confirmed (NFR-USE-010), and because both mutations keep their
+  // isSuccess for the life of the panel — a fit followed by a removal would
+  // otherwise leave the fit's sentence standing beside the removal's. The
+  // fitment id is what keeps the sentence honest afterwards: a rotation
+  // elsewhere on the unit can put a different tyre in this position, and
+  // "TY007 was fitted to POS1" is then a claim about a position holding
+  // something else.
+  const [acted, setActed] = useState<{
+    kind: "fit" | "remove";
+    code: string;
+    fitmentId: string | null;
+  } | null>(null);
   // A refusal this screen raised rather than the server. Setting it drops
   // `acted`, so a standing confirmation never sits beside the sentence saying
   // the next attempt went nowhere.
@@ -86,7 +106,11 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   const fit = useFormMutation({
     mutate: (vars: NewFitment) => fitTyre(unit.id, vars),
     invalidate,
-    onSuccess: () => {
+    onSuccess: (result) => {
+      // Merged rather than set: the code was read off the picker at submit,
+      // which has been cleared by the time the fitment id this produced is
+      // known.
+      setActed((prev) => (prev === null ? prev : { ...prev, fitmentId: result.fitmentId }));
       setTyreId("");
       setFitTread("");
       setFitOdometer("");
@@ -104,9 +128,17 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
     },
   });
 
-  const inStock = (stock.data ?? []).filter((t) => t.state === "IN_STOCK");
+  const inStock = (stock.data ?? [])
+    .filter((t) => t.state === "IN_STOCK")
+    .sort((a, b) => byNaturalCode(a.displayCode, b.displayCode));
   // Advisories belong to the fit that raised them, so they leave with it.
   const warnings = acted?.kind === "fit" ? (fit.result?.warnings ?? []) : [];
+  // A confirmation stands while this position still shows the fitment the
+  // write acted on, or shows nothing yet — the invalidated read has not come
+  // back. A *different* fitment here belongs to some other write, and a
+  // sentence about this one would describe a vehicle that has moved on.
+  const actedStillHolds =
+    acted !== null && (position.fitment === null || position.fitment.fitmentId === acted.fitmentId);
 
   function submitFit(e: FormEvent) {
     e.preventDefault();
@@ -118,7 +150,11 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
       return;
     }
     setRefused("");
-    setActed({ kind: "fit", code: inStock.find((t) => t.id === tyreId)?.displayCode ?? "" });
+    setActed({
+      kind: "fit",
+      code: inStock.find((t) => t.id === tyreId)?.displayCode ?? "",
+      fitmentId: null,
+    });
     fit.submit({
       tyreId,
       positionId: position.id,
@@ -138,8 +174,17 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
       setActed(null);
       return;
     }
+    if (
+      odometer.value !== undefined &&
+      open.fittedOdometer !== null &&
+      odometer.value < open.fittedOdometer
+    ) {
+      setRefused(belowFittedOdometer(open.fittedOdometer));
+      setActed(null);
+      return;
+    }
     setRefused("");
-    setActed({ kind: "remove", code: open.displayCode });
+    setActed({ kind: "remove", code: open.displayCode, fitmentId: open.fitmentId });
     remove.submit({
       fitmentId: open.fitmentId,
       body: { reason, treadMm: removeTread.trim(), odometer: odometer.value },
@@ -171,17 +216,37 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
 
       {canManage && position.fitment === null && (
         <form className="unit-panel-form" onSubmit={submitFit}>
-          <select aria-label="Tyre" value={tyreId} onChange={(e) => setTyreId(e.target.value)}>
-            <option value="">Choose…</option>
-            {inStock.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.displayCode}
-              </option>
-            ))}
-          </select>
+          {stock.isError ? (
+            <div className="note-card" role="alert">
+              <h3>Tyres didn&apos;t load</h3>
+              <p>The server could not be reached. Check your connection, then retry.</p>
+              <button className="btn-primary" type="button" onClick={() => void stock.refetch()}>
+                Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              <label htmlFor={`fit-tyre-${position.id}`}>Tyre</label>
+              <select
+                id={`fit-tyre-${position.id}`}
+                value={tyreId}
+                onChange={(e) => setTyreId(e.target.value)}
+              >
+                <option value="" disabled={stock.isPending}>
+                  {stock.isPending ? "Loading…" : "Choose…"}
+                </option>
+                {inStock.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.displayCode}
+                  </option>
+                ))}
+              </select>
+            </>
+          )}
 
+          <label htmlFor={`fit-tread-${position.id}`}>Tread (mm)</label>
           <input
-            aria-label="Tread (mm)"
+            id={`fit-tread-${position.id}`}
             inputMode="decimal"
             value={fitTread}
             onChange={(e) => setFitTread(e.target.value)}
@@ -203,13 +268,21 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
             ))}
           </div>
 
+          {/* FR-FIT-002: a unit that has an odometer needs the reading, and
+              the trigger that enforces it (000025) refuses the whole write.
+              Asking for it here costs a tap; leaving it optional costs a
+              refusal the controller has to read and retry. */}
           {unit.hasOdometer && (
-            <input
-              aria-label="Odometer"
-              inputMode="numeric"
-              value={fitOdometer}
-              onChange={(e) => setFitOdometer(e.target.value)}
-            />
+            <>
+              <label htmlFor={`fit-odometer-${position.id}`}>Odometer</label>
+              <input
+                id={`fit-odometer-${position.id}`}
+                inputMode="numeric"
+                value={fitOdometer}
+                onChange={(e) => setFitOdometer(e.target.value)}
+                required
+              />
+            </>
           )}
 
           <button
@@ -226,7 +299,12 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
         <form className="unit-panel-form" onSubmit={submitRemove}>
           {/* FR-FIT-008: which reasons exist is tenant configuration, read off
               the unit rather than listed here (rule 5). */}
-          <select aria-label="Reason" value={reason} onChange={(e) => setReason(e.target.value)}>
+          <label htmlFor={`remove-reason-${position.id}`}>Reason</label>
+          <select
+            id={`remove-reason-${position.id}`}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+          >
             <option value="">Choose…</option>
             {unit.removalReasons.map((r) => (
               <option key={r} value={r}>
@@ -235,8 +313,9 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
             ))}
           </select>
 
+          <label htmlFor={`remove-tread-${position.id}`}>Tread (mm)</label>
           <input
-            aria-label="Tread (mm)"
+            id={`remove-tread-${position.id}`}
             inputMode="decimal"
             value={removeTread}
             onChange={(e) => setRemoveTread(e.target.value)}
@@ -244,12 +323,16 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
           />
 
           {unit.hasOdometer && (
-            <input
-              aria-label="Odometer"
-              inputMode="numeric"
-              value={removeOdometer}
-              onChange={(e) => setRemoveOdometer(e.target.value)}
-            />
+            <>
+              <label htmlFor={`remove-odometer-${position.id}`}>Odometer</label>
+              <input
+                id={`remove-odometer-${position.id}`}
+                inputMode="numeric"
+                value={removeOdometer}
+                onChange={(e) => setRemoveOdometer(e.target.value)}
+                required
+              />
+            </>
           )}
 
           <button
@@ -262,10 +345,10 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
         </form>
       )}
 
-      {fit.isSuccess && acted?.kind === "fit" && (
+      {fit.isSuccess && acted?.kind === "fit" && actedStillHolds && (
         <p role="status">{`${acted.code} was fitted to ${position.code}.`}</p>
       )}
-      {remove.isSuccess && acted?.kind === "remove" && (
+      {remove.isSuccess && acted?.kind === "remove" && actedStillHolds && (
         <p role="status">{`${acted.code} was removed from ${position.code}.`}</p>
       )}
 
