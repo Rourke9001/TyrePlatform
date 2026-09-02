@@ -101,6 +101,16 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY014',
       MESSAGE = 'a return records whether the retreader accepted the casing';
   END IF;
+  -- Bounded on the parameter for the reason the tread bound below carries: a
+  -- figure wider than numeric(12,2) overflows at the assignment on the next
+  -- line and reaches the client as a bare 22003 it cannot act on (ADR-0012).
+  -- The ceiling is the column's own capacity, not a policy limit — a limit on
+  -- what a casing may be worth would be tenant configuration (rule 5); this
+  -- is the point at which a figure stops being storable at all.
+  IF abs(p_casing_value) > 9999999999.99 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY014',
+      MESSAGE = 'a casing value is an amount of at most 9999999999.99';
+  END IF;
   cval := p_casing_value;
 
   IF p_casing_accepted THEN
@@ -125,12 +135,16 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = 'TY014',
         MESSAGE = 'a retread return records its tread in millimetres, above 0 and at most 30';
     END IF;
+    -- Same reason on the cost side, and the same ceiling: numeric(12,2) is
+    -- what the retread_job column holds, and a wider figure would 22003 at
+    -- the assignment below rather than answer as an input this surface does
+    -- not accept.
+    IF p_retread_cost < 0 OR p_retread_cost > 9999999999.99 THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY014',
+        MESSAGE = 'a retread cost is a non-negative amount of at most 9999999999.99';
+    END IF;
     cost  := p_retread_cost;
     tread := p_post_tread_mm;
-    IF cost < 0 THEN
-      RAISE EXCEPTION USING ERRCODE = 'TY014',
-        MESSAGE = 'a retread cost is a non-negative amount';
-    END IF;
     -- FR-TYR-009, BR-VAL-004: a zero casing value is what a rejection means,
     -- so an accepted casing may not carry one — the register labels both
     -- ACTUAL from the RETREADER source alone and could not tell them apart.
@@ -146,7 +160,7 @@ BEGIN
     IF thr IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'TY014',
         MESSAGE = 'no removal threshold is configured for this fleet',
-        HINT    = 'set removal_threshold_mm on the fleet''s configuration (FR-CFG-044)';
+        HINT    = 'set retread_threshold_mm on the fleet-wide threshold policy (FR-CFG-044)';
     END IF;
     -- BR-VAL-002 divides by (tread - threshold), so a casing returned at or
     -- below the threshold has no usable tread and no rate. FR-TYR-019 wants a
@@ -189,6 +203,14 @@ BEGIN
     -- construction rather than by the two writes being kept in step.
     -- FR-TYR-018: a retread is a new tread depth on the same casing, and
     -- FR-TYR-019 re-rates it at what that tread cost.
+    --
+    -- last_tread_mm moves with it, under U10's rule and for U10's reason
+    -- (stated in full at app.fit_tyre, 000033): the returned depth is a
+    -- measured value on a report, and a casing left at the depth it was
+    -- pulled at would sit in the register priced as worn while carrying a
+    -- new tread and a new rate — the CR-012 defect of a stale figure read as
+    -- current. Monotonic on time like its siblings, so a return logged
+    -- against an older date never overwrites a newer measurement.
     UPDATE app.tyre t
        SET retread_count    = t.retread_count + 1,
            status           = 'RETREAD',
@@ -196,7 +218,11 @@ BEGIN
            pattern_id       = COALESCE(p_new_pattern_id, t.pattern_id),
            rand_per_mm      = app.rand_per_mm(cost, tread, thr),
            state            = 'IN_STOCK',
-           current_depot_id = NULL
+           current_depot_id = NULL,
+           last_tread_mm    = CASE WHEN t.last_tread_at IS NULL OR t.last_tread_at < stamp
+                                   THEN tread ELSE t.last_tread_mm END,
+           last_tread_at    = CASE WHEN t.last_tread_at IS NULL OR t.last_tread_at < stamp
+                                   THEN stamp ELSE t.last_tread_at END
      WHERE t.id = ty.id;
     -- FR-FIT-022. The retreader's figure, on a report, against the job that
     -- produced it; the register labels it ACTUAL from the source alone.

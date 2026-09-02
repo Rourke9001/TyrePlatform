@@ -615,13 +615,11 @@ BEGIN
   -- calendar day's opening midnight: midnight would lose to the same day's
   -- removal and leave the estate reading REMOVED while the row reads
   -- AT_RETREADER. An earlier date means midnight in the TENANT's zone
-  -- (rule 6) rather than the session's, still never ahead of now().
+  -- (rule 6) rather than the session's. Both arms are bounded by now() in the
+  -- expression itself — the future date is already refused above, and least()
+  -- closes the tenant-zone arm — so no separate future check follows it.
   stamp := CASE WHEN sent = app.tenant_today(tz) THEN now()
                 ELSE least((sent::timestamp AT TIME ZONE tz), now()) END;
-  IF stamp > now() THEN
-    RAISE EXCEPTION USING ERRCODE = 'TY012',
-      MESSAGE = 'a dispatch is recorded as at now or earlier, never in the future';
-  END IF;
   -- The guard is inline rather than app.fitment_instant_ok: that helper's
   -- 24-hour rule needs a justification parameter, and a dispatch carries a
   -- date rather than an instant, so there is none to pass it. The known
