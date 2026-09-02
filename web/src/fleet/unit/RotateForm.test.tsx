@@ -4,7 +4,9 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { RotateForm } from "./RotateForm";
+import { openFitmentsKey } from "./queryKeys";
 import { ActorContext } from "../../auth/actorContext";
+import { getDevTenantId } from "../../api/devTenant";
 import type { Unit } from "../../api/units";
 import {
   me,
@@ -146,6 +148,41 @@ describe("rotating tyres within a unit", () => {
 
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("two positions");
+  });
+
+  // A rotation moves tyres between positions of one unit, which changes what
+  // the fleet-wide fitments list holds for both of them. No screen here reads
+  // that list, so its key is stale only if this write says so.
+  it("invalidates the fleet-wide fitments list its moves make stale", async () => {
+    vi.mocked(fetch).mockResolvedValue(respond(200, { moves: [] }));
+    const user = userEvent.setup();
+    const client = testQueryClient();
+    const key = openFitmentsKey(getDevTenantId() ?? "default");
+    // Seeded first: invalidateQueries on a key with no cache entry is
+    // silently a no-op (PositionPanel.test.tsx holds the same note).
+    client.setQueryData(key, []);
+
+    render(
+      <ActorContext.Provider
+        value={{ actor: me({ capabilities: ["ManageAssets"] }), settled: true }}
+      >
+        <QueryClientProvider client={client}>
+          <RotateForm unit={unit({ id: "u9", hasOdometer: false, positions: threePositions() })} />
+        </QueryClientProvider>
+      </ActorContext.Provider>,
+    );
+
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS1" }), "p2");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS2" }), "p1");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS1" }), "11.0");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS2" }), "12.5");
+    await user.click(screen.getByRole("button", { name: "Rotate" }));
+
+    await waitFor(() => {
+      expect(client.getQueryState(key)?.isInvalidated).toBe(true);
+    });
   });
 
   it("never asks a trailer for an odometer and asks a horse for one", () => {

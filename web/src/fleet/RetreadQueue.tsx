@@ -11,6 +11,7 @@ import {
   type RetreadReturn,
 } from "../api/retreads";
 import { useTenantDate } from "../time/tenantTime";
+import { retreadJobsKey } from "./unit/queryKeys";
 import { useFormMutation } from "./useFormMutation";
 import "./fleet.css";
 
@@ -67,7 +68,7 @@ function RetreadReturnRow({
 
   const logReturn = useFormMutation<RetreadReturn, void>({
     mutate: (vars) => logRetreadReturn(job.id, vars),
-    invalidate: [["retread-jobs"], ["tyres", tenantKey]],
+    invalidate: [retreadJobsKey(tenantKey), ["tyres", tenantKey]],
     onSuccess: () => {
       setOutcome("");
       setReturnedOn("");
@@ -212,7 +213,7 @@ export function RetreadQueue() {
   // vanish (NFR-USE-010).
   const [closedCode, setClosedCode] = useState<string | null>(null);
 
-  const jobs = useQuery({ queryKey: ["retread-jobs"], queryFn: fetchRetreadJobs });
+  const jobs = useQuery({ queryKey: retreadJobsKey(tenantKey), queryFn: fetchRetreadJobs });
 
   return (
     <section aria-labelledby="retreads-heading" className="retreads">

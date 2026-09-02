@@ -1,8 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 
+import { getDevTenantId } from "../api/devTenant";
 import { fetchOpenFitments, type FleetFitment } from "../api/units";
 import { useTenantDate } from "../time/tenantTime";
+import { openFitmentsKey } from "./unit/queryKeys";
 import "./fleet.css";
 
 // D7/ViewFleet: every position the fleet currently has occupied, in one
@@ -10,8 +12,9 @@ import "./fleet.css";
 // 6) — this renders the number, never derives one from a browser clock.
 export function FitmentList() {
   const asDate = useTenantDate();
+  const tenantKey = getDevTenantId() ?? "default";
 
-  const fitments = useQuery({ queryKey: ["open-fitments"], queryFn: fetchOpenFitments });
+  const fitments = useQuery({ queryKey: openFitmentsKey(tenantKey), queryFn: fetchOpenFitments });
 
   return (
     <section aria-labelledby="fitments-heading" className="fitments">

@@ -1,10 +1,11 @@
 import { type FormEvent, useState } from "react";
 
+import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { rotateTyres, type RotationMove, type Unit } from "../../api/units";
 import { useFormMutation } from "../useFormMutation";
 import { ODOMETER_REFUSAL, readOdometer } from "./odometer";
-import { unitFitmentsKey, unitKey } from "./queryKeys";
+import { openFitmentsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 
 // app.rotate_tyres refuses the whole set or none of it, and the codes it can
 // reach are TY012 and TY014 — no occupancy code, because a rotation's
@@ -24,6 +25,7 @@ const INCOMPLETE = "Every picked position needs a target and a tread reading.";
 // of the rotation, and a tread is asked per tyre because each is measured
 // where it comes off (NFR-USE-006 — never ask for the same value twice).
 export function RotateForm({ unit }: { unit: Unit }) {
+  const tenantKey = getDevTenantId() ?? "default";
   const occupied = unit.positions.filter((p) => p.fitment !== null);
 
   const [picked, setPicked] = useState<Record<string, boolean>>({});
@@ -34,7 +36,7 @@ export function RotateForm({ unit }: { unit: Unit }) {
 
   const rotate = useFormMutation({
     mutate: (vars: { moves: RotationMove[]; odometer?: number }) => rotateTyres(unit.id, vars),
-    invalidate: [unitKey(unit.id), unitFitmentsKey(unit.id)],
+    invalidate: [unitKey(unit.id), unitFitmentsKey(unit.id), openFitmentsKey(tenantKey)],
     onSuccess: () => {
       setPicked({});
       setTargets({});

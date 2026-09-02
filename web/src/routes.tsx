@@ -48,11 +48,12 @@ function CaptureRoute() {
   return <CaptureFlow vehicleId={vehicleId} taskId={params.get("taskId")} />;
 }
 
-// D7's unit screen is a ViewFleet read, hidden like /fleet rather than
-// refused out loud (RequireCapability wraps this at the call site, not
-// here). A param segment never matches empty, so this guard covers
-// UnitDetail's non-empty-id contract, not a reachable URL — CaptureRoute's
-// shape, for the same reason.
+// D7's unit screen is a ViewFleet read reached by following a link from the
+// unit list, so it refuses out loud rather than hiding: it is a destination
+// someone navigated to, and AdminRoute below holds that rule. /fleet and
+// /fleet/fitments stay hidden, per D7. A param segment never matches empty,
+// so this guard covers UnitDetail's non-empty-id contract, not a reachable
+// URL — CaptureRoute's shape, for the same reason.
 export function UnitRoute() {
   const { unitId } = useParams();
   if (!unitId) return <NotFound />;
@@ -121,9 +122,9 @@ export function AppRoutes() {
       <Route
         path="/fleet/units/:unitId"
         element={
-          <RequireCapability capability="ViewFleet">
+          <AdminRoute capability="ViewFleet">
             <UnitRoute />
-          </RequireCapability>
+          </AdminRoute>
         }
       />
       <Route

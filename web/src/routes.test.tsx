@@ -236,20 +236,17 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { name: "HORSE-1" })).toBeInTheDocument();
   });
 
-  // RequireCapability hides silently — a reader who lands on a unit link
-  // they cannot follow sees nothing, the same as at /fleet.
-  it("shows nothing at /fleet/units/:unitId for an actor without ViewFleet", () => {
+  // A unit is reached by following a link from the unit list, so it is a
+  // destination someone navigated to and says why it is refused — routes.tsx's
+  // own rule, the same one /capture answers to.
+  it("explains a refusal at /fleet/units/:unitId rather than rendering nothing", () => {
     renderAt("/fleet/units/u9", actor(["CaptureInspection"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
     expect(screen.queryByRole("heading", { name: "HORSE-1" })).toBeNull();
-    expect(screen.queryByRole("alert")).toBeNull();
-    // Distinguishes RequireCapability's silent hide from the catch-all
-    // NotFound route: the route must exist and hide, not be absent. The same
-    // rationale gates /fleet/fitments' equivalent test below.
-    expect(screen.queryByText(/not found/i)).toBeNull();
-    // renderAt is synchronous: with the wrapper gone, UnitDetail would still
-    // mount and its query would still be pending on this first render, so
-    // the three assertions above pass whether or not the capability gate is
-    // there at all — this is the one that would actually fail.
+    // renderAt is synchronous: with the guard gone, UnitDetail would still
+    // mount and its query would still be pending on this first render, so the
+    // assertions above could pass on a screen that had merely not loaded yet
+    // — this is the one that separates a refusal from a slow read.
     expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
@@ -273,11 +270,15 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { name: /fitments/i })).toBeInTheDocument();
   });
 
+  // D7 keeps the fitments list hidden rather than refused, like /fleet: it is
+  // a menu destination, not somewhere a link inside the app sends a reader who
+  // cannot read it.
   it("shows nothing at /fleet/fitments for an actor without ViewFleet", () => {
     renderAt("/fleet/fitments", actor(["CaptureInspection"]));
     expect(screen.queryByRole("heading", { name: /fitments/i })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
-    // Same rationale as the /fleet/units/:unitId test above.
+    // Distinguishes RequireCapability's silent hide from the catch-all
+    // NotFound route: the route must exist and hide, not be absent.
     expect(screen.queryByText(/not found/i)).toBeNull();
   });
 
