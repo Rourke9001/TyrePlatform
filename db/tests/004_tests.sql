@@ -4153,5 +4153,497 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 41. TYRE-92: fit, remove, rotate, dispatch and return (FR-FIT-001..016, D2)'
+BEGIN;
+DO $$
+DECLARE
+  bac   uuid := '11111111-1111-1111-1111-111111111111';
+  t_two uuid := '22222222-2222-2222-2222-222222222222';
+  cfg uuid; cfg2 uuid; tz text;
+  -- Both units sit on veh1's configuration, so they share every position id
+  -- (2026-08-26: ids repeat across units of one axle configuration). That is
+  -- why 41e has to reach for a position on ANOTHER configuration to exercise
+  -- the (position, vehicle) pairing check. The seed fills every position on
+  -- veh1-veh3, so this section plants units of its own to have empty ones.
+  vh uuid := md5('t41h')::uuid;   -- HORSE: TY009 requires a fitment odometer
+  vt uuid := md5('t41t')::uuid;   -- TRAILER: has no odometer to give
+  p1 uuid; p2 uuid; p3 uuid; p4 uuid; p7 uuid; p9 uuid; p10 uuid; px uuid;
+  d_rt uuid := md5('t41rt')::uuid;  d_bd uuid := md5('t41bd')::uuid;
+  sz1  uuid := md5('sz1')::uuid;    sz2  uuid := md5('t41sz2')::uuid;
+  ty1  uuid := md5('t41ty1')::uuid;  ty2  uuid := md5('t41ty2')::uuid;
+  ty3  uuid := md5('t41ty3')::uuid;  ty4  uuid := md5('t41ty4')::uuid;
+  ty5  uuid := md5('t41ty5')::uuid;  ty6  uuid := md5('t41ty6')::uuid;
+  ty7  uuid := md5('t41ty7')::uuid;  ty8  uuid := md5('t41ty8')::uuid;
+  tyr  uuid := md5('t41tyr')::uuid;  tys  uuid := md5('t41tys')::uuid;
+  tyd1 uuid := md5('t41tyd1')::uuid; tyd2 uuid := md5('t41tyd2')::uuid;
+  tyc  uuid := md5('t41tyc')::uuid;
+  r record; fit1 uuid; fit3 uuid; fit4 uuid; fitd1 uuid; fitd2 uuid;
+  n int; cname text; job uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  cfg2 := md5(bac::text || 'TRAILER_2AXLE')::uuid;
+  SELECT p.id INTO p1  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  SELECT p.id INTO p2  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '2';
+  SELECT p.id INTO p3  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '3';
+  SELECT p.id INTO p4  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '4';
+  SELECT p.id INTO p7  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '7';
+  SELECT p.id INTO p9  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '9';
+  SELECT p.id INTO p10 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '10';
+  SELECT p.id INTO px  FROM app.position p WHERE p.configuration_id = cfg2 ORDER BY p.sequence LIMIT 1;
+  IF px IS NULL OR p10 IS NULL OR p1 IS NULL THEN
+    RAISE EXCEPTION 'FAIL: section 41 cannot resolve the positions it tests against';
+  END IF;
+
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (vh, bac, 'T41-H', 'T41H GP', cfg, 'HORSE',   md5('depot1')::uuid, 'ACTIVE'),
+         (vt, bac, 'T41-T', 'T41T GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  -- BAC seeds one depot and one tyre size, so the retreader, the breakdown
+  -- supplier and the second size that FR-FIT-005/013 need are planted here.
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES
+    (d_rt, bac, 'T41 Retreaders', 'RETREADER'),
+    (d_bd, bac, 'T41 Roadside',   'BREAKDOWN_SUPPLIER');
+  INSERT INTO app.tyre_size (id, tenant_id, name, construction)
+  VALUES (sz2, bac, '295/80R22.5', 'RADIAL');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (ty1,  bac, 'T41TYRE1',  sz1, 'NEW',     0, 'IN_STOCK'),
+    (ty2,  bac, 'T41TYRE2',  sz1, 'NEW',     0, 'REMOVED'),
+    (ty3,  bac, 'T41TYRE3',  sz1, 'NEW',     0, 'IN_STOCK'),
+    (ty4,  bac, 'T41TYRE4',  sz1, 'NEW',     0, 'IN_STOCK'),
+    (ty5,  bac, 'T41TYRE5',  sz1, 'NEW',     0, 'IN_STOCK'),
+    (ty6,  bac, 'T41TYRE6',  sz1, 'NEW',     0, 'IN_STOCK'),
+    (ty7,  bac, 'T41TYRE7',  sz1, 'NEW',     0, 'IN_STOCK'),
+    (ty8,  bac, 'T41TYRE8',  sz1, 'NEW',     0, 'IN_STOCK'),
+    (tyr,  bac, 'T41TYRER',  sz1, 'RETREAD', 1, 'IN_STOCK'),
+    (tys,  bac, 'T41TYRES',  sz2, 'NEW',     0, 'IN_STOCK'),
+    (tyd1, bac, 'T41TYRED1', sz1, 'NEW',     0, 'IN_STOCK'),
+    (tyd2, bac, 'T41TYRED2', sz1, 'NEW',     0, 'IN_STOCK'),
+    (tyc,  bac, 'T41TYREC',  sz1, 'RETREAD', 1, 'REMOVED');
+
+  -- (a) A clean fit off the trailer: no odometer is owed, nothing else sits
+  -- on axle 3 and the tyre is NEW, so the warning array has to be empty
+  -- rather than merely unasserted (FR-FIT-001, U8, U10, D13).
+  SELECT * INTO r FROM app.fit_tyre(ty1, vt, p10, 14.0, 'MARK_OUTBOARD');
+  fit1 := r.fitment_id;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.id = fit1 AND f.tyre_id = ty1 AND f.vehicle_id = vt AND f.position_id = p10
+     AND f.removed_at IS NULL AND f.fitted_tread_mm = 14.0
+     AND f.mount_orientation = 'MARK_OUTBOARD';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 41a: the fitment row is not the one asked for'; END IF;
+  IF r.warnings IS DISTINCT FROM '[]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL 41a: a clean fit returned warnings %', r.warnings;
+  END IF;
+  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty1) <> 'FITTED'
+     OR (SELECT t.last_tread_mm FROM app.tyre t WHERE t.id = ty1) <> 14.0
+     OR (SELECT t.last_tread_at FROM app.tyre t WHERE t.id = ty1) IS NULL THEN
+    RAISE EXCEPTION 'FAIL 41a: the tyre did not move to FITTED carrying its tread';
+  END IF;
+  -- A fitted casing is on a unit, not in a depot's stock count.
+  IF (SELECT t.current_depot_id FROM app.tyre t WHERE t.id = ty1) IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 41a: a fitted tyre is still counted at a depot';
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_event e
+   WHERE e.tyre_id = ty1 AND e.type = 'FITTED' AND e.to_state = 'FITTED'
+     AND e.payload->>'fitment_id' = fit1::text AND e.payload->>'position_code' = '10'
+     AND e.payload->>'vehicle_id' = vt::text;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 41a: the FITTED event did not land exactly once'; END IF;
+  RAISE NOTICE 'PASS  41a fit from stock writes fitment, state, event and tread together';
+
+  -- (b) D14: a busy tyre is refused by name and location, so the driver knows
+  -- which unit to go to rather than only that the fit failed.
+  BEGIN
+    PERFORM app.fit_tyre(ty1, vt, p9, 14.0, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 41b: a fitted tyre was fitted a second time';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM NOT LIKE '%FITTED%' OR SQLERRM NOT LIKE '%position 10%' THEN
+      RAISE EXCEPTION 'FAIL 41b: the refusal does not name the current location: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  41b a fitted tyre is refused, naming its current location';
+  END;
+
+  -- (c) U1: a REMOVED tyre comes back to stock as an explicit action, never
+  -- implicitly inside a fit (FR-FIT-003).
+  BEGIN
+    PERFORM app.fit_tyre(ty2, vt, p9, 14.0, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 41c: a REMOVED tyre was fitted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM NOT LIKE '%REMOVED%' THEN
+      RAISE EXCEPTION 'FAIL 41c: the refusal does not name the state: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  41c a fit is from IN_STOCK only, naming the state that refused it';
+  END;
+
+  -- (d) Occupancy is the database's rule, not the function's (FR-FIT-004):
+  -- both probes go in raw, past app.fit_tyre, and must still be refused. A
+  -- different tyre onto the occupied position can only trip the position
+  -- index; the fitted tyre onto an empty position can only trip the tyre one,
+  -- so each names the constraint it is actually about.
+  BEGIN
+    INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_tread_mm)
+    VALUES (bac, ty6, vt, p10, now(), 12.0);
+    RAISE EXCEPTION 'FAIL 41d: a second tyre was accepted on an occupied position';
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    IF cname <> 'one_open_fitment_per_position' THEN
+      RAISE EXCEPTION 'FAIL 41d: refused by %, not the position index', cname;
+    END IF;
+  END;
+  BEGIN
+    INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_tread_mm)
+    VALUES (bac, ty1, vt, p9, now(), 12.0);
+    RAISE EXCEPTION 'FAIL 41d: a fitted tyre was accepted on a second position';
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    IF cname <> 'one_open_fitment_per_tyre' THEN
+      RAISE EXCEPTION 'FAIL 41d: refused by %, not the tyre index', cname;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  41d double occupancy and a second open fitment are refused by the DB';
+
+  -- (e) The composite FK accepts any position of this tenant, so only an
+  -- explicit (position, configuration) check catches one belonging to a
+  -- different configuration (2026-08-26).
+  BEGIN
+    PERFORM app.fit_tyre(ty6, vt, px, 14.0, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 41e: a position from another configuration was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM <> 'no such position on this unit' THEN
+      RAISE EXCEPTION 'FAIL 41e: wrong TY014 message: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  41e a position off this unit''s configuration is refused';
+  END;
+
+  -- (f) FR-FIT-002: the odometer rule stays in the trigger (000025). The
+  -- function passes the value through, so TY009 arrives through the function
+  -- rather than being restated inside it.
+  BEGIN
+    PERFORM app.fit_tyre(ty6, vh, p7, 14.0, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 41f: a horse fitment with no odometer was accepted';
+  EXCEPTION WHEN sqlstate 'TY009' THEN
+    RAISE NOTICE 'PASS  41f the unit-kind odometer rule reaches through the function';
+  END;
+
+  -- (g) All three warnings warn and none blocks (FR-FIT-005/006/020, U11).
+  -- p1/p2 are the STEER pair on axle 1, where the seeded policy row sets
+  -- retreads_permitted = false; p3/p4 are the LEFT dual on axle 2, planted
+  -- MARK_INBOARD so 41l's carry-over assertion fails if the orientation is
+  -- defaulted rather than carried.
+  SELECT * INTO r FROM app.fit_tyre(tyr, vh, p1, 12.0, 'MARK_OUTBOARD', 400000);
+  IF NOT (r.warnings @> '[{"code":"RETREAD_ON_NON_PERMITTED_AXLE"}]'::jsonb) THEN
+    RAISE EXCEPTION 'FAIL 41g: a retread on a non-permitted axle did not warn: %', r.warnings;
+  END IF;
+  SELECT * INTO r FROM app.fit_tyre(tys, vh, p2, 12.0, 'MARK_OUTBOARD', 400000);
+  IF NOT (r.warnings @> '[{"code":"SIZE_DIFFERS_ON_AXLE"}]'::jsonb) THEN
+    RAISE EXCEPTION 'FAIL 41g: two sizes on one axle did not warn: %', r.warnings;
+  END IF;
+  SELECT * INTO r FROM app.fit_tyre(tyd1, vh, p3, 12.0, 'MARK_INBOARD', 400000);
+  fitd1 := r.fitment_id;
+  IF r.warnings IS DISTINCT FROM '[]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL 41g: the outer half of an empty dual warned: %', r.warnings;
+  END IF;
+  SELECT * INTO r FROM app.fit_tyre(tyd2, vh, p4, 8.0, 'MARK_INBOARD', 400000);
+  fitd2 := r.fitment_id;
+  IF NOT (r.warnings @> '[{"code":"DUAL_MATE_TREAD_GAP"}]'::jsonb) THEN
+    RAISE EXCEPTION 'FAIL 41g: a 4mm dual gap under a 3mm threshold did not warn: %', r.warnings;
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment f WHERE f.vehicle_id = vh AND f.removed_at IS NULL;
+  IF n <> 4 THEN RAISE EXCEPTION 'FAIL 41g: a warning blocked a fit; % open rows, expected 4', n; END IF;
+  RAISE NOTICE 'PASS  41g size, retread-axle and dual-mate warn without blocking';
+
+  -- (h) Removal validates its reason against tenant configuration (D1,
+  -- FR-FIT-008, rule 5) and writes distance provenance rather than letting
+  -- the column default stand in for it (FR-FIT-009, CR-012).
+  SELECT * INTO r FROM app.fit_tyre(ty3, vh, p7, 20.0, 'MARK_OUTBOARD', 400000);
+  fit3 := r.fitment_id;
+  BEGIN
+    PERFORM app.remove_tyre(fit3, 'wrong_reason', 9.0, 410000);
+    RAISE EXCEPTION 'FAIL 41h: a reason outside the tenant''s list was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN NULL;
+  END;
+  PERFORM app.remove_tyre(fit3, 'damage', 9.0, 410000);
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.id = fit3 AND f.removed_at IS NOT NULL AND f.removal_reason = 'damage'
+     AND f.removed_tread_mm = 9.0 AND f.distance_source = 'MEASURED' AND f.distance_km = 10000;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 41h: the closure did not carry MEASURED provenance'; END IF;
+  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty3) <> 'REMOVED'
+     OR (SELECT t.current_depot_id FROM app.tyre t WHERE t.id = ty3)
+        IS DISTINCT FROM (SELECT v.home_depot_id FROM app.vehicle v WHERE v.id = vh) THEN
+    RAISE EXCEPTION 'FAIL 41h: a removed tyre did not come to rest at its unit''s home depot';
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_event e
+   WHERE e.tyre_id = ty3 AND e.type = 'REMOVED' AND e.to_state = 'REMOVED' AND e.reason = 'damage';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 41h: the REMOVED event did not land once with its reason'; END IF;
+  BEGIN
+    PERFORM app.remove_tyre(fit3, 'damage', 9.0, 411000);
+    RAISE EXCEPTION 'FAIL 41h: a closed fitment was removed a second time';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    RAISE NOTICE 'PASS  41h removal validates its reason, measures its distance, closes once';
+  END;
+
+  -- (i) CR-012: an absent odometer is recorded as absent. The failure this
+  -- catches is a NULL distance beside a MEASURED label, which reads
+  -- downstream as a measured zero (FR-FIT-009).
+  PERFORM app.remove_tyre(fit1, 'irregular_wear', 11.0);
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.id = fit1 AND f.distance_source = 'UNAVAILABLE' AND f.distance_km IS NULL;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 41i: an odometer-less removal did not label its provenance'; END IF;
+  RAISE NOTICE 'PASS  41i an odometer-less removal is UNAVAILABLE, not silently NULL';
+
+  -- (j) FR-FIT-009: a distance cannot run backwards. The bound is a function
+  -- rule so the refusal is trappable as TY014 instead of a raw 23514 the
+  -- client cannot act on.
+  SELECT * INTO r FROM app.fit_tyre(ty4, vh, p9, 18.0, 'MARK_OUTBOARD', 400000,
+                                    now() - interval '30 days',
+                                    'fitment backfilled from the paper sheet');
+  fit4 := r.fitment_id;
+  BEGIN
+    PERFORM app.remove_tyre(fit4, 'damage', 9.0, 399000);
+    RAISE EXCEPTION 'FAIL 41j: a removal odometer below the fitment odometer was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    RAISE NOTICE 'PASS  41j a distance cannot run backwards';
+  END;
+
+  -- (k) FR-FIT-016: an instant never predates the tyre's own history, and a
+  -- backdate of more than a day is a claim someone has to stand behind.
+  BEGIN
+    PERFORM app.remove_tyre(fit4, 'damage', 9.0, 405000, now() - interval '40 days');
+    RAISE EXCEPTION 'FAIL 41k: a removal predating the fitment was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN NULL;
+  END;
+  BEGIN
+    PERFORM app.remove_tyre(fit4, 'damage', 9.0, 405000, now() - interval '25 hours');
+    RAISE EXCEPTION 'FAIL 41k: an unjustified backdate was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN NULL;
+  END;
+  PERFORM app.remove_tyre(fit4, 'damage', 9.0, 405000, now() - interval '25 hours',
+                          'recorded from the workshop book on return');
+  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty4) <> 'REMOVED' THEN
+    RAISE EXCEPTION 'FAIL 41k: a justified backdate was refused';
+  END IF;
+  RAISE NOTICE 'PASS  41k an instant cannot predate the tyre, and a long backdate is justified';
+
+  -- (l) FR-FIT-010: a rotation moves tyres within one unit and does not flip
+  -- them, so the orientation comes off the closed row rather than the column
+  -- default (D13).
+  SELECT count(*) INTO n FROM app.rotate_tyres(vh,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tyd1, 'to_position_id', p4, 'tread_mm', 11.0),
+      jsonb_build_object('tyre_id', tyd2, 'to_position_id', p3, 'tread_mm', 7.0)),
+    405000);
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 41l: rotation returned % rows, expected 2', n; END IF;
+  -- Closed with the reason, and with the distance the one odometer reading
+  -- makes measurable: 405000 against the 400000 both were fitted at.
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.id IN (fitd1, fitd2) AND f.removed_at IS NOT NULL AND f.removal_reason = 'rotation'
+     AND f.distance_source = 'MEASURED' AND f.distance_km = 5000;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 41l: the rotated-out fitments were not closed with reason and measured distance'; END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.vehicle_id = vh AND f.removed_at IS NULL AND f.mount_orientation = 'MARK_INBOARD'
+     AND ((f.tyre_id = tyd1 AND f.position_id = p4) OR (f.tyre_id = tyd2 AND f.position_id = p3));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 41l: the new fitments did not land swapped with the orientation carried'; END IF;
+  -- The actual codes, not merely two different ones: a payload that swapped
+  -- from for to, or named the axle instead of the position, would pass an
+  -- inequality check and still misreport the move.
+  SELECT count(*) INTO n FROM app.tyre_event e
+   WHERE e.type = 'ROTATED' AND e.to_state = 'FITTED'
+     AND e.payload->>'fitment_id' IS NOT NULL
+     AND ((e.tyre_id = tyd1 AND e.payload->>'from_position_code' = '3'
+                           AND e.payload->>'to_position_code'   = '4')
+       OR (e.tyre_id = tyd2 AND e.payload->>'from_position_code' = '4'
+                           AND e.payload->>'to_position_code'   = '3'));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 41l: the ROTATED events do not record the move'; END IF;
+  RAISE NOTICE 'PASS  41l a rotation closes, reopens and carries the orientation';
+
+  -- (m) FR-FIT-014: a refused rotation leaves nothing behind. The TY014 is
+  -- the half with teeth — a caught exception rolls its subtransaction back
+  -- whatever the function did, so the row counts below state the invariant
+  -- while the refusal is what proves the position check exists at all.
+  BEGIN
+    PERFORM app.rotate_tyres(vh,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tyd1, 'to_position_id', p3, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tyd2, 'to_position_id', px, 'tread_mm', 7.0)),
+      406000);
+    RAISE EXCEPTION 'FAIL 41m: a rotation onto a position off the unit was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN NULL;
+  END;
+  SELECT count(*) INTO n FROM app.fitment f WHERE f.tyre_id IN (tyd1, tyd2);
+  IF n <> 4 THEN RAISE EXCEPTION 'FAIL 41m: % fitment rows for the rotated pair, expected 4', n; END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.tyre_id IN (tyd1, tyd2) AND f.removed_at IS NULL;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 41m: the refused rotation left % open rows, expected 2', n; END IF;
+  RAISE NOTICE 'PASS  41m a refused rotation leaves no half state';
+
+  -- (n) A rotation is a set of moves (FR-FIT-010), and every tyre in it is
+  -- one this unit is actually carrying (U3).
+  BEGIN
+    PERFORM app.rotate_tyres(vh,
+      jsonb_build_array(jsonb_build_object('tyre_id', tyd1, 'to_position_id', p3, 'tread_mm', 11.0)),
+      406000);
+    RAISE EXCEPTION 'FAIL 41n: a one-move rotation was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN NULL;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(vh,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tyd1, 'to_position_id', p3, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', ty2,  'to_position_id', p4, 'tread_mm', 7.0)),
+      406000);
+    RAISE EXCEPTION 'FAIL 41n: a rotation naming a tyre not on this unit was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    RAISE NOTICE 'PASS  41n a rotation is at least two moves of tyres this unit carries';
+  END;
+
+  -- (o) U2: dispatch is from REMOVED only, to a depot of the destination's
+  -- own kind (FR-FIT-012, FR-FIT-013).
+  BEGIN
+    PERFORM app.dispatch_tyre(ty5, 'AT_RETREADER', d_rt);
+    RAISE EXCEPTION 'FAIL 41o: a tyre was dispatched straight out of stock';
+  EXCEPTION WHEN sqlstate 'TY012' THEN NULL;
+  END;
+  BEGIN
+    PERFORM app.dispatch_tyre(ty3, 'AT_RETREADER', md5('depot1')::uuid);
+    RAISE EXCEPTION 'FAIL 41o: a retread dispatch to an ordinary depot was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN NULL;
+  END;
+  SELECT * INTO r FROM app.dispatch_tyre(ty3, 'AT_RETREADER', d_rt);
+  job := r.retread_job_id;
+  SELECT count(*) INTO n FROM app.retread_job j
+   WHERE j.id = job AND j.tyre_id = ty3 AND j.retreader_depot_id = d_rt
+     AND j.sent_at = app.tenant_today(tz);
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 41o: the retread job was not opened as at the tenant''s today'; END IF;
+  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty3) <> 'AT_RETREADER'
+     OR (SELECT t.current_depot_id FROM app.tyre t WHERE t.id = ty3) IS DISTINCT FROM d_rt
+     OR NOT EXISTS (SELECT 1 FROM app.tyre_event e
+                     WHERE e.tyre_id = ty3 AND e.type = 'SENT_FOR_RETREAD'
+                       AND e.to_state = 'AT_RETREADER') THEN
+    RAISE EXCEPTION 'FAIL 41o: the retread dispatch did not move state, depot and event together';
+  END IF;
+  SELECT * INTO r FROM app.dispatch_tyre(ty4, 'AT_BREAKDOWN_SUPPLIER', d_bd);
+  IF r.retread_job_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 41o: a breakdown dispatch opened a retread job';
+  END IF;
+  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty4) <> 'AT_BREAKDOWN_SUPPLIER'
+     OR NOT EXISTS (SELECT 1 FROM app.tyre_event e
+                     WHERE e.tyre_id = ty4 AND e.type = 'SENT_TO_BREAKDOWN_SUPPLIER'
+                       AND e.to_state = 'AT_BREAKDOWN_SUPPLIER') THEN
+    RAISE EXCEPTION 'FAIL 41o: the breakdown dispatch did not move state and event together';
+  END IF;
+  RAISE NOTICE 'PASS  41o dispatch is from REMOVED, to the matching depot kind';
+
+  -- (p) BR-FIT-009, FR-CFG-044: the cap is the one dispatch rule that
+  -- refuses. A REMOVED casing has no axle class, so the cap it resolves to is
+  -- the tenant-wide policy row (U5) — lowered here, on that row.
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+                                    warning_threshold_mm, max_retreads, effective_from)
+  VALUES (md5('t41pol')::uuid, bac, 4.0, 4.0, 6.0, 1, now());
+  BEGIN
+    PERFORM app.dispatch_tyre(tyc, 'AT_RETREADER', d_rt);
+    RAISE EXCEPTION 'FAIL 41p: a casing at its retread cap was sent for retreading';
+  EXCEPTION WHEN sqlstate 'TY015' THEN
+    IF SQLERRM NOT LIKE '%a purchase, not a retread candidate%'
+       OR SQLERRM NOT LIKE '%retreaded 1 time%'
+       OR SQLERRM NOT LIKE '%cap of 1%' THEN
+      RAISE EXCEPTION 'FAIL 41p: the cap refusal does not name the count, the cap and the reason: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  41p a casing at its cap is a purchase, not a retread candidate';
+  END;
+
+  -- (q) FR-FIT-013: a casing at the retreader leaves only through Log Retread
+  -- (D3), so the receipt-back surface must refuse it rather than quietly
+  -- restocking a tyre the retreader still holds.
+  PERFORM app.return_tyre_to_stock(ty4);
+  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty4) <> 'IN_STOCK'
+     OR NOT EXISTS (SELECT 1 FROM app.tyre_event e
+                     WHERE e.tyre_id = ty4 AND e.type = 'RETURNED' AND e.to_state = 'IN_STOCK') THEN
+    RAISE EXCEPTION 'FAIL 41q: the breakdown return did not restock the tyre';
+  END IF;
+  BEGIN
+    PERFORM app.return_tyre_to_stock(ty3);
+    RAISE EXCEPTION 'FAIL 41q: a casing at the retreader was restocked directly';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    RAISE NOTICE 'PASS  41q a breakdown return restocks; a retreader return does not';
+  END;
+
+  -- (r) Two independent cross-tenant probes through two functions
+  -- (2026-09-01). Neither target can refuse for a reason other than
+  -- invisibility: ty5 is IN_STOCK and has never been fitted, so a leaked row
+  -- would clear the state gate and go on to fail on the composite FK or
+  -- TY009 — never with this message; tyd1's open fitment is open, and
+  -- 'damage' is in tenant 2's own removal_reasons, so a leaked row would
+  -- simply be closed. app.actor_id is left unset throughout, so nothing here
+  -- can fail on the created_by FK instead (2026-08-28).
+  SELECT f.id INTO fitd1 FROM app.fitment f
+   WHERE f.tyre_id = tyd1 AND f.removed_at IS NULL;
+  PERFORM set_config('app.tenant_id', t_two::text, true);
+  BEGIN
+    PERFORM app.fit_tyre(ty5, vt, p9, 14.0, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 41r: another tenant''s tyre was fitted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such tyre in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 41r: TY012 fired for the wrong reason (%), not RLS invisibility', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.remove_tyre(fitd1, 'damage', 9.0, 407000);
+    RAISE EXCEPTION 'FAIL 41r: another tenant''s fitment was closed';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> 'no such fitment in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 41r: TY012 fired for the wrong reason (%), not RLS invisibility', SQLERRM;
+    END IF;
+  END;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  RAISE NOTICE 'PASS  41r another fleet''s tyre and fitment are invisible to fit and remove';
+
+  -- (s) U8: the event separates a casing's first fitment from its later ones,
+  -- which is what a fitment history is read for (FR-FIT-003).
+  PERFORM app.return_tyre_to_stock(ty1);
+  SELECT * INTO r FROM app.fit_tyre(ty1, vt, p10, 13.0, 'MARK_OUTBOARD');
+  IF NOT EXISTS (SELECT 1 FROM app.tyre_event e
+                  WHERE e.tyre_id = ty1 AND e.type = 'REFITTED' AND e.to_state = 'FITTED'
+                    AND e.payload->>'fitment_id' = r.fitment_id::text) THEN
+    RAISE EXCEPTION 'FAIL 41s: a tyre with a prior fitment was recorded as a first fit';
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_event e WHERE e.tyre_id = ty1 AND e.type = 'FITTED';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 41s: the refit also wrote a FITTED event'; END IF;
+  RAISE NOTICE 'PASS  41s a casing''s second fitment is REFITTED, not FITTED';
+
+  -- (t) FR-FIT-016 for the dispatch instant. A dispatch dated today means
+  -- now(), not the calendar day's opening midnight: app.tyre_in_estate_asof
+  -- resolves a tyre's state from its LATEST to_state event, so a dispatch
+  -- stamped at midnight loses to the same day's removal and the estate reads
+  -- REMOVED while app.tyre.state reads AT_RETREADER (FR-VAL-022).
+  --
+  -- The removal is placed an hour back deliberately: now() is fixed for the
+  -- whole transaction, so a removal and a dispatch both taken at now() are
+  -- equal, and no strict ordering could be asserted at all. Both backdates
+  -- are inside the 24 hours that need no justification.
+  SELECT * INTO r FROM app.fit_tyre(ty7, vt, p9, 16.0, 'MARK_OUTBOARD', NULL,
+                                    now() - interval '2 hours');
+  PERFORM app.remove_tyre(r.fitment_id, 'damage', 8.0, NULL, now() - interval '1 hour');
+  PERFORM app.dispatch_tyre(ty7, 'AT_RETREADER', d_rt);
+  IF (SELECT e.occurred_at FROM app.tyre_event e
+       WHERE e.tyre_id = ty7 AND e.type = 'SENT_FOR_RETREAD')
+     <= (SELECT e.occurred_at FROM app.tyre_event e
+          WHERE e.tyre_id = ty7 AND e.type = 'REMOVED') THEN
+    RAISE EXCEPTION 'FAIL 41t: the dispatch is stamped at or before the removal it follows';
+  END IF;
+  -- And a dated dispatch that would land before the tyre's last movement is
+  -- refused rather than clamped: clamping two to_state events onto one
+  -- instant leaves the estate resolution ambiguous.
+  SELECT * INTO r FROM app.fit_tyre(ty8, vt, p1, 16.0, 'MARK_OUTBOARD', NULL,
+                                    now() - interval '2 hours');
+  PERFORM app.remove_tyre(r.fitment_id, 'damage', 8.0, NULL, now() - interval '1 hour');
+  BEGIN
+    PERFORM app.dispatch_tyre(ty8, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 1);
+    RAISE EXCEPTION 'FAIL 41t: a dispatch dated before the tyre''s last movement was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    RAISE NOTICE 'PASS  41t a dispatch is stamped now, and never predates the movement before it';
+  END;
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

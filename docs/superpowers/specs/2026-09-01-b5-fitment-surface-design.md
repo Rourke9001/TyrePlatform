@@ -223,9 +223,14 @@ p_sent_on date DEFAULT NULL) RETURNS TABLE (retread_job_id uuid)`**
   otherwise). Tyre must be `REMOVED` (U2; TY012 naming the state).
 - `p_depot` must be this tenant's depot of the matching `depot_type`
   (`RETREADER` / `BREAKDOWN_SUPPLIER`), active (TY014).
-- `p_sent_on` defaults to `app.tenant_today()`; bounded to today or earlier;
-  the event instant is `least(p_sent_on::timestamptz, now())` per the
-  slice-1 lesson.
+- `p_sent_on` defaults to `app.tenant_today()`; bounded to today or earlier.
+  The event instant is `now()` when `p_sent_on` is the tenant's today, and
+  tenant-local midnight of that day — `least(p_sent_on::timestamp AT TIME
+  ZONE tz, now())` — for any earlier date. It is refused with **TY012** when
+  it would fall earlier than the tyre's latest `to_state` event, and is never
+  clamped to that event: two `to_state` events sharing one instant leave
+  `app.tyre_in_estate_asof` unable to resolve the tyre (FR-FIT-016,
+  FR-VAL-022).
 - **The cap (BR-FIT-009, FR-CFG-044):** for `AT_RETREADER`, refuse with
   **TY015** when `tyre.retread_count >= max_retreads` of the tenant-wide
   policy row (U5). A capped casing "is a purchase, not a retread
@@ -242,9 +247,19 @@ p_occurred_at timestamptz DEFAULT now()) RETURNS void`**
 
 - From `REMOVED` or `AT_BREAKDOWN_SUPPLIER` (Appendix C; FR-FIT-013's
   "receipt back"). `AT_RETREADER` is refused here (TY012): its only exit is
-  Log Retread (D3). `p_depot`, when given, must be a `DEPOT`/`STORE` of this
-  tenant; when NULL the tyre keeps `current_depot_id`.
+  Log Retread (D3). `p_depot`, when given, must be an **active** `DEPOT`/
+  `STORE` of this tenant; when NULL the tyre keeps `current_depot_id`.
 - Tyre to `IN_STOCK`; event `RETURNED`, `to_state = 'IN_STOCK'`.
+
+**Correction (2026-09-02, Task 3).** The `dispatch_tyre` instant above
+replaces `least(p_sent_on::timestamptz, now())`, which cast the date in the
+session's zone rather than the tenant's and stamped a same-day dispatch at
+midnight — behind the removal it follows, leaving `app.tyre_in_estate_asof`
+reading `REMOVED` while `app.tyre.state` read `AT_RETREADER`. The
+`return_tyre_to_stock` bullet gains `active`, which 000033 already enforces
+and this bullet had omitted. The accepted cost of the new rule: a send that
+happened yesterday and is logged today is refused unless it is recorded under
+today's date.
 
 ### D3. Log Retread — TYRE-93
 
@@ -259,7 +274,11 @@ rests on one implementation of the arithmetic.
 - The job must exist in this tenant and be open (`returned_at IS NULL`);
   otherwise TY012 (`'no such open retread job in this fleet'`). The tyre must
   be `AT_RETREADER` (TY012). `p_returned_on` must be on or after `sent_at`
-  and not after `app.tenant_today()` (TY014).
+  and not after `app.tenant_today()` (TY014). Its event instant follows D2's
+  dispatch rule: `now()` when `p_returned_on` is the tenant's today,
+  tenant-local midnight of that day otherwise, refused with **TY012** when it
+  would fall earlier than the tyre's latest `to_state` event and never
+  clamped to it.
 - `retread_job` is UPDATEd (its grants allow it; only DELETE is revoked) with
   every return field. Turnaround is the table's own generated column
   (FR-FIT-021), never entered.
