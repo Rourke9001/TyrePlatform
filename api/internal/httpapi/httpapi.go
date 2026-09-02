@@ -208,6 +208,8 @@ const (
 	codeAssignmentOverlaps  = "assignment_overlaps"
 	codeStaffNumberTaken    = "staff_number_taken"
 	codeDisplayCodeTaken    = "display_code_taken"
+	codePositionOccupied    = "position_occupied"
+	codeTyreAlreadyFitted   = "tyre_already_fitted"
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
@@ -230,6 +232,8 @@ const (
 	msgAssignmentOverlaps  = "that driver already holds an overlapping assignment to this unit"
 	msgStaffNumberTaken    = "another active user already has that staff number; give this one a different number"
 	msgDisplayCodeTaken    = "an active tyre already carries that display code; two active tyres may never share one (FR-TYR-004/DR-002)"
+	msgPositionOccupied    = "that position already carries a tyre; remove it first (FR-FIT-004)"
+	msgTyreAlreadyFitted   = "that tyre is already fitted elsewhere; remove it first (D14)"
 )
 
 var submitStatus = map[string]int{
@@ -247,11 +251,21 @@ var submitStatus = map[string]int{
 	"TY007": http.StatusUnprocessableEntity,
 
 	// TY011/TY012/TY013 are the tyre lifecycle's refusals (000031). TY009 is
-	// still deliberately absent: TYRE-92 writes the first fitment and adds it
-	// with a test that can fail; an entry now could not be exercised (ADR-0012).
+	// reachable through app.fit_tyre, whose trigger can raise it (TYRE-92).
+	// TY014 is a fitment write refused, TY015 is the retread cap, and TY016
+	// is a unit status transition refused (000032-000035).
+	"TY009": http.StatusUnprocessableEntity,
 	"TY011": http.StatusUnprocessableEntity,
 	"TY012": http.StatusUnprocessableEntity,
 	"TY013": http.StatusUnprocessableEntity,
+	"TY014": http.StatusUnprocessableEntity,
+	"TY015": http.StatusUnprocessableEntity,
+	"TY016": http.StatusUnprocessableEntity,
+
+	// TY008 has no entry and never will unless configuration editing is
+	// reopened: no endpoint updates vehicle.configuration_id or unit_kind —
+	// PATCH refuses both fields before SQL (docs/implementation-order.md
+	// §B5). An entry could carry no test able to fail (ADR-0012).
 
 	"23502": http.StatusUnprocessableEntity, // not-null violation
 	"23503": http.StatusUnprocessableEntity, // foreign key: an id this tenant cannot see
@@ -305,6 +319,11 @@ var conflictCodes = map[string]string{
 	// tyres only — historical reuse across a scrapped/sold/lost tyre is
 	// valid and does not collide (FR-TYR-004/DR-002).
 	"one_active_display_code_per_tenant": codeDisplayCodeTaken,
+	// Both are partial unique indexes, not table constraints (000001:305-306),
+	// scoped to an open fitment (removed_at IS NULL) — a tyre's fitment
+	// history does not collide with itself once removed.
+	"one_open_fitment_per_position": codePositionOccupied,
+	"one_open_fitment_per_tyre":     codeTyreAlreadyFitted,
 }
 
 var conflictMessages = map[string]string{
@@ -313,6 +332,8 @@ var conflictMessages = map[string]string{
 	codeAssignmentOverlaps: msgAssignmentOverlaps,
 	codeStaffNumberTaken:   msgStaffNumberTaken,
 	codeDisplayCodeTaken:   msgDisplayCodeTaken,
+	codePositionOccupied:   msgPositionOccupied,
+	codeTyreAlreadyFitted:  msgTyreAlreadyFitted,
 }
 
 // Forwarding is decided by the TY class rather than by a list of safe codes.
@@ -419,6 +440,20 @@ func require(a auth.Actor, c auth.Capability) error {
 		return fmt.Errorf("%w: %s lacks %s", errForbidden, a.Role, c)
 	}
 	return nil
+}
+
+// pathID parses a URL path parameter as a uuid, refusing 400 bad_request if
+// it does not even parse. A path that fails to parse is a malformed request,
+// not an invalid submission, and every id-carrying route answers it the same
+// way (U7).
+func pathID(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
+	raw := chi.URLParam(r, name)
+	id, err := uuid.Parse(raw)
+	if err != nil {
+		writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "malformed id in path")
+		return uuid.Nil, false
+	}
+	return id, true
 }
 
 type meJSON struct {

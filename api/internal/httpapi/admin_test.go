@@ -373,11 +373,19 @@ func TestAssignDriverToVehicle(t *testing.T) {
 	require.Equal(t, "assignment_overlaps", ref.Code)
 	require.NotContains(t, rec.Body.String(), "vehicle_driver_no_overlap")
 
+	// U7: a path id that does not parse as a uuid is a malformed request, not
+	// an invalid submission (pathID, TYRE-92) — unlike the two body-field
+	// rows below, which stay 422 because they are payload validation.
+	rec = post(t, h, "/api/vehicles/not-a-uuid/drivers", tenantID.String(), orgAdmin.String(), body)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	var pathRef refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pathRef))
+	require.Equal(t, "bad_request", pathRef.Code)
+
 	// An absent fromDate is not malformed — it defaults to the tenant's day
 	// (rule 6, TestAssignmentDefaultsToTheTenantDay) — so this table holds
-	// only genuinely malformed input.
+	// only genuinely malformed body fields.
 	for _, tt := range []struct{ name, path, payload, field string }{
-		{"unparseable vehicle", "/api/vehicles/not-a-uuid/drivers", body, "vehicleId"},
 		{"unparseable user", path, `{"userId":"nope","fromDate":"2026-01-01"}`, "userId"},
 		{"unparseable from date", path, `{"userId":"` + driver.String() + `","fromDate":"01/01/2026"}`, "fromDate"},
 	} {

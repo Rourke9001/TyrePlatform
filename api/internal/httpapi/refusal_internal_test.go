@@ -128,6 +128,30 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: false,
 		},
 		{
+			name:     "TY009 forwards, now reachable through app.fit_tyre",
+			sqlErr:   &pgconn.PgError{Code: "TY009", Message: "x"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY009", message: "x"},
+			isClient: true,
+		},
+		{
+			name:     "TY014 forwards, a fitment write refused",
+			sqlErr:   &pgconn.PgError{Code: "TY014", Message: "x"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY014", message: "x"},
+			isClient: true,
+		},
+		{
+			name:     "TY015 forwards, the retread cap",
+			sqlErr:   &pgconn.PgError{Code: "TY015", Message: "x"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY015", message: "x"},
+			isClient: true,
+		},
+		{
+			name:     "TY016 forwards, a unit status transition refused",
+			sqlErr:   &pgconn.PgError{Code: "TY016", Message: "x"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY016", message: "x"},
+			isClient: true,
+		},
+		{
 			name:     "an unmapped SQLSTATE is not a client mistake",
 			sqlErr:   &pgconn.PgError{Code: "40001", Message: "could not serialize access"},
 			isClient: false,

@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 
@@ -107,13 +106,12 @@ type captureContextBody struct {
 
 func captureContext(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		vehicleID, err := uuid.Parse(chi.URLParam(r, "vehicleID"))
-		if err != nil {
-			writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "bad vehicle id")
+		vehicleID, ok := pathID(w, r, "vehicleID")
+		if !ok {
 			return
 		}
 		var body captureContextBody
-		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
 			}
