@@ -3,10 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 import { fetchVehicles } from "../api/vehicles";
 import { getDevTenantId } from "../api/devTenant";
+import { useCan } from "../auth/actorContext";
 import { searchVehicles } from "./vehicleSearch";
 
 export function VehicleList() {
   const [query, setQuery] = useState("");
+  const canManage = useCan("ManageAssets");
   const tenantKey = getDevTenantId() ?? "default";
   const vehicles = useQuery({
     queryKey: ["vehicles", tenantKey],
@@ -52,9 +54,16 @@ export function VehicleList() {
       {vehicles.isSuccess && vehicles.data.length === 0 && (
         <div className="note-card">
           <h2>No units yet</h2>
-          <p>
-            Add one from <Link to="/admin/units/new">Add a unit</Link>.
-          </p>
+          {/* The screen behind the link is AdminRoute'd on ManageAssets, so
+              offering it to a reader who does not hold the capability sends
+              them to a refusal (ADR-0013 decision 4). */}
+          {canManage ? (
+            <p>
+              Add one from <Link to="/admin/units/new">Add a unit</Link>.
+            </p>
+          ) : (
+            <p>Ask someone who manages assets to add the first one.</p>
+          )}
         </div>
       )}
 

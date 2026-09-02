@@ -26,11 +26,19 @@ const PAD = 6;
 // and bottom of the drawing — would have that half clipped by the viewBox,
 // and the selected position's heavier stroke would clip worse than the rest.
 const STROKE_MARGIN = 2;
-// Two slots deep is app.axle_slot's maximum (OUTER/INNER), so the drawing's
-// height is fixed even though its width is not.
+// Two slots deep is app.axle_slot's maximum (OUTER/INNER), so the axle stack
+// reaches a fixed distance either side of the chassis line whatever the unit
+// is. The drawing's own height is not fixed: the spare column runs downward
+// from the centre and a fleet's spare count is tenant data (FR-VEH-002), so
+// the viewBox holds whichever of the two stacks is taller.
 const HALF_H = BEAM_GAP + 2 * POS_H + SLOT_GAP + STROKE_MARGIN;
-const HEIGHT = 2 * HALF_H;
+const AXLE_STACK_H = 2 * HALF_H;
 const CENTRE_Y = HALF_H;
+
+// The top of the i-th spare, counting from zero.
+function spareTop(i: number): number {
+  return CENTRE_Y - POS_H / 2 + i * (POS_H + SLOT_GAP);
+}
 
 // How far from the chassis line a slot sits, in whole position heights.
 function depthOf(slot: string | null): number {
@@ -71,6 +79,8 @@ export function UnitPlan({
   const spareColumn = spares.length > 0 ? POS_W + 20 : 0;
   const width =
     (PAD + STROKE_MARGIN) * 2 + spareColumn + Math.max(axleNumbers.length, 1) * AXLE_PITCH;
+  const spareStack = spares.length > 0 ? spareTop(spares.length - 1) + POS_H + STROKE_MARGIN : 0;
+  const height = Math.max(AXLE_STACK_H, spareStack);
 
   function axleX(index: number): number {
     return PAD + STROKE_MARGIN + spareColumn + index * AXLE_PITCH;
@@ -79,9 +89,9 @@ export function UnitPlan({
   return (
     <svg
       className="unit-plan"
-      viewBox={`0 0 ${width} ${HEIGHT}`}
+      viewBox={`0 0 ${width} ${height}`}
       width={width}
-      height={HEIGHT}
+      height={height}
       // group, not img: an img's descendants are presentational, which would
       // take every position button out of the accessibility tree.
       role="group"
@@ -129,7 +139,7 @@ export function UnitPlan({
               key={position.id}
               position={position}
               x={PAD + STROKE_MARGIN}
-              y={CENTRE_Y - POS_H / 2 + i * (POS_H + SLOT_GAP)}
+              y={spareTop(i)}
               selected={position.id === selectedId}
               onSelect={onSelect}
             />

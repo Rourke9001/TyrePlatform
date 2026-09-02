@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
@@ -167,6 +167,59 @@ describe("editing a unit's description", () => {
       expect(vi.mocked(fetch).mock.calls.length).toBe(2);
     });
     expect(sentBody(1)).toEqual({ tags: ["Reefer", "Long haul"] });
+  });
+
+  // The unit read refetches under this form — on a window focus, or on any
+  // write's invalidation — and the fields keep what they were seeded with. A
+  // diff against the newer prop would send every untouched field back to the
+  // value it held at mount, silently reverting whoever made the change.
+  it("never sends a field it was not edited in, even after the read moved on", async () => {
+    const user = userEvent.setup();
+    const client = testQueryClient();
+    const tree = (u: Unit) => (
+      <ActorContext.Provider
+        value={{ actor: me({ capabilities: ["ManageAssets"] }), settled: true }}
+      >
+        <QueryClientProvider client={client}>
+          <UnitEditForm unit={u} />
+        </QueryClientProvider>
+      </ActorContext.Provider>
+    );
+    const loaded = unit({ id: "u9", registration: "SBX001GP", description: "Long haul" });
+    const { rerender } = render(tree(loaded));
+    await screen.findByRole("textbox", { name: "Fleet number" });
+
+    rerender(tree({ ...loaded, registration: "SBX999GP" }));
+
+    const description = screen.getByRole("textbox", { name: "Description" });
+    await user.clear(description);
+    await user.type(description, "Short haul");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.length).toBe(2);
+    });
+    expect(sentBody(1)).toEqual({ description: "Short haul" });
+  });
+
+  it("says the depot list is loading, and offers a retry when it failed", async () => {
+    vi.mocked(fetch).mockImplementation(() => new Promise(() => undefined));
+    const { unmount } = renderForm();
+    const picker = await screen.findByRole("combobox", { name: "Home depot" });
+    // None stays selectable while the list loads: "" is how the API clears
+    // the id, not a placeholder.
+    expect(within(picker).getByRole("option", { name: "None" }).hasAttribute("disabled")).toBe(
+      false,
+    );
+    expect(within(picker).getByRole("option", { name: "Loading…" }).hasAttribute("disabled")).toBe(
+      true,
+    );
+    unmount();
+
+    vi.mocked(fetch).mockResolvedValue(respond(500, { code: "internal", message: "boom" }));
+    renderForm();
+    expect(await screen.findByRole("heading", { name: "Depots didn't load" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeTruthy();
   });
 
   it("says so rather than sending an empty edit when nothing changed", async () => {

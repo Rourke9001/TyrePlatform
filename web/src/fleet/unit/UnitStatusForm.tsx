@@ -44,7 +44,12 @@ export function UnitStatusForm({ unit }: { unit: Unit }) {
     <section className="unit-status" aria-labelledby="unit-status-heading">
       <h2 id="unit-status-heading">Status</h2>
       <form className="tyres-row-form" onSubmit={submit}>
-        <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)}>
+        <label htmlFor={`unit-status-${unit.id}`}>Status</label>
+        <select
+          id={`unit-status-${unit.id}`}
+          value={status}
+          onChange={(e) => setStatus(e.target.value)}
+        >
           {UNIT_STATUSES.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
@@ -53,12 +58,15 @@ export function UnitStatusForm({ unit }: { unit: Unit }) {
         </select>
 
         {status === "DISPOSED" && (
-          <input
-            aria-label="Reason"
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            required
-          />
+          <>
+            <label htmlFor={`unit-status-reason-${unit.id}`}>Reason</label>
+            <input
+              id={`unit-status-reason-${unit.id}`}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              required
+            />
+          </>
         )}
 
         <button className="btn-primary btn-compact" type="submit" disabled={change.isPending}>

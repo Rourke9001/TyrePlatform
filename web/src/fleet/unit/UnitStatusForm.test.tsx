@@ -29,6 +29,22 @@ describe("setting a unit's status", () => {
     vi.unstubAllGlobals();
   });
 
+  // A control named only by an aria-label is a box with nothing beside it for
+  // anyone reading the screen rather than hearing it (NFR-USE-009).
+  it("names both fields on screen, not only to a screen reader", async () => {
+    const user = userEvent.setup();
+    renderForm();
+
+    // By the control's own id rather than by text: the section's heading is
+    // the word "Status" too, and a text match would pass on that alone.
+    const status = screen.getByRole("combobox", { name: "Status" });
+    expect(document.querySelector(`label[for="${status.id}"]`)?.textContent).toBe("Status");
+
+    await user.selectOptions(status, "DISPOSED");
+    const reason = screen.getByRole("textbox", { name: "Reason" });
+    expect(document.querySelector(`label[for="${reason.id}"]`)?.textContent).toBe("Reason");
+  });
+
   it("offers the six statuses a unit can hold", () => {
     renderForm();
     const picker = screen.getByRole("combobox", { name: "Status" });
