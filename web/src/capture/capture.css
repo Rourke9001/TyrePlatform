@@ -63,8 +63,8 @@
 }
 
 /* The axle itself, drawn behind the positions mounted to it — the same
-   line-through-wheels grammar as dashboard/AxleSchematic.tsx's plan-view
-   motif, so a driver who has seen the vehicle list recognises the picture. */
+   line-through-wheels grammar as fleet/unit/UnitPlan.tsx's plan view, so a
+   driver who has seen a unit's screen recognises the picture. */
 .cap-beam {
   position: absolute;
   top: 50%;

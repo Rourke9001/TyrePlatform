@@ -179,3 +179,210 @@
   font-weight: 600;
   color: var(--ink);
 }
+
+/* ------------------------------------------------- the unit screen (TYRE-92) */
+
+.unit-detail {
+  max-width: 68rem;
+}
+
+.unit-detail-sub {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  margin: 0 0 var(--space-3);
+}
+
+.unit-detail h2 {
+  font-family: var(--font-condensed);
+  font-size: var(--text-title);
+  margin: var(--space-4) 0 var(--space-2);
+}
+
+/* The plan view. currentColor throughout so a position's outline follows the
+   surrounding text colour: occupancy and selection are stated in words and in
+   stroke weight, never in a hue on its own (NFR-USE-009). */
+.unit-plan {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  color: var(--ink-muted);
+  margin-bottom: var(--space-3);
+}
+
+.unit-plan-chassis,
+.unit-plan-beam {
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.unit-plan-pos rect {
+  fill: var(--surface);
+  stroke: currentColor;
+  stroke-width: 1.5;
+}
+
+.unit-plan-pos:focus-visible rect,
+.unit-plan-pos--selected rect {
+  stroke: var(--ink);
+  stroke-width: 3;
+}
+
+.unit-plan-pos {
+  cursor: pointer;
+}
+
+.unit-plan-code,
+.unit-plan-occupant {
+  text-anchor: middle;
+  fill: var(--ink);
+}
+
+.unit-plan-code {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+}
+
+.unit-plan-occupant {
+  font-family: var(--font-ui);
+  font-size: 7px;
+  fill: var(--ink-muted);
+}
+
+.unit-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  padding: var(--space-3);
+}
+
+.unit-panel-empty {
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink-muted);
+}
+
+.unit-panel-facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.2rem var(--space-3);
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  margin: 0 0 var(--space-3);
+}
+
+.unit-panel-facts dt {
+  color: var(--ink-muted);
+}
+
+.unit-panel-facts dd {
+  margin: 0;
+  color: var(--ink);
+}
+
+.unit-panel-form,
+.unit-rotate form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.unit-panel-form input,
+.unit-panel-form select,
+.unit-rotate input,
+.unit-rotate select,
+.unit-edit input,
+.unit-edit select {
+  min-height: 2.25rem;
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.25rem 0.4rem;
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.unit-panel-radios {
+  display: flex;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink);
+}
+
+.unit-panel-radios input {
+  min-height: 0;
+  border: 0;
+  padding: 0;
+}
+
+/* Advisories, not refusals — toned with the caution colour and still read as
+   sentences, because colour never carries the meaning alone (NFR-USE-009). */
+.unit-panel-warnings {
+  list-style: disc;
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--status-caution);
+}
+
+.unit-rotate-rows {
+  list-style: none;
+  margin: 0 0 var(--space-2);
+  padding: 0;
+  width: 100%;
+}
+
+.unit-rotate-rows li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink);
+}
+
+.unit-rotate-odometer {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  margin-right: var(--space-3);
+}
+
+.unit-edit {
+  max-width: 32rem;
+}
+
+.unit-edit form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.unit-edit label {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.unit-edit-layout {
+  font-family: var(--font-ui);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+  margin: 0 0 var(--space-3);
+}
+
+.unit-edit-note {
+  display: block;
+  color: var(--status-caution);
+}

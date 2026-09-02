@@ -167,14 +167,19 @@
 
 .vehicle-row {
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto 1fr;
   align-items: center;
   gap: 1rem;
   padding: 0.7rem 1rem;
-  color: var(--status-unmeasured);
+  color: var(--ink);
+  text-decoration: none;
 }
 
-.vehicle-row + .vehicle-row {
+/* The rule sits on the list item, not on the row: the row is a link inside
+   each item, so adjacent rows are no longer siblings of each other. The
+   loading skeleton still carries .vehicle-row on the item itself and is
+   separated by the same rule. */
+.vehicle-rows > li + li {
   border-top: 1px solid var(--line);
 }
 
@@ -194,9 +199,6 @@
 }
 
 @media (max-width: 480px) {
-  .axle-schematic {
-    display: none;
-  }
   .vehicle-row {
     grid-template-columns: 1fr;
     gap: 0.15rem;
