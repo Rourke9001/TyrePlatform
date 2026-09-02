@@ -1,6 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiGet, apiPost } from "./client";
+import { ApiError, apiGet, apiPatch, apiPost } from "./client";
 
 function stubFetch(status: number, body: unknown, ok = false) {
   vi.stubGlobal(
@@ -106,5 +106,65 @@ describe("the refusal envelope", () => {
     vi.stubGlobal("fetch", vi.fn());
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
     await expect(apiPost("/api/tyres/t1/cost", {})).resolves.toBeUndefined();
+  });
+});
+
+describe("apiPatch", () => {
+  const DEV_TENANT_STORAGE_KEY = "tyre.dev.tenant-id";
+  const DEV_ACTOR_STORAGE_KEY = "tyre.dev.user-id";
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+  afterEach(() => {
+    window.localStorage.removeItem(DEV_TENANT_STORAGE_KEY);
+    window.localStorage.removeItem(DEV_ACTOR_STORAGE_KEY);
+  });
+
+  // The unit PATCH answers with the same body the unit read does (D6), so
+  // this pins method, body and the dev actor/tenant headers apiGet and
+  // apiPost already carry — the one thing genuinely new about apiPatch.
+  it("sends PATCH with the JSON body and the dev headers", async () => {
+    const devTenantId = "11111111-1111-1111-1111-111111111111";
+    const devActorId = "b85aef08-6081-80db-9d4d-dad38ae40545";
+    window.localStorage.setItem(DEV_TENANT_STORAGE_KEY, devTenantId);
+    window.localStorage.setItem(DEV_ACTOR_STORAGE_KEY, devActorId);
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(JSON.stringify({ id: "v1" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const result = await apiPatch<{ id: string }>("/api/vehicles/v1", { fleetNumber: "H1" });
+
+    const [url, init] = vi.mocked(fetch).mock.calls[0];
+    expect(url).toBe("/api/vehicles/v1");
+    expect(init?.method).toBe("PATCH");
+    expect(typeof init?.body).toBe("string");
+    expect(JSON.parse(init?.body as string)).toEqual({ fleetNumber: "H1" });
+    expect(new Headers(init?.headers).get("X-Tenant-ID")).toBe(devTenantId);
+    expect(new Headers(init?.headers).get("X-User-ID")).toBe(devActorId);
+    expect(result).toEqual({ id: "v1" });
+  });
+
+  // Mirrors apiPost's 204 handling (client.ts's own comment): the descriptive
+  // edit is not the only write behind apiPatch forever, and a future no-body
+  // 204 must not turn into a thrown SyntaxError either.
+  it("resolves with nothing on a 204, without trying to parse an empty body", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
+    await expect(apiPatch("/api/vehicles/v1", {})).resolves.toBeUndefined();
+  });
+
+  it("throws an ApiError carrying the envelope's code and message", async () => {
+    stubFetch(422, { code: "invalid_submission", message: "fleetNumber may not be blank" });
+
+    const error = await apiPatch("/api/vehicles/v1", { fleetNumber: "" }).catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as ApiError).code).toBe("invalid_submission");
+    expect((error as ApiError).message).toBe("fleetNumber may not be blank");
   });
 });

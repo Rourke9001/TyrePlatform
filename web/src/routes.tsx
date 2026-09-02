@@ -9,7 +9,7 @@ import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
 import { VehicleList } from "./dashboard/VehicleList";
 import { ReceiveTyre } from "./fleet/ReceiveTyre";
-import { TyreList } from "./fleet/TyreList";
+import { TyreList } from "./fleet/tyres/TyreList";
 
 function NotFound() {
   return <p>Not found.</p>;
