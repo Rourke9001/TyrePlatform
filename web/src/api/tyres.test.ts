@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import {
+  disposalsFor,
   disposeTyre,
   dispatchTyre,
   receiveTyres,
@@ -254,6 +255,20 @@ describe("the tyre register API module", () => {
       await returnTyreToStock("t1", {});
 
       expect(jsonBody(vi.mocked(fetch).mock.calls[0][1])).toEqual({});
+    });
+  });
+
+  // app.dispose_tyre (000031) is the authority; this asserts the client's
+  // menu matches it state by state, so a screen never offers a disposal the
+  // write refuses every time. AT_BREAKDOWN_SUPPLIER stands for every other
+  // member of app.tyre_state: none of them disposes directly.
+  describe("disposalsFor", () => {
+    const labels = (state: string) => disposalsFor(state).map((d) => d.value);
+
+    it("offers a sale from REMOVED alone, and scrap or loss from stock or removed", () => {
+      expect(labels("REMOVED")).toStrictEqual(["SCRAPPED", "SOLD", "LOST"]);
+      expect(labels("IN_STOCK")).toStrictEqual(["SCRAPPED", "LOST"]);
+      expect(labels("AT_BREAKDOWN_SUPPLIER")).toStrictEqual([]);
     });
   });
 });

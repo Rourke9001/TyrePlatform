@@ -125,9 +125,12 @@ describe("the tyre register", () => {
     expect(screen.queryByText(/resolve by eye/i)).not.toBeInTheDocument();
   });
 
+  // REMOVED, not the fixture's default IN_STOCK: app.dispose_tyre (000031)
+  // sells from REMOVED alone, so it is the only state whose row offers Sold
+  // at all — the test below pins the other half of that mapping.
   it("shows the reason field only for a scrap and the proceeds field only for a sale", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1" })] }),
+      respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1", state: "REMOVED" })] }),
     );
     renderScreen();
     await screen.findAllByRole("rowheader");
@@ -143,6 +146,25 @@ describe("the tyre register", () => {
     await userEvent.selectOptions(disposalSelect, "SOLD");
     expect(screen.queryByLabelText(/reason for pos1/i)).not.toBeInTheDocument();
     expect(screen.getByLabelText(/proceeds for pos1/i)).toBeInTheDocument();
+  });
+
+  // The other half of app.dispose_tyre's mapping: a sale from IN_STOCK is
+  // refused every single time (TY012), so offering it is a menu entry that
+  // can only ever produce a refusal. Scrapped and Lost stay on offer, or
+  // this would pass on a form that had lost its select altogether.
+  it("offers no sale on an IN_STOCK tyre, only the disposals the write accepts", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1", state: "IN_STOCK" })] }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    const disposalSelect = screen.getByRole("combobox", { name: /disposal for pos1/i });
+    expect(
+      within(disposalSelect)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toStrictEqual(["Choose…", "Scrapped", "Lost"]);
   });
 
   // A disposed row has no active-only filter to leave it behind (the e2e
@@ -203,10 +225,11 @@ describe("the tyre register", () => {
   // the proceeds input but dropped it from the POST would pass that test and
   // still fail app.dispose_tyre's requirement that a sale record proceeds.
   it("posts proceeds and no reason when disposing as a sale, then refreshes the register", async () => {
+    const removed = { id: "t1", displayCode: "POS1", state: "REMOVED" };
     vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1" })] }))
+      .mockResolvedValueOnce(respond(200, { tyres: [tyre(removed)] }))
       .mockResolvedValueOnce(respond(204, undefined))
-      .mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1" })] }));
+      .mockResolvedValueOnce(respond(200, { tyres: [tyre(removed)] }));
 
     renderScreen();
     await screen.findAllByRole("rowheader");
@@ -562,6 +585,83 @@ describe("the tyre register", () => {
     // Still there once the row has settled on its new state: this
     // distinguishes surviving the refetch from a flash that already faded.
     expect(screen.getByRole("status")).toHaveTextContent(/tyre pos1 was returned to stock/i);
+  });
+
+  // A disposal is the third write whose own cell cannot hold its
+  // confirmation: rowActions replaces the whole Actions cell with a dash once
+  // the state is terminal, so the form that succeeded is gone by the time the
+  // refetch lands.
+  it("shows the confirmation and swaps the row once a disposal's refetch reports the terminal state", async () => {
+    let disposed = false;
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url === "/api/tyres/t1/dispose") {
+        disposed = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(
+        respond(200, {
+          tyres: [
+            tyre({ id: "t1", displayCode: "POS1", state: disposed ? "SCRAPPED" : "IN_STOCK" }),
+          ],
+        }),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /disposal for pos1/i }),
+      "SCRAPPED",
+    );
+    await user.type(screen.getByLabelText(/reason for pos1/i), "casing failure");
+    await user.click(screen.getByRole("button", { name: /^dispose$/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/tyre pos1 was disposed of/i);
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("combobox", { name: /disposal for pos1/i }),
+      ).not.toBeInTheDocument(),
+    );
+    // Still there once the row has settled on its terminal state: this
+    // distinguishes surviving the refetch from a flash that already faded.
+    expect(screen.getByRole("status")).toHaveTextContent(/tyre pos1 was disposed of/i);
+  });
+
+  // The costing path, for the same reason: the Set-cost cell holds a form
+  // only while awaitingCost is true, and the write that succeeds is what
+  // clears the flag (D5 forbids a second submission on that row).
+  it("shows the confirmation and swaps the cell once a costing's refetch clears the backlog flag", async () => {
+    let costed = false;
+    vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url === "/api/tyres/t1/cost") {
+        costed = true;
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(
+        respond(200, {
+          tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: !costed })],
+        }),
+      );
+    });
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await user.type(screen.getByLabelText(/purchase price for pos1/i), "1200.00");
+    await user.click(screen.getByRole("button", { name: /set cost/i }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/tyre pos1's cost was recorded/i);
+    await waitFor(() =>
+      expect(screen.queryByLabelText(/purchase price for pos1/i)).not.toBeInTheDocument(),
+    );
+    // Still there once the row has settled without its form: this
+    // distinguishes surviving the refetch from a flash that already faded.
+    expect(screen.getByRole("status")).toHaveTextContent(/tyre pos1's cost was recorded/i);
   });
 
   it("links to the retread queue for an actor with LogRetread", async () => {
