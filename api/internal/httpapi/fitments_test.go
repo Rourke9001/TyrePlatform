@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -268,10 +269,10 @@ func TestRemoveFitmentWritesProvenance(t *testing.T) {
 }
 
 // FR-FIT-010/FR-FIT-014: a rotation is one set of moves or none of them.
-// The valid swap runs first, so the 201 shape Task 13's form consumes is
-// exercised and the "unchanged" assertion afterwards has a non-trivial state
-// to be unchanged from — a rotation asserted only against a fresh unit would
-// pass an implementation that silently wrote nothing at all.
+// The valid swap runs first, so the 201 shape the unit screen's rotation form
+// consumes is exercised and the "unchanged" assertion afterwards has a
+// non-trivial state to be unchanged from — a rotation asserted only against a
+// fresh unit would pass an implementation that silently wrote nothing at all.
 func TestRotateIsAtomic(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -433,13 +434,14 @@ func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
 	})
 
 	// The casing named is tenant B's own and IN_STOCK, so app.fit_tyre's
-	// three tyre-state branches (000033:85-107) all pass before the unit is
-	// ever looked up — the refusal below can only be the unit lookup, and
-	// only RLS can make that one fail. A leak could not answer this same
-	// refusal differently worded: it would get past the lookup to
-	// fitment_vehicle_id_fkey, whose composite (tenant_id, vehicle_id) pair
-	// (000004:94) is unsatisfiable across tenants, and answer 23503 as
-	// invalid_submission — so the code is pinned as well as the message.
+	// three TY012 tyre-state guards — no such tyre, already FITTED, and any
+	// state other than IN_STOCK — all pass before the unit is ever looked up.
+	// The refusal below can only be the unit lookup, and only RLS can make
+	// that one fail. A leak could not answer this same refusal differently
+	// worded: it would get past the lookup to fitment_vehicle_id_fkey, whose
+	// composite (tenant_id, vehicle_id) pair is unsatisfiable across tenants,
+	// and answer 23503 as invalid_submission — so the code is pinned as well
+	// as the message.
 	t.Run("fit", func(t *testing.T) {
 		refuses(t, post(t, h, "/api/vehicles/"+otherA.String()+"/fitments", tenantB.String(), controllerB.String(),
 			fitBody(tyreB, sparePosA, "9.0", nil)), "no such unit in this fleet")
@@ -550,4 +552,166 @@ func TestWriteAimedAtAnotherTenantIsRefused_Fitment(t *testing.T) {
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT count(*) FROM app.fitment WHERE tyre_id = $1`, tyreB).Scan(&landed))
 	require.Zero(t, landed)
+}
+
+// maxTextLen on the four free-text fields the fitment surface added. The
+// actor is a DRIVER, which holds none of the capabilities these three
+// handlers require — so a 422 is only possible if the length check runs
+// before withActor opens a transaction, and the control at the end (the same
+// actor, the same route, a short value) is what shows the 403 is otherwise
+// what this actor gets. Nothing is planted beyond the tenant and the user:
+// every id below is a random uuid, and a handler that reached the database
+// with one would answer 404 or a refusal rather than 422.
+func TestFitmentTextFieldsAreLengthCapped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "text-cap")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	long := strings.Repeat("x", 201)
+	fitPath := "/api/vehicles/" + uuid.NewString() + "/fitments"
+	removePath := "/api/fitments/" + uuid.NewString() + "/remove"
+	returnPath := "/api/retread-jobs/" + uuid.NewString() + "/return"
+
+	fitWithReason := func(reason string) string {
+		return fmt.Sprintf(
+			`{"tyreId":%q,"positionId":%q,"treadMm":"9.0","mountOrientation":"MARK_OUTBOARD","reason":%q}`,
+			uuid.NewString(), uuid.NewString(), reason)
+	}
+
+	for _, tc := range []struct{ name, path, body, field string }{
+		{"fit reason", fitPath, fitWithReason(long), "reason"},
+		{"removal reason", removePath, fmt.Sprintf(`{"reason":%q,"treadMm":"4.0"}`, long), "reason"},
+		{"backdate reason", removePath,
+			fmt.Sprintf(`{"reason":"WORN","treadMm":"4.0","backdateReason":%q}`, long), "backdateReason"},
+		{"retread report reference", returnPath,
+			fmt.Sprintf(`{"returnedOn":"2026-09-01","casingAccepted":true,"reportReference":%q}`, long),
+			"reportReference"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := post(t, h, tc.path, tenantID.String(), driver.String(), tc.body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Contains(t, ref.Message, tc.field, "the refusal names the field the caller sent")
+		})
+	}
+
+	// The control. Every body above differs from one of these in the length
+	// of one field alone, and each of these answers 403 — so the 422s are the
+	// cap, not the route, the actor or anything else in the request.
+	for _, tc := range []struct{ name, path, body string }{
+		{"fit", fitPath, fitWithReason(strings.Repeat("x", 200))},
+		{"remove", removePath, fmt.Sprintf(`{"reason":"WORN","treadMm":"4.0","backdateReason":%q}`,
+			strings.Repeat("x", 200))},
+		{"retread return", returnPath,
+			fmt.Sprintf(`{"returnedOn":"2026-09-01","casingAccepted":true,"reportReference":%q}`,
+				strings.Repeat("x", 200))},
+	} {
+		t.Run(tc.name+" at the cap reaches the gate", func(t *testing.T) {
+			rec := post(t, h, tc.path, tenantID.String(), driver.String(), tc.body)
+			require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+		})
+	}
+}
+
+// The five surfaces B5 added whose capability gate nothing asserted. Each
+// row's 403 can only come from the require() call named beside it: withActor
+// answers 403 in exactly two places (httpapi.go's errForbidden branch and its
+// store.ErrNoSuchActor branch), and every actor below is a live user of the
+// tenant it calls with, so the second branch cannot fire.
+//
+// The TECHNICIAN rows are what make the ManageAssets ones discriminate. That
+// role holds ViewFleet and nothing else (auth.go's capabilities map), so the
+// same actor is admitted to the two ViewFleet reads and refused the three
+// ManageAssets surfaces — the gate under test is the capability itself, not
+// tenant membership and not the route.
+func TestFitmentSurfaceEndpointsAreCapabilityGated(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, _, _, _ := plantUnitFixture(t, ctx, admin, "fitment-gate")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "GATE-"+uuid.NewString()[:8])
+	retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	// A dispatch body that would otherwise be accepted: destination, depotId
+	// and the date are all validated ahead of withActor (tyres.go's
+	// dispatchTyre), so a malformed one would answer 422 and prove nothing
+	// about the gate behind it.
+	dispatchBody := fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader)
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		path   string
+		body   string
+		actor  uuid.UUID
+		want   int
+	}{
+		// units.go listDepots: require(a, auth.ManageAssets). Of these five
+		// it is the one read gated on a write capability — a depot list is
+		// the dispatch and return forms' picker, so a role that may not act
+		// on it has no use for it. The TECHNICIAN row is what proves the gate
+		// is ManageAssets and not ViewFleet.
+		{"depots refuse a technician", http.MethodGet, "/api/depots", "", technician, http.StatusForbidden},
+		{"depots refuse a driver", http.MethodGet, "/api/depots", "", driver, http.StatusForbidden},
+
+		// units.go listOpenFitments: require(a, auth.ViewFleet). open=true is
+		// on the path because the unsupported-filter 400 is written before
+		// withActor is entered, so a bare /api/fitments would answer 400 and
+		// never reach the gate.
+		{"open fitments refuse a driver", http.MethodGet, "/api/fitments?open=true", "", driver, http.StatusForbidden},
+		{"open fitments admit a technician", http.MethodGet, "/api/fitments?open=true", "", technician, http.StatusOK},
+
+		// units.go listUnitFitments: require(a, auth.ViewFleet).
+		{"unit fitments refuse a driver", http.MethodGet, "/api/vehicles/" + mine.String() + "/fitments", "",
+			driver, http.StatusForbidden},
+		{"unit fitments admit a technician", http.MethodGet, "/api/vehicles/" + mine.String() + "/fitments", "",
+			technician, http.StatusOK},
+
+		// tyres.go dispatchTyre: require(a, auth.ManageAssets).
+		{"dispatch refuses a driver", http.MethodPost, "/api/tyres/" + tyreID.String() + "/dispatch", dispatchBody,
+			driver, http.StatusForbidden},
+		{"dispatch refuses a technician", http.MethodPost, "/api/tyres/" + tyreID.String() + "/dispatch", dispatchBody,
+			technician, http.StatusForbidden},
+
+		// tyres.go returnTyreToStock: require(a, auth.ManageAssets). An empty
+		// body is a valid request here — depotId is optional — so the refusal
+		// cannot be a validation one.
+		{"return refuses a driver", http.MethodPost, "/api/tyres/" + tyreID.String() + "/return", `{}`,
+			driver, http.StatusForbidden},
+		{"return refuses a technician", http.MethodPost, "/api/tyres/" + tyreID.String() + "/return", `{}`,
+			technician, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var rec *httptest.ResponseRecorder
+			if tc.method == http.MethodGet {
+				rec = get(t, h, tc.path, tenantID.String(), tc.actor.String())
+			} else {
+				rec = post(t, h, tc.path, tenantID.String(), tc.actor.String(), tc.body)
+			}
+			require.Equal(t, tc.want, rec.Code, rec.Body.String())
+			if tc.want != http.StatusForbidden {
+				return
+			}
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "forbidden", ref.Code)
+			require.Equal(t, "this action is not permitted for this role", ref.Message)
+		})
+	}
+
+	// Nothing the refused writes named moved: a 403 is refused before
+	// app.dispatch_tyre and app.return_tyre_to_stock are ever called.
+	var state string
+	var jobs int
+	require.NoError(t, admin.QueryRow(ctx, `SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+	require.Equal(t, "REMOVED", state)
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.retread_job WHERE tyre_id = $1`, tyreID).Scan(&jobs))
+	require.Zero(t, jobs)
 }

@@ -422,10 +422,10 @@ type dispatchTyreRequest struct {
 	SentOn      *string `json:"sentOn"`
 }
 
-// dispatchTyreResponse carries the retread job the dispatch opened.
-// omitempty for tyreJSON's reason: a dispatch to the breakdown supplier
-// opens no job, and the key must vanish rather than round-trip as a null a
-// client has to special-case.
+// dispatchTyreResponse carries the retread job the dispatch opened. omitempty
+// for the same reason tyreJSON's money fields carry it: a dispatch to the
+// breakdown supplier opens no job, and the key must be absent rather than
+// round-trip as a null a client has to special-case.
 type dispatchTyreResponse struct {
 	RetreadJobID *string `json:"retreadJobId,omitempty"`
 }

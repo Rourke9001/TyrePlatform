@@ -101,14 +101,16 @@ type fitTyreRequest struct {
 }
 
 // fitTyreArgs is the validated request: the two ids parsed, the two required
-// strings present. Nothing here narrows a value — the mount orientation is
-// checked by the enum cast, and the tread's range by app.fit_tyre.
+// strings present, the free-text note held to maxTextLen. Nothing here narrows
+// a value — the mount orientation is checked by the enum cast, and the tread's
+// range by app.fit_tyre.
 type fitTyreArgs struct {
 	tyreID           uuid.UUID
 	positionID       uuid.UUID
 	treadMm          string
 	mountOrientation string
 	occurredAt       *time.Time
+	reason           *string
 }
 
 func (b fitTyreRequest) validate() (fitTyreArgs, error) {
@@ -129,6 +131,9 @@ func (b fitTyreRequest) validate() (fitTyreArgs, error) {
 	if a.occurredAt, err = instantField("occurredAt", b.OccurredAt); err != nil {
 		return a, err
 	}
+	if a.reason, err = text("reason", b.Reason); err != nil {
+		return a, err
+	}
 	return a, nil
 }
 
@@ -144,6 +149,28 @@ type fitWarningJSON struct {
 type fitTyreResponse struct {
 	FitmentID string           `json:"fitmentId"`
 	Warnings  []fitWarningJSON `json:"warnings"`
+}
+
+// decodeFitWarnings reads app.fit_tyre's warnings column into the wire shape,
+// answering an empty list — never a nil one — for every way the column can say
+// "no warnings". app.fit_tyre answers '[]'::jsonb today, so the other two arms
+// guard a contract rather than a case seen in practice: a SQL NULL scans as a
+// nil []byte that json.Unmarshal refuses outright, and a jsonb `null` literal
+// decodes into a nil slice. Either would reach the capture and fitment
+// screens, which branch on the list's length, as an absent list rather than an
+// empty one — and the first would have answered 500 for a fit that landed.
+func decodeFitWarnings(raw []byte) ([]fitWarningJSON, error) {
+	if len(raw) == 0 {
+		return []fitWarningJSON{}, nil
+	}
+	var out []fitWarningJSON
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, fmt.Errorf("decoding fit warnings: %w", err)
+	}
+	if out == nil {
+		return []fitWarningJSON{}, nil
+	}
+	return out, nil
 }
 
 // fitTyre is FR-FIT-001's write. The unit id is the URL's; the casing, the
@@ -182,24 +209,19 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 				   FROM app.fit_tyre($1, $2, $3, $4::numeric, $5::app.mount_orientation,
 				                     $6, COALESCE($7::timestamptz, now()), $8)`,
 				args.tyreID, vehicleID, args.positionID, args.treadMm, args.mountOrientation,
-				body.Odometer, args.occurredAt, body.Reason,
+				body.Odometer, args.occurredAt, args.reason,
 			).Scan(&fitmentID, &raw); err != nil {
 				return fmt.Errorf("fitting tyre %s to unit %s: %w", args.tyreID, vehicleID, err)
 			}
-			if err := json.Unmarshal(raw, &warnings); err != nil {
-				return fmt.Errorf("decoding fit warnings: %w", err)
+			decoded, decodeErr := decodeFitWarnings(raw)
+			if decodeErr != nil {
+				return decodeErr
 			}
+			warnings = decoded
 			return nil
 		})
 		if !ok {
 			return
-		}
-		// app.fit_tyre answers [] rather than NULL, so this guards a
-		// contract rather than a case seen in practice: the capture and
-		// fitment screens branch on the list's length, and a null would
-		// reach them as an absent list rather than an empty one.
-		if warnings == nil {
-			warnings = []fitWarningJSON{}
 		}
 		writeStatus(ctx, w, http.StatusCreated,
 			fitTyreResponse{FitmentID: fitmentID.String(), Warnings: warnings})
@@ -244,6 +266,20 @@ func removeFitment(s *store.Store) http.HandlerFunc {
 		if refuseInvalid(w, r, err) {
 			return
 		}
+		// Length only, and no trim: which reasons a fleet accepts is
+		// app.remove_tyre's list to check (rule 5), and trimming here would
+		// hand the function a token the caller did not send. maxTextLen is the
+		// same transport bound every free-text field on a write carries — a
+		// reason longer than the whole vocabulary can spell is not one this
+		// side needs to open a transaction to refuse.
+		if len(body.Reason) > maxTextLen {
+			refuseInvalid(w, r, invalid("reason", "is too long"))
+			return
+		}
+		backdateReason, err := text("backdateReason", body.BackdateReason)
+		if refuseInvalid(w, r, err) {
+			return
+		}
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
@@ -252,7 +288,7 @@ func removeFitment(s *store.Store) http.HandlerFunc {
 				`SELECT app.remove_tyre($1, $2, $3::numeric, $4,
 				                        COALESCE($5::timestamptz, now()), $6)`,
 				fitmentID, body.Reason, treadMm, body.Odometer,
-				occurredAt, body.BackdateReason); err != nil {
+				occurredAt, backdateReason); err != nil {
 				return fmt.Errorf("removing fitment %s: %w", fitmentID, err)
 			}
 			return nil

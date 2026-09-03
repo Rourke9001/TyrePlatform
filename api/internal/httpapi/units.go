@@ -152,6 +152,13 @@ func unitByID(ctx context.Context, tx pgx.Tx, id uuid.UUID) (unitJSON, error) {
 	// configuration or kind out from under (D4). Keep the two agreeing —
 	// a unit the screen shows as "has history" must be one the trigger
 	// would also refuse.
+	//
+	// hasOdometer below is the same tension: it is the exact negation of
+	// app.require_odometer_where_unit_has_one's own exemption (000025's
+	// fitment_odometer_matches_unit_kind exempts a NULL kind and a TRAILER).
+	// One predicate stated in two languages — should either move without the
+	// other, the fit form hides the odometer field for a unit whose write
+	// TY009 then refuses, or asks for one no rule wants.
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.description, v.body_type, v.unit_descriptor,
 		       v.unit_kind::text, v.status::text, v.configuration_id, ac.name,
@@ -564,12 +571,18 @@ func optionalIDOrClear(field string, raw *string) (*string, error) {
 	return &trimmed, nil
 }
 
-// cleanTags trims, refuses a blank name and drops repeats while keeping the
-// caller's order. De-duplication is case-sensitive because the constraint it
-// stands in front of is: app.vehicle_tag's UNIQUE (tenant_id, name) holds
-// "Reefer" and "REEFER" as two names, so folding case here would quietly
-// merge two labels a fleet deliberately keeps apart.
+// cleanTags bounds the count, trims, refuses a blank name and drops repeats
+// while keeping the caller's order. De-duplication is case-sensitive because
+// the constraint it stands in front of is: app.vehicle_tag's UNIQUE
+// (tenant_id, name) holds "Reefer" and "REEFER" as two names, so folding case
+// here would quietly merge two labels a fleet deliberately keeps apart.
 func cleanTags(in []string) ([]string, error) {
+	// Counted before the de-duplication, not after: what is bounded is the
+	// request, and fifty repeats of one name is the same work to read as fifty
+	// distinct ones.
+	if len(in) > maxTagsPerPatch {
+		return nil, invalid("tags", fmt.Sprintf("may name at most %d tags in one edit", maxTagsPerPatch))
+	}
 	out := make([]string, 0, len(in))
 	seen := make(map[string]bool, len(in))
 	for _, raw := range in {
@@ -647,10 +660,11 @@ func (b patchUnitRequest) validate() (patchUnitArgs, error) {
 // further jobs. It is the existence check — RLS is what makes "no such unit"
 // and "another tenant's unit" the same 404 (ADR-0011) — and its row lock is
 // what serialises two concurrent tag replacements on one unit, which a bare
-// SELECT in its place would not. The cost is that a tags-only edit still
-// touches the vehicle row and 000035's trigger audits it with before and
-// after equal: an honest record of an edit that moved nothing, not an
-// invented one.
+// SELECT in its place would not. A tags-only edit therefore still touches the
+// vehicle row, and writes no audit entry for it: app.audit_row_change returns
+// early when an UPDATE leaves the row identical, so nothing is logged that
+// claims a column moved when none did. The tag map rows it does change are
+// not audited — vehicle_audited is on app.vehicle alone (000035).
 func patchUnit(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

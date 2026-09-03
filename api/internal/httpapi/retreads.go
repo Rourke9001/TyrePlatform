@@ -53,8 +53,9 @@ func listRetreadJobs(s *store.Store) http.HandlerFunc {
 				  FROM app.retread_job rj
 				  JOIN app.tyre t    ON t.id = rj.tyre_id
 				  -- retreader_depot_id is nullable on the column, but an inner join is
-				  -- safe: app.dispatch_tyre (000033:594-599) refuses a dispatch whose
-				  -- depot does not resolve, so every row this surface can see has one.
+				  -- safe: app.dispatch_tyre's depot check raises TY014 ("no such depot in
+				  -- this fleet", "is not an active RETREADER") before a job is opened, so
+				  -- every row this surface can see has one.
 				  JOIN app.depot d   ON d.id = rj.retreader_depot_id
 				  JOIN app.tenant tn ON tn.id = rj.tenant_id
 				 WHERE rj.returned_at IS NULL
@@ -141,6 +142,14 @@ func logRetreadReturn(s *store.Store) http.HandlerFunc {
 		}
 		reportReference, err := requiredText("reportReference", body.ReportReference)
 		if refuseInvalid(w, r, err) {
+			return
+		}
+		// requiredText answers presence, not size. The column is unbounded
+		// text, so the same transport cap every free-text field on a write
+		// carries applies here too (maxTextLen) — a retreader's docket number
+		// is not kilobytes.
+		if len(reportReference) > maxTextLen {
+			refuseInvalid(w, r, invalid("reportReference", "is too long"))
 			return
 		}
 		rawReturnedOn, err := requiredText("returnedOn", body.ReturnedOn)
