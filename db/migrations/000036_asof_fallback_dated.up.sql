@@ -87,8 +87,8 @@ LANGUAGE sql STABLE AS $$
     -- is UNVALUED rather than priced at a tread nobody had measured yet.
     -- Strict '<' against bound.ts, matching the reading join below: bound.ts
     -- is the exclusive upper edge of p_as_at, so '<' is how this function
-    -- already spells 'on or before p_as_at'. An onboarding row carries a
-    -- NULL last_tread_at and is unaffected.
+    -- already spells 'on or before p_as_at'. A NULL last_tread_at is an
+    -- undated measurement and is honoured at every date, as the header says.
     CROSS JOIN LATERAL (
          SELECT CASE WHEN t.last_tread_at IS NULL OR t.last_tread_at < bound.ts
                      THEN t.last_tread_mm END AS mm) fb
@@ -153,9 +153,10 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- The columns say what maintains them, so the contract is discoverable from
--- the database alone. Both registers read this pair, and they read it
--- differently: the live one asks only whether a reading exists, the as-at one
--- asks whether the measurement predates the date being priced.
+-- the database alone. One reader: the live register (app.v_tyre_valuation) is
+-- this function at today's date, where every writer's stamp precedes bound.ts
+-- and the date guard is therefore inert; only a past p_as_at can exclude a
+-- measurement.
 COMMENT ON COLUMN app.tyre.last_tread_mm IS
   'The casing''s tread as a dated measurement (FR-TYR-016 errata E1, U10): set at onboarding where a tread is known, and maintained thereafter by app.fit_tyre, app.remove_tyre, app.rotate_tyres and an accepted retread return, each writing the event''s own instant to last_tread_at. Ranked below reading: the register (app.tyre_valuation_asof) reads this column only where no reading exists as at the date, whatever the two dates are. The as-at register reads it only for dates on or after last_tread_at (FR-VAL-020); the live register (app.v_tyre_valuation) reads it as current tread.';
 COMMENT ON COLUMN app.tyre.last_tread_at IS
