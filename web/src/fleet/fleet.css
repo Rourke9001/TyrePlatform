@@ -453,8 +453,8 @@
 /* Layout only: .tyres-receive form's flex column stretches every child to
    the form's own width by default, which reads fine for a single input but
    leaves Set rig full-width beside the row-shaped controls above it. The
-   disabled-token contrast (btn-primary:disabled) is a separate, ticketed
-   concern and is not touched here. */
+   disabled-token contrast (btn-primary:disabled) is TYRE-132's and is not
+   touched here. */
 .rigs .tyres-receive button[type="submit"] {
   align-self: flex-start;
 }

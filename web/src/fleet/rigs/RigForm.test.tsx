@@ -150,7 +150,7 @@ describe("setting a rig", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Move LINK-B up" }));
     // After the swap LINK-B leads, so its own Up control is aria-disabled —
-    // not `disabled`, so it stays focusable at the boundary (W6).
+    // not `disabled`, so it stays focusable at the boundary (RigForm.tsx).
     expect(screen.getByRole("button", { name: "Move LINK-B up" })).toHaveAttribute(
       "aria-disabled",
       "true",
@@ -248,7 +248,7 @@ describe("setting a rig", () => {
       towed: [{ vehicleId: "u2", descriptor: "front" }],
     });
     // The form clears once the write succeeds — towed is empty, so the
-    // (W11) conditional list unmounts rather than sitting empty in the DOM.
+    // list unmounts rather than sitting empty in the DOM (RigForm.tsx).
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
