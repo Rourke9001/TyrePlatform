@@ -4680,7 +4680,10 @@ BEGIN
   -- IS NULL OR removed_at >= bound.ts)) can never match at any date. Both
   -- instants sit inside the last 24 hours on purpose: further back, the
   -- pre-fix body refuses on TY014 for the missing backdate reason
-  -- (FR-FIT-016) and the probe would fail for the wrong cause.
+  -- (FR-FIT-016) and the probe would fail for the wrong cause. The removal
+  -- odometer is supplied for the same reason: on a HORSE the closing UPDATE
+  -- raises TY009 (000025) without one, and the guard under test has to be
+  -- the only rule left standing between the call and a backwards closure.
   -- On vh (HORSE), not vt: 41v below rotates ty9 on this same unit, and
   -- TY009 (000025) requires a fitted_odometer for a HORSE fitment even on a
   -- raw INSERT, so one is supplied here though app.remove_tyre never reads it.
@@ -4689,7 +4692,7 @@ BEGIN
   VALUES (bac, ty9, vh, p9, now() - interval '1 hour', 300000, 12.0)
   RETURNING id INTO fitu;
   BEGIN
-    PERFORM app.remove_tyre(fitu, 'damage', 9.0, NULL, now() - interval '2 hours');
+    PERFORM app.remove_tyre(fitu, 'damage', 9.0, 300500, now() - interval '2 hours');
     RAISE EXCEPTION 'FAIL 41u: a removal predating its own fitment, with no to_state event to catch it, was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     IF SQLERRM <> format('this tyre was fitted at %s; a removal cannot predate its own fitment',
