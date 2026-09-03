@@ -5827,12 +5827,8 @@ BEGIN
       RAISE EXCEPTION 'FAIL 45b: wrong message %', msg;
     END IF;
   END;
-  -- This raw insert exercises only the open-rig branch (FOUND AND left_at IS
-  -- NULL): the history branch — a start before the unit's last membership
-  -- ended — is met through app.create_combination alone, at 45e, since a raw
-  -- insert here would need a second rig row dated before ta's actual history
-  -- to reach it, which is exactly what the function's own date rule (U8)
-  -- exists to keep out of reach.
+  -- This raw insert meets only the trigger's open-rig branch; its history
+  -- branch (a start before the unit's last membership ended) is met at 45e.
   BEGIN
     INSERT INTO app.combination (id, tenant_id, motive_vehicle_id) VALUES (md5('t45raw')::uuid, bac, hx);
     INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
@@ -6065,9 +6061,12 @@ BEGIN
 
   -- (h) Audited (ADR-0014, U12): the create wrote INSERT rows for the rig
   -- and each member under the bound actor; the end wrote an UPDATE row.
-  SELECT count(*) INTO n FROM app.audit_log a
+  SELECT count(*) FILTER (WHERE a.action = 'INSERT') INTO n FROM app.audit_log a
    WHERE a.entity_type = 'combination' AND a.entity_id = rig AND a.actor_id = ctl;
-  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 45h: % audit rows for the rig, expected INSERT and UPDATE', n; END IF;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 45h: % INSERT audit rows for the rig, expected 1', n; END IF;
+  SELECT count(*) FILTER (WHERE a.action = 'UPDATE') INTO n FROM app.audit_log a
+   WHERE a.entity_type = 'combination' AND a.entity_id = rig AND a.actor_id = ctl;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 45h: % UPDATE audit rows for the rig, expected 1', n; END IF;
   SELECT count(*) INTO n FROM app.audit_log a
    WHERE a.entity_type = 'combination_member' AND a.action = 'INSERT'
      AND a.entity_id IN (SELECT cm.id FROM app.combination_member cm WHERE cm.combination_id = rig);
