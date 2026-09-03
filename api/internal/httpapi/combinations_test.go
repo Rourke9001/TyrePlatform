@@ -252,13 +252,38 @@ func TestCombinationShapeRefusals(t *testing.T) {
 	require.Equal(t, 0, countCombinations(t, ctx, admin, tenantID))
 }
 
+// U10: an empty towed array is valid shape (ADR-0013 decision 5) — FR-VEH-030
+// permits a rig with nothing towed, but app.create_combination declines it,
+// and this pins that the refusal genuinely reaches SQL rather than being
+// caught, uncredited, by some earlier Go check.
+func TestCombinationEmptyTowedIsRefusedBySQL(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "rig-empty-towed")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := post(t, h, "/api/combinations", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[]}`, horseID))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY017", ref.Code)
+	require.Equal(t, "a rig has at least one towed unit; a unit on its own needs no rig", ref.Message)
+	require.Equal(t, 0, countCombinations(t, ctx, admin, tenantID))
+}
+
 // Both rig writes take their ids from the request and their tenant only from
-// the session, so RLS's USING half is the whole refusal. Every probe here is
-// planted so that a leak would make the call SUCCEED rather than merely
-// change the error text: tenant B names a pair of tenant A units that are in
-// no rig at all, and the control one line later — tenant A creating the very
-// same rig — proves the refusal was tenant-caused and not INV-4 or a kind
-// check answering first.
+// the session, so RLS's USING half is the whole refusal — but the two probes
+// prove it differently. combination_motive_vehicle_id_fkey and
+// combination_member_vehicle_id_fkey are tenant-composite (000004:61-71), so
+// a leak on the CREATE path would still die — on 23503 from that FK (or from
+// created_by's own composite FK, 000017), not TY012 — which is why the
+// discriminating assert below is the TY012 code, not merely the 422 status.
+// The END path has no such FK to catch a leak, so it would SUCCEED outright:
+// the control one line later — tenant A performing the identical call —
+// proves each refusal above was tenant-caused and not INV-4 or a kind check
+// answering first.
 func TestCombinationCrossTenantIsInvisible(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -280,11 +305,11 @@ func TestCombinationCrossTenantIsInvisible(t *testing.T) {
 
 	freePair := fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}]}`, freeHorse, freeTrailer)
 	rec = post(t, h, "/api/combinations", tenantB.String(), controllerB.String(), freePair)
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code,
-		"tenant B coupled tenant A's units: RLS leaked the rows (got %s)", rec.Body.String())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 	var ref refusalBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "TY012", ref.Code)
+	require.Equal(t, "TY012", ref.Code,
+		"tenant B coupled tenant A's units: RLS leaked the rows (got %s)", rec.Body.String())
 	require.Equal(t, "no such unit in this fleet", ref.Message)
 	require.Equal(t, 0, countCombinations(t, ctx, admin, tenantB))
 
@@ -294,10 +319,10 @@ func TestCombinationCrossTenantIsInvisible(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	rec = post(t, h, "/api/combinations/"+rigA.ID+"/end", tenantB.String(), controllerB.String(), `{}`)
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code,
-		"tenant B ended tenant A's rig: RLS leaked the row (got %s)", rec.Body.String())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "TY012", ref.Code)
+	require.Equal(t, "TY012", ref.Code,
+		"tenant B ended tenant A's rig: RLS leaked the row (got %s)", rec.Body.String())
 	require.Equal(t, "no such rig in this fleet", ref.Message)
 
 	var stillOpen bool
@@ -315,46 +340,68 @@ func TestCombinationCrossTenantIsInvisible(t *testing.T) {
 }
 
 // D3: open rigs first, then by start descending, and ?open=true narrows to
-// the open ones.
+// the open ones. Every date is a fixed literal (lessons 2026-09-03: no clock
+// arithmetic drives a date a tenant-day comparison reads) and the open rig is
+// given the OLDEST effective_from of the three, so a handler that merely
+// sorted by date — rather than open-first, then date — would fail this.
 func TestListCombinationsOrdersOpenFirst(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantID, firstHorse, firstTrailer := plantRigUnits(t, ctx, admin, "rig-order")
-	secondHorse := plantRigUnit(t, ctx, admin, tenantID, "HORSE")
-	secondTrailer := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
+	tenantID, openHorse, openTrailer := plantRigUnits(t, ctx, admin, "rig-order")
+	olderHorse := plantRigUnit(t, ctx, admin, tenantID, "HORSE")
+	olderTrailer := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
+	newerHorse := plantRigUnit(t, ctx, admin, tenantID, "HORSE")
+	newerTrailer := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	rec := post(t, h, "/api/combinations", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}]}`, firstHorse, firstTrailer))
+		fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}],"effectiveOn":"2020-01-03"}`,
+			openHorse, openTrailer))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	var endedRig rigBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &endedRig))
+	var open rigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &open))
 
-	rec = post(t, h, "/api/combinations/"+endedRig.ID+"/end", tenantID.String(), controller.String(), `{}`)
+	rec = post(t, h, "/api/combinations", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}],"effectiveOn":"2020-01-06"}`,
+			olderHorse, olderTrailer))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var older rigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &older))
+	rec = post(t, h, "/api/combinations/"+older.ID+"/end", tenantID.String(), controller.String(),
+		`{"endedOn":"2020-01-06"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	rec = post(t, h, "/api/combinations", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}]}`, secondHorse, secondTrailer))
+		fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}],"effectiveOn":"2020-01-08"}`,
+			newerHorse, newerTrailer))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	var openRig rigBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &openRig))
+	var newer rigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &newer))
+	rec = post(t, h, "/api/combinations/"+newer.ID+"/end", tenantID.String(), controller.String(),
+		`{"endedOn":"2020-01-08"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
 	rec = get(t, h, "/api/combinations?open=true", tenantID.String(), controller.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var open []rigBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &open))
-	require.Len(t, open, 1)
-	require.Equal(t, openRig.ID, open[0].ID)
-	require.Nil(t, open[0].EffectiveTo)
+	var openOnly []rigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &openOnly))
+	require.Len(t, openOnly, 1)
+	require.Equal(t, open.ID, openOnly[0].ID)
+	require.Nil(t, openOnly[0].EffectiveTo)
 
 	rec = get(t, h, "/api/combinations", tenantID.String(), controller.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	var all []rigBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &all))
-	require.Len(t, all, 2)
-	require.Equal(t, openRig.ID, all[0].ID, "the open rig is not listed first")
-	require.Equal(t, endedRig.ID, all[1].ID)
+	require.Len(t, all, 3)
+	require.Equal(t, open.ID, all[0].ID, "the open rig is not listed first")
+	require.Equal(t, newer.ID, all[1].ID, "the more recently started ended rig is not listed before the older one")
+	require.Equal(t, older.ID, all[2].ID)
+	require.Nil(t, all[0].EffectiveTo)
 	require.NotNil(t, all[1].EffectiveTo)
-	require.Len(t, all[1].Members, 2)
+	require.NotNil(t, all[2].EffectiveTo)
+	require.Equal(t, openTrailer.String(), all[0].Members[1].VehicleID)
+	require.Equal(t, newerTrailer.String(), all[1].Members[1].VehicleID)
+	require.Equal(t, olderTrailer.String(), all[2].Members[1].VehicleID)
 }

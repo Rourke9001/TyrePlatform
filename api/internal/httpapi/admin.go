@@ -85,7 +85,8 @@ const maxWriteBytes = 16 << 10
 
 // maxTextLen caps every free-text field on a create. A transport limit for the
 // same reason — the columns are unbounded text, and the database is not the
-// place to discover that a client sent a megabyte of description.
+// place to discover that a client sent a megabyte of description. text()
+// counts it in runes (TYRE-72 D7); the other sites that check it count bytes.
 const maxTextLen = 200
 
 // maxTagsPerPatch caps how many tags one edit may name. A transport limit like
@@ -149,9 +150,9 @@ func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(into); err != nil {
 		if field, found := unknownJSONField(err); found {
-			// Clipped to the length every free-text field on a write is held
-			// to: the key is caller text, and maxWriteBytes alone would let a
-			// refusal message carry kilobytes of it back out.
+			// A byte clip, not text()'s rune bound: the key is caller text,
+			// and maxWriteBytes alone would let a refusal message carry
+			// kilobytes of it back out.
 			if len(field) > maxTextLen {
 				field = strings.ToValidUTF8(field[:maxTextLen], "")
 			}
@@ -216,7 +217,7 @@ func refuseInvalid(w http.ResponseWriter, r *http.Request, err error) bool {
 // text trims and length-checks an optional free-text field, answering nil for
 // an absent or blank one so the column holds NULL rather than an empty string.
 // maxTextLen bounds runes, not bytes: a multibyte description (the rig
-// descriptor, TYRE-72) is text a driver typed, not wire size to police —
+// descriptor, TYRE-72) is text a controller typed, not wire size to police —
 // maxWriteBytes already does that (TYRE-72 D7).
 func text(field string, in *string) (*string, error) {
 	if in == nil {

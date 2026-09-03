@@ -370,7 +370,7 @@ func TestVehiclesScopedToHeaderTenant(t *testing.T) {
 // 000014), so the plain CONTROLLER scope (app.vehicle, ScopeTenant) is
 // enough to prove the shape. The driver's GET /api/my/vehicles is asserted
 // unchanged in the same test — the shared shape is not widened for one
-// consumer (CLAUDE.md).
+// consumer (spec U13, docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md).
 func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
