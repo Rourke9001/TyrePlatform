@@ -7,6 +7,7 @@ import { getDevTenantId } from "../api/devTenant";
 import { refusalMessage } from "../api/refusal";
 import { fetchVehicles } from "../api/vehicles";
 import { useCan } from "../auth/actorContext";
+import { vehiclesKey } from "../fleet/unit/queryKeys";
 import "./admin.css";
 
 // The roles a tenant may create. PLATFORM_ADMIN is absent because it is not
@@ -74,7 +75,7 @@ export function AddDriver() {
   const roles = canManageUsers ? ROLES : ROLES.filter((r) => r.value === "DRIVER");
 
   const vehicles = useQuery({
-    queryKey: ["vehicles", tenantKey],
+    queryKey: vehiclesKey(tenantKey),
     queryFn: fetchVehicles,
     // The list is only needed once there is somebody to assign.
     enabled: created !== null,

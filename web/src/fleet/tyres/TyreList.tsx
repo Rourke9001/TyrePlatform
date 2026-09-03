@@ -206,7 +206,10 @@ export function TyreList() {
           <input
             type="checkbox"
             checked={awaitingCost}
-            onChange={(e) => setAwaitingCost(e.target.checked)}
+            onChange={(e) => {
+              setAwaitingCost(e.target.checked);
+              setActed(null);
+            }}
           />
           Awaiting cost only
         </label>

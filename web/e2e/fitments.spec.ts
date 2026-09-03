@@ -55,11 +55,15 @@ function posted(page: Page, path: RegExp): Promise<unknown> {
   });
 }
 
-// The one call this suite expects to come back refused (INV-2's still-fitted
-// check below): posted()'s res.ok() assertion would fail it before the
-// refusal's own text is ever read.
+// For the calls this suite expects to come back refused (the future-dated
+// dispatch and INV-2's still-fitted check): posted()'s res.ok() assertion
+// would fail them before the refusal's own text is ever read, and asserting
+// the refusal here keeps a step that unexpectedly succeeds from passing.
 function postedRefusal(page: Page, path: RegExp): Promise<unknown> {
-  return postedResponse(page, path);
+  return postedResponse(page, path).then((res) => {
+    expect(res.ok()).toBeFalsy();
+    return res;
+  });
 }
 
 function panel(page: Page, positionCode: string) {
@@ -296,11 +300,12 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     .selectOption({ label: "Sandbox Retreaders" });
 
   // 000033's own future-date guard, rendered verbatim (ADR-0012): a sentOn
-  // one day ahead of the tenant's own today is refused as TY014, never
-  // silently clamped.
-  const tomorrow = new Date();
-  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
-  await casingB.getByLabel("Sent on").fill(tomorrow.toISOString().slice(0, 10));
+  // ahead of the tenant's own today is refused as TY014, never silently
+  // clamped. A fixed far-future date, not the browser's tomorrow: the guard
+  // compares against app.tenant_today (Africa/Johannesburg), which is already
+  // tomorrow's date for the last two UTC hours of every day, so a UTC-derived
+  // "tomorrow" would be accepted as today in that window.
+  await casingB.getByLabel("Sent on").fill("2999-01-01");
   await Promise.all([
     postedRefusal(page, /^\/api\/tyres\/[^/]+\/dispatch$/),
     casingB.getByRole("button", { name: "Dispatch" }).click(),
@@ -339,7 +344,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   const daysOut = columns.indexOf("Days out");
   expect(daysOut).toBeGreaterThan(0);
   // "0" or "1", never asserted equal: the dispatch above and this read both
-  // take the tenant's civil today, but a run straddling the UTC day edge
+  // take the tenant's civil today, but a run straddling the tenant's midnight
   // between the two calls can tick that day over once (TYRE-121).
   await expect(job.getByRole("cell").nth(daysOut - 1)).toHaveText(/^[01]$/);
 
