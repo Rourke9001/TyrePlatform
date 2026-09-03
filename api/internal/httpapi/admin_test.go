@@ -164,9 +164,9 @@ func TestCreateVehicle(t *testing.T) {
 }
 
 // maxTextLen bounds runes, not bytes (TYRE-72 D7) — description is the
-// existing field that already runs through text() (admin.go:297), and "ü" is
-// two bytes in UTF-8, so a byte-counting bound would refuse 200 of them well
-// short of the field's declared 200-character limit.
+// existing field that already runs through text(), and "ü" is two bytes in
+// UTF-8, so a byte-counting bound would refuse 200 of them well short of the
+// field's declared 200-character limit.
 func TestCreateVehicleDescriptionBoundedInRunes(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

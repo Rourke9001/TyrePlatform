@@ -69,8 +69,8 @@ type endCombinationRequest struct {
 // Two round trips, never one per rig: the members of every rig just read come
 // back in a second query and are folded in by combination id.
 func loadCombinations(ctx context.Context, tx pgx.Tx, id *uuid.UUID, openOnly bool) ([]combinationJSON, error) {
-	// Initialised, not nil: writeJSON encodes what it is handed, and a nil
-	// slice reaches the client as JSON `null` rather than `[]`.
+	// Same reasoning as listAxleConfigurations (admin.go): initialised, not
+	// nil, so writeJSON never answers `null` for an empty list.
 	rigs := []combinationJSON{}
 	ids := []uuid.UUID{}
 	at := map[uuid.UUID]int{}
