@@ -60,11 +60,13 @@ function RetreadReturnRow({
   tenantKey,
   sentOnDisplay,
   onSuccess,
+  onStart,
 }: {
   job: RetreadJob;
   tenantKey: string;
   sentOnDisplay: string;
   onSuccess?: () => void;
+  onStart?: () => void;
 }) {
   const [outcome, setOutcome] = useState<Outcome | "">("");
   const [returnedOn, setReturnedOn] = useState("");
@@ -136,7 +138,10 @@ function RetreadReturnRow({
                 name={`outcome-${job.id}`}
                 value="accepted"
                 checked={outcome === "accepted"}
-                onChange={() => setOutcome("accepted")}
+                onChange={() => {
+                  setOutcome("accepted");
+                  onStart?.();
+                }}
               />
               Accepted
             </label>
@@ -146,7 +151,10 @@ function RetreadReturnRow({
                 name={`outcome-${job.id}`}
                 value="rejected"
                 checked={outcome === "rejected"}
-                onChange={() => setOutcome("rejected")}
+                onChange={() => {
+                  setOutcome("rejected");
+                  onStart?.();
+                }}
               />
               Rejected
             </label>
@@ -221,7 +229,9 @@ export function RetreadQueue() {
   // closed it: a successful return invalidates retreadJobsKey, the row's
   // own job leaves the refetched list, and RetreadReturnRow unmounts with
   // it — a line left inside that row would show for one round-trip and
-  // vanish (NFR-USE-010).
+  // vanish (NFR-USE-010). Cleared as soon as any row's onStart fires: the
+  // message names one specific job, and stays accurate only until an
+  // operator's attention visibly moves to another return.
   const [closedCode, setClosedCode] = useState<string | null>(null);
 
   const jobs = useQuery({ queryKey: retreadJobsKey(tenantKey), queryFn: fetchRetreadJobs });
@@ -272,6 +282,7 @@ export function RetreadQueue() {
                 tenantKey={tenantKey}
                 sentOnDisplay={asDate(job.sentAt)}
                 onSuccess={() => setClosedCode(job.displayCode)}
+                onStart={() => setClosedCode(null)}
               />
             ))}
           </tbody>

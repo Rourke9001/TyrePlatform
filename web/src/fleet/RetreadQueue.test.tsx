@@ -246,6 +246,34 @@ describe("the retread queue", () => {
     );
   });
 
+  // The confirmation names one closed job; it must not still be standing
+  // once an operator's attention has visibly moved to another job's return
+  // (NFR-USE-010).
+  it("clears the confirmation once a return is started on a different job", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        respond(200, [job({ id: "j1" }), job({ id: "j2", displayCode: "POS2" })]),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(respond(200, [job({ id: "j2", displayCode: "POS2" })]));
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findByRole("rowheader", { name: "POS1" });
+
+    const row1 = within(screen.getByRole("rowheader", { name: "POS1" }).closest("tr")!);
+    await user.click(row1.getByRole("radio", { name: "Rejected" }));
+    await user.type(screen.getByLabelText(/report reference for pos1/i), "RPT-1");
+    fireEvent.change(screen.getByLabelText(/returned on for pos1/i), {
+      target: { value: "2026-08-20" },
+    });
+    await user.click(row1.getByRole("button", { name: /log return/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/the return for pos1 was logged/i);
+
+    await user.click(screen.getByRole("radio", { name: "Rejected" }));
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
   it("links back to the register", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, []));
     renderScreen();

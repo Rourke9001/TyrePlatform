@@ -10,7 +10,10 @@ import { actAsUser } from "./admin";
 // dispose the unit.
 //
 // One continuous test, serial like admin.spec.ts: each step reads what the
-// step before it wrote, and these are writes into one shared database.
+// step before it wrote, and these are writes into one shared database. The
+// run disposes of Sandbox horse sbveh1 along the way, so `make e2e`'s own
+// db-reset before this project runs is load-bearing — no other spec in this
+// suite references sbveh1.
 test.describe.configure({ mode: "serial" });
 
 // Ids are md5-derived in db/seeds/gen_seed_fixture.py, so they survive a
@@ -37,10 +40,26 @@ function actorGet(page: Page, path: string): Promise<unknown> {
   });
 }
 
-function posted(page: Page, path: RegExp): Promise<unknown> {
+function postedResponse(page: Page, path: RegExp) {
   return page.waitForResponse(
     (res) => path.test(new URL(res.url()).pathname) && res.request().method() === "POST",
   );
+}
+
+function posted(page: Page, path: RegExp): Promise<unknown> {
+  return postedResponse(page, path).then((res) => {
+    // actorGet's own check: without it, a step chained under this promise
+    // could pass on a 422 refusal as readily as on a real write.
+    expect(res.ok()).toBeTruthy();
+    return res;
+  });
+}
+
+// The one call this suite expects to come back refused (INV-2's still-fitted
+// check below): posted()'s res.ok() assertion would fail it before the
+// refusal's own text is ever read.
+function postedRefusal(page: Page, path: RegExp): Promise<unknown> {
+  return postedResponse(page, path);
 }
 
 function panel(page: Page, positionCode: string) {
@@ -275,8 +294,24 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await casingB
     .getByRole("combobox", { name: `Depot for ${stockB}` })
     .selectOption({ label: "Sandbox Retreaders" });
+
+  // 000033's own future-date guard, rendered verbatim (ADR-0012): a sentOn
+  // one day ahead of the tenant's own today is refused as TY014, never
+  // silently clamped.
+  const tomorrow = new Date();
+  tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+  await casingB.getByLabel("Sent on").fill(tomorrow.toISOString().slice(0, 10));
+  await Promise.all([
+    postedRefusal(page, /^\/api\/tyres\/[^/]+\/dispatch$/),
+    casingB.getByRole("button", { name: "Dispatch" }).click(),
+  ]);
+  await expect(casingB.getByRole("alert")).toHaveText(
+    "a casing is sent on or before today, never on a future date",
+  );
+
   // Sent on is left at its default so app.dispatch_tyre stamps the tenant's
   // own today (rule 6) rather than a date read off the browser clock.
+  await casingB.getByLabel("Sent on").fill("");
   await Promise.all([
     posted(page, /^\/api\/tyres\/[^/]+\/dispatch$/),
     casingB.getByRole("button", { name: "Dispatch" }).click(),
@@ -303,7 +338,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   const columns = await page.getByRole("columnheader").allTextContents();
   const daysOut = columns.indexOf("Days out");
   expect(daysOut).toBeGreaterThan(0);
-  await expect(job.getByRole("cell").nth(daysOut - 1)).toHaveText("0");
+  // "0" or "1", never asserted equal: the dispatch above and this read both
+  // take the tenant's civil today, but a run straddling the UTC day edge
+  // between the two calls can tick that day over once (TYRE-121).
+  await expect(job.getByRole("cell").nth(daysOut - 1)).toHaveText(/^[01]$/);
 
   // The returned-on date comes from the job the dispatch opened, which the
   // API carries as the tenant's own civil date: a date typed from this
@@ -368,7 +406,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await statusForm.getByRole("combobox", { name: "Status" }).selectOption("DISPOSED");
   await statusForm.getByLabel("Reason").fill("sold at auction");
   await Promise.all([
-    posted(page, new RegExp(`^/api/vehicles/${HORSE}/status$`)),
+    postedRefusal(page, new RegExp(`^/api/vehicles/${HORSE}/status$`)),
     statusForm.getByRole("button", { name: "Set status" }).click(),
   ]);
   await expect(statusForm.getByRole("alert")).toHaveText(

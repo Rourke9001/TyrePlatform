@@ -142,12 +142,17 @@ export function TyreList() {
     e.preventDefault();
     if (codeInput.trim() === "" || dateInput === "") return;
     setLookup({ code: codeInput.trim(), on: dateInput });
+    // A confirmation names a specific past write, unrelated to whichever
+    // rows a lookup turns up; left standing, it would sit above a register
+    // it does not describe (NFR-USE-010).
+    setActed(null);
   }
 
   function clearLookup() {
     setLookup(null);
     setCodeInput("");
     setDateInput("");
+    setActed(null);
   }
 
   const rows = tyres.isSuccess

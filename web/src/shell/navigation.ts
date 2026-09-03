@@ -23,9 +23,9 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/fleet/fitments", label: "Fitments", capability: "ViewFleet" },
   { to: "/fleet/tyres/retreads", label: "Retreads", capability: "LogRetread" },
   { to: "/my", label: "My inspections", capability: "CaptureInspection" },
-  // Add-a-unit and add-a-user stay two items, never one "Admin" group: a
-  // CONTROLLER holds InviteDriver but not ManageAssets, so a merged group
-  // would show them half a menu they cannot use.
+  // Add-a-unit and add-a-user stay two items, never one "Admin" group: they
+  // gate on different capabilities, and the second's is an any-of array
+  // (D9, ADR-0011) — a merged group has no single capability to gate on.
   { to: "/admin/units/new", label: "Add a unit", capability: "ManageAssets" },
   // This item's gate is an array, not the single capability every other item
   // uses — see useCanAny's doc comment (web/src/auth/actorContext.ts) for
