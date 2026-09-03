@@ -17,16 +17,21 @@ TYRE-42 recut. What follows is what remains open.
 
 | ID | Question | Owner | Blocks | Jira |
 |---|---|---|---|---|
-| **OI-29** | Is the tyre-seller marketplace in or out? ADR-0003 is *Proposed*; deciders are engineer + sponsor jointly and no acceptance is recorded. | Rourke + Sponsor | Tenancy model, before the P1 schema is frozen | TYRE-13 |
+| **OI-29** | Is the tyre-seller marketplace in or out? **3 Sep 2026: out for the POC, revisited afterwards.** ADR-0003 stays *Proposed*; the POC proceeds on its single-customer-type model. What remains is the sponsor's formal acceptance or a revisit date at POC close-out. | Rourke + Sponsor | Nothing for the POC | TYRE-13 |
 
 ## Shaping the analytics proposition
 
 | ID | Question | Owner | Blocks | Jira |
 |---|---|---|---|---|
-| **OI-31** | Do BAC's trailers have hubodometers? | Sponsor | Whether cost-per-km covers the majority or the minority of tyres — trailer distance is MEASURED only from one (CHG-042) | TYRE-43 |
 | **OI-32** | Driver-to-unit assignment: fixed per horse or pooled per trip? Who owns an uncoupled trailer? | Sponsor | Notification/task routing (not schema — `vehicle_driver` supports both) | TYRE-44 |
-| **OI-33** | Obtain BAC's current inspection spreadsheets | Sponsor | History backfill; a check on the capture model; whether `reading_staleness_days` splits from `unit_staleness_days` (E1 item 3, TYRE-59) | TYRE-45 |
 | **CHG-106** | Does anyone actually *measure* pressure during today's walk-around, or is tread the only thing gauged? | Sponsor | How much weight the inflation-compliance figures deserve | TYRE-46 |
+
+Resolved 2026-09-03 (*Answers of Record — Board Clean-up*, Confluence):
+**OI-31** — BAC's trailers have no hubodometers, so trailer distance is only
+ever INFERRED from the coupled horse or UNAVAILABLE (CHG-042); cost-per-km is
+measured for horse tyres only. **OI-33** — the inspection sheets are in hand
+and do not help with tyre tracking: no backfill, no capture-model check, and
+TYRE-59's staleness split stays undecided with the 28-day default in force.
 
 ## Domain / legal sign-off
 
@@ -40,8 +45,8 @@ TYRE-42 recut. What follows is what remains open.
 
 | ID | Question | Owner | Jira |
 |---|---|---|---|
-| Q15 | IP ownership, equity and revenue split | Both parties | TYRE-15 |
-| — | Platform name and domain | Rourke | TYRE-19 |
+| Q15 | IP ownership, equity and revenue split — **agreed verbally 3 Sep 2026, unsigned** | Both parties | TYRE-15 |
+| — | Platform name and domain — **name chosen 3 Sep 2026; domain not yet registered** | Rourke | TYRE-19 |
 | — | POC agreement signed by both parties | Both | TYRE-15 |
 
 Resolved 2026-08-20: Azure region + POPIA position (TYRE-20) — South Africa

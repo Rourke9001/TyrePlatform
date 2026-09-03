@@ -202,4 +202,8 @@ OI-29 (tenancy, sponsor acceptance of ADR-0003) and OI-31/32/33.
   belongs in `docs/` and is committed. Anything about the PRODUCT (requirements,
   scope, agreements, domain analysis) belongs in Confluence and is gitignored.
   Do not commit a copy of a spec document "for convenience" — a second copy
-  becomes a stale second authority.
+  becomes a stale second authority. Process artefacts are a third category:
+  design specs (`docs/superpowers/specs/`) are committed because code comments
+  cite them; implementation plans and session handoff prompts are gitignored
+  (`docs/superpowers/plans/`, `docs/HANDOFF_*.md`) because they describe how a
+  batch was run, not how the code works (TYRE-128, 3 Sep 2026).
