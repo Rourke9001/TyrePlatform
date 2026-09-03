@@ -15,6 +15,19 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-03 — A gate run in the background ends a subagent's turn before the result exists (TYRE-72)
+
+**What happened:** an implementer subagent started `make e2e` and later
+`make lint` with `run_in_background` and then had nothing left to do, so its
+turn ended and it reported the task with the gate still running. Its report
+described a run it had never seen; the orchestrator had to resume it twice by
+message to collect the real result.
+
+**The rule:** inside a subagent, run `make check`, `make lint`, `make db-test`
+and `make e2e` in the foreground and wait for them. Backgrounding is for the
+orchestrator, which stays alive; a subagent's turn is over the moment it has
+no foreground work, and a gate it did not wait for is a gate it did not run.
+
 ## 2026-09-03 — A "tomorrow" read off the browser clock is the tenant's today for two hours a day (TYRE-92)
 
 **What happened:** an e2e step meant to trip `app.dispatch_tyre`'s future-date
@@ -69,7 +82,7 @@ was swept into the commit under the wrong message and author intent. Staging by
 name is not enough — the index is shared state, not per-agent.
 
 **The rule:** when more than one agent shares a worktree, commit with
-`git commit -- <paths>`, which takes the working-tree contents of exactly those
+`git commit -m "…" -- <paths>` (the message before the `--`, the pathspec after it), which takes the working-tree contents of exactly those
 paths and ignores the rest of the index. Never `git add` followed by a bare
 `git commit`. Verify with `git show --stat HEAD` immediately afterwards, and if
 a commit has already swallowed a sibling's work, report it rather than

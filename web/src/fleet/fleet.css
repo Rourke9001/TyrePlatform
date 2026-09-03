@@ -360,6 +360,9 @@
   color: var(--status-caution);
 }
 
+/* The reorderable-row list: RotateForm's positions and RigForm's towed
+   units (TYRE-72) both need one row per item with a Move/Remove strip, so
+   this is the shared shape rather than a second copy in this file. */
 .unit-rotate-rows {
   list-style: none;
   margin: 0 0 var(--space-2);
@@ -445,4 +448,13 @@
    only thing styling here does; the text itself is pinned (RigList.tsx). */
 .rigs-towed {
   color: var(--ink-muted);
+}
+
+/* Layout only: .tyres-receive form's flex column stretches every child to
+   the form's own width by default, which reads fine for a single input but
+   leaves Set rig full-width beside the row-shaped controls above it. The
+   disabled-token contrast (btn-primary:disabled) is a separate, ticketed
+   concern and is not touched here. */
+.rigs .tyres-receive button[type="submit"] {
+  align-self: flex-start;
 }

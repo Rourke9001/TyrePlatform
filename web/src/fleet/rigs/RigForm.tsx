@@ -127,6 +127,14 @@ export function RigForm() {
   return (
     <section className="tyres-receive" aria-labelledby="set-rig-heading">
       <h2 id="set-rig-heading">Set a rig</h2>
+      {vehicles.isError && (
+        <p role="alert">
+          The unit list could not be loaded.{" "}
+          <button type="button" onClick={() => void vehicles.refetch()}>
+            Retry
+          </button>
+        </p>
+      )}
       <form onSubmit={submit}>
         <div className="tyres-row-form">
           <label htmlFor="rigMotive">Motive unit</label>
@@ -140,51 +148,58 @@ export function RigForm() {
           </select>
         </div>
 
-        <p>Towed, in walk order</p>
-        <ul className="unit-rotate-rows">
-          {towed.map((row, index) => {
-            const fleetNumber = fleetNumberOf(row.vehicleId);
-            return (
-              <li key={row.vehicleId}>
-                <span>{index + 1}</span>
-                <span>{fleetNumber}</span>
-                <input
-                  aria-label={`Descriptor for ${fleetNumber}`}
-                  placeholder="Descriptor"
-                  value={row.descriptor}
-                  onChange={(e) => {
-                    const next = [...towed];
-                    next[index] = { ...next[index], descriptor: e.target.value };
-                    setTowed(next);
-                  }}
-                />
-                <button
-                  type="button"
-                  aria-label={`Move ${fleetNumber} up`}
-                  disabled={index === 0}
-                  onClick={() => move(index, -1)}
-                >
-                  Up
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Move ${fleetNumber} down`}
-                  disabled={index === towed.length - 1}
-                  onClick={() => move(index, 1)}
-                >
-                  Down
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Remove ${fleetNumber}`}
-                  onClick={() => remove(index)}
-                >
-                  Remove
-                </button>
-              </li>
-            );
-          })}
-        </ul>
+        <p id="rig-towed-heading">Towed, in walk order</p>
+        {towed.length > 0 && (
+          <ul className="unit-rotate-rows" aria-labelledby="rig-towed-heading">
+            {towed.map((row, index) => {
+              const fleetNumber = fleetNumberOf(row.vehicleId);
+              const atStart = index === 0;
+              const atEnd = index === towed.length - 1;
+              return (
+                <li key={row.vehicleId}>
+                  <span>{index + 1}</span>
+                  <span>{fleetNumber}</span>
+                  <input
+                    aria-label={`Descriptor for ${fleetNumber}`}
+                    placeholder="Descriptor"
+                    value={row.descriptor}
+                    onChange={(e) => {
+                      const next = [...towed];
+                      next[index] = { ...next[index], descriptor: e.target.value };
+                      setTowed(next);
+                    }}
+                  />
+                  {/* aria-disabled, not disabled: a boundary row stays in the
+                      tab order so focus survives a reorder that lands it
+                      there — move() already no-ops past either end. */}
+                  <button
+                    type="button"
+                    aria-label={`Move ${fleetNumber} up`}
+                    aria-disabled={atStart ? "true" : undefined}
+                    onClick={() => move(index, -1)}
+                  >
+                    Up
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${fleetNumber} down`}
+                    aria-disabled={atEnd ? "true" : undefined}
+                    onClick={() => move(index, 1)}
+                  >
+                    Down
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Remove ${fleetNumber}`}
+                    onClick={() => remove(index)}
+                  >
+                    Remove
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
 
         <div className="tyres-row-form">
           <label htmlFor="rigTrailer">Trailer</label>
@@ -210,7 +225,6 @@ export function RigForm() {
           <input
             id="rigEffectiveOn"
             type="date"
-            aria-label="Effective from"
             value={effectiveOn}
             onChange={(e) => setEffectiveOn(e.target.value)}
           />
@@ -226,7 +240,7 @@ export function RigForm() {
         </button>
       </form>
 
-      {create.isSuccess && create.error === null && create.result && (
+      {create.isSuccess && create.result && (
         <p role="status">Rig set for {create.result.motiveFleetNumber}.</p>
       )}
       {create.error !== null && <p role="alert">{refusalMessage(create.error, CREATE_WORDING)}</p>}

@@ -38,7 +38,7 @@ B6 closes that loop, in four slices:
 | **B6.4** | TYRE-75 | A controller sees the composition differences drivers reported and turns one into a dated rig change. |
 | *(B6.5)* | TYRE-73 | *Conditional.* The in-transport lock — only if the owner un-parks it (U1). |
 
-"Configuration" appears nowhere in this batch (reconciliation §3). The Fleet
+"Configuration" is never a name for a rig in this batch (reconciliation §3). The Fleet
 tab becomes **Units · Tyres · Rigs · Fitments**.
 
 ## Why slices, and the gate every slice passes

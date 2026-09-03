@@ -51,9 +51,9 @@ const SANDBOX_DRIVER = "40f019ce-192e-92d1-5b15-2eb7b65369df";
 
 // The dev actor headers the API resolves identity from (APP_DEV_TENANT_HEADER;
 // src/api/devTenant.ts is the browser's half). A raw request carries no
-// localStorage, so it has to state them itself. ACTOR, posted and
-// postedRefusal are fitments.spec.ts's, restated here rather than exported
-// from it — a spec is not a module other specs import.
+// localStorage, so it has to state them itself. ACTOR and posted are
+// fitments.spec.ts's, restated here rather than exported from it — a spec
+// is not a module other specs import.
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 
 function postedResponse(page: Page, path: RegExp) {
@@ -167,9 +167,10 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
 
   // INV-4 twice over. First the client: RigForm narrows the trailer list by
   // open-rig membership, so a trailer already in an open rig is absent from
-  // the list under any other motive. Selecting the other horse first is what
-  // makes the count-of-zero meaningful — it proves the vehicle list has
-  // reloaded, and the same locator found this trailer a few lines above.
+  // the list under any other motive. The proof is `toHaveCount(0)`'s own
+  // retry — it keeps re-reading the option list until the vehicles query
+  // settles, rather than trusting the state right after the select fires —
+  // and the same locator found this trailer a few lines above.
   await page.getByLabel("Motive unit", { exact: true }).selectOption({ label: OTHER_FLEET });
   await expect(
     page.getByLabel("Trailer", { exact: true }).getByRole("option", { name: TRAILER_FLEET }),

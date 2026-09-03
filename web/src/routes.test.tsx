@@ -282,6 +282,34 @@ describe("AppRoutes", () => {
     expect(screen.queryByText(/not found/i)).toBeNull();
   });
 
+  // "Rigs", exact: /rigs/i would also match the list's own "Open rigs" and
+  // "Ended rigs" headings once rigs.isSuccess renders them.
+  it("renders the rigs screen at /fleet/rigs for a ViewFleet holder", async () => {
+    mockFetchJson(200, []);
+    renderAt("/fleet/rigs", actor(["ViewFleet"]));
+    expect(await screen.findByRole("heading", { name: "Rigs" })).toBeInTheDocument();
+  });
+
+  // U2: rig writes gate on ManageAssignments, reads on ViewFleet — the same
+  // split D7 already drew for Fitments.
+  it("shows nothing at /fleet/rigs for an actor without ViewFleet", () => {
+    renderAt("/fleet/rigs", actor(["CaptureInspection"]));
+    expect(screen.queryByRole("heading", { name: "Rigs" })).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText(/not found/i)).toBeNull();
+  });
+
+  // U2/D5: RigsScreen itself, not the route, gates Set a rig on
+  // ManageAssignments — a ViewFleet-only actor reads the register and never
+  // sees the write form.
+  it("shows Open rigs without the Set a rig form for a ViewFleet holder alone", async () => {
+    mockFetchJson(200, []);
+    renderAt("/fleet/rigs", actor(["ViewFleet"]));
+    expect(await screen.findByRole("heading", { name: "Open rigs" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Set a rig" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Set rig" })).toBeNull();
+  });
+
   it("tells an actor without the capability, rather than blanking the screen, at /fleet/tyres/retreads", () => {
     renderAt("/fleet/tyres/retreads", actor(["ViewFleet"]));
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);

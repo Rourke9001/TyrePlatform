@@ -56,8 +56,8 @@ describe("the rigs list", () => {
     vi.unstubAllGlobals();
   });
 
-  // D5/task brief: the motive is a link to its unit, and the composition
-  // renders in walk order with each descriptor in parentheses. The pinned
+  // D5: the motive is a link to its unit, and the composition renders in
+  // walk order with each descriptor in parentheses. The pinned
   // text ("HORSE-1 › LINK-A (front) › LINK-B") is what the e2e also asserts
   // on, so the render must produce it byte for byte, wrapper spans aside.
   it("links the motive to its unit and reads the composition in walk order", async () => {
@@ -134,6 +134,12 @@ describe("the rigs list", () => {
     // assertion needs the longer form).
     expect(await screen.findByText(/03 Sept 2026/)).toBeInTheDocument();
     expect(await screen.findByRole("status")).toHaveTextContent("Rig ended for HORSE-1.");
+    // The refetched list carries only the now-ended rig, so Open rigs falls
+    // back to its empty state — the row has actually left that table, not
+    // merely gained a second entry in Ended.
+    expect(
+      await screen.findByText(/no open rigs\. a unit not in a rig is inspected on its own\./i),
+    ).toBeInTheDocument();
   });
 
   it("speaks a TY017 refusal in role=alert", async () => {
