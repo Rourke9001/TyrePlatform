@@ -496,55 +496,43 @@ controller's rig and fitment work collides with that gating, with TYRE-82's
 trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 **Units · Tyres · Rigs · Fitments**.
 
-### B6 — the rig-setup surface — **next**
+### B6 — the rig-setup surface — **in progress**
 
 *Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
 `20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch.*
 
-**Kick-off, in this order (written 3 Sep 2026, as PR #41 merges):**
+**Design:** `docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md`
+(committed, 3 Sep 2026). **The batch runs as four slices, each its own
+branch, PR, independent review and Sandbox smoke chain, planned one at a
+time after the previous merges** — the gate the spec's "Why slices" section
+states. Slice plans are gitignored under `docs/superpowers/plans/`.
 
-1. **Cut `TYRE-72-rig-setup` from `develop` after PR #41 has landed**, not
-   before: B6's combination effective dates read the unit status and fitment
-   rows B5 slice 2 wrote, and the branch should carry 000036 from the start.
-2. **Read TYRE-128 first.** Its eight owner decisions were **answered on
-   3 Sep 2026** and are recorded as a comment on the ticket; do not re-ask
-   them. Two shape this batch directly: read screens gate on `ViewFleet` and
-   writes on `ManageAssets` (B6's rig screens follow the same rule), and
-   B6's plan lives under the gitignored `docs/superpowers/plans/` while its
-   design spec is committed (CLAUDE.md, documentation split). U11 stays a
-   warning; the D13 and U11 SRS erratum rows are still owed.
-3. **Carry TYRE-124..127 and TYRE-128's small fixes with whichever B6 task
-   touches their area**, the way TYRE-87 rode with B5; do not open a
-   residue-only branch for them. TYRE-124 (000025's stale comment) belongs
-   with the first B6 migration, since it needs a migration to correct.
-4. **Then TYRE-72 with TYRE-90, then TYRE-73, then TYRE-75**, as below.
-   TYRE-101 (cross-unit rotation within a rig) was deferred from B5 to this
-   batch and is TYRE-72's natural sibling once a combination exists.
+| Slice | Ticket | Branch | Status |
+|---|---|---|---|
+| B6.1 | TYRE-72 — create and end a dated rig; the Rigs screen | `TYRE-72-rig-setup` | in progress |
+| B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | after B6.1 merges | not planned |
+| B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | after B6.2 merges | not planned |
+| B6.4 | TYRE-75 — reconcile reported composition into a dated rig change | after B6.3 merges | not planned |
+| *(B6.5)* | TYRE-73 — the in-transport lock | **only if the owner un-parks it** | parked |
+
+**Correction, 3 Sep 2026 (spec U1):** this page sequenced TYRE-73 inside
+B6. The ticket says "Post-pilot. Parked deliberately — do not pick this up
+before the pilot has run", and the board wins over this page, so the lock is
+not in B6 unless the owner says otherwise. Nothing in B6.1's schema
+forecloses it.
+
+Riders: TYRE-124 lands with 000037 (B6.1); TYRE-128 item 7 (`depotTypes`)
+rides B6.2, which adds the drivers read beside the unit reads; the 000033-
+area items ride B6.3, which replaces those functions; the rest of the
+small-fixes list is assigned in the spec's D7 table.
 
 Two standing rules from B5's close-out apply to every branch from here: the
 API container is restarted immediately before every `make e2e` and never
 reused across two runs, and no test derives a tenant-relative date from the
 browser or CI clock (`docs/lessons.md`, 2026-09-03).
 
-**TYRE-72 with TYRE-90, then TYRE-73, then TYRE-75.**
-
-Create and date a combination and schedule an inspection task for a driver,
-lock the combination while in active transportation, then reconcile observed
-composition against membership. TYRE-90 (FR-INS-049's schedule surface) was
-named as "the natural sibling" in TYRE-72, TYRE-73 and TYRE-81 and owned by
-none of them until 28 Aug; TYRE-72's own text says to build the two together,
-and they share the `ManageAssignments` gate. It blocks D5's driver-confirm flow
-and FR-INS-049 scheduling, but nothing corrupts while it waits, which is why it
-sits behind the write-path foundations rather than in front of them.
-
-**This batch may run in parallel with B5**, and the reconciliation says so
-explicitly: TYRE-72 touches units, not tyres. The two share no table and no
-endpoint. Sequenced here because one engineer cannot run both, not because B5
-blocks it — if a second pair of hands appears, this is what they take.
-
-TYRE-82's front-end consequence — disabling the configuration field once a unit
-has history — belongs to **TYRE-94** in B5, whose scope names it directly, with
-B1 as its citation.
+TYRE-82's front-end consequence — disabling the configuration field once a
+unit has history — belongs to TYRE-94, delivered in B5.
 
 ### Parallel track — deployment
 
