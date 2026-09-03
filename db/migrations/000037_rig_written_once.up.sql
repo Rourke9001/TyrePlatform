@@ -24,7 +24,7 @@
 -- table. 000025 is merged and cannot be edited, so the catalog carries the
 -- current claim here, where a reader of the function will find it.
 COMMENT ON FUNCTION app.require_odometer_where_unit_has_one() IS
-  'FR-FIT-002 by unit kind (000025). TY009 is mapped to 422 in submitStatus since TYRE-92 (ADR-0012, 2026-09-03 amendment); app.fit_tyre, app.remove_tyre and app.rotate_tyres (000033) are its HTTP-reachable writers. 000025''s trailing comment predates both.';
+  'FR-FIT-002 by unit kind (000025). TY009 maps to 422 in submitStatus (ADR-0012); app.fit_tyre, app.remove_tyre and app.rotate_tyres (000033) write app.fitment. 000025''s trailing comment is superseded by this one.';
 
 -- U6. Closing a rig IS an UPDATE of effective_to, so UPDATE stays granted
 -- (000001) and only DELETE was revoked (000018); this bounds that UPDATE to
@@ -61,7 +61,10 @@ BEFORE UPDATE ON app.combination
 FOR EACH ROW EXECUTE FUNCTION app.combination_is_written_once();
 
 -- A member row is the record of who was in the rig; it changes only by the
--- rig ending and another starting. DELETE was revoked by 000018.
+-- rig ending and another starting. DELETE was revoked by 000018. This leaves
+-- combination_member_stamps_updated (000017) and combination_member_audited's
+-- UPDATE arm unreachable for app_rw; both stay, so no path is left unaudited
+-- if the grant is ever restored.
 REVOKE UPDATE ON app.combination_member FROM app_rw;
 
 -- U5, INV-4 and its history, in the one place a raw INSERT meets them: a
@@ -71,13 +74,24 @@ REVOKE UPDATE ON app.combination_member FROM app_rw;
 -- implementation); it locks the member rows so two concurrent creates
 -- serialise here rather than both passing. The message names the rig the
 -- unit is in so the controller knows which one to end.
+--
+-- U6: this trigger is also the only place that refuses growing an ENDED
+-- rig's membership by raw INSERT. An INSERT into an OPEN rig is left alone —
+-- it is indistinguishable from app.create_combination's own inserts, which
+-- run through this same trigger, so the function stays the only place that
+-- decides whether a fresh member belongs.
 CREATE FUNCTION app.combination_member_in_order()
 RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
-DECLARE unit text; other text; starts timestamptz; left_at timestamptz;
+DECLARE unit text; other text; starts timestamptz; ended timestamptz; left_at timestamptz;
 BEGIN
-  SELECT c.effective_from INTO starts FROM app.combination c WHERE c.id = NEW.combination_id;
+  SELECT c.effective_from, c.effective_to INTO starts, ended FROM app.combination c WHERE c.id = NEW.combination_id;
+  IF ended IS NOT NULL THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY017',
+      MESSAGE = 'an ended rig''s members are never changed';
+  END IF;
   SELECT v.fleet_number, mv.fleet_number, c.effective_to INTO unit, other, left_at
     FROM app.combination_member cm
     JOIN app.combination c  ON c.id = cm.combination_id
@@ -175,6 +189,9 @@ BEGIN
   -- the walk-order loop below is the shape of the inputs — kind, state,
   -- length — never a rule the trigger already holds.
   ids := ARRAY[p_motive] || ARRAY(SELECT (e ->> 'vehicle_id')::uuid FROM jsonb_array_elements(p_towed) e);
+  IF p_motive IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY017', MESSAGE = 'a rig names its motive unit';
+  END IF;
   IF EXISTS (SELECT 1 FROM unnest(ids) u WHERE u IS NULL) THEN
     RAISE EXCEPTION USING ERRCODE = 'TY017',
       MESSAGE = 'every towed unit names a vehicle';
@@ -229,9 +246,10 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = 'TY017',
         MESSAGE = format('%s is %s; a retired unit is not coupled', veh.fleet_number, lower(veh.status::text));
     END IF;
-    IF length(m.descriptor) > 200 THEN
+    IF length(btrim(m.descriptor)) > 200 THEN
       -- TYRE-128 decision 5: every new text input is bounded here, never by
-      -- adding 22001 to the wire map.
+      -- adding 22001 to the wire map. Bounded on the trimmed value so the
+      -- descriptor refused here is the one the insert loop below stores.
       RAISE EXCEPTION USING ERRCODE = 'TY017', MESSAGE = 'a descriptor is at most 200 characters';
     END IF;
   END LOOP;
