@@ -12,6 +12,13 @@
 export const ODOMETER_REFUSAL =
   "Enter the odometer in whole kilometres, digits only — no spaces, decimal point or units.";
 
+// FR-FIT-002: a unit that has one needs the reading on every write that
+// touches a fitment, and 000025's trigger refuses the whole write for its
+// absence. `readOdometer("")` reads a blank as "no value" rather than "not a
+// number" (see below), so a blank field passes it silently on a unit that
+// requires the reading; this is refused here, before the round trip.
+export const ODOMETER_REQUIRED = "Enter the odometer: this unit needs a reading with every write.";
+
 // An absent reading is valid (odometer is optional on the wire, and a unit
 // without one never shows the field), which is why "no value" and "not a
 // number" are different answers rather than one undefined.
