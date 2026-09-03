@@ -102,9 +102,18 @@ describe("navItemsFor", () => {
 
   // D7: Fitments is a ViewFleet read like Units, not gated on ManageAssets —
   // a reader who cannot manage a tyre can still see what is fitted where.
-  it("gives a ViewFleet holder Units and Fitments, and nothing else", () => {
+  // TYRE-72: Rigs joins them as a third ViewFleet read, between Tyres and
+  // Fitments in registry order.
+  it("gives a ViewFleet holder Units, Rigs and Fitments, and nothing else", () => {
     const labels = navItemsFor(["ViewFleet"]).map((i) => i.label);
-    expect(labels).toEqual(["Units", "Fitments"]);
+    expect(labels).toEqual(["Units", "Rigs", "Fitments"]);
+  });
+
+  // U2: rig reads gate on ViewFleet like the rest of the fleet register.
+  it("gives a ViewFleet holder the Rigs destination", () => {
+    const rigs = navItemsFor(["ViewFleet"]).find((i) => i.to === "/fleet/rigs");
+    expect(rigs?.label).toBe("Rigs");
+    expect(rigs?.capability).toBe("ViewFleet");
   });
 
   // Retreads is gated on LogRetread alone: it is the alert-on-refusal admin
