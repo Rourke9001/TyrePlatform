@@ -657,7 +657,7 @@ describe("the tyre register", () => {
   // A confirmation names one past write; it must not sit above a register a
   // lookup has since replaced (NFR-USE-010) — the previous test proves it
   // survives its own refetch, this one proves it does not survive a lookup.
-  it("clears the confirmation once a lookup is submitted or cleared", async () => {
+  it("clears the confirmation once a lookup is submitted", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1" })] }))
       .mockResolvedValueOnce(new Response(null, { status: 204 }))
@@ -679,6 +679,31 @@ describe("the tyre register", () => {
     await user.type(screen.getByLabelText(/display code/i), "POS1");
     fireEvent.change(screen.getByLabelText(/as of date/i), { target: { value: "2026-02-01" } });
     await user.click(screen.getByRole("button", { name: /find tyre/i }));
+
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  // The awaiting-cost toggle swaps the row set the same way a lookup does.
+  it("clears the confirmation once the awaiting-cost filter changes", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1" })] }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1" })] }))
+      .mockResolvedValueOnce(respond(200, { tyres: [] }));
+
+    const user = userEvent.setup();
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /disposal for pos1/i }),
+      "SCRAPPED",
+    );
+    await user.type(screen.getByLabelText(/reason for pos1/i), "casing failure");
+    await user.click(screen.getByRole("button", { name: /^dispose$/i }));
+    expect(await screen.findByRole("status")).toHaveTextContent(/tyre pos1 was disposed of/i);
+
+    await user.click(screen.getByRole("checkbox", { name: /awaiting cost only/i }));
 
     expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });

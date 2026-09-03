@@ -1142,10 +1142,10 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 			`{"status":"ACTIVE"}`).Code)
 }
 
-// setUnitStatus's reason carries no maxTextLen cap of its own (m1): a caller
-// holding no capability for this route still gets 422 rather than 403, which
-// is what proves the cap runs before withActor opens a transaction — the
-// same shape as TestFitmentTextFieldsAreLengthCapped.
+// A caller holding no capability for this route still gets 422 rather than
+// 403, which is what proves the maxTextLen cap on reason runs before
+// withActor opens a transaction (ADR-0013) — the same shape as
+// TestFitmentTextFieldsAreLengthCapped.
 func TestSetUnitStatusReasonIsLengthCapped(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

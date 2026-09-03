@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { fetchVehicles } from "../api/vehicles";
 import { getDevTenantId } from "../api/devTenant";
 import { useCan } from "../auth/actorContext";
+import { vehiclesKey } from "../fleet/unit/queryKeys";
 import { searchVehicles } from "./vehicleSearch";
 
 export function VehicleList() {
@@ -11,7 +12,7 @@ export function VehicleList() {
   const canManage = useCan("ManageAssets");
   const tenantKey = getDevTenantId() ?? "default";
   const vehicles = useQuery({
-    queryKey: ["vehicles", tenantKey],
+    queryKey: vehiclesKey(tenantKey),
     queryFn: fetchVehicles,
   });
 
