@@ -529,11 +529,11 @@ BEGIN
                               WHERE (e.value->>'tyre_id')::uuid = f.tyre_id),
          -- 'rotation' is written by the platform, not chosen from the
          -- tenant's removal_reasons vocabulary (D1) that app.remove_tyre
-         -- validates against — suite 40f pins that vocabulary as tenant
-         -- configuration, but that pin is about a caller-supplied reason,
-         -- not this one. A tenant is free to delete 'rotation' from their
-         -- list without breaking the rotation the platform records on its
-         -- own account.
+         -- validates a caller-supplied reason against. Suite 40f pins the
+         -- seeded vocabulary, 'rotation' included, so the two agree for
+         -- every seeded tenant; a tenant who later deletes 'rotation' from
+         -- their list still does not break the rotation the platform
+         -- records on its own account.
          removal_reason   = 'rotation',
          distance_km      = CASE WHEN p_odometer IS NOT NULL AND f.fitted_odometer IS NOT NULL
                                  THEN p_odometer - f.fitted_odometer END,
