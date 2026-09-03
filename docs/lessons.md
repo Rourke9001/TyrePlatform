@@ -15,6 +15,23 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-03 — Suite section 39p is a coin flip between 22:00 and 24:00 UTC (TYRE-121)
+
+**What happened:** `make db-test` passed cold and failed warm at the branch base
+with `FAIL: a disposed tyre is back in the estate`, which reads as a
+warm-database regression and is not one. `app.receive_tyres` stamps
+`least(tenant_today::timestamptz, now())`; while the tenant calendar day runs
+ahead of UTC, that cast is in the future and `least()` clamps the receipt onto
+`now()` — the same instant the disposal carries. `tyre_event.recorded_at` also
+defaults to `now()`, so `tyre_in_estate_asof` orders by two keys that tie and
+the estate answer follows heap order.
+
+**The rule:** before treating a 39p failure as a regression, read the clock
+(`SELECT now()` in the container). Between 22:00 and 24:00 UTC the section
+proves nothing either way; re-run after the UTC day rolls over. The fix is a
+tie-break the two events cannot share and belongs to the merged 000031
+(TYRE-121), never to the suite.
+
 ## 2026-09-03 — Parallel agents in one worktree share one git index (TYRE-92)
 
 **What happened:** two fix-wave agents worked concurrently in the same
@@ -128,7 +145,7 @@ commits first; do not tell both sides to wait for the other. If a deadlock
 happens anyway, resolve it by writing only your own hunks to the index, never
 by committing or reverting the sibling's working tree.
 
-## 2026-09-03 — `scripts/check-comment-style.mjs` does not see `.css` (a follow-up ticket)
+## 2026-09-03 — `scripts/check-comment-style.mjs` does not see `.css` (TYRE-110)
 
 **What happened:** a narrating comment ("no longer …") slipped into
 `dashboard.css` and passed every gate — `make lint`, the pre-commit hook, and

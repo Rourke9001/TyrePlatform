@@ -110,6 +110,11 @@ on `app.audit_log` evaluates against the writer's own session-bound tenant —
 ADR-0013 decision 2's `WITH CHECK` (`000001:531-533`) already policy-checked
 that tenant_id for any non-superuser writer before the trigger fires.
 
+An UPDATE that changes nothing writes no row: the trigger returns early when
+`OLD` and `NEW` agree once `updated_at`/`updated_by` are set aside. The log
+records changes, and a PATCH that resends a unit's current values is not one —
+`app.set_vehicle_status` refuses the same no-op with TY016 for the same reason.
+
 `tenant_id` here departs from ADR-0013 decision 2, which rules that
 `tenant_id` on an insert comes from `app.current_tenant_id()`, never the
 request: the trigger reads `NEW.tenant_id` instead, because
@@ -137,7 +142,7 @@ and `app.app_user` already carry the unaudited update paths this ADR exists
 to close (Context); widening the trigger to them, plus `app.fitment`,
 `app.retread_job`, `app.vehicle_driver`, `app.threshold_policy` and
 `app.configuration`, is a scope decision for a follow-up ticket, not evidence
-those tables lack a write surface to audit (U4) — raised as TYRE-NN at
+those tables lack a write surface to audit (U4) — raised as TYRE-98 at
 close-out.
 
 **Bad:** `before`/`after` capture every column on the row, so once the
