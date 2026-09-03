@@ -5850,6 +5850,15 @@ BEGIN
       RAISE EXCEPTION 'FAIL 45c: wrong message %', msg;
     END IF;
   END;
+  BEGIN
+    PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('descriptor', 'x')));
+    RAISE EXCEPTION 'FAIL 45c: a towed entry with no vehicle was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'every towed unit names a vehicle' THEN
+      RAISE EXCEPTION 'FAIL 45c: wrong message %', msg;
+    END IF;
+  END;
   RAISE NOTICE 'PASS  45c a rig is a horse, rigid or light unit towing distinct trailers';
 
   -- (d) The date rule (U8): tomorrow is refused; yesterday is tenant-local
