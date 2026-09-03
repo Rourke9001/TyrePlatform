@@ -22,9 +22,9 @@
 -- TY008 (000024, widened by 000028) gets no entry in
 -- api/internal/httpapi/httpapi.go's submitStatus map, and this function does
 -- not make it reachable: it writes neither configuration_id nor unit_kind.
--- The reasoning is docs/implementation-order.md §B5, which supersedes
--- 000024:57-61's instruction to map TY008 when the vehicle write surface
--- arrives — the unit PATCH refuses both fields at the decoder instead (D5).
+-- That supersedes 000024:55-59's instruction to map TY008 when the vehicle
+-- write surface arrives — the unit PATCH refuses both fields at the decoder
+-- instead (docs/implementation-order.md §B5, D5).
 --
 -- Invoker rights, like every routine in app except
 -- app.refresh_governing_tread: it runs as app_rw inside the caller's

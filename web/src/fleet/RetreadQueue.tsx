@@ -52,10 +52,9 @@ type Outcome = "accepted" | "rejected";
 // accepts the field, so a follow-up ticket raises the picker rather than
 // this slice inventing one.
 //
-// onSuccess names nothing further: the confirmation this write earns lives
-// at RetreadQueue, since a successful return closes the job and this row
-// leaves the list on the refetch before anyone could read a line left
-// inside it.
+// onSuccess names nothing further: a successful return closes the job and this
+// row leaves the list on the refetch, so the confirmation lives at the screen
+// (see closedCode in RetreadQueue below, NFR-USE-010).
 function RetreadReturnRow({
   job,
   tenantKey,

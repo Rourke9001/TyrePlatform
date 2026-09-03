@@ -81,10 +81,10 @@ function renderProbe(mutate: (vars: { value: string }) => Promise<{ id: string }
   );
 }
 
-// TVars/TResult = void: the shape four upcoming forms (removeFitment,
-// setUnitStatus, logRetreadReturn, returnTyreToStock) actually have — a 204
-// endpoint whose only observable outcome is isSuccess, since `result` stays
-// permanently null for them.
+// TVars/TResult = void: the shape the 204 writes have (removeFitment,
+// setUnitStatus, logRetreadReturn, returnTyreToStock) — an endpoint whose only
+// observable outcome is isSuccess, since `result` stays permanently null for
+// them.
 function VoidProbeForm({ mutate }: { mutate: (vars: { value: string }) => Promise<void> }) {
   const m = useFormMutation<{ value: string }, void>({
     mutate,

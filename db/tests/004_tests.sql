@@ -4116,9 +4116,10 @@ BEGIN
   EXCEPTION WHEN sqlstate 'TY014' THEN RAISE NOTICE 'PASS  40g the fitment id is immutable';
   END;
   -- (h), (i) The closure columns, on a row that is not being closed.
-  -- removal_is_complete (000001) ties removed_at to removal_reason and says
-  -- nothing about the other four, so a removal tread, a distance or a
-  -- provenance can otherwise be written onto a fitment that is still open —
+  -- removal_is_complete (000001, narrowed by 000011) ties removed_at to
+  -- removal_reason and says nothing about the other four, so a removal tread,
+  -- a distance or a provenance can otherwise be written onto a fitment that is
+  -- still open —
   -- closure figures on a fitment nobody closed, which the register, the wear
   -- rate and the cost-per-kilometre then read as fact (FR-FIT-014). Split in
   -- two because the two shapes reach the rule by different columns: a
@@ -5596,8 +5597,9 @@ BEGIN
   -- is fitted in the fixture and its casing carries no dated tread, so a
   -- removal logged today is the first thing to date the column — and with an
   -- undated read of it, June 2026 and June 2021 both pick up today's 5.0 mm.
-  -- Measured before the guard existed: 27 rows / 1 valued at 2026-06-01,
-  -- against the 27/0 section 18 pins (2026-09-02). The odometer is derived
+  -- Without the date guard this read answers 27 rows / 1 valued at
+  -- 2026-06-01, against the 27/0 section 18 pins (2026-09-02). The odometer
+  -- is derived
   -- from the row rather than typed, so the removal is refused by the rule
   -- under test or by nothing.
   SELECT f.id, COALESCE(f.fitted_odometer, 0) + 100000 INTO fitb, odo

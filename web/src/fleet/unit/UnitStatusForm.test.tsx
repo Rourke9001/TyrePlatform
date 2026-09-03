@@ -60,7 +60,7 @@ describe("setting a unit's status", () => {
     }
   });
 
-  // FR-VEH-006: a disposal states why. No other transition does, so no other
+  // FR-VEH-005: a disposal states why. No other transition does, so no other
   // transition asks.
   it("asks for a reason on a disposal and on nothing else", async () => {
     const user = userEvent.setup();

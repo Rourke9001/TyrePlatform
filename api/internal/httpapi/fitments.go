@@ -100,10 +100,9 @@ type fitTyreRequest struct {
 	Reason           *string `json:"reason"`
 }
 
-// fitTyreArgs is the validated request: the two ids parsed, the two required
-// strings present, the free-text note held to maxTextLen. Nothing here narrows
-// a value — the mount orientation is checked by the enum cast, and the tread's
-// range by app.fit_tyre.
+// fitTyreArgs is the validated request. Nothing here narrows a value — the
+// mount orientation is checked by the enum cast, and the tread's range by
+// app.fit_tyre.
 type fitTyreArgs struct {
 	tyreID           uuid.UUID
 	positionID       uuid.UUID

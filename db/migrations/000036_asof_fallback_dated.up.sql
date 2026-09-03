@@ -171,10 +171,9 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- The columns say what maintains them, so the contract is discoverable from
--- the database alone. One reader: the live register (app.v_tyre_valuation) is
--- this function at today's date, where every writer's stamp precedes bound.ts
--- and the date guard is therefore inert; only a past p_as_at can exclude a
--- measurement.
+-- the database alone. The guard changes nothing for the live register
+-- (app.v_tyre_valuation is this function at today's date, where every writer's
+-- stamp precedes bound.ts); only a past p_as_at can exclude a measurement.
 COMMENT ON COLUMN app.tyre.last_tread_mm IS
   'The casing''s tread as a dated measurement (FR-TYR-016 errata E1, U10): set at onboarding where a tread is known, and maintained thereafter by app.fit_tyre, app.remove_tyre, app.rotate_tyres and an accepted retread return, each writing the event''s own instant to last_tread_at. Ranked below reading: the register (app.tyre_valuation_asof) reads this column only where no reading exists as at the date, whatever the two dates are. The as-at register reads it only from the UTC day last_tread_at falls in onward (FR-VAL-020, TYRE-123 on the one-day over-reach a backdated event east of UTC still costs); the live register (app.v_tyre_valuation) reads it as current tread.';
 COMMENT ON COLUMN app.tyre.last_tread_at IS

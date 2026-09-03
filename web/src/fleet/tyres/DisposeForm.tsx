@@ -20,10 +20,10 @@ const DISPOSE_WORDING = {
 // disposals the state even makes offerable is disposalsFor's (api/tyres.ts),
 // which holds the rationale for narrowing the menu at all.
 //
-// onSuccess names nothing further: the confirmation this write earns lives at
-// the register, since a disposal moves the tyre to a terminal state and
-// rowActions replaces this whole cell with a dash on the refetch, before
-// anyone could read a line left inside it.
+// onSuccess names nothing further: a disposal moves the tyre to a terminal
+// state and rowActions replaces this whole cell with a dash on the refetch, so
+// the confirmation lives at the register (ActedOn in TyreList.tsx,
+// NFR-USE-010).
 export function DisposeForm({
   tyre,
   tenantKey,

@@ -130,10 +130,9 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 // rather than something to ignore. "Unknown" is whatever encoding/json failed
 // to match, and it matches a key to a json tag case-insensitively — so
 // "DESCRIPTION" is a known key and only a name no tag spells at all is
-// refused. The unit PATCH is the one caller: a request naming configurationId
-// or unitKind is refused here, before a transaction opens, which is what keeps
-// TY008 (000028's trigger) a database backstop no endpoint can reach
-// (docs/implementation-order.md §B5).
+// refused. The unit PATCH is the one caller, and refusing an unknown key here
+// — before a transaction opens — is what keeps TY008 unreachable from the API
+// (units.go's patchUnitRequest).
 //
 // The decoder's own error text is never forwarded — ADR-0012 keeps a message
 // a library or Postgres wrote off the wire — but the key it names is the
