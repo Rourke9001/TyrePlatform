@@ -46,7 +46,11 @@ name is not enough — the index is shared state, not per-agent.
 paths and ignores the rest of the index. Never `git add` followed by a bare
 `git commit`. Verify with `git show --stat HEAD` immediately afterwards, and if
 a commit has already swallowed a sibling's work, report it rather than
-rewriting history the sibling is still committing onto.
+rewriting history the sibling is still committing onto. A file the commit is
+creating needs `git add -N <file>` (intent-to-add) first, or the pathspec
+matches nothing and the commit fails; intent-to-add stages no content, so the
+pathspec commit still takes the working tree and still ignores whatever a
+sibling has staged — it is not the `git add` this entry forbids.
 
 ## 2026-09-03 — A long-lived `make api-run` cannot survive `make e2e`'s reseed (TYRE-92)
 
