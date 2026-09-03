@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 	"time"
 
@@ -746,9 +747,24 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 		return n
 	}
 
+	// units.go:663-667 claims a tags-only PATCH writes no audit row: the
+	// count taken here, across the first tags-only patch below, is what
+	// proves that rather than restates it.
+	countUpdates := func() int {
+		var n int
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT count(*) FROM app.audit_log
+			  WHERE entity_type = 'vehicle' AND entity_id = $1 AND action = 'UPDATE'`, mine,
+		).Scan(&n))
+		return n
+	}
+	updatesBeforeTagsOnly := countUpdates()
+
 	set := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
 		`{"tags":["LONG HAUL","REEFER"]}`)
 	require.ElementsMatch(t, []string{"LONG HAUL", "REEFER"}, set.Tags)
+	require.Equal(t, updatesBeforeTagsOnly, countUpdates(),
+		"a tags-only edit touches no column app.audit_row_change compares, so it writes no audit row")
 
 	// The second unit takes one of the same names: a tag row is created once
 	// per tenant and shared, so this is also the upsert's ON CONFLICT branch.
@@ -1116,6 +1132,35 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 	require.Equal(t, http.StatusForbidden,
 		post(t, h, "/api/vehicles/"+mine.String()+"/status", tenantID.String(), driver.String(),
 			`{"status":"ACTIVE"}`).Code)
+
+	// A TECHNICIAN holds ViewFleet alone (auth.go) — the row a DRIVER cannot
+	// distinguish from a ManageAssets gate, since a DRIVER lacks both
+	// capabilities.
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	require.Equal(t, http.StatusForbidden,
+		post(t, h, "/api/vehicles/"+mine.String()+"/status", tenantID.String(), technician.String(),
+			`{"status":"ACTIVE"}`).Code)
+}
+
+// setUnitStatus's reason carries no maxTextLen cap of its own (m1): a caller
+// holding no capability for this route still gets 422 rather than 403, which
+// is what proves the cap runs before withActor opens a transaction — the
+// same shape as TestFitmentTextFieldsAreLengthCapped.
+func TestSetUnitStatusReasonIsLengthCapped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "status-reason-cap")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	long := strings.Repeat("x", 201)
+	rec := post(t, h, "/api/vehicles/"+uuid.NewString()+"/status", tenantID.String(), driver.String(),
+		fmt.Sprintf(`{"status":"DISPOSED","reason":%q}`, long))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "reason", "the refusal names the field the caller sent")
 }
 
 // The handler-level invisibility probe. Tenant A's unit is ACTIVE and the
