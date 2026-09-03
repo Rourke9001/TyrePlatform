@@ -109,7 +109,11 @@ LANGUAGE sql STABLE AS $$
                      ELSE 'UNVALUED' END AS basis) cas
 $$;
 
+-- app.fit_tyre, app.remove_tyre, app.rotate_tyres and an accepted retread
+-- return (000033/000034) write this pair regardless of whether 000036's own
+-- objects exist, so the comment below has to hold with only those four
+-- writers in place and no as-at register reading it by date.
 COMMENT ON COLUMN app.tyre.last_tread_mm IS
-  'Onboarding-audit fallback (FR-TYR-016 errata E1): populated at tyre creation where a tread is known, never subsequently maintained. Not a cache of the latest reading — current tread always derives from reading.';
+  'Onboarding-audit fallback (FR-TYR-016 errata E1), maintained thereafter by the fitment and retread writers (U10). Not a cache of the latest reading — current tread always derives from reading. Read undated: without this migration''s as-at register, every consumer sees only the current value, whatever date it was measured at.';
 COMMENT ON COLUMN app.tyre.last_tread_at IS
-  'Measurement date accompanying last_tread_mm; same fallback-only contract. Drives the AUDIT tread_source label and staleness display (FR-TYR-017), never a substitute for reading.submitted_at.';
+  'Measurement date accompanying last_tread_mm, maintained by the same writers. Drives the AUDIT tread_source label and staleness display (FR-TYR-017), never a substitute for reading.submitted_at. Read undated without this migration''s as-at register, same as last_tread_mm.';

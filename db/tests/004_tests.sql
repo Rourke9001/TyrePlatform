@@ -4200,6 +4200,8 @@ DECLARE
   tyc  uuid := md5('t41tyc')::uuid;
   r record; fit1 uuid; fit3 uuid; fit4 uuid; fitd1 uuid; fitd2 uuid;
   n int; cname text; job uuid;
+  ty9 uuid := md5('t41ty9')::uuid;  -- I1: raw-inserted fitments (41u/41v/41w)
+  fitu uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
@@ -4241,7 +4243,8 @@ BEGIN
     (tys,  bac, 'T41TYRES',  sz2, 'NEW',     0, 'IN_STOCK'),
     (tyd1, bac, 'T41TYRED1', sz1, 'NEW',     0, 'IN_STOCK'),
     (tyd2, bac, 'T41TYRED2', sz1, 'NEW',     0, 'IN_STOCK'),
-    (tyc,  bac, 'T41TYREC',  sz1, 'RETREAD', 1, 'REMOVED');
+    (tyc,  bac, 'T41TYREC',  sz1, 'RETREAD', 1, 'REMOVED'),
+    (ty9,  bac, 'T41TYRE9',  sz1, 'NEW',     0, 'IN_STOCK');
 
   -- (a) A clean fit off the trailer: no odometer is owed, nothing else sits
   -- on axle 3 and the tyre is NEW, so the warning array has to be empty
@@ -4662,6 +4665,86 @@ BEGIN
     RAISE EXCEPTION 'FAIL 41t: a dispatch dated before the tyre''s last movement was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     RAISE NOTICE 'PASS  41t a dispatch is stamped now, and never predates the movement before it';
+  END;
+
+  -- (u) I1: fitment_instant_ok (000033) bounds an instant only against the
+  -- tyre's LATEST to_state EVENT, so a fitment opened outside app.fit_tyre —
+  -- the shape every one of BAC's 27 live open fitments is in —
+  -- has no such event to bound against. Planted the same way as 41d's
+  -- occupancy probes: past app.fit_tyre, straight into the table, so ty9
+  -- carries an open fitment and zero tyre_event rows. Against the pre-fix
+  -- body this probe fails: fitment_instant_ok's last_at is NULL for ty9, its
+  -- guard never fires, and the removal below would have succeeded — leaving
+  -- a closed fitment the as-at register's location join (000036: fitted_at <
+  -- bound.ts AND (removed_at IS NULL OR removed_at >= bound.ts)) can never
+  -- match at any date.
+  -- On vh (HORSE), not vt: 41v below rotates ty9 on this same unit, and
+  -- TY009 (000025) requires a fitted_odometer for a HORSE fitment even on a
+  -- raw INSERT, so one is supplied here though app.remove_tyre never reads it.
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+                           fitted_odometer, fitted_tread_mm)
+  VALUES (bac, ty9, vh, p9, now() - interval '10 days', 300000, 12.0)
+  RETURNING id INTO fitu;
+  BEGIN
+    PERFORM app.remove_tyre(fitu, 'damage', 9.0, NULL, now() - interval '20 days');
+    RAISE EXCEPTION 'FAIL 41u: a removal predating its own fitment, with no to_state event to catch it, was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM <> format('this tyre was fitted at %s; a removal cannot predate its own fitment',
+                         (SELECT f.fitted_at FROM app.fitment f WHERE f.id = fitu)) THEN
+      RAISE EXCEPTION 'FAIL 41u: wrong TY012 message: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  41u a removal cannot predate the fitment it closes, even with no bounding event';
+  END;
+
+  -- (v) I1, the rotation half. ty9's raw fitment (fitted_at ten days back,
+  -- above) has no to_state event either; ty5 is fitted further back still, so
+  -- its own fitment_instant_ok check already passes and cannot be the one
+  -- refusing the set. Only the per-move check against each tyre's own
+  -- fitted_at can catch ty9 here. Against the pre-fix body this rotation
+  -- would have closed ty9's fitment five days before it was opened.
+  SELECT * INTO r FROM app.fit_tyre(ty5, vh, p7, 12.0, 'MARK_OUTBOARD', 290000,
+                                    now() - interval '20 days',
+                                    'fitment backfilled from the paper sheet');
+  BEGIN
+    PERFORM app.rotate_tyres(vh,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', ty9, 'to_position_id', p7, 'tread_mm', 10.0),
+        jsonb_build_object('tyre_id', ty5, 'to_position_id', p9, 'tread_mm', 10.0)),
+      310000, now() - interval '15 days');
+    RAISE EXCEPTION 'FAIL 41v: a rotation predating one moved tyre''s own fitment was accepted';
+  EXCEPTION WHEN sqlstate 'TY012' THEN
+    IF SQLERRM NOT LIKE format('tyre %s was fitted at%%', ty9) THEN
+      RAISE EXCEPTION 'FAIL 41v: the refusal does not name the tyre and instant: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  41v a rotation cannot predate any moved tyre''s own fitment';
+  END;
+  SELECT count(*) INTO n FROM app.fitment f WHERE f.id IN (fitu, r.fitment_id) AND f.removed_at IS NULL;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 41v: the refused rotation left % open rows, expected 2', n; END IF;
+
+  -- (w) I1(b), the enforced form: removal_does_not_predate_fitment (000032)
+  -- catches the same backwards closure at the constraint, superuser-bypass
+  -- included, for a caller that reaches app.fitment directly rather than
+  -- through either function above. Against the pre-fix body (no such
+  -- constraint) this raw UPDATE succeeds outright:
+  -- fitment_written_once (000032) permits the closing UPDATE from any caller
+  -- since OLD.removed_at IS NULL and only removed_at/removal_reason move, and
+  -- removal_is_complete (000001/000011) only ties removed_at to
+  -- removal_reason, not to fitted_at.
+  BEGIN
+    -- removed_odometer is supplied only to clear TY009 (000025, ty9's unit is
+    -- a HORSE): the constraint under test is the fitment-order one, not the
+    -- odometer rule, so the probe must not trip on the wrong SQLSTATE.
+    UPDATE app.fitment
+       SET removed_at = fitted_at - interval '1 day', removal_reason = 'damage',
+           removed_odometer = fitted_odometer + 1000
+     WHERE id = fitu;
+    RAISE EXCEPTION 'FAIL 41w: a raw UPDATE closed a fitment before it was opened';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    IF cname <> 'removal_does_not_predate_fitment' THEN
+      RAISE EXCEPTION 'FAIL 41w: refused by %, not the fitment-order constraint', cname;
+    END IF;
+    RAISE NOTICE 'PASS  41w a closure predating its own fitment is refused at the constraint';
   END;
 END $$;
 ROLLBACK;
