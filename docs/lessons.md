@@ -15,6 +15,33 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-03 — A "tomorrow" read off the browser clock is the tenant's today for two hours a day (TYRE-92)
+
+**What happened:** an e2e step meant to trip `app.dispatch_tyre`'s future-date
+refusal built its date from `new Date()` plus one UTC day. The guard compares
+against `app.tenant_today` (Africa/Johannesburg, UTC+2), which already reads
+tomorrow's date between 22:00 and 24:00 UTC, so in that window the "future"
+dispatch would have succeeded and the real one after it would have refused.
+The step had never been run: it was added in a fix wave and reviewed on paper.
+
+**The rule:** a test that needs a date the tenant will call future uses a
+fixed far-future literal, never arithmetic on the browser or CI clock. Any
+`new Date()` in a spec that reaches a tenant-day comparison is a finding.
+
+## 2026-09-03 — A report file's existence is not a handoff signal (TYRE-92)
+
+**What happened:** two fix implementers were told to hold their database
+gates until the valuation-verifier's report file existed. The verifier wrote
+the report section by section, so the file existed while its probes were
+still running against the same Postgres; the DB implementer's `make db-reset`
+would have wiped a probe mid-flight had the hold not been re-sent against a
+terminal marker.
+
+**The rule:** when agents share one database, gate a handoff on a terminal
+marker in the report (`VERDICT`), never on the file existing. Tell
+long-running reviewers to write incrementally, since a usage-limit cut loses
+an unwritten report, and tell everyone waiting on them what the last line is.
+
 ## 2026-09-03 — Suite section 39p is a coin flip between 22:00 and 24:00 UTC (TYRE-121)
 
 **What happened:** `make db-test` passed cold and failed warm at the branch base
