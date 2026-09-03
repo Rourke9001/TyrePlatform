@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -688,14 +689,22 @@ func TestPatchUnitRefusesConfigurationID(t *testing.T) {
 	require.Equal(t, configBefore, configAfter, "a refused PATCH moves no configuration")
 	require.Equal(t, kindBefore, kindAfter)
 
-	// The other two bodies this decoder refuses. encoding/json accepts both
-	// where the json.Unmarshal beside it does not: Decode reads one value and
-	// stops, and it fills a struct from a literal null without complaint. A
-	// body this surface cannot read is malformed rather than invalid, because
-	// nothing in it is a field the caller got wrong.
+	// The bodies this decoder refuses for their shape rather than their keys.
+	// encoding/json accepts every one where the json.Unmarshal beside it does
+	// not: Decode reads one value and stops, and it fills a struct from a
+	// literal null without complaint. A body this surface cannot read is
+	// malformed rather than invalid, because nothing in it is a field the
+	// caller got wrong.
+	//
+	// The two trailing delimiters are the cases json.Decoder.More() cannot
+	// see: it reports whether another element follows within the value being
+	// read, and answers false at a closing brace or bracket, so a decoder
+	// asking More() calls both of these a clean body.
 	for _, tc := range []struct{ name, body string }{
 		{"a second value after the first", `{"description":"first"}{"configurationId":"smuggled"}`},
 		{"a literal null", `null`},
+		{"a trailing closing brace", `{"description":"x"}}`},
+		{"a trailing closing bracket", `{"description":"x"}]`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(), tc.body)
@@ -712,9 +721,12 @@ func TestPatchUnitRefusesConfigurationID(t *testing.T) {
 
 	// The control: the same route, the same actor, a field that IS of this
 	// request. Without it every refusal above would also pass against a route
-	// that refused everything.
+	// that refused everything. The trailing newline and spaces are part of the
+	// control — whitespace after the value is what a body that ended cleanly
+	// looks like, and a trailing-token check that refused it would refuse
+	// every pretty-printed request a client sends.
 	edited := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
-		`{"description":"still editable"}`)
+		"{\"description\":\"still editable\"}  \n")
 	require.NotNil(t, edited.Description)
 	require.Equal(t, "still editable", *edited.Description)
 }
@@ -756,13 +768,23 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	require.Equal(t, []string{"REEFER"}, narrowed.Tags, "the set is replaced, not merged")
 
 	// A blank name is not a tag, and the refusal leaves the set as it stood.
+	// The good name in the refused body is deliberately one the unit does NOT
+	// carry: a handler that applied the names it could read before refusing
+	// the one it could not would leave "LONG HAUL" behind, which the read-back
+	// would catch and a body of ["REEFER","  "] could not.
 	blank := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(),
-		`{"tags":["REEFER","  "]}`)
+		`{"tags":["LONG HAUL","  "]}`)
 	require.Equal(t, http.StatusUnprocessableEntity, blank.Code, blank.Body.String())
 	var blankRef refusalBody
 	require.NoError(t, json.Unmarshal(blank.Body.Bytes(), &blankRef))
 	require.Equal(t, "invalid_submission", blankRef.Code)
 	require.Contains(t, blankRef.Message, "tags")
+
+	afterBlank := get(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, afterBlank.Code, afterBlank.Body.String())
+	var afterBlankBody unitBody
+	require.NoError(t, json.Unmarshal(afterBlank.Body.Bytes(), &afterBlankBody))
+	require.Equal(t, []string{"REEFER"}, afterBlankBody.Tags, "a refused edit changes no tag")
 
 	// A repeated name is one tag. Without the de-duplication the second map
 	// insert would meet the map primary key and answer 409, so this asserts
@@ -787,6 +809,47 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	require.Equal(t, []string{"REEFER"}, otherBody.Tags,
 		"one unit's clear must not strip the name from another unit")
 	require.Equal(t, 1, countTag("REEFER"), "the tag name itself is never deleted by an edit")
+}
+
+// The transport cap on how many tags one edit may name (maxTagsPerPatch). The
+// pair is the boundary itself: fifty is accepted and read back whole, so the
+// cap cannot be met by a handler that simply truncates, and fifty-one is
+// refused naming the number, so a caller can act on the message.
+func TestPatchUnitCapsTagCount(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, _, _, _ := plantUnitFixture(t, ctx, admin, "patch-tagcap")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	names := func(n int) string {
+		out := make([]string, 0, n)
+		for i := range n {
+			out = append(out, fmt.Sprintf("TAG-%02d", i))
+		}
+		encoded, err := json.Marshal(map[string][]string{"tags": out})
+		require.NoError(t, err)
+		return string(encoded)
+	}
+
+	atCap := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(), names(50))
+	require.Len(t, atCap.Tags, 50, "the cap is inclusive; fifty tags land whole")
+
+	over := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(), names(51))
+	require.Equal(t, http.StatusUnprocessableEntity, over.Code, over.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(over.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "50", "the refusal names the cap it enforced")
+	require.Contains(t, ref.Message, "tags")
+
+	// The refusal is validation, so it precedes the transaction: the set the
+	// accepted edit left is still the one the unit carries.
+	after := get(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, after.Code, after.Body.String())
+	var afterBody unitBody
+	require.NoError(t, json.Unmarshal(after.Body.Bytes(), &afterBody))
+	require.Len(t, afterBody.Tags, 50)
 }
 
 // DR-003's uniqueness is the constraint's alone: the PATCH carries no

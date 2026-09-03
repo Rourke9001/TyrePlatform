@@ -264,7 +264,9 @@ var submitStatus = map[string]int{
 	"TY007": http.StatusUnprocessableEntity,
 
 	// TY011/TY012/TY013 are the tyre lifecycle's refusals (000031). TY009 is
-	// reachable through app.fit_tyre, whose trigger can raise it (TYRE-92).
+	// fitment_odometer_matches_unit_kind's, and that trigger is BEFORE INSERT
+	// OR UPDATE, so all three fitment writes reach it: app.fit_tyre's INSERT,
+	// app.remove_tyre's closure UPDATE and app.rotate_tyres' INSERTs (TYRE-92).
 	// TY014 is a fitment write refused, TY015 is the retread cap, and TY016
 	// is a unit status transition refused (000032-000035).
 	"TY009": http.StatusUnprocessableEntity,
@@ -332,9 +334,10 @@ var conflictCodes = map[string]string{
 	// tyres only — historical reuse across a scrapped/sold/lost tyre is
 	// valid and does not collide (FR-TYR-004/DR-002).
 	"one_active_display_code_per_tenant": codeDisplayCodeTaken,
-	// Both are partial unique indexes, not table constraints (000001:305-306),
-	// scoped to an open fitment (removed_at IS NULL) — a tyre's fitment
-	// history does not collide with itself once removed.
+	// one_open_fitment_per_position and one_open_fitment_per_tyre are partial
+	// unique indexes, not table constraints, scoped to an open fitment
+	// (removed_at IS NULL) — a tyre's fitment history does not collide with
+	// itself once removed.
 	"one_open_fitment_per_position": codePositionOccupied,
 	"one_open_fitment_per_tyre":     codeTyreAlreadyFitted,
 }

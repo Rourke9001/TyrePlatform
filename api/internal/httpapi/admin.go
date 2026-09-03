@@ -87,6 +87,13 @@ const maxWriteBytes = 16 << 10
 // place to discover that a client sent a megabyte of description.
 const maxTextLen = 200
 
+// maxTagsPerPatch caps how many tags one edit may name. A transport limit like
+// the two above, not a rule about fleets: how a tenant labels its units is its
+// own business (rule 5), and nothing in the schema bounds the set. What is
+// bounded here is the work one request may ask for — a tag replacement is a
+// delete and an insert per name inside the row lock patchUnit holds.
+const maxTagsPerPatch = 50
+
 // invalidError is a request that is malformed as a request — a missing field,
 // an unparseable id, a value outside an enum — answered 422 with this message
 // forwarded verbatim. That is safe because the message is ours: written here,
@@ -120,10 +127,13 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 }
 
 // decodeJSONStrict is decodeJSON for a body whose unknown keys are a refusal
-// rather than something to ignore — unknown as encoding/json matches, which
-// is case-insensitively. The unit PATCH is the one caller: a request naming
-// configurationId or unitKind is refused here, before a transaction opens, which is what keeps TY008 (000028's trigger) a database
-// backstop no endpoint can reach (docs/implementation-order.md §B5).
+// rather than something to ignore. "Unknown" is whatever encoding/json failed
+// to match, and it matches a key to a json tag case-insensitively — so
+// "DESCRIPTION" is a known key and only a name no tag spells at all is
+// refused. The unit PATCH is the one caller: a request naming configurationId
+// or unitKind is refused here, before a transaction opens, which is what keeps
+// TY008 (000028's trigger) a database backstop no endpoint can reach
+// (docs/implementation-order.md §B5).
 //
 // The decoder's own error text is never forwarded — ADR-0012 keeps a message
 // a library or Postgres wrote off the wire — but the key it names is the
@@ -155,8 +165,20 @@ func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 	// Two bodies Decode accepts and json.Unmarshal does not, and this decoder
 	// must not be the laxer of the pair: a literal null, which fills the
 	// target with nothing at all and would read as an edit naming no field,
-	// and a second value after the first, which Decode simply stops before.
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) || dec.More() {
+	// and anything after the first value, which Decode simply stops before.
+	//
+	// The second is asked as "does another Decode reach io.EOF", not as
+	// dec.More(): More() reports whether another *element* follows within an
+	// array or object, so a closing delimiter answers false and a body ending
+	// `}}` or `}]` reads as finished. A second Decode instead takes whatever
+	// remains as a value in its own right, so a stray delimiter is a syntax
+	// error and a second object is a value — only a body that truly ended
+	// gives io.EOF.
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
+		return false
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
