@@ -433,6 +433,19 @@ section warns against.
   every write this slice added, in one chain where each step reads what the
   step before it wrote.
 
+  **Close-out review, 3 Sep 2026.** An independent five-lane review of PR
+  #41 (with the rls-auditor and valuation-verifier on the database delta)
+  found no Critical and nine Important findings; all were fixed on the branch
+  or ticketed before merge. The one behavioural defect was in the database: a
+  removal or rotation could be stamped before the fitment it closed, which the
+  event-based instant guard could not see for a fitment opened outside
+  `app.fit_tyre`. It is now refused (TY012) and enforced by a CHECK on
+  `app.fitment`. Everything the review left open — eight owner decisions and
+  fourteen small fixes — is registered as **TYRE-128**, with TYRE-124..127
+  for the four items large enough to stand alone. The full report is the PR's
+  review comment; the review workspace was deleted after it was posted, so
+  TYRE-128 and that comment are the record.
+
 The tyre register and fitment are the platform's central loop — a fleet tyre
 system that cannot receive a tyre or record where it is fitted does not
 demonstrate its own premise — and until 30 Aug no story owned either. The
@@ -487,6 +500,31 @@ trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 
 *Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
 `20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch.*
+
+**Kick-off, in this order (written 3 Sep 2026, as PR #41 merges):**
+
+1. **Cut `TYRE-72-rig-setup` from `develop` after PR #41 has landed**, not
+   before: B6's combination effective dates read the unit status and fitment
+   rows B5 slice 2 wrote, and the branch should carry 000036 from the start.
+2. **Read TYRE-128 first and put the eight owner decisions to the owner
+   before the spec is written.** Two of them shape this batch directly: the
+   ViewFleet-versus-ManageAssets reading of "screens gated on X" (B6's rig
+   screens face the same choice, and the two batches must answer it the same
+   way), and whether plans and handoff prompts belong in `docs/` (decides
+   where B6's own plan lives). U11 and the rest can be answered in parallel
+   but should be answered, not carried a third time.
+3. **Carry TYRE-124..127 and TYRE-128's small fixes with whichever B6 task
+   touches their area**, the way TYRE-87 rode with B5; do not open a
+   residue-only branch for them. TYRE-124 (000025's stale comment) belongs
+   with the first B6 migration, since it needs a migration to correct.
+4. **Then TYRE-72 with TYRE-90, then TYRE-73, then TYRE-75**, as below.
+   TYRE-101 (cross-unit rotation within a rig) was deferred from B5 to this
+   batch and is TYRE-72's natural sibling once a combination exists.
+
+Two standing rules from B5's close-out apply to every branch from here: the
+API container is restarted immediately before every `make e2e` and never
+reused across two runs, and no test derives a tenant-relative date from the
+browser or CI clock (`docs/lessons.md`, 2026-09-03).
 
 **TYRE-72 with TYRE-90, then TYRE-73, then TYRE-75.**
 
