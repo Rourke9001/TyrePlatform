@@ -14,6 +14,8 @@ const DISPOSE_WORDING = {
   fallback: "The tyre could not be disposed of. Try again, or call support if it keeps happening.",
 };
 
+const BLANK_PROCEEDS = "Proceeds are required before a sale can be recorded.";
+
 // Every rule about which transitions are legal, and about reason/proceeds, is
 // app.dispose_tyre's alone (ADR-0013 decision 5) — this only shapes the
 // request and shows the field the chosen disposal actually needs. Which
@@ -36,6 +38,10 @@ export function DisposeForm({
   const [disposal, setDisposal] = useState<Disposal | "">("");
   const [reason, setReason] = useState("");
   const [proceeds, setProceeds] = useState("");
+  // A refusal this form raised itself, distinct from the server's own
+  // (rendered below from dispose.error) — RetreadReturnRow's `refused`
+  // pattern (RetreadQueue.tsx).
+  const [refused, setRefused] = useState("");
   const offered = disposalsFor(tyre.state);
 
   const dispose = useFormMutation({
@@ -53,10 +59,22 @@ export function DisposeForm({
   function submit(e: FormEvent) {
     e.preventDefault();
     if (disposal === "") return;
+    // Whitespace satisfies `required`, so jsdom's (and a real browser's)
+    // constraint validation lets a space-only proceeds through and it would
+    // reach app.dispose_tyre's numeric cast, which rejects it as 22P02 — a
+    // code this screen cannot speak. Refused here, before the wire, the same
+    // way omitIfBlank does for a genuinely optional field (RetreadQueue.tsx);
+    // proceeds is not optional on a sale, so the refusal is local rather than
+    // an omitted key.
+    if (disposal === "SOLD" && proceeds.trim() === "") {
+      setRefused(BLANK_PROCEEDS);
+      return;
+    }
+    setRefused("");
     dispose.submit({
       disposal,
       reason: disposal === "SCRAPPED" ? reason : undefined,
-      proceeds: disposal === "SOLD" ? proceeds : undefined,
+      proceeds: disposal === "SOLD" ? proceeds.trim() : undefined,
     });
   }
 
@@ -102,6 +120,7 @@ export function DisposeForm({
         {dispose.isPending ? "Disposing…" : "Dispose"}
       </button>
 
+      {refused !== "" && <p role="alert">{refused}</p>}
       {dispose.error !== null && (
         <p role="alert">{refusalMessage(dispose.error, DISPOSE_WORDING)}</p>
       )}
