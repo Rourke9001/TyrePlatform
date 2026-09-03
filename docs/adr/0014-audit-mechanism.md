@@ -124,8 +124,11 @@ superuser-written audit row — a row `tenant_isolation`'s `USING` clause then
 hides from every tenant-bound session, an audit entry that exists and that
 no one can read.
 
-This slice attaches the trigger to `app.vehicle` only, the one table TYRE-94
-gives an update endpoint to.
+TYRE-94 attaches the trigger to `app.vehicle`, the one table that ticket gives
+an update endpoint to; B6.1 (migration `000037`, TYRE-72) attaches it to
+`app.combination` and `app.combination_member`, the two tables that batch
+gives a write path to (spec U12: a table with a write path is audited).
+TYRE-98 carries the wider sweep.
 
 ## Consequences
 
@@ -143,7 +146,10 @@ to close (Context); widening the trigger to them, plus `app.fitment`,
 `app.retread_job`, `app.vehicle_driver`, `app.threshold_policy` and
 `app.configuration`, is a scope decision for a follow-up ticket, not evidence
 those tables lack a write surface to audit (U4) — raised as TYRE-98 at
-close-out.
+close-out. `app.tyre_valuation_asof` (`000036`) deliberately pins no
+`search_path` so its `LANGUAGE sql` body inlines; harmless under invoker
+rights, and to be revisited if it ever gains definer rights (TYRE-128 small
+fix).
 
 **Bad:** `before`/`after` capture every column on the row, so once the
 trigger reaches `app.app_user` it will carry PII into `app.audit_log` on
