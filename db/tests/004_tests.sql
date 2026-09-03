@@ -5758,11 +5758,18 @@ DECLARE
   hz    uuid := md5('t45hz')::uuid;  -- LIGHT, never in a rig: the non-trailer a probe tries to tow
   ta    uuid := md5('t45ta')::uuid;  -- TRAILER
   tb    uuid := md5('t45tb')::uuid;  -- TRAILER
+  tp    uuid := md5('t45tp')::uuid;  -- TRAILER, PARKED, free: U9's positive control at 45c
   drv   uuid := md5('t45drv')::uuid;
   ctl   uuid := md5('t45ctl')::uuid; -- planted, not assumed: created_by is a composite FK (000017)
   cfg uuid; rig uuid; rig2 uuid; tz text; today date; r record; n int;
   msg text;
 BEGIN
+  -- BAC is Africa/Johannesburg (UTC+2): pinning the session to UTC means a
+  -- 45d check that accidentally read the session zone instead of the
+  -- tenant's would compute a different, wrong instant on any host, rather
+  -- than passing by coincidence when the runner's own zone matches (lesson
+  -- 2026-09-01).
+  PERFORM set_config('TimeZone', 'UTC', true);
   PERFORM set_config('app.tenant_id', bac::text, true);
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
   today := app.tenant_today(tz);
@@ -5775,7 +5782,8 @@ BEGIN
          (hx, bac, 'T45-HX', 'T45HX GP', cfg, 'HORSE',   'ACTIVE'),
          (hz, bac, 'T45-HZ', 'T45HZ GP', cfg, 'LIGHT',   'ACTIVE'),
          (ta, bac, 'T45-TA', 'T45TA GP', cfg, 'TRAILER', 'ACTIVE'),
-         (tb, bac, 'T45-TB', 'T45TB GP', cfg, 'TRAILER', 'PARKED');
+         (tb, bac, 'T45-TB', 'T45TB GP', cfg, 'TRAILER', 'PARKED'),
+         (tp, bac, 'T45-TP', 'T45TP GP', cfg, 'TRAILER', 'PARKED');
   INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
   VALUES (drv, bac, 't45drv@example.invalid', 'T45 Driver', 'DRIVER'),
          (ctl, bac, 't45ctl@example.invalid', 'T45 Controller', 'CONTROLLER');
@@ -5796,7 +5804,7 @@ BEGIN
   END IF;
   SELECT string_agg(cm.vehicle_id::text || ':' || cm.sequence || ':' || COALESCE(cm.descriptor, '-'), ',' ORDER BY cm.sequence)
     INTO msg FROM app.combination_member cm WHERE cm.combination_id = rig;
-  IF msg <> h::text || ':1:-,' || ta::text || ':2:front,' || tb::text || ':3:-' THEN
+  IF msg IS DISTINCT FROM (h::text || ':1:-,' || ta::text || ':2:front,' || tb::text || ':3:-') THEN
     RAISE EXCEPTION 'FAIL 45a: members read %', msg;
   END IF;
   PERFORM set_config('app.actor_id', drv::text, true);
@@ -5819,6 +5827,12 @@ BEGIN
       RAISE EXCEPTION 'FAIL 45b: wrong message %', msg;
     END IF;
   END;
+  -- This raw insert exercises only the open-rig branch (FOUND AND left_at IS
+  -- NULL): the history branch — a start before the unit's last membership
+  -- ended — is met through app.create_combination alone, at 45e, since a raw
+  -- insert here would need a second rig row dated before ta's actual history
+  -- to reach it, which is exactly what the function's own date rule (U8)
+  -- exists to keep out of reach.
   BEGIN
     INSERT INTO app.combination (id, tenant_id, motive_vehicle_id) VALUES (md5('t45raw')::uuid, bac, hx);
     INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
@@ -5853,8 +5867,18 @@ BEGIN
   BEGIN
     PERFORM app.create_combination(hx, '[]'::jsonb);
     RAISE EXCEPTION 'FAIL 45c: a rig with nothing towed was created';
-  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a rig has at least one towed unit; a unit on its own needs no rig' THEN
+      RAISE EXCEPTION 'FAIL 45c: wrong message %', msg;
+    END IF;
   END;
+  -- U9 positive control: PARKED pauses a unit's inspection schedule
+  -- (FR-VEH-006), not the yard's ability to couple it — a rig towing a
+  -- PARKED trailer is created, not refused. hz heads it (a LIGHT unit is a
+  -- valid motive, U9) and is never reused as a motive elsewhere in this
+  -- section, so leaving this rig open does not disturb a later probe.
+  PERFORM app.create_combination(hz, jsonb_build_array(jsonb_build_object('vehicle_id', tp)));
   BEGIN
     PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('vehicle_id', tb), jsonb_build_object('vehicle_id', tb)));
     RAISE EXCEPTION 'FAIL 45c: a trailer was named twice';
@@ -5873,7 +5897,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL 45c: wrong message %', msg;
     END IF;
   END;
-  RAISE NOTICE 'PASS  45c a rig is a horse, rigid or light unit towing distinct trailers';
+  RAISE NOTICE 'PASS  45c a rig is a horse, rigid or light unit towing distinct trailers, PARKED included';
 
   -- (d) The date rule (U8): tomorrow is refused; yesterday is tenant-local
   -- midnight, never a bare cast. Needs a free horse: end (a)'s rig first
@@ -5885,13 +5909,32 @@ BEGIN
     PERFORM app.create_combination(md5('t45h2')::uuid,
               jsonb_build_array(jsonb_build_object('vehicle_id', md5('t45tc')::uuid)), today + 1);
     RAISE EXCEPTION 'FAIL 45d: a rig was set for tomorrow';
-  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a rig is set as at today or earlier, never in the future' THEN
+      RAISE EXCEPTION 'FAIL 45d: wrong message %', msg;
+    END IF;
   END;
   rig2 := app.create_combination(md5('t45h2')::uuid,
             jsonb_build_array(jsonb_build_object('vehicle_id', md5('t45tc')::uuid)), today - 1);
   SELECT c.effective_from INTO r FROM app.combination c WHERE c.id = rig2;
-  IF r.effective_from <> ((today - 1)::timestamp AT TIME ZONE tz) THEN
+  IF r.effective_from IS DISTINCT FROM ((today - 1)::timestamp AT TIME ZONE tz) THEN
     RAISE EXCEPTION 'FAIL 45d: a rig set yesterday starts at %, not tenant-local midnight', r.effective_from;
+  END IF;
+  -- The inverse pin: read back in the tenant's own zone, yesterday's date at
+  -- exactly midnight — not merely "not the session-zone cast" but "is the
+  -- tenant-zone answer", so the two checks cannot both be fooled by a third,
+  -- unrelated instant.
+  IF (r.effective_from AT TIME ZONE tz)::date IS DISTINCT FROM today - 1
+     OR (r.effective_from AT TIME ZONE tz)::time <> '00:00' THEN
+    RAISE EXCEPTION 'FAIL 45d: a rig set yesterday reads % in the tenant zone, not midnight', r.effective_from;
+  END IF;
+  -- Session TimeZone is pinned to UTC above; BAC is Africa/Johannesburg
+  -- (UTC+2), so a bare cast of "yesterday" in the session zone lands on a
+  -- different instant than the tenant-zone midnight above — this catches the
+  -- regression the 2026-09-01 lesson names directly, on any host.
+  IF r.effective_from = (today - 1)::timestamptz THEN
+    RAISE EXCEPTION 'FAIL 45d: yesterday was cast in the session zone, not the tenant''s';
   END IF;
   RAISE NOTICE 'PASS  45d a rig starts today at now() or on an earlier day at tenant-local midnight, never tomorrow';
 
@@ -5911,7 +5954,15 @@ BEGIN
   BEGIN
     PERFORM app.end_combination(rig);
     RAISE EXCEPTION 'FAIL 45e: an ended rig was ended again';
-  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    -- combination_is_written_once (the trigger) also raises TY017 on this
+    -- UPDATE, so an unpinned catch here would be vacuous against a handler
+    -- that never runs: the message is what proves end_combination's own
+    -- "already ended" check fired first.
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'this rig ended on %' THEN
+      RAISE EXCEPTION 'FAIL 45e: wrong message %', msg;
+    END IF;
   END;
   PERFORM set_config('app.actor_id', drv::text, true);
   SELECT count(*) INTO n FROM app.v_capture_vehicle cv WHERE cv.vehicle_id IN (ta, tb);
@@ -5948,26 +5999,50 @@ BEGIN
     RAISE EXCEPTION 'FAIL 45f: an ended rig was reopened';
   EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
   END;
+  -- U6, by raw INSERT this time: combination_member_in_order refuses growing
+  -- an ended rig's membership before it ever reaches the open-rig-conflict
+  -- check, so this is a genuinely free trailer (tb), not one INV-4 would
+  -- refuse for an unrelated reason.
   BEGIN
-    UPDATE app.combination_member SET sequence = 9 WHERE combination_id = rig2;
+    INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+    VALUES (bac, rig, tb, 3);
+    RAISE EXCEPTION 'FAIL 45f: a member was added to an ended rig';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'an ended rig''s members are never changed' THEN
+      RAISE EXCEPTION 'FAIL 45f: wrong message %', msg;
+    END IF;
+  END;
+  -- WHERE false: privilege is checked at rewrite time against the table, not
+  -- the predicate, so this proves the REVOKE without depending on rig2 still
+  -- holding the rows it did when this section began.
+  BEGIN
+    UPDATE app.combination_member SET sequence = 9 WHERE false;
     RAISE EXCEPTION 'FAIL 45f: app role can UPDATE app.combination_member';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
   BEGIN
-    DELETE FROM app.combination_member WHERE combination_id = rig2;
+    DELETE FROM app.combination_member WHERE false;
     RAISE EXCEPTION 'FAIL 45f: app role can DELETE app.combination_member';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
-  RAISE NOTICE 'PASS  45f a rig is written once and ended once; members are never rewritten';
+  RAISE NOTICE 'PASS  45f a rig is written once and ended once; members are never updated or deleted, and never added to an ended rig';
 
-  -- (g) Cross-tenant, through both functions, with the pinned messages: the
-  -- same two calls succeed for the owning tenant immediately after, so a
-  -- leak here would have succeeded, not merely reworded. h and ta are
+  -- (g) Cross-tenant, through both functions, with the pinned messages.
+  -- Under a leak the CREATE would still die — on 23503 from a composite
+  -- tenant FK (combination_motive_vehicle_id_fkey or
+  -- combination_member_vehicle_id_fkey, 000004; or combination_created_by_fkey,
+  -- 000017), still red but not TY012 — so pinning TY012 and the message, not
+  -- merely "an error was raised", is what a leak could not pass. The END
+  -- probe has no such FK and would SUCCEED outright under a leak: the same
+  -- two calls succeeding for the owning tenant immediately after is the
+  -- control that proves both refusals above were tenant-caused. h and ta are
   -- excluded as probe units: both are members of the open rig re-created at
   -- 45e, so a create naming either meets INV-4 for the owning tenant too and
   -- a leak would surface as an uncaught TY017 rather than as a success; hx
-  -- and tb are free (tb's yesterday probe at 45e was refused) and stay free
-  -- until the control below.
+  -- and tb are free (tb's yesterday probe at 45e and the raw insert into the
+  -- ended rig at 45f were both refused) and stay free until the control
+  -- below.
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   BEGIN
     PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('vehicle_id', tb)));
