@@ -11,9 +11,14 @@
 -- puts today's tread on every historical as-at valuation of that casing,
 -- including dates years before anyone measured it (FR-VAL-020).
 --
--- Onboarding rows are unaffected. They carry a NULL last_tread_at, and NULL
--- here means "no date to be before" rather than "a date that fails the test"
--- (CR-012: absence is absence, never a value).
+-- The rule is on the date, not on where the figure came from. A row whose
+-- last_tread_at is NULL keeps answering for every date, because NULL here is
+-- "no date to be before" and not "a date that fails the test" (CR-012:
+-- absence is absence, never a value) — which is every row app.receive_tyres
+-- writes, and every row of the BAC fixture, none of which carries the pair at
+-- all. An onboarding audit that DID record when it was measured is honoured
+-- on the same rule and prices from its own date forward, which is the answer
+-- a dated measurement has always owed.
 --
 -- The accepted consequence, stated rather than left to be discovered: for a
 -- casing the fitment writers have touched, dates before that write are
@@ -28,10 +33,9 @@
 -- came from; a fallback that declines to answer yields no figure and no label,
 -- not a different label.
 --
--- SECURITY INVOKER with no pinned search_path, which is what the register has
--- always needed rather than an omission: a LANGUAGE sql table function is
--- inlined into the calling query, and a SET clause blocks that inlining and
--- changes the plan of every view built over it (000006, 000008, 000011).
+-- SECURITY INVOKER with no pinned search_path: a LANGUAGE sql table function
+-- is inlined into the calling query, and a SET clause blocks that inlining
+-- and changes the plan of every view built over it (000006, 000008, 000011).
 -- CREATE OR REPLACE keeps the ACL and requires the return shape to be
 -- identical, so v_tyre_valuation, v_estate_valuation and the snapshot writers
 -- follow without change.
