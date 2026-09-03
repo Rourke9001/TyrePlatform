@@ -155,7 +155,6 @@ DECLARE
   veh      app.vehicle;
   start_at timestamptz;
   rig      uuid;
-  seq      int := 1;
   m        record;
   ids      uuid[];
   other    text;
@@ -172,20 +171,30 @@ BEGIN
       MESSAGE = 'a rig is set as at today or earlier, never in the future';
   END IF;
 
-  -- Every unit in the rig, motive first, in walk order. Locked FOR UPDATE so
-  -- two concurrent creates naming one trailer serialise on its row and the
-  -- second one's member insert meets combination_member_in_order with the
-  -- first one's row committed; a fit on the same unit takes FOR SHARE
-  -- (000033) and waits the milliseconds this holds the lock. What is
-  -- checked in this loop is the shape of the inputs — kind, state, length —
-  -- never a rule the trigger already holds.
+  -- Every unit in the rig, motive first, in walk order. What is checked in
+  -- the walk-order loop below is the shape of the inputs — kind, state,
+  -- length — never a rule the trigger already holds.
   ids := ARRAY[p_motive] || ARRAY(SELECT (e ->> 'vehicle_id')::uuid FROM jsonb_array_elements(p_towed) e);
+  IF EXISTS (SELECT 1 FROM unnest(ids) u WHERE u IS NULL) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY017',
+      MESSAGE = 'every towed unit names a vehicle';
+  END IF;
   IF (SELECT count(*) FROM unnest(ids) u) <> (SELECT count(DISTINCT u) FROM unnest(ids) u) THEN
     SELECT v.fleet_number INTO other FROM app.vehicle v
      WHERE v.id = (SELECT u FROM unnest(ids) u GROUP BY u HAVING count(*) > 1 LIMIT 1);
     RAISE EXCEPTION USING ERRCODE = 'TY017',
       MESSAGE = format('%s is named twice in this rig', COALESCE(other, 'a unit'));
   END IF;
+
+  -- Every named unit is locked once here, in ascending id order, before any
+  -- row is read: Postgres grants FOR UPDATE locks in a query's output
+  -- order, so two concurrent creates whose member sets overlap in opposite
+  -- walk orders (A: motive X, towed [Y]; B: motive Y, towed [X]) always
+  -- acquire X and Y in the same sequence and cannot deadlock behind one
+  -- another (40P01). A fit on the same unit takes FOR SHARE (000033) and
+  -- waits the milliseconds this holds the lock. Lock order is canonical
+  -- (by id); member sequence is walk order, set by the loop below.
+  PERFORM 1 FROM app.vehicle v WHERE v.id = ANY(ids) ORDER BY v.id FOR UPDATE;
 
   -- WITH ORDINALITY yields bigint and jsonb has no -> bigint operator, hence
   -- the ::int on the subscript in both loops.
@@ -196,7 +205,9 @@ BEGIN
       FROM unnest(ids) WITH ORDINALITY AS u(id, ord)
      ORDER BY u.ord
   LOOP
-    SELECT * INTO veh FROM app.vehicle v WHERE v.id = m.id FOR UPDATE;
+    -- No FOR UPDATE here: every row named in ids is already locked above,
+    -- in canonical order.
+    SELECT * INTO veh FROM app.vehicle v WHERE v.id = m.id;
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
     END IF;
