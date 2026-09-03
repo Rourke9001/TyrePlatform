@@ -21,8 +21,8 @@ const END_WORDING = {
 
 // D5's train: the motive first, then each trailer in walk order, its
 // descriptor in parentheses immediately after its fleet number. The text
-// content is pinned (task brief / e2e rigs.spec.ts) — the quieter weight on
-// the towed units is styling only, never a change to the text itself.
+// content is pinned (e2e rigs.spec.ts) — the quieter weight on the towed
+// units is styling only, never a change to the text itself.
 function TrainCell({ rig }: { rig: Rig }) {
   const towed = rig.members.filter((m) => m.sequence > 1).sort((a, b) => a.sequence - b.sequence);
   return (
@@ -66,10 +66,7 @@ export function RigList() {
         </div>
       )}
 
-      {/* useFormMutation keeps isSuccess for the life of the list, so a guard
-          that stops a second click would otherwise leave this line standing
-          beside a fresh alert from the next attempt. */}
-      {end.isSuccess && end.error === null && end.result && (
+      {end.isSuccess && end.result && (
         <p role="status">Rig ended for {end.result.motiveFleetNumber}.</p>
       )}
       {end.error !== null && <p role="alert">{refusalMessage(end.error, END_WORDING)}</p>}
@@ -90,7 +87,7 @@ export function RigList() {
                     <th scope="col">Motive</th>
                     <th scope="col">Rig</th>
                     <th scope="col">Since</th>
-                    {canEnd && <th scope="col" />}
+                    {canEnd && <th scope="col">Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -106,7 +103,7 @@ export function RigList() {
                       {canEnd && (
                         <td>
                           <button
-                            className="btn-primary"
+                            className="btn-primary btn-compact"
                             type="button"
                             disabled={end.isPending}
                             onClick={() => end.submit(rig.id)}

@@ -146,10 +146,7 @@ to close (Context); widening the trigger to them, plus `app.fitment`,
 `app.retread_job`, `app.vehicle_driver`, `app.threshold_policy` and
 `app.configuration`, is a scope decision for a follow-up ticket, not evidence
 those tables lack a write surface to audit (U4) — raised as TYRE-98 at
-close-out. `app.tyre_valuation_asof` (`000036`) deliberately pins no
-`search_path` so its `LANGUAGE sql` body inlines; harmless under invoker
-rights, and to be revisited if it ever gains definer rights (TYRE-128 small
-fix).
+close-out.
 
 **Bad:** `before`/`after` capture every column on the row, so once the
 trigger reaches `app.app_user` it will carry PII into `app.audit_log` on
@@ -170,6 +167,9 @@ need binding them as GUCs of their own, which this decision does not do. The
 trigger also says nothing about `DELETE`, so the day a write surface is
 allowed to remove a row, this decision has to be revisited rather than
 assumed to already cover it.
+
+`app.tyre_valuation_asof` (`000036`) pins no `search_path`; the reasoning is
+in 000036's own header comment.
 
 **Revisit when:** a table's row is large enough that a full-row `jsonb`
 snapshot on every update becomes a storage concern of its own (fitment or

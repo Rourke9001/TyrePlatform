@@ -91,6 +91,10 @@ describe("setting a rig", () => {
         vehicle({ id: "u5", fleetNumber: "LINK-5", unitKind: "TRAILER", status: "ACTIVE" }),
         vehicle({ id: "u3", fleetNumber: "DISPOSED-3", unitKind: "TRAILER", status: "DISPOSED" }),
         vehicle({ id: "u4", fleetNumber: "DRIVER-4", unitKind: null, status: "ACTIVE" }),
+        // U9 positive control: PARKED and WORKSHOP only pause a unit's
+        // schedule, so a rig still couples them — RETIRED holds neither.
+        vehicle({ id: "u6", fleetNumber: "PARKED-6", unitKind: "TRAILER", status: "PARKED" }),
+        vehicle({ id: "u7", fleetNumber: "WORKSHOP-7", unitKind: "HORSE", status: "WORKSHOP" }),
       ],
     );
     renderForm();
@@ -106,6 +110,7 @@ describe("setting a rig", () => {
     expect(motiveOptions).not.toContain("HORSE-9"); // already coupled in an open rig
     expect(motiveOptions).not.toContain("TRAILER-2"); // a trailer, not a motive kind
     expect(motiveOptions).not.toContain("DRIVER-4"); // no unit kind recorded
+    expect(motiveOptions).toContain("WORKSHOP-7"); // paused schedule, still couples (U9)
 
     const trailer = screen.getByLabelText(/^trailer$/i);
     const trailerOptions = within(trailer)
@@ -115,6 +120,7 @@ describe("setting a rig", () => {
     expect(trailerOptions).not.toContain("LINK-5"); // already coupled in an open rig
     expect(trailerOptions).not.toContain("DISPOSED-3"); // retired
     expect(trailerOptions).not.toContain("HORSE-1"); // not a trailer
+    expect(trailerOptions).toContain("PARKED-6"); // paused schedule, still couples (U9)
   });
 
   it("adds a towed row, reorders it, and removes it", async () => {
@@ -137,9 +143,24 @@ describe("setting a rig", () => {
     expect(screen.getByText("LINK-A")).toBeInTheDocument();
     expect(screen.getByText("LINK-B")).toBeInTheDocument();
 
+    const towedList = screen.getByRole("list");
+    const rowsBefore = within(towedList).getAllByRole("listitem");
+    expect(within(rowsBefore[0]).getByText("1")).toBeInTheDocument();
+    expect(within(rowsBefore[1]).getByText("2")).toBeInTheDocument();
+
     await userEvent.click(screen.getByRole("button", { name: "Move LINK-B up" }));
-    // After the swap LINK-B leads, so its own Up control is now disabled.
-    expect(screen.getByRole("button", { name: "Move LINK-B up" })).toBeDisabled();
+    // After the swap LINK-B leads, so its own Up control is aria-disabled —
+    // not `disabled`, so it stays focusable at the boundary (W6).
+    expect(screen.getByRole("button", { name: "Move LINK-B up" })).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
+    // The ordinals read 1..n in the new order, not the old row positions.
+    const rowsAfter = within(towedList).getAllByRole("listitem");
+    expect(within(rowsAfter[0]).getByText("LINK-B")).toBeInTheDocument();
+    expect(within(rowsAfter[0]).getByText("1")).toBeInTheDocument();
+    expect(within(rowsAfter[1]).getByText("LINK-A")).toBeInTheDocument();
+    expect(within(rowsAfter[1]).getByText("2")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Remove LINK-A" }));
     // Removing it from the towed list makes it a free trailer again, so it
@@ -167,6 +188,23 @@ describe("setting a rig", () => {
     await userEvent.selectOptions(screen.getByLabelText(/^trailer$/i), "u2");
     await userEvent.click(screen.getByRole("button", { name: "Add" }));
     expect(screen.getByRole("button", { name: "Set rig" })).toBeEnabled();
+  });
+
+  it("speaks a retry alert when the unit list fails to load", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(200, []))
+      .mockResolvedValueOnce(respond(500, { code: "boom", message: "down" }));
+    renderForm();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The unit list could not be loaded.",
+    );
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, [vehicle({ id: "u1", fleetNumber: "HORSE-1" })]),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await screen.findByRole("option", { name: "HORSE-1" });
   });
 
   it("never prefills the effective-from date", async () => {
@@ -209,9 +247,9 @@ describe("setting a rig", () => {
       motiveVehicleId: "u1",
       towed: [{ vehicleId: "u2", descriptor: "front" }],
     });
-    // The form clears once the write succeeds — LINK-A leaves the towed
-    // list (it still exists as a Trailer option again, now that it is free).
-    expect(within(screen.getByRole("list")).queryByText("LINK-A")).not.toBeInTheDocument();
+    // The form clears once the write succeeds — towed is empty, so the
+    // (W11) conditional list unmounts rather than sitting empty in the DOM.
+    expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });
 
   it("speaks a TY017 refusal in role=alert", async () => {

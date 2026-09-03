@@ -116,6 +116,16 @@ describe("navItemsFor", () => {
     expect(rigs?.capability).toBe("ViewFleet");
   });
 
+  // A controller holds ManageAssets as well as ViewFleet, so Tyres joins the
+  // menu — registry order puts Rigs between Tyres and Fitments regardless of
+  // which capability let each item in.
+  it("keeps Tyres, Rigs and Fitments in registry order for a ManageAssets holder", () => {
+    const labels = navItemsFor(["ViewFleet", "ManageAssets"])
+      .map((item) => item.label)
+      .filter((label) => ["Tyres", "Rigs", "Fitments"].includes(label));
+    expect(labels).toEqual(["Tyres", "Rigs", "Fitments"]);
+  });
+
   // Retreads is gated on LogRetread alone: it is the alert-on-refusal admin
   // surface (AdminRoute), not the hide-silently ViewFleet read Fitments
   // shares with Units.
