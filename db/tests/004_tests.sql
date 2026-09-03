@@ -5747,7 +5747,7 @@ DECLARE
   drv   uuid := md5('t45drv')::uuid;
   ctl   uuid := md5('t45ctl')::uuid; -- planted, not assumed: created_by is a composite FK (000017)
   cfg uuid; rig uuid; rig2 uuid; tz text; today date; r record; n int;
-  msg text; code text;
+  msg text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
@@ -5814,8 +5814,10 @@ BEGIN
   END;
   RAISE NOTICE 'PASS  45b a unit is in at most one open rig, by function and by trigger (INV-4)';
 
-  -- (c) Kinds and shape (U9, U10). Every unit named here is in no open rig,
-  -- so INV-4 cannot be what refuses.
+  -- (c) Kinds and shape (U9, U10). Each probe pins its message text, so a
+  -- refusal raised by INV-4 (the membership trigger) would fail the match
+  -- rather than pass: hx and hz are in no rig; ta and tb are members of
+  -- (a)'s still-open rig until it ends at 45e.
   BEGIN
     PERFORM app.create_combination(ta, jsonb_build_array(jsonb_build_object('vehicle_id', tb)));
     RAISE EXCEPTION 'FAIL 45c: a trailer headed a rig';
