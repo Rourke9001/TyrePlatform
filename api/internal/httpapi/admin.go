@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -214,6 +215,9 @@ func refuseInvalid(w http.ResponseWriter, r *http.Request, err error) bool {
 
 // text trims and length-checks an optional free-text field, answering nil for
 // an absent or blank one so the column holds NULL rather than an empty string.
+// maxTextLen bounds runes, not bytes: a multibyte description (the rig
+// descriptor, TYRE-72) is text a driver typed, not wire size to police —
+// maxWriteBytes already does that (TYRE-72 D7).
 func text(field string, in *string) (*string, error) {
 	if in == nil {
 		return nil, nil
@@ -222,7 +226,7 @@ func text(field string, in *string) (*string, error) {
 	if trimmed == "" {
 		return nil, nil
 	}
-	if len(trimmed) > maxTextLen {
+	if utf8.RuneCountInString(trimmed) > maxTextLen {
 		return nil, invalid(field, "is too long")
 	}
 	return &trimmed, nil

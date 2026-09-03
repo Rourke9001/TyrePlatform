@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -160,6 +161,57 @@ func TestCreateVehicle(t *testing.T) {
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT tenant_id FROM app.vehicle WHERE id = $1`, created.ID).Scan(&landedTenant))
 	require.Equal(t, tenantID.String(), landedTenant)
+}
+
+// maxTextLen bounds runes, not bytes (TYRE-72 D7) — description is the
+// existing field that already runs through text() (admin.go:297), and "ü" is
+// two bytes in UTF-8, so a byte-counting bound would refuse 200 of them well
+// short of the field's declared 200-character limit.
+func TestCreateVehicleDescriptionBoundedInRunes(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenantWithVehicle(t, ctx, admin, "runes")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	rec := get(t, h, "/api/axle-configurations", tenantID.String(), orgAdmin.String())
+	var configs []axleConfigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &configs))
+	require.NotEmpty(t, configs)
+	configID := configs[0].ID
+
+	body := func(fleet, description string) string {
+		b, err := json.Marshal(map[string]string{
+			"fleetNumber":     fleet,
+			"configurationId": configID,
+			"unitKind":        "HORSE",
+			"description":     description,
+		})
+		require.NoError(t, err)
+		return string(b)
+	}
+
+	for _, tt := range []struct {
+		name        string
+		runes       int
+		wantStatus  int
+		wantMessage string
+	}{
+		{"200 runes at the bound", 200, http.StatusCreated, ""},
+		{"201 runes over the bound", 201, http.StatusUnprocessableEntity, "description is too long"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			fleet := fmt.Sprintf("RUNES-%d-%s", tt.runes, uuid.NewString()[:8])
+			rec := post(t, h, "/api/vehicles", tenantID.String(), orgAdmin.String(),
+				body(fleet, strings.Repeat("ü", tt.runes)))
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			if tt.wantMessage != "" {
+				var ref refusalBody
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+				require.Equal(t, tt.wantMessage, ref.Message)
+			}
+		})
+	}
 }
 
 // The WITH CHECK half of tenant_isolation, which no test driven through a
