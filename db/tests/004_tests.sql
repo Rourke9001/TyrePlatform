@@ -5100,10 +5100,11 @@ BEGIN
   -- The money. tl has no readings, so the register reads the fallback and
   -- labels it AUDIT; the expected figure comes from app.tread_value against
   -- the row's own rate and the register's own threshold, never from
-  -- arithmetic restated here (FR-VAL-006, one implementation). At a 4.0 mm
-  -- threshold that is 12.0 mm of usable tread at 2500.00/12 per mm — the
-  -- retread cost back out again, which is what makes 4.5 mm's answer
-  -- (R104.17 of the same rate) visibly wrong.
+  -- arithmetic restated here (FR-VAL-006, one implementation). The threshold
+  -- is read off the register row rather than from this block's own thr, which
+  -- 42g's policy row supersedes. At that row's 4.0 mm it is 12.0 mm of usable
+  -- tread at 2500.00/12 per mm — the retread cost back out again, which is
+  -- what makes 4.5 mm's answer (R104.17 of the same rate) visibly wrong.
   SELECT v.current_tread_mm, v.tread_source, v.tread_value, v.rand_per_mm,
          v.removal_threshold_mm
     INTO reg FROM app.v_tyre_valuation v WHERE v.tyre_id = tl;
@@ -5111,7 +5112,8 @@ BEGIN
     RAISE EXCEPTION 'FAIL 42l: the register prices the retread at % (%)',
       reg.current_tread_mm, reg.tread_source;
   END IF;
-  IF reg.rand_per_mm IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, thr) THEN
+  IF reg.rand_per_mm IS DISTINCT FROM
+     app.rand_per_mm(2500.00, 16.0, reg.removal_threshold_mm) THEN
     RAISE EXCEPTION 'FAIL 42l: the register carries rate % rather than the retread rate',
       reg.rand_per_mm;
   END IF;
