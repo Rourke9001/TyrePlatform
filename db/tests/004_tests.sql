@@ -110,6 +110,20 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN ok := true;
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can DELETE app.reading_measurement'; END IF;
+
+  ok := false;
+  BEGIN
+    UPDATE app.tyre_event SET reason = 'x' WHERE false;
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can UPDATE app.tyre_event'; END IF;
+
+  ok := false;
+  BEGIN
+    UPDATE app.audit_log SET action = 'x' WHERE false;
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can UPDATE app.audit_log'; END IF;
   RAISE NOTICE 'PASS  readings, measurements and events cannot be rewritten by the app role';
 END $$;
 
