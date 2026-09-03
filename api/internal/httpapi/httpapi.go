@@ -101,6 +101,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Post("/vehicles/{vehicleID}/status", setUnitStatus(s))
 		r.Get("/vehicles/{vehicleID}/fitments", listUnitFitments(s))
 		r.Get("/fitments", listOpenFitments(s))
+		r.Get("/combinations", listCombinations(s))
 		r.Get("/depots", listDepots(s))
 		r.Get("/retread-jobs", listRetreadJobs(s))
 		r.Get("/my/vehicles", listMyVehicles(s))
@@ -129,6 +130,8 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Post("/vehicles/{vehicleID}/rotations", rotateTyres(s))
 		r.Post("/users", createUser(s))
 		r.Post("/vehicles/{vehicleID}/drivers", assignDriver(s))
+		r.Post("/combinations", createCombination(s))
+		r.Post("/combinations/{combinationID}/end", endCombination(s))
 	})
 	return r
 }
