@@ -4687,6 +4687,7 @@ DECLARE
   tl    uuid := md5('t42tl')::uuid;   -- fitted, worn, retreaded: 42l's tread
   vl    uuid := md5('t42vl')::uuid;   -- TRAILER: owes no fitment odometer (TY009)
   cfgl uuid; posl uuid; fitl uuid; jl uuid; reg record; last_at_l timestamptz;
+  bad_cost numeric; ok_cost numeric;
   ja uuid; jb uuid; jf uuid; ji uuid;
   jg  uuid := md5('t42jg')::uuid;
   jk2 uuid := md5('t42jk2')::uuid;
@@ -4842,7 +4843,7 @@ BEGIN
   -- (f) The inputs this surface does not accept, each probe leaving the other
   -- parameters valid so only the rule under test can refuse. A caught
   -- exception rolls its own subtransaction back, so jf is still open after
-  -- all ten. Each probe pins a fragment of its own message: the function
+  -- all eleven. Each probe pins a fragment of its own message: the function
   -- raises TY014 at every input gate, and a reordered guard would otherwise
   -- let one probe pass on another rule's refusal.
   SELECT * INTO r FROM app.dispatch_tyre(tf, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
@@ -4941,8 +4942,45 @@ BEGIN
     IF SQLERRM NOT LIKE '%a casing value is an amount%' THEN
       RAISE EXCEPTION 'FAIL 42f: an oversized casing value was refused by another rule: %', SQLERRM;
     END IF;
-    RAISE NOTICE 'PASS  42f ten inputs this surface does not accept, each refused by its own rule';
   END;
+  -- The rate ceiling, which the cost ceiling above does not imply: BR-VAL-002
+  -- divides the cost by the usable tread, and app.tyre.rand_per_mm holds
+  -- numeric(12,4), so a cost far inside its own column still overflows on the
+  -- way to the register (FR-VAL-006). Both figures are derived from
+  -- app.rand_per_mm against the policy in force rather than typed, and the
+  -- straddle is asserted first: a probe whose two costs both landed the same
+  -- side of the ceiling would pass without testing anything.
+  bad_cost := round(100000000 * (16.0 - thr), 2);
+  ok_cost  := bad_cost - 0.12;
+  IF app.rand_per_mm(bad_cost, 16.0, thr) < 100000000
+     OR app.rand_per_mm(ok_cost, 16.0, thr) >= 100000000
+     OR bad_cost > 9999999999.99 THEN
+    RAISE EXCEPTION 'FAIL 42f: the rate-ceiling probe does not straddle the boundary (% then %, cost %)',
+      app.rand_per_mm(bad_cost, 16.0, thr), app.rand_per_mm(ok_cost, 16.0, thr), bad_cost;
+  END IF;
+  BEGIN
+    PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
+                                   bad_cost, 16.0, 500.00);
+    RAISE EXCEPTION 'FAIL 42f: a cost yielding a rate past the register''s ceiling was accepted';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%is a rate above what the register carries%' THEN
+      RAISE EXCEPTION 'FAIL 42f: the rate ceiling was refused by another rule: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  42f eleven inputs this surface does not accept, each refused by its own rule';
+  END;
+  -- The other side of the same edge, and the reason it is last in 42f: this
+  -- one is accepted, so it closes jf. The stored rate is read back against
+  -- app.rand_per_mm rather than against a literal — the ceiling must refuse
+  -- what will not fit and nothing else (FR-VAL-006, one implementation).
+  PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
+                                 ok_cost, 16.0, 500.00);
+  IF (SELECT t.rand_per_mm FROM app.tyre t WHERE t.id = tf)
+     IS DISTINCT FROM app.rand_per_mm(ok_cost, 16.0, thr) THEN
+    RAISE EXCEPTION 'FAIL 42f: the highest rate the column holds stored as %',
+      (SELECT t.rand_per_mm FROM app.tyre t WHERE t.id = tf);
+  END IF;
+  RAISE NOTICE 'PASS  42f the cent below that ceiling is accepted and stored: %',
+    (SELECT t.rand_per_mm FROM app.tyre t WHERE t.id = tf);
 
   -- (g) BR-FIT-009, FR-CFG-044, U5: the cap is read again here because the
   -- policy can be lowered between the send and the return, and a casing with

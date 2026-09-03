@@ -46,6 +46,11 @@ DECLARE
   cost    numeric(12,2);
   tread   numeric(4,1);
   cval    numeric(12,2);
+  -- The one local deliberately left unconstrained. app.tyre.rand_per_mm is
+  -- numeric(12,4), so typing this numeric(12,4) too would raise the very
+  -- 22003 the check below exists to replace, one assignment earlier and out
+  -- of reach of any rule (ADR-0012).
+  rate    numeric;
 BEGIN
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = app.current_tenant_id();
 
@@ -170,6 +175,24 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = 'TY014',
         MESSAGE = format('post-retread tread must exceed the removal threshold of %s mm', thr);
     END IF;
+    -- FR-VAL-006, BR-VAL-002. Bounding the cost at its own column's capacity
+    -- does not bound the rate it produces: the divide is by the usable tread,
+    -- so a cost at or above 10^8 times the usable millimetres overflows
+    -- app.tyre.rand_per_mm on the UPDATE below as a bare 22003 — outside the
+    -- TY class, a 500 on the wire, and an outbox retry that never stops. The
+    -- figure that gets there is not absurd: a casing returned 0.1 mm over the
+    -- threshold reaches the ceiling at R10 000 000.
+    --
+    -- The rate is computed once, checked, and then stored, rather than the
+    -- cost being checked against a multiplied-out bound: BR-VAL-002 rounds to
+    -- four places, so only the rounded figure is the figure the column has to
+    -- hold, and a bound tested on anything else is testing a different number.
+    rate := app.rand_per_mm(cost, tread, thr);
+    IF rate >= 100000000 THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY014',
+        MESSAGE = format('a retread cost of %s over %s mm of usable tread is a rate above what the register carries',
+                         cost, tread - thr);
+    END IF;
     IF p_new_pattern_id IS NOT NULL
        AND NOT EXISTS (SELECT 1 FROM app.tyre_pattern p WHERE p.id = p_new_pattern_id) THEN
       RAISE EXCEPTION USING ERRCODE = 'TY014', MESSAGE = 'no such pattern in this fleet';
@@ -216,7 +239,7 @@ BEGIN
            status           = 'RETREAD',
            new_tread_mm     = tread,
            pattern_id       = COALESCE(p_new_pattern_id, t.pattern_id),
-           rand_per_mm      = app.rand_per_mm(cost, tread, thr),
+           rand_per_mm      = rate,
            state            = 'IN_STOCK',
            current_depot_id = NULL,
            last_tread_mm    = CASE WHEN t.last_tread_at IS NULL OR t.last_tread_at < stamp
