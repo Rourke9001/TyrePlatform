@@ -364,6 +364,84 @@ func TestVehiclesScopedToHeaderTenant(t *testing.T) {
 	require.NotContains(t, fleets, fleetB, "tenant A's response must never contain tenant B's vehicle")
 }
 
+// TYRE-72 D3/U13: the fleet list carries unitKind and status so the rig form
+// can filter motive units from towed and hide retired ones. Both source
+// relations already project the columns (app.v_depot_vehicle is SELECT v.*,
+// 000014), so the plain CONTROLLER scope (app.vehicle, ScopeTenant) is
+// enough to prove the shape. The driver's GET /api/my/vehicles is asserted
+// unchanged in the same test — the shared shape is not widened for one
+// consumer (CLAUDE.md).
+func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, fleetPlain := plantTenantWithVehicle(t, ctx, admin, "unitkind")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	var plainID, configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id, configuration_id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`,
+		tenantID, fleetPlain).Scan(&plainID, &configID))
+
+	// A second unit with a recorded kind: plantTenantWithVehicle's own row
+	// leaves unit_kind NULL, the pre-000011 case the fixture proves still
+	// answers null rather than a zero value.
+	fleetHorse := "unitkind-horse-" + uuid.NewString()[:8]
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+		 VALUES ($1, $2, $3, 'HORSE'::app.unit_kind)`,
+		tenantID, fleetHorse, configID)
+	require.NoError(t, err)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/vehicles", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var units []struct {
+		FleetNumber string  `json:"fleetNumber"`
+		UnitKind    *string `json:"unitKind"`
+		Status      string  `json:"status"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &units))
+
+	find := func(fleet string) (unitKind *string, status string) {
+		for _, u := range units {
+			if u.FleetNumber == fleet {
+				return u.UnitKind, u.Status
+			}
+		}
+		t.Fatalf("fleet %s not found in response", fleet)
+		return nil, ""
+	}
+
+	plainKind, plainStatus := find(fleetPlain)
+	require.Nil(t, plainKind, "unit_kind is NULL on this row and must stay null on the wire")
+	require.Equal(t, "ACTIVE", plainStatus)
+
+	horseKind, horseStatus := find(fleetHorse)
+	require.NotNil(t, horseKind)
+	require.Equal(t, "HORSE", *horseKind)
+	require.Equal(t, "ACTIVE", horseStatus)
+
+	// GET /api/my/vehicles keeps vehicleJSON's own shape — exactly id,
+	// fleetNumber, registration — no new keys. Compared as a key set, not
+	// against a fixed struct, so field order carries no meaning here.
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, plainID, driver)
+
+	rec = get(t, h, "/api/my/vehicles", tenantID.String(), driver.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var mine []map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mine))
+	require.Len(t, mine, 1)
+	gotKeys := make([]string, 0, len(mine[0]))
+	for k := range mine[0] {
+		gotKeys = append(gotKeys, k)
+	}
+	require.ElementsMatch(t, []string{"id", "fleetNumber", "registration"}, gotKeys)
+}
+
 func plantBranding(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, value string, effectiveOffset string) {
 	t.Helper()
 	_, err := admin.Exec(ctx,

@@ -268,8 +268,9 @@ var submitStatus = map[string]int{
 	// OR UPDATE, so all four fitment writes reach it: app.fit_tyre's fit,
 	// app.remove_tyre's closure, and both of app.rotate_tyres' — the rows it
 	// closes and the rows it opens (TYRE-92).
-	// TY014 is a fitment write refused, TY015 is the retread cap, and TY016
-	// is a unit status transition refused (000032-000035).
+	// TY014 is a fitment write refused, TY015 is the retread cap, TY016 is a
+	// unit status transition refused (000032-000035), and TY017 is a rig
+	// write refused (000037).
 	"TY009": http.StatusUnprocessableEntity,
 	"TY011": http.StatusUnprocessableEntity,
 	"TY012": http.StatusUnprocessableEntity,
@@ -277,6 +278,7 @@ var submitStatus = map[string]int{
 	"TY014": http.StatusUnprocessableEntity,
 	"TY015": http.StatusUnprocessableEntity,
 	"TY016": http.StatusUnprocessableEntity,
+	"TY017": http.StatusUnprocessableEntity,
 
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
@@ -589,6 +591,16 @@ type vehicleJSON struct {
 	Registration *string `json:"registration"`
 }
 
+// fleetUnitJSON is the management list's row: the shared three fields plus
+// the two the Rigs form filters on (unit kind, status). The driver's list
+// keeps vehicleJSON — its source view projects neither, and a driver picking
+// a unit to inspect needs neither.
+type fleetUnitJSON struct {
+	vehicleJSON
+	UnitKind *string `json:"unitKind"`
+	Status   string  `json:"status"`
+}
+
 // listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
 // and is refused here rather than filtered — FR-AUT-005 is about what they
 // may ask for, not only about what comes back. Their route is /api/my/vehicles.
@@ -605,7 +617,7 @@ func listVehicles(s *store.Store) http.HandlerFunc {
 		// empty result must already be []T{} here or the client gets JSON
 		// `null` instead of `[]` for "no rows" (repeated below and in
 		// listMyVehicles/listMyTasks — same reason each time).
-		vehicles := []vehicleJSON{}
+		units := []fleetUnitJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
@@ -614,15 +626,26 @@ func listVehicles(s *store.Store) http.HandlerFunc {
 			if a.Scope() == auth.ScopeTenant {
 				source = `app.vehicle`
 			}
-			var err error
-			vehicles, err = scanVehicles(ctx, tx,
-				`SELECT id, fleet_number, registration FROM `+source+` ORDER BY fleet_number`)
-			return err
+			rows, err := tx.Query(ctx,
+				`SELECT id, fleet_number, registration, unit_kind::text, status::text
+				   FROM `+source+` ORDER BY fleet_number`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var u fleetUnitJSON
+				if err := rows.Scan(&u.ID, &u.FleetNumber, &u.Registration, &u.UnitKind, &u.Status); err != nil {
+					return err
+				}
+				units = append(units, u)
+			}
+			return rows.Err()
 		})
 		if !ok {
 			return
 		}
-		writeJSON(ctx, w, vehicles)
+		writeJSON(ctx, w, units)
 	}
 }
 
