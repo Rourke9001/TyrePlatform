@@ -4674,19 +4674,22 @@ BEGIN
   -- occupancy probes: past app.fit_tyre, straight into the table, so ty9
   -- carries an open fitment and zero tyre_event rows. Against the pre-fix
   -- body this probe fails: fitment_instant_ok's last_at is NULL for ty9, its
-  -- guard never fires, and the removal below would have succeeded — leaving
-  -- a closed fitment the as-at register's location join (000036: fitted_at <
-  -- bound.ts AND (removed_at IS NULL OR removed_at >= bound.ts)) can never
-  -- match at any date.
+  -- movement guard never fires, and the removal below would have succeeded —
+  -- closing the fitment an hour before it was opened, a row the as-at
+  -- register's location join (000036: fitted_at < bound.ts AND (removed_at
+  -- IS NULL OR removed_at >= bound.ts)) can never match at any date. Both
+  -- instants sit inside the last 24 hours on purpose: further back, the
+  -- pre-fix body refuses on TY014 for the missing backdate reason
+  -- (FR-FIT-016) and the probe would fail for the wrong cause.
   -- On vh (HORSE), not vt: 41v below rotates ty9 on this same unit, and
   -- TY009 (000025) requires a fitted_odometer for a HORSE fitment even on a
   -- raw INSERT, so one is supplied here though app.remove_tyre never reads it.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
                            fitted_odometer, fitted_tread_mm)
-  VALUES (bac, ty9, vh, p9, now() - interval '10 days', 300000, 12.0)
+  VALUES (bac, ty9, vh, p9, now() - interval '1 hour', 300000, 12.0)
   RETURNING id INTO fitu;
   BEGIN
-    PERFORM app.remove_tyre(fitu, 'damage', 9.0, NULL, now() - interval '20 days');
+    PERFORM app.remove_tyre(fitu, 'damage', 9.0, NULL, now() - interval '2 hours');
     RAISE EXCEPTION 'FAIL 41u: a removal predating its own fitment, with no to_state event to catch it, was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     IF SQLERRM <> format('this tyre was fitted at %s; a removal cannot predate its own fitment',
@@ -4696,12 +4699,14 @@ BEGIN
     RAISE NOTICE 'PASS  41u a removal cannot predate the fitment it closes, even with no bounding event';
   END;
 
-  -- (v) I1, the rotation half. ty9's raw fitment (fitted_at ten days back,
-  -- above) has no to_state event either; ty5 is fitted further back still, so
+  -- (v) I1, the rotation half. ty9's raw fitment (fitted_at an hour back,
+  -- above) has no to_state event either; ty5 is fitted twenty days back, so
   -- its own fitment_instant_ok check already passes and cannot be the one
   -- refusing the set. Only the per-move check against each tyre's own
-  -- fitted_at can catch ty9 here. Against the pre-fix body this rotation
-  -- would have closed ty9's fitment five days before it was opened.
+  -- fitted_at can catch ty9 here. The rotation is stamped two hours back —
+  -- inside the 24-hour rule, which rotate_tyres cannot satisfy with a reason
+  -- (TYRE-108) — so against the pre-fix body this call would have closed
+  -- ty9's fitment an hour before it was opened.
   SELECT * INTO r FROM app.fit_tyre(ty5, vh, p7, 12.0, 'MARK_OUTBOARD', 290000,
                                     now() - interval '20 days',
                                     'fitment backfilled from the paper sheet');
@@ -4710,7 +4715,7 @@ BEGIN
       jsonb_build_array(
         jsonb_build_object('tyre_id', ty9, 'to_position_id', p7, 'tread_mm', 10.0),
         jsonb_build_object('tyre_id', ty5, 'to_position_id', p9, 'tread_mm', 10.0)),
-      310000, now() - interval '15 days');
+      310000, now() - interval '2 hours');
     RAISE EXCEPTION 'FAIL 41v: a rotation predating one moved tyre''s own fitment was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     IF SQLERRM NOT LIKE format('tyre %s was fitted at%%', ty9) THEN
