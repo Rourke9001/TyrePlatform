@@ -43,7 +43,7 @@
 -- UNVALUED is a true answer where carrying today's tread into 2021 is a false
 -- one. The dated history is on app.fitment already (fitted_tread_mm/fitted_at,
 -- removed_tread_mm/removed_at), for an as-at register that resolves tread from
--- events rather than from this column: a follow-up ticket, not this migration.
+-- events rather than from this column: TYRE-113, not this migration.
 --
 -- tread_source stays 'AUDIT' on this branch. The label says where a figure
 -- came from; a fallback that declines to answer yields no figure and no label,

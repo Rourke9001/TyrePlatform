@@ -65,6 +65,17 @@ CREATE TRIGGER fitment_written_once
 BEFORE UPDATE ON app.fitment
 FOR EACH ROW EXECUTE FUNCTION app.fitment_is_written_once();
 
+-- FR-FIT-016, enforced form. app.remove_tyre and app.rotate_tyres (000033)
+-- both refuse a removal instant earlier than the fitment's own fitted_at,
+-- but fitment_written_once above still permits the closing UPDATE from any
+-- caller, so that refusal is a second implementation the trigger does not
+-- itself hold. A closed fitment running backwards makes the as-at register's
+-- location join (000036: fitted_at < bound.ts AND (removed_at IS NULL OR
+-- removed_at >= bound.ts)) unsatisfiable at any date. No existing closed
+-- fitment violates this, so it needs no data migration.
+ALTER TABLE app.fitment ADD CONSTRAINT removal_does_not_predate_fitment
+  CHECK (removed_at IS NULL OR removed_at >= fitted_at);
+
 -- The dispatch surface (000033) names its own event type per destination
 -- rather than the state it moves to, so SENT_TO_BREAKDOWN_SUPPLIER is a value
 -- this vocabulary must carry beside SENT_FOR_RETREAD (FR-FIT-013). RETURNED

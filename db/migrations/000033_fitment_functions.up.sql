@@ -320,6 +320,20 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY014',
       MESSAGE = 'a removal records its tread in millimetres, above 0 and at most 30';
   END IF;
+  -- FR-FIT-016, and the as-at register's location join (000036):
+  -- fitted_at < bound.ts AND (removed_at IS NULL OR removed_at >= bound.ts).
+  -- fitment_instant_ok bounds an instant only against the tyre's latest
+  -- to_state EVENT, which a fitment opened outside app.fit_tyre never has —
+  -- every one of the pilot tenant's 27 open fitments is in that shape. Left
+  -- unchecked, a removal stamped before its own fitment's fitted_at makes
+  -- that join unsatisfiable at any date, so the casing shows no unit or
+  -- position anywhere in its own history. Checked against the fitment row
+  -- itself, which fitment_instant_ok has no way to see.
+  IF p_occurred_at < fit.fitted_at THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = format('this tyre was fitted at %s; a removal cannot predate its own fitment',
+                       fit.fitted_at);
+  END IF;
   PERFORM app.fitment_instant_ok(fit.tyre_id, p_occurred_at, p_backdate_reason);
 
   -- FR-FIT-009, CR-012: provenance is written, never left to the column
@@ -390,6 +404,7 @@ DECLARE
   n_closed int;
   new_fit  uuid;
   to_code  text;
+  fit_at   timestamptz;
 BEGIN
   SELECT * INTO veh FROM app.vehicle v WHERE v.id = p_vehicle FOR SHARE;
   IF NOT FOUND THEN
@@ -458,6 +473,18 @@ BEGIN
         MESSAGE = format('position %s carries a tyre this rotation does not move',
                          (SELECT p.code FROM app.position p WHERE p.id = (m->>'to_position_id')::uuid));
     END IF;
+    -- FR-FIT-016, same hole as app.remove_tyre's (see there): the first loop
+    -- above proved this tyre has an open fitment on this unit, so the row is
+    -- read again here, under its lock, for its own fitted_at rather than the
+    -- event history fitment_instant_ok reads. Per moved tyre, not once for the
+    -- set: a rotation can carry casings opened years apart.
+    SELECT f.fitted_at INTO fit_at FROM app.fitment f
+     WHERE f.tyre_id = (m->>'tyre_id')::uuid AND f.vehicle_id = p_vehicle AND f.removed_at IS NULL;
+    IF p_occurred_at < fit_at THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012',
+        MESSAGE = format('tyre %s was fitted at %s; a rotation cannot predate its own fitment',
+                         m->>'tyre_id', fit_at);
+    END IF;
     PERFORM app.fitment_instant_ok((m->>'tyre_id')::uuid, p_occurred_at, NULL);
   END LOOP;
 
@@ -500,6 +527,13 @@ BEGIN
          removed_tread_mm = (SELECT (e.value->>'tread_mm')::numeric
                                FROM jsonb_array_elements(p_moves) e
                               WHERE (e.value->>'tyre_id')::uuid = f.tyre_id),
+         -- 'rotation' is written by the platform, not chosen from the
+         -- tenant's removal_reasons vocabulary (D1) that app.remove_tyre
+         -- validates against — suite 40f pins that vocabulary as tenant
+         -- configuration, but that pin is about a caller-supplied reason,
+         -- not this one. A tenant is free to delete 'rotation' from their
+         -- list without breaking the rotation the platform records on its
+         -- own account.
          removal_reason   = 'rotation',
          distance_km      = CASE WHEN p_odometer IS NOT NULL AND f.fitted_odometer IS NOT NULL
                                  THEN p_odometer - f.fitted_odometer END,
