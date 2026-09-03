@@ -506,13 +506,13 @@ trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 1. **Cut `TYRE-72-rig-setup` from `develop` after PR #41 has landed**, not
    before: B6's combination effective dates read the unit status and fitment
    rows B5 slice 2 wrote, and the branch should carry 000036 from the start.
-2. **Read TYRE-128 first and put the eight owner decisions to the owner
-   before the spec is written.** Two of them shape this batch directly: the
-   ViewFleet-versus-ManageAssets reading of "screens gated on X" (B6's rig
-   screens face the same choice, and the two batches must answer it the same
-   way), and whether plans and handoff prompts belong in `docs/` (decides
-   where B6's own plan lives). U11 and the rest can be answered in parallel
-   but should be answered, not carried a third time.
+2. **Read TYRE-128 first.** Its eight owner decisions were **answered on
+   3 Sep 2026** and are recorded as a comment on the ticket; do not re-ask
+   them. Two shape this batch directly: read screens gate on `ViewFleet` and
+   writes on `ManageAssets` (B6's rig screens follow the same rule), and
+   B6's plan lives under the gitignored `docs/superpowers/plans/` while its
+   design spec is committed (CLAUDE.md, documentation split). U11 stays a
+   warning; the D13 and U11 SRS erratum rows are still owed.
 3. **Carry TYRE-124..127 and TYRE-128's small fixes with whichever B6 task
    touches their area**, the way TYRE-87 rode with B5; do not open a
    residue-only branch for them. TYRE-124 (000025's stale comment) belongs

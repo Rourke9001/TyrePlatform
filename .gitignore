@@ -42,3 +42,11 @@ api/bin/
 /api/api.exe
 coverage/
 .vite/
+
+# Process artefacts, not documentation ABOUT the code (TYRE-128 decision 4,
+# 3 Sep 2026). Implementation plans and session handoff prompts describe how a
+# batch was executed, not how the code works; they go stale the moment the
+# batch lands. Design specs stay tracked under docs/superpowers/specs/ because
+# code comments cite them.
+docs/superpowers/plans/
+docs/HANDOFF_*.md
