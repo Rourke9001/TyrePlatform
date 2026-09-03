@@ -11,6 +11,7 @@ import { VehicleList } from "./dashboard/VehicleList";
 import { FitmentList } from "./fleet/FitmentList";
 import { RetreadQueue } from "./fleet/RetreadQueue";
 import { ReceiveTyre } from "./fleet/ReceiveTyre";
+import { RigsScreen } from "./fleet/rigs/RigsScreen";
 import { TyreList } from "./fleet/tyres/TyreList";
 import { UnitDetail } from "./fleet/unit/UnitDetail";
 
@@ -92,6 +93,14 @@ export function AppRoutes() {
         element={
           <RequireCapability capability="ViewFleet">
             <VehicleList />
+          </RequireCapability>
+        }
+      />
+      <Route
+        path="/fleet/rigs"
+        element={
+          <RequireCapability capability="ViewFleet">
+            <RigsScreen />
           </RequireCapability>
         }
       />

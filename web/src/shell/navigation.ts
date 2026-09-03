@@ -17,9 +17,8 @@ export interface NavItem {
 
 export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/fleet", label: "Units", capability: "ViewFleet" },
-  // Rigs joins this row when TYRE-72 builds it — no stub; a menu item that
-  // 404s is worse than an absent one.
   { to: "/fleet/tyres", label: "Tyres", capability: "ManageAssets" },
+  { to: "/fleet/rigs", label: "Rigs", capability: "ViewFleet" },
   { to: "/fleet/fitments", label: "Fitments", capability: "ViewFleet" },
   { to: "/fleet/tyres/retreads", label: "Retreads", capability: "LogRetread" },
   { to: "/my", label: "My inspections", capability: "CaptureInspection" },

@@ -1,10 +1,12 @@
 /* The tyre register (TYRE-91). Custom properties only, per web/CLAUDE.md. */
 
-/* .retreads and .fitments (TYRE-93) share this register's page width — one
-   rule, not a clone, so the three screens cannot drift apart by accident. */
+/* .retreads, .fitments (TYRE-93) and .rigs (TYRE-72) share this register's
+   page width — one rule, not a clone, so the screens cannot drift apart by
+   accident. */
 .tyres,
 .retreads,
-.fitments {
+.fitments,
+.rigs {
   max-width: 68rem;
 }
 
@@ -18,7 +20,8 @@
 /* .page-title supplies the type; the margin is this layout's own. */
 .tyres h1,
 .retreads h1,
-.fitments h1 {
+.fitments h1,
+.rigs h1 {
   margin-bottom: 1rem;
 }
 
@@ -433,4 +436,13 @@
   display: flex;
   flex-direction: column;
   gap: 0.35rem;
+}
+
+/* ------------------------------------------------- the rigs screen (TYRE-72) */
+
+/* The train's towed units, quieter than the motive that leads it — the
+   sequence device belongs to this one cell, so the weight difference is the
+   only thing styling here does; the text itself is pinned (RigList.tsx). */
+.rigs-towed {
+  color: var(--ink-muted);
 }
