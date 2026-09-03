@@ -108,6 +108,7 @@ type fitTyreArgs struct {
 	positionID       uuid.UUID
 	treadMm          string
 	mountOrientation string
+	odometer         *int64
 	occurredAt       *time.Time
 	reason           *string
 }
@@ -127,6 +128,7 @@ func (b fitTyreRequest) validate() (fitTyreArgs, error) {
 	if a.mountOrientation, err = requiredText("mountOrientation", b.MountOrientation); err != nil {
 		return a, err
 	}
+	a.odometer = b.Odometer
 	if a.occurredAt, err = instantField("occurredAt", b.OccurredAt); err != nil {
 		return a, err
 	}
@@ -208,7 +210,7 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 				   FROM app.fit_tyre($1, $2, $3, $4::numeric, $5::app.mount_orientation,
 				                     $6, COALESCE($7::timestamptz, now()), $8)`,
 				args.tyreID, vehicleID, args.positionID, args.treadMm, args.mountOrientation,
-				body.Odometer, args.occurredAt, args.reason,
+				args.odometer, args.occurredAt, args.reason,
 			).Scan(&fitmentID, &raw); err != nil {
 				return fmt.Errorf("fitting tyre %s to unit %s: %w", args.tyreID, vehicleID, err)
 			}

@@ -801,6 +801,14 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 		if refuseInvalid(w, r, err) {
 			return
 		}
+		// maxTextLen is the same transport bound every free-text field on a
+		// write carries (fitments.go:271, retreads.go:149) — reason is
+		// discarded unread by app.set_vehicle_status today, but the cap
+		// belongs here regardless of whether the function keeps it.
+		reason, err := text("reason", body.Reason)
+		if refuseInvalid(w, r, err) {
+			return
+		}
 
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
@@ -811,7 +819,7 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 			// is the whole reason those messages are written in SQL.
 			if _, err := tx.Exec(ctx,
 				`SELECT app.set_vehicle_status($1, $2::app.vehicle_status, $3)`,
-				vehicleID, status, body.Reason); err != nil {
+				vehicleID, status, reason); err != nil {
 				return fmt.Errorf("setting the status of unit %s: %w", vehicleID, err)
 			}
 			return nil
