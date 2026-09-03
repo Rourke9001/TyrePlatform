@@ -185,8 +185,8 @@ describe("rotating tyres within a unit", () => {
     });
   });
 
-  // Every move inserts a fitment row, and 000025's trigger refuses one on a
-  // unit that has an odometer without the reading (FR-FIT-002). A rotation
+  // Every move closes a fitment row, and 000025's trigger refuses a closure
+  // on a unit that has an odometer without the reading (FR-FIT-002). A rotation
   // sent from a stale unit read gets that refusal, and a general sentence
   // would leave the controller retrying the same thing (ADR-0012).
   it("speaks TY009 rather than the general sentence", async () => {

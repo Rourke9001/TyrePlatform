@@ -690,16 +690,10 @@ func TestPatchUnitRefusesConfigurationID(t *testing.T) {
 	require.Equal(t, kindBefore, kindAfter)
 
 	// The bodies this decoder refuses for their shape rather than their keys.
-	// encoding/json accepts every one where the json.Unmarshal beside it does
-	// not: Decode reads one value and stops, and it fills a struct from a
-	// literal null without complaint. A body this surface cannot read is
-	// malformed rather than invalid, because nothing in it is a field the
-	// caller got wrong.
-	//
-	// The two trailing delimiters are the cases json.Decoder.More() cannot
-	// see: it reports whether another element follows within the value being
-	// read, and answers false at a closing brace or bracket, so a decoder
-	// asking More() calls both of these a clean body.
+	// A body this surface cannot read is malformed rather than invalid, because
+	// nothing in it is a field the caller got wrong. Why each of these needs a
+	// second Decode rather than dec.More() is decodeJSONStrict's own note
+	// (admin.go).
 	for _, tc := range []struct{ name, body string }{
 		{"a second value after the first", `{"description":"first"}{"configurationId":"smuggled"}`},
 		{"a literal null", `null`},

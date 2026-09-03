@@ -22,10 +22,9 @@ const RETURN_WORDING = {
 // return_tyre_to_stock's own NULL branch (000033) is what leaves the casing
 // at the depot it already has.
 //
-// onSuccess names nothing further: the confirmation this write earns lives
-// at the register, since a successful return moves the tyre off REMOVED/
-// AT_BREAKDOWN_SUPPLIER and this row unmounts on the refetch before anyone
-// could read a line left inside it.
+// onSuccess names nothing further: a successful return moves the tyre off
+// REMOVED/AT_BREAKDOWN_SUPPLIER and this row unmounts on the refetch, so the
+// confirmation lives at the register (ActedOn in TyreList.tsx, NFR-USE-010).
 export function ReturnToStockButton({
   tyre,
   tenantKey,

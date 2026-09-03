@@ -581,7 +581,7 @@ func cleanTags(in []string) ([]string, error) {
 	// request, and fifty repeats of one name is the same work to read as fifty
 	// distinct ones.
 	if len(in) > maxTagsPerPatch {
-		return nil, invalid("tags", fmt.Sprintf("may name at most %d tags in one edit", maxTagsPerPatch))
+		return nil, invalid("tags", fmt.Sprintf("may name at most %d names in one edit", maxTagsPerPatch))
 	}
 	out := make([]string, 0, len(in))
 	seen := make(map[string]bool, len(in))

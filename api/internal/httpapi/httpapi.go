@@ -265,8 +265,9 @@ var submitStatus = map[string]int{
 
 	// TY011/TY012/TY013 are the tyre lifecycle's refusals (000031). TY009 is
 	// fitment_odometer_matches_unit_kind's, and that trigger is BEFORE INSERT
-	// OR UPDATE, so all three fitment writes reach it: app.fit_tyre's INSERT,
-	// app.remove_tyre's closure UPDATE and app.rotate_tyres' INSERTs (TYRE-92).
+	// OR UPDATE, so all four fitment writes reach it: app.fit_tyre's fit,
+	// app.remove_tyre's closure, and both of app.rotate_tyres' — the rows it
+	// closes and the rows it opens (TYRE-92).
 	// TY014 is a fitment write refused, TY015 is the retread cap, and TY016
 	// is a unit status transition refused (000032-000035).
 	"TY009": http.StatusUnprocessableEntity,
@@ -278,9 +279,9 @@ var submitStatus = map[string]int{
 	"TY016": http.StatusUnprocessableEntity,
 
 	// TY008 has no entry and never will unless configuration editing is
-	// reopened: no endpoint updates vehicle.configuration_id or unit_kind —
-	// PATCH refuses both fields before SQL (docs/implementation-order.md
-	// §B5). An entry could carry no test able to fail (ADR-0012).
+	// reopened: the unit PATCH is what keeps it unreachable from the API
+	// (units.go's patchUnitRequest). An entry could carry no test able to
+	// fail (ADR-0012).
 
 	"23502": http.StatusUnprocessableEntity, // not-null violation
 	"23503": http.StatusUnprocessableEntity, // foreign key: an id this tenant cannot see
@@ -330,9 +331,10 @@ var conflictCodes = map[string]string{
 	// reactivation. That is a state an admin must be told how to resolve,
 	// not a bare conflict.
 	"one_active_staff_number_per_tenant": codeStaffNumberTaken,
-	// A unique index, not a table constraint (000011:49), scoped to ACTIVE
-	// tyres only — historical reuse across a scrapped/sold/lost tyre is
-	// valid and does not collide (FR-TYR-004/DR-002).
+	// one_active_display_code_per_tenant is a unique index, not a table
+	// constraint (000011), scoped to ACTIVE tyres only — historical reuse
+	// across a scrapped/sold/lost tyre is valid and does not collide
+	// (FR-TYR-004/DR-002).
 	"one_active_display_code_per_tenant": codeDisplayCodeTaken,
 	// one_open_fitment_per_position and one_open_fitment_per_tyre are partial
 	// unique indexes, not table constraints, scoped to an open fitment

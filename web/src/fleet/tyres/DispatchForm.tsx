@@ -42,10 +42,10 @@ function depotTypeFor(destination: Destination | ""): string {
 // the BR-FIT-009 retread cap and which state a casing must be in to go are
 // all app.dispatch_tyre's alone, forwarded verbatim (ADR-0013 decision 5).
 //
-// onSuccess names the destination a caller dispatched to: the confirmation
-// this write earns lives at the register, since a successful dispatch moves
-// the tyre off REMOVED and this form's own row unmounts on the refetch
-// before anyone could read a line left inside it.
+// onSuccess names the destination a caller dispatched to: a successful
+// dispatch moves the tyre off REMOVED and this form's own row unmounts on the
+// refetch, so the confirmation lives at the register (ActedOn in TyreList.tsx,
+// NFR-USE-010).
 export function DispatchForm({
   tyre,
   tenantKey,

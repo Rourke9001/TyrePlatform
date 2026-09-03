@@ -10,9 +10,10 @@ import { openFitmentsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 // app.rotate_tyres refuses the whole set or none of it, and the codes it can
 // reach are TY009, TY012 and TY014 — no occupancy code, because a rotation's
 // targets are freed inside the same statement. TY009 arrives from the fitment
-// rows this write inserts (FR-FIT-002, 000025's
-// fitment_odometer_matches_unit_kind), which is why the odometer below is
-// asked for rather than offered.
+// rows this write closes, not the ones it opens: app.rotate_tyres closes every
+// row in the set before opening any, and 000025's
+// fitment_odometer_matches_unit_kind is BEFORE INSERT OR UPDATE (FR-FIT-002).
+// That is why the odometer below is asked for rather than offered.
 const ROTATE_WORDING = {
   speakable: ["TY009", "TY012", "TY014"],
   forbidden: "You do not have permission to rotate tyres.",

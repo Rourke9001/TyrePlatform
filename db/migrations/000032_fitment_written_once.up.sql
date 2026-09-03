@@ -41,12 +41,12 @@ BEGIN
       MESSAGE = 'an open fitment can only be closed, never edited',
       HINT    = 'close it with a reason and fit again; a flip is a remove-and-fit (D13)';
   END IF;
-  -- The other half of "closed once": removal_is_complete (000001) ties
-  -- removed_at to removal_reason and says nothing about the four columns
-  -- beside them, so a distance or a removal tread can be written onto a row
-  -- that is still open — a closure figure on a fitment that was never closed,
-  -- which the register and the wear rate then read as fact. A closure column
-  -- moves only in the statement that sets removed_at.
+  -- The other half of "closed once": removal_is_complete (000001, narrowed by
+  -- 000011) ties removed_at to removal_reason and says nothing about the four
+  -- columns beside them, so a distance or a removal tread can be written onto
+  -- a row that is still open — a closure figure on a fitment that was never
+  -- closed, which the register and the wear rate then read as fact. A closure
+  -- column moves only in the statement that sets removed_at.
   IF NEW.removed_at IS NULL
   AND (NEW.removed_odometer IS DISTINCT FROM OLD.removed_odometer
     OR NEW.removed_tread_mm IS DISTINCT FROM OLD.removed_tread_mm
@@ -65,9 +65,10 @@ CREATE TRIGGER fitment_written_once
 BEFORE UPDATE ON app.fitment
 FOR EACH ROW EXECUTE FUNCTION app.fitment_is_written_once();
 
--- dispose_tyre writes the target state's name as the event type, so every
--- dispatch destination needs a value (FR-FIT-013). RETURNED serves every
--- return.
+-- The dispatch surface (000033) names its own event type per destination
+-- rather than the state it moves to, so SENT_TO_BREAKDOWN_SUPPLIER is a value
+-- this vocabulary must carry beside SENT_FOR_RETREAD (FR-FIT-013). RETURNED
+-- serves every return.
 ALTER TABLE app.tyre_event DROP CONSTRAINT tyre_event_type_in_vocabulary;
 ALTER TABLE app.tyre_event ADD CONSTRAINT tyre_event_type_in_vocabulary CHECK (type IN
   ('RECEIVED','BRANDED','FITTED','ROTATED','REMOVED','SENT_FOR_RETREAD',

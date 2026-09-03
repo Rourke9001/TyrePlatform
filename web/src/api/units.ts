@@ -212,15 +212,10 @@ export interface UnitPatch {
 
 // patchUnit is FR-VEH-041's descriptive edit (D5): a key the caller omits
 // leaves that column untouched server-side, which is what lets a form send
-// only what someone actually changed rather than the whole unit back. Three
-// behaviours for "" specifically, all server-side in patchUnitRequest's
-// validate() (units.go), none re-implemented here: "" on
-// homeDepotId/operatingGroupId clears the id to NULL (optionalIDOrClear);
-// "" on the other four text fields is a no-op, folded the same as an
-// absent key by text() (admin.go) — a unit's description, body type, unit
-// descriptor and registration are edited through this surface, never
-// emptied; "" on fleetNumber is refused inline in validate() itself, since
-// it is the one field of the five that is NOT NULL.
+// only what someone actually changed rather than the whole unit back. "" means
+// three different things by field — clear, no-op or refusal — all of it
+// decided in patchUnitRequest's validate() (units.go), none re-implemented
+// here.
 export function patchUnit(id: string, body: UnitPatch): Promise<Unit> {
   return apiPatch<Unit>(`/api/vehicles/${id}`, body);
 }

@@ -599,9 +599,12 @@ func TestFitmentTextFieldsAreLengthCapped(t *testing.T) {
 		})
 	}
 
-	// The control. Every body above differs from one of these in the length
-	// of one field alone, and each of these answers 403 — so the 422s are the
-	// cap, not the route, the actor or anything else in the request.
+	// The control: the same routes and the same actor, with the capped field at
+	// maxTextLen rather than one over. Each answers 403 — so the 422s above are
+	// the cap, not the route, the actor or anything else in the request. The
+	// remove route has one control for its two capped fields: it holds
+	// backdateReason at the cap beside a short reason, so it is a one-field
+	// delta from the backdate-reason row and not from the removal-reason one.
 	for _, tc := range []struct{ name, path, body string }{
 		{"fit", fitPath, fitWithReason(strings.Repeat("x", 200))},
 		{"remove", removePath, fmt.Sprintf(`{"reason":"WORN","treadMm":"4.0","backdateReason":%q}`,

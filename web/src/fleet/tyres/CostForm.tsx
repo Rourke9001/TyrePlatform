@@ -20,10 +20,9 @@ const COST_WORDING = {
 // disabled one. Every rule about a re-costed or negative price is
 // app.set_tyre_cost's alone (ADR-0013 decision 5).
 //
-// onSuccess names nothing further: the confirmation this write earns lives at
-// the register, since costing a tyre clears its awaiting-cost flag and the
-// cell holding this form becomes a dash on the refetch, before anyone could
-// read a line left inside it.
+// onSuccess names nothing further: costing a tyre clears its awaiting-cost
+// flag and the cell holding this form becomes a dash on the refetch, so the
+// confirmation lives at the register (ActedOn in TyreList.tsx, NFR-USE-010).
 export function CostForm({
   tyre,
   tenantKey,

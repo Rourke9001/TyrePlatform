@@ -352,7 +352,8 @@ BEGIN
    WHERE f.id = p_fitment;
 
   -- A removed casing comes to rest at the unit's home depot: that is where
-  -- the workshop physically has it, and stock reports read current_depot_id.
+  -- the workshop physically has it, and stock reports read current_depot_id
+  -- (TYRE-92).
   SELECT v.home_depot_id INTO home FROM app.vehicle v WHERE v.id = fit.vehicle_id;
   UPDATE app.tyre t
      SET state            = 'REMOVED',
@@ -448,7 +449,7 @@ BEGIN
         MESSAGE = 'every move records its tread in millimetres, above 0 and at most 30';
     END IF;
     -- A rotation never displaces a tyre it was not told about: a target is
-    -- either empty or vacated by this same set of moves.
+    -- either empty or vacated by this same set of moves (FR-FIT-010).
     IF EXISTS (SELECT 1 FROM app.fitment f
                 WHERE f.vehicle_id = p_vehicle AND f.removed_at IS NULL
                   AND f.position_id = (m->>'to_position_id')::uuid
@@ -540,11 +541,8 @@ BEGIN
      WHERE t.id = mv.tid;
 
     SELECT p.code INTO to_code FROM app.position p WHERE p.id = mv.pid;
-    -- to_state repeats FITTED although the state has not changed: the
-    -- state_change_carries_to_state CHECK exempts only BRANDED and INSPECTED,
-    -- and app.tyre_in_estate_asof resolves a tyre from its latest to_state
-    -- event, so a rotation that carried none would hand the estate the
-    -- movement before it (FR-VAL-022).
+    -- to_state repeats FITTED although the state has not changed: unchanged
+    -- is not unsaid (000030's state_change_carries_to_state, FR-VAL-022).
     INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at,
                                 from_state, to_state, reason, payload)
     VALUES (app.current_tenant_id(), mv.tid, 'ROTATED', p_occurred_at,

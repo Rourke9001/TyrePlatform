@@ -26,11 +26,12 @@ const PAD = 6;
 // and bottom of the drawing — would have that half clipped by the viewBox,
 // and the selected position's heavier stroke would clip worse than the rest.
 const STROKE_MARGIN = 2;
-// Two slots deep is app.axle_slot's maximum (OUTER/INNER), so the axle stack
-// reaches a fixed distance either side of the chassis line whatever the unit
-// is. The drawing's own height is not fixed: the spare column runs downward
-// from the centre and a fleet's spare count is tenant data (FR-VEH-002), so
-// the viewBox holds whichever of the two stacks is taller.
+// Two slots deep is app.fitment_slot's maximum (SINGLE, or OUTER/INNER), so
+// the axle stack reaches a fixed distance either side of the chassis line
+// whatever the unit is. The drawing's own height is not fixed: the spare
+// column runs downward from the centre and a fleet's spare count is tenant
+// data (FR-VEH-002), so the viewBox holds whichever of the two stacks is
+// taller.
 const HALF_H = BEAM_GAP + 2 * POS_H + SLOT_GAP + STROKE_MARGIN;
 const AXLE_STACK_H = 2 * HALF_H;
 const CENTRE_Y = HALF_H;
