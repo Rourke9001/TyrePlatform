@@ -5734,5 +5734,247 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 45. TYRE-72: a rig is created once, ended once, and offered to the driver the same minute (FR-VEH-030/031, FR-INS-062, INV-4, U5-U9)'
+BEGIN;
+DO $$
+DECLARE
+  bac   uuid := '11111111-1111-1111-1111-111111111111';
+  h     uuid := md5('t45h')::uuid;   -- HORSE, heads the rig under test
+  hx    uuid := md5('t45hx')::uuid;  -- HORSE, never in a rig: the motive for every refusal probe
+  hz    uuid := md5('t45hz')::uuid;  -- LIGHT, never in a rig: the non-trailer a probe tries to tow
+  ta    uuid := md5('t45ta')::uuid;  -- TRAILER
+  tb    uuid := md5('t45tb')::uuid;  -- TRAILER
+  drv   uuid := md5('t45drv')::uuid;
+  ctl   uuid := md5('t45ctl')::uuid; -- planted, not assumed: created_by is a composite FK (000017)
+  cfg uuid; rig uuid; rig2 uuid; tz text; today date; r record; n int;
+  msg text; code text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  -- Every fixture unit is in comb1, so a refusal probe that borrows one meets
+  -- INV-4 before the rule it means to exercise. Each probe below names units
+  -- that are in no open rig, so the refusal it pins is the one it claims.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (h,  bac, 'T45-H',  'T45H GP',  cfg, 'HORSE',   'ACTIVE'),
+         (hx, bac, 'T45-HX', 'T45HX GP', cfg, 'HORSE',   'ACTIVE'),
+         (hz, bac, 'T45-HZ', 'T45HZ GP', cfg, 'LIGHT',   'ACTIVE'),
+         (ta, bac, 'T45-TA', 'T45TA GP', cfg, 'TRAILER', 'ACTIVE'),
+         (tb, bac, 'T45-TB', 'T45TB GP', cfg, 'TRAILER', 'PARKED');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (drv, bac, 't45drv@example.invalid', 'T45 Driver', 'DRIVER'),
+         (ctl, bac, 't45ctl@example.invalid', 'T45 Controller', 'CONTROLLER');
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+  VALUES (bac, h, drv, today);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+
+  -- (a) Create. The motive is member 1 (U7), the towed follow in the order
+  -- given, effective_from is now() for today (U8), and the driver assigned
+  -- to the horse can now read both trailers for capture (FR-AUT-005/D3).
+  rig := app.create_combination(h,
+           jsonb_build_array(jsonb_build_object('vehicle_id', ta, 'descriptor', 'front'),
+                             jsonb_build_object('vehicle_id', tb, 'descriptor', NULL)));
+  SELECT c.effective_from, c.effective_to, c.motive_vehicle_id INTO r FROM app.combination c WHERE c.id = rig;
+  IF r.motive_vehicle_id <> h OR r.effective_to IS NOT NULL
+     OR r.effective_from < now() - interval '5 seconds' OR r.effective_from > now() THEN
+    RAISE EXCEPTION 'FAIL 45a: rig row reads % / % / %', r.motive_vehicle_id, r.effective_from, r.effective_to;
+  END IF;
+  SELECT string_agg(cm.vehicle_id::text || ':' || cm.sequence || ':' || COALESCE(cm.descriptor, '-'), ',' ORDER BY cm.sequence)
+    INTO msg FROM app.combination_member cm WHERE cm.combination_id = rig;
+  IF msg <> h::text || ':1:-,' || ta::text || ':2:front,' || tb::text || ':3:-' THEN
+    RAISE EXCEPTION 'FAIL 45a: members read %', msg;
+  END IF;
+  PERFORM set_config('app.actor_id', drv::text, true);
+  SELECT count(*) INTO n FROM app.v_capture_vehicle cv WHERE cv.vehicle_id IN (h, ta, tb);
+  IF n <> 3 THEN
+    RAISE EXCEPTION 'FAIL 45a: the horse''s driver reads % of 3 rig units for capture', n;
+  END IF;
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  RAISE NOTICE 'PASS  45a a rig is created with the motive first and the driver reads its members';
+
+  -- (b) INV-4 through the function, naming the rig the trailer is in, and
+  -- through a raw insert, which meets the trigger backstop. The motive is
+  -- the free horse, so the refusal is the trailer's and not the motive's.
+  BEGIN
+    PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('vehicle_id', ta)));
+    RAISE EXCEPTION 'FAIL 45b: a trailer joined a second open rig';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'T45-TA is in the rig headed by T45-H; end that rig first' THEN
+      RAISE EXCEPTION 'FAIL 45b: wrong message %', msg;
+    END IF;
+  END;
+  BEGIN
+    INSERT INTO app.combination (id, tenant_id, motive_vehicle_id) VALUES (md5('t45raw')::uuid, bac, hx);
+    INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+    VALUES (bac, md5('t45raw')::uuid, ta, 2);
+    RAISE EXCEPTION 'FAIL 45b: a raw insert put a trailer in two open rigs';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  END;
+  RAISE NOTICE 'PASS  45b a unit is in at most one open rig, by function and by trigger (INV-4)';
+
+  -- (c) Kinds and shape (U9, U10). Every unit named here is in no open rig,
+  -- so INV-4 cannot be what refuses.
+  BEGIN
+    PERFORM app.create_combination(ta, jsonb_build_array(jsonb_build_object('vehicle_id', tb)));
+    RAISE EXCEPTION 'FAIL 45c: a trailer headed a rig';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a rig is headed by a horse, rigid or light vehicle; T45-TA is a trailer' THEN
+      RAISE EXCEPTION 'FAIL 45c: wrong message %', msg;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('vehicle_id', hz)));
+    RAISE EXCEPTION 'FAIL 45c: a light vehicle was towed';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'only a trailer is towed; T45-HZ is a light' THEN
+      RAISE EXCEPTION 'FAIL 45c: wrong message %', msg;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.create_combination(hx, '[]'::jsonb);
+    RAISE EXCEPTION 'FAIL 45c: a rig with nothing towed was created';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  END;
+  BEGIN
+    PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('vehicle_id', tb), jsonb_build_object('vehicle_id', tb)));
+    RAISE EXCEPTION 'FAIL 45c: a trailer was named twice';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'T45-TB is named twice in this rig' THEN
+      RAISE EXCEPTION 'FAIL 45c: wrong message %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  45c a rig is a horse, rigid or light unit towing distinct trailers';
+
+  -- (d) The date rule (U8): tomorrow is refused; yesterday is tenant-local
+  -- midnight, never a bare cast. Needs a free horse: end (a)'s rig first
+  -- at (e) below, so this probe uses a second horse.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (md5('t45h2')::uuid, bac, 'T45-H2', 'T45H2 GP', cfg, 'RIGID', 'ACTIVE'),
+         (md5('t45tc')::uuid, bac, 'T45-TC', 'T45TC GP', cfg, 'TRAILER', 'ACTIVE');
+  BEGIN
+    PERFORM app.create_combination(md5('t45h2')::uuid,
+              jsonb_build_array(jsonb_build_object('vehicle_id', md5('t45tc')::uuid)), today + 1);
+    RAISE EXCEPTION 'FAIL 45d: a rig was set for tomorrow';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  END;
+  rig2 := app.create_combination(md5('t45h2')::uuid,
+            jsonb_build_array(jsonb_build_object('vehicle_id', md5('t45tc')::uuid)), today - 1);
+  SELECT c.effective_from INTO r FROM app.combination c WHERE c.id = rig2;
+  IF r.effective_from <> ((today - 1)::timestamp AT TIME ZONE tz) THEN
+    RAISE EXCEPTION 'FAIL 45d: a rig set yesterday starts at %, not tenant-local midnight', r.effective_from;
+  END IF;
+  RAISE NOTICE 'PASS  45d a rig starts today at now() or on an earlier day at tenant-local midnight, never tomorrow';
+
+  -- (e) End: effective_to is stamped, the capture read narrows, the trailer
+  -- is free to join another rig, and ending twice or before the start is
+  -- refused.
+  BEGIN
+    PERFORM app.end_combination(rig, today - 1);
+    RAISE EXCEPTION 'FAIL 45e: a rig ended before it started';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  END;
+  PERFORM app.end_combination(rig);
+  SELECT c.effective_to INTO r FROM app.combination c WHERE c.id = rig;
+  IF r.effective_to IS NULL OR r.effective_to > now() THEN
+    RAISE EXCEPTION 'FAIL 45e: effective_to reads %', r.effective_to;
+  END IF;
+  BEGIN
+    PERFORM app.end_combination(rig);
+    RAISE EXCEPTION 'FAIL 45e: an ended rig was ended again';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  END;
+  PERFORM set_config('app.actor_id', drv::text, true);
+  SELECT count(*) INTO n FROM app.v_capture_vehicle cv WHERE cv.vehicle_id IN (ta, tb);
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 45e: the driver still reads % trailer(s) of an ended rig', n;
+  END IF;
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', ta)));
+  -- A start before the previous membership's end is refused, not clamped:
+  -- T45-TB left (a)'s rig at now(), so a rig starting yesterday cannot hold
+  -- it. The free horse heads the probe so the refusal is the trailer's.
+  BEGIN
+    PERFORM app.create_combination(hx,
+              jsonb_build_array(jsonb_build_object('vehicle_id', tb)), today - 1);
+    RAISE EXCEPTION 'FAIL 45e: a rig started before its trailer left the last one';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'T45-TB left the rig headed by T45-H on %; this rig cannot start before that' THEN
+      RAISE EXCEPTION 'FAIL 45e: wrong message %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  45e a rig ends once, frees its trailers, and history stays in order';
+
+  -- (f) Written once (U6): an open rig only ends; an ended rig is frozen;
+  -- a member row is never updated (revoked) and never deleted (000018).
+  SELECT c.id INTO rig2 FROM app.combination c WHERE c.motive_vehicle_id = h AND c.effective_to IS NULL;
+  BEGIN
+    UPDATE app.combination SET motive_vehicle_id = md5('veh1')::uuid WHERE id = rig2;
+    RAISE EXCEPTION 'FAIL 45f: an open rig''s motive was edited';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  END;
+  BEGIN
+    UPDATE app.combination SET effective_to = NULL WHERE id = rig;
+    RAISE EXCEPTION 'FAIL 45f: an ended rig was reopened';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN NULL;
+  END;
+  BEGIN
+    UPDATE app.combination_member SET sequence = 9 WHERE combination_id = rig2;
+    RAISE EXCEPTION 'FAIL 45f: app role can UPDATE app.combination_member';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM app.combination_member WHERE combination_id = rig2;
+    RAISE EXCEPTION 'FAIL 45f: app role can DELETE app.combination_member';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  RAISE NOTICE 'PASS  45f a rig is written once and ended once; members are never rewritten';
+
+  -- (g) Cross-tenant, through both functions, with the pinned messages: the
+  -- same two calls succeed for the owning tenant immediately after, so a
+  -- leak here would have succeeded, not merely reworded. h and ta are
+  -- excluded as probe units: both are members of the open rig re-created at
+  -- 45e, so a create naming either meets INV-4 for the owning tenant too and
+  -- a leak would surface as an uncaught TY017 rather than as a success; hx
+  -- and tb are free (tb's yesterday probe at 45e was refused) and stay free
+  -- until the control below.
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  BEGIN
+    PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('vehicle_id', tb)));
+    RAISE EXCEPTION 'FAIL 45g: tenant 2 set a rig on tenant 1''s horse';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'no such unit in this fleet' THEN RAISE EXCEPTION 'FAIL 45g: wrong message %', msg; END IF;
+  END;
+  BEGIN
+    PERFORM app.end_combination(rig2);
+    RAISE EXCEPTION 'FAIL 45g: tenant 2 ended tenant 1''s rig';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'no such rig in this fleet' THEN RAISE EXCEPTION 'FAIL 45g: wrong message %', msg; END IF;
+  END;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM app.create_combination(hx, jsonb_build_array(jsonb_build_object('vehicle_id', tb)));
+  PERFORM app.end_combination(rig2);
+  RAISE NOTICE 'PASS  45g another tenant''s units and rigs do not exist here';
+
+  -- (h) Audited (ADR-0014, U12): the create wrote INSERT rows for the rig
+  -- and each member under the bound actor; the end wrote an UPDATE row.
+  SELECT count(*) INTO n FROM app.audit_log a
+   WHERE a.entity_type = 'combination' AND a.entity_id = rig AND a.actor_id = ctl;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 45h: % audit rows for the rig, expected INSERT and UPDATE', n; END IF;
+  SELECT count(*) INTO n FROM app.audit_log a
+   WHERE a.entity_type = 'combination_member' AND a.action = 'INSERT'
+     AND a.entity_id IN (SELECT cm.id FROM app.combination_member cm WHERE cm.combination_id = rig);
+  IF n <> 3 THEN RAISE EXCEPTION 'FAIL 45h: % member audit rows, expected 3', n; END IF;
+  RAISE NOTICE 'PASS  45h a rig''s creation and its end are audited';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
