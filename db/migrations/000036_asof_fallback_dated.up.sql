@@ -14,11 +14,14 @@
 -- What the guard compares, stated precisely because the two clocks differ:
 -- the stored event INSTANT against bound.ts, the UTC day edge this function
 -- already slices every one of its other joins at. It is not a comparison of
--- tenant calendar dates. For an event stamped at tenant-zone midnight east of
--- UTC — which is what a backdated fit, removal or return produces (000033,
--- 000034) — that instant falls in the PREVIOUS UTC day, so the fallback can
--- price the UTC day before the tenant date the workshop entered. One day, in
--- one direction, for backdated events only. The over-reach is inherited, not
+-- tenant calendar dates. Any event whose instant falls in a different UTC day
+-- from its tenant date is priced from that UTC day: east of UTC that is every
+-- instant in the tenant's first offset hours — a return logged at 01:30 SAST
+-- stamps in the previous UTC day — and the guaranteed case is a backdated
+-- dispatch or return, which 000033/000034 stamp at tenant-zone midnight. A
+-- fit, removal or rotation carries the client's own instant (p_occurred_at)
+-- and is exposed the same way whenever that instant lands there. One day, in
+-- one direction. The over-reach is inherited, not
 -- introduced here: bound.ts, the reading join and the fitment join's
 -- fitted_at all carry it from 000013, and closing it means giving the
 -- function the tenant's calendar rather than a new predicate on this column.
