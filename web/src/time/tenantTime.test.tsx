@@ -125,7 +125,7 @@ describe("useTenantDate", () => {
 
   function withActor(actor: Me | null, settled: boolean) {
     return function Wrapper({ children }: { children: ReactNode }) {
-      return <ActorContext value={{ actor, settled }}>{children}</ActorContext>;
+      return <ActorContext.Provider value={{ actor, settled }}>{children}</ActorContext.Provider>;
     };
   }
 

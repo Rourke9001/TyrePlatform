@@ -6,6 +6,8 @@ const v = (fleetNumber: string, registration: string | null): Vehicle => ({
   id: fleetNumber,
   fleetNumber,
   registration,
+  unitKind: "HORSE",
+  status: "ACTIVE",
 });
 
 const fleet = [

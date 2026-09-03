@@ -42,11 +42,11 @@ afterEach(() => {
 function renderAt(path: string, me: Me) {
   render(
     <QueryClientProvider client={testQueryClient()}>
-      <ActorContext value={{ actor: me, settled: true }}>
+      <ActorContext.Provider value={{ actor: me, settled: true }}>
         <MemoryRouter initialEntries={[path]}>
           <AppRoutes />
         </MemoryRouter>
-      </ActorContext>
+      </ActorContext.Provider>
     </QueryClientProvider>,
   );
 }

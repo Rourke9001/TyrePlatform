@@ -39,12 +39,14 @@ export function retreadJobsKey(tenantKey: string): QueryKey {
   return ["retread-jobs", tenantKey];
 }
 
-// The fleet unit list (dashboard/VehicleList.tsx), which shows fleet number
-// and registration and is unrelated to any query this screen owns. A status
-// change or a descriptive edit changes what that row shows, and the same
-// reasoning that added openFitmentsKey applies verbatim: a key only the list
-// itself named would leave it showing the old value for as long as gcTime
-// holds the entry.
+// Same reasoning as openFitmentsKey above: a status change or a descriptive
+// edit changes what VehicleList shows.
 export function vehiclesKey(tenantKey: string): QueryKey {
   return ["vehicles", tenantKey];
+}
+
+// Same reasoning as openFitmentsKey above: a create or an end changes what
+// the Rigs screen shows (D5).
+export function rigsKey(tenantKey: string): QueryKey {
+  return ["rigs", tenantKey];
 }

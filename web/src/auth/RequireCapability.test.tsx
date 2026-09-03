@@ -12,11 +12,11 @@ const actor = (capabilities: string[]): Me =>
 describe("RequireCapability", () => {
   it("renders its children when the actor holds the capability", () => {
     render(
-      <ActorContext value={{ actor: actor(["ManageAssets"]), settled: true }}>
+      <ActorContext.Provider value={{ actor: actor(["ManageAssets"]), settled: true }}>
         <RequireCapability capability="ManageAssets">
           <p>asset tools</p>
         </RequireCapability>
-      </ActorContext>,
+      </ActorContext.Provider>,
     );
     expect(screen.getByText("asset tools")).toBeDefined();
   });
@@ -25,22 +25,22 @@ describe("RequireCapability", () => {
   // must be silent rather than an error the user has to read.
   it("renders nothing when the actor does not", () => {
     render(
-      <ActorContext value={{ actor: actor(["CaptureInspection"]), settled: true }}>
+      <ActorContext.Provider value={{ actor: actor(["CaptureInspection"]), settled: true }}>
         <RequireCapability capability="ManageAssets">
           <p>asset tools</p>
         </RequireCapability>
-      </ActorContext>,
+      </ActorContext.Provider>,
     );
     expect(screen.queryByText("asset tools")).toBeNull();
   });
 
   it("renders nothing while the actor is still unknown", () => {
     render(
-      <ActorContext value={{ actor: null, settled: false }}>
+      <ActorContext.Provider value={{ actor: null, settled: false }}>
         <RequireCapability capability="ManageAssets">
           <p>asset tools</p>
         </RequireCapability>
-      </ActorContext>,
+      </ActorContext.Provider>,
     );
     expect(screen.queryByText("asset tools")).toBeNull();
   });
