@@ -202,6 +202,89 @@ describe("a position panel", () => {
     });
   });
 
+  // D13: nobody touching the radios is a fit nobody asserted an orientation
+  // for, and the fitment row is immutable — MARK_OUTBOARD must never be the
+  // default the write carries.
+  it("sends UNKNOWN orientation when the radios are never touched", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(unitPosition({ id: "p1", code: "POS1" }), { id: "u9", hasOdometer: false });
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+    await waitFor(() => {
+      expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThan(1);
+    });
+    expect(sentBody(1)).toMatchObject({ mountOrientation: "UNKNOWN" });
+  });
+
+  // Odometer is asked for but not guarded like the tread is: readOdometer
+  // reads a blank as "no value", so without this check a blank field on a
+  // unit that requires the reading would pass silently and round-trip to a
+  // TY009 the server has to speak instead.
+  it("refuses a fit with a blank odometer on a unit that has one, without sending it", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(unitPosition({ id: "p1", code: "POS1" }), { hasOdometer: true });
+
+    await screen.findByRole("option", { name: "TY007" });
+    await user.selectOptions(screen.getByRole("combobox", { name: "Tyre" }), "t7");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "15.5");
+    // Whitespace-only: the field is `required`, which a blank value fails in
+    // jsdom before the submit handler runs at all, so this is the only way to
+    // reach the guard itself rather than the browser's own validation.
+    await user.type(screen.getByRole("textbox", { name: "Odometer" }), "   ");
+    await user.click(screen.getByRole("button", { name: "Fit tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Enter the odometer");
+    // One call, the register read: no fit was sent.
+    expect(vi.mocked(fetch).mock.calls.length).toBe(1);
+  });
+
+  // A background refetch (window focus, another write's invalidation) can
+  // swap the occupant of a position out from under a half-typed removal.
+  // Readings typed for the old fitment must never survive to close a
+  // different one.
+  it("clears the removal form's fields when the occupied fitment changes under it", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    const client = testQueryClient();
+    const f1 = unitPosition({
+      id: "p2",
+      code: "POS2",
+      fitment: openFitment({ fitmentId: "f1", displayCode: "TY001" }),
+    });
+    const u = unit({ hasOdometer: true, removalReasons: ["Worn out"], positions: [f1] });
+    const tree = (position: UnitPosition) => (
+      <ActorContext.Provider
+        value={{ actor: me({ capabilities: ["ManageAssets"] }), settled: true }}
+      >
+        <QueryClientProvider client={client}>
+          <PositionPanel unit={u} position={position} />
+        </QueryClientProvider>
+      </ActorContext.Provider>
+    );
+    const { rerender } = render(tree(f1));
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    await user.type(screen.getByRole("textbox", { name: "Odometer" }), "123456");
+
+    const f2 = unitPosition({
+      id: "p2",
+      code: "POS2",
+      fitment: openFitment({ fitmentId: "f2", displayCode: "TY002" }),
+    });
+    rerender(tree(f2));
+
+    expect(screen.getByRole("combobox", { name: "Reason" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Tread (mm)" })).toHaveValue("");
+    expect(screen.getByRole("textbox", { name: "Odometer" })).toHaveValue("");
+  });
+
   it("shows a fit's warnings as status text, never as a refusal", async () => {
     stubFetch({
       fitmentId: "f9",

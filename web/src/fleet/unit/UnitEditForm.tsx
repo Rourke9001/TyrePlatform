@@ -5,7 +5,7 @@ import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { fetchDepots, patchUnit, type Unit, type UnitPatch } from "../../api/units";
 import { useFormMutation } from "../useFormMutation";
-import { depotsKey, unitKey } from "./queryKeys";
+import { depotsKey, unitKey, vehiclesKey } from "./queryKeys";
 
 const EDIT_WORDING = {
   speakable: ["fleet_number_taken"],
@@ -94,7 +94,7 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
       sentPatch.current = body;
       return patchUnit(unit.id, body);
     },
-    invalidate: [unitKey(unit.id)],
+    invalidate: [unitKey(unit.id), vehiclesKey(tenantKey)],
     onSuccess: () => {
       if (sentPatch.current !== null) seed.current = withSaved(seed.current, sentPatch.current);
       sentPatch.current = null;

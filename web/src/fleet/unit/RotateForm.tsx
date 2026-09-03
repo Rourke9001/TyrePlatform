@@ -4,7 +4,7 @@ import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { rotateTyres, type RotationMove, type Unit } from "../../api/units";
 import { useFormMutation } from "../useFormMutation";
-import { ODOMETER_REFUSAL, readOdometer } from "./odometer";
+import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
 import { openFitmentsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 
 // app.rotate_tyres refuses the whole set or none of it, and the codes it can
@@ -69,6 +69,10 @@ export function RotateForm({ unit }: { unit: Unit }) {
         return;
       }
       moves.push({ tyreId: position.fitment.tyreId, toPositionId: target, treadMm: tread });
+    }
+    if (unit.hasOdometer && odometer.trim() === "") {
+      setRefused(ODOMETER_REQUIRED);
+      return;
     }
     const reading = readOdometer(unit.hasOdometer ? odometer : "");
     if (!reading.ok) {

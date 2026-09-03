@@ -1,9 +1,10 @@
 import { type FormEvent, useState } from "react";
 
+import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { setUnitStatus, type Unit } from "../../api/units";
 import { useFormMutation } from "../useFormMutation";
-import { unitKey } from "./queryKeys";
+import { unitKey, vehiclesKey } from "./queryKeys";
 import { UNIT_STATUSES } from "./vocabulary";
 
 // TY016 is the disposal of a unit that still carries tyres, and it names the
@@ -21,12 +22,13 @@ const STATUS_WORDING = {
 // app.set_vehicle_status' rule, so this offers all six and lets the refusal
 // explain (ADR-0013 decision 5).
 export function UnitStatusForm({ unit }: { unit: Unit }) {
+  const tenantKey = getDevTenantId() ?? "default";
   const [status, setStatus] = useState(unit.status);
   const [reason, setReason] = useState("");
 
   const change = useFormMutation({
     mutate: (vars: { status: string; reason?: string }) => setUnitStatus(unit.id, vars),
-    invalidate: [unitKey(unit.id)],
+    invalidate: [unitKey(unit.id), vehiclesKey(tenantKey)],
     onSuccess: () => {
       setReason("");
     },

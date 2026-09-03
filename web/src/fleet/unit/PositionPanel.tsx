@@ -16,7 +16,7 @@ import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { useFormMutation } from "../useFormMutation";
 import { byNaturalCode } from "./naturalOrder";
-import { ODOMETER_REFUSAL, readOdometer } from "./odometer";
+import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { MOUNT_ORIENTATIONS, orientationLabel } from "./vocabulary";
 
@@ -60,7 +60,12 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
 
   const [tyreId, setTyreId] = useState("");
   const [fitTread, setFitTread] = useState("");
-  const [orientation, setOrientation] = useState(MOUNT_ORIENTATIONS[0].value);
+  // D13: an unasserted orientation is recorded as UNKNOWN, never guessed —
+  // mountOrientation is a required field on the wire (fitTyreRequest.validate,
+  // fitments.go) so whatever this holds at submit is written to an immutable
+  // row (rule 3), and a default of MARK_OUTBOARD would record a positive
+  // mounting fact nobody asserted.
+  const [orientation, setOrientation] = useState("UNKNOWN");
   const [fitOdometer, setFitOdometer] = useState("");
   const [reason, setReason] = useState("");
   const [removeTread, setRemoveTread] = useState("");
@@ -84,6 +89,23 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   // `acted`, so a standing confirmation never sits beside the sentence saying
   // the next attempt went nowhere.
   const [refused, setRefused] = useState("");
+
+  // The removal form's own fields, reset during render rather than in an
+  // effect (react-hooks/set-state-in-effect) — an extra commit is not needed
+  // to derive this state from a prop. A background refetch (window focus, or
+  // any write's invalidation) can swap the occupant of this position out from
+  // under a half-typed removal, and readings typed for the old fitment must
+  // never close a different one (the fitment closed is read off
+  // `position.fitment` at submit, not carried in state).
+  const currentFitmentId = position.fitment?.fitmentId ?? null;
+  const [seenFitmentId, setSeenFitmentId] = useState(currentFitmentId);
+  if (seenFitmentId !== currentFitmentId) {
+    setSeenFitmentId(currentFitmentId);
+    setReason("");
+    setRemoveTread("");
+    setRemoveOdometer("");
+    setRefused("");
+  }
 
   // GET /api/tyres takes no state parameter (fetchTyres' own options are code,
   // on and awaitingCost), so the register is read whole and narrowed to stock
@@ -143,6 +165,11 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   function submitFit(e: FormEvent) {
     e.preventDefault();
     if (tyreId === "" || fitTread.trim() === "") return;
+    if (unit.hasOdometer && fitOdometer.trim() === "") {
+      setRefused(ODOMETER_REQUIRED);
+      setActed(null);
+      return;
+    }
     const odometer = readOdometer(unit.hasOdometer ? fitOdometer : "");
     if (!odometer.ok) {
       setRefused(ODOMETER_REFUSAL);
@@ -168,6 +195,11 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
     e.preventDefault();
     const open = position.fitment;
     if (open === null || reason === "" || removeTread.trim() === "") return;
+    if (unit.hasOdometer && removeOdometer.trim() === "") {
+      setRefused(ODOMETER_REQUIRED);
+      setActed(null);
+      return;
+    }
     const odometer = readOdometer(unit.hasOdometer ? removeOdometer : "");
     if (!odometer.ok) {
       setRefused(ODOMETER_REFUSAL);
