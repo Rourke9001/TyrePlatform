@@ -96,7 +96,8 @@ them:
    already applied — so they answer with the same code, `TY007`. A distinct
    code for the Go-side path would let two roles learn different things about
    the same vehicle, which is the distinction ADR-0011 exists to deny.
-2. **`TY008` and `TY009` are deliberately absent** from `submitStatus`.
+2. **`TY008` and `TY009` are deliberately absent** from `submitStatus`
+   *(TY009 amended 2026-09-03 — see the amendment below)*.
    Neither is reachable through any endpoint that exists today — `TY008`
    fires on a `vehicle.configuration_id` change with history present,
    `TY009` on a fitment whose unit kind carries an odometer, and each needs
@@ -116,9 +117,9 @@ The code table:
 
 | Source | `code` | Status |
 | --- | --- | --- |
-| Database, named refusals | `TY003`..`TY007`, verbatim | 409 / 422 |
+| Database, named refusals | `TY003`..`TY016` (`TY008`, `TY010` excepted), verbatim | 409 / 422 |
 | Database, integrity classes `23502` `23503` `23514` `22P02` `22023` | `invalid_submission` | 422 |
-| Database, other unique violation `23505` | `conflict` | 409 |
+| Database, other unique violation `23505`, and `23P01` (`vehicle_driver_no_overlap`, 000026) | `conflict` | 409 |
 | `errVehicleNotVisible` (Go scope check) | `TY007` | 422 |
 
 | Site | `code` | Status |

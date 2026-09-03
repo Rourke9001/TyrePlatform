@@ -396,7 +396,7 @@ section warns against.
   slice 1's design doc §Out-of-scope table first — it names what was
   deliberately deferred and to which ticket.
 
-  **Slice 2 — delivered 2026-09-03 (TYRE-92/93/94/48, PR TBD).** Plan and
+  **Slice 2 — delivered 2026-09-03 (TYRE-92/93/94/48, PR #41).** Plan and
   design at `docs/superpowers/plans/2026-09-01-b5-fitment-surface.md` and
   `docs/superpowers/specs/2026-09-01-b5-fitment-surface-design.md`; branch
   `TYRE-92-fitment-surface`.
@@ -407,7 +407,7 @@ section warns against.
   | `000033_fitment_functions` | the fitment lifecycle functions — fit, remove, rotate, dispatch, return |
   | `000034_log_retread_return` | a retread return propagates to the tyre — the cap and the rejected-casing valuation |
   | `000035_vehicle_status_and_audit` | unit status transitions, audited per ADR-0014 |
-  | `000036` | not present at this branch's HEAD (`c8b5be5`) — landing in parallel on the DB agent's wave; the as-at valuation fallback honouring `last_tread_at`, per that wave's brief |
+  | `000036_asof_fallback_dated` | the as-at register's `last_tread_mm` fallback applies only when `last_tread_at` is NULL or not after the as-at bound — U10's money change over the merged `000013` function, reversible in one migration. The comparison is against `bound.ts`'s UTC day edge, not the tenant calendar; that residual over-reach is inherited from `000013` and ticketed as TYRE-123 |
 
   Thirteen routes reach `/api` for the first time in this slice: the unit
   read and its PATCH (`GET`/`PATCH /vehicles/{id}`), status transitions
