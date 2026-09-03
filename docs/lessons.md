@@ -15,6 +15,26 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-03 — A "later write predates an earlier one" refusal in an untouched e2e step is the Docker VM clock (TYRE-72)
+
+**What happened:** four full `make e2e` runs each failed one spec, never the
+same one and never one the branch touched. The decisive one was
+`fitments.spec.ts`: `TY012 this tyre was fitted at 19:31:05.13; a removal
+cannot predate its own fitment` on a removal posted 1.2 s after the rotation
+that opened the fitment, with neither side sending an instant — both were
+`now()`. `docker exec tyre-pg date` against the host drifted by up to a second
+between samples eight seconds apart (-0.72, -0.03, -0.35, -0.65, +0.02, -0.33 s)
+while `w32tm` showed the host itself steady; `hwclock -s` in the docker-desktop
+distro and a Docker Desktop restart did not settle it. Forty minutes went on
+reading fitment SQL that was correct.
+
+**The rule:** when an e2e refusal says a later event predates an earlier one,
+or a date step fails on a spec the branch did not touch, compare the
+container clock to the host before opening the code:
+`docker exec tyre-pg date -u +%s.%N; date -u +%s.%N` a few times. A jitter of
+tenths of a second between samples is the WSL 2 VM clock, seen after a PC
+restart; take CI's Browser smoke job as the e2e line and say so in the PR.
+
 ## 2026-09-03 — A gate run in the background ends a subagent's turn before the result exists (TYRE-72)
 
 **What happened:** an implementer subagent started `make e2e` and later
