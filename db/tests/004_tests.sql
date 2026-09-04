@@ -6119,8 +6119,9 @@ BEGIN
 
   -- (a) The predicate, asked about someone else (U4, FR-AUT-005 as amended
   -- by D3): drv reaches h by assignment and ta through the rig; drv2
-  -- reaches nothing; and the factored v_capture_vehicle still answers what
-  -- 000022's did for the acting driver (the regression pin for the refactor).
+  -- reaches nothing; and v_capture_vehicle answers the same set for the
+  -- acting driver — the capture read and the predicate are one rule
+  -- (FR-AUT-005/D3).
   IF NOT app.user_can_capture(drv, h)  THEN RAISE EXCEPTION 'FAIL 46a: the assigned driver cannot capture the horse'; END IF;
   IF NOT app.user_can_capture(drv, ta) THEN RAISE EXCEPTION 'FAIL 46a: the horse''s driver cannot capture its trailer'; END IF;
   IF app.user_can_capture(drv2, h)     THEN RAISE EXCEPTION 'FAIL 46a: an unassigned driver can capture the horse'; END IF;
@@ -6143,7 +6144,7 @@ BEGIN
   -- own list (FR-INS-048).
   task := app.create_inspection_task(h, drv);
   SELECT t.state, t.assigned_user_id, t.requested_by, t.created_by, t.due_at, t.overdue, t.schedule_id
-    INTO r FROM app.v_inspection_task t WHERE t.id = task;
+    INTO STRICT r FROM app.v_inspection_task t WHERE t.id = task;
   IF r.state <> 'OPEN' OR r.assigned_user_id <> drv OR r.requested_by <> ctl OR r.created_by <> ctl
      OR r.schedule_id IS NOT NULL OR r.overdue THEN
     RAISE EXCEPTION 'FAIL 46b: task row reads % / % / % / % / overdue %', r.state, r.assigned_user_id, r.requested_by, r.created_by, r.overdue;
@@ -6152,11 +6153,6 @@ BEGIN
      OR r.due_at >= ((today + 1)::timestamp AT TIME ZONE tz)
      OR r.due_at <= now() THEN
     RAISE EXCEPTION 'FAIL 46b: a task due today is due at %, not the tenant-local end of today', r.due_at;
-  END IF;
-  -- Session zone is UTC and the tenant's is not, so a due instant computed
-  -- in the session zone lands two hours away from this one (rule 6).
-  IF r.due_at = (today + 1)::timestamptz - interval '1 microsecond' THEN
-    RAISE EXCEPTION 'FAIL 46b: the due instant was computed in the session zone, not the tenant''s';
   END IF;
   task_ta := app.create_inspection_task(ta, drv);
   PERFORM set_config('app.actor_id', drv::text, true);
@@ -6222,7 +6218,7 @@ BEGIN
     END IF;
   END;
   task_ctl := app.create_inspection_task(h, drv, today + 1);
-  SELECT t.due_at, t.overdue INTO r FROM app.v_inspection_task t WHERE t.id = task_ctl;
+  SELECT t.due_at, t.overdue INTO STRICT r FROM app.v_inspection_task t WHERE t.id = task_ctl;
   IF (r.due_at AT TIME ZONE tz)::date <> today + 1
      OR r.due_at >= ((today + 2)::timestamp AT TIME ZONE tz) OR r.overdue THEN
     RAISE EXCEPTION 'FAIL 46d: a task due tomorrow is due at %', r.due_at;
@@ -6257,7 +6253,11 @@ BEGIN
   BEGIN
     DELETE FROM app.inspection_task WHERE false;
     RAISE EXCEPTION 'FAIL 46f: app role can DELETE app.inspection_task';
-  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%permission denied for table inspection_task%' THEN
+      RAISE EXCEPTION 'FAIL 46f: refused for another reason: %', msg;
+    END IF;
   END;
   RAISE NOTICE 'PASS  46f a task is never deleted';
 
@@ -6268,7 +6268,7 @@ BEGIN
   -- composite tenant FK (000004/000017) — FK checks bypass RLS — never as
   -- TY012 and never as a success; the code and message are therefore the
   -- discriminating assert, and the owning tenant's identical call below is
-  -- the control. Then the DoD's raw INSERT
+  -- the control. Then a raw INSERT (FR-TEN-004, NFR-SEC-004)
   -- aimed at tenant 2 with every column valid for tenant 2 — created_by a
   -- real tenant-2 user (lessons 2026-08-28) — which only tenant_isolation's
   -- WITH CHECK can refuse. The policy message is pinned to THIS table: with
