@@ -13,6 +13,18 @@ export function unitFitmentsKey(unitId: string): QueryKey {
   return ["unit-fitments", unitId];
 }
 
+// Both keyed by unit id like unitFitmentsKey above: the schedule write
+// invalidates both, and a rig change or a new assignment also changes the
+// drivers list, which is why the key is per unit and refetched on mount
+// rather than held.
+export function unitDriversKey(unitId: string): QueryKey {
+  return ["unit-drivers", unitId];
+}
+
+export function unitTasksKey(unitId: string): QueryKey {
+  return ["unit-tasks", unitId];
+}
+
 // A prefix, not a whole key: TyreList's own query carries its filter object
 // as a third element (fleet/tyres/TyreList.tsx), and invalidating the prefix
 // reaches that query and this screen's stock read together. A key spelled to
