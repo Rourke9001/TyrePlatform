@@ -44,9 +44,8 @@ export function ScheduleInspectionForm({ unit }: { unit: Unit }) {
     e.preventDefault();
     if (assigneeId === "") return;
     const body: NewTask = { assigneeUserId: assigneeId };
-    // Never the browser's "today" (rule 6, lessons 2026-09-03): an empty
-    // date omits dueOn entirely so the server resolves it in the tenant's
-    // own zone.
+    // Same reasoning as RigForm's effectiveOn: an empty date omits dueOn so
+    // the server resolves the tenant's today (rule 6).
     if (dueOn.trim() !== "") {
       body.dueOn = dueOn;
     }

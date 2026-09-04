@@ -135,12 +135,13 @@ describe("scheduling an inspection", () => {
   });
 
   // The date renders through the tenant zone (me()'s Africa/Johannesburg),
-  // not the browser's — 2026-09-04T21:59:59Z is still 04 Sep there.
+  // not the browser's — 2026-09-04T21:59:59Z is still the 4th there.
   it("confirms the scheduled inspection through the tenant zone, and resets the driver select", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, [driver({ userId: "d1" })]));
     renderForm();
     await screen.findByRole("option", { name: "Sandbox Driver" });
     await userEvent.selectOptions(screen.getByLabelText(/^driver$/i), "d1");
+    fireEvent.change(screen.getByLabelText(/^due$/i), { target: { value: "2026-09-10" } });
 
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(
@@ -154,6 +155,7 @@ describe("scheduling an inspection", () => {
     // en-ZA's short month for September is "Sept", not "Sep" (RigList.test.tsx).
     expect(status).toHaveTextContent("Inspection scheduled for Sandbox Driver, due 04 Sept 2026.");
     expect(screen.getByLabelText(/^driver$/i)).toHaveValue("");
+    expect(screen.getByLabelText(/^due$/i)).toHaveValue("");
   });
 
   it("speaks a TY018 refusal in role=alert", async () => {
