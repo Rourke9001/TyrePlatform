@@ -132,6 +132,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Post("/vehicles/{vehicleID}/rotations", rotateTyres(s))
 		r.Post("/users", createUser(s))
 		r.Post("/vehicles/{vehicleID}/drivers", assignDriver(s))
+		r.Post("/vehicles/{vehicleID}/inspection-tasks", scheduleInspectionTask(s))
 		r.Post("/combinations", createCombination(s))
 		r.Post("/combinations/{combinationID}/end", endCombination(s))
 	})

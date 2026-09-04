@@ -176,3 +176,62 @@ func listUnitTasks(s *store.Store) http.HandlerFunc {
 		writeJSON(ctx, w, out)
 	}
 }
+
+type scheduleTaskRequest struct {
+	AssigneeUserID string `json:"assigneeUserId"`
+	// Omitted means the tenant's today, resolved by app.create_inspection_task
+	// in the tenant's own zone; a Go clock's today is the runner's day, not
+	// the fleet's (rule 6, lessons 2026-09-03).
+	DueOn *string `json:"dueOn"`
+}
+
+// scheduleInspectionTask is FR-INS-051's write. The task it answers with is
+// read back through loadUnitTasks rather than assembled from the request, so
+// the caller sees the row as stored — the due instant the tenant's zone
+// resolved, and overdue as the view computes it.
+func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		vehicleID, ok := pathID(w, r, "vehicleID")
+		if !ok {
+			return
+		}
+		var body scheduleTaskRequest
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		assignee, err := uuidField("assigneeUserId", body.AssigneeUserID)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		dueOn, err := dateField("dueOn", body.DueOn)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		var task unitTaskJSON
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageAssignments); err != nil {
+				return err
+			}
+			var taskID uuid.UUID
+			if err := tx.QueryRow(ctx,
+				`SELECT app.create_inspection_task($1, $2, $3::date)`,
+				vehicleID, assignee, dueOn).Scan(&taskID); err != nil {
+				return fmt.Errorf("scheduling inspection on unit %s: %w", vehicleID, err)
+			}
+			created, err := loadUnitTasks(ctx, tx, nil, &taskID)
+			if err != nil {
+				return fmt.Errorf("reading back task %s: %w", taskID, err)
+			}
+			if len(created) != 1 {
+				return fmt.Errorf("reading back task %s: %d rows", taskID, len(created))
+			}
+			task = created[0]
+			return nil
+		})
+		if !ok {
+			return
+		}
+		writeStatus(ctx, w, http.StatusCreated, task)
+	}
+}
