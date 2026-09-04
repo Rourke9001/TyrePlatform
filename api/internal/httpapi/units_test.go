@@ -442,7 +442,8 @@ type depotBody struct {
 }
 
 // GET /api/depots?type= narrows to the named app.depot_type, always active
-// only, and refuses a value outside the enum before a transaction opens.
+// only, and refuses a value outside the enum as the cast's own 22P02, never
+// a Go copy of app.depot_type (TYRE-128 decision 7).
 func TestDepotsFilterByType(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -469,8 +470,12 @@ func TestDepotsFilterByType(t *testing.T) {
 	require.Equal(t, "Retreader One", depots[0].Name)
 	require.Equal(t, "RETREADER", depots[0].Type)
 
-	require.Equal(t, http.StatusBadRequest,
-		get(t, h, "/api/depots?type=NOT_A_TYPE", tenantID.String(), controller.String()).Code)
+	rec = get(t, h, "/api/depots?type=NOT_A_TYPE", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code,
+		"TYRE-128 decision 7: the enum cast answers 22P02, mapped in submitStatus; Go holds no copy")
 }
 
 // A DRIVER holds CaptureInspection alone, never ViewFleet, so the unit read

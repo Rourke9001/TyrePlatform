@@ -125,16 +125,6 @@ type depotJSON struct {
 	Type string `json:"type"`
 }
 
-// depotTypes mirrors app.depot_type (000001) so an unrecognised ?type= value
-// is refused in Go, before a transaction opens (ADR-0013 decision 5), rather
-// than reaching the database as a cast that raises 22P02.
-var depotTypes = map[string]bool{
-	"DEPOT":              true,
-	"STORE":              true,
-	"RETREADER":          true,
-	"BREAKDOWN_SUPPLIER": true,
-}
-
 // unitByID is the one query shape for a manager-facing unit read. The unit
 // PATCH answers with this same body (D6), so it stays free of HTTP concerns
 // and returns pgx.ErrNoRows — the same value a genuinely missing id produces —
@@ -474,16 +464,13 @@ func listOpenFitments(s *store.Store) http.HandlerFunc {
 // ManageAssets, like the other asset reads (listAxleConfigurations,
 // listTyres): a depot list is only useful to someone who may act on it.
 // Only active depots are returned — a retired depot is not a valid
-// destination for a new dispatch.
+// destination for a new dispatch. An unrecognised ?type= reaches the cast
+// and is refused as 22P02, mapped in submitStatus (TYRE-128 decision 7):
+// the enum lives in the database and Go holds no copy of it.
 func listDepots(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		depotType := r.URL.Query().Get("type")
-		if depotType != "" && !depotTypes[depotType] {
-			writeError(ctx, w, http.StatusBadRequest, codeBadRequest,
-				"type must be one of DEPOT, STORE, RETREADER, BREAKDOWN_SUPPLIER")
-			return
-		}
 		out := []depotJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
