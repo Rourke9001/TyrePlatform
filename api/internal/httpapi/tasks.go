@@ -55,10 +55,12 @@ func listUnitDrivers(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
-			// DISTINCT ON folds a driver assigned to both a horse and its
-			// trailer into one row, own assignment first (R5). No existence
-			// check on the unit beyond RLS — an id this tenant cannot see
-			// matches no rows and answers [], as listUnitFitments does.
+			// DISTINCT ON folds a driver assigned to both the horse and its
+			// trailer, who holds two rows in v_user_capture_vehicle (U4:
+			// assignment, or the motive's assignment), into one row, own
+			// assignment first. No existence check on the unit beyond RLS —
+			// an id this tenant cannot see matches no rows and answers [],
+			// as listUnitFitments does.
 			rows, err := tx.Query(ctx, `
 				SELECT d.user_id, d.display_name, d.staff_number, d.via_vehicle_id, d.via_fleet_number
 				  FROM (SELECT DISTINCT ON (ucv.user_id)
