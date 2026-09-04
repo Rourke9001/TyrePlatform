@@ -6,19 +6,22 @@ import { useCan } from "../../auth/actorContext";
 import { FitmentHistory } from "./FitmentHistory";
 import { PositionPanel } from "./PositionPanel";
 import { RotateForm } from "./RotateForm";
+import { ScheduleInspectionForm } from "./ScheduleInspectionForm";
 import { UnitEditForm } from "./UnitEditForm";
 import { UnitPlan } from "./UnitPlan";
 import { UnitStatusForm } from "./UnitStatusForm";
+import { UnitTaskList } from "./UnitTaskList";
 import { unitFitmentsKey, unitKey } from "./queryKeys";
 import "../fleet.css";
 
 // D7's unit screen: the plan view of what the unit carries, the panel for
 // whichever position is picked, and the writes a controller holds. ViewFleet
-// is enough to read it; every form inside is ManageAssets', which is why a
-// reader is shown the unit rather than controls that would refuse them
-// (D8, ADR-0011).
+// is enough to read it; every form inside is ManageAssets' except the
+// inspection schedule, which is ManageAssignments' (spec U2) — a reader is
+// shown the unit rather than controls that would refuse them (D8, ADR-0011).
 export function UnitDetail({ unitId }: { unitId: string }) {
   const canManage = useCan("ManageAssets");
+  const canAssign = useCan("ManageAssignments");
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
 
   const unit = useQuery({ queryKey: unitKey(unitId), queryFn: () => fetchUnit(unitId) });
@@ -70,6 +73,9 @@ export function UnitDetail({ unitId }: { unitId: string }) {
       {canManage && <RotateForm unit={unit.data} />}
       {canManage && <UnitEditForm unit={unit.data} />}
       {canManage && <UnitStatusForm unit={unit.data} />}
+
+      {canAssign && <ScheduleInspectionForm unit={unit.data} />}
+      <UnitTaskList unitId={unitId} />
 
       <h2>Fitment history</h2>
       {fitments.isPending && <p className="note-card">Loading…</p>}
