@@ -17,8 +17,10 @@ import (
 // The drivers read is FR-INS-053's chain as a list: the unit's own current
 // drivers first, then — for a trailer in an open rig — the motive's, each row
 // saying which unit the assignment is on. The horse's driver appears once
-// for the horse (R5), and a driver assigned to both units appears once for
-// the trailer, own assignment first.
+// for the horse (U4: the horse's own assignment satisfies the capture
+// predicate directly, so the rig leg adds no second row for it), and a
+// driver assigned to both units appears once for the trailer, own
+// assignment first.
 func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -62,6 +64,7 @@ func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 	}
 	require.Equal(t, horseID.String(), via[horseDriver.String()], "the horse's driver reaches the trailer through the rig")
 	require.Equal(t, trailerID.String(), via[bothDriver.String()], "own assignment wins over the rig leg")
+	require.Equal(t, bothDriver.String(), trailerRows[0].UserID, "own assignment lists first")
 
 	// Ending the rig removes the rig leg and nothing else.
 	rec = post(t, h, "/api/combinations/"+rig.ID+"/end", tenantID.String(), controller.String(), `{}`)
@@ -74,8 +77,9 @@ func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 
 // The unit's task list: OPEN and ESCALATED by due date, each with its
 // assignee, overdue computed by the view and never here. Fixed literals for
-// the dates (lessons 2026-09-03), planted directly because the write does
-// not exist until Task 7; the overdue row is due last year.
+// the dates (lessons 2026-09-03); rows are planted directly rather than
+// through the API, since the read is what is under test, not the write; the
+// overdue row is due last year.
 func TestUnitTasksListsOpenAndEscalatedWithAssignee(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
