@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
 	"tyreplatform/api/internal/auth"
@@ -176,4 +178,199 @@ func TestUnitTaskReadsCrossTenantAreEmpty(t *testing.T) {
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &own))
 		require.NotEmpty(t, own, "the control: tenant A reads its own %s", path)
 	}
+}
+
+// TYRE-90's DoD at the API: the controller schedules the task, the driver
+// reads it on their own list, the capture they submit with its id closes
+// it, and both lists are empty afterwards. The trailer's task goes to the
+// horse's driver (U4) on the rig plantCaptureFixture opens.
+func TestScheduleTaskIsSeenByTheDriverAndClosedBySubmit(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, trailerID := plantCaptureFixture(t, ctx, admin, "task-dod")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, horseID, driver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := post(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"assigneeUserId":%q}`, driver))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var task struct {
+		ID                  string  `json:"id"`
+		VehicleID           string  `json:"vehicleId"`
+		DueAt               string  `json:"dueAt"`
+		State               string  `json:"state"`
+		Overdue             bool    `json:"overdue"`
+		AssignedUserID      *string `json:"assignedUserId"`
+		AssignedDisplayName *string `json:"assignedDisplayName"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &task))
+	require.Equal(t, horseID.String(), task.VehicleID)
+	require.Equal(t, "OPEN", task.State)
+	require.False(t, task.Overdue)
+	require.Equal(t, driver.String(), *task.AssignedUserID)
+	// Due at the tenant-local end of today: the same instant SQL computes,
+	// read back here as a check rather than re-derived from a Go clock.
+	var wantDue time.Time
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT ((app.tenant_today(t.timezone) + 1)::timestamp AT TIME ZONE t.timezone) - interval '1 microsecond'
+		   FROM app.tenant t WHERE t.id = $1`, tenantID).Scan(&wantDue))
+	gotDue, err := time.Parse(time.RFC3339, task.DueAt)
+	require.NoError(t, err)
+	// RFC3339 drops the fractional second, so the wire instant sits 0.999999 s
+	// before the stored one; two seconds is the tolerance that pins the day
+	// boundary without failing on the format.
+	require.WithinDuration(t, wantDue, gotDue, 2*time.Second)
+
+	rec = post(t, h, "/api/vehicles/"+trailerID.String()+"/inspection-tasks", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"assigneeUserId":%q}`, driver))
+	require.Equal(t, http.StatusCreated, rec.Code, "the horse's driver takes the trailer's task (U4): %s", rec.Body.String())
+
+	rec = get(t, h, "/api/my/tasks", tenantID.String(), driver.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var mine []struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mine))
+	require.Len(t, mine, 2)
+
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, horseID)), &payload))
+	payload["task_id"] = task.ID
+	raw, err := json.Marshal(payload)
+	require.NoError(t, err)
+	rec = post(t, h, "/api/inspections", tenantID.String(), driver.String(), string(raw))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	rec = get(t, h, "/api/my/tasks", tenantID.String(), driver.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mine))
+	require.Len(t, mine, 1, "the horse's task closed and the trailer's stayed: %s", rec.Body.String())
+	rec = get(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), controller.String())
+	require.JSONEq(t, `[]`, rec.Body.String())
+}
+
+// TY018 forwarded verbatim (ADR-0012): the message the form renders.
+func TestScheduleTaskRefusesAnUnassignedDriver(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "task-refuse")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	stranger := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	rec := post(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"assigneeUserId":%q}`, stranger))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY018", ref.Code)
+	require.Contains(t, ref.Message, "is not assigned to")
+	require.Contains(t, ref.Message, "or to the horse pulling it")
+	require.Equal(t, 0, countTasks(t, ctx, admin, tenantID))
+}
+
+// Shape is Go's (ADR-0013 decision 5); the due-day rule is SQL's.
+func TestScheduleTaskShapeAndDate(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "task-shape")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, horseID, driver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	path := "/api/vehicles/" + horseID.String() + "/inspection-tasks"
+
+	cases := []struct {
+		name, body, field string
+	}{
+		{"assigneeUserId missing", `{}`, "assigneeUserId"},
+		{"assigneeUserId not a uuid", `{"assigneeUserId":"nope"}`, "assigneeUserId"},
+		{"dueOn not a date", fmt.Sprintf(`{"assigneeUserId":%q,"dueOn":"tomorrow"}`, driver), "dueOn"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := post(t, h, path, tenantID.String(), controller.String(), tc.body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Contains(t, ref.Message, tc.field)
+		})
+	}
+	require.Equal(t, http.StatusBadRequest,
+		post(t, h, "/api/vehicles/not-a-uuid/inspection-tasks", tenantID.String(), controller.String(), `{}`).Code)
+
+	// A fixed far-future literal, never clock arithmetic (lessons 2026-09-03).
+	rec := post(t, h, path, tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"assigneeUserId":%q,"dueOn":"2099-01-01"}`, driver))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	rec = post(t, h, path, tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"assigneeUserId":%q,"dueOn":"2000-01-01"}`, driver))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY018", ref.Code)
+	require.Equal(t, "a task is due today or later, never in the past", ref.Message)
+}
+
+// ManageAssignments gates the write (spec U2): a TECHNICIAN holds ViewFleet
+// alone and is refused; a DRIVER is refused.
+func TestScheduleTaskIsCapabilityGated(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "task-gate")
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	body := fmt.Sprintf(`{"assigneeUserId":%q}`, driver)
+	for _, actor := range []uuid.UUID{technician, driver} {
+		require.Equal(t, http.StatusForbidden,
+			post(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), actor.String(), body).Code)
+	}
+}
+
+// Tenant B's controller names tenant A's unit, then tenant A's driver on a
+// unit of its own. The insert stamps tenant_id from the session, so under
+// any leak it dies as 23503 on a composite tenant FK (000004/000017) — FK
+// checks bypass RLS — never as TY012 and never as a success; the code and
+// the message are therefore the discriminating assert. Tenant A performing
+// the identical call afterwards is the control that each refusal was
+// tenant-caused.
+func TestScheduleTaskCrossTenantIsInvisible(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantA, horseA, _ := plantRigUnits(t, ctx, admin, "task-xten-a")
+	driverA := plantUser(t, ctx, admin, tenantA, auth.RoleDriver)
+	controllerA := plantUser(t, ctx, admin, tenantA, auth.RoleController)
+	assignVehicleDriver(t, ctx, admin, tenantA, horseA, driverA)
+	tenantB, horseB, _ := plantRigUnits(t, ctx, admin, "task-xten-b")
+	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	body := fmt.Sprintf(`{"assigneeUserId":%q}`, driverA)
+
+	rec := post(t, h, "/api/vehicles/"+horseA.String()+"/inspection-tasks", tenantB.String(), controllerB.String(), body)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY012", ref.Code, "tenant B scheduled on tenant A's unit: RLS leaked the row (got %s)", rec.Body.String())
+	require.Equal(t, "no such unit in this fleet", ref.Message)
+
+	rec = post(t, h, "/api/vehicles/"+horseB.String()+"/inspection-tasks", tenantB.String(), controllerB.String(), body)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY012", ref.Code, "tenant B named tenant A's driver: RLS leaked the row (got %s)", rec.Body.String())
+	require.Equal(t, "no such user in this fleet", ref.Message)
+	require.Equal(t, 0, countTasks(t, ctx, admin, tenantA))
+	require.Equal(t, 0, countTasks(t, ctx, admin, tenantB))
+
+	rec = post(t, h, "/api/vehicles/"+horseA.String()+"/inspection-tasks", tenantA.String(), controllerA.String(), body)
+	require.Equal(t, http.StatusCreated, rec.Code, "the control: the unit's own tenant schedules it: %s", rec.Body.String())
+}
+
+func countTasks(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) int {
+	t.Helper()
+	var n int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.inspection_task WHERE tenant_id = $1`, tenantID).Scan(&n))
+	return n
 }
