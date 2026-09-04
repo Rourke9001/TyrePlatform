@@ -6075,5 +6075,259 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 46. TYRE-90: an inspection task is scheduled for a driver who can capture the unit, seen on DriverHome, and closed by the submit (FR-INS-048/051/052/053, FR-AUT-005, U4, U11, U12)'
+BEGIN;
+DO $$
+DECLARE
+  bac   uuid := '11111111-1111-1111-1111-111111111111';
+  t2    uuid := '22222222-2222-2222-2222-222222222222';
+  h     uuid := md5('t46h')::uuid;    -- HORSE, heads the rig under test; drv's own unit
+  ta    uuid := md5('t46ta')::uuid;   -- TRAILER in h's rig: reachable by drv only through the rig (U4)
+  hx    uuid := md5('t46hx')::uuid;   -- HORSE, drv3's unit, never in a rig
+  hd    uuid := md5('t46hd')::uuid;   -- HORSE, DISPOSED: the retired-unit probe
+  drv   uuid := md5('t46drv')::uuid;  -- assigned to h
+  drv2  uuid := md5('t46drv2')::uuid; -- assigned to nothing
+  drv3  uuid := md5('t46drv3')::uuid; -- assigned to hx, then deactivated
+  ctl   uuid := md5('t46ctl')::uuid;  -- planted, not assumed: created_by is a composite FK (000017)
+  t2drv uuid := md5('t46t2drv')::uuid;
+  t2ctl uuid := md5('t46t2ctl')::uuid;
+  cfg uuid; rig uuid; task uuid; task_ta uuid; task_ctl uuid; tz text; today date; r record; n int;
+  msg text; posl uuid; res record; cu uuid := gen_random_uuid();
+BEGIN
+  -- Session zone pinned to UTC so a due instant computed in the session zone
+  -- instead of the tenant's lands on a different instant on any host
+  -- (BAC is Africa/Johannesburg, UTC+2; section 45's reasoning).
+  PERFORM set_config('TimeZone', 'UTC', true);
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (h,  bac, 'T46-H',  'T46H GP',  cfg, 'HORSE',   'ACTIVE'),
+         (ta, bac, 'T46-TA', 'T46TA GP', cfg, 'TRAILER', 'ACTIVE'),
+         (hx, bac, 'T46-HX', 'T46HX GP', cfg, 'HORSE',   'ACTIVE'),
+         (hd, bac, 'T46-HD', 'T46HD GP', cfg, 'HORSE',   'DISPOSED');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (drv,  bac, 't46drv@example.invalid',  'T46 Driver',     'DRIVER'),
+         (drv2, bac, 't46drv2@example.invalid', 'T46 Driver Two', 'DRIVER'),
+         (drv3, bac, 't46drv3@example.invalid', 'T46 Driver Three', 'DRIVER'),
+         (ctl,  bac, 't46ctl@example.invalid',  'T46 Controller', 'CONTROLLER');
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+  VALUES (bac, h, drv, today), (bac, hx, drv3, today);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  rig := app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', ta)));
+
+  -- (a) The predicate, asked about someone else (U4, FR-AUT-005 as amended
+  -- by D3): drv reaches h by assignment and ta through the rig; drv2
+  -- reaches nothing; and the factored v_capture_vehicle still answers what
+  -- 000022's did for the acting driver (the regression pin for the refactor).
+  IF NOT app.user_can_capture(drv, h)  THEN RAISE EXCEPTION 'FAIL 46a: the assigned driver cannot capture the horse'; END IF;
+  IF NOT app.user_can_capture(drv, ta) THEN RAISE EXCEPTION 'FAIL 46a: the horse''s driver cannot capture its trailer'; END IF;
+  IF app.user_can_capture(drv2, h)     THEN RAISE EXCEPTION 'FAIL 46a: an unassigned driver can capture the horse'; END IF;
+  IF app.user_can_capture(drv, hx)     THEN RAISE EXCEPTION 'FAIL 46a: the driver can capture a unit they are not assigned to'; END IF;
+  SELECT string_agg(ucv.vehicle_id::text || '<' || ucv.via_vehicle_id::text, ',' ORDER BY ucv.vehicle_id::text)
+    INTO msg FROM app.v_user_capture_vehicle ucv WHERE ucv.user_id = drv;
+  IF msg IS DISTINCT FROM (SELECT string_agg(x, ',' ORDER BY x) FROM unnest(ARRAY[h::text || '<' || h::text, ta::text || '<' || h::text]) x) THEN
+    RAISE EXCEPTION 'FAIL 46a: the driver''s capture set reads %', msg;
+  END IF;
+  PERFORM set_config('app.actor_id', drv::text, true);
+  SELECT count(*) INTO n FROM app.v_capture_vehicle cv WHERE cv.vehicle_id IN (h, ta, hx);
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 46a: v_capture_vehicle reads % of the driver''s 2 units', n; END IF;
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  RAISE NOTICE 'PASS  46a a user can capture a unit by assignment or through the rig its horse heads, and the capture read agrees';
+
+  -- (b) Schedule (FR-INS-051/052): OPEN, assigned, requested and created by
+  -- the controller, due at the tenant-local end of today — not overdue now,
+  -- overdue once the tenant's day ends — and the trailer's task goes to the
+  -- horse's driver (U4, FR-INS-053). The driver then reads both on their
+  -- own list (FR-INS-048).
+  task := app.create_inspection_task(h, drv);
+  SELECT t.state, t.assigned_user_id, t.requested_by, t.created_by, t.due_at, t.overdue, t.schedule_id
+    INTO r FROM app.v_inspection_task t WHERE t.id = task;
+  IF r.state <> 'OPEN' OR r.assigned_user_id <> drv OR r.requested_by <> ctl OR r.created_by <> ctl
+     OR r.schedule_id IS NOT NULL OR r.overdue THEN
+    RAISE EXCEPTION 'FAIL 46b: task row reads % / % / % / % / overdue %', r.state, r.assigned_user_id, r.requested_by, r.created_by, r.overdue;
+  END IF;
+  IF (r.due_at AT TIME ZONE tz)::date <> today
+     OR r.due_at >= ((today + 1)::timestamp AT TIME ZONE tz)
+     OR r.due_at <= now() THEN
+    RAISE EXCEPTION 'FAIL 46b: a task due today is due at %, not the tenant-local end of today', r.due_at;
+  END IF;
+  -- Session zone is UTC and the tenant's is not, so a due instant computed
+  -- in the session zone lands two hours away from this one (rule 6).
+  IF r.due_at = (today + 1)::timestamptz - interval '1 microsecond' THEN
+    RAISE EXCEPTION 'FAIL 46b: the due instant was computed in the session zone, not the tenant''s';
+  END IF;
+  task_ta := app.create_inspection_task(ta, drv);
+  PERFORM set_config('app.actor_id', drv::text, true);
+  SELECT count(*) INTO n FROM app.v_my_inspection_task t WHERE t.id IN (task, task_ta) AND NOT t.overdue;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 46b: the driver reads % of their 2 open tasks', n; END IF;
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  RAISE NOTICE 'PASS  46b a task is scheduled OPEN for today, for the unit''s driver or the horse''s, and the driver reads it';
+
+  -- (c) Refusals, each pinned by message so a refusal from another branch
+  -- cannot pass for the one under test. The rig leg is proven live: the
+  -- trailer's task for drv succeeded at (b); after the rig ends the same
+  -- call is refused, so the predicate is reading the rig and not merely the
+  -- unit.
+  BEGIN
+    PERFORM app.create_inspection_task(h, drv2);
+    RAISE EXCEPTION 'FAIL 46c: a task was scheduled for a driver not assigned to the unit';
+  EXCEPTION WHEN SQLSTATE 'TY018' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'T46 Driver Two is not assigned to T46-H or to the horse pulling it' THEN
+      RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
+    END IF;
+  END;
+  PERFORM app.end_combination(rig);
+  BEGIN
+    PERFORM app.create_inspection_task(ta, drv);
+    RAISE EXCEPTION 'FAIL 46c: the horse''s driver was scheduled on a trailer the horse no longer pulls';
+  EXCEPTION WHEN SQLSTATE 'TY018' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'T46 Driver is not assigned to T46-TA or to the horse pulling it' THEN
+      RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.create_inspection_task(hd, drv);
+    RAISE EXCEPTION 'FAIL 46c: a task was scheduled on a disposed unit';
+  EXCEPTION WHEN SQLSTATE 'TY018' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'T46-HD is disposed; a retired unit is not inspected' THEN
+      RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
+    END IF;
+  END;
+  UPDATE app.app_user SET active = false WHERE id = drv3;
+  BEGIN
+    PERFORM app.create_inspection_task(hx, drv3);
+    RAISE EXCEPTION 'FAIL 46c: a task was scheduled for a deactivated driver';
+  EXCEPTION WHEN SQLSTATE 'TY018' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'T46 Driver Three is no longer active' THEN
+      RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  46c an unassigned, rig-less, retired or deactivated target is refused by name';
+
+  -- (d) The due-day rule: yesterday is refused, never clamped; tomorrow is
+  -- the tenant-local end of tomorrow.
+  BEGIN
+    PERFORM app.create_inspection_task(h, drv, today - 1);
+    RAISE EXCEPTION 'FAIL 46d: a task was scheduled for yesterday';
+  EXCEPTION WHEN SQLSTATE 'TY018' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a task is due today or later, never in the past' THEN
+      RAISE EXCEPTION 'FAIL 46d: wrong message %', msg;
+    END IF;
+  END;
+  task_ctl := app.create_inspection_task(h, drv, today + 1);
+  SELECT t.due_at, t.overdue INTO r FROM app.v_inspection_task t WHERE t.id = task_ctl;
+  IF (r.due_at AT TIME ZONE tz)::date <> today + 1
+     OR r.due_at >= ((today + 2)::timestamp AT TIME ZONE tz) OR r.overdue THEN
+    RAISE EXCEPTION 'FAIL 46d: a task due tomorrow is due at %', r.due_at;
+  END IF;
+  RAISE NOTICE 'PASS  46d a task is due today or later at the tenant-local end of its day, never yesterday';
+
+  -- (e) Closed by the submit that names it (FR-INS-052, 000023): the horse's
+  -- task completes citing the inspection; the second task on the same unit
+  -- stays OPEN, which is the control that the close is by id and not by
+  -- unit. Section 31's minimal payload shape; BAC configures three treads.
+  SELECT p.id INTO posl FROM app.position p WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  PERFORM set_config('app.actor_id', drv::text, true);
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', cu, 'vehicle_id', h, 'task_id', task,
+    'started_at', now() - interval '150 seconds', 'submitted_at', now(),
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', h, 'position_id', posl,
+                         'pressure_kpa', 800, 'treads', jsonb_build_array(8.0, 8.5, 8.2)))));
+  SELECT t.state, t.completed_inspection_id INTO r FROM app.inspection_task t WHERE t.id = task;
+  IF r.state <> 'COMPLETED' OR r.completed_inspection_id IS DISTINCT FROM res.inspection_id THEN
+    RAISE EXCEPTION 'FAIL 46e: after the submit the task reads % citing %', r.state, r.completed_inspection_id;
+  END IF;
+  SELECT t.state INTO r FROM app.inspection_task t WHERE t.id = task_ctl;
+  IF r.state <> 'OPEN' THEN RAISE EXCEPTION 'FAIL 46e: a task the submit did not name was closed'; END IF;
+  SELECT count(*) INTO n FROM app.v_my_inspection_task t WHERE t.id = task;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 46e: the driver still reads a completed task'; END IF;
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  RAISE NOTICE 'PASS  46e the submit that names the task completes it citing the inspection, and no other';
+
+  -- (f) Append-only where it matters (000018): a task is never deleted by the
+  -- app role. UPDATE stays granted because the submit's close IS an update.
+  BEGIN
+    DELETE FROM app.inspection_task WHERE false;
+    RAISE EXCEPTION 'FAIL 46f: app role can DELETE app.inspection_task';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  RAISE NOTICE 'PASS  46f a task is never deleted';
+
+  -- (g) Cross-tenant, three ways, each with the control that proves the
+  -- refusal was tenant-caused. Through the function: tenant 2 naming BAC's
+  -- unit, and BAC's driver on tenant 2's own unit. The insert stamps
+  -- tenant_id from the session, so under any leak it dies as 23503 on a
+  -- composite tenant FK (000004/000017) — FK checks bypass RLS — never as
+  -- TY012 and never as a success; the code and message are therefore the
+  -- discriminating assert, and the owning tenant's identical call below is
+  -- the control. Then the DoD's raw INSERT
+  -- aimed at tenant 2 with every column valid for tenant 2 — created_by a
+  -- real tenant-2 user (lessons 2026-08-28) — which only tenant_isolation's
+  -- WITH CHECK can refuse. The policy message is pinned to THIS table: with
+  -- the audit trigger attached, a kill that disables RLS on inspection_task
+  -- alone still dies as 42501 on app.audit_log's own policy, and an unpinned
+  -- catch would call that a pass.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  -- Unbound with '' (app.current_actor_id is nullif(..., ''), 000001:32):
+  -- with BAC's controller still bound, the tenant-2 plants below would
+  -- default created_by to it and die 23503 on the composite FK (000017).
+  PERFORM set_config('app.actor_id', '', true);
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (t2drv, t2, 't46t2drv@example.invalid', 'T46 Tenant Two Driver', 'DRIVER'),
+         (t2ctl, t2, 't46t2ctl@example.invalid', 'T46 Tenant Two Controller', 'CONTROLLER');
+  -- md5('t2veh1') is the fixture's ACTIVE tenant-2 horse (gen_seed_fixture.py:143).
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+  VALUES (t2, md5('t2veh1')::uuid, t2drv, app.tenant_today((SELECT timezone FROM app.tenant WHERE id = t2)));
+  PERFORM set_config('app.actor_id', t2ctl::text, true);
+  BEGIN
+    PERFORM app.create_inspection_task(h, drv);
+    RAISE EXCEPTION 'FAIL 46g: tenant 2 scheduled a task on tenant 1''s unit';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'no such unit in this fleet' THEN RAISE EXCEPTION 'FAIL 46g: wrong message %', msg; END IF;
+  END;
+  BEGIN
+    PERFORM app.create_inspection_task(md5('t2veh1')::uuid, drv);
+    RAISE EXCEPTION 'FAIL 46g: tenant 2 scheduled tenant 1''s driver';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'no such user in this fleet' THEN RAISE EXCEPTION 'FAIL 46g: wrong message %', msg; END IF;
+  END;
+  PERFORM app.create_inspection_task(md5('t2veh1')::uuid, t2drv);
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  BEGIN
+    INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, requested_by, created_by)
+    VALUES (t2, md5('t2veh1')::uuid, now() + interval '1 day', t2drv, t2ctl, t2ctl);
+    RAISE EXCEPTION 'FAIL 46g: a raw insert landed a task in another tenant';
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%row-level security policy for table "inspection_task"%' THEN
+      RAISE EXCEPTION 'FAIL 46g: refused by something other than inspection_task''s own policy: %', msg;
+    END IF;
+  END;
+  PERFORM app.create_inspection_task(h, drv);
+  RAISE NOTICE 'PASS  46g another tenant''s units, users and tasks do not exist here, and a task cannot be aimed at another tenant';
+
+  -- (h) Audited (ADR-0014, U12): the schedule wrote an INSERT row under the
+  -- controller; the submit's close wrote an UPDATE row under the driver.
+  SELECT count(*) INTO n FROM app.audit_log a
+   WHERE a.entity_type = 'inspection_task' AND a.entity_id = task AND a.action = 'INSERT' AND a.actor_id = ctl;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 46h: % INSERT audit rows for the task, expected 1', n; END IF;
+  SELECT count(*) INTO n FROM app.audit_log a
+   WHERE a.entity_type = 'inspection_task' AND a.entity_id = task AND a.action = 'UPDATE' AND a.actor_id = drv;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 46h: % UPDATE audit rows for the task, expected 1 from the submit', n; END IF;
+  RAISE NOTICE 'PASS  46h a task''s scheduling and its completion are audited';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
