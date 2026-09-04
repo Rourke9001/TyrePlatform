@@ -128,7 +128,9 @@ TYRE-94 attaches the trigger to `app.vehicle`, the one table that ticket gives
 an update endpoint to; B6.1 (migration `000037`, TYRE-72) attaches it to
 `app.combination` and `app.combination_member`, the two tables that batch
 gives a write path to (spec U12: a table with a write path is audited).
-TYRE-98 carries the wider sweep.
+B6.2 (migration `000038`, TYRE-90) attaches it to `app.inspection_task`,
+which that slice gives a create path to; the submit's close (000023) is
+audited under the driver from then on. TYRE-98 carries the wider sweep.
 
 ## Consequences
 
