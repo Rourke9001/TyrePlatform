@@ -272,8 +272,8 @@ var submitStatus = map[string]int{
 	// app.remove_tyre's closure, and both of app.rotate_tyres' — the rows it
 	// closes and the rows it opens (TYRE-92).
 	// TY014 is a fitment write refused, TY015 is the retread cap, TY016 is a
-	// unit status transition refused (000032-000035), and TY017 is a rig
-	// write refused (000037).
+	// unit status transition refused (000032-000035), TY017 is a rig write
+	// refused (000037), and TY018 is an inspection task refused (000038).
 	"TY009": http.StatusUnprocessableEntity,
 	"TY011": http.StatusUnprocessableEntity,
 	"TY012": http.StatusUnprocessableEntity,
@@ -282,6 +282,7 @@ var submitStatus = map[string]int{
 	"TY015": http.StatusUnprocessableEntity,
 	"TY016": http.StatusUnprocessableEntity,
 	"TY017": http.StatusUnprocessableEntity,
+	"TY018": http.StatusUnprocessableEntity,
 
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
