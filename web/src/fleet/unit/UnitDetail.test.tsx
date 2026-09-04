@@ -36,6 +36,8 @@ function stubFetch() {
     if (url === "/api/vehicles/u9") return Promise.resolve(respond(200, UNIT));
     if (url === "/api/vehicles/u9/fitments")
       return Promise.resolve(respond(200, [fitmentRow({ fitmentId: "f1", displayCode: "TY100" })]));
+    if (url === "/api/vehicles/u9/drivers") return Promise.resolve(respond(200, []));
+    if (url === "/api/vehicles/u9/inspection-tasks") return Promise.resolve(respond(200, []));
     if (url.startsWith("/api/tyres")) return Promise.resolve(respond(200, { tyres: [] }));
     if (url.startsWith("/api/depots")) return Promise.resolve(respond(200, []));
     throw new Error(`unstubbed ${url}`);
@@ -101,5 +103,31 @@ describe("the unit screen", () => {
     vi.mocked(fetch).mockResolvedValue(respond(500, {}));
     renderScreen();
     expect((await screen.findByRole("alert")).textContent).toContain("Unit didn't load");
+  });
+
+  // The list is every ViewFleet reader's (spec U2), so it renders whether or
+  // not the schedule form does.
+  it("shows a reader Open inspections but not the schedule form", async () => {
+    renderScreen(["ViewFleet"]);
+    await screen.findByRole("heading", { name: "HORSE-1" });
+
+    expect(screen.getByRole("heading", { name: "Open inspections" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Schedule an inspection" })).toBeNull();
+  });
+
+  // The capability split is real (spec U2): ManageAssets, which gates the
+  // other forms on this screen, does not also gate the schedule form.
+  it("keeps the schedule form hidden for ManageAssets alone", async () => {
+    renderScreen(["ViewFleet", "ManageAssets"]);
+    await screen.findByRole("heading", { name: "HORSE-1" });
+
+    expect(screen.queryByRole("heading", { name: "Schedule an inspection" })).toBeNull();
+  });
+
+  it("gives ManageAssignments the schedule form", async () => {
+    renderScreen(["ViewFleet", "ManageAssignments"]);
+    await screen.findByRole("heading", { name: "HORSE-1" });
+
+    expect(screen.getByRole("heading", { name: "Schedule an inspection" })).toBeTruthy();
   });
 });
