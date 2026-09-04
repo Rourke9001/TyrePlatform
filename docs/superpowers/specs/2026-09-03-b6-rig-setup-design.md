@@ -339,7 +339,8 @@ the same predicate `app.v_capture_vehicle` expresses for the current actor,
 factored so a controller can ask it about someone else) — and
 `app.create_inspection_task(p_vehicle uuid, p_assignee uuid, p_due_on date
 DEFAULT NULL) RETURNS uuid`: unit visible else TY012; not DISPOSED/INACTIVE
-else TY018; assignee visible and `user_can_capture` else TY018 "`%s` is not
+else TY018; assignee not visible else TY012 (U11: a row this tenant cannot
+see); deactivated, or not `user_can_capture`, else TY018 "`%s` is not
 assigned to `%s` or to the horse pulling it"; `p_due_on` not before tenant
 today else TY018; `due_at` is tenant-local end of that day, never a bare
 cast; `requested_by = app.current_actor_id()`, state OPEN. `inspection_task`
