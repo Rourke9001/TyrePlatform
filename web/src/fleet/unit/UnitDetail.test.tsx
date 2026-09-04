@@ -77,9 +77,10 @@ describe("the unit screen", () => {
     expect(await screen.findByRole("combobox", { name: "Reason" })).toBeTruthy();
   });
 
-  // ViewFleet is the read (D7). Every write on this screen is ManageAssets',
-  // and a reader is shown the unit rather than a row of controls that would
-  // refuse them.
+  // ViewFleet is the read (D7). Every write on this screen needs a further
+  // capability — ManageAssets for rotate/edit/status, ManageAssignments for
+  // the schedule form (spec U2) — so a reader is shown the unit rather than
+  // a row of controls that would refuse them.
   it("shows a reader the plan and the history and none of the writes", async () => {
     renderScreen(["ViewFleet"]);
     await screen.findByRole("heading", { name: "HORSE-1" });
