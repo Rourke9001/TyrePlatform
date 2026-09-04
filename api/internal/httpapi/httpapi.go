@@ -100,6 +100,8 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Patch("/vehicles/{vehicleID}", patchUnit(s))
 		r.Post("/vehicles/{vehicleID}/status", setUnitStatus(s))
 		r.Get("/vehicles/{vehicleID}/fitments", listUnitFitments(s))
+		r.Get("/vehicles/{vehicleID}/drivers", listUnitDrivers(s))
+		r.Get("/vehicles/{vehicleID}/inspection-tasks", listUnitTasks(s))
 		r.Get("/fitments", listOpenFitments(s))
 		r.Get("/combinations", listCombinations(s))
 		r.Get("/depots", listDepots(s))
