@@ -222,8 +222,6 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   ]);
   await expect(rotate.getByText("The rotation was applied.", { exact: true })).toBeVisible();
 
-  // The horse's plan: the casing that crossed has left the unit outright, and
-  // the one that stayed sits where it went.
   await expect(
     page.getByRole("button", {
       name: `Position ${horseFirst.code}: ${staying.displayCode}`,

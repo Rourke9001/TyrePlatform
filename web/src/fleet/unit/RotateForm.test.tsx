@@ -39,11 +39,8 @@ function threePositions(): Unit["positions"] {
   ];
 }
 
-// The two links of an ordinary superlink share every position id byte for
-// byte, because app.position belongs to an axle configuration and not to a
-// unit (docs/lessons.md, 26 Aug 2026). The sibling below therefore reuses
-// p1/p2/p3: a fixture giving it distinct ids is blind to the whole class of
-// bug the (unit, position) pair exists to stop.
+// RotateForm.tsx's pairKey comment says why: the sibling below reuses
+// p1/p2/p3 rather than distinct ids.
 function sibling(overrides: Partial<Unit> = {}): Unit {
   return unit({
     id: "u5",
@@ -224,9 +221,7 @@ describe("rotating tyres within a unit", () => {
     });
   });
 
-  // U15/U17: a move that names no destination belongs to the unit the request
-  // is addressed to, so the key is absent rather than a JSON null the handler
-  // would have to read as "this unit" a second time.
+  // fitments.go's rotateRequest.payload comment says why (U15, U17).
   it("names no destination unit, and offers no unit column, outside an open rig", async () => {
     wireFetch({ rigs: [rig({ effectiveTo: "2026-08-20T06:00:00Z" })] });
     const user = userEvent.setup();
@@ -266,9 +261,8 @@ describe("rotating tyres within a unit", () => {
     expect(selectValue("Unit for POS1")).toBe("u9");
   });
 
-  // TYRE-127, and docs/lessons.md 26 Aug 2026: the sibling shares p1/p2/p3
-  // with this unit, so a freeness check on the position id alone would offer
-  // the sibling's occupied POS1 the moment this unit's POS1 is vacated.
+  // TYRE-127; RotateForm.tsx's pairKey comment says why a freeness check
+  // keys on the pair rather than the position id alone.
   it("offers only the positions free on the chosen unit, per (unit, position) pair", async () => {
     wireFetch({ rigs: [rig()], units: [sibling()] });
     const user = userEvent.setup();
@@ -476,7 +470,7 @@ describe("rotating tyres within a unit", () => {
   );
 
   // The reading is parsed per unit, so the refusal has to reach a field that
-  // is not this unit's own (TYRE-128: only the fit path had these).
+  // is not this unit's own (TYRE-128).
   it("refuses a per-unit odometer that is not whole kilometres", async () => {
     wireFetch({ rigs: [rig()], units: [sibling({ hasOdometer: true })] });
     const user = userEvent.setup();
@@ -603,8 +597,8 @@ describe("rotating tyres within a unit", () => {
     expect((await screen.findByRole("alert")).textContent).toBe(message);
   });
 
-  // 000039 reworded this one, and the form must not pattern-match on it: the
-  // server's sentence names the casing and reaches the controller verbatim.
+  // The server's sentence names the casing and reaches the controller
+  // verbatim; the form never matches on its wording.
   it("speaks TY014 verbatim rather than the general sentence", async () => {
     const message = "tyre TY001 is not on this unit or its rig";
     wireFetch({

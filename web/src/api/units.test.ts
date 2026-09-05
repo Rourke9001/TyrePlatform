@@ -185,9 +185,7 @@ describe("the unit and fitment API module", () => {
       expect(result).toEqual({ moves: [{ tyreId: "t1", fitmentId: "f2" }] });
     });
 
-    // U15/U17: an unqualified move belongs to the unit in the path, so the key
-    // has to be absent on the wire rather than a null the handler would read
-    // as a second, contradicting answer.
+    // fitments.go's rotateRequest.payload comment says why (U15, U17).
     it("sends no toVehicleId key at all for a move that stays on this unit", async () => {
       vi.mocked(fetch).mockResolvedValue(respond(201, { moves: [] }));
 
@@ -203,8 +201,8 @@ describe("the unit and fitment API module", () => {
       expect(JSON.stringify(body)).not.toContain("toVehicleId");
     });
 
-    // U20: the readings are keyed by unit id exactly as the API returned them,
-    // because SQL resolves each one as p_odometers ->> vehicle_id::text.
+    // Keys exactly as the API returned them — fitments.go's odometerPayload
+    // says why.
     it("carries a per-move destination unit and per-unit odometers verbatim", async () => {
       vi.mocked(fetch).mockResolvedValue(respond(201, { moves: [] }));
 
