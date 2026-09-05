@@ -181,7 +181,7 @@ function submitPastValidation() {
   fireEvent.submit(form);
 }
 
-describe("rotating tyres within a unit", () => {
+describe("rotating tyres across the units of a rig", () => {
   beforeEach(() => {
     vi.stubGlobal("fetch", vi.fn());
     wireFetch({});
