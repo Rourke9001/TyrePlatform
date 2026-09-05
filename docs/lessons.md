@@ -15,6 +15,19 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-05 — A long heredoc dies as `ENAMETOOLONG`, not as a write error (TYRE-101)
+
+**What happened:** writing a plan document through `cat > file <<'EOF'` in the
+Bash tool failed with `ENAMETOOLONG: name too long, uv_spawn`. The path was
+fine and the shell never ran: the whole heredoc is part of the spawned
+command line, so a document of a few tens of KB overruns the process
+argument limit. The error names a path problem for what is a size problem,
+which is the part that wastes time.
+
+**The rule:** write long files with the Write tool, not a heredoc. Reserve
+heredocs for short fragments. If `uv_spawn` says `ENAMETOOLONG` and the path
+is plainly short, stop reading the path and look at the payload size.
+
 ## 2026-09-03 — A "later write predates an earlier one" refusal in an untouched e2e step is the Docker VM clock (TYRE-72)
 
 **What happened:** four full `make e2e` runs each failed one spec, never the
