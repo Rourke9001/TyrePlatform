@@ -407,8 +407,9 @@ bound or a guard comment this branch owns.
   four sites — `app.fit_tyre`, `app.remove_tyre`, `app.rotate_tyres`
   (000033:141/319/462) and `app.log_retread_return` (000034:139) — calls
   it *and* interpolates it into its own refusal message, so the number
-  appears exactly once in the migration and `grep -c '30'` on
-  000039 proves it. Each site keeps its own wording; only the bound is
+  appears exactly once in the migration -- proven by a bare-number
+  regex over the function bodies, not by grepping for `30`, which also
+  matches every `000030` citation. Each site keeps its own wording; only the bound is
   shared.
 - `app.rotate_tyres(p_vehicle uuid, p_moves jsonb, p_odometers jsonb
   DEFAULT NULL, p_occurred_at timestamptz DEFAULT now())` — the third
@@ -431,8 +432,11 @@ bound or a guard comment this branch owns.
   day-to-instant blocks are **deleted** in favour of
   `app.tenant_day_instant` (U8), which 000037 already ships. Each keeps
   refusing a future day in its own words, on the function's `NULL`
-  answer. `app.log_retread_return` gains the `IS NULL` arm its tread
-  bound lacks today, which the shared bound supplies for free.
+  answer. Only the ceiling is shared: `app.log_retread_return` already
+  refuses a NULL `p_post_tread_mm` above the bound (000034:127) with its
+  own message, and that refusal stays exactly where it is -- folding it
+  into the shared bound would lose the wording a workshop needs to know
+  which of three figures is missing.
 - 000033's remove **and** rotate guard comments are reworded in the
   replacing bodies: the harm of a backwards closure is event ordering and
   negative elapsed time, not the end-of-day as-at join they currently
