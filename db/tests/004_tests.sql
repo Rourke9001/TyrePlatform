@@ -6365,7 +6365,7 @@ DECLARE
   tyr  uuid := md5('t47atyr')::uuid;   -- the fit target: every call on it is refused
   tys  uuid := md5('t47atys')::uuid;   -- the casing whose open retread job both probes reuse
   cfg uuid; tz text; p1 uuid; p2 uuid; p3 uuid;
-  r record; fn record; fit1 uuid; job uuid; mx numeric;
+  r record; fn record; fit1 uuid; job uuid; mx numeric; bound_re text;
   m1 text; m2 text; m3 text; m4 text;
   n1 text; n2 text; n3 text; n4 text;
 BEGIN
@@ -6442,8 +6442,24 @@ BEGIN
   END IF;
   -- The same rule at the source, because four sites each carrying the bound
   -- as a literal and four sites reading one function answer identically from
-  -- outside — and it is literals that drift apart (U21). Matched as a bare
-  -- number so a migration citation such as 000030 is not read as the bound.
+  -- outside — and it is literals that drift apart (U21).
+  --
+  -- The pattern is built from a whole-number rendering, which carries no
+  -- regex metacharacter to escape: a bound rendered with a scale would put a
+  -- wildcard dot in the pattern and this check would silently stop matching
+  -- the literals it exists to catch, which is the failure mode check 0 exists
+  -- to refuse. A bound that is not whole is refused outright rather than
+  -- approximated, and the optional zero-decimal tail catches the literal
+  -- however the migration spells it.
+  --
+  -- What precedes the number is what separates a bound from a citation: a
+  -- migration reference (000031:25-30) and a line number (000034:127) sit
+  -- behind a digit, a colon or a hyphen, and none of those is how a bound is
+  -- written.
+  IF mx <> trunc(mx) THEN
+    RAISE EXCEPTION 'FAIL 47a: the shared ceiling is %, which no source check can match as a whole number', mx;
+  END IF;
+  bound_re := '(?<![0-9.:-])' || trunc(mx)::bigint::text || '(\.0+)?(?![0-9.])';
   FOR fn IN SELECT p.proname AS name, pg_get_functiondef(p.oid) AS src
               FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
              WHERE ns.nspname = 'app'
@@ -6452,7 +6468,7 @@ BEGIN
     IF strpos(fn.src, 'app.max_tread_mm()') = 0 THEN
       RAISE EXCEPTION 'FAIL 47a: app.% does not read the shared tread ceiling', fn.name;
     END IF;
-    IF fn.src ~ ('(?<![0-9.])' || mx::text || '(?![0-9.])') THEN
+    IF fn.src ~ bound_re THEN
       RAISE EXCEPTION 'FAIL 47a: app.% still carries % as a literal of its own', fn.name, mx;
     END IF;
   END LOOP;
