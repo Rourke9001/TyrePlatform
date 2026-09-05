@@ -203,9 +203,12 @@ BEGIN
       -- FR-FIT-020, TYRE-126: the register ranks an inspection reading above
       -- app.tyre.last_tread_mm wherever one exists (000036), so the warning
       -- reads the same precedence -- a gap measured against a depth the
-      -- dashboard does not show is a gap nobody can check. As at this
-      -- fitment's own instant, not the latest overall: a reading taken after
-      -- the fitter put the casing on did not inform the fitter.
+      -- dashboard does not show is a gap nobody can check. The reading arm is
+      -- as at this fitment's own instant, not the latest overall: a reading
+      -- taken after the fitter put the casing on did not inform the fitter.
+      -- The last_tread_mm fallback carries no such cut-off -- it is the
+      -- column's current value, which a backdated fit can leave later than
+      -- p_occurred_at.
       SELECT COALESCE(lr.governing_tread_mm, o.last_tread_mm) INTO mate
         FROM app.fitment f
         JOIN app.position p ON p.id = f.position_id
@@ -670,11 +673,14 @@ BEGIN
   -- fitments and its own reading: a rig's units run the same road and read
   -- different numbers, so one figure compared against every closure would
   -- refuse a sound trailer reading on the horse's account (FR-FIT-009).
-  -- Checked here so the whole set is refused before any row is closed.
+  -- Checked here so the whole set is refused before any row is closed. In id
+  -- order, so that when two units of one rig both read low the unit the
+  -- refusal names is fixed by construction rather than by the plan.
   FOR un IN SELECT DISTINCT f.vehicle_id AS vid
               FROM app.fitment f
              WHERE f.removed_at IS NULL AND f.tyre_id = ANY (moved)
-               AND f.vehicle_id = ANY (allowed) LOOP
+               AND f.vehicle_id = ANY (allowed)
+             ORDER BY f.vehicle_id LOOP
     odo := (p_odometers ->> un.vid::text)::bigint;
     IF odo IS NOT NULL AND EXISTS (
          SELECT 1 FROM app.fitment f

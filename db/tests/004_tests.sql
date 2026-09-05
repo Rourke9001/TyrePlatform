@@ -6535,8 +6535,9 @@ DECLARE
   tya uuid := md5('t47tya')::uuid;
   tyb uuid := md5('t47tyb')::uuid;
   tyc uuid := md5('t47tyc')::uuid;
+  tyd uuid := md5('t47tyd')::uuid;
   tye uuid := md5('t47tye')::uuid;
-  cfg uuid; cfg2 uuid; rig uuid;
+  cfg uuid; cfg2 uuid; rig uuid; t2pos uuid;
   p1 uuid; p2 uuid; p3 uuid; p5 uuid; p6 uuid; p7 uuid; p8 uuid; p9 uuid; p10 uuid;
   q1 uuid; q2 uuid;
   at0 timestamptz; r record; n int; msg text; fleet text;
@@ -6573,6 +6574,7 @@ BEGIN
     (tya, bac, 'T47TYREA', sz1, 'NEW', 0, 'IN_STOCK'),
     (tyb, bac, 'T47TYREB', sz1, 'NEW', 0, 'IN_STOCK'),
     (tyc, bac, 'T47TYREC', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyd, bac, 'T47TYRED', sz1, 'NEW', 0, 'IN_STOCK'),
     (tye, bac, 'T47TYREE', sz1, 'NEW', 0, 'IN_STOCK');
   rig := app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', ta),
                                                      jsonb_build_object('vehicle_id', tb)));
@@ -6662,24 +6664,68 @@ BEGIN
   -- (f) The DoD's cross-tenant half, both ways a rotation can name another
   -- fleet, because the two take different branches: a destination unit is
   -- resolved by visibility, a casing by the fitment its move derives its
-  -- source from (U15). The other fleet's rows are planted under that fleet's
-  -- own session and then shown invisible here, so neither refusal below can
-  -- be passing because the row was never there (lesson 2026-09-01: a probe
-  -- whose SQLSTATE is shared by a second branch proves nothing on its own).
+  -- source from (U15). Every one of the other fleet's rows is planted under
+  -- that fleet's own session and shown invisible here before either refusal
+  -- is provoked, so neither can be passing because the row was never there
+  -- (lesson 2026-09-01: a probe whose SQLSTATE is shared by a second branch
+  -- proves nothing on its own; 41r makes the same argument for fit and
+  -- remove).
+  --
+  -- Neither target can refuse for a second reason. The destination is a unit
+  -- of the other fleet, so with the policy off it would resolve and answer
+  -- the membership TY014 naming its fleet number, which the exact-message
+  -- check below refuses. The casing is fitted here, on that fleet's own
+  -- unit, for the same purpose: the source is resolved from an OPEN fitment,
+  -- and a casing with none is NOT FOUND for every tenant, which would answer
+  -- the invisibility TY012 with the policy off as readily as on. With the
+  -- fitment there, an unpoliced run resolves the source to T2's own horse --
+  -- a unit outside this rig -- and answers TY014 naming it instead, so the
+  -- TY012 asserted below can only be RLS.
   PERFORM set_config('app.tenant_id', t_two::text, true);
   -- Unbound with '': app.current_actor_id is nullif(..., ''), so BAC's
   -- controller would default created_by to a user this fleet cannot see.
   PERFORM set_config('app.actor_id', '', true);
   INSERT INTO app.tyre (id, tenant_id, display_code, status, retread_count, state)
-  VALUES (fty, t_two, 'T47TYREF', 'NEW', 0, 'IN_STOCK');
+  VALUES (fty, t_two, 'T47TYREF', 'NEW', 0, 'FITTED');
+  -- Queried, never assumed: the seed already occupies one position of this
+  -- unit (:1136), and DR-004 admits one open fitment per (position, unit).
+  SELECT p.id INTO t2pos
+    FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = md5('t2veh1')::uuid
+     AND NOT EXISTS (SELECT 1 FROM app.fitment f
+                      WHERE f.vehicle_id = v.id AND f.position_id = p.id
+                        AND f.removed_at IS NULL)
+   ORDER BY p.code
+   LIMIT 1;
+  IF t2pos IS NULL THEN
+    RAISE EXCEPTION 'FAIL 47f: the other fleet''s unit has no free position to plant a casing on';
+  END IF;
+  -- Written directly rather than through app.fit_tyre, the shape the seed
+  -- uses for its own tenant-2 row (:1136): what this probe rests on is the
+  -- fitment existing, not the function's refusals. t2veh1 is a HORSE, so the
+  -- reading is not optional (000025, FR-FIT-002), and the fit is backdated so
+  -- it shares no instant with anything this section stamps.
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+                           fitted_odometer, fitted_tread_mm, mount_orientation)
+  VALUES (t_two, fty, md5('t2veh1')::uuid, t2pos, now() - interval '1 day',
+          120000, 12.0, 'MARK_OUTBOARD');
   SELECT count(*) INTO n FROM app.tyre v WHERE v.id = fty;
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s casing was not planted'; END IF;
+  SELECT count(*) INTO n FROM app.fitment f WHERE f.tyre_id = fty AND f.removed_at IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 47f: the other fleet''s casing has no open fitment for a source lookup to find';
+  END IF;
   SELECT count(*) INTO n FROM app.vehicle v WHERE v.id = md5('t2veh1')::uuid;
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s unit is not there to probe with'; END IF;
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', ctl::text, true);
   SELECT count(*) INTO n FROM app.tyre v WHERE v.id = fty;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s casing is visible in this fleet'; END IF;
+  SELECT count(*) INTO n FROM app.fitment f WHERE f.tyre_id = fty AND f.removed_at IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 47f: the other fleet''s open fitment is visible in this fleet';
+  END IF;
   SELECT count(*) INTO n FROM app.vehicle v WHERE v.id = md5('t2veh1')::uuid;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s unit is visible in this fleet'; END IF;
   BEGIN
@@ -6741,6 +6787,37 @@ BEGIN
     END IF;
   END;
   RAISE NOTICE 'PASS  47g a rotation onto a unit sharing no rig is refused by that unit''s name';
+
+  -- (q) 47g's twin at the source. A move's source is resolved on the same two
+  -- branches as its destination and in the same order — visibility, then
+  -- membership (U11, U16, ADR-0012) — so the membership half owes its own
+  -- probe: without one, a body that simply dropped the source's rig check
+  -- would let a controller rotate a casing off a unit the rig never held and
+  -- leave the whole suite green. hx is visible here and shares no rig with h,
+  -- and the destination this move names IS in the rig, so only the source can
+  -- refuse. The casing is fitted an hour back for the reason the block's
+  -- opening fits carry.
+  PERFORM app.fit_tyre(tyd, hx, p1, 12.0, 'MARK_OUTBOARD', 300000, now() - interval '1 hour');
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tyd, 'to_vehicle_id', ta, 'to_position_id', p3,  'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', h,  'to_position_id', p10, 'tread_mm', 10.0)),
+      jsonb_build_object(h::text, 407000), now());
+    RAISE EXCEPTION 'FAIL 47q: a rotation of a casing sitting outside the rig was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%T47-HX%' THEN
+      RAISE EXCEPTION 'FAIL 47q: the refusal does not name the unit the casing is on: %', msg;
+    END IF;
+    -- And it is the source's answer, not the destination's: ta is in the rig,
+    -- so a message about where this casing is GOING would mean the two
+    -- branches had been merged into one.
+    IF msg NOT LIKE format('tyre %s is on %%', tyd) THEN
+      RAISE EXCEPTION 'FAIL 47q: the refusal reads as the destination''s, not the source''s: %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  47q a rotation of a casing sitting on a unit outside the rig is refused by that unit''s name';
 
   -- (i) U17: p_vehicle is the unit the request was addressed to and the
   -- anchor the rig is resolved from, not a unit every move has to touch. A
@@ -7226,7 +7303,7 @@ DECLARE
   tyx  uuid := md5('t47ptyx')::uuid;
   tyy  uuid := md5('t47ptyy')::uuid;
   cfg uuid; p1 uuid; p2 uuid; p3 uuid; p4 uuid;
-  moves jsonb; n int; m_zero text; m_half text; m_str text;
+  moves jsonb; n int; m_zero text; m_half text; m_str text; m_neg text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
@@ -7293,12 +7370,22 @@ BEGIN
     RAISE EXCEPTION 'FAIL 47p: two different readings were refused in identical words: %', m_zero;
   END IF;
   -- A reading below the odometer of a fitment being rotated out is a whole
-  -- number and still not one this rotation can record.
+  -- number and still not one this rotation can record — and which rule
+  -- refused it is read, not assumed. TY014 is this surface's whole input
+  -- vocabulary, so a whole-number test written without the sign would refuse
+  -- -1 as not whole and this leg would still pass, having stopped exercising
+  -- the per-unit bound it exists for.
   BEGIN
     PERFORM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, -1));
     RAISE EXCEPTION 'FAIL 47p: a negative reading was accepted';
-  EXCEPTION WHEN SQLSTATE 'TY014' THEN NULL;
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m_neg = MESSAGE_TEXT;
   END;
+  IF m_neg LIKE '%whole number%' THEN
+    RAISE EXCEPTION 'FAIL 47p: a negative reading was refused as a non-whole one: %', m_neg;
+  END IF;
+  IF m_neg NOT LIKE '%below the odometer%' THEN
+    RAISE EXCEPTION 'FAIL 47p: a negative reading was not refused by the per-unit bound: %', m_neg;
+  END IF;
 
   -- The control every refusal above rests on: the same moves and the same
   -- unit, read as a whole number, land.
