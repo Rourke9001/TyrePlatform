@@ -1,9 +1,13 @@
 -- Reverses 000038: drops the task write, the audit trigger, the factored
 -- predicate and overdue views, and restores app.v_capture_vehicle (000022)
--- and app.v_my_inspection_task (000014) to their previous bodies. The audit
--- rows the trigger wrote stay — a migration that deleted them would be
--- destroying facts, not changing a schema (rule 3, CR-004), the reasoning
--- 000035's and 000037's down migrations carry.
+-- and app.v_my_inspection_task (000014) to their exact text. Text, not
+-- shape: it.* re-expands against whatever columns app.inspection_task holds
+-- at the time, 000017's audit columns among them, so a restore that copied
+-- only the column list would answer a different view — the same reason the
+-- up drops that view rather than replacing it. The audit rows the trigger
+-- wrote stay: a migration that deleted them would be destroying facts, not
+-- changing a schema (rule 3, CR-004), the reasoning 000035's and 000037's
+-- down migrations carry.
 DROP FUNCTION app.create_inspection_task(uuid, uuid, date);
 DROP TRIGGER inspection_task_audited ON app.inspection_task;
 
