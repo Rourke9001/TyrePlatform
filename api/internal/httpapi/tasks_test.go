@@ -79,6 +79,15 @@ func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 	require.Len(t, trailerRows, 1, "a deactivated driver still reaches the trailer through the rig: %s", rec.Body.String())
 	require.Equal(t, bothDriver.String(), trailerRows[0].UserID)
 
+	// Reactivated before the rig is ended: the two filters remove the same
+	// row, so leaving the driver inactive here would let the rig end prove
+	// nothing — the list would already be down to one either way.
+	_, err = admin.Exec(ctx, `UPDATE app.app_user SET active = true WHERE id = $1`, horseDriver)
+	require.NoError(t, err)
+	rec = get(t, h, "/api/vehicles/"+trailerID.String()+"/drivers", tenantID.String(), controller.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trailerRows))
+	require.Len(t, trailerRows, 2, "a reactivated driver returns to the list: %s", rec.Body.String())
+
 	// Ending the rig removes the rig leg and nothing else.
 	rec = post(t, h, "/api/combinations/"+rig.ID+"/end", tenantID.String(), controller.String(), `{}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
