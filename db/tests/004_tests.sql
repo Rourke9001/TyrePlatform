@@ -6149,8 +6149,11 @@ BEGIN
      OR r.schedule_id IS NOT NULL OR r.overdue THEN
     RAISE EXCEPTION 'FAIL 46b: task row reads % / % / % / % / overdue %', r.state, r.assigned_user_id, r.requested_by, r.created_by, r.overdue;
   END IF;
-  IF (r.due_at AT TIME ZONE tz)::date <> today
-     OR r.due_at >= ((today + 1)::timestamp AT TIME ZONE tz)
+  -- The instant itself, not merely the day it falls in: the rule is the last
+  -- microsecond of the tenant's day, so a coarser end-of-day would still sit
+  -- inside the day and pass a range check. r.due_at > now() is the separate
+  -- claim that a task due today is not overdue at creation.
+  IF r.due_at <> ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond'
      OR r.due_at <= now() THEN
     RAISE EXCEPTION 'FAIL 46b: a task due today is due at %, not the tenant-local end of today', r.due_at;
   END IF;
@@ -6194,7 +6197,18 @@ BEGIN
       RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
     END IF;
   END;
+  -- The base view's active leg, proven by the change alone: drv3's
+  -- assignment to hx is untouched across the deactivation, so the predicate
+  -- answering true before and false after is the u.active join and nothing
+  -- else. Without the control above it, the second probe would pass on any
+  -- predicate that answered false for this pair.
+  IF NOT app.user_can_capture(drv3, hx) THEN
+    RAISE EXCEPTION 'FAIL 46c: an active driver assigned to the unit fails the predicate';
+  END IF;
   UPDATE app.app_user SET active = false WHERE id = drv3;
+  IF app.user_can_capture(drv3, hx) THEN
+    RAISE EXCEPTION 'FAIL 46c: a deactivated driver still passes the predicate';
+  END IF;
   BEGIN
     PERFORM app.create_inspection_task(hx, drv3);
     RAISE EXCEPTION 'FAIL 46c: a task was scheduled for a deactivated driver';
@@ -6219,8 +6233,8 @@ BEGIN
   END;
   task_ctl := app.create_inspection_task(h, drv, today + 1);
   SELECT t.due_at, t.overdue INTO STRICT r FROM app.v_inspection_task t WHERE t.id = task_ctl;
-  IF (r.due_at AT TIME ZONE tz)::date <> today + 1
-     OR r.due_at >= ((today + 2)::timestamp AT TIME ZONE tz) OR r.overdue THEN
+  IF r.due_at <> ((today + 2)::timestamp AT TIME ZONE tz) - interval '1 microsecond'
+     OR r.overdue THEN
     RAISE EXCEPTION 'FAIL 46d: a task due tomorrow is due at %', r.due_at;
   END IF;
   RAISE NOTICE 'PASS  46d a task is due today or later at the tenant-local end of its day, never yesterday';
@@ -6241,7 +6255,7 @@ BEGIN
   IF r.state <> 'COMPLETED' OR r.completed_inspection_id IS DISTINCT FROM res.inspection_id THEN
     RAISE EXCEPTION 'FAIL 46e: after the submit the task reads % citing %', r.state, r.completed_inspection_id;
   END IF;
-  SELECT t.state INTO r FROM app.inspection_task t WHERE t.id = task_ctl;
+  SELECT t.state INTO STRICT r FROM app.inspection_task t WHERE t.id = task_ctl;
   IF r.state <> 'OPEN' THEN RAISE EXCEPTION 'FAIL 46e: a task the submit did not name was closed'; END IF;
   SELECT count(*) INTO n FROM app.v_my_inspection_task t WHERE t.id = task;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL 46e: the driver still reads a completed task'; END IF;
@@ -6265,10 +6279,10 @@ BEGIN
   -- refusal was tenant-caused. Through the function: tenant 2 naming BAC's
   -- unit, and BAC's driver on tenant 2's own unit. The insert stamps
   -- tenant_id from the session, so under any leak it dies as 23503 on a
-  -- composite tenant FK (000004/000017) — FK checks bypass RLS — never as
-  -- TY012 and never as a success; the code and message are therefore the
-  -- discriminating assert, and the owning tenant's identical call below is
-  -- the control. Then a raw INSERT (FR-TEN-004, NFR-SEC-004)
+  -- composite tenant FK (000012:367-368, on 000004's parent keys) — FK checks
+  -- bypass RLS — never as TY012 and never as a success; the code and message
+  -- are therefore the discriminating assert, and the owning tenant's
+  -- identical call below is the control. Then a raw INSERT (FR-TEN-004, NFR-SEC-004)
   -- aimed at tenant 2 with every column valid for tenant 2 — created_by a
   -- real tenant-2 user (lessons 2026-08-28) — which only tenant_isolation's
   -- WITH CHECK can refuse. The policy message is pinned to THIS table: with
@@ -6301,6 +6315,12 @@ BEGIN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
     IF msg <> 'no such user in this fleet' THEN RAISE EXCEPTION 'FAIL 46g: wrong message %', msg; END IF;
   END;
+  -- The predicate itself, below the refusals that name it: under tenant 2's
+  -- session app.v_user_capture_vehicle must answer no row for BAC's pair, so
+  -- user_can_capture is false rather than reading BAC's assignment.
+  IF app.user_can_capture(drv, h) THEN
+    RAISE EXCEPTION 'FAIL 46g: the predicate answers true across tenants';
+  END IF;
   PERFORM app.create_inspection_task(md5('t2veh1')::uuid, t2drv);
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', ctl::text, true);

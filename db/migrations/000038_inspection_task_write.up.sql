@@ -26,10 +26,11 @@
 -- written a second time, and v_capture_vehicle is re-created on it below so
 -- the capture read keeps its name, its columns and its answer.
 --
--- The rig leg excludes the motive: the horse's driver reaches the horse by
--- their own assignment, and a second row for the same pair would list them
--- twice on the drivers read. Inactive users are excluded here, once: an
--- actor withActor refuses (ADR-0011) is not one a task may name.
+-- The rig leg excludes the motive, which is a member row of its own rig
+-- (000037): reaching the motive is the assignment leg's answer, so the rig
+-- leg answers only the towed units assignment does not reach, and each leg
+-- states one rule. Inactive users are excluded here, once: an actor
+-- withActor refuses (ADR-0011) is not one a task may name.
 CREATE VIEW app.v_user_capture_vehicle WITH (security_invoker = true) AS
 SELECT ca.tenant_id, ca.user_id, ca.vehicle_id, ca.vehicle_id AS via_vehicle_id
   FROM app.v_current_assignment ca
@@ -43,10 +44,12 @@ SELECT cm.tenant_id, ca.user_id, cm.vehicle_id, ca.vehicle_id AS via_vehicle_id
   JOIN app.combination_member cm
     ON cm.combination_id = c.id AND cm.vehicle_id <> c.motive_vehicle_id;
 
--- The capture read, re-created whole on the base above: the same two columns
--- and the same rows 000022 answered, so capture.go and suite 45a read it
--- unchanged. CREATE OR REPLACE keeps its grants; security_invoker is restated
--- because reloptions are not carried over (suite 8b would catch an omission).
+-- The capture read, re-created whole on the base above: the same two columns,
+-- so capture.go and suite 45a read it unchanged. The base excludes an
+-- inactive actor, which this read inherits — unreachable through the API,
+-- since withActor refuses an inactive actor before a query runs (ADR-0011).
+-- CREATE OR REPLACE keeps its grants; security_invoker is restated because
+-- reloptions are not carried over (suite 8b would catch an omission).
 CREATE OR REPLACE VIEW app.v_capture_vehicle WITH (security_invoker = true) AS
 SELECT DISTINCT ucv.tenant_id, ucv.vehicle_id
   FROM app.v_user_capture_vehicle ucv
@@ -66,12 +69,16 @@ $$;
 -- due date, computed once. 000014 wrote it inside the driver's own view; the
 -- unit's task list (tasks.go) needs the same answer for every assignee, and a
 -- second expression in a Go query string would be a second place for the
--- rule to be wrong. v_my_inspection_task is dropped and re-created rather
--- than replaced: its it.* predates 000017's audit columns, so its column
--- order cannot be preserved by CREATE OR REPLACE.
+-- rule to be wrong. `outstanding` — still needing doing — is factored beside
+-- it for the same reason: the driver's list, the unit's list and any later
+-- reader ask one expression rather than each repeating the state literals.
+-- v_my_inspection_task is dropped and re-created rather than replaced: its
+-- it.* predates 000017's audit columns, so its column order cannot be
+-- preserved by CREATE OR REPLACE.
 CREATE VIEW app.v_inspection_task WITH (security_invoker = true) AS
 SELECT it.*,
-       (it.state = 'OPEN' AND it.due_at < now()) AS overdue
+       (it.state = 'OPEN' AND it.due_at < now()) AS overdue,
+       (it.state IN ('OPEN','ESCALATED'))        AS outstanding
   FROM app.inspection_task it;
 
 DROP VIEW app.v_my_inspection_task;
@@ -79,7 +86,7 @@ CREATE VIEW app.v_my_inspection_task WITH (security_invoker = true) AS
 SELECT t.*
   FROM app.v_inspection_task t
  WHERE t.assigned_user_id = app.current_actor_id()
-   AND t.state IN ('OPEN','ESCALATED');
+   AND t.outstanding;
 
 -- U12, ADR-0014: the table this slice gives a write path to. The submit's
 -- close (000023) is an UPDATE on this table and is audited from here on
@@ -93,7 +100,10 @@ FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 -- here is what a task must be true of: a unit this tenant can see and has
 -- not retired, a user this tenant can see who is active and can capture the
 -- unit, and a due day not already past. The predicate is the view's;
--- this function only names the refusal.
+-- this function only names the refusal. A NULL unit or assignee matches no
+-- row and falls to TY012 by NOT FOUND, which is the whole of its handling
+-- here: shape is refused in Go before the transaction opens, so a missing or
+-- unparseable id never reaches this call (ADR-0013 decision 5).
 --
 -- Due instant (rule 6): the tenant-local last microsecond of the due day.
 -- app.tenant_day_instant (000037) resolves a PAST-facing "as-at" instant and
@@ -101,9 +111,11 @@ FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 -- what makes a task due today not overdue at creation under
 -- v_inspection_task's due_at < now(), overdue the moment the tenant's day
 -- ends, and rendered by formatTenantDate as the day it is due. Never a bare
--- date cast (lessons 2026-09-01). app.generate_inspection_tasks (000012)
--- stamps UTC midnight and predates this rule; the schedule surface that owns
--- it is a separate ticket (spec, out of scope).
+-- date cast (lessons 2026-09-01). It assumes the tenant zone's day D+1 opens
+-- at local midnight, true of every zone in current tzdata; a zone whose
+-- historical midnight was skipped would place the instant around 01:00 of
+-- the following day, still inside it. app.generate_inspection_tasks (000012)
+-- stamps UTC midnight and predates this rule; aligning it is TYRE-133's.
 CREATE FUNCTION app.create_inspection_task(p_vehicle uuid, p_assignee uuid,
                                            p_due_on date DEFAULT NULL)
 RETURNS uuid
@@ -133,6 +145,9 @@ BEGIN
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such user in this fleet';
   END IF;
+  -- Ahead of the capture predicate: v_user_capture_vehicle excludes inactive
+  -- users, so a deactivated driver would otherwise be refused by name for
+  -- not being assigned to a unit they are in fact assigned to.
   IF NOT usr.active THEN
     RAISE EXCEPTION USING ERRCODE = 'TY018',
       MESSAGE = format('%s is no longer active', usr.display_name);
