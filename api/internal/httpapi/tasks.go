@@ -3,7 +3,8 @@
 // be due on, and what is overdue are app.v_user_capture_vehicle's,
 // app.create_inspection_task's and app.v_inspection_task's alone (000038);
 // this file validates shape, gates the capability and projects rows
-// (ADR-0013 decision 5). It decides nothing about tasks.
+// (ADR-0013 decision 5). It decides nothing about tasks. The U-codes cited
+// below are docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md's.
 package httpapi
 
 import (
@@ -114,7 +115,7 @@ func loadUnitTasks(ctx context.Context, tx pgx.Tx, vehicleID *uuid.UUID, taskID 
 		  LEFT JOIN app.app_user u ON u.id = t.assigned_user_id
 		 WHERE ($1::uuid IS NULL OR t.vehicle_id = $1)
 		   AND ($2::uuid IS NULL OR t.id = $2)
-		   AND t.state IN ('OPEN', 'ESCALATED')
+		   AND t.outstanding
 		 ORDER BY t.due_at, t.id`, vehicleID, taskID)
 	if err != nil {
 		return nil, fmt.Errorf("listing unit tasks: %w", err)
