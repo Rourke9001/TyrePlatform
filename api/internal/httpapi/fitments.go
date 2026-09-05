@@ -391,7 +391,18 @@ func (b rotateRequest) odometerPayload(vehicleID string) (map[string]int64, erro
 	}
 	byUnit := make(map[string]int64, len(b.Odometers))
 	for key, reading := range b.Odometers {
-		field := fmt.Sprintf("odometers.%s", key)
+		// The byte clip decodeJSONStrict states its reason for (admin.go), and
+		// for that reason: this is the package's other refusal built out of a
+		// key the caller chose, bounded only by maxWriteBytes. The clip is on
+		// the name the message carries and nothing else — uuidField still
+		// parses the ORIGINAL key, because a truncation that turned a
+		// malformed key into a well-formed one would let a reading through
+		// under an id the caller never sent.
+		name := key
+		if len(name) > maxTextLen {
+			name = strings.ToValidUTF8(name[:maxTextLen], "")
+		}
+		field := fmt.Sprintf("odometers.%s", name)
 		unitID, err := uuidField(field, key)
 		if err != nil {
 			return nil, err

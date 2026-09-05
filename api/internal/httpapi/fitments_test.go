@@ -886,12 +886,19 @@ func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 	}
 	rotatePath := "/api/vehicles/" + horse.String() + "/rotations"
 
+	// exact, not contains, wherever one case's expected text is a prefix of
+	// another's: "odometer" is a substring of "odometers", so a decoder that
+	// answered "odometers" for both would satisfy a contains-check on each.
+	// The odometers case is also the only assertion that would catch a
+	// caller's map key leaking into the refusal, which is exactly what
+	// typeErrorField's ADR-0012 claim says cannot happen (admin.go).
 	for _, tt := range []struct {
 		name     string
 		body     string
 		status   int
 		code     string
 		contains []string
+		exact    string
 	}{
 		{
 			name:     "the odometer given two ways",
@@ -901,18 +908,18 @@ func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 			contains: []string{"odometer", "odometers"},
 		},
 		{
-			name:     "an odometer that is not a number",
-			body:     swap(`,"odometer":"1500"`),
-			status:   http.StatusBadRequest,
-			code:     "malformed_json",
-			contains: []string{"odometer"},
+			name:   "an odometer that is not a number",
+			body:   swap(`,"odometer":"1500"`),
+			status: http.StatusBadRequest,
+			code:   "malformed_json",
+			exact:  "odometer is the wrong type",
 		},
 		{
-			name:     "a reading that is not a number",
-			body:     swap(fmt.Sprintf(`,"odometers":{%q:"1500"}`, horse)),
-			status:   http.StatusBadRequest,
-			code:     "malformed_json",
-			contains: []string{"odometers"},
+			name:   "a reading that is not a number",
+			body:   swap(fmt.Sprintf(`,"odometers":{%q:"1500"}`, horse)),
+			status: http.StatusBadRequest,
+			code:   "malformed_json",
+			exact:  "odometers is the wrong type",
 		},
 		{
 			// In SQL the destination is cast before any refusal can name it,
@@ -946,6 +953,9 @@ func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 			require.Equal(t, tt.code, ref.Code)
 			for _, want := range tt.contains {
 				require.Contains(t, ref.Message, want)
+			}
+			if tt.exact != "" {
+				require.Equal(t, tt.exact, ref.Message)
 			}
 		})
 	}
