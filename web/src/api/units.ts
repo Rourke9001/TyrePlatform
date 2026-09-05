@@ -172,9 +172,8 @@ export function removeFitment(fitmentId: string, body: Removal): Promise<void> {
   return apiPost<void>(`/api/fitments/${fitmentId}/remove`, body);
 }
 
-// toVehicleId is optional and omitted rather than sent as null: a move that
-// names no destination belongs to the unit the request is addressed to (U15,
-// U17), and a null would be a second way of saying the same thing.
+// Omitted, never sent as null — fitments.go's rotateRequest.payload comment
+// says why (U15, U17).
 export interface RotationMove {
   tyreId: string;
   toVehicleId?: string;
@@ -182,12 +181,11 @@ export interface RotationMove {
   treadMm: string;
 }
 
-// odometer and odometers are alternatives, never both — a body carrying the
-// two is refused as a wire-shape contradiction (U20, fitments.go's
-// odometerPayload). A reading belongs to one unit (FR-FIT-002), so a rotation
-// across a rig keys them by unit id and one inside a single unit keeps the
-// scalar. The keys are unit ids exactly as the API returned them: SQL looks a
-// unit up as p_odometers ->> vehicle_id::text.
+// odometer and odometers are alternatives — never both — refused as a
+// wire-shape contradiction, fitments.go's odometerPayload. A reading belongs
+// to one unit (FR-FIT-002), so a rotation across a rig keys them by unit id
+// and one inside a single unit keeps the scalar. Keys exactly as the API
+// returned them — fitments.go's odometerPayload says why.
 export interface Rotation {
   moves: RotationMove[];
   odometer?: number;

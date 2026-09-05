@@ -7292,9 +7292,8 @@ BEGIN
   IF m_zero = m_half THEN
     RAISE EXCEPTION 'FAIL 47p: two different readings were refused in identical words: %', m_zero;
   END IF;
-  -- The existing contract, pinned beside the new case: a reading below the
-  -- odometer of a fitment being rotated out is a whole number and still not
-  -- one this rotation can record.
+  -- A reading below the odometer of a fitment being rotated out is a whole
+  -- number and still not one this rotation can record.
   BEGIN
     PERFORM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, -1));
     RAISE EXCEPTION 'FAIL 47p: a negative reading was accepted';

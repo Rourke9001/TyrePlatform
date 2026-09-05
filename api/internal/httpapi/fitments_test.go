@@ -369,8 +369,8 @@ func TestFitmentWritesAreCapabilityGated(t *testing.T) {
 		{"fit", "/api/vehicles/" + other.String() + "/fitments", fitBody(spare, rightPos, "9.0", nil)},
 		{"remove", "/api/fitments/" + created.FitmentID + "/remove", `{"reason":"WORN","treadMm":"4.0"}`},
 		// The destination and the per-unit reading are carried here too: the
-		// capability is asked before any of them is read, so a field added to
-		// this body must not open a path around the gate.
+		// capability is asked before any of them reaches SQL, so a field added
+		// to this body must not open a path around the gate.
 		{"rotate", "/api/vehicles/" + other.String() + "/rotations", fmt.Sprintf(
 			`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.0"},
 			           {"tyreId":%q,"toPositionId":%q,"treadMm":"8.0"}],
@@ -455,7 +455,7 @@ func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
 	// one TRAILER and the two moves are a legal swap, which is why the unit
 	// lookup app.rotate_tyres opens with is the only thing that can refuse it.
 	t.Run("rotate", func(t *testing.T) {
-		// Both new fields name tenant A's own unit, so the anchor lookup is
+		// Both fields name tenant A's own unit, so the anchor lookup is
 		// still the only thing that can refuse this — a destination and a
 		// per-unit reading are read long after it.
 		swap := fmt.Sprintf(`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.5"},
@@ -808,10 +808,8 @@ func TestRotateCrossesUnitsAndReadsAnOdometerPerUnit(t *testing.T) {
 	require.Equal(t, int64(1200), *crossed.Fitment.FittedOdometer)
 	require.Nil(t, stayed.Fitment.FittedOdometer, "a trailer has no reading to record")
 
-	// SQL looks a unit up with (p_odometers ->> vehicle_id::text), which is
-	// Postgres's lowercase hyphenated rendering. A key in any other shape is a
-	// key this rotation does not touch, so it is canonicalised on this side or
-	// the reading is silently lost on the unit that supplied it (U20).
+	// Keys exactly as the API returned them — fitments.go's odometerPayload
+	// says why.
 	back := fmt.Sprintf(
 		`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.0"},
 		           {"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"7.0"}],
@@ -862,9 +860,7 @@ func TestRotateNormalisesTheLoneOdometer(t *testing.T) {
 }
 
 // The shapes this handler refuses before a transaction opens, and the one
-// contradiction it will not resolve. A body giving the odometer both ways is
-// refused rather than reconciled: FR-FIT-002 records one reading per unit, and
-// nothing here can say which of the two a caller meant.
+// contradiction it will not resolve — fitments.go's odometerPayload says why.
 func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

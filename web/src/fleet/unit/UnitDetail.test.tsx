@@ -181,10 +181,8 @@ describe("the unit screen", () => {
     expect(screen.getByRole("heading", { name: "Schedule an inspection" })).toBeTruthy();
   });
 
-  // What a unit is coupled to decides where a rotation may send a casing
-  // (TYRE-101), so the unit screen names the rig rather than leaving a
-  // controller to find it on another screen. Both halves: an ended rig is
-  // history, and naming one here would read as a coupling that still holds.
+  // UnitDetail's own reason for the line; both halves asserted so an ended
+  // rig cannot read as a live coupling.
   it("names the open rig's other units and says nothing about one already ended", async () => {
     stubFetch([rig()]);
     const { unmount } = renderScreen(["ViewFleet"]);

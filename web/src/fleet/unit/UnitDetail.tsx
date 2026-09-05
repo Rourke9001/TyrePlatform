@@ -29,10 +29,8 @@ export function UnitDetail({ unitId }: { unitId: string }) {
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
 
   const unit = useQuery({ queryKey: unitKey(unitId), queryFn: () => fetchUnit(unitId) });
-  // The register read RigList and RotateForm already make, narrowed to the
-  // open rigs here rather than asked for with ?open=true: one key answered by
-  // two different fetchers hands whichever screen mounts second a list it did
-  // not ask for.
+  // Same read RotateForm makes under rigsKey, narrowed here for the reason
+  // given there.
   const rigs = useQuery({ queryKey: rigsKey(tenantKey), queryFn: () => fetchRigs() });
   const fitments = useQuery({
     queryKey: unitFitmentsKey(unitId),
@@ -57,8 +55,7 @@ export function UnitDetail({ unitId }: { unitId: string }) {
   const openRig = (rigs.data ?? []).find(
     (r) => r.effectiveTo === null && r.members.some((m) => m.vehicleId === unit.data.id),
   );
-  // In the rig's own member order (U7), so the line reads down the vehicle the
-  // way a controller walks it.
+  // U7 member order, as RotateForm.
   const siblings = openRig?.members.filter((m) => m.vehicleId !== unit.data.id) ?? [];
 
   return (

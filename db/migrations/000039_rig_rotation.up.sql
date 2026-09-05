@@ -522,10 +522,9 @@ BEGIN
   -- Everything is validated before anything is written: the RAISE rolls this
   -- function's own transaction back, but a caller holding a savepoint around
   -- it must not be able to keep half a rotation (FR-FIT-010, FR-FIT-014).
-  -- The checks run as ordered passes rather than per move, so which rule
-  -- refuses a set does not depend on the order the moves were listed in, and
-  -- a casing that is nowhere in this rig is reported as such instead of as a
-  -- position clash on a unit it was never on.
+  -- The checks run as ordered passes rather than per move: a later pass's
+  -- rule cannot pre-empt an earlier pass's, so an occupancy or tread answer
+  -- never arrives ahead of a visibility one (suite 41n).
   FOR m IN SELECT e.value FROM jsonb_array_elements(p_moves) e LOOP
     -- U15: a move names where the casing is going. Where it is coming from is
     -- derived from its open fitment, which is already the one answer to where
@@ -704,10 +703,9 @@ BEGIN
 
   -- Every fitment closes before any opens: a swap passes through a moment
   -- where two casings would claim one position, and the partial unique
-  -- indexes are checked per statement. Odometers resolve per unit because a
-  -- horse records one and a trailer has none (FR-FIT-002, TY009 on each row).
-  -- One reading per tyre serves both ends of the move: the casing is measured
-  -- once, on the ground, during the rotation.
+  -- indexes are checked per statement. One reading per tyre serves both ends
+  -- of the move: the casing is measured once, on the ground, during the
+  -- rotation.
   UPDATE app.fitment f
      SET removed_at       = p_occurred_at,
          removed_odometer = (p_odometers ->> f.vehicle_id::text)::bigint,
