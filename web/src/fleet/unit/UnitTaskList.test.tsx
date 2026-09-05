@@ -58,19 +58,10 @@ describe("the unit's open inspections", () => {
     expect(within(row).getByText("Open")).toBeInTheDocument();
   });
 
-  it("reads Escalated for an escalated task", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(respond(200, [task({ id: "t1", state: "ESCALATED" })]));
-    renderList();
-
-    const row = (await screen.findByText("Sandbox Driver")).closest("tr");
-    if (!row) throw new Error("row not found");
-    expect(within(row).getByText("Escalated")).toBeInTheDocument();
-  });
-
-  // app.v_inspection_task computes overdue for OPEN alone (000038), so an
-  // escalated task whose due day has passed still arrives overdue: false and
-  // must read Escalated rather than borrowing the word from its due date.
-  it("reads Escalated for an escalated task whose due day has passed", async () => {
+  // Due last year and still overdue: false — app.v_inspection_task computes
+  // overdue for OPEN alone (000038), so an escalated task past its due day
+  // reads Escalated rather than borrowing the word from its date.
+  it("reads Escalated for an escalated task, whatever its due day", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, [
         task({ id: "t1", state: "ESCALATED", overdue: false, dueAt: "2025-01-01T22:30:00Z" }),
