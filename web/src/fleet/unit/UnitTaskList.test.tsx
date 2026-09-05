@@ -12,7 +12,7 @@ function task(overrides: Partial<UnitTask> & { id: string }): UnitTask {
   return {
     vehicleId: "u9",
     fleetNumber: "TRAILER-9",
-    dueAt: "2026-09-04T21:59:59Z",
+    dueAt: "2026-09-04T22:30:00Z",
     state: "OPEN",
     overdue: false,
     assignedUserId: "d1",
@@ -39,11 +39,14 @@ describe("the unit's open inspections", () => {
     vi.unstubAllGlobals();
   });
 
-  // rule 6: the instant renders in the tenant's own zone, and a fractional
-  // second on the wire (2026-09-04T21:59:59.999999Z) renders the same day.
+  // rule 6: the instant renders in the tenant's own zone. The fixture
+  // straddles — 22:30 UTC is the 4th in UTC and the 5th in me()'s
+  // Africa/Johannesburg — so a render in the browser's zone reads the wrong
+  // day and fails here. The fractional second is the wire's own shape
+  // (000038's due instant carries microseconds) and must not move the day.
   it("lists a task's driver, tenant-zone due date and status", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      respond(200, [task({ id: "t1", dueAt: "2026-09-04T21:59:59.999999Z" })]),
+      respond(200, [task({ id: "t1", dueAt: "2026-09-04T22:30:00.999999Z" })]),
     );
     renderList();
 
@@ -51,7 +54,7 @@ describe("the unit's open inspections", () => {
     const row = (await screen.findByText("Sandbox Driver")).closest("tr");
     if (!row) throw new Error("row not found");
     // en-ZA's short month for September is "Sept", not "Sep" (RigList.test.tsx).
-    expect(within(row).getByText("04 Sept 2026")).toBeInTheDocument();
+    expect(within(row).getByText("05 Sept 2026")).toBeInTheDocument();
     expect(within(row).getByText("Open")).toBeInTheDocument();
   });
 
@@ -64,10 +67,26 @@ describe("the unit's open inspections", () => {
     expect(within(row).getByText("Escalated")).toBeInTheDocument();
   });
 
+  // app.v_inspection_task computes overdue for OPEN alone (000038), so an
+  // escalated task whose due day has passed still arrives overdue: false and
+  // must read Escalated rather than borrowing the word from its due date.
+  it("reads Escalated for an escalated task whose due day has passed", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, [
+        task({ id: "t1", state: "ESCALATED", overdue: false, dueAt: "2025-01-01T22:30:00Z" }),
+      ]),
+    );
+    renderList();
+
+    const row = (await screen.findByText("Sandbox Driver")).closest("tr");
+    if (!row) throw new Error("row not found");
+    expect(within(row).getByText("Escalated")).toBeInTheDocument();
+  });
+
   // NFR-USE-009: overdue is a word, not only a colour.
   it("names an overdue row Overdue rather than colour alone", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
-      respond(200, [task({ id: "t1", state: "ESCALATED", overdue: true })]),
+      respond(200, [task({ id: "t1", state: "OPEN", overdue: true })]),
     );
     renderList();
 
@@ -98,7 +117,9 @@ describe("the unit's open inspections", () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(500, { code: "boom", message: "down" }));
     renderList();
 
-    expect(await screen.findByRole("alert")).toBeInTheDocument();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "The open inspections could not be loaded.",
+    );
 
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, [task({ id: "t1" })]));
     await userEvent.click(screen.getByRole("button", { name: "Retry" }));

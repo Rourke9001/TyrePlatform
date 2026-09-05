@@ -82,7 +82,7 @@ describe("the inspection-task API module", () => {
 
     it("carries TY018 through as an ApiError", async () => {
       vi.mocked(fetch).mockResolvedValue(
-        respond(422, { code: "TY018", message: "a due day before the tenant's today is refused" }),
+        respond(422, { code: "TY018", message: "a task is due today or later, never in the past" }),
       );
 
       const error = await scheduleTask("u9", { assigneeUserId: "d1" }).catch((e: unknown) => e);
