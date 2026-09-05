@@ -1,6 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { Link } from "react-router";
 
+import { fetchRigs } from "../../api/combinations";
+import { getDevTenantId } from "../../api/devTenant";
 import { fetchUnit, fetchUnitFitments } from "../../api/units";
 import { useCan } from "../../auth/actorContext";
 import { FitmentHistory } from "./FitmentHistory";
@@ -11,7 +14,7 @@ import { UnitEditForm } from "./UnitEditForm";
 import { UnitPlan } from "./UnitPlan";
 import { UnitStatusForm } from "./UnitStatusForm";
 import { UnitTaskList } from "./UnitTaskList";
-import { unitFitmentsKey, unitKey } from "./queryKeys";
+import { rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import "../fleet.css";
 
 // D7's unit screen: the plan view of what the unit carries, the panel for
@@ -22,9 +25,15 @@ import "../fleet.css";
 export function UnitDetail({ unitId }: { unitId: string }) {
   const canManage = useCan("ManageAssets");
   const canAssign = useCan("ManageAssignments");
+  const tenantKey = getDevTenantId() ?? "default";
   const [selectedPositionId, setSelectedPositionId] = useState<string | null>(null);
 
   const unit = useQuery({ queryKey: unitKey(unitId), queryFn: () => fetchUnit(unitId) });
+  // The register read RigList and RotateForm already make, narrowed to the
+  // open rigs here rather than asked for with ?open=true: one key answered by
+  // two different fetchers hands whichever screen mounts second a list it did
+  // not ask for.
+  const rigs = useQuery({ queryKey: rigsKey(tenantKey), queryFn: () => fetchRigs() });
   const fitments = useQuery({
     queryKey: unitFitmentsKey(unitId),
     queryFn: () => fetchUnitFitments(unitId),
@@ -45,6 +54,12 @@ export function UnitDetail({ unitId }: { unitId: string }) {
   }
 
   const selected = unit.data.positions.find((p) => p.id === selectedPositionId) ?? null;
+  const openRig = (rigs.data ?? []).find(
+    (r) => r.effectiveTo === null && r.members.some((m) => m.vehicleId === unit.data.id),
+  );
+  // In the rig's own member order (U7), so the line reads down the vehicle the
+  // way a controller walks it.
+  const siblings = openRig?.members.filter((m) => m.vehicleId !== unit.data.id) ?? [];
 
   return (
     <section className="unit-detail" aria-labelledby="unit-heading">
@@ -54,6 +69,16 @@ export function UnitDetail({ unitId }: { unitId: string }) {
       <p className="unit-detail-sub">
         {unit.data.registration ?? "No registration"} · {unit.data.configurationName}
       </p>
+      {/* What this unit is coupled to decides where a rotation may send a
+          casing (FR-FIT-010), so the unit screen names the rig rather than
+          leaving it to be found on another screen. Only an open one: an ended
+          rig is history, and naming it here would read as current. */}
+      {siblings.length > 0 && (
+        <p className="unit-detail-sub">
+          In a rig with{" "}
+          <Link to="/fleet/rigs">{siblings.map((m) => m.fleetNumber).join(", ")}</Link>
+        </p>
+      )}
 
       <UnitPlan
         positions={unit.data.positions}

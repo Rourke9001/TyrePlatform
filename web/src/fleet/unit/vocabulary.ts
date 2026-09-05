@@ -3,13 +3,19 @@
 // MARK_OUTBOARD, and neither should have to become the other. Its own module
 // for the reason queryKeys.ts is one.
 
+// app.mount_orientation's third member, named because a fit form has to
+// default to something and D13 says that default is the unasserted one. It is
+// declared here and spelled once, so a screen cannot come to hold a value the
+// radios below do not offer (TYRE-128).
+export const ORIENTATION_UNKNOWN = "UNKNOWN";
+
 // CHG-010 (OI-28's answer): outer/centre/inner are relative to the vehicle
 // centreline, so which sidewall carries the manufacturer's mark is a fact
 // about the mounting, not about the tyre.
 export const MOUNT_ORIENTATIONS: { value: string; label: string }[] = [
   { value: "MARK_OUTBOARD", label: "Mark outboard" },
   { value: "MARK_INBOARD", label: "Mark inboard" },
-  { value: "UNKNOWN", label: "Unknown" },
+  { value: ORIENTATION_UNKNOWN, label: "Unknown" },
 ];
 
 // app.vehicle_status' six members (FR-VEH-005). Which transitions between

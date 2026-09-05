@@ -18,7 +18,7 @@ import { useFormMutation } from "../useFormMutation";
 import { byNaturalCode } from "./naturalOrder";
 import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
-import { MOUNT_ORIENTATIONS, orientationLabel } from "./vocabulary";
+import { MOUNT_ORIENTATIONS, ORIENTATION_UNKNOWN, orientationLabel } from "./vocabulary";
 
 // A fit and a removal refuse for different reasons and must say so. Only the
 // codes each endpoint can actually raise are listed: app.fit_tyre reaches
@@ -65,7 +65,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   // fitments.go) so whatever this holds at submit is written to an immutable
   // row (rule 3), and a default of MARK_OUTBOARD would record a positive
   // mounting fact nobody asserted.
-  const [orientation, setOrientation] = useState("UNKNOWN");
+  const [orientation, setOrientation] = useState<string>(ORIENTATION_UNKNOWN);
   const [fitOdometer, setFitOdometer] = useState("");
   const [reason, setReason] = useState("");
   const [removeTread, setRemoveTread] = useState("");

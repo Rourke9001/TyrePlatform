@@ -178,6 +178,31 @@ describe("a position panel", () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  // The removal's own half of the blank-reading guard (TYRE-128): readOdometer
+  // reads a blank as "no value" rather than as a bad one, so without this
+  // check the closing UPDATE would go out with no reading and come back as the
+  // TY009 000025's trigger raises (FR-FIT-002).
+  it("refuses a removal with a blank odometer on a unit that has one, without sending it", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({ id: "p2", code: "POS2", fitment: openFitment({ fitmentId: "f4" }) }),
+      { hasOdometer: true, removalReasons: ["Worn out"] },
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    // Whitespace-only for the reason the fit's pair gives: the field is
+    // `required`, which jsdom fails before the submit handler runs at all.
+    await user.type(screen.getByRole("textbox", { name: "Odometer" }), "   ");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Enter the odometer");
+    // The stock read is disabled on an occupied position, so any call at all
+    // would be the removal this guard must have stopped.
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   it("sends the fit under the server's own field names", async () => {
     stubFetch();
     const user = userEvent.setup();
