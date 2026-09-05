@@ -499,7 +499,8 @@ trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 ### B6 — the rig-setup surface — **slice 2 in progress**
 
 *Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
-`20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch.*
+`20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch;
+the recurring schedule itself left B6 at B6.2 (spec U3, TYRE-133).*
 
 **Design:** `docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md`
 (committed, 3 Sep 2026). **The batch runs as four slices, each its own
@@ -510,7 +511,7 @@ states. Slice plans are gitignored under `docs/superpowers/plans/`.
 | Slice | Ticket | Branch | Status |
 |---|---|---|---|
 | B6.1 | TYRE-72 — create and end a dated rig; the Rigs screen | `TYRE-72-rig-setup` | merged 3 Sep 2026, PR #43 |
-| B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | in progress |
+| B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | in review |
 | B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | after B6.2 merges | not planned |
 | B6.4 | TYRE-75 — reconcile reported composition into a dated rig change | after B6.3 merges | not planned |
 | *(B6.5)* | TYRE-73 — the in-transport lock | **only if the owner un-parks it** | parked |
@@ -522,8 +523,8 @@ not in B6 unless the owner says otherwise. Nothing in B6.1's schema
 forecloses it.
 
 Riders: TYRE-124 lands with 000037 (B6.1); TYRE-128 item 7 (`depotTypes`)
-rides B6.2, which adds the drivers read beside the unit reads; the 000033-
-area items ride B6.3, which replaces those functions; the rest of the
+landed with B6.2, which adds the drivers read beside the unit reads; the
+000033-area items ride B6.3, which replaces those functions; the rest of the
 small-fixes list is assigned in the spec's D7 table.
 
 Two standing rules from B5's close-out apply to every branch from here: the
