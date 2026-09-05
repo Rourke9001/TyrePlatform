@@ -229,6 +229,12 @@ describe("AppRoutes", () => {
           );
         if (url === "/api/vehicles/u9/fitments")
           return Promise.resolve(respond(200, [fitmentRow({ fitmentId: "f1" })]));
+        // The schedule panel and the task list are part of the screen this
+        // route renders, so their reads are stubbed too: unstubbed, they
+        // would render as failed queries under a heading assertion that
+        // still passed.
+        if (url === "/api/vehicles/u9/drivers") return Promise.resolve(respond(200, []));
+        if (url === "/api/vehicles/u9/inspection-tasks") return Promise.resolve(respond(200, []));
         throw new Error(`unstubbed ${url}`);
       }),
     );

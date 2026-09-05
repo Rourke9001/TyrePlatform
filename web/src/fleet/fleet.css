@@ -450,14 +450,14 @@
   color: var(--ink-muted);
 }
 
-/* Layout only: .tyres-receive form's flex column stretches every child to
-   the form's own width by default, which reads fine for a single input but
-   leaves Set rig full-width beside the row-shaped controls above it. The
-   disabled-token contrast (btn-primary:disabled) is TYRE-132's and is not
-   touched here. Scoped to .rigs and .unit-detail rather than .tyres-receive
-   alone: ReceiveTyre.tsx also mounts a .tyres-receive form and nobody has
-   asked for its own submit to move, so the fix reaches only the screens that
-   raised it (TYRE-90's unit screen joins TYRE-72's rigs screen here). */
+/* Layout only: the rigs and unit screens' submits sit at the left edge of
+   their forms rather than stretched across them. .tyres-receive's flex
+   column stretches every child to the form's width, which reads as intended
+   under a single full-width input and as a slab under the row-shaped
+   controls these two screens carry. Scoped to .rigs and .unit-detail rather
+   than to .tyres-receive: ReceiveTyre.tsx mounts the same class and its
+   submit is full-width by design. The disabled-token contrast
+   (btn-primary:disabled) is TYRE-132's, elsewhere. */
 .rigs .tyres-receive button[type="submit"],
 .unit-detail .tyres-receive button[type="submit"] {
   align-self: flex-start;

@@ -24,7 +24,7 @@ function task(overrides: Partial<UnitTask> & { id: string }): UnitTask {
   return {
     vehicleId: "u9",
     fleetNumber: "TRAILER-9",
-    dueAt: "2026-09-04T21:59:59Z",
+    dueAt: "2026-09-04T22:30:00Z",
     state: "OPEN",
     overdue: false,
     assignedUserId: "d1",
@@ -134,8 +134,33 @@ describe("scheduling an inspection", () => {
     expect(await screen.findByLabelText(/^due$/i)).toHaveValue("");
   });
 
+  // rule 6: the browser never supplies "today". With the clock pinned to a
+  // day nothing else names, that day must appear neither on the screen nor
+  // in the body — an omitted dueOn is what makes the server resolve the
+  // tenant's own day. Only Date is faked: faking the timers would hang
+  // userEvent and TanStack's own scheduling.
+  it("takes its today from nowhere, not from the browser clock", async () => {
+    vi.useFakeTimers({ now: new Date("2027-03-14"), toFake: ["Date"] });
+    try {
+      vi.mocked(fetch).mockResolvedValueOnce(respond(200, [driver({ userId: "d1" })]));
+      renderForm();
+      await screen.findByRole("option", { name: "Sandbox Driver" });
+      await userEvent.selectOptions(screen.getByLabelText(/^driver$/i), "d1");
+
+      vi.mocked(fetch).mockResolvedValueOnce(respond(201, task({ id: "t1" })));
+      await userEvent.click(screen.getByRole("button", { name: "Schedule inspection" }));
+
+      await screen.findByRole("status");
+      expect(sentBody(1)).toStrictEqual({ assigneeUserId: "d1" });
+      expect(document.body.textContent).not.toContain("2027-03-14");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // The date renders through the tenant zone (me()'s Africa/Johannesburg),
-  // not the browser's — 2026-09-04T21:59:59Z is still the 4th there.
+  // not the browser's, and the instant straddles the two: 22:30 UTC is the
+  // 4th in UTC and the 5th in the tenant's zone, so a UTC render fails here.
   it("confirms the scheduled inspection through the tenant zone, and resets the driver select", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, [driver({ userId: "d1" })]));
     renderForm();
@@ -146,14 +171,14 @@ describe("scheduling an inspection", () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(
         201,
-        task({ id: "t1", dueAt: "2026-09-04T21:59:59Z", assignedDisplayName: "Sandbox Driver" }),
+        task({ id: "t1", dueAt: "2026-09-04T22:30:00Z", assignedDisplayName: "Sandbox Driver" }),
       ),
     );
     await userEvent.click(screen.getByRole("button", { name: "Schedule inspection" }));
 
     const status = await screen.findByRole("status");
     // en-ZA's short month for September is "Sept", not "Sep" (RigList.test.tsx).
-    expect(status).toHaveTextContent("Inspection scheduled for Sandbox Driver, due 04 Sept 2026.");
+    expect(status).toHaveTextContent("Inspection scheduled for Sandbox Driver, due 05 Sept 2026.");
     expect(screen.getByLabelText(/^driver$/i)).toHaveValue("");
     expect(screen.getByLabelText(/^due$/i)).toHaveValue("");
   });
@@ -164,14 +189,31 @@ describe("scheduling an inspection", () => {
     await screen.findByRole("option", { name: "Sandbox Driver" });
     await userEvent.selectOptions(screen.getByLabelText(/^driver$/i), "d1");
 
+    // app.create_inspection_task's own wording, verbatim (000038): a TY
+    // message reaches the wire unchanged (ADR-0012), so a paraphrase here
+    // would let the screen pass while showing something nobody ever says.
     vi.mocked(fetch).mockResolvedValueOnce(
-      respond(422, { code: "TY018", message: "the due day is before the tenant's today" }),
+      respond(422, { code: "TY018", message: "a task is due today or later, never in the past" }),
     );
     await userEvent.click(screen.getByRole("button", { name: "Schedule inspection" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "the due day is before the tenant's today",
+      "a task is due today or later, never in the past",
     );
+  });
+
+  it("speaks a TY012 refusal in role=alert", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(200, [driver({ userId: "d1" })]));
+    renderForm();
+    await screen.findByRole("option", { name: "Sandbox Driver" });
+    await userEvent.selectOptions(screen.getByLabelText(/^driver$/i), "d1");
+
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(422, { code: "TY012", message: "no such user in this fleet" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Schedule inspection" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("no such user in this fleet");
   });
 
   it("speaks a retry alert when the driver list fails to load", async () => {

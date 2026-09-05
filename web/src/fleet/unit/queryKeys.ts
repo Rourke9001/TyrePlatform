@@ -13,10 +13,11 @@ export function unitFitmentsKey(unitId: string): QueryKey {
   return ["unit-fitments", unitId];
 }
 
-// Both keyed by unit id like unitFitmentsKey above: the schedule write
-// invalidates both, and a rig change or a new assignment also changes the
-// drivers list, which is why the key is per unit and refetched on mount
-// rather than held.
+// Both keyed by unit id like unitFitmentsKey above. The schedule write
+// invalidates the tasks key alone: it adds a task and changes nothing about
+// who may capture the unit. What moves the drivers list is a rig change or a
+// new assignment, neither of them made from this screen, so it is refetched
+// on mount rather than held or invalidated from here.
 export function unitDriversKey(unitId: string): QueryKey {
   return ["unit-drivers", unitId];
 }

@@ -141,7 +141,7 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
     schedule.getByRole("button", { name: "Schedule inspection", exact: true }).click(),
   ]);
   expect(scheduled.ok(), await scheduled.text()).toBeTruthy();
-  const task = (await scheduled.json()) as { id: string; dueAt: string };
+  const task = (await scheduled.json()) as { id: string };
 
   // The due date itself is not asserted anywhere in this file: it is rendered
   // through useTenantDate in the tenant's locale, and pinning a month spelling
@@ -219,12 +219,20 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
   expect(submitted.status(), await submitted.text()).toBe(201);
 
   await driverPage.goto("/my");
-  await expect(driverPage.getByText("Nothing due.")).toBeVisible();
+  // This run's own task is gone, never "the driver has nothing" — the Sandbox
+  // driver is shared, so an earlier run's open task would make the empty
+  // state a claim about the tenant rather than about this close. The heading
+  // is the positive control that the list rendered at all.
+  await expect(driverPage.getByRole("heading", { name: "My inspections" })).toBeVisible();
+  await expect(
+    driverPage.getByRole("link", { name: new RegExp(`^${HORSE_FLEET} — due `) }),
+  ).toHaveCount(0);
   await driverContext.close();
 
   // The controller's side of the same close: the task leaves the outstanding
   // work view, and the API it reads agrees rather than the screen having
-  // merely dropped a row.
+  // merely dropped a row. The unit is this run's own, so its empty state is
+  // a statement about this task and cannot be poisoned by another run.
   await page.reload();
   await expect(page.getByText("No open inspections.")).toBeVisible();
   expect(await apiGet(page, `/api/vehicles/${horseId}/inspection-tasks`)).toEqual([]);
