@@ -7215,6 +7215,104 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  47n dispatch and retread return resolve a day through one rule and refuse the future in their own words';
 END $$;
+
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  hp   uuid := md5('t47php')::uuid;
+  tp   uuid := md5('t47ptp')::uuid;
+  ctl5 uuid := md5('t47pctl')::uuid;
+  sz1  uuid := md5('sz1')::uuid;
+  tyx  uuid := md5('t47ptyx')::uuid;
+  tyy  uuid := md5('t47ptyy')::uuid;
+  cfg uuid; p1 uuid; p2 uuid; p3 uuid; p4 uuid;
+  moves jsonb; n int; m_zero text; m_half text; m_str text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO p1 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  SELECT p.id INTO p2 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '2';
+  SELECT p.id INTO p3 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '3';
+  SELECT p.id INTO p4 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '4';
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (hp, bac, 'T47-PH', 'T47PH GP', cfg, 'HORSE',   md5('depot1')::uuid, 'ACTIVE'),
+         (tp, bac, 'T47-PT', 'T47PT GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (ctl5, bac, 't47pctl@example.invalid', 'T47 Yard Clerk', 'CONTROLLER');
+  PERFORM set_config('app.actor_id', ctl5::text, true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (tyx, bac, 'T47TYREX', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyy, bac, 'T47TYREY', sz1, 'NEW', 0, 'IN_STOCK');
+  PERFORM app.create_combination(hp, jsonb_build_array(jsonb_build_object('vehicle_id', tp)));
+  PERFORM app.fit_tyre(tyx, hp, p1, 12.0, 'MARK_OUTBOARD', 400000);
+  PERFORM app.fit_tyre(tyy, tp, p2, 12.0, 'MARK_OUTBOARD');
+  -- One set of moves for every leg below, so the only thing that varies is
+  -- the reading: a leg that refused for some second reason would refuse the
+  -- control too, and the control is what says none of them did.
+  moves := jsonb_build_array(
+             jsonb_build_object('tyre_id', tyx, 'to_vehicle_id', tp, 'to_position_id', p3, 'tread_mm', 11.0),
+             jsonb_build_object('tyre_id', tyy, 'to_vehicle_id', hp, 'to_position_id', p4, 'tread_mm', 11.0));
+
+  -- (p) ADR-0012, U20: a reading this surface does not accept is refused as a
+  -- rule, with a message a form can put beside the field, never as the cast
+  -- error the value would raise on its way into a bigint column. A JSON
+  -- encoder that writes every number with a scale sends 405000.0 for a
+  -- reading a driver typed as 405000, and to app.fitment that is the same
+  -- input as 405000.5: neither is a whole number of kilometres, and neither
+  -- is rounded into one on the caller's behalf, because a stored odometer
+  -- nobody entered is a distance nobody can check (FR-FIT-002, FR-FIT-009).
+  BEGIN
+    PERFORM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, 405000.0));
+    RAISE EXCEPTION 'FAIL 47p: a reading carrying a scale was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m_zero = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, 405000.5));
+    RAISE EXCEPTION 'FAIL 47p: a fractional reading was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m_half = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, '405000'));
+    RAISE EXCEPTION 'FAIL 47p: a reading given as a string was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m_str = MESSAGE_TEXT;
+  END;
+  -- The wording is compared, not merely the SQLSTATE: TY014 is the whole of
+  -- this surface's input vocabulary, so a scale caught by some other rule
+  -- would answer the same code with a different sentence and this probe
+  -- would pass on it.
+  IF split_part(m_zero, '; ', 2) <> 'an odometer is a whole number of kilometres'
+     OR split_part(m_half, '; ', 2) <> split_part(m_zero, '; ', 2)
+     OR split_part(m_str,  '; ', 2) <> split_part(m_zero, '; ', 2) THEN
+    RAISE EXCEPTION 'FAIL 47p: the three refusals do not share the whole-number wording: % / % / %',
+      m_zero, m_half, m_str;
+  END IF;
+  -- And each carries its own reading, so the message is about the figure the
+  -- caller sent rather than a sentence the function says to everyone.
+  IF m_zero = m_half THEN
+    RAISE EXCEPTION 'FAIL 47p: two different readings were refused in identical words: %', m_zero;
+  END IF;
+  -- The existing contract, pinned beside the new case: a reading below the
+  -- odometer of a fitment being rotated out is a whole number and still not
+  -- one this rotation can record.
+  BEGIN
+    PERFORM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, -1));
+    RAISE EXCEPTION 'FAIL 47p: a negative reading was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN NULL;
+  END;
+
+  -- The control every refusal above rests on: the same moves and the same
+  -- unit, read as a whole number, land.
+  SELECT count(*) INTO n FROM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, 405000));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47p: the whole-number control returned % rows, expected 2', n; END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.tyre_id = tyx AND f.vehicle_id = hp AND f.position_id = p1
+     AND f.removed_at IS NOT NULL AND f.removed_odometer = 405000;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 47p: the horse''s closed row does not carry the reading it was given';
+  END IF;
+  RAISE NOTICE 'PASS  47p a reading carrying a scale is refused as an input, not as a cast error';
+END $$;
 ROLLBACK;
 
 \echo ''
