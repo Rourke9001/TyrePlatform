@@ -653,8 +653,13 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = 'TY014',
           MESSAGE = format('%s is not a unit this rotation touches', kv.k);
       END IF;
-      IF jsonb_typeof(kv.v) <> 'number'
-         OR (kv.v #>> '{}')::numeric <> trunc((kv.v #>> '{}')::numeric) THEN
+      -- Matched on the number's own text, not on its value: a reading written
+      -- with a scale is numerically whole and still not a bigint, so a value
+      -- test would pass it through to the casts below and answer a bare 22P02
+      -- the form has nothing to show for (ADR-0012). Refused rather than
+      -- rounded — an odometer the caller did not enter is a distance nobody
+      -- can check afterwards (FR-FIT-009).
+      IF jsonb_typeof(kv.v) <> 'number' OR (kv.v #>> '{}') !~ '^-?[0-9]+$' THEN
         RAISE EXCEPTION USING ERRCODE = 'TY014',
           MESSAGE = format('%s reads %s; an odometer is a whole number of kilometres',
                            kv.k, kv.v #>> '{}');
