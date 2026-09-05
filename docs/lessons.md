@@ -15,6 +15,21 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-05 — A migration round-trip that never left the tip is still green (TYRE-101)
+
+**What happened:** `docker compose run --rm migrate -path=/migrations … down 1`
+from Git Bash failed with `failed to open source, "file://C:/Program
+Files/Git/migrations"` — MSYS rewrote the container path into a host path —
+so neither `down 1` nor `up 1` ran. `make db-test` afterwards was fully green,
+because the database had never moved off the tip, and the run read as a
+passing round-trip proof.
+
+**The rule:** prefix any `docker compose run` that passes a container path
+with `MSYS_NO_PATHCONV=1`, and prove a round-trip by reading state, not the
+suite: `schema_migrations.version` and a catalog fact the down must undo
+(a dropped function, a restored signature) after `down 1`, then again after
+`up 1`. A green suite after a down/up that printed an error is not evidence.
+
 ## 2026-09-05 — A gate piped to `tail` always succeeds (TYRE-101)
 
 **What happened:** `make db-test 2>&1 | tail -25` was reported by the harness
