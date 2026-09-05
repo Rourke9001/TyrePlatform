@@ -122,6 +122,10 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 		return false
 	}
 	if err := json.Unmarshal(raw, into); err != nil {
+		if field, named := typeErrorField(err); named {
+			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, field+" is the wrong type")
+			return false
+		}
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
@@ -202,6 +206,23 @@ func unknownJSONField(err error) (string, bool) {
 		return "", false
 	}
 	return name, true
+}
+
+// typeErrorField names the field whose value was of a type this request
+// cannot read. The decoder's own text is never forwarded — ADR-0012 keeps a
+// message a library wrote off the wire — but the field name is safe to send,
+// and a refusal that withholds it leaves a form with nothing to point at: the
+// reasoning decodeJSONStrict already applies to an unknown key.
+//
+// No length bound is needed here, unlike there: encoding/json builds this
+// path out of the json tag names of this package's own types, never out of a
+// key the caller sent.
+func typeErrorField(err error) (string, bool) {
+	var typeErr *json.UnmarshalTypeError
+	if !errors.As(err, &typeErr) || typeErr.Field == "" {
+		return "", false
+	}
+	return typeErr.Field, true
 }
 
 // refuseInvalid answers a validation failure and reports whether it did, so a
