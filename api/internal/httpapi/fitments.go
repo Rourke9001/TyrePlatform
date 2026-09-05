@@ -301,19 +301,27 @@ func removeFitment(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// rotateMove is one casing changing position within a unit. The wire is
-// camelCase like every other body here; payload below translates it to the
-// snake_case keys app.rotate_tyres reads out of its jsonb argument.
+// rotateMove is one casing changing position within a rig. The destination
+// unit is optional because a move that names none belongs to the unit the
+// request was addressed to (U15, U17), and only a move crossing units has to
+// say so. The wire is camelCase like every other body here; payload below
+// translates it to the snake_case keys app.rotate_tyres reads out of its
+// jsonb argument.
 type rotateMove struct {
-	TyreID       string `json:"tyreId"`
-	ToPositionID string `json:"toPositionId"`
-	TreadMm      string `json:"treadMm"`
+	TyreID       string  `json:"tyreId"`
+	ToVehicleID  *string `json:"toVehicleId"`
+	ToPositionID string  `json:"toPositionId"`
+	TreadMm      string  `json:"treadMm"`
 }
 
+// rotateRequest carries the odometer two ways because a rig reads one per
+// unit (U20, FR-FIT-002) while a rotation inside one unit has a single
+// reading to give. odometerPayload settles which of the two a body means.
 type rotateRequest struct {
-	Moves      []rotateMove `json:"moves"`
-	Odometer   *int64       `json:"odometer"`
-	OccurredAt *string      `json:"occurredAt"`
+	Moves      []rotateMove     `json:"moves"`
+	Odometer   *int64           `json:"odometer"`
+	Odometers  map[string]int64 `json:"odometers"`
+	OccurredAt *string          `json:"occurredAt"`
 }
 
 // payload builds app.rotate_tyres' jsonb argument. The list's length is
@@ -338,13 +346,65 @@ func (b rotateRequest) payload() ([]map[string]any, error) {
 		if err != nil {
 			return nil, err
 		}
-		moves = append(moves, map[string]any{
+		move := map[string]any{
 			"tyre_id":        tyreID.String(),
 			"to_position_id": toPositionID.String(),
 			"tread_mm":       treadMm,
-		})
+		}
+		// The key is absent, never a JSON null, when the caller named no
+		// destination: app.rotate_tyres defaults it to the unit the request
+		// was addressed to, and a default filled in here would be a second
+		// answer to the same question (U15, U17).
+		if m.ToVehicleID != nil {
+			toVehicleID, err := uuidField(fmt.Sprintf("moves[%d].toVehicleId", i), *m.ToVehicleID)
+			if err != nil {
+				return nil, err
+			}
+			move["to_vehicle_id"] = toVehicleID.String()
+		}
+		moves = append(moves, move)
 	}
 	return moves, nil
+}
+
+// odometerPayload answers the readings app.rotate_tyres looks each unit up
+// in, or nil for a rotation that gives none. A lone odometer is the anchor
+// unit's, that being the only unit a body naming no destination can mean. A
+// body giving both forms is refused rather than reconciled: FR-FIT-002
+// records one reading per unit, and nothing on this side can say which of the
+// two a caller meant.
+//
+// Every key runs through the same parse-and-format the move ids get, because
+// SQL resolves a unit's reading with (p_odometers ->> f.vehicle_id::text) —
+// Postgres's lowercase, hyphenated, unbraced uuid text. A key spelled any
+// other way matches nothing there, so a unit whose reading the caller did
+// send reads as having sent none and answers TY009 on a horse (R13).
+func (b rotateRequest) odometerPayload(vehicleID string) (map[string]int64, error) {
+	if b.Odometer != nil && b.Odometers != nil {
+		return nil, invalid("odometer", "and odometers cannot both be given; a reading belongs to one unit")
+	}
+	if b.Odometer != nil {
+		return map[string]int64{vehicleID: *b.Odometer}, nil
+	}
+	if b.Odometers == nil {
+		return nil, nil
+	}
+	byUnit := make(map[string]int64, len(b.Odometers))
+	for key, reading := range b.Odometers {
+		field := fmt.Sprintf("odometers.%s", key)
+		unitID, err := uuidField(field, key)
+		if err != nil {
+			return nil, err
+		}
+		// A collision exists only because this side canonicalises, so SQL can
+		// never see one: two spellings of a unit would silently leave the
+		// reading Go's map iteration happened to write last.
+		if _, twice := byUnit[unitID.String()]; twice {
+			return nil, invalid(field, "reads a unit this body already reads")
+		}
+		byUnit[unitID.String()] = reading
+	}
+	return byUnit, nil
 }
 
 // rotateMoveResult is one move's outcome: the casing and the fitment now
@@ -359,10 +419,12 @@ type rotateResponse struct {
 	Moves []rotateMoveResult `json:"moves"`
 }
 
-// rotateTyres is FR-FIT-010's write: one set of moves within one unit,
-// applied whole or not at all. The atomicity is app.rotate_tyres' own — it
-// validates every move before closing any fitment — and this handler adds
-// nothing to it beyond translating the request into that function's jsonb.
+// rotateTyres is FR-FIT-010's write: one set of moves across the units of one
+// rig, applied whole or not at all. Which units are in that rig, and at which
+// instant, is app.rotate_tyres' question (U16, FR-VEH-031); so is the
+// atomicity, since it validates every move before closing any fitment. This
+// handler adds nothing beyond translating the request into that function's
+// jsonb.
 func rotateTyres(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -378,15 +440,29 @@ func rotateTyres(s *store.Store) http.HandlerFunc {
 		if refuseInvalid(w, r, err) {
 			return
 		}
+		// The path id is what a lone odometer belongs to, and pathID has
+		// already parsed it, so .String() is the canonical text SQL matches.
+		byUnit, err := body.odometerPayload(vehicleID.String())
+		if refuseInvalid(w, r, err) {
+			return
+		}
 		occurredAt, err := instantField("occurredAt", body.OccurredAt)
 		if refuseInvalid(w, r, err) {
 			return
 		}
 		raw, err := json.Marshal(validated)
+
+		// A rotation giving no readings sends no bytes at all: a marshalled
+		// nil map is the jsonb literal `null`, which app.rotate_tyres reads
+		// as a payload of the wrong type rather than as no readings (TY014).
+		var odometers []byte
+		if err == nil && byUnit != nil {
+			odometers, err = json.Marshal(byUnit)
+		}
 		if err != nil {
-			// Unreachable in practice — every value above is a string — but
-			// a handler never panics (api/CLAUDE.md), so the failure still
-			// answers rather than crashing.
+			// Unreachable in practice — every value above is a string or an
+			// int64 — but a handler never panics (api/CLAUDE.md), so the
+			// failure still answers rather than crashing.
 			slog.ErrorContext(ctx, "marshalling rotation payload", "err", err)
 			writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)
 			return
@@ -399,8 +475,8 @@ func rotateTyres(s *store.Store) http.HandlerFunc {
 			}
 			rows, err := tx.Query(ctx,
 				`SELECT tyre_id, fitment_id
-				   FROM app.rotate_tyres($1, $2::jsonb, $3, COALESCE($4::timestamptz, now()))`,
-				vehicleID, raw, body.Odometer, occurredAt)
+				   FROM app.rotate_tyres($1, $2::jsonb, $3::jsonb, COALESCE($4::timestamptz, now()))`,
+				vehicleID, raw, odometers, occurredAt)
 			if err != nil {
 				return fmt.Errorf("rotating tyres on unit %s: %w", vehicleID, err)
 			}

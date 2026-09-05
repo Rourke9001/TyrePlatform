@@ -368,10 +368,14 @@ func TestFitmentWritesAreCapabilityGated(t *testing.T) {
 	for _, tt := range []struct{ name, path, body string }{
 		{"fit", "/api/vehicles/" + other.String() + "/fitments", fitBody(spare, rightPos, "9.0", nil)},
 		{"remove", "/api/fitments/" + created.FitmentID + "/remove", `{"reason":"WORN","treadMm":"4.0"}`},
+		// The destination and the per-unit reading are carried here too: the
+		// capability is asked before any of them is read, so a field added to
+		// this body must not open a path around the gate.
 		{"rotate", "/api/vehicles/" + other.String() + "/rotations", fmt.Sprintf(
-			`{"moves":[{"tyreId":%q,"toPositionId":%q,"treadMm":"8.0"},
-			           {"tyreId":%q,"toPositionId":%q,"treadMm":"8.0"}]}`,
-			fitted, rightPos, spare, leftPos)},
+			`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.0"},
+			           {"tyreId":%q,"toPositionId":%q,"treadMm":"8.0"}],
+			  "odometers":{%q:1200}}`,
+			fitted, other, rightPos, spare, leftPos, other)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			rec := post(t, h, tt.path, tenantID.String(), technician.String(), tt.body)
@@ -451,9 +455,13 @@ func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
 	// one TRAILER and the two moves are a legal swap, which is why the unit
 	// lookup app.rotate_tyres opens with is the only thing that can refuse it.
 	t.Run("rotate", func(t *testing.T) {
-		swap := fmt.Sprintf(`{"moves":[{"tyreId":%q,"toPositionId":%q,"treadMm":"8.5"},
-		                              {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}]}`,
-			leftTyreA, rightPosA, rightTyreA, leftPosA)
+		// Both new fields name tenant A's own unit, so the anchor lookup is
+		// still the only thing that can refuse this — a destination and a
+		// per-unit reading are read long after it.
+		swap := fmt.Sprintf(`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.5"},
+		                              {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}],
+		                      "odometers":{%q:1200}}`,
+			leftTyreA, otherA, rightPosA, rightTyreA, leftPosA, otherA)
 		refuses(t, post(t, h, "/api/vehicles/"+otherA.String()+"/rotations", tenantB.String(), controllerB.String(),
 			swap), "no such unit in this fleet")
 	})
@@ -717,4 +725,246 @@ func TestFitmentSurfaceEndpointsAreCapabilityGated(t *testing.T) {
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT count(*) FROM app.retread_job WHERE tyre_id = $1`, tyreID).Scan(&jobs))
 	require.Zero(t, jobs)
+}
+
+// plantRotationRig couples plantUnitFixture's two units into one open rig, so
+// a rotation anchored on either has the other in scope (U16, FR-VEH-031). The
+// motive unit goes in as member 1, the order every rig is written in (000037's
+// U7); the start is backdated because the scope is resolved at the rotation's
+// own instant, against a `effective_from <=` that a row stamped in the same
+// statement does not reliably satisfy.
+func plantRotationRig(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, motive, trailer uuid.UUID) {
+	t.Helper()
+	var combinationID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+		 VALUES ($1, $2, now() - interval '1 hour') RETURNING id`,
+		tenantID, motive,
+	).Scan(&combinationID))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence, descriptor)
+		 VALUES ($1, $2, $3, 1, 'Horse'), ($1, $2, $4, 2, 'Trailer')`,
+		tenantID, combinationID, motive, trailer)
+	require.NoError(t, err)
+}
+
+// A rotation crosses the units of one rig, and each unit's reading is its own
+// (U15, U20, FR-FIT-002). The horse is the only unit here that has an
+// odometer, which is what makes the control real: the same set with no
+// odometers key is refused TY009 by the closure of the horse's fitment, so a
+// reading reaching the function is the only way the set below can land.
+func TestRotateCrossesUnitsAndReadsAnOdometerPerUnit(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horse, trailer, leftPos, rightPos, _ := plantUnitFixture(t, ctx, admin, "rotate-rig")
+	plantRotationRig(t, ctx, admin, tenantID, horse, trailer)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	suffix := uuid.NewString()[:8]
+	trailerTyre := plantTyre(t, ctx, admin, tenantID, "RIG-T-"+suffix, nil)
+	horseTyre := plantTyre(t, ctx, admin, tenantID, "RIG-H-"+suffix, nil)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	require.Equal(t, http.StatusCreated, post(t, h, "/api/vehicles/"+trailer.String()+"/fitments",
+		tenantID.String(), controller.String(), fitBody(trailerTyre, leftPos, "9.0", nil)).Code)
+	require.Equal(t, http.StatusCreated, post(t, h, "/api/vehicles/"+horse.String()+"/fitments",
+		tenantID.String(), controller.String(), fitBody(horseTyre, rightPos, "8.0", int64Ptr(1000))).Code)
+
+	// Anchored on the trailer: the trailer's casing names the horse as its
+	// destination and the horse's casing names none, so the second move is the
+	// one that has to land on the unit the request was addressed to (U17).
+	rotatePath := "/api/vehicles/" + trailer.String() + "/rotations"
+	moves := fmt.Sprintf(
+		`{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.5"},
+		 {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}`,
+		trailerTyre, horse, leftPos, horseTyre, rightPos)
+
+	control := post(t, h, rotatePath, tenantID.String(), controller.String(),
+		`{"moves":[`+moves+`]}`)
+	require.Equal(t, http.StatusUnprocessableEntity, control.Code, control.Body.String())
+	var controlRef refusalBody
+	require.NoError(t, json.Unmarshal(control.Body.Bytes(), &controlRef))
+	require.Equal(t, "TY009", controlRef.Code, "the horse's closure has no reading to record")
+
+	rec := post(t, h, rotatePath, tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"moves":[%s],"odometers":{%q:1200}}`, moves, horse))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var rotated rotationCreatedBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rotated))
+	require.Len(t, rotated.Moves, 2)
+
+	at := func(vehicleID uuid.UUID, code string) *unitPositionBody {
+		return fitmentAt(t, h, vehicleID.String(), tenantID.String(), controller.String(), code)
+	}
+	crossed := at(horse, "1L")
+	require.NotNil(t, crossed.Fitment, "the move naming a destination unit crossed to it")
+	require.Equal(t, trailerTyre.String(), crossed.Fitment.TyreID)
+	stayed := at(trailer, "1R")
+	require.NotNil(t, stayed.Fitment, "the move naming no destination landed on the anchor")
+	require.Equal(t, horseTyre.String(), stayed.Fitment.TyreID)
+	require.Nil(t, at(trailer, "1L").Fitment, "the crossed casing left the trailer")
+	require.Nil(t, at(horse, "1R").Fitment, "the casing that came off the horse left it")
+
+	require.NotNil(t, crossed.Fitment.FittedOdometer, "the horse's reading opened the fitment on it")
+	require.Equal(t, int64(1200), *crossed.Fitment.FittedOdometer)
+	require.Nil(t, stayed.Fitment.FittedOdometer, "a trailer has no reading to record")
+
+	// R13: SQL looks a unit up with (p_odometers ->> vehicle_id::text), which
+	// is Postgres's lowercase hyphenated rendering. A key in any other shape is
+	// a key this rotation does not touch, so it is canonicalised on this side
+	// or the reading is silently lost on the unit that supplied it.
+	back := fmt.Sprintf(
+		`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.0"},
+		           {"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"7.0"}],
+		  "odometers":{%q:1400}}`,
+		trailerTyre, trailer, leftPos, horseTyre, horse, rightPos,
+		strings.ToUpper(horse.String()))
+	backRec := post(t, h, rotatePath, tenantID.String(), controller.String(), back)
+	require.Equal(t, http.StatusCreated, backRec.Code, backRec.Body.String())
+	returned := at(horse, "1R")
+	require.NotNil(t, returned.Fitment)
+	require.Equal(t, horseTyre.String(), returned.Fitment.TyreID)
+	require.NotNil(t, returned.Fitment.FittedOdometer, "an uppercase key still reads as this unit's")
+	require.Equal(t, int64(1400), *returned.Fitment.FittedOdometer)
+}
+
+// One odometer means the unit the request is addressed to. FR-FIT-002 records
+// a reading per unit, so the single value is normalised into that shape here;
+// reaching the function as a bare number is a payload of the wrong type.
+func TestRotateNormalisesTheLoneOdometer(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horse, _, leftPos, rightPos, _ := plantUnitFixture(t, ctx, admin, "rotate-lone-odo")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	suffix := uuid.NewString()[:8]
+	leftTyre := plantTyre(t, ctx, admin, tenantID, "LONE-L-"+suffix, nil)
+	rightTyre := plantTyre(t, ctx, admin, tenantID, "LONE-R-"+suffix, nil)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	fitPath := "/api/vehicles/" + horse.String() + "/fitments"
+	require.Equal(t, http.StatusCreated, post(t, h, fitPath, tenantID.String(), controller.String(),
+		fitBody(leftTyre, leftPos, "9.0", int64Ptr(1000))).Code)
+	require.Equal(t, http.StatusCreated, post(t, h, fitPath, tenantID.String(), controller.String(),
+		fitBody(rightTyre, rightPos, "8.0", int64Ptr(1000))).Code)
+
+	rec := post(t, h, "/api/vehicles/"+horse.String()+"/rotations", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"moves":[{"tyreId":%q,"toPositionId":%q,"treadMm":"8.5"},
+		                       {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}],
+		              "odometer":1500}`,
+			leftTyre, rightPos, rightTyre, leftPos))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	for _, code := range []string{"1L", "1R"} {
+		at := fitmentAt(t, h, horse.String(), tenantID.String(), controller.String(), code)
+		require.NotNil(t, at.Fitment)
+		require.NotNil(t, at.Fitment.FittedOdometer, "the lone reading is the anchor unit's")
+		require.Equal(t, int64(1500), *at.Fitment.FittedOdometer)
+	}
+}
+
+// The shapes this handler refuses before a transaction opens, and the one
+// contradiction it will not resolve. A body giving the odometer both ways is
+// refused rather than reconciled: FR-FIT-002 records one reading per unit, and
+// nothing here can say which of the two a caller meant.
+func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horse, _, leftPos, rightPos, _ := plantUnitFixture(t, ctx, admin, "rotate-shapes")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	suffix := uuid.NewString()[:8]
+	leftTyre := plantTyre(t, ctx, admin, tenantID, "SHAPE-L-"+suffix, nil)
+	rightTyre := plantTyre(t, ctx, admin, tenantID, "SHAPE-R-"+suffix, nil)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	fitPath := "/api/vehicles/" + horse.String() + "/fitments"
+	require.Equal(t, http.StatusCreated, post(t, h, fitPath, tenantID.String(), controller.String(),
+		fitBody(leftTyre, leftPos, "9.0", int64Ptr(1000))).Code)
+	require.Equal(t, http.StatusCreated, post(t, h, fitPath, tenantID.String(), controller.String(),
+		fitBody(rightTyre, rightPos, "8.0", int64Ptr(1000))).Code)
+
+	// The one body every case below varies, so each is refused by the field it
+	// names and not by a second thing wrong with it.
+	swap := func(extra string) string {
+		return fmt.Sprintf(`{"moves":[{"tyreId":%q,"toPositionId":%q,"treadMm":"8.5"},
+		                              {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}]%s}`,
+			leftTyre, rightPos, rightTyre, leftPos, extra)
+	}
+	rotatePath := "/api/vehicles/" + horse.String() + "/rotations"
+
+	for _, tt := range []struct {
+		name     string
+		body     string
+		status   int
+		code     string
+		contains []string
+	}{
+		{
+			name:     "the odometer given two ways",
+			body:     swap(fmt.Sprintf(`,"odometer":1500,"odometers":{%q:1500}`, horse)),
+			status:   http.StatusUnprocessableEntity,
+			code:     "invalid_submission",
+			contains: []string{"odometer", "odometers"},
+		},
+		{
+			name:     "an odometer that is not a number",
+			body:     swap(`,"odometer":"1500"`),
+			status:   http.StatusBadRequest,
+			code:     "malformed_json",
+			contains: []string{"odometer"},
+		},
+		{
+			name:     "a reading that is not a number",
+			body:     swap(fmt.Sprintf(`,"odometers":{%q:"1500"}`, horse)),
+			status:   http.StatusBadRequest,
+			code:     "malformed_json",
+			contains: []string{"odometers"},
+		},
+		{
+			// In SQL the destination is cast before any refusal can name it,
+			// so a malformed one arrives there as a bare 22P02; this side is
+			// the only guard that can point a form at the move it came from.
+			name: "a destination that is not a uuid",
+			body: fmt.Sprintf(`{"moves":[{"tyreId":%q,"toVehicleId":"not-a-unit","toPositionId":%q,"treadMm":"8.5"},
+			                             {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}],
+			                    "odometers":{%q:1500}}`,
+				leftTyre, rightPos, rightTyre, leftPos, horse),
+			status:   http.StatusUnprocessableEntity,
+			code:     "invalid_submission",
+			contains: []string{"moves[0].toVehicleId"},
+		},
+		{
+			// Beside a key that IS a unit of this rotation, so the alternative
+			// to this side naming the field is app.rotate_tyres' own TY014
+			// about a key it does not recognise — not a set that lands.
+			name:     "an odometers key that is not a uuid",
+			body:     swap(fmt.Sprintf(`,"odometers":{"not-a-unit":1500,%q:1500}`, horse)),
+			status:   http.StatusUnprocessableEntity,
+			code:     "invalid_submission",
+			contains: []string{"odometers.not-a-unit"},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := post(t, h, rotatePath, tenantID.String(), controller.String(), tt.body)
+			require.Equal(t, tt.status, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, tt.code, ref.Code)
+			for _, want := range tt.contains {
+				require.Contains(t, ref.Message, want)
+			}
+		})
+	}
+
+	// The control: the same set, the same actor, one well-formed reading.
+	// Without it every case above would also pass against a route that refused
+	// everything.
+	ok := post(t, h, rotatePath, tenantID.String(), controller.String(),
+		swap(fmt.Sprintf(`,"odometers":{%q:1500}`, horse)))
+	require.Equal(t, http.StatusCreated, ok.Code, ok.Body.String())
+
+	// Two closures, one per casing: none of the refusals above closed a row.
+	var closed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.fitment WHERE tyre_id = ANY($1) AND removed_at IS NOT NULL`,
+		[]uuid.UUID{leftTyre, rightTyre}).Scan(&closed))
+	require.Equal(t, 2, closed, "only the control's rotation closed a fitment")
 }
