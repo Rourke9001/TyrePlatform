@@ -7302,8 +7302,10 @@ DECLARE
   sz1  uuid := md5('sz1')::uuid;
   tyx  uuid := md5('t47ptyx')::uuid;
   tyy  uuid := md5('t47ptyy')::uuid;
-  cfg uuid; p1 uuid; p2 uuid; p3 uuid; p4 uuid;
-  moves jsonb; n int; m_zero text; m_half text; m_str text; m_neg text;
+  tyz  uuid := md5('t47ptyz')::uuid;
+  cfg uuid; p1 uuid; p2 uuid; p3 uuid; p4 uuid; p5 uuid;
+  moves jsonb; recv jsonb; n int;
+  m_zero text; m_half text; m_str text; m_neg text; m_recv text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
@@ -7311,6 +7313,7 @@ BEGIN
   SELECT p.id INTO p2 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '2';
   SELECT p.id INTO p3 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '3';
   SELECT p.id INTO p4 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '4';
+  SELECT p.id INTO p5 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '5';
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
                            unit_kind, home_depot_id, status)
   VALUES (hp, bac, 'T47-PH', 'T47PH GP', cfg, 'HORSE',   md5('depot1')::uuid, 'ACTIVE'),
@@ -7320,10 +7323,16 @@ BEGIN
   PERFORM set_config('app.actor_id', ctl5::text, true);
   INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
     (tyx, bac, 'T47TYREX', sz1, 'NEW', 0, 'IN_STOCK'),
-    (tyy, bac, 'T47TYREY', sz1, 'NEW', 0, 'IN_STOCK');
+    (tyy, bac, 'T47TYREY', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyz, bac, 'T47TYREZ', sz1, 'NEW', 0, 'IN_STOCK');
   PERFORM app.create_combination(hp, jsonb_build_array(jsonb_build_object('vehicle_id', tp)));
   PERFORM app.fit_tyre(tyx, hp, p1, 12.0, 'MARK_OUTBOARD', 400000);
   PERFORM app.fit_tyre(tyy, tp, p2, 12.0, 'MARK_OUTBOARD');
+  -- A second casing on the trailer, so a set can be built in which the horse
+  -- only RECEIVES: two casings leaving one unit for another is the ordinary
+  -- shape of a trailer stripped onto the horse, and it is the only shape in
+  -- which a unit's reading meets no rotated-out fitment of its own.
+  PERFORM app.fit_tyre(tyz, tp, p5, 12.0, 'MARK_OUTBOARD');
   -- One set of moves for every leg below, so the only thing that varies is
   -- the reading: a leg that refused for some second reason would refuse the
   -- control too, and the control is what says none of them did.
@@ -7369,22 +7378,53 @@ BEGIN
   IF m_zero = m_half THEN
     RAISE EXCEPTION 'FAIL 47p: two different readings were refused in identical words: %', m_zero;
   END IF;
-  -- A reading below the odometer of a fitment being rotated out is a whole
-  -- number and still not one this rotation can record — and which rule
-  -- refused it is read, not assumed. TY014 is this surface's whole input
-  -- vocabulary, so a whole-number test written without the sign would refuse
-  -- -1 as not whole and this leg would still pass, having stopped exercising
-  -- the per-unit bound it exists for.
+  -- A negative reading, here on a unit that does have a fitment being
+  -- rotated out — and which rule refused it is read, not assumed. It must be
+  -- the input rule and not the per-unit bound below it: that bound is
+  -- answered only for units a casing is leaving, so a sign caught there
+  -- would be caught for this unit and missed for the next one, which is the
+  -- case that follows. The bound keeps its own coverage in 47l, on low
+  -- positive readings against each unit's own fitments.
   BEGIN
     PERFORM app.rotate_tyres(hp, moves, jsonb_build_object(hp::text, -1));
     RAISE EXCEPTION 'FAIL 47p: a negative reading was accepted';
   EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m_neg = MESSAGE_TEXT;
   END;
-  IF m_neg LIKE '%whole number%' THEN
-    RAISE EXCEPTION 'FAIL 47p: a negative reading was refused as a non-whole one: %', m_neg;
+  IF m_neg NOT LIKE '%whole number%' THEN
+    RAISE EXCEPTION 'FAIL 47p: a negative reading is not refused as an input: %', m_neg;
   END IF;
-  IF m_neg NOT LIKE '%below the odometer%' THEN
-    RAISE EXCEPTION 'FAIL 47p: a negative reading was not refused by the per-unit bound: %', m_neg;
+  IF m_neg LIKE '%below the odometer%' THEN
+    RAISE EXCEPTION 'FAIL 47p: a negative reading was answered by a bound not every unit meets: %', m_neg;
+  END IF;
+
+  -- The same reading on a unit that only RECEIVES. The per-unit bound is
+  -- answered against the fitments a unit has being rotated OUT, so a
+  -- destination-only unit meets no bound at all and its reading goes straight
+  -- into the opened row's fitted_odometer. Nothing but the input rule stands
+  -- between a signed reading and 000001's CHECK (fitted_odometer >= 0), whose
+  -- 23514 is a constraint's own text with no unit in it and no TY class for
+  -- the outbox to stop retrying (ADR-0012). Both casings leave the trailer,
+  -- so the horse is a destination and nothing else.
+  recv := jsonb_build_array(
+            jsonb_build_object('tyre_id', tyy, 'to_vehicle_id', hp, 'to_position_id', p4, 'tread_mm', 11.0),
+            jsonb_build_object('tyre_id', tyz, 'to_vehicle_id', hp, 'to_position_id', p3, 'tread_mm', 11.0));
+  BEGIN
+    PERFORM app.rotate_tyres(hp, recv, jsonb_build_object(hp::text, -1));
+    RAISE EXCEPTION 'FAIL 47p: a negative reading on a unit that only receives was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m_recv = MESSAGE_TEXT;
+  END;
+  IF m_recv NOT LIKE '%whole number%' THEN
+    RAISE EXCEPTION 'FAIL 47p: the destination-only refusal does not read as the input rule: %', m_recv;
+  END IF;
+  IF m_recv NOT LIKE '%-1%' THEN
+    RAISE EXCEPTION 'FAIL 47p: the destination-only refusal does not carry the reading: %', m_recv;
+  END IF;
+  -- And it refused the whole set: a rotation is all of its moves or none
+  -- (FR-FIT-010), so nothing may have landed on the horse.
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.tyre_id IN (tyy, tyz) AND f.vehicle_id = hp;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 47p: % rows were opened on the receiving unit by a refused rotation', n;
   END IF;
 
   -- The control every refusal above rests on: the same moves and the same
@@ -7397,7 +7437,7 @@ BEGIN
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL 47p: the horse''s closed row does not carry the reading it was given';
   END IF;
-  RAISE NOTICE 'PASS  47p a reading carrying a scale is refused as an input, not as a cast error';
+  RAISE NOTICE 'PASS  47p a scaled, string or signed reading is refused as an input, not as a cast or a constraint';
 END $$;
 ROLLBACK;
 

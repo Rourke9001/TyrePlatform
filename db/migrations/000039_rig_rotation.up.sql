@@ -661,7 +661,15 @@ BEGIN
       -- the form has nothing to show for (ADR-0012). Refused rather than
       -- rounded — an odometer the caller did not enter is a distance nobody
       -- can check afterwards (FR-FIT-009).
-      IF jsonb_typeof(kv.v) <> 'number' OR (kv.v #>> '{}') !~ '^-?[0-9]+$' THEN
+      --
+      -- No sign, and this is the only rule that refuses one: the bound below
+      -- is answered per unit against the fitments that unit has being rotated
+      -- OUT, so a unit this rotation only opens a row on meets no bound at
+      -- all and its reading goes straight into fitted_odometer, where
+      -- 000001's CHECK (fitted_odometer >= 0) answers 23514 — a constraint's
+      -- own text, naming no unit and outside the TY class an outbox stops
+      -- retrying on (ADR-0012, suite 47p).
+      IF jsonb_typeof(kv.v) <> 'number' OR (kv.v #>> '{}') !~ '^[0-9]+$' THEN
         RAISE EXCEPTION USING ERRCODE = 'TY014',
           MESSAGE = format('%s reads %s; an odometer is a whole number of kilometres',
                            kv.k, kv.v #>> '{}');
