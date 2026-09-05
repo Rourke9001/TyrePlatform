@@ -30,10 +30,12 @@ reading fitment SQL that was correct.
 
 **The rule:** when an e2e refusal says a later event predates an earlier one,
 or a date step fails on a spec the branch did not touch, compare the
-container clock to the host before opening the code:
-`docker exec tyre-pg date -u +%s.%N; date -u +%s.%N` a few times. A jitter of
-tenths of a second between samples is the WSL 2 VM clock, seen after a PC
-restart; take CI's Browser smoke job as the e2e line and say so in the PR.
+container clock to the host before opening the code. The container's busybox
+`date` prints `%N` literally, so ask Postgres for the instant instead:
+`docker exec -i tyre-pg psql -U postgres -d tyre -Atc "select extract(epoch from clock_timestamp())"`
+against the host's `date -u +%s.%N`, a few times. A jitter of tenths of a
+second between samples is the WSL 2 VM clock, seen after a PC restart; take
+CI's Browser smoke job as the e2e line and say so in the PR.
 
 ## 2026-09-03 — A gate run in the background ends a subagent's turn before the result exists (TYRE-72)
 

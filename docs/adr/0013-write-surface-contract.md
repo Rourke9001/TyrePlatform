@@ -144,6 +144,12 @@ database in one place, and Go only names the refusal for a client.
    requires accepting alphanumeric fleet numbers), and no threshold, band
    or rate appears in a Go validator, ever.
 
+   Narrowed by TYRE-128 decision 7 (3 Sep 2026): an enum is not a shape Go
+   holds a copy of. A value outside a database enum reaches the cast and
+   returns 22P02, canned as `invalid_submission` (ADR-0012). Go refuses only
+   what it can know without the schema — a missing field, an id that will not
+   parse, a string past a length cap.
+
 6. **`PLATFORM_ADMIN` is not creatable through a tenant surface**, refused
    explicitly by the handler rather than left to `platform_admin_has_no_tenant`.
    The constraint already makes the row impossible to write; letting the

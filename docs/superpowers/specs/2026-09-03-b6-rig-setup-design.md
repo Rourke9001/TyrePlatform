@@ -330,13 +330,14 @@ assertions, 000033's guard comments → B6.3, which replaces those functions
 and forms; `cost_source` on re-rate and the fit-form reset asymmetry → no B6
 slice touches them; they stay on TYRE-128.
 
-## B6.2 — the inspection task (TYRE-90) — outline, planned after B6.1 merges
+## B6.2 — the inspection task (TYRE-90) — planned 4 Sep 2026; built on `TYRE-90-inspection-task`
 
 **Shape.** Migration 000038: `app.user_can_capture(p_user uuid, p_vehicle
 uuid) RETURNS boolean` — an open `vehicle_driver` row at the tenant's today
 on the unit, or on the motive of the open rig the unit is a member of (U4;
 the same predicate `app.v_capture_vehicle` expresses for the current actor,
-factored so a controller can ask it about someone else) — and
+factored so a controller can ask it about someone else; the user must be
+active, and the rig leg excludes the motive itself) — and
 `app.create_inspection_task(p_vehicle uuid, p_assignee uuid, p_due_on date
 DEFAULT NULL) RETURNS uuid`: unit visible else TY012; not DISPOSED/INACTIVE
 else TY018; assignee visible else TY012 (U11: a row this tenant cannot
@@ -352,13 +353,14 @@ gains `audit_row_change` (U12). The submit path already closes the task
 assignments, and for a trailer in an open rig the motive's, each row saying
 which) — the read TYRE-90's screen needs and which does not exist; `GET
 /api/vehicles/{id}/inspection-tasks` (`ViewFleet`, open and escalated tasks,
-`taskJSON` shape); `POST /api/vehicles/{id}/inspection-tasks`
-(`ManageAssignments`, body `{assigneeUserId, dueOn?}`, 201 `taskJSON`).
-`submitStatus` gains TY018.
+`unitTaskJSON` (the driver's `taskJSON` plus the assignee) shape); `POST
+/api/vehicles/{id}/inspection-tasks` (`ManageAssignments`, body
+`{assigneeUserId, dueOn?}`, 201 `unitTaskJSON` (the driver's `taskJSON` plus
+the assignee)). `submitStatus` gains TY018.
 
 **Web.** On `UnitDetail`, a **Schedule an inspection** panel under
 `useCan("ManageAssignments")`: driver select from the drivers read, due
-date blank for today, submit; an **Open tasks** list under it. DriverHome is
+date blank for today, submit; an **Open inspections** list under it. DriverHome is
 unchanged — it already renders the task and the link into the capture.
 
 **Proof.** Suite section 46 (predicate, refusals, cross-tenant, audit,
@@ -450,7 +452,7 @@ controller applies the difference — which needs B6.2's shared capture walk.
 | Item | Where it lives |
 |---|---|
 | The in-transport lock | TYRE-73, parked post-pilot (U1); conditional B6.5 |
-| FR-INS-049's recurring schedule surface — create/pause a schedule per unit or operating group, and something to invoke `app.generate_inspection_tasks` daily | Unowned. **Raise a ticket at B6.2's close-out** under TYRE-55; it is additive on 000012 |
+| FR-INS-049's recurring schedule surface — create/pause a schedule per unit or operating group, and something to invoke `app.generate_inspection_tasks` daily | Owned by TYRE-133 (raised 4 Sep 2026 under TYRE-55); additive on 000012 |
 | Cancelling, reassigning or escalating a task by hand | TYRE-90 excludes them by name; same ticket as above or a sibling |
 | Adding a unit from the driver's phone | Deliberately not built (D5, FR-INS-063 erratum) |
 | Trailer distance inferred from coupling (INFERRED provenance, OI-31) | TYRE-44/OI-32 and BR-ANL-011; a rig's existence does not by itself apportion distance (FR-INS-064) |
