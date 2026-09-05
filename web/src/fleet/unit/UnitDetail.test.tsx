@@ -1,10 +1,14 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { UnitDetail } from "./UnitDetail";
+import { rigsKey } from "./queryKeys";
 import { ActorContext } from "../../auth/actorContext";
+import { getDevTenantId } from "../../api/devTenant";
+import type { Rig } from "../../api/combinations";
 import {
   fitmentRow,
   me,
@@ -15,6 +19,8 @@ import {
   unit,
   unitPosition,
 } from "../../test/fixtures";
+
+const TENANT = getDevTenantId() ?? "default";
 
 const UNIT = unit({
   id: "u9",
@@ -30,10 +36,34 @@ const UNIT = unit({
   ],
 });
 
-function stubFetch() {
+// The rig this unit sits in, in the server's own member order: the motive is
+// always sequence 1 with a null descriptor (U7).
+function rig(overrides: Partial<Rig> = {}): Rig {
+  return {
+    id: "r1",
+    motiveVehicleId: "u9",
+    motiveFleetNumber: "HORSE-1",
+    effectiveFrom: "2026-08-01T06:00:00Z",
+    effectiveTo: null,
+    members: [
+      { vehicleId: "u9", fleetNumber: "HORSE-1", sequence: 1, descriptor: null, unitKind: "HORSE" },
+      {
+        vehicleId: "u5",
+        fleetNumber: "LINK-5",
+        sequence: 2,
+        descriptor: null,
+        unitKind: "TRAILER",
+      },
+    ],
+    ...overrides,
+  };
+}
+
+function stubFetch(rigs: Rig[] = []) {
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
     const url = requestedUrl(input);
     if (url === "/api/vehicles/u9") return Promise.resolve(respond(200, UNIT));
+    if (url === "/api/combinations") return Promise.resolve(respond(200, rigs));
     if (url === "/api/vehicles/u9/fitments")
       return Promise.resolve(respond(200, [fitmentRow({ fitmentId: "f1", displayCode: "TY100" })]));
     if (url === "/api/vehicles/u9/drivers") return Promise.resolve(respond(200, []));
@@ -44,14 +74,33 @@ function stubFetch() {
   });
 }
 
-function renderScreen(capabilities: string[] = ["ViewFleet", "ManageAssets"]) {
-  return render(
-    <ActorContext.Provider value={{ actor: me({ capabilities }), settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        <UnitDetail unitId="u9" />
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+function renderScreen(
+  capabilities: string[] = ["ViewFleet", "ManageAssets"],
+  client: QueryClient = testQueryClient(),
+) {
+  return {
+    client,
+    ...render(
+      <ActorContext.Provider value={{ actor: me({ capabilities }), settled: true }}>
+        <QueryClientProvider client={client}>
+          {/* UnitDetail links to the Rigs screen, and react-router refuses a
+              Link outside a router. */}
+          <MemoryRouter>
+            <UnitDetail unitId="u9" />
+          </MemoryRouter>
+        </QueryClientProvider>
+      </ActorContext.Provider>,
+    ),
+  };
+}
+
+// "No rig line" is trivially true while the rig read is still in flight, so
+// the absence half below waits for the answer to have landed first
+// (RotateForm.test.tsx's own guard against the same vacuous assertion).
+async function rigsSettled(client: QueryClient) {
+  await waitFor(() => {
+    expect(client.getQueryState(rigsKey(TENANT))?.status).toBe("success");
+  });
 }
 
 describe("the unit screen", () => {
@@ -130,5 +179,26 @@ describe("the unit screen", () => {
     await screen.findByRole("heading", { name: "HORSE-1" });
 
     expect(screen.getByRole("heading", { name: "Schedule an inspection" })).toBeTruthy();
+  });
+
+  // What a unit is coupled to decides where a rotation may send a casing
+  // (TYRE-101), so the unit screen names the rig rather than leaving a
+  // controller to find it on another screen. Both halves: an ended rig is
+  // history, and naming one here would read as a coupling that still holds.
+  it("names the open rig's other units and says nothing about one already ended", async () => {
+    stubFetch([rig()]);
+    const { unmount } = renderScreen(["ViewFleet"]);
+
+    const link = await screen.findByRole("link", { name: "LINK-5" });
+    expect(link.getAttribute("href")).toBe("/fleet/rigs");
+    expect(screen.getByText(/^In a rig with/).textContent).toBe("In a rig with LINK-5");
+    unmount();
+
+    stubFetch([rig({ effectiveTo: "2026-08-20T06:00:00Z" })]);
+    const ended = renderScreen(["ViewFleet"]);
+    await screen.findByRole("heading", { name: "HORSE-1" });
+    await rigsSettled(ended.client);
+
+    expect(screen.queryByText(/^In a rig with/)).toBeNull();
   });
 });

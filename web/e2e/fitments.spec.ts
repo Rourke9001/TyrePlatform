@@ -131,10 +131,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await trailerPanel.getByRole("combobox", { name: "Tyre" }).selectOption({ label: stockA });
   await trailerPanel.getByLabel("Tread (mm)").fill("14");
   // CHG-010: which sidewall carries the manufacturer's mark is a fact about
-  // the mounting, recorded at the fit. Inboard, not outboard: PositionPanel
-  // defaults to MOUNT_ORIENTATIONS[0] (mark outboard), so checking that one
-  // would leave the form exactly as it was found and prove nothing about the
-  // control — the read-back at the closed leg below is what it earns.
+  // the mounting, recorded at the fit. Asserted rather than left alone:
+  // PositionPanel's radios start on UNKNOWN (D13), so a fit that never touches
+  // them says nothing about the control — the read-back at the closed leg
+  // below is what it earns.
   await trailerPanel.getByRole("radio", { name: "Mark inboard" }).check();
   await Promise.all([
     posted(page, new RegExp(`^/api/vehicles/${TRAILER}/fitments$`)),
@@ -157,14 +157,20 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   const horsePositions = await mountedPositions(page);
   const [horseFirst, horseSecond] = horsePositions;
 
-  for (const [position, code] of [
-    [horseFirst, stockB],
-    [horseSecond, stockC],
+  // One leg states its orientation and the other leaves the radios alone, so
+  // the rotation below has two different mountings to carry rather than one
+  // repeated (TYRE-128).
+  for (const [position, code, orientation] of [
+    [horseFirst, stockB, "Mark outboard"],
+    [horseSecond, stockC, null],
   ] as const) {
     await page.locator(`[data-position-id="${position.id}"]`).click();
     const horsePanel = panel(page, position.code);
     await horsePanel.getByRole("combobox", { name: "Tyre" }).selectOption({ label: code });
     await horsePanel.getByLabel("Tread (mm)").fill("16");
+    if (orientation !== null) {
+      await horsePanel.getByRole("radio", { name: orientation, exact: true }).check();
+    }
     await horsePanel.getByLabel("Odometer").fill("250100");
     await Promise.all([
       posted(page, new RegExp(`^/api/vehicles/${HORSE}/fitments$`)),
@@ -178,6 +184,22 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
       page.getByRole("button", { name: `Position ${position.code}: ${code}`, exact: true }),
     ).toBeVisible();
   }
+
+  // D13, read off the open legs: an orientation nobody asserted is recorded as
+  // UNKNOWN and rendered as such, never as the mounting the other leg claims.
+  // Keyed on the Removed cell, so an open leg is told from a closed one by the
+  // column that distinguishes them.
+  const stillFitted = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("cell", { name: "Still fitted", exact: true }) });
+  await expect(
+    stillFitted
+      .filter({ hasText: stockB })
+      .getByRole("cell", { name: "Mark outboard", exact: true }),
+  ).toBeVisible();
+  await expect(
+    stillFitted.filter({ hasText: stockC }).getByRole("cell", { name: "Unknown", exact: true }),
+  ).toBeVisible();
 
   // FR-FIT-010: one set of moves, applied whole. Targets are named by
   // position id rather than by code, which is what the select carries.
@@ -226,6 +248,22 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await expect(rotated).toHaveCount(2);
   for (const code of [stockB, stockC]) {
     await expect(rotated.filter({ hasText: code })).toContainText("900 km (Measured)");
+  }
+
+  // The mounting travels with the casing, not with the position: a rotation
+  // carries the closing fitment's orientation onto the row it opens, so each
+  // casing reads the same on both sides of the move and the two casings still
+  // differ from each other (CHG-010, TYRE-128).
+  for (const [code, orientation] of [
+    [stockB, "Mark outboard"],
+    [stockC, "Unknown"],
+  ] as const) {
+    await expect(
+      rotated.filter({ hasText: code }).getByRole("cell", { name: orientation, exact: true }),
+    ).toBeVisible();
+    await expect(
+      stillFitted.filter({ hasText: code }).getByRole("cell", { name: orientation, exact: true }),
+    ).toBeVisible();
   }
 
   // FR-FIT-008: the reasons a removal may state are tenant configuration.
