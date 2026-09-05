@@ -378,7 +378,7 @@ func (b rotateRequest) payload() ([]map[string]any, error) {
 // SQL resolves a unit's reading with (p_odometers ->> f.vehicle_id::text) —
 // Postgres's lowercase, hyphenated, unbraced uuid text. A key spelled any
 // other way matches nothing there, so a unit whose reading the caller did
-// send reads as having sent none and answers TY009 on a horse (R13).
+// send reads as having sent none and answers TY009 on a horse (U20).
 func (b rotateRequest) odometerPayload(vehicleID string) (map[string]int64, error) {
 	if b.Odometer != nil && b.Odometers != nil {
 		return nil, invalid("odometer", "and odometers cannot both be given; a reading belongs to one unit")
