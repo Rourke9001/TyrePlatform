@@ -1,11 +1,20 @@
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 
+import { fetchRigs } from "../../api/combinations";
 import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
-import { rotateTyres, type RotationMove, type Unit } from "../../api/units";
+import {
+  fetchUnit,
+  rotateTyres,
+  type Rotation,
+  type RotationMove,
+  type Unit,
+  type UnitPosition,
+} from "../../api/units";
 import { useFormMutation } from "../useFormMutation";
 import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
-import { openFitmentsKey, unitFitmentsKey, unitKey } from "./queryKeys";
+import { openFitmentsKey, rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 
 // app.rotate_tyres refuses the whole set or none of it, and the codes it can
 // reach are TY009, TY012 and TY014 — no occupancy code, because a rotation's
@@ -13,7 +22,9 @@ import { openFitmentsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 // rows this write closes, not the ones it opens: app.rotate_tyres closes every
 // row in the set before opening any, and 000025's
 // fitment_odometer_matches_unit_kind is BEFORE INSERT OR UPDATE (FR-FIT-002).
-// That is why the odometer below is asked for rather than offered.
+// That is why the odometers below are asked for rather than offered. TY014
+// also carries the "not on this unit or its rig" refusal, whose wording is the
+// server's and is spoken verbatim rather than matched on.
 const ROTATE_WORDING = {
   speakable: ["TY009", "TY012", "TY014"],
   forbidden: "You do not have permission to rotate tyres.",
@@ -24,32 +35,109 @@ const TOO_FEW =
   "Pick at least two positions: a rotation moves tyres between positions of this unit.";
 const INCOMPLETE = "Every picked position needs a target and a tread reading.";
 
-// FR-FIT-010: one set of moves within one unit, applied whole or not at all.
-// The odometer is asked once because the unit has one reading at the moment
-// of the rotation, and a tread is asked per tyre because each is measured
-// where it comes off (NFR-USE-006 — never ask for the same value twice).
+// Position ids belong to an axle configuration rather than to a unit, so the
+// two links of an ordinary superlink share every one of them (docs/lessons.md,
+// 26 Aug 2026). Every occupancy answer here is therefore on the pair, which is
+// also the pair app.rotate_tyres checks (U18).
+function pairKey(unitId: string, positionId: string): string {
+  return `${unitId} ${positionId}`;
+}
+
+// FR-FIT-010: one set of moves across the units of one open rig, applied whole
+// or not at all. A tread is asked per tyre because each is measured where it
+// comes off, and an odometer per unit because the reading belongs to the unit
+// (U20) — never the same value twice (NFR-USE-006).
 export function RotateForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const occupied = unit.positions.filter((p) => p.fitment !== null);
 
   const [picked, setPicked] = useState<Record<string, boolean>>({});
+  const [destinations, setDestinations] = useState<Record<string, string>>({});
   const [targets, setTargets] = useState<Record<string, string>>({});
   const [treads, setTreads] = useState<Record<string, string>>({});
-  const [odometer, setOdometer] = useState("");
+  const [odometers, setOdometers] = useState<Record<string, string>>({});
   const [refused, setRefused] = useState("");
 
+  // rigsKey is already paired with fetchRigs() by RigForm and RigList, so the
+  // open ones are picked out here rather than asked for: one key answered by
+  // two different fetchers hands whichever screen mounts second a list it did
+  // not ask for.
+  const rigs = useQuery({ queryKey: rigsKey(tenantKey), queryFn: () => fetchRigs() });
+  const openRig = (rigs.data ?? []).find(
+    (r) => r.effectiveTo === null && r.members.some((m) => m.vehicleId === unit.id),
+  );
+  const siblings = openRig?.members.filter((m) => m.vehicleId !== unit.id) ?? [];
+
+  // useQueries, not a useQuery per member: how many units a rig holds is data,
+  // and a hook inside a map breaks the rules of hooks. The reads are the ones
+  // UnitDetail already makes, under the same key, so a sibling screen and this
+  // picker never disagree about what is fitted where.
+  const siblingReads = useQueries({
+    queries: siblings.map((m) => ({
+      queryKey: unitKey(m.vehicleId),
+      queryFn: () => fetchUnit(m.vehicleId),
+      enabled: openRig !== undefined,
+    })),
+  });
+
+  const loadedSiblings = new Map<string, Unit>();
+  siblings.forEach((m, index) => {
+    const read = siblingReads[index].data;
+    if (read !== undefined) loadedSiblings.set(m.vehicleId, read);
+  });
+
+  // In the rig's own member order (U7), so the picker reads down the vehicle
+  // the way a controller walks it.
+  const rigUnits: Unit[] =
+    openRig === undefined
+      ? [unit]
+      : openRig.members.flatMap((m) => {
+          if (m.vehicleId === unit.id) return [unit];
+          const sibling = loadedSiblings.get(m.vehicleId);
+          return sibling === undefined ? [] : [sibling];
+        });
+
   const rotate = useFormMutation({
-    mutate: (vars: { moves: RotationMove[]; odometer?: number }) => rotateTyres(unit.id, vars),
-    invalidate: [unitKey(unit.id), unitFitmentsKey(unit.id), openFitmentsKey(tenantKey)],
+    mutate: (vars: Rotation) => rotateTyres(unit.id, vars),
+    // Every unit of the rig, not only this one: a move lands a fitment on
+    // whichever unit it names, and membership — unlike the picked set — is
+    // still true at the moment onSuccess clears the form.
+    invalidate: [
+      ...rigUnits.flatMap((u) => [unitKey(u.id), unitFitmentsKey(u.id)]),
+      openFitmentsKey(tenantKey),
+    ],
     onSuccess: () => {
       setPicked({});
+      setDestinations({});
       setTargets({});
       setTreads({});
-      setOdometer("");
+      setOdometers({});
     },
   });
 
   const chosen = occupied.filter((p) => picked[p.id]);
+
+  function destinationOf(positionId: string): string {
+    return destinations[positionId] ?? unit.id;
+  }
+
+  // TYRE-127: a target is offerable when it is empty, or emptied by this same
+  // set of moves — app.rotate_tyres closes every row in the set before opening
+  // any, so a position another picked row leaves is free by the time this move
+  // lands on it.
+  const vacated = new Set(chosen.map((p) => pairKey(unit.id, p.id)));
+
+  function targetsFor(unitId: string): UnitPosition[] {
+    const destination = rigUnits.find((u) => u.id === unitId);
+    return (destination?.positions ?? []).filter(
+      (p) => p.fitment === null || vacated.has(pairKey(unitId, p.id)),
+    );
+  }
+
+  const touched = new Set([unit.id, ...chosen.map((p) => destinationOf(p.id))]);
+  const involved = rigUnits.filter((u) => touched.has(u.id));
+  const perUnit = involved.length > 1;
+  const needReadings = involved.filter((u) => u.hasOdometer);
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -68,19 +156,41 @@ export function RotateForm({ unit }: { unit: Unit }) {
         setRefused(INCOMPLETE);
         return;
       }
-      moves.push({ tyreId: position.fitment.tyreId, toPositionId: target, treadMm: tread });
+      const move: RotationMove = {
+        tyreId: position.fitment.tyreId,
+        toPositionId: target,
+        treadMm: tread,
+      };
+      if (destinationOf(position.id) !== unit.id) {
+        move.toVehicleId = destinationOf(position.id);
+      }
+      moves.push(move);
     }
-    if (unit.hasOdometer && odometer.trim() === "") {
-      setRefused(ODOMETER_REQUIRED);
-      return;
+    const readings: Record<string, number> = {};
+    for (const u of needReadings) {
+      const typed = odometers[u.id] ?? "";
+      if (typed.trim() === "") {
+        setRefused(ODOMETER_REQUIRED);
+        return;
+      }
+      const reading = readOdometer(typed);
+      if (!reading.ok || reading.value === undefined) {
+        setRefused(ODOMETER_REFUSAL);
+        return;
+      }
+      readings[u.id] = reading.value;
     }
-    const reading = readOdometer(unit.hasOdometer ? odometer : "");
-    if (!reading.ok) {
-      setRefused(ODOMETER_REFUSAL);
-      return;
+    const body: Rotation = { moves };
+    if (perUnit) {
+      // Omitted rather than sent empty when no unit involved has an odometer:
+      // two trailers give no readings at all, which is not the same request as
+      // one naming units with none.
+      if (needReadings.length > 0) body.odometers = readings;
+    } else if (unit.hasOdometer) {
+      body.odometer = readings[unit.id];
     }
     setRefused("");
-    rotate.submit({ moves, odometer: reading.value });
+    rotate.submit(body);
   }
 
   if (occupied.length === 0) {
@@ -111,13 +221,32 @@ export function RotateForm({ unit }: { unit: Unit }) {
 
               {picked[p.id] && (
                 <>
+                  {openRig !== undefined && (
+                    <select
+                      aria-label={`Unit for ${p.code}`}
+                      value={destinationOf(p.id)}
+                      onChange={(e) => {
+                        setDestinations({ ...destinations, [p.id]: e.target.value });
+                        // Cleared with the unit: the same position id is legal
+                        // on both links of a superlink, so a carried selection
+                        // names a position this picker does not offer.
+                        setTargets({ ...targets, [p.id]: "" });
+                      }}
+                    >
+                      {rigUnits.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.fleetNumber}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                   <select
                     aria-label={`Target for ${p.code}`}
                     value={targets[p.id] ?? ""}
                     onChange={(e) => setTargets({ ...targets, [p.id]: e.target.value })}
                   >
                     <option value="">Choose…</option>
-                    {unit.positions.map((target) => (
+                    {targetsFor(destinationOf(p.id)).map((target) => (
                       <option key={target.id} value={target.id}>
                         {target.code}
                       </option>
@@ -135,17 +264,29 @@ export function RotateForm({ unit }: { unit: Unit }) {
           ))}
         </ul>
 
-        {unit.hasOdometer && (
-          <label className="unit-rotate-odometer">
-            Odometer
-            <input
-              inputMode="numeric"
-              value={odometer}
-              onChange={(e) => setOdometer(e.target.value)}
-              required
-            />
-          </label>
-        )}
+        {perUnit
+          ? needReadings.map((u) => (
+              <label className="unit-rotate-odometer" key={u.id}>
+                {`Odometer for ${u.fleetNumber}`}
+                <input
+                  inputMode="numeric"
+                  value={odometers[u.id] ?? ""}
+                  onChange={(e) => setOdometers({ ...odometers, [u.id]: e.target.value })}
+                  required
+                />
+              </label>
+            ))
+          : unit.hasOdometer && (
+              <label className="unit-rotate-odometer">
+                Odometer
+                <input
+                  inputMode="numeric"
+                  value={odometers[unit.id] ?? ""}
+                  onChange={(e) => setOdometers({ ...odometers, [unit.id]: e.target.value })}
+                  required
+                />
+              </label>
+            )}
 
         <button className="btn-primary" type="submit" disabled={rotate.isPending}>
           {rotate.isPending ? "Rotating…" : "Rotate"}

@@ -172,15 +172,26 @@ export function removeFitment(fitmentId: string, body: Removal): Promise<void> {
   return apiPost<void>(`/api/fitments/${fitmentId}/remove`, body);
 }
 
+// toVehicleId is optional and omitted rather than sent as null: a move that
+// names no destination belongs to the unit the request is addressed to (U15,
+// U17), and a null would be a second way of saying the same thing.
 export interface RotationMove {
   tyreId: string;
+  toVehicleId?: string;
   toPositionId: string;
   treadMm: string;
 }
 
+// odometer and odometers are alternatives, never both — a body carrying the
+// two is refused as a wire-shape contradiction (U20, fitments.go's
+// odometerPayload). A reading belongs to one unit (FR-FIT-002), so a rotation
+// across a rig keys them by unit id and one inside a single unit keeps the
+// scalar. The keys are unit ids exactly as the API returned them: SQL looks a
+// unit up as p_odometers ->> vehicle_id::text.
 export interface Rotation {
   moves: RotationMove[];
   odometer?: number;
+  odometers?: Record<string, number>;
   occurredAt?: string;
 }
 
@@ -193,9 +204,12 @@ export interface RotationResult {
   moves: RotationMoveResult[];
 }
 
-// rotateTyres is FR-FIT-010's write: one set of moves within one unit,
-// applied whole or not at all — the atomicity is app.rotate_tyres' own
-// (fitments.go's own comment), not re-implemented here.
+// rotateTyres is FR-FIT-010's write: one set of moves across the units of one
+// open rig, applied whole or not at all — the atomicity, and which units share
+// a rig at the moment of the write (U16), are app.rotate_tyres' own
+// (fitments.go's own comment), not re-implemented here. The path names the
+// unit the request is addressed to, which is what an unqualified move and a
+// lone odometer both belong to.
 export function rotateTyres(unitId: string, body: Rotation): Promise<RotationResult> {
   return apiPost<RotationResult>(`/api/vehicles/${unitId}/rotations`, body);
 }
