@@ -32,7 +32,7 @@ const ROTATE_WORDING = {
 };
 
 const TOO_FEW =
-  "Pick at least two positions: a rotation moves tyres between positions of this unit.";
+  "Pick at least two positions: a rotation moves tyres between positions of this unit or its rig.";
 const INCOMPLETE = "Every picked position needs a target and a tread reading.";
 
 // Position ids belong to an axle configuration rather than to a unit, so the
