@@ -6349,5 +6349,857 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 47. TYRE-101: a rotation moves casings across the units of one open rig (FR-FIT-010, BR-FIT-005, U15-U23)'
+BEGIN;
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  -- A TRAILER: 000025 asks a horse for an odometer before any of the four
+  -- functions below reaches its tread bound, and this section is about the
+  -- bound (U21).
+  va   uuid := md5('t47av')::uuid;
+  d_rt uuid := md5('t47art')::uuid;
+  sz1  uuid := md5('sz1')::uuid;
+  typ  uuid := md5('t47atyp')::uuid;   -- the rotation pair, fitted and left fitted
+  tyq  uuid := md5('t47atyq')::uuid;
+  tyr  uuid := md5('t47atyr')::uuid;   -- the fit target: every call on it is refused
+  tys  uuid := md5('t47atys')::uuid;   -- the casing whose open retread job both probes reuse
+  cfg uuid; tz text; p1 uuid; p2 uuid; p3 uuid;
+  r record; fn record; fit1 uuid; job uuid; mx numeric;
+  m1 text; m2 text; m3 text; m4 text;
+  n1 text; n2 text; n3 text; n4 text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO p1 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  SELECT p.id INTO p2 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '2';
+  SELECT p.id INTO p3 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '3';
+  IF p1 IS NULL OR p2 IS NULL OR p3 IS NULL THEN
+    RAISE EXCEPTION 'FAIL: section 47 cannot resolve the positions it tests against';
+  END IF;
+
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (va, bac, 'T47-AV', 'T47AV GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T47 Retreaders', 'RETREADER');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (typ, bac, 'T47ATYREP', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyq, bac, 'T47ATYREQ', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyr, bac, 'T47ATYRER', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tys, bac, 'T47ATYRES', sz1, 'NEW', 0, 'REMOVED');
+  SELECT * INTO r FROM app.fit_tyre(typ, va, p1, 12.0, 'MARK_OUTBOARD');
+  fit1 := r.fitment_id;
+  PERFORM app.fit_tyre(tyq, va, p2, 12.0, 'MARK_OUTBOARD');
+  SELECT * INTO r FROM app.dispatch_tyre(tys, 'AT_RETREADER', d_rt);
+  job := r.retread_job_id;
+
+  -- (a) U21: one bound, four voices. Each refusal is caught for its message
+  -- rather than its code alone, because a single shared message would be the
+  -- shape of four call sites collapsed into one refusal — which is what the
+  -- workshop loses if the bound is shared carelessly (FR-FIT-001, FR-FIT-007,
+  -- FR-FIT-010, FR-FIT-022). The bound is read from the function, so the
+  -- probe cannot restate the number it exists to stop being restated.
+  mx := app.max_tread_mm();
+  IF mx IS NULL OR mx <= 0 THEN
+    RAISE EXCEPTION 'FAIL 47a: the shared tread ceiling reads %, not a positive depth', mx;
+  END IF;
+  BEGIN
+    PERFORM app.fit_tyre(tyr, va, p3, mx + 0.1, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 47a: a fit above the shared ceiling was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m1 = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.remove_tyre(fit1, 'damage', mx + 0.1);
+    RAISE EXCEPTION 'FAIL 47a: a removal above the shared ceiling was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m2 = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(va,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', typ, 'to_position_id', p2, 'tread_mm', mx + 0.1),
+        jsonb_build_object('tyre_id', tyq, 'to_position_id', p1, 'tread_mm', mx + 0.1)),
+      NULL::jsonb, now());
+    RAISE EXCEPTION 'FAIL 47a: a rotation above the shared ceiling was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m3 = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(job, app.tenant_today(tz), true, 'T47-RPT-A',
+                                   100.00, mx + 0.1, 500.00);
+    RAISE EXCEPTION 'FAIL 47a: a retread return above the shared ceiling was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS m4 = MESSAGE_TEXT;
+  END;
+  IF m1 = m2 OR m1 = m3 OR m1 = m4 OR m2 = m3 OR m2 = m4 OR m3 = m4 THEN
+    RAISE EXCEPTION 'FAIL 47a: two of the four ceiling refusals share a voice: % / % / % / %',
+      m1, m2, m3, m4;
+  END IF;
+  -- The bound reaches the message from the function rather than as a fifth
+  -- copy of the number (U21): a literal in a message is still a literal.
+  IF strpos(m1, mx::text) = 0 OR strpos(m2, mx::text) = 0
+     OR strpos(m3, mx::text) = 0 OR strpos(m4, mx::text) = 0 THEN
+    RAISE EXCEPTION 'FAIL 47a: a ceiling refusal does not carry the bound %: % / % / % / %',
+      mx, m1, m2, m3, m4;
+  END IF;
+  -- The same rule at the source, because four sites each carrying the bound
+  -- as a literal and four sites reading one function answer identically from
+  -- outside — and it is literals that drift apart (U21). Matched as a bare
+  -- number so a migration citation such as 000030 is not read as the bound.
+  FOR fn IN SELECT p.proname AS name, pg_get_functiondef(p.oid) AS src
+              FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
+             WHERE ns.nspname = 'app'
+               AND p.proname IN ('fit_tyre', 'remove_tyre', 'rotate_tyres', 'log_retread_return')
+  LOOP
+    IF strpos(fn.src, 'app.max_tread_mm()') = 0 THEN
+      RAISE EXCEPTION 'FAIL 47a: app.% does not read the shared tread ceiling', fn.name;
+    END IF;
+    IF fn.src ~ ('(?<![0-9.])' || mx::text || '(?![0-9.])') THEN
+      RAISE EXCEPTION 'FAIL 47a: app.% still carries % as a literal of its own', fn.name, mx;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  47a one tread ceiling, interpolated into four refusals that keep their own words';
+
+  -- (b) The same four inputs absent rather than out of range. The retread
+  -- return owes a distinct answer here: it names which of three figures is
+  -- missing (000034:127), and that wording is what a workshop retyping a
+  -- report reads, so it must survive the shared bound rather than be folded
+  -- into it (FR-FIT-022).
+  BEGIN
+    PERFORM app.fit_tyre(tyr, va, p3, NULL, 'MARK_OUTBOARD');
+    RAISE EXCEPTION 'FAIL 47b: a fit with no tread was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS n1 = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.remove_tyre(fit1, 'damage', NULL);
+    RAISE EXCEPTION 'FAIL 47b: a removal with no tread was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS n2 = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(va,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', typ, 'to_position_id', p2, 'tread_mm', NULL),
+        jsonb_build_object('tyre_id', tyq, 'to_position_id', p1, 'tread_mm', NULL)),
+      NULL::jsonb, now());
+    RAISE EXCEPTION 'FAIL 47b: a rotation with no tread was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS n3 = MESSAGE_TEXT;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(job, app.tenant_today(tz), true, 'T47-RPT-B',
+                                   100.00, NULL, 500.00);
+    RAISE EXCEPTION 'FAIL 47b: a retread return with no tread was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN GET STACKED DIAGNOSTICS n4 = MESSAGE_TEXT;
+  END;
+  IF n1 = n2 OR n1 = n3 OR n1 = n4 OR n2 = n3 OR n2 = n4 OR n3 = n4 THEN
+    RAISE EXCEPTION 'FAIL 47b: two of the four absent-tread refusals share a voice: % / % / % / %',
+      n1, n2, n3, n4;
+  END IF;
+  IF n4 <> 'a retread return records the tread the casing came back on' THEN
+    RAISE EXCEPTION 'FAIL 47b: the missing-figure refusal reads %', n4;
+  END IF;
+  IF n4 = m4 THEN
+    RAISE EXCEPTION 'FAIL 47b: the return answers a missing tread in the ceiling''s words';
+  END IF;
+  RAISE NOTICE 'PASS  47b an absent tread is refused by each function in its own words, the retread return''s included';
+END $$;
+
+DO $$
+DECLARE
+  bac   uuid := '11111111-1111-1111-1111-111111111111';
+  t_two uuid := '22222222-2222-2222-2222-222222222222';
+  -- The rig: a horse and two trailers. ta sits on the horse's own axle
+  -- configuration so the two share every position id, which is what U18's
+  -- "same position id on two units" probe needs; tb sits on another, so a
+  -- target that p_vehicle's configuration does not contain is exercised too.
+  h   uuid := md5('t47h')::uuid;
+  ta  uuid := md5('t47ta')::uuid;
+  tb  uuid := md5('t47tb')::uuid;
+  hx  uuid := md5('t47hx')::uuid;   -- visible, same tenant, in no rig with h
+  ctl uuid := md5('t47ctl')::uuid;  -- planted, not assumed: created_by is a composite FK (000017)
+  sz1 uuid := md5('sz1')::uuid;
+  fty uuid := md5('t47fty')::uuid;  -- a casing of the other fleet
+  tya uuid := md5('t47tya')::uuid;
+  tyb uuid := md5('t47tyb')::uuid;
+  tyc uuid := md5('t47tyc')::uuid;
+  tye uuid := md5('t47tye')::uuid;
+  cfg uuid; cfg2 uuid; rig uuid;
+  p1 uuid; p2 uuid; p3 uuid; p5 uuid; p6 uuid; p7 uuid; p8 uuid; p9 uuid; p10 uuid;
+  q1 uuid; q2 uuid;
+  at0 timestamptz; r record; n int; msg text; fleet text;
+  h_open uuid; closed_fit uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT v.configuration_id INTO cfg  FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT v.configuration_id INTO cfg2 FROM app.vehicle v WHERE v.id = md5('veh2')::uuid;
+  SELECT p.id INTO p1  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  SELECT p.id INTO p2  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '2';
+  SELECT p.id INTO p3  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '3';
+  SELECT p.id INTO p5  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '5';
+  SELECT p.id INTO p6  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '6';
+  SELECT p.id INTO p7  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '7';
+  SELECT p.id INTO p8  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '8';
+  SELECT p.id INTO p9  FROM app.position p WHERE p.configuration_id = cfg AND p.code = '9';
+  SELECT p.id INTO p10 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '10';
+  SELECT p.id INTO q1  FROM app.position p WHERE p.configuration_id = cfg2 AND p.code = '1';
+  SELECT p.id INTO q2  FROM app.position p WHERE p.configuration_id = cfg2 AND p.code = '2';
+  IF p10 IS NULL OR q2 IS NULL OR cfg = cfg2 THEN
+    RAISE EXCEPTION 'FAIL 47: the two configurations this section rotates between did not resolve';
+  END IF;
+
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (h,  bac, 'T47-H',  'T47H GP',  cfg,  'HORSE',   md5('depot1')::uuid, 'ACTIVE'),
+         (ta, bac, 'T47-TA', 'T47TA GP', cfg,  'TRAILER', md5('depot1')::uuid, 'ACTIVE'),
+         (tb, bac, 'T47-TB', 'T47TB GP', cfg2, 'TRAILER', md5('depot1')::uuid, 'ACTIVE'),
+         (hx, bac, 'T47-HX', 'T47HX GP', cfg,  'HORSE',   md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (ctl, bac, 't47ctl@example.invalid', 'T47 Controller', 'CONTROLLER');
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (tya, bac, 'T47TYREA', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyb, bac, 'T47TYREB', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyc, bac, 'T47TYREC', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tye, bac, 'T47TYREE', sz1, 'NEW', 0, 'IN_STOCK');
+  rig := app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', ta),
+                                                     jsonb_build_object('vehicle_id', tb)));
+
+  -- Both casings are fitted an hour back so the rotation's own instant is the
+  -- only one its events can share: fits stamped at now() would put two more
+  -- to_state events on that instant and 47d's count would pass on them.
+  SELECT * INTO r FROM app.fit_tyre(tya, h,  p9, 14.0, 'MARK_OUTBOARD', 400000, now() - interval '1 hour');
+  SELECT * INTO r FROM app.fit_tyre(tyb, ta, p1, 13.0, 'MARK_OUTBOARD', NULL,   now() - interval '1 hour');
+
+  -- (c) The ticket's own move: one rotation, two units of one open rig, the
+  -- source closed on the unit it was on and the new row opened on the unit it
+  -- went to, so both units' fitment histories carry the move (FR-FIT-010,
+  -- U15, U16, U19). to_vehicle_id is named on each move; the source is not,
+  -- because the open fitment is already the one answer to where a casing is.
+  at0 := now();
+  SELECT count(*) INTO n FROM app.rotate_tyres(h,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tya, 'to_vehicle_id', ta, 'to_position_id', p2,  'tread_mm', 11.0),
+      jsonb_build_object('tyre_id', tyb, 'to_vehicle_id', h,  'to_position_id', p10, 'tread_mm', 10.0)),
+    jsonb_build_object(h::text, 405000), at0);
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47c: the rotation returned % rows, expected 2', n; END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.removed_at = at0 AND f.removal_reason = 'rotation'
+     AND ((f.tyre_id = tya AND f.vehicle_id = h  AND f.position_id = p9)
+       OR (f.tyre_id = tyb AND f.vehicle_id = ta AND f.position_id = p1));
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 47c: % source fitments closed at the rotation instant with the reason, expected 2', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.removed_at IS NULL AND f.fitted_at = at0
+     AND ((f.tyre_id = tya AND f.vehicle_id = ta AND f.position_id = p2)
+       OR (f.tyre_id = tyb AND f.vehicle_id = h  AND f.position_id = p10));
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 47c: % fitments opened on the destination units, expected 2', n;
+  END IF;
+  -- The DoD in one assertion: the casing's closed row and its open row name
+  -- different units, which is the whole of what "across the units of a rig"
+  -- means to a reader of either unit's history.
+  IF (SELECT f.vehicle_id FROM app.fitment f WHERE f.tyre_id = tya AND f.removed_at = at0)
+     = (SELECT f.vehicle_id FROM app.fitment f WHERE f.tyre_id = tya AND f.removed_at IS NULL) THEN
+    RAISE EXCEPTION 'FAIL 47c: the casing left and arrived on the same unit';
+  END IF;
+  RAISE NOTICE 'PASS  47c a rotation closes on the source unit and opens on the destination unit of one rig';
+
+  -- (d) U19: one ROTATED per casing, FITTED to FITTED, carrying both units
+  -- and both position codes. Counted over every event sharing the instant,
+  -- not over the ROTATED rows alone: a REMOVED and a FITTED pair stamped here
+  -- would satisfy "at least one ROTATED" while leaving two to_state events on
+  -- one instant, which is the ambiguity app.tyre_in_estate_asof cannot
+  -- resolve (FR-VAL-022).
+  SELECT count(*) INTO n FROM app.tyre_event e
+   WHERE e.tyre_id IN (tya, tyb) AND e.occurred_at = at0;
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 47d: % events share the rotation instant, expected one per casing', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_event e
+   WHERE e.type = 'ROTATED' AND e.from_state = 'FITTED' AND e.to_state = 'FITTED'
+     AND ((e.tyre_id = tya AND e.payload->>'from_vehicle_id' = h::text
+                          AND e.payload->>'to_vehicle_id'   = ta::text
+                          AND e.payload->>'from_position_code' = '9'
+                          AND e.payload->>'to_position_code'   = '2')
+       OR (e.tyre_id = tyb AND e.payload->>'from_vehicle_id' = ta::text
+                          AND e.payload->>'to_vehicle_id'   = h::text
+                          AND e.payload->>'from_position_code' = '1'
+                          AND e.payload->>'to_position_code'   = '10'));
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 47d: the ROTATED events do not record both units and both positions';
+  END IF;
+  RAISE NOTICE 'PASS  47d one ROTATED event per casing carries the unit it left and the unit it went to';
+
+  -- (e) The register is the surface a fleet manager reads, so the move is not
+  -- recorded until it reads there: one row per casing, against the new unit
+  -- (FR-VAL-001, FR-RPT-020).
+  SELECT count(*) INTO n FROM app.v_tyre_valuation v WHERE v.tyre_id = tya;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 47e: the register shows % rows for one casing', n; END IF;
+  SELECT v.fleet_number INTO fleet FROM app.v_tyre_valuation v WHERE v.tyre_id = tya;
+  IF fleet IS DISTINCT FROM 'T47-TA' THEN
+    RAISE EXCEPTION 'FAIL 47e: the register still shows the rotated casing against %', fleet;
+  END IF;
+  SELECT v.fleet_number INTO fleet FROM app.v_tyre_valuation v WHERE v.tyre_id = tyb;
+  IF fleet IS DISTINCT FROM 'T47-H' THEN
+    RAISE EXCEPTION 'FAIL 47e: the register shows the casing that moved onto the horse against %', fleet;
+  END IF;
+  RAISE NOTICE 'PASS  47e the register reads each rotated casing against the unit it now sits on';
+
+  -- (f) The DoD's cross-tenant half, both ways a rotation can name another
+  -- fleet, because the two take different branches: a destination unit is
+  -- resolved by visibility, a casing by the fitment its move derives its
+  -- source from (U15). The other fleet's rows are planted under that fleet's
+  -- own session and then shown invisible here, so neither refusal below can
+  -- be passing because the row was never there (lesson 2026-09-01: a probe
+  -- whose SQLSTATE is shared by a second branch proves nothing on its own).
+  PERFORM set_config('app.tenant_id', t_two::text, true);
+  -- Unbound with '': app.current_actor_id is nullif(..., ''), so BAC's
+  -- controller would default created_by to a user this fleet cannot see.
+  PERFORM set_config('app.actor_id', '', true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, status, retread_count, state)
+  VALUES (fty, t_two, 'T47TYREF', 'NEW', 0, 'IN_STOCK');
+  SELECT count(*) INTO n FROM app.tyre v WHERE v.id = fty;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s casing was not planted'; END IF;
+  SELECT count(*) INTO n FROM app.vehicle v WHERE v.id = md5('t2veh1')::uuid;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s unit is not there to probe with'; END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  SELECT count(*) INTO n FROM app.tyre v WHERE v.id = fty;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s casing is visible in this fleet'; END IF;
+  SELECT count(*) INTO n FROM app.vehicle v WHERE v.id = md5('t2veh1')::uuid;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 47f: the other fleet''s unit is visible in this fleet'; END IF;
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', md5('t2veh1')::uuid,
+                           'to_position_id', p9, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tyb, 'to_vehicle_id', ta, 'to_position_id', p1, 'tread_mm', 10.0)),
+      jsonb_build_object(h::text, 406000), now());
+    RAISE EXCEPTION 'FAIL 47f: a rotation onto another fleet''s unit was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    -- The visibility answer, not the membership one: a unit this fleet cannot
+    -- see is not a unit that is out of the rig, and TY014 naming an empty
+    -- fleet number here would mean membership was resolved first.
+    IF msg <> 'no such unit in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 47f: the destination refusal reads %', msg;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', fty, 'to_vehicle_id', ta, 'to_position_id', p3, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tyb, 'to_vehicle_id', ta, 'to_position_id', p1, 'tread_mm', 10.0)),
+      jsonb_build_object(h::text, 406000), now());
+    RAISE EXCEPTION 'FAIL 47f: a rotation of another fleet''s casing was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> format('tyre %s is not on this unit or its rig', fty) THEN
+      RAISE EXCEPTION 'FAIL 47f: the casing refusal reads %', msg;
+    END IF;
+  END;
+  -- The control both refusals rest on: the same call shape, with this fleet's
+  -- own unit and its own casing, succeeds. Without it either probe above
+  -- would pass on a rotation that refuses everything.
+  SELECT count(*) INTO n FROM app.rotate_tyres(h,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tya, 'to_vehicle_id', h,  'to_position_id', p9, 'tread_mm', 10.5),
+      jsonb_build_object('tyre_id', tyb, 'to_vehicle_id', ta, 'to_position_id', p1, 'tread_mm', 9.5)),
+    jsonb_build_object(h::text, 406000), now());
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47f: the same-fleet control returned % rows, expected 2', n; END IF;
+  RAISE NOTICE 'PASS  47f another fleet''s unit and another fleet''s casing are both invisible to a rotation';
+
+  -- (g) The DoD's other half: a unit this fleet can see, that shares no rig
+  -- with the one the rotation is addressed to. The refusal names the unit,
+  -- which is what tells this apart from 47f's visibility branch — an
+  -- unnamed unit would mean the two answers had been merged (U16).
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', hx, 'to_position_id', p1, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tyb, 'to_vehicle_id', h,  'to_position_id', p9, 'tread_mm', 10.0)),
+      jsonb_build_object(h::text, 407000), now());
+    RAISE EXCEPTION 'FAIL 47g: a rotation onto a unit outside the rig was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%T47-HX%' THEN
+      RAISE EXCEPTION 'FAIL 47g: the refusal does not name the unit that is not in the rig: %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  47g a rotation onto a unit sharing no rig is refused by that unit''s name';
+
+  -- (i) U17: p_vehicle is the unit the request was addressed to and the
+  -- anchor the rig is resolved from, not a unit every move has to touch. A
+  -- trailer swap inside a rig is a real yard move and routing it through the
+  -- horse's screen would be the only reason to refuse it.
+  PERFORM app.fit_tyre(tyc, tb, q1, 12.0, 'MARK_OUTBOARD');
+  SELECT f.id INTO h_open FROM app.fitment f WHERE f.vehicle_id = h AND f.removed_at IS NULL;
+  SELECT count(*) INTO n FROM app.rotate_tyres(h,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tyb, 'to_vehicle_id', tb, 'to_position_id', q2, 'tread_mm', 9.0),
+      jsonb_build_object('tyre_id', tyc, 'to_vehicle_id', ta, 'to_position_id', p3, 'tread_mm', 12.0)),
+    NULL::jsonb);
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47i: a trailer-to-trailer rotation returned % rows, expected 2', n; END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.removed_at IS NULL
+     AND ((f.tyre_id = tyb AND f.vehicle_id = tb AND f.position_id = q2)
+       OR (f.tyre_id = tyc AND f.vehicle_id = ta AND f.position_id = p3));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47i: the trailer-to-trailer move did not land'; END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.vehicle_id = h AND f.removed_at IS NULL AND f.id = h_open;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 47i: a rotation naming no move on the anchor unit changed it anyway'; END IF;
+  RAISE NOTICE 'PASS  47i a rotation addressed to the horse may move nothing on it';
+
+  -- (j) U18: position identity is per axle configuration, so h and ta share
+  -- every position id and two moves onto the same id are two different
+  -- targets. The pair is what the duplicate rule is on, proven both ways —
+  -- the same id on two units is accepted, the same id on one unit is not.
+  IF q2 IN (SELECT p.id FROM app.position p WHERE p.configuration_id = cfg) THEN
+    RAISE EXCEPTION 'FAIL 47j: the cross-configuration target is not off the anchor''s configuration';
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.tyre_id = tyb AND f.vehicle_id = tb AND f.position_id = q2 AND f.removed_at IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 47j: a target resolved against the destination''s own configuration did not stand';
+  END IF;
+  SELECT count(*) INTO n FROM app.rotate_tyres(h,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tya, 'to_vehicle_id', ta, 'to_position_id', p5, 'tread_mm', 10.0),
+      jsonb_build_object('tyre_id', tyc, 'to_vehicle_id', h,  'to_position_id', p5, 'tread_mm', 11.0)),
+    jsonb_build_object(h::text, 407000));
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 47j: one position id on two units returned % rows, expected 2', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.removed_at IS NULL AND f.position_id = p5
+     AND ((f.tyre_id = tya AND f.vehicle_id = ta) OR (f.tyre_id = tyc AND f.vehicle_id = h));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47j: the two same-numbered targets did not both land'; END IF;
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tyc, 'to_vehicle_id', ta, 'to_position_id', p6, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', ta, 'to_position_id', p6, 'tread_mm', 10.0)),
+      jsonb_build_object(h::text, 408000));
+    RAISE EXCEPTION 'FAIL 47j: two moves onto one unit''s one position were accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'two moves cannot target the same position' THEN
+      RAISE EXCEPTION 'FAIL 47j: the duplicate-target refusal reads %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  47j a target is the (unit, position) pair, so one position id serves two units and not one';
+
+  -- (k) U20: a horse records an odometer and a trailer has none, so TY009 is
+  -- answered per unit and the reading each closure and each opening carries
+  -- is that row's own unit's (FR-FIT-002, FR-FIT-009, CR-012). The two
+  -- refusals below are two different inputs — a reading for the wrong unit,
+  -- and no reading at all — and both leave the horse's rows without one.
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tyc, 'to_vehicle_id', ta, 'to_position_id', p6, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', h,  'to_position_id', p7, 'tread_mm', 10.0)),
+      NULL::jsonb);
+    RAISE EXCEPTION 'FAIL 47k: a rotation touching the horse with no odometer at all was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY009' THEN NULL;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tyc, 'to_vehicle_id', ta, 'to_position_id', p6, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', h,  'to_position_id', p7, 'tread_mm', 10.0)),
+      jsonb_build_object(ta::text, 500000));
+    RAISE EXCEPTION 'FAIL 47k: a rotation reading only the trailer was accepted for the horse';
+  EXCEPTION WHEN SQLSTATE 'TY009' THEN NULL;
+  END;
+  SELECT count(*) INTO n FROM app.rotate_tyres(h,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tyc, 'to_vehicle_id', ta, 'to_position_id', p6, 'tread_mm', 11.0),
+      jsonb_build_object('tyre_id', tya, 'to_vehicle_id', h,  'to_position_id', p7, 'tread_mm', 10.0)),
+    jsonb_build_object(h::text, 408000));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47k: the horse-only odometer returned % rows, expected 2', n; END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.tyre_id = tyc AND f.vehicle_id = h AND f.position_id = p5 AND f.removed_at IS NOT NULL
+     AND f.removed_odometer = 408000 AND f.distance_source = 'MEASURED' AND f.distance_km = 1000;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 47k: the horse''s closed row did not measure its own unit''s distance';
+  END IF;
+  -- CR-012: the trailer has no reading to give, and absence is recorded as
+  -- absence rather than as a measured zero the cost-per-kilometre would read
+  -- as fact.
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.tyre_id = tya AND f.vehicle_id = ta AND f.position_id = p5 AND f.removed_at IS NOT NULL
+     AND f.removed_odometer IS NULL AND f.distance_source = 'UNAVAILABLE' AND f.distance_km IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 47k: the trailer''s closed row did not record its distance as unavailable';
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.removed_at IS NULL
+     AND ((f.tyre_id = tya AND f.vehicle_id = h  AND f.fitted_odometer = 408000)
+       OR (f.tyre_id = tyc AND f.vehicle_id = ta AND f.fitted_odometer IS NULL));
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 47k: the opened rows did not take the odometer of their own unit';
+  END IF;
+  RAISE NOTICE 'PASS  47k a rotation reads an odometer per unit, and the trailer''s absence is recorded as absence';
+
+  -- (l) U20's bound, per unit. Each reading is compared against the fitments
+  -- being rotated out of ITS OWN unit, so a low figure refuses on the unit it
+  -- belongs to and a sound figure on the other unit does not save it. The
+  -- two refusals carry different readings on purpose: a body comparing every
+  -- fitment against the anchor unit's figure would report the horse's number
+  -- in the second probe, and the message match is what catches that.
+  PERFORM app.fit_tyre(tye, ta, p8, 12.0, 'MARK_OUTBOARD', 500000);
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', ta, 'to_position_id', p9,  'tread_mm', 10.0),
+        jsonb_build_object('tyre_id', tye, 'to_vehicle_id', h,  'to_position_id', p10, 'tread_mm', 11.0)),
+      jsonb_build_object(h::text, 400000, ta::text, 501000));
+    RAISE EXCEPTION 'FAIL 47l: a horse reading below its own fitment''s odometer was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%400000%' THEN
+      RAISE EXCEPTION 'FAIL 47l: the refusal does not name the horse''s own reading: %', msg;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.rotate_tyres(h,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tya, 'to_vehicle_id', ta, 'to_position_id', p9,  'tread_mm', 10.0),
+        jsonb_build_object('tyre_id', tye, 'to_vehicle_id', h,  'to_position_id', p10, 'tread_mm', 11.0)),
+      jsonb_build_object(h::text, 409000, ta::text, 401000));
+    RAISE EXCEPTION 'FAIL 47l: a trailer reading below its own fitment''s odometer was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%401000%' THEN
+      RAISE EXCEPTION 'FAIL 47l: the refusal does not name the trailer''s own reading: %', msg;
+    END IF;
+  END;
+  SELECT count(*) INTO n FROM app.rotate_tyres(h,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tya, 'to_vehicle_id', ta, 'to_position_id', p9,  'tread_mm', 10.0),
+      jsonb_build_object('tyre_id', tye, 'to_vehicle_id', h,  'to_position_id', p10, 'tread_mm', 11.0)),
+    jsonb_build_object(h::text, 409000, ta::text, 501000));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47l: two sound readings returned % rows, expected 2', n; END IF;
+  RAISE NOTICE 'PASS  47l the odometer bound is answered against each row''s own unit';
+
+  -- (o) Rule 3 across a cross-unit move: the closure is the one UPDATE
+  -- app.fitment permits and a closed row is frozen entire (000032), so the
+  -- record of where a casing was is a compensating event away, never an edit
+  -- (FR-FIT-014, FR-FIT-015). The closed row chosen is a trailer's, so
+  -- TY009's removal leg cannot answer first.
+  SELECT f.id INTO closed_fit FROM app.fitment f
+   WHERE f.tyre_id = tye AND f.vehicle_id = ta AND f.removed_at IS NOT NULL;
+  IF closed_fit IS NULL THEN RAISE EXCEPTION 'FAIL 47o: the rotation left no closed row to probe'; END IF;
+  BEGIN
+    UPDATE app.fitment SET removed_tread_mm = 1.0 WHERE id = closed_fit;
+    RAISE EXCEPTION 'FAIL 47o: a closed fitment was edited';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a closed fitment cannot be changed' THEN
+      RAISE EXCEPTION 'FAIL 47o: the closed row refused with %', msg;
+    END IF;
+  END;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.id = closed_fit AND f.removal_reason = 'rotation' AND f.removed_tread_mm = 11.0;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 47o: the closed row does not stand as the rotation wrote it'; END IF;
+  -- WHERE false: privilege is checked at rewrite time against the table, so
+  -- this proves the REVOKE (000018) without depending on which rows exist.
+  BEGIN
+    DELETE FROM app.fitment WHERE false;
+    RAISE EXCEPTION 'FAIL 47o: app role can DELETE app.fitment';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  RAISE NOTICE 'PASS  47o a rotation adds rows and edits none; a closed fitment stays closed';
+END $$;
+
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  h2   uuid := md5('t47h2')::uuid;
+  t3   uuid := md5('t47t3')::uuid;
+  ctl3 uuid := md5('t47ctl3')::uuid;
+  rig  uuid := md5('t47rigold')::uuid;
+  sz1  uuid := md5('sz1')::uuid;
+  tyh  uuid := md5('t47tyh')::uuid;
+  tyt  uuid := md5('t47tyt')::uuid;
+  cfg uuid; p1 uuid; p2 uuid; p3 uuid; p4 uuid;
+  mid timestamptz; n int; msg text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO p1 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  SELECT p.id INTO p2 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '2';
+  SELECT p.id INTO p3 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '3';
+  SELECT p.id INTO p4 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '4';
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (h2, bac, 'T47-H2', 'T47H2 GP', cfg, 'HORSE',   md5('depot1')::uuid, 'ACTIVE'),
+         (t3, bac, 'T47-T3', 'T47T3 GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (ctl3, bac, 't47ctl3@example.invalid', 'T47 Yard Controller', 'CONTROLLER');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (tyh, bac, 'T47TYREH', sz1, 'NEW', 0, 'IN_STOCK'),
+    (tyt, bac, 'T47TYRET', sz1, 'NEW', 0, 'IN_STOCK');
+  PERFORM set_config('app.actor_id', ctl3::text, true);
+
+  -- U16 needs a rig whose window has closed and is still in the past by less
+  -- than a day, which no pair of function calls can produce: a rig created
+  -- and ended on one date has a zero-width window (U8 dates both ends at
+  -- now()), and app.fitment_instant_ok refuses a rotation backdated further
+  -- than 24 hours for want of a recorded reason (000033) before membership is
+  -- ever reached. So the composition is written directly at explicit
+  -- instants. The members go in while the rig is open, because
+  -- combination_member_in_order (000037) refuses growing an ended rig.
+  INSERT INTO app.combination (id, tenant_id, motive_vehicle_id, effective_from)
+  VALUES (rig, bac, h2, now() - interval '3 hours');
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h2, 1), (bac, rig, t3, 2);
+  UPDATE app.combination SET effective_to = now() - interval '1 hour' WHERE id = rig;
+
+  -- Both casings start on the anchor unit, which is in scope at every
+  -- instant. A casing parked on t3 would make t3 the answer to two questions
+  -- at once — a source outside the rig and a destination outside it — and the
+  -- refusal below would be free to come from either, leaving the probe unable
+  -- to say which rule it caught (U15, U16).
+  PERFORM app.fit_tyre(tyh, h2, p1, 12.0, 'MARK_OUTBOARD', 400000, now() - interval '3 hours');
+  PERFORM app.fit_tyre(tyt, h2, p2, 12.0, 'MARK_OUTBOARD', 400000, now() - interval '3 hours');
+  mid := now() - interval '2 hours';
+
+  -- (h) U16: the rig a rotation is scoped to is the one that was true at
+  -- p_occurred_at, not the one that is open now — a yard move recorded after
+  -- the units were uncoupled is still a move that happened while they were
+  -- coupled (FR-VEH-031). The refusing leg runs first and writes nothing, so
+  -- the succeeding leg below is the same call with only the instant moved.
+  BEGIN
+    PERFORM app.rotate_tyres(h2,
+      jsonb_build_array(
+        jsonb_build_object('tyre_id', tyh, 'to_vehicle_id', t3, 'to_position_id', p3, 'tread_mm', 11.0),
+        jsonb_build_object('tyre_id', tyt, 'to_vehicle_id', h2, 'to_position_id', p4, 'tread_mm', 11.0)),
+      jsonb_build_object(h2::text, 405000), now());
+    RAISE EXCEPTION 'FAIL 47h: a rotation stamped after the rig ended was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%T47-T3%' THEN
+      RAISE EXCEPTION 'FAIL 47h: the refusal does not name the unit that had left the rig: %', msg;
+    END IF;
+  END;
+  SELECT count(*) INTO n FROM app.rotate_tyres(h2,
+    jsonb_build_array(
+      jsonb_build_object('tyre_id', tyh, 'to_vehicle_id', t3, 'to_position_id', p3, 'tread_mm', 11.0),
+      jsonb_build_object('tyre_id', tyt, 'to_vehicle_id', h2, 'to_position_id', p4, 'tread_mm', 11.0)),
+    jsonb_build_object(h2::text, 405000), mid);
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 47h: a rotation inside the ended rig''s window returned % rows, expected 2', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.fitment f
+   WHERE f.removed_at IS NULL AND f.fitted_at = mid
+     AND ((f.tyre_id = tyh AND f.vehicle_id = t3 AND f.position_id = p3)
+       OR (f.tyre_id = tyt AND f.vehicle_id = h2 AND f.position_id = p4));
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 47h: the dated cross-unit move did not land'; END IF;
+  RAISE NOTICE 'PASS  47h a rotation is scoped to the rig that was true at its own instant';
+END $$;
+
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  h4   uuid := md5('t47h4')::uuid;
+  drv4 uuid := md5('t47drv4')::uuid;
+  sz1  uuid := md5('sz1')::uuid;
+  m1   uuid := md5('t47m1')::uuid;  -- the mate whose reading contradicts its column
+  m2   uuid := md5('t47m2')::uuid;
+  m3   uuid := md5('t47m3')::uuid;
+  m4   uuid := md5('t47m4')::uuid;
+  m5   uuid := md5('t47m5')::uuid;
+  m6   uuid := md5('t47m6')::uuid;
+  cfg uuid; band numeric;
+  p3 uuid; p4 uuid; p5 uuid; p6 uuid; p7 uuid; p8 uuid;
+  r record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO p3 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '3';
+  SELECT p.id INTO p4 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '4';
+  SELECT p.id INTO p5 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '5';
+  SELECT p.id INTO p6 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '6';
+  SELECT p.id INTO p7 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '7';
+  SELECT p.id INTO p8 FROM app.position p WHERE p.configuration_id = cfg AND p.code = '8';
+  -- The band is tenant configuration (rule 5); every gap below is chosen
+  -- against the figure the tenant actually carries, not against a constant.
+  SELECT (c.value #>> '{}')::numeric INTO band
+    FROM app.configuration c
+   WHERE c.tenant_id = bac AND c.key = 'dual_mate_warn_mm' AND c.effective_from <= now()
+   ORDER BY c.effective_from DESC LIMIT 1;
+  IF band IS NULL OR band >= 7 THEN
+    RAISE EXCEPTION 'FAIL 47m: the configured dual-mate band (%) cannot separate the readings this probe plants', band;
+  END IF;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (h4, bac, 'T47-H4', 'T47H4 GP', cfg, 'HORSE', md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (drv4, bac, 't47drv4@example.invalid', 'T47 Mate Driver', 'DRIVER');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (m1, bac, 'T47TYREM1', sz1, 'NEW', 0, 'IN_STOCK'),
+    (m2, bac, 'T47TYREM2', sz1, 'NEW', 0, 'IN_STOCK'),
+    (m3, bac, 'T47TYREM3', sz1, 'NEW', 0, 'IN_STOCK'),
+    (m4, bac, 'T47TYREM4', sz1, 'NEW', 0, 'IN_STOCK'),
+    (m5, bac, 'T47TYREM5', sz1, 'NEW', 0, 'IN_STOCK'),
+    (m6, bac, 'T47TYREM6', sz1, 'NEW', 0, 'IN_STOCK');
+
+  -- (m) U22: the warning is about the depth the register would show, and the
+  -- register ranks a reading above app.tyre.last_tread_mm (000013's
+  -- precedence). Every mate below is fitted an hour back and read half an
+  -- hour back, so the reading is the fresher measurement and a warning
+  -- computed off the column is computed off a depth nobody would see
+  -- (FR-FIT-020, TYRE-126). Readings are planted as rows because
+  -- app.submit_inspection would date them at its own instant.
+  PERFORM app.fit_tyre(m1, h4, p3, 12.0, 'MARK_OUTBOARD', 100000, now() - interval '1 hour');
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid,
+                              started_at, submitted_at, odometer)
+  VALUES (md5('t47ins1')::uuid, bac, h4, drv4, md5('t47cli1')::uuid,
+          now() - interval '35 minutes', now() - interval '30 minutes', 100000);
+  INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+  VALUES (md5('t47rd1')::uuid, bac, md5('t47ins1')::uuid, h4, p3, m1, 800);
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm) VALUES
+    (bac, md5('t47rd1')::uuid, 1, 'OUTER',  5.0),
+    (bac, md5('t47rd1')::uuid, 2, 'CENTRE', 6.0),
+    (bac, md5('t47rd1')::uuid, 3, 'INNER',  7.0);
+  SELECT * INTO r FROM app.fit_tyre(m2, h4, p4, 12.0, 'MARK_OUTBOARD', 100100);
+  IF NOT (r.warnings @> '[{"code":"DUAL_MATE_TREAD_GAP"}]'::jsonb) THEN
+    RAISE EXCEPTION 'FAIL 47m: a mate reading 5mm against this 12mm did not warn: %', r.warnings;
+  END IF;
+
+  -- The other direction, so the probe is not satisfied by a rule that warns
+  -- on every dual: the column would warn here and the reading says there is
+  -- no gap.
+  PERFORM app.fit_tyre(m3, h4, p5, 5.0, 'MARK_OUTBOARD', 100200, now() - interval '1 hour');
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid,
+                              started_at, submitted_at, odometer)
+  VALUES (md5('t47ins2')::uuid, bac, h4, drv4, md5('t47cli2')::uuid,
+          now() - interval '35 minutes', now() - interval '30 minutes', 100200);
+  INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+  VALUES (md5('t47rd2')::uuid, bac, md5('t47ins2')::uuid, h4, p5, m3, 800);
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm) VALUES
+    (bac, md5('t47rd2')::uuid, 1, 'OUTER',  12.0),
+    (bac, md5('t47rd2')::uuid, 2, 'CENTRE', 13.0),
+    (bac, md5('t47rd2')::uuid, 3, 'INNER',  14.0);
+  SELECT * INTO r FROM app.fit_tyre(m4, h4, p6, 12.0, 'MARK_OUTBOARD', 100300);
+  IF r.warnings IS DISTINCT FROM '[]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL 47m: a mate read at 12mm warned against this 12mm: %', r.warnings;
+  END IF;
+
+  -- As at the fitment instant, not latest overall — the precedence
+  -- app.tyre_valuation_asof already uses. A reading taken after the fit
+  -- describes a tyre the fitter had not seen.
+  PERFORM app.fit_tyre(m5, h4, p7, 12.0, 'MARK_OUTBOARD', 100400, now() - interval '1 hour');
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid,
+                              started_at, submitted_at, odometer)
+  VALUES (md5('t47ins3')::uuid, bac, h4, drv4, md5('t47cli3')::uuid,
+          now() - interval '5 minutes', now(), 100400);
+  INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+  VALUES (md5('t47rd3')::uuid, bac, md5('t47ins3')::uuid, h4, p7, m5, 800);
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm) VALUES
+    (bac, md5('t47rd3')::uuid, 1, 'OUTER',  5.0),
+    (bac, md5('t47rd3')::uuid, 2, 'CENTRE', 6.0),
+    (bac, md5('t47rd3')::uuid, 3, 'INNER',  7.0);
+  SELECT * INTO r FROM app.fit_tyre(m6, h4, p8, 12.0, 'MARK_OUTBOARD', 100500,
+                                    now() - interval '30 minutes');
+  IF r.warnings IS DISTINCT FROM '[]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL 47m: a reading submitted after the fitment instant was used anyway: %', r.warnings;
+  END IF;
+  RAISE NOTICE 'PASS  47m the dual-mate warning reads the mate''s reading as at the fitment, ahead of its column';
+END $$;
+
+DO $$
+DECLARE
+  bac  uuid := '11111111-1111-1111-1111-111111111111';
+  d_rt uuid := md5('t47nrt')::uuid;
+  sz1  uuid := md5('sz1')::uuid;
+  n1   uuid := md5('t47n1')::uuid;  -- dispatched as at the tenant's today
+  n2   uuid := md5('t47n2')::uuid;  -- dispatched and returned on earlier days
+  n3   uuid := md5('t47n3')::uuid;  -- the future-day refusal
+  tz text; today date; ja uuid; jb uuid; stamp timestamptz;
+  r record; d1 text; d2 text;
+BEGIN
+  -- Session zone pinned to UTC: BAC is Africa/Johannesburg (UTC+2), so a
+  -- day resolved in the session's zone lands on a different instant than the
+  -- tenant's on any host, rather than passing by coincidence where the two
+  -- agree (section 45's reasoning, lesson 2026-09-01).
+  PERFORM set_config('TimeZone', 'UTC', true);
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T47 Casing Works', 'RETREADER');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state) VALUES
+    (n1, bac, 'T47TYREN1', sz1, 'NEW', 0, 'REMOVED'),
+    (n2, bac, 'T47TYREN2', sz1, 'NEW', 0, 'REMOVED'),
+    (n3, bac, 'T47TYREN3', sz1, 'NEW', 0, 'REMOVED');
+
+  -- (n) U8: one day-to-instant rule for both ends of the retread journey.
+  -- Today means now(), because a midnight stamp loses to the same day's
+  -- earlier movements and leaves the estate reading a state the row
+  -- contradicts (FR-VAL-022); an earlier day means midnight in the TENANT's
+  -- zone (rule 6); a future day is refused by each function in its own words.
+  -- Both instants are asserted against app.tenant_day_instant rather than
+  -- against a restated expression, which is what makes a second copy of the
+  -- rule visible here rather than merely absent from the diff.
+  SELECT * INTO r FROM app.dispatch_tyre(n1, 'AT_RETREADER', d_rt, today);
+  ja := r.retread_job_id;
+  SELECT e.occurred_at INTO stamp FROM app.tyre_event e
+   WHERE e.tyre_id = n1 AND e.type = 'SENT_FOR_RETREAD';
+  IF stamp IS DISTINCT FROM app.tenant_day_instant(today) OR stamp IS DISTINCT FROM now() THEN
+    RAISE EXCEPTION 'FAIL 47n: a dispatch dated today is stamped %, not now()', stamp;
+  END IF;
+
+  SELECT * INTO r FROM app.dispatch_tyre(n2, 'AT_RETREADER', d_rt, today - 2);
+  jb := r.retread_job_id;
+  SELECT e.occurred_at INTO stamp FROM app.tyre_event e
+   WHERE e.tyre_id = n2 AND e.type = 'SENT_FOR_RETREAD';
+  IF stamp IS DISTINCT FROM app.tenant_day_instant(today - 2) THEN
+    RAISE EXCEPTION 'FAIL 47n: a dispatch dated two days back is stamped %, not the shared day instant', stamp;
+  END IF;
+  -- The inverse pin: the tenant's own midnight, and not the session zone's
+  -- cast of the same date, so the two checks cannot both be fooled by a
+  -- third unrelated instant.
+  IF (stamp AT TIME ZONE tz)::date IS DISTINCT FROM today - 2
+     OR (stamp AT TIME ZONE tz)::time <> '00:00'
+     OR stamp = (today - 2)::timestamptz THEN
+    RAISE EXCEPTION 'FAIL 47n: an earlier day was resolved outside the tenant''s zone: %', stamp;
+  END IF;
+  PERFORM app.log_retread_return(jb, today - 1, true, 'T47-RPT-N', 2500.00, 12.0, 800.00);
+  SELECT e.occurred_at INTO stamp FROM app.tyre_event e
+   WHERE e.tyre_id = n2 AND e.type = 'RETURNED';
+  IF stamp IS DISTINCT FROM app.tenant_day_instant(today - 1) THEN
+    RAISE EXCEPTION 'FAIL 47n: a return dated yesterday is stamped %, not the shared day instant', stamp;
+  END IF;
+
+  BEGIN
+    PERFORM app.dispatch_tyre(n3, 'AT_RETREADER', d_rt, today + 1);
+    RAISE EXCEPTION 'FAIL 47n: a casing was sent on a future date';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS d1 = MESSAGE_TEXT;
+    IF d1 <> 'a casing is sent on or before today, never on a future date' THEN
+      RAISE EXCEPTION 'FAIL 47n: the dispatch refusal reads %', d1;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(ja, today + 1, true, 'T47-RPT-F', 2500.00, 12.0, 800.00);
+    RAISE EXCEPTION 'FAIL 47n: a casing returned on a future date';
+  EXCEPTION WHEN SQLSTATE 'TY014' THEN
+    GET STACKED DIAGNOSTICS d2 = MESSAGE_TEXT;
+    IF d2 <> 'a casing returns on or before today, never on a future date' THEN
+      RAISE EXCEPTION 'FAIL 47n: the return refusal reads %', d2;
+    END IF;
+  END;
+  -- The shared function answers NULL for a future day so each caller refuses
+  -- in its own code and words; one wording for both would be the shape of a
+  -- refusal that had moved into the helper.
+  IF d1 = d2 THEN
+    RAISE EXCEPTION 'FAIL 47n: the dispatch and the return refuse a future day in one voice: %', d1;
+  END IF;
+  RAISE NOTICE 'PASS  47n dispatch and retread return resolve a day through one rule and refuse the future in their own words';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
