@@ -15,6 +15,23 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-05 — A control character in source passes every gate and turns `git diff` into "Binary files differ" (TYRE-101)
+
+**What happened:** a template-string key separator was written as a literal
+NUL byte. vitest, eslint, prettier, `tsc` and `check-comment-style.mjs` were
+all green — the byte is a legal string character and a working map-key
+separator, and no gate in `make check` looks at source bytes. Only `git diff`
+refusing to render a hunk (`Binary files … differ`) gave it away. Committed,
+it would have made every later diff and review of that file unreadable.
+
+**The rule:** read `git diff --stat` before committing. A `Bin` line or a
+`Binary files … differ` hunk on a text source file is a control character the
+gates cannot see — find it with
+`grep -nP '[\x00-\x08\x0b\x0c\x0e-\x1f]' <file>` (which leaves tabs, line
+endings and the repo's non-ASCII punctuation alone) and replace it. Never use
+a control character as a composite-key separator; pick one the domain's ids
+cannot contain.
+
 ## 2026-09-05 — A migration round-trip that never left the tip is still green (TYRE-101)
 
 **What happened:** `docker compose run --rm migrate -path=/migrations … down 1`
