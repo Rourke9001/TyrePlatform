@@ -152,6 +152,9 @@ describe("scheduling an inspection", () => {
 
       await screen.findByRole("status");
       expect(sentBody(1)).toStrictEqual({ assigneeUserId: "d1" });
+      // The date input separately: its value is a property, not text, so
+      // textContent cannot see a prefilled day.
+      expect(screen.getByLabelText(/^due$/i)).toHaveValue("");
       expect(document.body.textContent).not.toContain("2027-03-14");
     } finally {
       vi.useRealTimers();

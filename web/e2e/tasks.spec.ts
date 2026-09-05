@@ -219,11 +219,20 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
   expect(submitted.status(), await submitted.text()).toBe(201);
 
   await driverPage.goto("/my");
-  // This run's own task is gone, never "the driver has nothing" — the Sandbox
-  // driver is shared, so an earlier run's open task would make the empty
-  // state a claim about the tenant rather than about this close. The heading
-  // is the positive control that the list rendered at all.
-  await expect(driverPage.getByRole("heading", { name: "My inspections" })).toBeVisible();
+  // The API the screen reads, not a count of what it is showing: this run's
+  // task is gone, and the claim is about that task rather than about the
+  // driver having nothing due — the Sandbox driver is shared, so an earlier
+  // run's open task would make an empty-state assertion a claim about the
+  // tenant instead of about this close.
+  const mine = (await apiGet(driverPage, "/api/my/tasks", DRIVER_ACTOR)) as { id: string }[];
+  expect(mine.map((t) => t.id)).not.toContain(task.id);
+  // The screen agrees, once its own query has settled. The heading renders
+  // outside the pending, error and success branches (DriverHome.tsx), so it
+  // cannot serve as the control: waiting on one of the branches is what makes
+  // the absent link a statement about a rendered list.
+  await expect(
+    driverPage.getByText("Nothing due.").or(driverPage.getByRole("listitem").first()),
+  ).toBeVisible();
   await expect(
     driverPage.getByRole("link", { name: new RegExp(`^${HORSE_FLEET} — due `) }),
   ).toHaveCount(0);
