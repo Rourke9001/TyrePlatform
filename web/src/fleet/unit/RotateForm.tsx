@@ -152,7 +152,13 @@ export function RotateForm({ unit }: { unit: Unit }) {
     for (const position of chosen) {
       const target = targets[position.id] ?? "";
       const tread = (treads[position.id] ?? "").trim();
-      if (target === "" || tread === "" || position.fitment === null) {
+      // The target is re-read from the picker rather than trusted: what is
+      // offerable depends on the whole picked set, so unchecking one row can
+      // take a position back out of another row's list while that row's state
+      // still names it. Enforcing it here covers every path that can shrink
+      // the set, not only the two events that clear a selection.
+      const offerable = targetsFor(destinationOf(position.id)).some((p) => p.id === target);
+      if (target === "" || tread === "" || position.fitment === null || !offerable) {
         setRefused(INCOMPLETE);
         return;
       }
@@ -214,7 +220,13 @@ export function RotateForm({ unit }: { unit: Unit }) {
                   type="checkbox"
                   aria-label={`Rotate ${p.code}`}
                   checked={picked[p.id] ?? false}
-                  onChange={(e) => setPicked({ ...picked, [p.id]: e.target.checked })}
+                  onChange={(e) => {
+                    setPicked({ ...picked, [p.id]: e.target.checked });
+                    // Dropped with the row, like the destination select drops
+                    // it: a target chosen against one picked set is not a
+                    // target the next one has to offer.
+                    if (!e.target.checked) setTargets({ ...targets, [p.id]: "" });
+                  }}
                 />
                 {p.code}
               </label>
