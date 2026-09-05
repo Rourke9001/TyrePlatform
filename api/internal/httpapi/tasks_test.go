@@ -68,6 +68,17 @@ func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 	require.Equal(t, trailerID.String(), via[bothDriver.String()], "own assignment wins over the rig leg")
 	require.Equal(t, bothDriver.String(), trailerRows[0].UserID, "own assignment lists first")
 
+	// The rig leg's own active filter, with the rig still open and the
+	// assignment untouched: a deactivated driver is not one a task may name
+	// (ADR-0011), so they leave the list the rig put them on. The assertion
+	// above is the control that they were on it a moment earlier.
+	_, err := admin.Exec(ctx, `UPDATE app.app_user SET active = false WHERE id = $1`, horseDriver)
+	require.NoError(t, err)
+	rec = get(t, h, "/api/vehicles/"+trailerID.String()+"/drivers", tenantID.String(), controller.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trailerRows))
+	require.Len(t, trailerRows, 1, "a deactivated driver still reaches the trailer through the rig: %s", rec.Body.String())
+	require.Equal(t, bothDriver.String(), trailerRows[0].UserID)
+
 	// Ending the rig removes the rig leg and nothing else.
 	rec = post(t, h, "/api/combinations/"+rig.ID+"/end", tenantID.String(), controller.String(), `{}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -123,6 +134,8 @@ func TestUnitTasksListsOpenAndEscalatedWithAssignee(t *testing.T) {
 	require.Equal(t, overdue.String(), rows[0].ID)
 	require.True(t, rows[0].Overdue)
 	require.Equal(t, "2025-01-01T21:59:59Z", rows[0].DueAt)
+	require.NotNil(t, rows[0].AssignedUserID)
+	require.NotNil(t, rows[0].AssignedDisplayName)
 	require.Equal(t, driver.String(), *rows[0].AssignedUserID)
 	require.NotEmpty(t, *rows[0].AssignedDisplayName)
 	require.Equal(t, later.String(), rows[1].ID)
@@ -209,7 +222,12 @@ func TestScheduleTaskIsSeenByTheDriverAndClosedBySubmit(t *testing.T) {
 	require.Equal(t, horseID.String(), task.VehicleID)
 	require.Equal(t, "OPEN", task.State)
 	require.False(t, task.Overdue)
+	require.NotNil(t, task.AssignedUserID)
 	require.Equal(t, driver.String(), *task.AssignedUserID)
+	// The form renders this name back at the controller, so a POST answer
+	// that omitted it would leave "Inspection scheduled for , due …".
+	require.NotNil(t, task.AssignedDisplayName)
+	require.NotEmpty(t, *task.AssignedDisplayName)
 	// Due at the tenant-local end of today: the same instant SQL computes,
 	// read back here as a check rather than re-derived from a Go clock.
 	var wantDue time.Time
@@ -226,6 +244,10 @@ func TestScheduleTaskIsSeenByTheDriverAndClosedBySubmit(t *testing.T) {
 	rec = post(t, h, "/api/vehicles/"+trailerID.String()+"/inspection-tasks", tenantID.String(), controller.String(),
 		fmt.Sprintf(`{"assigneeUserId":%q}`, driver))
 	require.Equal(t, http.StatusCreated, rec.Code, "the horse's driver takes the trailer's task (U4): %s", rec.Body.String())
+	var trailerTask struct {
+		ID string `json:"id"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trailerTask))
 
 	rec = get(t, h, "/api/my/tasks", tenantID.String(), driver.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -246,6 +268,9 @@ func TestScheduleTaskIsSeenByTheDriverAndClosedBySubmit(t *testing.T) {
 	rec = get(t, h, "/api/my/tasks", tenantID.String(), driver.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mine))
 	require.Len(t, mine, 1, "the horse's task closed and the trailer's stayed: %s", rec.Body.String())
+	// By id, not by count: the close is by task id (000023), so a close that
+	// took the wrong one of two would leave the list the same length.
+	require.Equal(t, trailerTask.ID, mine[0].ID)
 	rec = get(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), controller.String())
 	require.JSONEq(t, `[]`, rec.Body.String())
 }
@@ -314,7 +339,10 @@ func TestScheduleTaskShapeAndDate(t *testing.T) {
 }
 
 // ManageAssignments gates the write (spec U2): a TECHNICIAN holds ViewFleet
-// alone and is refused; a DRIVER is refused.
+// alone and is refused; a DRIVER is refused. The positive control is
+// TestScheduleTaskIsSeenByTheDriverAndClosedBySubmit above, where a
+// CONTROLLER posts the same body and is answered 201 — so a 403 here is the
+// capability and not the route refusing everyone.
 func TestScheduleTaskIsCapabilityGated(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -330,12 +358,17 @@ func TestScheduleTaskIsCapabilityGated(t *testing.T) {
 }
 
 // Tenant B's controller names tenant A's unit, then tenant A's driver on a
-// unit of its own. The insert stamps tenant_id from the session, so under
-// any leak it dies as 23503 on a composite tenant FK (000004/000017) — FK
-// checks bypass RLS — never as TY012 and never as a success; the code and
-// the message are therefore the discriminating assert. Tenant A performing
-// the identical call afterwards is the control that each refusal was
-// tenant-caused.
+// unit of its own. Neither probe can succeed under a leak, and neither can
+// answer TY012, which is what makes the code and the message the
+// discriminating assert. Should RLS start returning tenant A's rows here,
+// the first probe reaches the insert and dies as 23503 on
+// app.inspection_task's composite tenant FKs (000012:366-369, on 000004's
+// parent keys) because the row stamps tenant B's tenant_id against tenant
+// A's vehicle — FK checks bypass RLS. The second dies earlier and as TY018:
+// tenant A's driver holds no assignment to tenant B's unit, so
+// app.user_can_capture answers false before any row is written. Each
+// tenant's own identical call is the control that the refusal was
+// tenant-caused, not a fixture that could refuse anyone.
 func TestScheduleTaskCrossTenantIsInvisible(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -365,6 +398,15 @@ func TestScheduleTaskCrossTenantIsInvisible(t *testing.T) {
 
 	rec = post(t, h, "/api/vehicles/"+horseA.String()+"/inspection-tasks", tenantA.String(), controllerA.String(), body)
 	require.Equal(t, http.StatusCreated, rec.Code, "the control: the unit's own tenant schedules it: %s", rec.Body.String())
+
+	// Tenant B's own control for its own probe: the same controller, on the
+	// same unit, with an assignee of its own succeeds — so the second refusal
+	// was the assignee's tenant and not something standing about horseB.
+	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantB, horseB, driverB)
+	rec = post(t, h, "/api/vehicles/"+horseB.String()+"/inspection-tasks", tenantB.String(), controllerB.String(),
+		fmt.Sprintf(`{"assigneeUserId":%q}`, driverB))
+	require.Equal(t, http.StatusCreated, rec.Code, "the control: tenant B schedules its own driver: %s", rec.Body.String())
 }
 
 func countTasks(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) int {
