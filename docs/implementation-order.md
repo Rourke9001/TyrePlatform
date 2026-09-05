@@ -496,7 +496,7 @@ controller's rig and fitment work collides with that gating, with TYRE-82's
 trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 **Units · Tyres · Rigs · Fitments**.
 
-### B6 — the rig-setup surface — **slice 2 in progress**
+### B6 — the rig-setup surface — **slice 3 in progress**
 
 *Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
 `20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch;
@@ -511,8 +511,8 @@ states. Slice plans are gitignored under `docs/superpowers/plans/`.
 | Slice | Ticket | Branch | Status |
 |---|---|---|---|
 | B6.1 | TYRE-72 — create and end a dated rig; the Rigs screen | `TYRE-72-rig-setup` | merged 3 Sep 2026, PR #43 |
-| B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | in review |
-| B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | after B6.2 merges | not planned |
+| B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | merged 5 Sep 2026, PR #44 |
+| B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | `TYRE-101-rig-rotation` | in progress |
 | B6.4 | TYRE-75 — reconcile reported composition into a dated rig change | after B6.3 merges | not planned |
 | *(B6.5)* | TYRE-73 — the in-transport lock | **only if the owner un-parks it** | parked |
 
