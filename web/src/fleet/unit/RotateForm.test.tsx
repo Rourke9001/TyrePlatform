@@ -302,6 +302,50 @@ describe("rotating tyres within a unit", () => {
     expect(selectValue("Target for POS1")).toBe("");
   });
 
+  // A position is offerable because some other picked row is leaving it, so
+  // unchecking that row takes it back out of every picker while the select
+  // that named it still holds the id. The body is built from the same answer
+  // the picker gives, so the id is refused here rather than posted onto a
+  // position its tyre never left.
+  it("refuses a target that has stopped being offerable since it was picked", async () => {
+    const user = userEvent.setup();
+    renderForm({
+      hasOdometer: false,
+      positions: [
+        ...threePositions(),
+        unitPosition({
+          id: "p4",
+          code: "POS4",
+          axleNumber: 2,
+          side: "RIGHT",
+          fitment: openFitment({ fitmentId: "f4", tyreId: "t4", displayCode: "TY004" }),
+        }),
+      ],
+    });
+
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS1" }));
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS4" }));
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS1" }), "p2");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS1" }), "11.0");
+    await user.selectOptions(screen.getByRole("combobox", { name: "Target for POS4" }), "p3");
+    await user.type(screen.getByRole("textbox", { name: "Tread for POS4" }), "13.0");
+
+    await user.click(screen.getByRole("checkbox", { name: "Rotate POS2" }));
+
+    // POS2 is occupied again by a tyre that is not moving, so it is gone from
+    // POS1's options and the control shows nothing chosen.
+    expect(optionNames("Target for POS1")).toEqual(["Choose…", "POS1", "POS3", "POS4"]);
+    expect(selectValue("Target for POS1")).toBe("");
+
+    await user.click(screen.getByRole("button", { name: "Rotate" }));
+
+    expect(screen.getByRole("alert").textContent).toBe(
+      "Every picked position needs a target and a tread reading.",
+    );
+    expect(rotationCalls()).toEqual([]);
+  });
+
   // FR-FIT-002/U20: the reading belongs to the unit, so a rotation across two
   // of them sends one per unit that has an odometer — a trailer has none.
   it("asks an odometer per unit and sends odometers when the rotation crosses units", async () => {
