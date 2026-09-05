@@ -808,10 +808,10 @@ func TestRotateCrossesUnitsAndReadsAnOdometerPerUnit(t *testing.T) {
 	require.Equal(t, int64(1200), *crossed.Fitment.FittedOdometer)
 	require.Nil(t, stayed.Fitment.FittedOdometer, "a trailer has no reading to record")
 
-	// R13: SQL looks a unit up with (p_odometers ->> vehicle_id::text), which
-	// is Postgres's lowercase hyphenated rendering. A key in any other shape is
-	// a key this rotation does not touch, so it is canonicalised on this side
-	// or the reading is silently lost on the unit that supplied it.
+	// SQL looks a unit up with (p_odometers ->> vehicle_id::text), which is
+	// Postgres's lowercase hyphenated rendering. A key in any other shape is a
+	// key this rotation does not touch, so it is canonicalised on this side or
+	// the reading is silently lost on the unit that supplied it (U20).
 	back := fmt.Sprintf(
 		`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.0"},
 		           {"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"7.0"}],
