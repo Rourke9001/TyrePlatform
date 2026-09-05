@@ -114,7 +114,7 @@ FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 -- date cast (lessons 2026-09-01). It assumes the tenant zone's day D+1 opens
 -- at local midnight, true of every zone in current tzdata; a zone whose
 -- historical midnight was skipped would place the instant around 01:00 of
--- the following day, still inside it. app.generate_inspection_tasks (000012)
+-- the following day, past the due day. app.generate_inspection_tasks (000012)
 -- stamps UTC midnight and predates this rule; aligning it is TYRE-133's.
 CREATE FUNCTION app.create_inspection_task(p_vehicle uuid, p_assignee uuid,
                                            p_due_on date DEFAULT NULL)
