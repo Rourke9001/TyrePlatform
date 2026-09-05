@@ -15,6 +15,20 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-05 — A gate piped to `tail` always succeeds (TYRE-101)
+
+**What happened:** `make db-test 2>&1 | tail -25` was reported by the harness
+as "completed (exit code 0)" on a run where the suite had aborted — the
+output itself ended `make: *** [Makefile:63: db-test] Error 3`. A pipeline's
+status is its LAST command's, so `tail` succeeding masks `make` failing. The
+run was a deliberate red state, so the wrong reading was harmless; on a green
+check it would have been a false pass reported as verified.
+
+**The rule:** never judge a gate by the exit status of a pipeline it is piped
+into. Read the output for the `make: *** … Error` line, or run the gate
+unpiped and let its own status stand. Treat any agent that reports "exit 0"
+for a command containing a pipe as having reported nothing about that gate.
+
 ## 2026-09-05 — A Python comparison of two identical files reports a moved Appendix E pin (TYRE-101)
 
 **What happened:** a script comparing the suite's pin sections between
