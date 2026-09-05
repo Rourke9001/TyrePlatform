@@ -15,6 +15,25 @@ Entry format — keep each one to this shape:
 
 Newest first.
 
+## 2026-09-05 — A Python comparison of two identical files reports a moved Appendix E pin (TYRE-101)
+
+**What happened:** a script comparing the suite's pin sections between
+`git show origin/develop:db/tests/004_tests.sql` and the working tree
+reported sections 8, 17 and 18 as changed on a branch that had not touched
+the file — `git diff` was empty and both sides were 360121 bytes. The cause
+was `subprocess.run(..., text=True)`, which decodes with the *locale* codec:
+cp1252 on this host, not UTF-8. Every section containing an em-dash decoded
+differently on the two sides. Section 7 was the only pin that looked clean,
+because it is the only one that is pure ASCII. A moved pin is a hard stop on
+any branch touching money, so a false one costs the rest of the session.
+
+**The rule:** never let `subprocess` or `open()` pick an encoding on this
+host — read bytes and `.decode("utf-8")` explicitly on both sides of any
+comparison. And give any comparison script a control that reports what it
+found differing *everywhere*, not just in the range you care about: "three
+of my four pins moved and nothing else did" is the shape of a decoding bug,
+and the control is what makes that visible instead of alarming.
+
 ## 2026-09-05 — A long heredoc dies as `ENAMETOOLONG`, not as a write error (TYRE-101)
 
 **What happened:** writing a plan document through `cat > file <<'EOF'` in the
