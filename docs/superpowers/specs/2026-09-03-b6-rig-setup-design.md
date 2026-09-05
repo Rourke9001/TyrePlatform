@@ -88,6 +88,15 @@ slice:
 | **U12** | **`app.audit_row_change()` attaches to `app.combination` and `app.combination_member` in B6.1**, and to `app.inspection_task` in B6.2 — the tables this batch gives write paths to. TYRE-98's wider sweep is unchanged. | ADR-0014's rule: a table with a write path is audited. | Drop two triggers. |
 | **U13** | **`GET /api/vehicles` gains `unitKind` and `status`** so the rig form can filter motive from towed and hide retired units. Additive; no consumer breaks. Both source relations already project them — `app.v_depot_vehicle` is `SELECT v.*` (000014) and `app.vehicle` is the table — so the handler selects two more columns and nothing is joined or bent. The driver's `GET /api/my/vehicles` reads `app.v_driver_vehicle`, which projects a fixed column list, and is **left alone**: the fleet list gets its own response struct rather than widening the shape the driver's list shares. | The form needs the kind; a second endpoint for two columns is worse; a view rewritten for a column its consumer never asked for is a bend. | None. |
 | **U14** | **The Sandbox e2e creates its own units** through the API rather than reusing `sbveh1`/`sbveh2`: `playwright.config.ts` is `fullyParallel`, and `fitments.spec.ts` disposes `sbveh1` mid-run. | Two specs sharing a unit is an order dependency the config does not promise. | None. |
+| **U15** | **A move names only its destination; the source unit is derived** from where the casing's open fitment actually is. `to_vehicle_id` is optional and defaults to `p_vehicle`. | A caller-asserted source could contradict the register, leaving two truths to reconcile; the open fitment is already the single answer to "where is this casing". | One key in the moves jsonb. |
+| **U16** | **Scope is one open rig, resolved at `p_occurred_at`**: every unit a rotation touches is `p_vehicle` itself or a co-member of a combination whose `effective_from <= p_occurred_at AND (effective_to IS NULL OR p_occurred_at < effective_to)`. Not `effective_to IS NULL` — a yard move recorded after the rig was uncoupled must still be recordable against the composition that was true when it happened. TY014 naming the unit that is not a member. | FR-VEH-031 attributes over time; a rotation is dated, so its scope is dated too (U8's rule, applied to membership). | One predicate. |
+| **U17** | **A rotation need not move anything on `p_vehicle` itself.** `p_vehicle` is the unit the request was addressed to and the anchor the rig is resolved from; trailer-to-trailer inside a rig is a real yard move. | Refusing it would force a controller to route a trailer swap through the horse's screen for no reason. | One `IF`. |
+| **U18** | **Position identity is per axle configuration, not per unit** (`app.position.configuration_id`), so two units of the same configuration share position rows. Every target check is on the pair `(to_vehicle_id, to_position_id)`: the duplicate-target count, the "carries a tyre this rotation does not move" occupancy check, and the "no such position on this unit" check, which resolves against the *destination's* `configuration_id` and not `p_vehicle`'s. | Otherwise a horse-to-trailer rotation onto identically-numbered positions reads as a duplicate target, and a trailer's position passes a check against the horse's configuration. | Three predicates. |
+| **U19** | **One `ROTATED` event per casing, `FITTED` to `FITTED`**, with `from_vehicle_id`/`to_vehicle_id` and both fleet numbers added to the payload beside the existing position codes. TYRE-101's "a REMOVED on the source and a FITTED on the destination" is satisfied by the **fitment rows** — the closure carries `removal_reason = 'rotation'` on the source unit, the new row opens on the destination — not by a pair of `tyre_event` rows. | Two `to_state` events sharing one instant is exactly the estate-resolution ambiguity `app.dispatch_tyre`'s guard exists to prevent, and `app.tyre_in_estate_asof` resolves from the latest `to_state` event. The vocabulary already has `ROTATED` (section 38). | Payload keys only. |
+| **U20** | **`p_odometers jsonb` replaces `p_odometer bigint`** — one parameter, `{vehicle_id: km}`, because a horse records an odometer and a trailer has none (TY009 is per unit). The single wire `odometer` survives at the API, normalised by the handler into `{p_vehicle: n}`; both present is refused on the wire. The type change means an old positional call stops resolving rather than silently coercing, which is the loud failure we want. | One signature beats an overload pair, which would be two implementations of the same rule. | Section 41's rotate calls are reshaped (assertions unchanged). |
+| **U21** | **The 30 mm ceiling becomes `app.max_tread_mm()`**, an `IMMUTABLE` SQL function, called by fit, remove, rotate and retread return **and interpolated into each refusal message** so the number does not survive as a string literal four times. It stays an input-sanity bound, not a rule-5 band (TYRE-128 decision 8, owner of record 3 Sep 2026): no configuration row. | Four copies of a bound drift; a bound in a message is still a copy. | One function, four call sites. |
+| **U22** | **The dual-mate warning reads the mate's governing reading as at `p_occurred_at`** — the latest non-VOIDED inspection reading with a `governing_tread_mm` submitted at or before the fitment instant — `COALESCE`d ahead of `app.tyre.last_tread_mm` (TYRE-126). As-at rather than latest-overall, matching the precedence `app.tyre_valuation_asof` uses. | The register ranks a reading above the column; a warning computed off a depth the dashboard does not show is a warning about nothing. Warning only, so no write changes. | One `LEFT JOIN LATERAL`. |
+| **U23** | **`app.removal_threshold_mm_for`'s `<` is left alone.** TYRE-128's "small fix" reads it as inconsistent with 000033/000034's `<= now()`; it is not. Its parameter is named `p_before` and its callers pass `bound.ts`, the **exclusive** upper edge of the as-at day, where `<` is how the register already spells "on or before `p_as_at`"; the four replaced functions bound on `now()`, an **inclusive** instant, where `<=` is right. The comparators differ because the bounds differ. Inside 000039 there is therefore nothing to align — all four are already `<=`. | Changing it would be an unforced edit to a valuation-path function with view dependents, capable of moving an Appendix E cent for a configuration row effective exactly at a day edge, with no defect behind it. | None; reversing means a separate migration and a fresh pin run. |
 
 ## How this batch treats the code it meets
 
@@ -380,41 +389,108 @@ already mapped).
 (`effective_to IS NULL`) is the predicate B6.1 shipped; confirm whether
 `capture.spec.ts` exposes a reusable walk.
 
-## B6.3 — cross-unit rotation within a rig (TYRE-101) — outline
+## B6.3 — cross-unit rotation within a rig (TYRE-101) — planned 5 Sep 2026; built on `TYRE-101-rig-rotation`
 
-**Shape.** Migration 000039 replaces `app.rotate_tyres` (a rotation is one
-transaction, BR-FIT-005; D14's "within one rig"): each move gains an
-optional `to_vehicle_id`; every unit named must be `p_vehicle` itself or a
-member of the same open rig at `p_occurred_at` (TY014 otherwise, naming
-the unit that is not); odometers become per unit — `p_odometers jsonb`
-`{vehicle_id: km}` — because a horse records one and a trailer none
-(TY009 per unit); `mount_orientation` carries over per move as today. The
-30 mm sanity bound collapses into one SQL definition used by fit, remove,
-rotate and retread return (TYRE-128 item 8); the dual-mate warning reads the
-mate's governing reading ahead of `last_tread_mm` (TYRE-126); the
-`effective_from` comparators align on `<=`; **the two inline day-to-instant
-blocks in `app.dispatch_tyre` and `app.log_retread_return` are deleted in
-favour of `app.tenant_day_instant` (U8)**; 000033's guard comments are
-reworded in the replacing bodies (the migration replaces those functions
-anyway, so no comment-only migration is needed). Replaced, not patched: each
-function is re-`CREATE`d whole in the new migration, and the old body is not
-consulted for shape — the spec's rules are.
+**Shape.** Migration **000039** `DROP`s and re-`CREATE`s five functions
+whole — `app.fit_tyre`, `app.remove_tyre`, `app.rotate_tyres` and
+`app.dispatch_tyre` (000033), and `app.log_retread_return` (000034) —
+and adds one new one. Re-created, never `CREATE OR REPLACE`d with a diff
+mindset: the batch's "replaced whole, old body deleted" rule, and
+`app.rotate_tyres` changes signature anyway. `app.remove_tyre` is in
+because it is one of TYRE-128 decision 8's four literal sites and one of
+the two weak guard comments. `app.return_tyre_to_stock` and
+`app.fitment_instant_ok` are **not** touched: neither carries a tread
+bound or a guard comment this branch owns.
 
-**API.** `POST /vehicles/{id}/rotations` keeps its path; the body gains
-`toVehicleId?` per move and `odometers?` keyed by unit; the single
-`odometer` stays accepted for the one-unit case.
+- `app.max_tread_mm() RETURNS numeric`, `IMMUTABLE`, returning `30` —
+  the one definition of the input-sanity ceiling (U21). Every one of the
+  four sites — `app.fit_tyre`, `app.remove_tyre`, `app.rotate_tyres`
+  (000033:141/319/462) and `app.log_retread_return` (000034:139) — calls
+  it *and* interpolates it into its own refusal message, so the number
+  appears exactly once in the migration and `grep -c '30'` on
+  000039 proves it. Each site keeps its own wording; only the bound is
+  shared.
+- `app.rotate_tyres(p_vehicle uuid, p_moves jsonb, p_odometers jsonb
+  DEFAULT NULL, p_occurred_at timestamptz DEFAULT now())` — the third
+  parameter's type changes (U20). Each move may carry `to_vehicle_id`,
+  defaulting to `p_vehicle` (U15); scope is one open rig resolved at
+  `p_occurred_at` (U16); a rotation need not touch `p_vehicle` (U17);
+  every target check is on the `(unit, position)` pair (U18); one
+  `ROTATED` event per casing carrying both units (U19). Odometers are
+  per unit, so the closure's `removed_odometer`, the opening row's
+  `fitted_odometer`, the `distance_km`/`distance_source` pair and the
+  "reads below the odometer of a fitment being rotated out" bound are
+  each resolved against **that row's own unit**. Every unit named is
+  locked `FOR SHARE` in id order and checked for `DISPOSED`, not just
+  `p_vehicle`; the combination row is locked `FOR SHARE` so a concurrent
+  `app.end_combination` serialises against the membership answer.
+- `app.fit_tyre` — the dual-mate warning reads the mate's governing
+  reading as at `p_occurred_at` ahead of `last_tread_mm` (U22). Nothing
+  else in it changes but the shared bound and the reworded guard comment.
+- `app.dispatch_tyre` and `app.log_retread_return` — their inline
+  day-to-instant blocks are **deleted** in favour of
+  `app.tenant_day_instant` (U8), which 000037 already ships. Each keeps
+  refusing a future day in its own words, on the function's `NULL`
+  answer. `app.log_retread_return` gains the `IS NULL` arm its tread
+  bound lacks today, which the shared bound supplies for free.
+- 000033's remove **and** rotate guard comments are reworded in the
+  replacing bodies: the harm of a backwards closure is event ordering and
+  negative elapsed time, not the end-of-day as-at join they currently
+  cite (TYRE-128). `app.remove_tyre` changes in no other way.
+- **The down migration restores the 000033/000034 bodies verbatim** and
+  drops `app.max_tread_mm`.
 
-**Web.** `RotateForm` gains a unit column when the unit is in an open rig
-and its target picker offers only empty positions or ones vacated by the
-same set of moves (TYRE-127); `UnitDetail` shows "In a rig with …" linking
-to `/fleet/rigs`; `PositionPanel`'s `"UNKNOWN"` literal ties to
-`MOUNT_ORIENTATIONS`.
+**Not in this migration.** `app.removal_threshold_mm_for`'s `<` stays as
+it is (U23) — the comparators differ because the bounds differ, and the
+four functions here are already `<=`.
 
-**Proof.** Suite section 47 including the ticket's own DoD probes (a tenant
-cannot rotate across another tenant's units, nor across units that share no
-rig); `valuation-verifier` on the replaced functions; e2e extends
-`rigs.spec.ts` or adds `rotation.spec.ts`: fit a tyre on each unit of the
-run's rig and rotate them across, both histories show the move.
+**API.** `POST /vehicles/{id}/rotations` keeps its path, its capability
+(`ManageAssets`) and its response. The body gains `toVehicleId?` per move
+and `odometers?` keyed by unit id; the single `odometer` stays accepted
+for the one-unit case and is normalised into `{id: n}` by the handler,
+with both present refused as a wire-shape contradiction. A non-integer
+`odometer` names its field rather than answering a bare `malformed_json`
+(TYRE-128). No Go copy of any enum or of the 30 mm bound.
+
+**Web — plumbing only.** No new visual treatment, spacing, colour or
+type; components, tokens and layout are reused exactly as they stand,
+and anything that cannot be done without a design decision is listed for
+the front-end overhaul instead. `RotateForm` gains a unit column when the
+unit is in an open rig, with the target picker narrowed to positions that
+are empty or vacated by the same set of moves (TYRE-127); membership
+comes from the existing `fetchRigs()` read under the existing
+`rigsKey`, filtered to open rigs in the browser, and each sibling unit's
+positions from the existing `unitKey` read — no new endpoint, no new
+query key. `UnitDetail` shows "In a rig with …" linking to `/fleet/rigs`.
+`PositionPanel`'s `"UNKNOWN"` literal ties to `MOUNT_ORIENTATIONS`.
+Dates render only through `useTenantDate`/`formatTenantDate`.
+
+**Proof.** Suite **section 47**, seen failing before 000039 exists: the
+ticket's own DoD probes (a tenant cannot rotate across another tenant's
+units — TY012, the not-found branch, with a same-tenant control that
+succeeds; nor across units sharing no rig — TY014 naming the unit; both
+units' fit histories and the register show the move), a probe per U15–U22
+rider, and a probe that every one of the four bounded inputs refuses at
+`app.max_tread_mm() + 0.1` with its own wording. Because money paths are replaced, the Appendix E
+and J pins (sections **7, 8, 17, 18**) are re-run and shown
+**byte-identical at source** between `origin/develop` and the branch tip —
+a banner-to-banner diff of those four ranges, never a mid-branch capture
+(TYRE-128's register records why the last one needed saying).
+`valuation-verifier` and `rls-auditor` both run once 000039 has landed;
+both verdicts go in the PR body. E2e on Sandbox Fleet: fit a tyre on each
+unit of a run-created rig, rotate them across, both histories show the
+move.
+
+**Riders.** TYRE-126 (U22), TYRE-127 (the picker), TYRE-128 decision 8
+(U21) and its 000033/000034 "small fixes" — the guard-comment rewording,
+the `odometer` field name, `PositionPanel`'s literal, the missing
+remove/rotate odometer local-refusal tests, and `fitments.spec.ts`'s
+orientation assertions.
+
+**Left for the owner.** TYRE-128's 5 Sep question — whether decision 7
+(enums are cast-authoritative) reaches `unitKinds` (`admin.go`) and
+`tenantRoles` — is unanswered at planning time, so both are left exactly
+as they are and the question is carried into the PR.
 
 ## B6.4 — reconcile observed composition (TYRE-75) — outline
 
