@@ -113,6 +113,19 @@ func TestRotateOdometerPayloadDistinguishesNoneFromEmpty(t *testing.T) {
 	}}.odometerPayload(anchor)
 	req.Error(t, err)
 	req.Contains(t, err.Error(), "odometers.")
+
+	// The one refusal in this package built out of a key the caller chose, so
+	// the clip decodeJSONStrict states its reason for applies here too: the
+	// key is bounded only by maxWriteBytes on the way in, and refuseInvalid
+	// forwards this message to the wire verbatim. Driving it through the
+	// handler would only show the refusal, not the bound, because the whole
+	// point is what the message does NOT carry.
+	long := strings.Repeat("k", maxTextLen*4)
+	_, err = rotateRequest{Odometers: map[string]int64{long: 1500}}.odometerPayload(anchor)
+	req.Error(t, err, "a key no uuid could be is still refused")
+	req.Equal(t, "odometers."+strings.Repeat("k", maxTextLen)+" must be a uuid", err.Error())
+	req.NotContains(t, err.Error(), strings.Repeat("k", maxTextLen+1),
+		"the caller's key reaches the message clipped, not whole")
 }
 
 func int64Ref(v int64) *int64 { return &v }
