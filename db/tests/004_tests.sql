@@ -4469,7 +4469,7 @@ BEGIN
     jsonb_build_array(
       jsonb_build_object('tyre_id', tyd1, 'to_position_id', p4, 'tread_mm', 11.0),
       jsonb_build_object('tyre_id', tyd2, 'to_position_id', p3, 'tread_mm', 7.0)),
-    405000);
+    jsonb_build_object(vh::text, 405000));
   IF n <> 2 THEN RAISE EXCEPTION 'FAIL 41l: rotation returned % rows, expected 2', n; END IF;
   -- Closed with the reason, and with the distance the one odometer reading
   -- makes measurable: 405000 against the 400000 both were fitted at.
@@ -4503,7 +4503,7 @@ BEGIN
       jsonb_build_array(
         jsonb_build_object('tyre_id', tyd1, 'to_position_id', p3, 'tread_mm', 11.0),
         jsonb_build_object('tyre_id', tyd2, 'to_position_id', px, 'tread_mm', 7.0)),
-      406000);
+      jsonb_build_object(vh::text, 406000));
     RAISE EXCEPTION 'FAIL 41m: a rotation onto a position off the unit was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN NULL;
   END;
@@ -4519,7 +4519,7 @@ BEGIN
   BEGIN
     PERFORM app.rotate_tyres(vh,
       jsonb_build_array(jsonb_build_object('tyre_id', tyd1, 'to_position_id', p3, 'tread_mm', 11.0)),
-      406000);
+      jsonb_build_object(vh::text, 406000));
     RAISE EXCEPTION 'FAIL 41n: a one-move rotation was accepted';
   EXCEPTION WHEN sqlstate 'TY014' THEN NULL;
   END;
@@ -4528,7 +4528,7 @@ BEGIN
       jsonb_build_array(
         jsonb_build_object('tyre_id', tyd1, 'to_position_id', p3, 'tread_mm', 11.0),
         jsonb_build_object('tyre_id', ty2,  'to_position_id', p4, 'tread_mm', 7.0)),
-      406000);
+      jsonb_build_object(vh::text, 406000));
     RAISE EXCEPTION 'FAIL 41n: a rotation naming a tyre not on this unit was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     RAISE NOTICE 'PASS  41n a rotation is at least two moves of tyres this unit carries';
@@ -4732,7 +4732,7 @@ BEGIN
       jsonb_build_array(
         jsonb_build_object('tyre_id', ty9, 'to_position_id', p7, 'tread_mm', 10.0),
         jsonb_build_object('tyre_id', ty5, 'to_position_id', p9, 'tread_mm', 10.0)),
-      310000, now() - interval '2 hours');
+      jsonb_build_object(vh::text, 310000), now() - interval '2 hours');
     RAISE EXCEPTION 'FAIL 41v: a rotation predating one moved tyre''s own fitment was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     IF SQLERRM NOT LIKE format('tyre %s was fitted at%%', ty9) THEN

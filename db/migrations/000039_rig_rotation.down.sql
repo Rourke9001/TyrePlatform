@@ -1,5 +1,8 @@
 -- Reverses 000039: drops the shared tread ceiling and restores the pre-000039
--- bodies of the four writers that read it, verbatim from 000033 and 000034.
+-- bodies of the five writers 000039 replaces, verbatim from 000033 and 000034.
+-- app.rotate_tyres goes back to its bigint odometer parameter with them, so
+-- its DROP names the jsonb signature 000039 created and its CREATE the one
+-- 000039 replaced.
 -- The duplication is the point — a down migration restores the state its up
 -- migration left, so those bodies live here as they were written and are
 -- never edited in place; a correction to one of them is a new migration.
@@ -8,6 +11,7 @@
 -- them would be deleting records rather than changing a schema (rule 3).
 DROP FUNCTION app.log_retread_return(uuid, date, boolean, text, numeric, numeric, numeric, uuid);
 DROP FUNCTION app.dispatch_tyre(uuid, app.tyre_state, uuid, date);
+DROP FUNCTION app.rotate_tyres(uuid, jsonb, jsonb, timestamptz);
 DROP FUNCTION app.remove_tyre(uuid, text, numeric, bigint, timestamptz, text);
 DROP FUNCTION app.fit_tyre(uuid, uuid, uuid, numeric, app.mount_orientation, bigint, timestamptz, text);
 DROP FUNCTION app.max_tread_mm();
@@ -340,6 +344,210 @@ BEGIN
           jsonb_build_object('fitment_id', p_fitment,
                              'distance_km', km,
                              'distance_source', src));
+END $$;
+
+CREATE FUNCTION app.rotate_tyres(p_vehicle uuid, p_moves jsonb,
+                                 p_odometer bigint DEFAULT NULL,
+                                 p_occurred_at timestamptz DEFAULT now())
+RETURNS TABLE (tyre_id uuid, fitment_id uuid)
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  veh     app.vehicle;
+  m       jsonb;
+  mv      record;
+  befores jsonb;
+  moved   uuid[];
+  n_moves  int;
+  n_uniq   int;
+  n_closed int;
+  new_fit  uuid;
+  to_code  text;
+  fit_at   timestamptz;
+BEGIN
+  SELECT * INTO veh FROM app.vehicle v WHERE v.id = p_vehicle FOR SHARE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+  END IF;
+  -- INV-2's converse, on the other writer that opens a fitment; the lock and
+  -- the DISPOSED-only scope are app.fit_tyre's, for its reasons.
+  IF veh.status = 'DISPOSED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'this unit is disposed; nothing is fitted to it';
+  END IF;
+  -- The shape is checked before it is walked: jsonb_array_elements on a
+  -- scalar raises a bare 22023 the client cannot map to anything (D6).
+  IF p_moves IS NULL OR jsonb_typeof(p_moves) <> 'array' OR jsonb_array_length(p_moves) < 2 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY014',
+      MESSAGE = 'a rotation is two or more moves',
+      HINT    = 'one tyre changing position is a remove and a fit (FR-FIT-010)';
+  END IF;
+
+  SELECT array_agg((e.value->>'tyre_id')::uuid) INTO moved
+    FROM jsonb_array_elements(p_moves) e;
+
+  -- D2: every writer here locks the casing before it reads what it is going
+  -- to act on, so a concurrent removal cannot close one of these fitments
+  -- between the validation below and the closure UPDATE. ORDER BY id is what
+  -- keeps two rotations sharing a casing from deadlocking: both take the
+  -- rows in the same order and the second one queues.
+  PERFORM 1 FROM app.tyre t WHERE t.id = ANY (moved) ORDER BY t.id FOR UPDATE;
+
+  -- Everything is validated before anything is written: the RAISE rolls this
+  -- function's own transaction back, but a caller holding a savepoint around
+  -- it must not be able to keep half a rotation (FR-FIT-010, FR-FIT-014).
+  -- The checks run as ordered passes rather than per move, so which rule
+  -- refuses a set does not depend on the order the moves were listed in, and
+  -- a tyre that is not on this unit is reported as such instead of as a
+  -- position clash on a unit it was never on.
+  FOR m IN SELECT e.value FROM jsonb_array_elements(p_moves) e LOOP
+    -- U3: a rotation moves tyres this unit is carrying. Cross-unit moves
+    -- inside a rig are a coupling question, not this surface's.
+    IF NOT EXISTS (SELECT 1 FROM app.fitment f
+                    WHERE f.tyre_id = (m->>'tyre_id')::uuid
+                      AND f.vehicle_id = p_vehicle AND f.removed_at IS NULL) THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012',
+        MESSAGE = format('tyre %s is not on this unit', m->>'tyre_id');
+    END IF;
+  END LOOP;
+
+  FOR m IN SELECT e.value FROM jsonb_array_elements(p_moves) e LOOP
+    IF NOT EXISTS (SELECT 1 FROM app.position p
+                    WHERE p.id = (m->>'to_position_id')::uuid
+                      AND p.configuration_id = veh.configuration_id) THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY014', MESSAGE = 'no such position on this unit';
+    END IF;
+    IF (m->>'tread_mm')::numeric IS NULL
+       OR (m->>'tread_mm')::numeric <= 0 OR (m->>'tread_mm')::numeric > 30 THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY014',
+        MESSAGE = 'every move records its tread in millimetres, above 0 and at most 30';
+    END IF;
+    -- A rotation never displaces a tyre it was not told about: a target is
+    -- either empty or vacated by this same set of moves (FR-FIT-010).
+    IF EXISTS (SELECT 1 FROM app.fitment f
+                WHERE f.vehicle_id = p_vehicle AND f.removed_at IS NULL
+                  AND f.position_id = (m->>'to_position_id')::uuid
+                  AND NOT (f.tyre_id = ANY (moved))) THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY014',
+        MESSAGE = format('position %s carries a tyre this rotation does not move',
+                         (SELECT p.code FROM app.position p WHERE p.id = (m->>'to_position_id')::uuid));
+    END IF;
+    -- FR-FIT-016, same hole as app.remove_tyre's (see there): the first loop
+    -- above proved this tyre has an open fitment on this unit, so the row is
+    -- read again here, under its lock, for its own fitted_at rather than the
+    -- event history fitment_instant_ok reads. Per moved tyre, not once for the
+    -- set: a rotation can carry casings opened years apart.
+    SELECT f.fitted_at INTO fit_at FROM app.fitment f
+     WHERE f.tyre_id = (m->>'tyre_id')::uuid AND f.vehicle_id = p_vehicle AND f.removed_at IS NULL;
+    IF p_occurred_at < fit_at THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012',
+        MESSAGE = format('tyre %s was fitted at %s; a rotation cannot predate its own fitment',
+                         m->>'tyre_id', fit_at);
+    END IF;
+    PERFORM app.fitment_instant_ok((m->>'tyre_id')::uuid, p_occurred_at, NULL);
+  END LOOP;
+
+  SELECT count(DISTINCT e.value->>'to_position_id'), count(*) INTO n_uniq, n_moves
+    FROM jsonb_array_elements(p_moves) e;
+  IF n_uniq <> n_moves THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY014', MESSAGE = 'two moves cannot target the same position';
+  END IF;
+  IF array_length(ARRAY(SELECT DISTINCT unnest(moved)), 1) <> n_moves THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY014', MESSAGE = 'a tyre appears twice in this rotation';
+  END IF;
+  -- The same bound remove_tyre applies, checked here so the whole set is
+  -- refused before any row is closed (FR-FIT-009).
+  IF p_odometer IS NOT NULL AND EXISTS (
+       SELECT 1 FROM app.fitment f
+        WHERE f.vehicle_id = p_vehicle AND f.removed_at IS NULL
+          AND f.tyre_id = ANY (moved)
+          AND f.fitted_odometer IS NOT NULL AND f.fitted_odometer > p_odometer) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY014',
+      MESSAGE = format('this unit reads %s, below the odometer of a fitment being rotated out', p_odometer);
+  END IF;
+
+  -- Where each casing is coming from, read while the rows are still open.
+  SELECT jsonb_object_agg(f.tyre_id::text,
+                          jsonb_build_object('code', p.code,
+                                             'orientation', f.mount_orientation::text))
+    INTO befores
+    FROM app.fitment f
+    JOIN app.position p ON p.id = f.position_id
+   WHERE f.vehicle_id = p_vehicle AND f.removed_at IS NULL AND f.tyre_id = ANY (moved);
+
+  -- Every fitment closes before any opens. A swap passes through a moment
+  -- where two tyres would claim one position, and the partial unique indexes
+  -- are checked per statement, so closing first is what keeps them quiet.
+  -- One reading per tyre serves both ends of the move: the casing is measured
+  -- once, on the ground, during the rotation.
+  UPDATE app.fitment f
+     SET removed_at       = p_occurred_at,
+         removed_odometer = p_odometer,
+         removed_tread_mm = (SELECT (e.value->>'tread_mm')::numeric
+                               FROM jsonb_array_elements(p_moves) e
+                              WHERE (e.value->>'tyre_id')::uuid = f.tyre_id),
+         -- 'rotation' is written by the platform, not chosen from the
+         -- tenant's removal_reasons vocabulary (D1) that app.remove_tyre
+         -- validates a caller-supplied reason against. Suite 40f pins the
+         -- seeded vocabulary, 'rotation' included, so the two agree for
+         -- every seeded tenant; a tenant who later deletes 'rotation' from
+         -- their list still does not break the rotation the platform
+         -- records on its own account.
+         removal_reason   = 'rotation',
+         distance_km      = CASE WHEN p_odometer IS NOT NULL AND f.fitted_odometer IS NOT NULL
+                                 THEN p_odometer - f.fitted_odometer END,
+         distance_source  = CASE WHEN p_odometer IS NOT NULL AND f.fitted_odometer IS NOT NULL
+                                 THEN 'MEASURED'::app.distance_provenance
+                                 ELSE 'UNAVAILABLE'::app.distance_provenance END
+   WHERE f.vehicle_id = p_vehicle AND f.removed_at IS NULL AND f.tyre_id = ANY (moved);
+
+  -- Under READ COMMITTED this UPDATE re-evaluates its predicate, so a fitment
+  -- closed and committed between the validation and here is simply not
+  -- matched. Opening a new fitment for a casing whose old row never closed
+  -- would leave the tyre REMOVED with an open fitment and a ROTATED event;
+  -- counting the closures is what turns that into a refusal the caller can
+  -- retry (FR-FIT-014).
+  GET DIAGNOSTICS n_closed = ROW_COUNT;
+  IF n_closed <> n_moves THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012',
+      MESSAGE = 'a fitment in this rotation was changed by another action; reload the unit and try again';
+  END IF;
+
+  FOR mv IN SELECT (e.value->>'tyre_id')::uuid       AS tid,
+                   (e.value->>'to_position_id')::uuid AS pid,
+                   (e.value->>'tread_mm')::numeric    AS tread
+              FROM jsonb_array_elements(p_moves) e LOOP
+    -- D13: a rotation does not turn the casing round, so the orientation
+    -- comes off the closed row. A flip is a remove and a fit.
+    INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+                             fitted_odometer, fitted_tread_mm, mount_orientation)
+    VALUES (app.current_tenant_id(), mv.tid, p_vehicle, mv.pid, p_occurred_at,
+            p_odometer, mv.tread,
+            (befores->(mv.tid::text)->>'orientation')::app.mount_orientation)
+    RETURNING id INTO new_fit;
+
+    UPDATE app.tyre t
+       SET last_tread_mm = CASE WHEN t.last_tread_at IS NULL OR t.last_tread_at < p_occurred_at
+                                THEN mv.tread ELSE t.last_tread_mm END,
+           last_tread_at = CASE WHEN t.last_tread_at IS NULL OR t.last_tread_at < p_occurred_at
+                                THEN p_occurred_at ELSE t.last_tread_at END
+     WHERE t.id = mv.tid;
+
+    SELECT p.code INTO to_code FROM app.position p WHERE p.id = mv.pid;
+    -- to_state repeats FITTED although the state has not changed: unchanged
+    -- is not unsaid (000030's state_change_carries_to_state, FR-VAL-022).
+    INSERT INTO app.tyre_event (tenant_id, tyre_id, type, occurred_at,
+                                from_state, to_state, reason, payload)
+    VALUES (app.current_tenant_id(), mv.tid, 'ROTATED', p_occurred_at,
+            'FITTED', 'FITTED', 'rotation',
+            jsonb_build_object('from_position_code', befores->(mv.tid::text)->>'code',
+                               'to_position_code', to_code,
+                               'fitment_id', new_fit));
+
+    tyre_id    := mv.tid;
+    fitment_id := new_fit;
+    RETURN NEXT;
+  END LOOP;
 END $$;
 
 CREATE FUNCTION app.dispatch_tyre(p_tyre uuid, p_destination app.tyre_state,
