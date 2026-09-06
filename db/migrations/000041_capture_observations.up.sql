@@ -53,8 +53,9 @@ COMMENT ON TABLE app.inspection_absent_spare IS
 -- ---------------------------------------------------------------------------
 -- app.submit_inspection, copied forward from 000040 verbatim (the duplication
 -- is the point — a down migration restores the state its up migration left,
--- 000039's down says why) plus one addition: the absent_spares loop below,
--- inserted between the readings loop and the DR-016 contiguity guard.
+-- 000039's down says why) with two differences: the absent_spares loop
+-- below, between the readings loop and the DR-016 contiguity guard, and the
+-- skew RAISE, which carries TY021 (header above) where 000040 raised TY005.
 CREATE OR REPLACE FUNCTION app.submit_inspection(p_payload jsonb)
 RETURNS TABLE (inspection_id uuid, created boolean)
 LANGUAGE plpgsql SET search_path = app, pg_temp AS $$
