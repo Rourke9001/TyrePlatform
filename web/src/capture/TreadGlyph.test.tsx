@@ -12,22 +12,35 @@ describe("TreadGlyph", () => {
     const { container, rerender } = render(<TreadGlyph side="LEFT" count={3} />);
     const left = screen.getByRole("img", { name: /left side of the vehicle/i });
     expect(left).toHaveAttribute("data-side", "LEFT");
-    // The centreline is drawn once, at the SVG's own right edge (x1="92"),
-    // and it is the mirror transform — not a second, hand-drawn line — that
-    // puts it on the correct side of the vehicle for a RIGHT tyre.
+    // Only the centreline moves between sides: right of the tyre for LEFT,
+    // left of the tyre for RIGHT. The reading digits never move — see the
+    // next assertions and the second test below.
     expect(left.querySelector("line")).toHaveAttribute("x1", "92");
-    expect(left.style.transform).toBe("");
+    const leftTexts = left.querySelectorAll("text");
+    const leftFirstX = leftTexts[0].getAttribute("x");
+    const leftLastX = leftTexts[leftTexts.length - 1].getAttribute("x");
 
     rerender(<TreadGlyph side="RIGHT" count={3} />);
     const right = screen.getByRole("img", { name: /right side of the vehicle/i });
     expect(right).toHaveAttribute("data-side", "RIGHT");
-    expect(right.querySelector("line")).toHaveAttribute("x1", "92");
-    expect(right.style.transform).toBe("scaleX(-1)");
+    expect(right.querySelector("line")).toHaveAttribute("x1", "8");
+    // Digit 1 is the sheet's leftmost field on both sides (FR-INS-029a maps
+    // ordinal 1 by side, not by screen position), so its x must not have
+    // moved when the side flipped — only the centreline did.
+    const rightTexts = right.querySelectorAll("text");
+    expect(rightTexts[0].getAttribute("x")).toBe(leftFirstX);
+    expect(Number(leftFirstX)).toBeLessThan(Number(leftLastX));
+    expect(Number(rightTexts[0].getAttribute("x"))).toBeLessThan(
+      Number(rightTexts[rightTexts.length - 1].getAttribute("x")),
+    );
     expectNothingForbiddenSpoken(container, /right side of the vehicle/i);
   });
 
-  it("numbers the readings 1 to count, left to right", () => {
-    render(<TreadGlyph side="LEFT" count={3} />);
+  it("numbers the readings 1 to count, left to right, on either side", () => {
+    const { rerender } = render(<TreadGlyph side="LEFT" count={3} />);
+    expect(screen.getByRole("img").textContent).toBe("123");
+
+    rerender(<TreadGlyph side="RIGHT" count={3} />);
     expect(screen.getByRole("img").textContent).toBe("123");
   });
 });
