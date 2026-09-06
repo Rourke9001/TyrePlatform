@@ -3841,7 +3841,25 @@ BEGIN
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: unique/exclusion keys not led by tenant_id: %', bad;
   END IF;
-  RAISE NOTICE 'PASS  37 every tenant-table unique/exclusion key leads with tenant_id or is allowlisted';
+  -- Second arm: a table WITHOUT a tenant_id column is outside the sweep above
+  -- by construction, yet its unique keys are global by the same construction.
+  -- Such a key is safe only when the app role cannot write the table at all —
+  -- a probe needs a write to read the outcome. Every table here states why
+  -- it has no tenant column; an unexplained entry is a review defect.
+  SELECT string_agg(c.relname || ':' || priv, ', ') INTO bad
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) p(priv)
+   WHERE n.nspname = 'app' AND c.relkind = 'r'
+     AND NOT EXISTS (SELECT 1 FROM pg_attribute a
+                      WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
+     AND EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisunique AND NOT i.indisprimary)
+     AND has_table_privilege('app_rw', c.oid, priv);
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 37: app_rw can write a tenant-free table with a global unique key: %', bad;
+  END IF;
+  RAISE NOTICE 'PASS  37a every tenant-table unique/exclusion key leads with tenant_id or is allowlisted';
+  RAISE NOTICE 'PASS  37b no tenant-free table with a global unique key is writable by app_rw (tenant: it is the tenant; jurisdiction_tread_minimum: platform reference data, 000012)';
 END $$;
 ROLLBACK;
 
@@ -8113,6 +8131,43 @@ BEGIN
   IF active IS NOT NULL THEN RAISE EXCEPTION 'FAIL 54: one missing capture time beside a present 50 summed to % instead of NULL', active; END IF;
 
   RAISE NOTICE 'PASS  v_inspection_timing reports elapsed and active seconds apart, and absence as NULL';
+END $$;
+ROLLBACK;
+
+\echo '== 55. TYRE-158: the app role cannot write app.tenant, so tenant_subdomain_key is no longer an existence oracle (rule 1, TYRE-87)'
+BEGIN;
+DO $$
+DECLARE ok boolean := false; n int; own text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  -- control: the row is readable, so a refusal below is the grant and not RLS
+  SELECT count(*) INTO n FROM app.tenant WHERE id = app.current_tenant_id();
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 55: own tenant row not visible (%)', n; END IF;
+  SELECT subdomain INTO own FROM app.tenant WHERE id = app.current_tenant_id();
+  -- the oracle: a TAKEN subdomain ('sandbox' is Sandbox Fleet's) answered
+  -- 23505 before 000042 and a FREE one succeeded; both must now be the grant's
+  -- refusal, so the outcome carries nothing. The message is matched as well
+  -- as the SQLSTATE: RLS's WITH CHECK also raises 42501 ("new row violates
+  -- row-level security policy"), and a probe that accepts either proves
+  -- nothing (lesson 2026-09-01).
+  BEGIN
+    UPDATE app.tenant SET subdomain = 'sandbox' WHERE id = app.current_tenant_id();
+    RAISE EXCEPTION 'FAIL 55: app_rw updated app.tenant (taken subdomain probe)';
+  EXCEPTION WHEN insufficient_privilege THEN
+    IF SQLERRM LIKE 'permission denied%' THEN ok := true;
+    ELSE RAISE EXCEPTION 'FAIL 55: taken-subdomain probe refused by something other than the grant: %', SQLERRM; END IF;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 55: the taken-subdomain probe was not refused by grant'; END IF;
+  ok := false;
+  BEGIN
+    UPDATE app.tenant SET subdomain = 'zz-' || substr(md5(random()::text), 1, 8) WHERE id = app.current_tenant_id();
+    RAISE EXCEPTION 'FAIL 55: app_rw updated app.tenant (free subdomain probe)';
+  EXCEPTION WHEN insufficient_privilege THEN
+    IF SQLERRM LIKE 'permission denied%' THEN ok := true;
+    ELSE RAISE EXCEPTION 'FAIL 55: free-subdomain probe refused by something other than the grant: %', SQLERRM; END IF;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 55: the free-subdomain probe was not refused by grant'; END IF;
+  RAISE NOTICE 'PASS  55 app.tenant is not writable by app_rw: taken and free subdomains are indistinguishable (permission denied both), own row (%) still readable', own;
 END $$;
 ROLLBACK;
 

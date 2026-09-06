@@ -1,0 +1,12 @@
+-- 000042: two isolation gaps the 6 Sep 2026 review sweep found (TYRE-143),
+-- both closed in the schema rather than in Go (rule 1).
+--
+-- TYRE-158. app.tenant's UNIQUE (subdomain) is global — the table IS the
+-- tenant, so no tenant_id can lead the key — and the app role held UPDATE
+-- and INSERT on it. tenant_self restricts WHICH row a tenant may update,
+-- but a unique violation fires before RLS does: setting one's own
+-- subdomain to a guessed value answered 23505 when another tenant held it
+-- and succeeded when none did, which is the cross-tenant existence oracle
+-- TYRE-87 generalised. No route and no function callable by app_rw writes
+-- the table; the seeds and the Go test fixtures write it as postgres.
+REVOKE INSERT, UPDATE ON app.tenant FROM app_rw;
