@@ -59,7 +59,7 @@ The dev resolver now supplies a **user** as well as a tenant. Locally, anyone
 who can send a header is anyone, in any tenant, so the capability gate is
 decorative in development — it is a development convenience with the blast
 radius of an authentication bypass. The `CONTAINER_APP_NAME` veto in
-`devHeaderEnabled` is the whole safety story; ADR-0011 records why.
+`devHeaderEnabled` is the whole safety story, and it is on the variable's presence, not its value; ADR-0011 records why.
 
 ## Money over the wire
 

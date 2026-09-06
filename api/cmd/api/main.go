@@ -21,10 +21,16 @@ import (
 
 // devHeaderEnabled decides whether the trust-any-header resolver may exist in
 // this process. Container Apps injects CONTAINER_APP_NAME into every deployed
-// revision, so its presence vetoes the flag: the dev path cannot be switched
-// on in staging with a stray --set-env-vars, only run locally.
-func devHeaderEnabled(getenv func(string) string) bool {
-	return getenv("APP_DEV_TENANT_HEADER") == "1" && getenv("CONTAINER_APP_NAME") == ""
+// revision, so its PRESENCE vetoes the flag — presence, not value, because a
+// stray --set-env-vars CONTAINER_APP_NAME= would read as absent through
+// os.Getenv and switch the dev path on in staging (TYRE-160). The accessor is
+// injected so the table test can say "present and empty".
+func devHeaderEnabled(lookup func(string) (string, bool)) bool {
+	if _, inContainerApps := lookup("CONTAINER_APP_NAME"); inContainerApps {
+		return false
+	}
+	v, _ := lookup("APP_DEV_TENANT_HEADER")
+	return v == "1"
 }
 
 // trustedProxyHops parses TRUSTED_PROXY_HOPS (infra/main.bicep documents the
@@ -88,7 +94,7 @@ func main() {
 	// defaults to off. httpapi.requireActor documents what a nil resolver
 	// means.
 	var resolver httpapi.ActorResolver
-	if devHeaderEnabled(os.Getenv) {
+	if devHeaderEnabled(os.LookupEnv) {
 		logger.Warn("X-Tenant-ID/X-User-ID header resolver enabled; anyone who can send a header is anyone")
 		resolver = httpapi.HeaderActorResolver{}
 	}
