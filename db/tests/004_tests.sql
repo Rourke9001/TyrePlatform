@@ -7553,7 +7553,12 @@ BEGIN
     RAISE EXCEPTION 'FAIL 48: submit_inspection accepted a % mm tread', mx + 0.1;
   EXCEPTION WHEN SQLSTATE 'TY005' THEN GET STACKED DIAGNOSTICS m = MESSAGE_TEXT; ok := true;
   END;
-  IF NOT ok OR strpos(m, mx::text) = 0 THEN
+  -- Matched against the ceiling clause itself, not a bare mx::text: the
+  -- refused value is always mx + 0.1 (35.1), whose digits already contain
+  -- "35", so a message that reverted to 000023's original wording (naming
+  -- only the offending reading, never the bound) would still pass that
+  -- weaker check.
+  IF NOT ok OR strpos(m, '0 to ' || trunc(mx)::text || ' mm') = 0 THEN
     RAISE EXCEPTION 'FAIL 48: the capture refusal does not name the ceiling: %', m;
   END IF;
   RAISE NOTICE 'PASS  one tread ceiling (35 mm, FR-INS-030): the CHECK, the capture path and the fitment writers read it';
