@@ -64,7 +64,7 @@ func plantTenant(t *testing.T, ctx context.Context, admin *pgx.Conn, label strin
 	require.NoError(t, err)
 
 	_, err = admin.Exec(ctx,
-		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id) VALUES ($1, $2, $3)`,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind) VALUES ($1, $2, $3, 'HORSE'::app.unit_kind)`,
 		tenantID, fleet, configID,
 	)
 	require.NoError(t, err)
@@ -134,7 +134,7 @@ func TestInTenantTxCannotWriteIntoOtherTenant(t *testing.T) {
 			return err
 		}
 		_, err := tx.Exec(ctx,
-			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id) VALUES ($1, 'smuggled', $2)`,
+			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind) VALUES ($1, 'smuggled', $2, 'HORSE'::app.unit_kind)`,
 			b.id, configID,
 		)
 		return err

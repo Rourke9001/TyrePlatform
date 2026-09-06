@@ -296,7 +296,7 @@ func plantUnrelatedVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, t
 
 	var vehicleID uuid.UUID
 	require.NoError(t, admin.QueryRow(ctx,
-		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id) VALUES ($1, $2, $3) RETURNING id`,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind) VALUES ($1, $2, $3, 'HORSE'::app.unit_kind) RETURNING id`,
 		tenantID, "UNRELATED-"+suffix, configID,
 	).Scan(&vehicleID))
 

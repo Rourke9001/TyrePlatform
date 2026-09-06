@@ -527,7 +527,7 @@ func TestGetUnitAnswersEmptyShapesForABareUnit(t *testing.T) {
 	var body unitBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.False(t, body.HasHistory, "no fitment, inspection or reading row exists for this unit")
-	require.False(t, body.HasOdometer, "plantTenantWithVehicle leaves unit_kind NULL")
+	require.True(t, body.HasOdometer, "plantTenantWithVehicle's unit is a HORSE, which carries an odometer (000025)")
 }
 
 // plantOperatingGroup plants the grouping row a unit can be assigned to.
