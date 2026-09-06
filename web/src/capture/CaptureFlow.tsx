@@ -463,10 +463,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     );
   }
 
-  // Above every branch, not inside one: the fault is set from four places and
-  // the driver can be on any of the four screens when it fires. Nested in one
-  // branch, a Start button that throws and a submit that fails while review
-  // re-renders are both silent.
+  // Above every branch, not inside one: the fault is set from each screen's
+  // own handler, and the driver can be on any screen when it fires. Nested in
+  // one branch, a Start button that throws and a submit that fails while
+  // review re-renders are both silent.
   //
   // "degraded" stays non-blocking — the readings are on screen and still
   // submittable the moment storage comes back, so replacing the screen would
