@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Draft, DraftPosition } from "./draft";
 import { cellKey } from "./draft";
-import { deviceId, halfEnteredCell, toSubmitPayload } from "./payload";
+import { absentCells, deviceId, halfEnteredCell, toSubmitPayload } from "./payload";
 
 // Fills in the DraftPosition/Draft fields a halfEnteredCell test does not
 // care about, so each case states only what it is testing (treads,
@@ -36,6 +36,7 @@ function draftWith(
       ]),
     ),
     warnings: [],
+    absentSpares: [],
   };
 }
 
@@ -90,6 +91,7 @@ const draft: Draft = {
     },
   },
   warnings: [{ code: "FR-INS-033", enteredValue: "412500", response: "CONFIRMED" }],
+  absentSpares: [],
 };
 
 describe("toSubmitPayload", () => {
@@ -311,6 +313,21 @@ describe("toSubmitPayload", () => {
     expect(p.readings.map((r) => r.position_id)).toEqual(["p1", "p2", "p4"]);
     expect(p.readings.find((r) => r.position_id === "p4")?.pressure_kpa).toBeNull();
     expect(p.completeness_pct).toBe(75);
+  });
+
+  // The server records the observation (000041); a key the server ignored
+  // would be the silent drop the design spec forbids, so the payload carries
+  // exactly what submit_inspection reads, and the absent cell comes off the
+  // denominator here the same way it does on screen.
+  it("carries absent spares by unit and position and takes them off the denominator", () => {
+    const d = {
+      ...draftWith([{ positionId: "p1", vehicleId: "v1", treads: [12, 13, 14], pressureKpa: 800 }]),
+      absentSpares: [{ vehicleId: "v1", positionId: "s1" }],
+    };
+    const payload = toSubmitPayload(d, { ...meta, totalPositions: 1 });
+    expect(payload.absent_spares).toEqual([{ vehicle_id: "v1", position_id: "s1" }]);
+    expect(payload.completeness_pct).toBe(100);
+    expect(absentCells(d)).toEqual(new Set(["v1:s1"]));
   });
 });
 

@@ -70,6 +70,11 @@ export interface Draft {
   // the identity.
   positions: Record<string, DraftPosition>;
   warnings: RecordedWarning[];
+  // TYRE-155 / FR-INS-066: spares the driver said the unit does not carry.
+  // Self-describing (unit and position), for the same reason DraftPosition
+  // is: a draft read back under a different key shape still says what it
+  // means. Empty on a draft written before the field existed.
+  absentSpares: { vehicleId: string; positionId: string }[];
 }
 
 // The single row's fixed key. One in-progress inspection, whose lifetime is
@@ -115,6 +120,7 @@ export async function loadDraft(): Promise<Draft | undefined> {
     ...row.draft,
     fleetNumber: row.draft.fleetNumber ?? null,
     positions: byCell(row.draft.positions),
+    absentSpares: row.draft.absentSpares ?? [],
   };
 }
 
@@ -148,6 +154,7 @@ export async function startDraft(init: {
     defectReport: null,
     positions: {},
     warnings: [],
+    absentSpares: [],
   };
   await db.drafts.put({ key: DRAFT_KEY, draft });
   return draft;
@@ -180,6 +187,32 @@ export async function saveHeader(patch: {
   warnings?: RecordedWarning[];
 }): Promise<void> {
   await mutate((draft) => ({ ...draft, ...patch }));
+}
+
+// TYRE-155 / FR-INS-066: "No spare on this unit" is one tap on the spare
+// sheet, recorded as an observation rather than left for the driver to guess
+// at from an empty cell. Idempotent on the mark, the way savePosition
+// overwriting the same cell is: a driver who taps twice from a stale render
+// must not double the row app.submit_inspection would otherwise reject as
+// re-reading the same reading (000041, TY005 in reverse).
+export async function markSpareAbsent(vehicleId: string, positionId: string): Promise<void> {
+  await mutate((draft) => ({
+    ...draft,
+    absentSpares: draft.absentSpares.some(
+      (s) => s.vehicleId === vehicleId && s.positionId === positionId,
+    )
+      ? draft.absentSpares
+      : [...draft.absentSpares, { vehicleId, positionId }],
+  }));
+}
+
+export async function unmarkSpareAbsent(vehicleId: string, positionId: string): Promise<void> {
+  await mutate((draft) => ({
+    ...draft,
+    absentSpares: draft.absentSpares.filter(
+      (s) => !(s.vehicleId === vehicleId && s.positionId === positionId),
+    ),
+  }));
 }
 
 export async function clearDraft(): Promise<void> {

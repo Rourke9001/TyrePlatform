@@ -301,7 +301,9 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 
 	// Every threshold the client evaluates against, read through the same
 	// tenant-configuration accessor the database uses. Rule 5: none of these
-	// may become a literal on the device.
+	// may become a literal on the device. captureSpares (TYRE-155) is
+	// COALESCEd so a tenant seeded before the key existed still gets the
+	// owner's default of true rather than a null the client cannot use.
 	return tx.QueryRow(ctx, `
 		SELECT jsonb_build_object(
 		         'treadReadingCount',     app.config_for($1, 'tread_reading_count',      now()),
@@ -309,7 +311,8 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		         'widthSpreadWarnMm',     app.config_for($1, 'width_spread_warn_mm',     now()),
 		         'odometerMaxDailyKm',    app.config_for($1, 'odometer_max_daily_km',    now()),
 		         'wearRateAlertMultiple', app.config_for($1, 'wear_rate_alert_multiple', now()),
-		         'removalThresholdMm',    app.removal_threshold_mm_for($1, now()))`,
+		         'removalThresholdMm',    app.removal_threshold_mm_for($1, now()),
+		         'captureSpares',         COALESCE(app.config_for($1, 'capture_spares', now()), 'true'::jsonb))`,
 		a.TenantID).Scan(&out.Config)
 }
 

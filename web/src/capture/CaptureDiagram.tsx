@@ -12,6 +12,9 @@ interface Props {
   governingOf: (cell: string) => number | null;
   onOpen: (cell: string) => void;
   activeKey: string | null;
+  // TYRE-155: a spare the driver has already marked absent draws as settled
+  // rather than "Not done", so the diagram agrees with the tally above it.
+  absentCells: ReadonlySet<string>;
 }
 
 interface AxleGroup {
@@ -73,7 +76,14 @@ function groupRig(cells: RigPosition[]): UnitGroup[] {
 // Plan view, nose up — the same frame BR-VEH-001 numbers positions in and the
 // frame FR-INS-029a means by "left-to-right". Every entry screen in the app
 // shows the vehicle this way round so the driver learns one picture.
-export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, activeKey }: Props) {
+export function CaptureDiagram({
+  positions,
+  severityOf,
+  governingOf,
+  onOpen,
+  activeKey,
+  absentCells,
+}: Props) {
   const { running, spares } = splitSpares(positions);
   const units = groupRig(running);
 
@@ -101,6 +111,7 @@ export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, act
                   governing={governingOf(r.key)}
                   active={activeKey === r.key}
                   onOpen={onOpen}
+                  absent={absentCells.has(r.key)}
                 />
               ))}
             </div>
@@ -131,6 +142,7 @@ export function CaptureDiagram({ positions, severityOf, governingOf, onOpen, act
                   governing={governingOf(r.key)}
                   active={activeKey === r.key}
                   onOpen={onOpen}
+                  absent={absentCells.has(r.key)}
                 />
               ))}
             </div>
@@ -167,12 +179,16 @@ function PositionCell({
   governing,
   active,
   onOpen,
+  absent,
 }: {
   rig: RigPosition;
   severity: Severity;
   governing: number | null;
   active: boolean;
   onOpen: (cell: string) => void;
+  // TYRE-155: a spare the driver has already reported absent. Words, not
+  // colour alone (NFR-USE-009) — the accessible name says so too.
+  absent: boolean;
 }) {
   const name = rig.displayNumber === null ? "Spare" : `Position ${rig.displayNumber}`;
   return (
@@ -181,13 +197,15 @@ function PositionCell({
       // Any-order completion (FR-INS-048's walk-around reality): a driver
       // works round the vehicle in whatever order the yard allows, not in the
       // order a form dictates.
-      className={`cap-pos cap-pos--${severity}${active ? " is-active" : ""}`}
+      className={`cap-pos cap-pos--${severity}${active ? " is-active" : ""}${absent ? " is-absent" : ""}`}
       data-position-id={rig.position.id}
-      aria-label={`${name}, ${rig.context.fleetNumber}, ${SEVERITY_LABEL[severity]}`}
+      aria-label={`${name}, ${rig.context.fleetNumber}, ${SEVERITY_LABEL[severity]}${absent ? ", no spare" : ""}`}
       onClick={() => onOpen(rig.key)}
     >
       <span className="cap-pos-n">{rig.displayNumber ?? "S"}</span>
-      <span className="cap-pos-v">{governing === null ? "—" : `${governing}mm`}</span>
+      <span className="cap-pos-v">
+        {absent ? "none" : governing === null ? "—" : `${governing}mm`}
+      </span>
       {/* NFR-USE-009: colour is never the only encoding. The badge says it in
           words, and it is the thing that survives direct sunlight. */}
       <span className="cap-pos-badge">{SEVERITY_LABEL[severity]}</span>

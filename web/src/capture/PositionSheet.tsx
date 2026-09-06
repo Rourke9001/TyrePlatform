@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import type { CaptureContext } from "./captureContext";
+import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { RigPosition } from "./rig";
 import type { DraftPosition, RecordedWarning } from "./draft";
 import type { EntryKey, EntryState } from "./entry";
@@ -30,6 +30,8 @@ export function PositionSheet({
   onChange,
   onDone,
   onClose,
+  absent,
+  onAbsent,
 }: {
   rig: RigPosition;
   ctx: CaptureContext;
@@ -42,6 +44,12 @@ export function PositionSheet({
   onChange: (partial: DraftPosition) => void;
   onDone: (position: DraftPosition) => void;
   onClose: () => void;
+  // TYRE-155 / FR-INS-066: whether this spare is already marked absent, and
+  // the toggle that marks or unmarks it. Both optional and both meaningless
+  // off a spare sheet — a running position with no tyre is a fitment fact for
+  // the register, never this.
+  absent?: boolean;
+  onAbsent?: (position: CapturePosition, absent: boolean) => void;
 }) {
   const count = ctx.config.treadReadingCount;
   const [state, setState] = useState<EntryState>(() => {
@@ -288,6 +296,18 @@ export function PositionSheet({
         <button type="button" className="cap-iconbtn" aria-label="Close" onClick={close}>
           ✕
         </button>
+        {/* TYRE-155 / FR-INS-066: one tap, on the spare sheet only. It replaces
+            the close tap a driver with no spare pays today, so the ledger is
+            net zero; the observation rides to the server (000041). */}
+        {rig.position.isSpare && onAbsent && (
+          <button
+            type="button"
+            className="cap-secondary cap-spare-absent"
+            onClick={() => onAbsent(rig.position, !absent)}
+          >
+            {absent ? "Spare is here" : "No spare on this unit"}
+          </button>
+        )}
       </header>
 
       <div className="cap-fields">

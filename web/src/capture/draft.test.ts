@@ -1,7 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { DraftPosition } from "./draft";
-import { cellKey, clearDraft, db, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
+import {
+  cellKey,
+  clearDraft,
+  db,
+  loadDraft,
+  markSpareAbsent,
+  saveHeader,
+  savePosition,
+  startDraft,
+  unmarkSpareAbsent,
+} from "./draft";
 
 beforeEach(async () => {
   await db.open();
@@ -196,6 +206,7 @@ describe("the draft buffer", () => {
         "defectReport",
         "positions",
         "warnings",
+        "absentSpares",
       ].sort(),
     );
   });
@@ -255,5 +266,17 @@ describe("the draft buffer", () => {
       fleetNumber: "BAC039SP",
     });
     expect((await loadDraft())?.fleetNumber).toBe("BAC039SP");
+  });
+
+  // TYRE-155 / FR-INS-066: the observation the driver records instead of a
+  // reading when a unit does not carry the spare it is configured for.
+  it("records and forgets an absent spare by unit and position", async () => {
+    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-09-06T08:00:00Z" });
+    await markSpareAbsent("v1", "s1");
+    expect((await loadDraft())?.absentSpares).toEqual([{ vehicleId: "v1", positionId: "s1" }]);
+    await markSpareAbsent("v1", "s1");
+    expect((await loadDraft())?.absentSpares).toHaveLength(1);
+    await unmarkSpareAbsent("v1", "s1");
+    expect((await loadDraft())?.absentSpares).toEqual([]);
   });
 });

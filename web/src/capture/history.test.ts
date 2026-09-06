@@ -45,6 +45,7 @@ const ctx: CaptureContext = {
     odometerMaxDailyKm: 1600,
     wearRateAlertMultiple: 3,
     removalThresholdMm: 4.0,
+    captureSpares: true,
   },
   cohortWearRateMmPerMonth: { "STEER:FIXED": 0.8 },
 };

@@ -37,6 +37,7 @@ export function CaptureReview({
   contexts,
   draft,
   doneCells,
+  absentCells,
   onBack,
   onSubmit,
 }: {
@@ -46,12 +47,16 @@ export function CaptureReview({
   // filters on, so the count the driver reads and the completeness_pct the
   // server stores cannot disagree.
   doneCells: ReadonlySet<string>;
+  // TYRE-155: off the denominator here the same way it is on the diagram, so
+  // a unit with no spare reads "all done" at the last screen before submit
+  // too, not just on the walk-around.
+  absentCells: ReadonlySet<string>;
   // The shortfall above is only useful if the driver can act on it while they
   // are still standing at the vehicle.
   onBack: () => void;
   onSubmit: (patch: { comment: string | null; defectReport: string | null }) => void;
 }) {
-  const units = completenessByUnit(contexts, doneCells);
+  const units = completenessByUnit(contexts, doneCells, absentCells);
   const [comment, setComment] = useState("");
   const [defect, setDefect] = useState("");
   const [openedAt] = useState(() => Date.now());

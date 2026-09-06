@@ -49,6 +49,10 @@ export interface SubmitPayload {
   app_version: string;
   readings: SubmitReading[];
   warnings: SubmitWarning[];
+  // FR-INS-066 / 000041: spares the driver said the unit does not carry,
+  // recorded as an observation rather than left as a silent gap the review
+  // screen cannot explain (app.inspection_absent_spare).
+  absent_spares: { vehicle_id: string; position_id: string }[];
 }
 
 export interface SubmitMeta {
@@ -139,6 +143,12 @@ export function capturedCells(draft: Draft): Set<string> {
   );
 }
 
+// The cells the driver marked as carrying no spare, keyed like capturedCells
+// so the flow can treat them as settled without counting them as read.
+export function absentCells(draft: Draft): Set<string> {
+  return new Set(draft.absentSpares.map((s) => cellKey(s.vehicleId, s.positionId)));
+}
+
 // TYRE-148: the position a resume should land in. Half-entered means some
 // treads and not all — the one state the flow cannot have moved on from,
 // since finish() returns early on it. Pressure does not count: it is
@@ -218,5 +228,9 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
     app_version: meta.appVersion,
     readings,
     warnings: draft.warnings.map(wire),
+    absent_spares: draft.absentSpares.map((s) => ({
+      vehicle_id: s.vehicleId,
+      position_id: s.positionId,
+    })),
   };
 }
