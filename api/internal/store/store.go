@@ -23,7 +23,22 @@ type Store struct {
 }
 
 func New(ctx context.Context, dsn string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parsing database url: %w", err)
+	}
+	// Rule 6: the schema's date predicates (v_spare_tyre_age, the two
+	// effective_from defaults, receive_tyres's least() clamp) follow the
+	// session TimeZone, and a managed Postgres exposes that as a server
+	// parameter nothing here controls. Pinning it per connection makes the
+	// value a property of this process rather than of whichever server it is
+	// pointed at (TYRE-170). Tenant-day resolution is a separate concern
+	// (app.tenant_today) and is unaffected.
+	if cfg.ConnConfig.RuntimeParams == nil {
+		cfg.ConnConfig.RuntimeParams = map[string]string{}
+	}
+	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating connection pool: %w", err)
 	}

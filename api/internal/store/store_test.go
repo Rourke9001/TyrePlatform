@@ -323,3 +323,27 @@ func TestActorContextDoesNotLeakAcrossTransactions(t *testing.T) {
 	}))
 	require.Zero(t, count, "actor context must not survive the transaction on a pooled connection")
 }
+
+// Rule 6 (TYRE-170): five predicates in the schema read current_date or cast
+// a timestamptz to a date, and every one of them follows the session
+// TimeZone. Nothing in the deployment pins that value, so the pool pins it.
+// The DSN below asks for another zone on purpose: against a UTC server a
+// bare "reads UTC" assertion passes with or without the pin.
+func TestPoolPinsSessionTimeZoneToUTC(t *testing.T) {
+	ctx := context.Background()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	s, err := store.New(ctx, dsn+sep+"timezone=Africa/Johannesburg")
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	var tz string
+	require.NoError(t, s.Pool().QueryRow(ctx, `SHOW TimeZone`).Scan(&tz))
+	require.Equal(t, "UTC", tz, "the pool must override any zone the DSN or the server supplies")
+}
