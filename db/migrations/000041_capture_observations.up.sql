@@ -3,9 +3,8 @@
 -- (FR-INS-066 v1.4, BR-VEH-002: "the recorded count follows what
 -- inspections find"), never as a reading and never as configuration; whether
 -- spares are captured at all is tenant configuration (rule 5, key
--- capture_spares, owner 6 Sep 2026 on TYRE-155). Later tasks on the same
--- branch add the inspection timing view (TYRE-150) and the future-skew
--- SQLSTATE (TYRE-215) to this file.
+-- capture_spares, owner 6 Sep 2026 on TYRE-155). A later task on the same
+-- branch adds the future-skew SQLSTATE (TYRE-215) to this file.
 --
 -- TYRE-150 adds app.v_inspection_timing, separating duration_seconds
 -- (elapsed wall clock) from the sum of reading.capture_seconds (active
@@ -581,6 +580,9 @@ SELECT i.tenant_id,
             THEN sum(r.capture_seconds)::int END AS active_seconds,
        count(r.id)::int AS positions_read
   FROM app.inspection i
+  -- The inner join drops nothing live: submit_inspection refuses an empty
+  -- readings array (000023/000041, TY005), so a stored inspection always
+  -- has at least one reading.
   JOIN app.reading r ON r.inspection_id = i.id
  WHERE i.state <> 'VOIDED'
  GROUP BY i.tenant_id, i.id, i.vehicle_id, i.submitted_at, i.duration_seconds;
