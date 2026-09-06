@@ -90,9 +90,15 @@ export function OutboxIndicator() {
         {blocked.map((e) => (
           <span key={e.clientUuid} className="cap-outbox-line cap-outbox-line--stop">
             {/* TYRE-167 / FR-OFF-013: the recovery action once the office has
-                taken the readings over the phone. Confirmed, never automatic. */}
+                taken the readings over the phone. Confirmed, never automatic.
+                Named by vehicle so two refused entries get two distinguishable
+                buttons — this one permanently deletes a never-synced
+                inspection, and a duplicate accessible name is a mis-click
+                away from deleting the wrong one. */}
             <ConfirmDiscard
-              trigger="The office has this one"
+              trigger={
+                e.fleetNumber ? `The office has ${e.fleetNumber}` : "The office has this one"
+              }
               question="Remove this inspection from the phone?"
               consequence="The office must already have these readings; nothing will be sent."
               confirm="Remove"

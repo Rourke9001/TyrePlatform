@@ -30,8 +30,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function queueOne() {
-  await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:12:00Z" });
+async function queueOne(opts: { fleetNumber?: string | null } = {}) {
+  await startDraft({
+    vehicleId: "v1",
+    taskId: null,
+    startedAt: "2026-08-25T06:12:00Z",
+    fleetNumber: opts.fleetNumber ?? null,
+  });
   await savePosition({
     positionId: "p1",
     vehicleId: "v1",
@@ -119,6 +124,17 @@ describe("the outbox", () => {
     // restates the string agrees with a queueDraft that restates it too, and
     // both would pass while the draft the driver is holding survived.
     expect(await loadDraft()).toBeUndefined();
+  });
+
+  // TYRE-167 fix round 1: the entry outlives the draft, so it needs its own
+  // copy of the fleet number — it is the only thing the shell banner's
+  // release control can name a refused inspection by.
+  it("carries the draft's fleet number onto the entry, and null when the draft has none", async () => {
+    const named = await queueOne({ fleetNumber: "BAC 101" });
+    expect(named.fleetNumber).toBe("BAC 101");
+
+    const unnamed = await queueOne();
+    expect(unnamed.fleetNumber).toBeNull();
   });
 
   it("releases the entry on a 201", async () => {
