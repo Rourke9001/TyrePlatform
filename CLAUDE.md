@@ -194,6 +194,10 @@ OI-29 (tenancy, sponsor acceptance of ADR-0003) and OI-31/32/33.
   an entry there means **do not try it again**; do what the rule says instead.
   It is curated, not a diary: only failures that change how the next attempt
   should behave, never one-off typos or transient errors.
+- **Do not force code to work.** A change has to own its place. If a fix
+  causes more problems than the one it solves, or only stands up with
+  workarounds propped against it, delete it and say so rather than patching
+  around it (owner, 6 Sep 2026).
 - Prefer `rg` over `grep`, `fd` over `find`.
 - Do not create files unless they are needed. No README per directory.
 - When you finish a task, run `make check`, not just the test you were working on.
