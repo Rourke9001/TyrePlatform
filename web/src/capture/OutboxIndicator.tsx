@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 import { liveQuery } from "dexie";
 
+import { ConfirmDiscard } from "./ConfirmDiscard";
 import type { OutboxEntry } from "./outbox";
-import { flushOutbox, isStale, listOutbox, startOutboxHeartbeat } from "./outbox";
+import { discardEntry, flushOutbox, isStale, listOutbox, startOutboxHeartbeat } from "./outbox";
 import "./capture.css";
 
 // One shared empty array, so a snapshot taken before the first emission keeps
@@ -84,6 +85,26 @@ export function OutboxIndicator() {
         {blocked.length > 0 && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
             {blocked.length} inspection{blocked.length === 1 ? " needs" : "s need"} the office
+          </span>
+        )}
+        {blocked.map((e) => (
+          <span key={e.clientUuid} className="cap-outbox-line cap-outbox-line--stop">
+            {/* TYRE-167 / FR-OFF-013: the recovery action once the office has
+                taken the readings over the phone. Confirmed, never automatic. */}
+            <ConfirmDiscard
+              trigger="The office has this one"
+              question="Remove this inspection from the phone?"
+              consequence="The office must already have these readings; nothing will be sent."
+              confirm="Remove"
+              onConfirm={() => void discardEntry(e.clientUuid)}
+            />
+          </span>
+        ))}
+        {waiting.some((e) => e.lastCode === "TY021") && (
+          <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
+            {/* TYRE-215: the one refusal the driver can fix without the office. */}
+            This phone&apos;s clock is ahead, so the office could not accept it yet. It will send
+            later — check the time.
           </span>
         )}
         {stale.length > 0 && (

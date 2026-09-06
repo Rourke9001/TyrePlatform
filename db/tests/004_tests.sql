@@ -7572,7 +7572,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 49. TYRE-166: a submitted_at ahead of the server clock beyond the tenant skew is refused; the past stays open (ADR-0009)'
+\echo '== 49. TYRE-166: a submitted_at ahead of the server clock beyond the tenant skew is refused; the past stays open (ADR-0009) (TY021, TYRE-215)'
 BEGIN;
 DO $$
 DECLARE
@@ -7627,7 +7627,7 @@ BEGIN
         jsonb_build_object('vehicle_id', v3, 'position_id', posa,
                            'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
     RAISE EXCEPTION 'FAIL 49: a submit six minutes ahead of the server clock was accepted';
-  EXCEPTION WHEN SQLSTATE 'TY005' THEN GET STACKED DIAGNOSTICS m = MESSAGE_TEXT; ok := true;
+  EXCEPTION WHEN SQLSTATE 'TY021' THEN GET STACKED DIAGNOSTICS m = MESSAGE_TEXT; ok := true;
   END;
   IF NOT ok OR strpos(m, '5 minutes') = 0 THEN
     RAISE EXCEPTION 'FAIL 49: the refusal does not name the tenant allowance: %', m;

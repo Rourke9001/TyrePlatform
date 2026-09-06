@@ -939,8 +939,13 @@
 }
 
 /* NFR-USE-009: the count is the message. There is no badge to read a colour
-   off, because in direct sun there is no colour to read. */
+   off, because in direct sun there is no colour to read. TYRE-167: grid, not
+   inline flow, because a per-entry line's ConfirmDiscard swaps its trigger
+   button for a block-level confirmation section once pressed, and an inline
+   span cannot lay that out below the line without becoming a container. */
 .cap-outbox-line {
+  display: grid;
+  gap: var(--space-2);
   font-family: var(--font-ui);
   font-size: var(--text-small);
   line-height: 1.3;

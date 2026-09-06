@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
+import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { db } from "./draft";
 import type { OutboxEntry, OutboxState } from "./outbox";
 import { OutboxIndicator } from "./OutboxIndicator";
@@ -106,5 +108,44 @@ describe("OutboxIndicator", () => {
     render(<OutboxIndicator />);
 
     expect(await screen.findByText(/waiting over two days/i)).toBeInTheDocument();
+  });
+
+  // TYRE-167: the "needs the office" line stops being permanent. Two taps,
+  // on the shell banner, only for a refused entry — a queued one shows no
+  // such control.
+  it("lets the driver hand a refused inspection to the office and drop it", async () => {
+    const user = userEvent.setup();
+    await outbox().put(entry("u-failed", "failed"));
+    const { container } = render(<OutboxIndicator />);
+
+    await screen.findByText(/needs the office/);
+    // The sweep runs while the new strings are on screen: once the drop
+    // completes the indicator un-mounts entirely (the same collapse the
+    // "drops the count again" test above pins), so there is nothing left in
+    // `container` for a post-drop sweep to find.
+    expectNothingForbiddenSpoken(container, /office/i);
+    await user.click(screen.getByRole("button", { name: /the office has this one/i }));
+    expect(screen.getByRole("group", { name: /remove this inspection/i })).toHaveTextContent(
+      /the office must already have/i,
+    );
+    expectNothingForbiddenSpoken(container, /office/i);
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(async () => expect(await outbox().count()).toBe(0));
+  });
+
+  it("offers no removal for an inspection still waiting to send", async () => {
+    await outbox().put(entry("u-queued", "queued"));
+    render(<OutboxIndicator />);
+    await screen.findByText(/waiting to send/);
+    expect(screen.queryByRole("button", { name: /the office has this one/i })).toBeNull();
+  });
+
+  // TYRE-215: a skew refusal is named for what it is, with the fix, instead
+  // of "needs the office".
+  it("tells the driver the phone clock is ahead when that is why it has not sent", async () => {
+    await outbox().put({ ...entry("u-skew", "queued"), lastCode: "TY021", attempts: 1 });
+    render(<OutboxIndicator />);
+    expect(await screen.findByText(/clock is ahead/i)).toHaveTextContent(/check the time/i);
   });
 });

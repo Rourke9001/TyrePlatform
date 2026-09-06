@@ -6,6 +6,7 @@ import {
   attemptSend,
   backoffMs,
   classify,
+  discardEntry,
   isStale,
   listOutbox,
   queueDraft,
@@ -301,6 +302,46 @@ describe("the outbox", () => {
     // partial walk-around is gone.
     expect(await loadDraft()).toBeDefined();
     expect(await listOutbox()).toHaveLength(0);
+  });
+
+  // TYRE-215: the one 422 that time cures. Classified by CODE, not status —
+  // the same status with no code stays permanent.
+  it("keeps retrying a future-skew refusal with backoff", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        json: () => Promise.resolve({ code: "TY021", message: "check the device time" }),
+      }),
+    );
+    const entry = await queueOne();
+    await attemptSend(entry.clientUuid);
+    const [still] = await listOutbox();
+    expect(still.state).toBe("queued");
+    expect(still.lastCode).toBe("TY021");
+    expect(still.nextAttemptAt).toBeGreaterThan(Date.now());
+  });
+
+  // TYRE-167 / FR-OFF-013: once the office has the readings there is no
+  // recovery action left, and the entry can be released — by a person, with
+  // confirmation, and only a FAILED one. A queued or sending entry is the
+  // driver's work in flight and cannot be dropped.
+  it("drops a failed entry on request and refuses to drop a queued one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: false, status: 409, json: () => Promise.resolve({}) }),
+    );
+    const failed = await queueOne();
+    await attemptSend(failed.clientUuid);
+    expect((await listOutbox())[0].state).toBe("failed");
+
+    await discardEntry(failed.clientUuid);
+    expect(await listOutbox()).toEqual([]);
+
+    const queued = await queueOne();
+    await expect(discardEntry(queued.clientUuid)).rejects.toThrow(/not refused/);
+    expect(await listOutbox()).toHaveLength(1);
   });
 });
 

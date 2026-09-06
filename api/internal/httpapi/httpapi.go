@@ -295,6 +295,10 @@ var submitStatus = map[string]int{
 	"TY018": http.StatusUnprocessableEntity,
 	"TY019": http.StatusUnprocessableEntity,
 
+	// TY021 is the future-skew refusal (000041); 422 like TY005 on the wire, but
+	// its own code so the outbox can tell it apart and retry (TYRE-215).
+	"TY021": http.StatusUnprocessableEntity,
+
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
 	// (units.go's patchUnitRequest). An entry could carry no test able to
