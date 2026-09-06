@@ -1011,8 +1011,9 @@ END $$;
 
 -- The baseline threshold_policy row is a sentinel (-infinity, SRS §5.1
 -- errata E1): history before onboarding resolves to the baseline, never to
--- 'no policy configured'. 2021-10-04 is the survey date — exactly the class
--- of as-at date the old 2024-01-01 seed left unresolvable.
+-- 'no policy configured'. 2021-10-04 is the survey date — years before any
+-- onboarding date the fixture carries, which is the class of as-at date the
+-- sentinel exists to resolve.
 DO $$
 DECLARE mm numeric;
 BEGIN
@@ -2019,8 +2020,8 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL: duplicate code accepted among ACTIVE tyres'; END IF;
 
-  -- scrap the first, then the SAME code must be insertable: under the old
-  -- global UNIQUE this failed, which was the bug
+  -- scrap the first, then the SAME code must be insertable: uniqueness binds
+  -- only while a tyre is active (the section preamble), never globally
   UPDATE app.tyre SET state='SCRAPPED' WHERE id = t1;
   INSERT INTO app.tyre (tenant_id, display_code, state)
     VALUES ('22222222-2222-2222-2222-222222222222','CA123456-11','IN_STOCK') RETURNING id INTO t2;
@@ -4009,11 +4010,11 @@ BEGIN
   EXCEPTION WHEN sqlstate 'TY012' THEN RAISE NOTICE 'PASS  39m cross-tenant tyre invisible to costing';
   END;
 
-  -- FR-VAL-006: the two writers of rand_per_mm must agree to the cent. They
-  -- diverged once because only receive_tyres rounded the price before the
-  -- divide, so a 3dp price set through the cost path stored a rate that could
-  -- not be reproduced from the price stored beside it. Pinned at 3dp
-  -- deliberately: a 2dp price cannot fail this.
+  -- FR-VAL-006: the two writers of rand_per_mm agree to the cent only if each
+  -- rounds the price into its column before dividing — a 3dp price set through
+  -- the cost path otherwise stores a rate that cannot be reproduced from the
+  -- price stored beside it. Pinned at 3dp deliberately: a 2dp price cannot
+  -- fail this.
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   SELECT tyre_id INTO d FROM app.receive_tyres(
     '{"display_code":"RATE-3DP","new_tread_mm":"25.0","received_date":"2026-01-05"}'::jsonb);
@@ -4342,7 +4343,8 @@ BEGIN
 
   -- (e) The composite FK accepts any position of this tenant, so only an
   -- explicit (position, configuration) check catches one belonging to a
-  -- different configuration (2026-08-26).
+  -- different configuration (lesson 2026-08-26: position ids repeat across
+  -- units of the same axle configuration).
   BEGIN
     PERFORM app.fit_tyre(ty6, vt, px, 14.0, 'MARK_OUTBOARD');
     RAISE EXCEPTION 'FAIL 41e: a position from another configuration was accepted';
@@ -4605,14 +4607,16 @@ BEGIN
     RAISE NOTICE 'PASS  41q a breakdown return restocks; a retreader return does not';
   END;
 
-  -- (r) Two independent cross-tenant probes through two functions
-  -- (2026-09-01). Neither target can refuse for a reason other than
+  -- (r) Two independent cross-tenant probes through two functions (lesson
+  -- 2026-09-01: two refusal branches sharing a SQLSTATE make a cross-tenant
+  -- probe vacuous). Neither target can refuse for a reason other than
   -- invisibility: ty5 is IN_STOCK and has never been fitted, so a leaked row
   -- would clear the state gate and go on to fail on the composite FK or
   -- TY009 — never with this message; tyd1's open fitment is open, and
   -- 'damage' is in tenant 2's own removal_reasons, so a leaked row would
   -- simply be closed. app.actor_id is left unset throughout, so nothing here
-  -- can fail on the created_by FK instead (2026-08-28).
+  -- can fail on the created_by FK instead (lesson 2026-08-28: a WITH CHECK
+  -- kill can be masked by an unrelated FK).
   SELECT f.id INTO fitd1 FROM app.fitment f
    WHERE f.tyre_id = tyd1 AND f.removed_at IS NULL;
   PERFORM set_config('app.tenant_id', t_two::text, true);
@@ -4686,15 +4690,15 @@ BEGIN
   -- the shape every one of BAC's 27 live open fitments is in —
   -- has no such event to bound against. Planted the same way as 41d's
   -- occupancy probes: past app.fit_tyre, straight into the table, so ty9
-  -- carries an open fitment and zero tyre_event rows. Against the pre-fix
-  -- body this probe fails: fitment_instant_ok's last_at is NULL for ty9, its
-  -- movement guard never fires, and the removal below would have succeeded —
-  -- closing the fitment an hour before it was opened, a row the as-at
-  -- register's location join (000036: fitted_at < bound.ts AND (removed_at
-  -- IS NULL OR removed_at >= bound.ts)) can never match at any date. Both
-  -- instants sit inside the last 24 hours on purpose: further back, the
-  -- pre-fix body refuses on TY014 for the missing backdate reason
-  -- (FR-FIT-016) and the probe would fail for the wrong cause. The removal
+  -- carries an open fitment and zero tyre_event rows. Without
+  -- fitment_instant_ok's per-fitment fitted_at check this probe passes
+  -- vacuously: last_at is NULL for ty9, the movement guard never fires, and
+  -- the removal below closes the fitment an hour before it was opened — a row
+  -- the as-at register's location join (000036: fitted_at < bound.ts AND
+  -- (removed_at IS NULL OR removed_at >= bound.ts)) can never match at any
+  -- date. Both instants sit inside the last 24 hours on purpose: further back,
+  -- TY014 refuses for the missing backdate reason (FR-FIT-016) and the probe
+  -- would fail for the wrong cause. The removal
   -- odometer is supplied for the same reason: on a HORSE the closing UPDATE
   -- raises TY009 (000025) without one, and the guard under test has to be
   -- the only rule left standing between the call and a backwards closure.
@@ -4722,8 +4726,8 @@ BEGIN
   -- refusing the set. Only the per-move check against each tyre's own
   -- fitted_at can catch ty9 here. The rotation is stamped two hours back —
   -- inside the 24-hour rule, which rotate_tyres cannot satisfy with a reason
-  -- (TYRE-108) — so against the pre-fix body this call would have closed
-  -- ty9's fitment an hour before it was opened.
+  -- (TYRE-108) — so without the per-move check this call closes ty9's fitment
+  -- an hour before it was opened.
   SELECT * INTO r FROM app.fit_tyre(ty5, vh, p7, 12.0, 'MARK_OUTBOARD', 290000,
                                     now() - interval '20 days',
                                     'fitment backfilled from the paper sheet');
@@ -4746,8 +4750,8 @@ BEGIN
   -- (w) I1(b), the enforced form: removal_does_not_predate_fitment (000032)
   -- catches the same backwards closure at the constraint, superuser-bypass
   -- included, for a caller that reaches app.fitment directly rather than
-  -- through either function above. Against the pre-fix body (no such
-  -- constraint) this raw UPDATE succeeds outright:
+  -- through either function above. Without that constraint this raw UPDATE
+  -- succeeds outright:
   -- fitment_written_once (000032) permits the closing UPDATE from any caller
   -- since OLD.removed_at IS NULL and only removed_at/removal_reason move, and
   -- removal_is_complete (000001/000011) only ties removed_at to
@@ -4841,7 +4845,9 @@ BEGIN
   -- their column's scale so the rounding order is observable: a cost at three
   -- decimals and a tread at two, each rounded into its column's own type
   -- before the divide, yield a rate reproducible from the row it is stored
-  -- beside; dividing either raw parameter does not (2026-09-01). Both inputs
+  -- beside; dividing either raw parameter does not (lesson 2026-09-01: a
+  -- function parameter's numeric(p,s) is discarded; only a local rounds). Both
+  -- inputs
   -- are read back off the rows rather than restated, so only the stored
   -- figures are on trial.
   PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T42-RPT-A',
@@ -5122,13 +5128,15 @@ BEGIN
     RAISE NOTICE 'PASS  42h the only scrap path from the retreader is the retread return';
   END;
 
-  -- (i) Two cross-tenant probes through two functions (2026-09-01). Neither
-  -- target can refuse for a reason other than invisibility: ji is genuinely
-  -- open on a tyre genuinely AT_RETREADER and the arguments are the accepted
-  -- ones 42a used, so a leaked row would have been returned rather than
-  -- refused; tj is genuinely REMOVED with no events of its own, so a leaked
+  -- (i) Two cross-tenant probes through two functions (lesson 2026-09-01: two
+  -- refusal branches sharing a SQLSTATE make a cross-tenant probe vacuous).
+  -- Neither target can refuse for a reason other than invisibility: ji is
+  -- genuinely open on a tyre genuinely AT_RETREADER and the arguments are the
+  -- accepted ones 42a used, so a leaked row would have been returned rather
+  -- than refused; tj is genuinely REMOVED with no events of its own, so a leaked
   -- row would have been dispatched. app.actor_id is left unset throughout, so
-  -- nothing here can fail on the created_by FK instead (2026-08-28).
+  -- nothing here can fail on the created_by FK instead (lesson 2026-08-28: a
+  -- WITH CHECK kill can be masked by an unrelated FK).
   SELECT * INTO r FROM app.dispatch_tyre(ti, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
   ji := r.retread_job_id;
   PERFORM set_config('app.tenant_id', t_two::text, true);
@@ -5280,7 +5288,8 @@ DECLARE
   -- A seeded BAC user, not a fresh uuid: app.vehicle.created_by and
   -- app.inspection_schedule.created_by both default to app.current_actor_id()
   -- behind a composite FK, so an invented actor would kill a plant on the FK
-  -- and read as a fault in the surface under test (2026-08-28).
+  -- and read as a fault in the surface under test (lesson 2026-08-28: a WITH
+  -- CHECK kill can be masked by an unrelated FK).
   act   uuid := md5('controller1')::uuid;
   veh1  uuid := md5('veh1')::uuid;  -- seeded, ACTIVE, BAC: 43g's cross-tenant target
   vu    uuid := md5('t43u')::uuid;  -- TRAILER: owes no fitment odometer (TY009)
@@ -5332,7 +5341,8 @@ BEGIN
 
   -- (b) FR-AUD-001, ADR-0014. Counted as a delta rather than against a
   -- literal: the planting above already wrote INSERT rows for this unit, and
-  -- an absolute count would pass on those alone (2026-08-26). The actor is
+  -- an absolute count would pass on those alone (lesson 2026-08-26: an
+  -- expected value can be correct and still prove nothing). The actor is
   -- bound here and only here, so a NULL would be visible as a failure rather
   -- than as the planting's own "loaded, not acted" NULL.
   PERFORM set_config('app.actor_id', act::text, true);
@@ -5354,7 +5364,8 @@ BEGIN
   -- IS DISTINCT FROM, not <>: a trigger that wrote NULL into before on an
   -- UPDATE would make <> evaluate to NULL and the branch fall through, so the
   -- one assertion the audit mechanism rests on would pass on a missing value
-  -- (2026-08-26).
+  -- (lesson 2026-08-26: an expected value can be correct and still prove
+  -- nothing).
   IF a.before->>'status' IS DISTINCT FROM 'ACTIVE'
      OR a.after->>'status' IS DISTINCT FROM 'PARKED' THEN
     RAISE EXCEPTION 'FAIL 43b: the audit row reads % to %', a.before->>'status', a.after->>'status';
@@ -5458,7 +5469,9 @@ BEGIN
     RAISE NOTICE 'PASS  43f audit rows stay append-only for the app role';
   END;
 
-  -- (g) Two cross-tenant probes (2026-09-01). veh1 is a seeded BAC unit that
+  -- (g) Two cross-tenant probes (lesson 2026-09-01: two refusal branches
+  -- sharing a SQLSTATE make a cross-tenant probe vacuous). veh1 is a seeded
+  -- BAC unit that
   -- is ACTIVE with no open-fitment bar on a park, so a leaked row would have
   -- been parked rather than refused, and a TY016 here would mean the row was
   -- visible. The raw UPDATE writes description, which carries no constraint
@@ -5703,8 +5716,7 @@ BEGIN
   -- removal logged today is the first thing to date the column — and with an
   -- undated read of it, June 2026 and June 2021 both pick up today's 5.0 mm.
   -- Without the date guard this read answers 27 rows / 1 valued at
-  -- 2026-06-01, against the 27/0 section 18 pins (2026-09-02). The odometer
-  -- is derived
+  -- 2026-06-01, against the 27/0 section 18 pins. The odometer is derived
   -- from the row rather than typed, so the removal is refused by the rule
   -- under test or by nothing.
   SELECT f.id, COALESCE(f.fitted_odometer, 0) + 100000 INTO fitb, odo
@@ -6453,7 +6465,7 @@ BEGIN
   -- however the migration spells it.
   --
   -- What precedes the number is what separates a bound from a citation: a
-  -- migration reference (000031:25-30) and a line number (000034:127) sit
+  -- migration reference (000031:25-30) and a line number (000034:122-126) sit
   -- behind a digit, a colon or a hyphen, and none of those is how a bound is
   -- written.
   IF mx <> trunc(mx) THEN
@@ -6475,10 +6487,10 @@ BEGIN
   RAISE NOTICE 'PASS  47a one tread ceiling, interpolated into four refusals that keep their own words';
 
   -- (b) The same four inputs absent rather than out of range. The retread
-  -- return owes a distinct answer here: it names which of three figures is
-  -- missing (000034:127), and that wording is what a workshop retyping a
-  -- report reads, so it must survive the shared bound rather than be folded
-  -- into it (FR-FIT-022).
+  -- return owes a distinct answer here: app.log_retread_return names which of
+  -- three figures is missing (000034), and that wording is what a workshop
+  -- retyping a report reads, so it must survive the shared bound rather than
+  -- be folded into it (FR-FIT-022).
   BEGIN
     PERFORM app.fit_tyre(tyr, va, p3, NULL, 'MARK_OUTBOARD');
     RAISE EXCEPTION 'FAIL 47b: a fit with no tread was accepted';
@@ -6687,8 +6699,8 @@ BEGIN
   PERFORM set_config('app.actor_id', '', true);
   INSERT INTO app.tyre (id, tenant_id, display_code, status, retread_count, state)
   VALUES (fty, t_two, 'T47TYREF', 'NEW', 0, 'FITTED');
-  -- Queried, never assumed: the seed already occupies one position of this
-  -- unit (:1136), and DR-004 admits one open fitment per (position, unit).
+  -- Queried, never assumed: t2veh1 already carries an open fitment from check
+  -- 19's T2GAP1 probe, and DR-004 admits one open fitment per (position, unit).
   SELECT p.id INTO t2pos
     FROM app.position p
     JOIN app.vehicle v ON v.configuration_id = p.configuration_id
@@ -6701,11 +6713,10 @@ BEGIN
   IF t2pos IS NULL THEN
     RAISE EXCEPTION 'FAIL 47f: the other fleet''s unit has no free position to plant a casing on';
   END IF;
-  -- Written directly rather than through app.fit_tyre, the shape the seed
-  -- uses for its own tenant-2 row (:1136): what this probe rests on is the
-  -- fitment existing, not the function's refusals. t2veh1 is a HORSE, so the
-  -- reading is not optional (000025, FR-FIT-002), and the fit is backdated so
-  -- it shares no instant with anything this section stamps.
+  -- Written directly rather than through app.fit_tyre: what this probe rests
+  -- on is the fitment existing, not the function's refusals. t2veh1 is a
+  -- HORSE, so the reading is not optional (000025, FR-FIT-002), and the fit is
+  -- backdated so it shares no instant with anything this section stamps.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
                            fitted_odometer, fitted_tread_mm, mount_orientation)
   VALUES (t_two, fty, md5('t2veh1')::uuid, t2pos, now() - interval '1 day',
