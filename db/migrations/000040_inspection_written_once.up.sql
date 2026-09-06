@@ -563,3 +563,67 @@ FOR EACH ROW EXECUTE FUNCTION app.inspection_is_sealed();
 CREATE TRIGGER reading_measurement_sealed
 BEFORE INSERT ON app.reading_measurement
 FOR EACH ROW EXECUTE FUNCTION app.inspection_is_sealed();
+
+-- ---------------------------------------------------------------------------
+-- TYRE-144. The append-only set (000001, 000018) protected the rows that
+-- carry a number and left out the row those numbers hang off: app.inspection
+-- carries odometer (what the wear rate divides by, 000009) and submitted_at
+-- (BR-VAL-007's ordering key and the as-at register's cut-off, 000036). Rule
+-- 3 says enforcement is a grant, not a convention, so UPDATE is revoked and
+-- re-granted on the two columns the void writes (FR-INS-012); the trigger
+-- below bounds that UPDATE to the one shape. A column grant is checked on the
+-- statement's SET list, so inspection_stamps_updated (000017) still writes
+-- updated_at/updated_by from inside the trigger chain.
+REVOKE UPDATE ON app.inspection FROM app_rw;
+GRANT UPDATE (state, void_reason) ON app.inspection TO app_rw;
+
+-- VOIDED is terminal (SRS Appendix C.2: SYNCED --void--> VOIDED; FR-INS-012
+-- retains the record and excludes it). A mistaken void is corrected by
+-- capturing the unit again, never by reversing the void, so the row freezes
+-- entire once voided. The comparison subtracts the stamp columns rather than
+-- relying on trigger order -- 000032's reasoning -- and uses the whole row so
+-- a column added later is frozen by default rather than editable by omission.
+CREATE FUNCTION app.inspection_is_written_once() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+BEGIN
+  IF OLD.state = 'VOIDED' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY019',
+      MESSAGE = 'a voided inspection cannot be changed',
+      HINT    = 'capture the unit again; a void is never reversed (FR-INS-012)';
+  END IF;
+  IF (to_jsonb(NEW) - 'state' - 'void_reason' - 'updated_at' - 'updated_by')
+     IS DISTINCT FROM
+     (to_jsonb(OLD) - 'state' - 'void_reason' - 'updated_at' - 'updated_by') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY019',
+      MESSAGE = 'an inspection is written once; only a void may follow it',
+      HINT    = 'void it with a reason and capture the unit again (FR-INS-011)';
+  END IF;
+  IF NEW.state IS DISTINCT FROM OLD.state AND NEW.state <> 'VOIDED' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY019',
+      MESSAGE = 'an inspection can only be voided',
+      HINT    = 'SYNCED is the submitted state; there is no way back to it (Appendix C.2)';
+  END IF;
+  IF NEW.state = 'VOIDED' AND (NEW.void_reason IS NULL OR btrim(NEW.void_reason) = '') THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY019',
+      MESSAGE = 'a void carries a reason',
+      HINT    = 'say why the capture is wrong (FR-INS-012)';
+  END IF;
+  IF NEW.state = OLD.state AND NEW.void_reason IS DISTINCT FROM OLD.void_reason THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY019',
+      MESSAGE = 'void_reason is written by the void itself',
+      HINT    = 'set state and void_reason in one statement (app.void_inspection)';
+  END IF;
+  RETURN NEW;
+END $$;
+
+-- Fires after inspection_stamps_updated by name order; the stamps are
+-- excluded above so the order is not load-bearing.
+CREATE TRIGGER inspection_written_once
+BEFORE UPDATE ON app.inspection
+FOR EACH ROW EXECUTE FUNCTION app.inspection_is_written_once();

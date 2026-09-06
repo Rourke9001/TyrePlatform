@@ -2,6 +2,10 @@
 -- and 000039's ceiling verbatim. The duplication is the point (000039's
 -- down says why); the rows the up's rules refused stay refused-nothing,
 -- and the rows they admitted are the fleet's history.
+DROP TRIGGER inspection_written_once ON app.inspection;
+DROP FUNCTION app.inspection_is_written_once();
+REVOKE UPDATE (state, void_reason) ON app.inspection FROM app_rw;
+GRANT UPDATE ON app.inspection TO app_rw;
 DROP TRIGGER reading_measurement_sealed ON app.reading_measurement;
 DROP TRIGGER reading_sealed ON app.reading;
 DROP FUNCTION app.inspection_is_sealed();
