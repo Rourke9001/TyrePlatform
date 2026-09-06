@@ -135,8 +135,11 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
 - Business rules are tested in SQL, against the golden fixture, not mocked.
 - The Appendix J fixture produces exactly **19 exceptions, 11 urgent, 9 running
   positions below the removal threshold**. The database, the capture app and
-  the dashboard each compute this independently. Keep all three agreeing — a
-  change that breaks one and not the others is then visible immediately.
+  the dashboard must each compute this independently. Keep all three agreeing —
+  a change that breaks one and not the others is then visible immediately. At
+  this tree only `db/tests/004_tests.sql` §8 pins them, as position sets for
+  five rules (FR-EXC-020/035/038/036/022); the capture app and the dashboard
+  have no exception computation yet (TYRE-41, TYRE-7).
 - Go: table-driven tests, `testify/require`. Integration tests hit a real
   Postgres, not a mock.
 - Do not weaken a test to make it pass. If a test is wrong, say so and explain
