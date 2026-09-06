@@ -216,6 +216,9 @@ export async function markSpareAbsent(vehicleId: string, positionId: string): Pr
   }));
 }
 
+// TYRE-155: the reading markSpareAbsent discarded is not restored here — the
+// driver re-enters it. Restoring a value from before the tap would be the
+// app guessing at a reading the driver said was absent.
 export async function unmarkSpareAbsent(vehicleId: string, positionId: string): Promise<void> {
   await mutate((draft) => ({
     ...draft,

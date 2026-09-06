@@ -156,9 +156,9 @@ describe("OutboxIndicator", () => {
     expectNothingForbiddenSpoken(container, /clock is ahead/i);
   });
 
-  // TYRE-167 fix round 1: a duplicate accessible name across two failed
-  // entries is a mis-click away from deleting the wrong never-synced
-  // inspection, so the release control must name the vehicle it releases.
+  // TYRE-167: a duplicate accessible name across two failed entries is a
+  // mis-click away from deleting the wrong never-synced inspection, so the
+  // release control must name the vehicle it releases.
   it("names the vehicle so two failed entries can be told apart", async () => {
     const user = userEvent.setup();
     await outbox().put(entry("u-101", "failed", "BAC 101"));

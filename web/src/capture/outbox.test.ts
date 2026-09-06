@@ -126,9 +126,9 @@ describe("the outbox", () => {
     expect(await loadDraft()).toBeUndefined();
   });
 
-  // TYRE-167 fix round 1: the entry outlives the draft, so it needs its own
-  // copy of the fleet number — it is the only thing the shell banner's
-  // release control can name a refused inspection by.
+  // TYRE-167: the entry outlives the draft, so it needs its own copy of the
+  // fleet number — it is the only thing the shell banner's release control
+  // can name a refused inspection by.
   it("carries the draft's fleet number onto the entry, and null when the draft has none", async () => {
     const named = await queueOne({ fleetNumber: "BAC 101" });
     expect(named.fleetNumber).toBe("BAC 101");

@@ -280,11 +280,11 @@ describe("the draft buffer", () => {
     expect((await loadDraft())?.absentSpares).toEqual([]);
   });
 
-  // TYRE-155 review finding 1: a reading AND an absent_spares entry for the
-  // same cell is a shape app.submit_inspection refuses outright (TY005,
-  // 000041), and the outbox reads that 422 as permanent — so a stale draft
-  // position left behind by the mark would lose the whole capture, not just
-  // one cell. The tap IS the driver saying there is nothing to read.
+  // TYRE-155: a reading AND an absent_spares entry for the same cell is a
+  // shape app.submit_inspection refuses outright (TY005, 000041), and the
+  // outbox reads that 422 as permanent — so a stale draft position left
+  // behind by the mark would lose the whole capture, not just one cell. The
+  // tap IS the driver saying there is nothing to read.
   it("discards a spare's draft position when it is marked absent", async () => {
     await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-09-06T08:00:00Z" });
     await savePosition({
