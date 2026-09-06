@@ -17,7 +17,14 @@
       "Bash(gh pr:*)",
       "Bash(gh run:*)",
       "Bash(rg:*)",
-      "Bash(fd:*)"
+      "Bash(fd:*)",
+      "mcp__claude_ai_Atlassian_Rovo__getJiraIssue",
+      "mcp__claude_ai_Atlassian_Rovo__searchJiraIssuesUsingJql",
+      "mcp__claude_ai_Atlassian_Rovo__getConfluencePage",
+      "mcp__claude_ai_Atlassian_Rovo__getAccessibleAtlassianResources",
+      "Bash(git fetch:*)",
+      "mcp__claude_ai_Atlassian_Rovo__getIssueLinkTypes",
+      "mcp__claude_ai_Atlassian_Rovo__search"
     ],
     "ask": [
       "Bash(git push:*)",
