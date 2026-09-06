@@ -940,8 +940,8 @@ func TestReturnToStockFromBreakdownSupplier(t *testing.T) {
 
 // sentOn is parsed in Go before the transaction opens, the way listTyres
 // parses its on: a raw "yesterday" reaching $4::date is Postgres's
-// 22007/22008, which submitStatus does not map, so a client typo would come
-// back as a 500 the caller cannot act on.
+// 22007/22008, canned as invalid_submission, which names no field; the
+// check here is what names one.
 func TestDispatchRefusesMalformedSentOn(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

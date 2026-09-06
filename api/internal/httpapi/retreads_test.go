@@ -289,8 +289,9 @@ func TestRetreadReturnCrossTenantIsInvisible(t *testing.T) {
 }
 
 // returnedOn is parsed in Go before the transaction opens, like the
-// dispatch's sentOn: 22007/22008 is in no map here, so an unparsed date
-// would answer 500 for a client typo instead of naming the field.
+// dispatch's sentOn: an unparsed date reaching the cast would come back as
+// 22007/22008, canned as invalid_submission, which names no field; the
+// check here is what names one.
 func TestLogRetreadReturnRefusesMalformedReturnedOn(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
