@@ -8,7 +8,7 @@ import { testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
-import { clearDraft, db, loadDraft, startDraft } from "./draft";
+import { clearDraft, db, loadDraft, markSpareAbsent, startDraft } from "./draft";
 import { listOutbox } from "./outbox";
 
 // CaptureFlow uses useCaptureContext -> useQuery, so an unwrapped render
@@ -122,6 +122,26 @@ const withSpare: CaptureContext = {
       id: "s1",
       code: "S",
       sequence: 99,
+      isSpare: true,
+      axleClass: "SPARE",
+      side: null,
+      axleNumber: null,
+      targetKpa: null,
+    },
+  ],
+};
+
+// One position, and it is the spare — so a draft on this unit can hold an
+// absent-spare mark with nothing captured at all, which is exactly the case
+// lostWords has to name rather than read as empty (TYRE-146).
+const spareOnly: CaptureContext = {
+  ...context,
+  positions: [
+    {
+      ...context.positions[0],
+      id: "s1",
+      code: "S",
+      sequence: 1,
       isSpare: true,
       axleClass: "SPARE",
       side: null,
@@ -651,6 +671,28 @@ describe("CaptureFlow", () => {
     await user.click(screen.getByRole("button", { name: "Discard" }));
     expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
     expect(await loadDraft()).toBeUndefined();
+  });
+
+  // TYRE-146: a draft whose only observation is "No spare on this unit" had
+  // zero captured positions, so the old wording read it as empty right before
+  // clearDraft discarded the mark along with it. The consequence has to name
+  // the mark in the driver's own words for the control that made it.
+  it("names a lost absent-spare mark when the draft has no captured positions", async () => {
+    const user = newUser();
+    stubApi(201, [spareOnly]);
+    await startDraft({
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: new Date().toISOString(),
+      fleetNumber: "BAC039SP",
+    });
+    await markSpareAbsent("v1", "s1");
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /discard this inspection/i }));
+    const panel = screen.getByRole("group", { name: /BAC039SP/ });
+    expect(panel).toHaveTextContent(/1 "No spare" mark will be lost\./);
+    expect(panel).not.toHaveTextContent(/captured position/);
   });
 
   // TYRE-155 end to end on the flow: the spare cell leaves the count, the

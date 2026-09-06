@@ -247,10 +247,18 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     );
   }
 
-  const lostWords = (n: number) =>
-    n === 0
-      ? "No positions captured yet."
-      : `${n} captured position${n === 1 ? "" : "s"} will be lost.`;
+  // TYRE-146: "No spare on this unit" (markSpareAbsent) is an observation, not
+  // a reading, so a draft holding only that mark had n === 0 here and read as
+  // empty — while clearDraft was about to discard the mark along with
+  // everything else. The absent-spare count has to speak for itself, in the
+  // driver's own words for the control that made it.
+  const lostWords = (n: number, a: number) => {
+    if (n === 0 && a === 0) return "No positions captured yet.";
+    const captured = n > 0 ? `${n} captured position${n === 1 ? "" : "s"}` : "";
+    const spares = a > 0 ? `${a} "No spare" mark${a === 1 ? "" : "s"}` : "";
+    const parts = [captured, spares].filter(Boolean);
+    return `${parts.join(" and ")} will be lost.`;
+  };
 
   // FR-OFF-005: written as it is typed, not when the position is finished.
   // PositionSheet fires this once per keystroke and once more for the
@@ -373,7 +381,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <ConfirmDiscard
           trigger="Discard it"
           question={`Discard the inspection of ${heldName}?`}
-          consequence={lostWords(capturedCells(held).size)}
+          consequence={lostWords(capturedCells(held).size, absentCells(held).size)}
           confirm="Discard"
           onConfirm={discardHeld}
         />
@@ -475,7 +483,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <ConfirmDiscard
           trigger="Discard this inspection"
           question={`Discard the inspection of ${motiveCtx?.fleetNumber ?? draft.fleetNumber ?? "this vehicle"}?`}
-          consequence={lostWords(doneCount)}
+          consequence={lostWords(doneCount, absent.size)}
           confirm="Discard"
           onConfirm={discardCurrent}
         />

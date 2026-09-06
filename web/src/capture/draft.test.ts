@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import type { DraftPosition } from "./draft";
+import type { Draft, DraftPosition } from "./draft";
 import {
   cellKey,
   clearDraft,
@@ -161,6 +161,55 @@ describe("the draft buffer", () => {
     // that survives — never the other way round.
     expect(reloaded?.positions[cellKey("v1", "p1")].treads).toEqual([13, 13, 14]);
     expect(reloaded?.positions[cellKey("v2", "p1")].treads).toEqual([11, 11, 12]);
+  });
+
+  // TYRE-146 / ADR-0009: a draft written before fleetNumber and absentSpares
+  // existed reaches mutate's callbacks raw unless mutate normalises it the
+  // same way loadDraft does. Without that, savePosition's
+  // draft.absentSpares.filter(...) throws a TypeError on the very next write
+  // — on the device that ADR-0009 promises will hold the in-progress
+  // inspection durably, that is a driver locked out of saving.
+  it("saves onto a draft persisted before fleetNumber and absentSpares existed", async () => {
+    const startedAt = "2026-09-06T08:00:00Z";
+    // Cast, not the literal Draft type: the point of the fixture is a row
+    // missing fleetNumber and absentSpares, which the current type requires.
+    await db.drafts.put({
+      key: "current",
+      draft: {
+        clientUuid: "c1",
+        vehicleId: "v1",
+        combinationId: null,
+        observedMemberVehicleIds: [],
+        taskId: null,
+        startedAt,
+        odometerKm: null,
+        comment: null,
+        defectReport: null,
+        positions: {},
+        warnings: [],
+      } as unknown as Draft,
+    });
+
+    const position: DraftPosition = {
+      positionId: "p1",
+      vehicleId: "v1",
+      tyreId: null,
+      treads: [9, 9, 10],
+      pressureKpa: null,
+      pressureTemperature: "UNKNOWN",
+      damageFlag: false,
+      note: null,
+      seconds: 4,
+      warnings: [],
+    };
+    await expect(savePosition(position)).resolves.toBeUndefined();
+    await expect(markSpareAbsent("v1", "s1")).resolves.toBeUndefined();
+    await expect(unmarkSpareAbsent("v1", "s1")).resolves.toBeUndefined();
+
+    const reloaded = await loadDraft();
+    expect(reloaded?.fleetNumber).toBeNull();
+    expect(Array.isArray(reloaded?.absentSpares)).toBe(true);
+    expect(reloaded?.positions[cellKey("v1", "p1")].treads).toEqual([9, 9, 10]);
   });
 
   it("reports no draft once cleared", async () => {
