@@ -7,13 +7,22 @@ import { CaptureDone } from "./CaptureDone";
 import { CaptureReview } from "./CaptureReview";
 import { CaptureStart } from "./CaptureStart";
 import { ConfirmDiscard } from "./ConfirmDiscard";
-import type { CaptureContext } from "./captureContext";
+import type { CaptureContext, CapturePosition } from "./captureContext";
 import { captureContextQuery, useCaptureContext } from "./captureContext";
 import type { Draft, DraftPosition, RecordedWarning } from "./draft";
-import { cellKey, clearDraft, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
+import {
+  cellKey,
+  clearDraft,
+  loadDraft,
+  markSpareAbsent,
+  saveHeader,
+  savePosition,
+  startDraft,
+  unmarkSpareAbsent,
+} from "./draft";
 import { historyWarnings } from "./history";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
-import { appVersion, capturedCells, deviceId, halfEnteredCell } from "./payload";
+import { absentCells, appVersion, capturedCells, deviceId, halfEnteredCell } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { completenessByUnit, nextOutstanding, rigPositions } from "./rig";
 import type { Severity } from "./warnings";
@@ -134,7 +143,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const rig = contexts ? rigPositions(contexts) : [];
   const byCell = new Map(rig.map((r) => [r.key, r]));
   const doneCells = draft ? capturedCells(draft) : new Set<string>();
-  const units = contexts ? completenessByUnit(contexts, doneCells) : [];
+  // TYRE-155: an absent spare is settled without being a reading — off the
+  // denominator (rig.ts) and off the outstanding walk (nextOutstanding calls
+  // below), the same way a captured cell is off both.
+  const absent = draft ? absentCells(draft) : new Set<string>();
+  const units = contexts ? completenessByUnit(contexts, doneCells, absent) : [];
   const doneCount = units.reduce((n, u) => n + u.done, 0);
   // The one denominator: this figure is both the total on screen and the
   // divisor that rides to the server as completeness_pct (payload.ts). The two
@@ -270,8 +283,30 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     // position just finished: setDraft has not committed. Adding the finished
     // cell here is what stops the flow reopening the sheet it has closed.
     const finished = cellKey(position.vehicleId, position.positionId);
-    const outstanding = new Set(doneCells).add(finished);
+    const outstanding = new Set([...doneCells, ...absent]).add(finished);
     setActiveKey(nextOutstanding(rig, outstanding, finished)?.key ?? null);
+  }
+
+  // TYRE-155 / FR-INS-066: the one action on a spare sheet, recorded as an
+  // observation rather than left as a gap the review screen cannot explain.
+  // Marking one advances the same way finishing a reading does — the cell is
+  // settled, so the walk moves on to whatever is still outstanding; taking a
+  // mark back does not, since the driver is staying on this sheet to enter it.
+  function handleAbsent(position: CapturePosition, isAbsent: boolean) {
+    const cell = cellKey(position.vehicleId, position.id);
+    void (
+      isAbsent
+        ? markSpareAbsent(position.vehicleId, position.id)
+        : unmarkSpareAbsent(position.vehicleId, position.id)
+    )
+      .then(async () => {
+        setDraft((await loadDraft()) ?? null);
+        if (isAbsent) {
+          const settled = new Set([...doneCells, ...absent]).add(cell);
+          setActiveKey(nextOutstanding(rig, settled, cell)?.key ?? null);
+        }
+      })
+      .catch(() => setStorageFault("degraded"));
   }
 
   function handleSubmit(patch: { comment: string | null; defectReport: string | null }) {
@@ -389,6 +424,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         contexts={contexts}
         draft={draft}
         doneCells={doneCells}
+        absentCells={absent}
         onBack={() => setScreen("capture")}
         onSubmit={handleSubmit}
       />
@@ -427,6 +463,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           governingOf={governingOf}
           onOpen={setActiveKey}
           activeKey={activeKey}
+          absentCells={absent}
         />
 
         <button type="button" className="cap-primary" onClick={() => setScreen("review")}>
@@ -458,6 +495,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
               onChange={handleChange}
               onDone={handleDone}
               onClose={() => setActiveKey(null)}
+              absent={absent.has(active.key)}
+              onAbsent={handleAbsent}
             />
           </div>
         )}

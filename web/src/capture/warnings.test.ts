@@ -17,6 +17,7 @@ const config: CaptureConfig = {
   odometerMaxDailyKm: 1600,
   wearRateAlertMultiple: 3,
   removalThresholdMm: 4.0,
+  captureSpares: true,
 };
 
 const steer: CapturePosition = {

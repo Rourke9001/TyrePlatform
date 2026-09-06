@@ -48,6 +48,7 @@ const context: CaptureContext = {
     odometerMaxDailyKm: 1600,
     wearRateAlertMultiple: 3,
     removalThresholdMm: 4,
+    captureSpares: true,
   },
   cohortWearRateMmPerMonth: {},
 };
@@ -87,6 +88,7 @@ const props = {
   governingOf: (cell: string) => (cell === cellKey(context.vehicleId, "p1") ? 9 : null),
   onOpen: vi.fn(),
   activeKey: null,
+  absentCells: new Set<string>(),
 };
 
 describe("CaptureDiagram", () => {
@@ -178,6 +180,7 @@ function renderDedup(onOpen: (cell: string) => void) {
       governingOf={dedupGoverningOf}
       onOpen={onOpen}
       activeKey={null}
+      absentCells={new Set()}
     />,
   );
 }
@@ -269,6 +272,7 @@ describe("CaptureDiagram with two units of the same configuration", () => {
         governingOf={() => null}
         onOpen={vi.fn()}
         activeKey={null}
+        absentCells={new Set()}
       />,
     );
     const bands = Array.from(container.querySelectorAll(".cap-unitband")).map(
@@ -315,6 +319,7 @@ describe("CaptureDiagram with a spare on each unit", () => {
         governingOf={() => null}
         onOpen={vi.fn()}
         activeKey={null}
+        absentCells={new Set()}
       />,
     );
 

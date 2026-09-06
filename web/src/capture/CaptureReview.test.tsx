@@ -53,6 +53,7 @@ function unit(vehicleId: string, fleetNumber: string): CaptureContext {
       odometerMaxDailyKm: 1600,
       wearRateAlertMultiple: 3,
       removalThresholdMm: 4,
+      captureSpares: true,
     },
     cohortWearRateMmPerMonth: {},
   };
@@ -98,6 +99,7 @@ describe("CaptureReview", () => {
       defectReport: null,
       positions,
       warnings: [],
+      absentSpares: [],
     };
 
     render(
@@ -105,6 +107,7 @@ describe("CaptureReview", () => {
         contexts={contexts}
         draft={draft}
         doneCells={new Set(Object.keys(positions))}
+        absentCells={new Set()}
         onBack={vi.fn()}
         onSubmit={vi.fn()}
       />,

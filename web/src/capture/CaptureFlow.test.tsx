@@ -64,6 +64,7 @@ const context: CaptureContext = {
     odometerMaxDailyKm: 1600,
     wearRateAlertMultiple: 3,
     removalThresholdMm: 4,
+    captureSpares: true,
   },
   cohortWearRateMmPerMonth: { "STEER:FIXED": 0.8 },
 };
@@ -105,6 +106,26 @@ const trailer: CaptureContext = {
   positions: [
     { ...context.positions[0], vehicleId: "v2", code: "1", sequence: 1 },
     { ...context.positions[0], id: "p2", vehicleId: "v2", code: "2", sequence: 2 },
+  ],
+};
+
+// TYRE-155: one running position plus one spare, so the flow's own advance
+// lands the driver on the spare sheet the moment the running position is
+// done — the "no spare" tap is then the one action left before review.
+const withSpare: CaptureContext = {
+  ...context,
+  positions: [
+    context.positions[0],
+    {
+      ...context.positions[0],
+      id: "s1",
+      code: "S",
+      sequence: 99,
+      isSpare: true,
+      axleClass: "SPARE",
+      axleNumber: null,
+      targetKpa: null,
+    },
   ],
 };
 
@@ -628,5 +649,40 @@ describe("CaptureFlow", () => {
     await user.click(screen.getByRole("button", { name: "Discard" }));
     expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
     expect(await loadDraft()).toBeUndefined();
+  });
+
+  // TYRE-155 end to end on the flow: the spare cell leaves the count, the
+  // review reads all done, the payload carries the observation, and the
+  // driver paid one tap — the same one they paid to close the sheet before.
+  it("reports a unit done when its spare is marked absent, and sends the observation", async () => {
+    const user = newUser();
+    const api = stubApi(201, [withSpare]);
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user); // opens the spare next, by the flow's own advance
+    await user.click(await screen.findByRole("button", { name: /no spare on this unit/i }));
+
+    expect(await screen.findByRole("heading", { name: /1 of 1 done/ })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+    await screen.findByRole("status");
+
+    const posted = api.mock.calls.find(([, init]) => init?.method === "POST")?.[1];
+    const body = JSON.parse(String(posted?.body)) as {
+      completeness_pct: number;
+      absent_spares: { vehicle_id: string; position_id: string }[];
+    };
+    expect(body.completeness_pct).toBe(100);
+    expect(body.absent_spares).toEqual([{ vehicle_id: "v1", position_id: "s1" }]);
+  });
+
+  it("renders no spare cell for a tenant that does not capture spares", async () => {
+    const user = newUser();
+    stubApi(201, [{ ...withSpare, config: { ...withSpare.config, captureSpares: false } }]);
+    renderFlow();
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    expect(await screen.findByRole("heading", { name: /0 of 1 done/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Spare/ })).toBeNull();
   });
 });

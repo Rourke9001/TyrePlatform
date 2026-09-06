@@ -57,6 +57,11 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
     L.append("-- policy effective at the requested date, so policy must predate every")
     L.append("-- seeded reading or historical dates would value as 'no policy configured'.")
     for k,v in [('tread_reading_count',3),
+                # TYRE-155 (owner, 6 Sep 2026): whether the capture app puts a
+                # spare cell on the sheet at all. Default yes — FR-INS-066 is a
+                # Must — but the right answer for a real fleet is unknown, so
+                # it is a key, not a constant (rule 5).
+                ('capture_spares', True),
                 ('spare_capture_scope','COMBINATION'),
                 ('width_spread_warn_mm',4),('dual_mate_warn_mm',3),('axle_divergence_warn_mm',3),
                 ('tread_bands',[[0,4],[5,7],[8,10],[11,13],[14,None]]),

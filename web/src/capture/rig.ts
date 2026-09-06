@@ -21,6 +21,10 @@ export function rigPositions(contexts: CaptureContext[]): RigPosition[] {
   let running = 0;
   return contexts.flatMap((context) =>
     [...context.positions]
+      // TYRE-155, rule 5: a tenant that has switched spare capture off gets
+      // no spare cell on the walk at all — filtered before the sort so the
+      // running numbering above never counts a cell nobody will see.
+      .filter((p) => context.config.captureSpares || !p.isSpare)
       // BR-VEH-001 numbers positions within a unit from 1, foremost axle
       // first, then left to right — which is exactly what position.sequence
       // already encodes. Sorting by it here means the projection depends on
@@ -86,11 +90,20 @@ export interface UnitCompleteness {
 export function completenessByUnit(
   contexts: CaptureContext[],
   doneCells: ReadonlySet<string>,
+  // TYRE-155: an absent spare is neither done nor outstanding — it leaves the
+  // denominator, so a unit with no spare can read "all done" (FR-INS-066).
+  absentCells: ReadonlySet<string>,
 ): UnitCompleteness[] {
-  return contexts.map((context) => ({
-    vehicleId: context.vehicleId,
-    fleetNumber: context.fleetNumber,
-    done: context.positions.filter((p) => doneCells.has(cellKey(p.vehicleId, p.id))).length,
-    total: context.positions.length,
-  }));
+  return contexts.map((context) => {
+    const cells = context.positions
+      .filter((p) => context.config.captureSpares || !p.isSpare)
+      .map((p) => cellKey(p.vehicleId, p.id))
+      .filter((c) => !absentCells.has(c));
+    return {
+      vehicleId: context.vehicleId,
+      fleetNumber: context.fleetNumber,
+      done: cells.filter((c) => doneCells.has(c)).length,
+      total: cells.length,
+    };
+  });
 }

@@ -32,6 +32,7 @@ const motive: CaptureContext = {
     odometerMaxDailyKm: 1600,
     wearRateAlertMultiple: 3,
     removalThresholdMm: 4,
+    captureSpares: true,
   },
   cohortWearRateMmPerMonth: {},
 };

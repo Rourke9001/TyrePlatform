@@ -124,6 +124,13 @@
   box-shadow: 0 0 0 3px var(--primary);
 }
 
+/* TYRE-155: settled, not flagged — the strike-through is the words-not-colour
+   half (NFR-USE-009) of a state the accessible name already says. */
+.cap-pos.is-absent {
+  opacity: 0.6;
+  text-decoration: line-through;
+}
+
 .cap-pos-n {
   font-family: var(--font-display);
   font-weight: 700;

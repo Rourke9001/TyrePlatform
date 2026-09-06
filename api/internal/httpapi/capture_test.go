@@ -86,6 +86,8 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 			require.NotNil(t, cfg["removalThresholdMm"], "FR-INS-036 has no threshold")
 			require.NotNil(t, cfg["widthSpreadWarnMm"], "FR-INS-041 has no margin")
 			require.NotNil(t, cfg["odometerMaxDailyKm"], "FR-INS-033 has no ceiling")
+			// TYRE-155: rule 5 — whether spares are captured is served, not assumed.
+			require.Equal(t, true, cfg["captureSpares"], "TYRE-155: whether spares are captured is tenant configuration")
 			require.NotNil(t, body["cohortWearRateMmPerMonth"], "FR-INS-035 has no denominator")
 
 			// A running position must carry a resolvable target; a spare must

@@ -49,6 +49,7 @@ const ctx: CaptureContext = {
     odometerMaxDailyKm: 1600,
     wearRateAlertMultiple: 3,
     removalThresholdMm: 4,
+    captureSpares: true,
   },
   cohortWearRateMmPerMonth: {},
 };
@@ -597,5 +598,44 @@ describe("PositionSheet", () => {
       />,
     );
     expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveAttribute("aria-current", "true");
+  });
+
+  // TYRE-155: one tap, on the spare sheet only. A running position never
+  // shows it — a running wheel with no tyre is a fitment fact, not this.
+  it("offers 'No spare on this unit' on a spare sheet and nowhere else", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onAbsent = vi.fn();
+    const spare = { ...position, id: "s1", isSpare: true, axleClass: "SPARE", axleNumber: null };
+    const { container } = render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, position: spare, key: cellKey("v1", "s1"), displayNumber: null }}
+        onAbsent={onAbsent}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /no spare on this unit/i }));
+    expect(onAbsent).toHaveBeenCalledWith(spare, true);
+    expectNothingForbiddenSpoken(container, /no spare on this unit/i);
+  });
+
+  it("shows no spare action on a running position", () => {
+    render(<PositionSheet {...props({})} onAbsent={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /no spare/i })).toBeNull();
+  });
+
+  it("lets the driver take back an absent mark from the same sheet", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onAbsent = vi.fn();
+    const spare = { ...position, id: "s1", isSpare: true, axleClass: "SPARE", axleNumber: null };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, position: spare, key: cellKey("v1", "s1"), displayNumber: null }}
+        absent
+        onAbsent={onAbsent}
+      />,
+    );
+    await user.click(screen.getByRole("button", { name: /spare is here/i }));
+    expect(onAbsent).toHaveBeenCalledWith(spare, false);
   });
 });

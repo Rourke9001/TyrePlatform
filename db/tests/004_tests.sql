@@ -7924,5 +7924,116 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 53. TYRE-155: a spare a unit does not carry is an observation on the inspection, append-only, tenant-bound (FR-INS-066, BR-VEH-002)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '22222222-2222-2222-2222-222222222222';
+  drv  constant uuid := md5('driver2')::uuid;
+  -- Three units, one per submit below, so FR-INS-038's per-unit duplicate
+  -- window (default 4h) cannot explain a refusal this section means to
+  -- attribute to something else: all three submits below stamp submitted_at
+  -- ~ now(), and reusing one vehicle across them would trip TY003 instead of
+  -- the SQLSTATE each control exists to pin (section 49's own reasoning).
+  v_a constant uuid := md5('t2veh53a')::uuid;
+  v_b constant uuid := md5('t2veh53b')::uuid;
+  v_c constant uuid := md5('t2veh53c')::uuid;
+  p_run   uuid;
+  p_spare uuid;
+  insp uuid;
+  n int;
+  ok boolean := false;
+  -- Position-shaped and header-shaped templates, completed per submit with
+  -- the vehicle and position the case needs; positions belong to the axle
+  -- CONFIGURATION (not to a vehicle), so p_run/p_spare hold for all three.
+  reading jsonb := jsonb_build_object(
+    'tyre_id', NULL, 'pressure_kpa', 800, 'pressure_temperature', 'UNKNOWN',
+    'damage_flag', false, 'note', NULL, 'treads', '[12,13,14]'::jsonb,
+    'granularity_mm', 1.0, 'seconds', 30, 'warnings', '[]'::jsonb);
+  base jsonb := jsonb_build_object(
+    'combination_id', NULL, 'observed_member_vehicle_ids', '[]'::jsonb, 'task_id', NULL,
+    'started_at', now() - interval '150 seconds', 'submitted_at', now(),
+    'odometer_km', NULL, 'duration_seconds', 150, 'completeness_pct', 100,
+    'comment', NULL, 'defect_report', NULL, 'device_id', 'suite', 'app_version', 'suite',
+    'warnings', '[]'::jsonb);
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  PERFORM set_config('app.actor_id', drv::text, true);
+
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status) VALUES
+    (v_a, t_id, 'SEC53-A', 'CAA535301', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
+    (v_b, t_id, 'SEC53-B', 'CAA535302', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
+    (v_c, t_id, 'SEC53-C', 'CAA535303', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE');
+
+  SELECT p.id INTO p_run FROM app.position p
+   WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO p_spare FROM app.position p
+   WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
+     AND p.is_spare ORDER BY p.sequence LIMIT 1;
+
+  -- The observation lands, once, against the unit and the spare position.
+  SELECT inspection_id INTO insp FROM app.submit_inspection(
+    base || jsonb_build_object('client_uuid', gen_random_uuid(), 'vehicle_id', v_a,
+      'readings', jsonb_build_array(reading || jsonb_build_object('vehicle_id', v_a, 'position_id', p_run)),
+      'absent_spares', jsonb_build_array(jsonb_build_object('vehicle_id', v_a, 'position_id', p_spare))));
+  SELECT count(*) INTO n FROM app.inspection_absent_spare
+   WHERE inspection_id = insp AND vehicle_id = v_a AND position_id = p_spare;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 53: expected one absent-spare row, found %', n; END IF;
+
+  -- A running position cannot be "absent": only a spare may be reported so.
+  BEGIN
+    PERFORM app.submit_inspection(
+      base || jsonb_build_object('client_uuid', gen_random_uuid(), 'vehicle_id', v_b,
+        'readings', jsonb_build_array(reading || jsonb_build_object('vehicle_id', v_b, 'position_id', p_run)),
+        'absent_spares', jsonb_build_array(jsonb_build_object('vehicle_id', v_b, 'position_id', p_run))));
+    RAISE EXCEPTION 'FAIL 53: a running position was accepted as an absent spare';
+  EXCEPTION WHEN SQLSTATE 'TY005' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 53: control did not run'; END IF;
+
+  -- A spare cannot be both read and absent in one submit.
+  ok := false;
+  BEGIN
+    PERFORM app.submit_inspection(
+      base || jsonb_build_object('client_uuid', gen_random_uuid(), 'vehicle_id', v_c,
+        'readings', jsonb_build_array(
+          reading || jsonb_build_object('vehicle_id', v_c, 'position_id', p_run),
+          reading || jsonb_build_object('vehicle_id', v_c, 'position_id', p_spare)),
+        'absent_spares', jsonb_build_array(jsonb_build_object('vehicle_id', v_c, 'position_id', p_spare))));
+    RAISE EXCEPTION 'FAIL 53: a spare was accepted as both read and absent';
+  EXCEPTION WHEN SQLSTATE 'TY005' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 53: second control did not run'; END IF;
+
+  -- Rule 3 by grant: the app role cannot rewrite or remove the observation.
+  ok := false;
+  BEGIN
+    UPDATE app.inspection_absent_spare SET position_id = p_run WHERE inspection_id = insp;
+    RAISE EXCEPTION 'FAIL 53: UPDATE on inspection_absent_spare was allowed';
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  BEGIN
+    DELETE FROM app.inspection_absent_spare WHERE inspection_id = insp;
+    RAISE EXCEPTION 'FAIL 53: DELETE on inspection_absent_spare was allowed';
+  EXCEPTION WHEN insufficient_privilege THEN ok := ok AND true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 53: grant control did not run'; END IF;
+
+  RAISE NOTICE 'PASS  an absent spare is recorded once, only for a spare, never beside a reading, and never rewritten';
+END $$;
+-- Tenant isolation (RLS, rule 1): switched to tenant 1 via set_config inside
+-- its own DO block, not a bare SET LOCAL -- the plant above belongs to
+-- tenant 2, so this has to land on the OTHER tenant to prove anything.
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT count(*) INTO n FROM app.inspection_absent_spare;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 53: another tenant reads % absent-spare row(s)', n; END IF;
+  RAISE NOTICE 'PASS  absent-spare observations do not cross tenants';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

@@ -42,6 +42,10 @@ export interface CaptureConfig {
   odometerMaxDailyKm: number;
   wearRateAlertMultiple: number;
   removalThresholdMm: number;
+  // TYRE-155, rule 5: whether the sheet carries a spare cell at all. Owner
+  // default true (FR-INS-066 is a Must); the right answer for a real fleet
+  // is unknown, so it is served, never assumed.
+  captureSpares: boolean;
 }
 
 // FR-INS-062: the rig a CONTROLLER set, for the driver to confirm before

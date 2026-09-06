@@ -48,6 +48,7 @@ const unit = (
     odometerMaxDailyKm: 1600,
     wearRateAlertMultiple: 3,
     removalThresholdMm: 4,
+    captureSpares: true,
   },
   cohortWearRateMmPerMonth: {},
 });
@@ -141,7 +142,7 @@ describe("completenessByUnit", () => {
     ]);
 
     const done = new Set([cellKey("v-link", "l1"), cellKey("v-link", "l2")]);
-    expect(completenessByUnit([link, link2], done)).toEqual([
+    expect(completenessByUnit([link, link2], done, new Set())).toEqual([
       { vehicleId: "v-link", fleetNumber: "BAC040SP", done: 2, total: 2 },
       { vehicleId: "v-link2", fleetNumber: "BAC041SP", done: 0, total: 2 },
     ]);
@@ -153,10 +154,41 @@ describe("completenessByUnit", () => {
       cellKey("v-horse", "hs"),
       cellKey("v-link", "l1"),
     ]);
-    expect(completenessByUnit([horse, link], done)).toEqual([
+    expect(completenessByUnit([horse, link], done, new Set())).toEqual([
       { vehicleId: "v-horse", fleetNumber: "BAC039SP", done: 2, total: 3 },
       { vehicleId: "v-link", fleetNumber: "BAC040SP", done: 1, total: 2 },
     ]);
+  });
+});
+
+describe("spares as tenant configuration and as observations (TYRE-155)", () => {
+  const noSpares = (u: CaptureContext): CaptureContext => ({
+    ...u,
+    config: { ...u.config, captureSpares: false },
+  });
+
+  // Rule 5: a tenant that has switched spare capture off gets no spare cell
+  // and no spare in the denominator. Nothing else about the walk changes.
+  it("drops the spare cell when the tenant does not capture spares", () => {
+    const cells = rigPositions([noSpares(horse), link]);
+    expect(cells.map((r) => r.position.id)).toEqual(["h1", "h2", "l1", "l2"]);
+    const [h] = completenessByUnit([noSpares(horse), link], new Set(), new Set());
+    expect(h.total).toBe(2);
+  });
+
+  // FR-INS-066: a spare the unit does not carry leaves the denominator, so a
+  // fully walked unit reads "all done" instead of "1 left" for ever.
+  it("takes an absent spare out of the unit's total and reports the unit done", () => {
+    const done = new Set([cellKey("v-horse", "h1"), cellKey("v-horse", "h2")]);
+    const absent = new Set([cellKey("v-horse", "hs")]);
+    const [h] = completenessByUnit([horse], done, absent);
+    expect(h).toEqual({ vehicleId: "v-horse", fleetNumber: "BAC039SP", done: 2, total: 2 });
+  });
+
+  it("does not count an absent spare as done on a unit that is not", () => {
+    const absent = new Set([cellKey("v-horse", "hs")]);
+    const [h] = completenessByUnit([horse], new Set(), absent);
+    expect(h).toEqual({ vehicleId: "v-horse", fleetNumber: "BAC039SP", done: 0, total: 2 });
   });
 });
 
