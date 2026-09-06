@@ -8180,5 +8180,19 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 56. TYRE-170: the server the suite runs against reads UTC as app_login (rule 6)'
+DO $$
+DECLARE tz text;
+BEGIN
+  -- The API pins its own sessions (store.New). This pins the server the
+  -- suite's own date predicates run under, so a changed postgresql.conf or a
+  -- role setting fails the build rather than the register.
+  tz := current_setting('TimeZone');
+  IF tz <> 'UTC' THEN
+    RAISE EXCEPTION 'FAIL 56: session TimeZone is % for %, expected UTC', tz, current_user;
+  END IF;
+  RAISE NOTICE 'PASS  56 session TimeZone is UTC for %', current_user;
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
