@@ -534,19 +534,20 @@ BEGIN
   END IF;
   SELECT i.created_at INTO v_created FROM app.inspection i WHERE i.id = v_insp;
   -- a parent this session cannot see is the FK's and RLS's refusal, not this
-  -- one -- NOT FOUND is that case. A row that IS found but carries a NULL
-  -- created_at is a different thing: app.inspection.created_at is nullable
-  -- (000017 added it with a default, not NOT NULL, so a pre-000017 row or a
-  -- future explicit NULL both qualify) and app_rw holds INSERT on
-  -- app.inspection, so a caller can plant one directly. Every writer inside
-  -- this transaction gets its inspection's created_at from the same now(),
-  -- so a NULL there is a claim nobody made -- it cannot equal
-  -- transaction_timestamp() and cannot be compared to it, so treating it as
-  -- "unsealed" would leave such a row appendable forever. Seal it instead.
+  -- one -- NOT FOUND is that case. A reading or measurement belongs to the
+  -- transaction that created its inspection, and every writer in that
+  -- transaction gets its inspection's created_at from the same now(), which
+  -- equals transaction_timestamp() exactly (000023's own rows land this
+  -- way). app_rw holds INSERT on app.inspection with created_at settable
+  -- and no NOT NULL (000017), so any other instant is a claim nobody made:
+  -- earlier (a prior transaction's row), later (a future-dated row that
+  -- would otherwise stay appendable until that instant passes) or absent
+  -- (NULL) are all refused alike -- IS DISTINCT FROM is what makes NULL one
+  -- more case of "not equal" instead of a silent pass.
   IF NOT FOUND THEN
     RETURN NEW;
   END IF;
-  IF v_created IS NULL OR v_created < transaction_timestamp() THEN
+  IF v_created IS DISTINCT FROM transaction_timestamp() THEN
     RAISE EXCEPTION USING
       ERRCODE = 'TY020',
       MESSAGE = format('inspection %s was submitted at %s and is sealed; a %s cannot be added to it',

@@ -7722,6 +7722,21 @@ BEGIN
   EXCEPTION WHEN SQLSTATE 'TY020' THEN ok := true;
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: an inspection with a NULL created_at was not sealed'; END IF;
+  -- rls-auditor (TYRE-145 fix round 2): a future-dated created_at is the
+  -- same hole from the other side -- app_rw can set the column to anything,
+  -- so a row dated ahead of its own transaction would stay appendable until
+  -- that instant passed. Only equality to transaction_timestamp() is sound.
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer,created_at)
+  VALUES (md5('t50inspfuture')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t50clifuture')::uuid, now(), now(), 750, now() + interval '1 day');
+  ok := false;
+  BEGIN
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t50rdfuture')::uuid,'22222222-2222-2222-2222-222222222222',md5('t50inspfuture')::uuid,md5('t2veh1')::uuid,posid,NULL,700);
+    RAISE EXCEPTION 'FAIL 50: a reading was appended to an inspection dated ahead of its own transaction';
+  EXCEPTION WHEN SQLSTATE 'TY020' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: an inspection dated ahead of its own transaction was not sealed'; END IF;
   RAISE NOTICE 'PASS  a submitted inspection is sealed: later readings and measurements are refused TY020, the submitting transaction still writes';
 END $$;
 ROLLBACK;
