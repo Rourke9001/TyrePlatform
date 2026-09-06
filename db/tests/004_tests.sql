@@ -6483,7 +6483,7 @@ BEGIN
   FOR fn IN SELECT p.proname AS name, pg_get_functiondef(p.oid) AS src
               FROM pg_proc p JOIN pg_namespace ns ON ns.oid = p.pronamespace
              WHERE ns.nspname = 'app'
-               AND p.proname IN ('fit_tyre', 'remove_tyre', 'rotate_tyres', 'log_retread_return')
+               AND p.proname IN ('fit_tyre', 'remove_tyre', 'rotate_tyres', 'log_retread_return', 'submit_inspection')
   LOOP
     IF strpos(fn.src, 'app.max_tread_mm()') = 0 THEN
       RAISE EXCEPTION 'FAIL 47a: app.% does not read the shared tread ceiling', fn.name;
@@ -6492,7 +6492,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL 47a: app.% still carries % as a literal of its own', fn.name, mx;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  47a one tread ceiling, interpolated into four refusals that keep their own words';
+  RAISE NOTICE 'PASS  47a one tread ceiling, interpolated into five refusals that keep their own words';
 
   -- (b) The same four inputs absent rather than out of range. The retread
   -- return owes a distinct answer here: app.log_retread_return names which of
@@ -7457,6 +7457,106 @@ BEGIN
     RAISE EXCEPTION 'FAIL 47p: the horse''s closed row does not carry the reading it was given';
   END IF;
   RAISE NOTICE 'PASS  47p a scaled, string or signed reading is refused as an input, not as a cast or a constraint';
+END $$;
+ROLLBACK;
+
+\echo '== 48. TYRE-185: the tread ceiling has one definition, read by capture and fitment alike (FR-INS-030)'
+BEGIN;
+DO $$
+DECLARE
+  t_id      constant uuid := '22222222-2222-2222-2222-222222222222';
+  drv       constant uuid := md5('driver2')::uuid;
+  mx        numeric;
+  m         text;
+  ok        boolean := false;
+  payload   jsonb;
+  posa      uuid;
+  posb      uuid;
+  v_raw     uuid;
+  v_insp    uuid;
+  v_reading uuid;
+  v_second  uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  PERFORM set_config('app.actor_id', drv::text, true);
+  mx := app.max_tread_mm();
+  IF mx IS DISTINCT FROM 35 THEN
+    RAISE EXCEPTION 'FAIL 48: app.max_tread_mm() reads %, FR-INS-030 says 35', mx;
+  END IF;
+
+  -- Two positions off HORSE_6X4, tenant 2's configuration for t2veh1 and
+  -- every unit planted below -- shared by configuration, the way
+  -- submit_inspection itself reads them.
+  SELECT p.id INTO posa FROM app.position p
+   WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO posb FROM app.position p
+   WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence OFFSET 1 LIMIT 1;
+  IF posa IS NULL OR posb IS NULL THEN
+    RAISE EXCEPTION 'FAIL 48: section 48 cannot resolve the positions it tests against';
+  END IF;
+
+  -- A throwaway unit of its own for the raw CHECK probe below: it must carry
+  -- no reading submit_inspection could later mistake as a prior inspection
+  -- of the SAME unit inside FR-INS-038's window (000023).
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status)
+  VALUES (md5('t2veh48raw')::uuid, t_id, 'SEC48-RAW', 'CAA484801',
+          md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE')
+  RETURNING id INTO v_raw;
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid,
+                              started_at, submitted_at, odometer)
+  VALUES (t_id, v_raw, drv, gen_random_uuid(), now(), now(), 750)
+  RETURNING id INTO v_insp;
+  INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id)
+  VALUES (t_id, v_insp, v_raw, posa)
+  RETURNING id INTO v_reading;
+
+  -- The CHECK and the function agree: a row at the ceiling lands, a row past
+  -- it is 23514.
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm)
+  VALUES (t_id, v_reading, 1, 'CENTRE', mx);
+  BEGIN
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm)
+    VALUES (t_id, v_reading, 2, 'OUTER', mx + 0.1);
+    RAISE EXCEPTION 'FAIL 48: reading_measurement accepted % mm', mx + 0.1;
+  EXCEPTION WHEN check_violation THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 48: the tread CHECK did not refuse % mm', mx + 0.1; END IF;
+
+  -- The capture path reads the same number: a submit at the ceiling is
+  -- accepted, one past it is TY005 carrying the ceiling in its message.
+  -- t2veh1 is the fixture's own unit, untouched above, so FR-INS-038's
+  -- window sees no prior inspection of it in this transaction.
+  payload := jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', md5('t2veh1')::uuid,
+    'started_at', now(), 'submitted_at', now(),
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', md5('t2veh1')::uuid, 'position_id', posa,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(mx, mx, mx))));
+  PERFORM app.submit_inspection(payload);
+
+  -- A further, still different unit for the refused submit, so FR-INS-038's
+  -- window does not refuse it as a second inspection of t2veh1 above.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status)
+  VALUES (md5('t2veh48')::uuid, t_id, 'SEC48-CEIL', 'CAA484802',
+          md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE')
+  RETURNING id INTO v_second;
+  ok := false;
+  BEGIN
+    PERFORM app.submit_inspection(jsonb_build_object(
+      'client_uuid', gen_random_uuid(), 'vehicle_id', v_second,
+      'started_at', now(), 'submitted_at', now(),
+      'readings', jsonb_build_array(
+        jsonb_build_object('vehicle_id', v_second, 'position_id', posb,
+                           'pressure_kpa', 750, 'treads', jsonb_build_array(mx + 0.1, mx, mx)))));
+    RAISE EXCEPTION 'FAIL 48: submit_inspection accepted a % mm tread', mx + 0.1;
+  EXCEPTION WHEN SQLSTATE 'TY005' THEN GET STACKED DIAGNOSTICS m = MESSAGE_TEXT; ok := true;
+  END;
+  IF NOT ok OR strpos(m, mx::text) = 0 THEN
+    RAISE EXCEPTION 'FAIL 48: the capture refusal does not name the ceiling: %', m;
+  END IF;
+  RAISE NOTICE 'PASS  one tread ceiling (35 mm, FR-INS-030): the CHECK, the capture path and the fitment writers read it';
 END $$;
 ROLLBACK;
 
