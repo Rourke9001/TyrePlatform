@@ -8144,18 +8144,25 @@ BEGIN
   SELECT count(*) INTO n FROM app.tenant WHERE id = app.current_tenant_id();
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL 55: own tenant row not visible (%)', n; END IF;
   SELECT subdomain INTO own FROM app.tenant WHERE id = app.current_tenant_id();
-  -- the oracle: a TAKEN subdomain ('sandbox' is Sandbox Fleet's) answered
-  -- 23505 before 000042 and a FREE one succeeded; both must now be the grant's
-  -- refusal, so the outcome carries nothing. The message is matched as well
-  -- as the SQLSTATE: RLS's WITH CHECK also raises 42501 ("new row violates
-  -- row-level security policy"), and a probe that accepts either proves
-  -- nothing (lesson 2026-09-01).
+  -- the oracle: app.tenant's UNIQUE (subdomain) is global, so it alone can
+  -- answer whether a guessed subdomain belongs to another tenant. Both
+  -- probes below must be refused by the grant (insufficient_privilege,
+  -- "permission denied") and not by anything else that could still carry
+  -- the answer: RLS's WITH CHECK also raises 42501, but with a different
+  -- message, so the SQLSTATE alone proves nothing (lesson 2026-09-01); and
+  -- the unique key itself raises 23505 for the TAKEN value ('sandbox' is
+  -- Sandbox Fleet's) while succeeding for a FREE one, so a probe that still
+  -- reaches the key answers with the very oracle this section closes. That
+  -- class is caught and named too, rather than left to escape the DO block
+  -- as a raw error.
   BEGIN
     UPDATE app.tenant SET subdomain = 'sandbox' WHERE id = app.current_tenant_id();
     RAISE EXCEPTION 'FAIL 55: app_rw updated app.tenant (taken subdomain probe)';
   EXCEPTION WHEN insufficient_privilege THEN
     IF SQLERRM LIKE 'permission denied%' THEN ok := true;
     ELSE RAISE EXCEPTION 'FAIL 55: taken-subdomain probe refused by something other than the grant: %', SQLERRM; END IF;
+  WHEN OTHERS THEN
+    RAISE EXCEPTION 'FAIL 55: taken-subdomain probe refused by % (%), not by the grant', SQLSTATE, SQLERRM;
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 55: the taken-subdomain probe was not refused by grant'; END IF;
   ok := false;
@@ -8165,6 +8172,8 @@ BEGIN
   EXCEPTION WHEN insufficient_privilege THEN
     IF SQLERRM LIKE 'permission denied%' THEN ok := true;
     ELSE RAISE EXCEPTION 'FAIL 55: free-subdomain probe refused by something other than the grant: %', SQLERRM; END IF;
+  WHEN OTHERS THEN
+    RAISE EXCEPTION 'FAIL 55: free-subdomain probe refused by % (%), not by the grant', SQLSTATE, SQLERRM;
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 55: the free-subdomain probe was not refused by grant'; END IF;
   RAISE NOTICE 'PASS  55 app.tenant is not writable by app_rw: taken and free subdomains are indistinguishable (permission denied both), own row (%) still readable', own;
