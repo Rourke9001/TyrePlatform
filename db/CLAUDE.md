@@ -57,6 +57,14 @@ worked examples in SRS Appendix E — all fifteen, to the cent.
 and `DELETE` revoked from `app_rw`. Correcting a reading means appending a
 compensating event, never rewriting one.
 
+`inspection` is written once too (000040): `UPDATE` is granted on
+`(state, void_reason)` only, and `inspection_written_once` allows exactly one
+transition — to `VOIDED`, with a reason, once; a voided row is frozen.
+`reading` and `reading_measurement` also refuse an `INSERT` whose inspection
+was committed by an earlier transaction (`TY020`), so a submitted reading
+cannot gain a measurement. Correcting a capture is `app.void_inspection` and
+a new capture.
+
 Careful: a blanket `GRANT ALL ON ALL TABLES IN SCHEMA app TO app_rw` in a later
 migration silently undoes those revokes. Check 4 catches it.
 

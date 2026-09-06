@@ -962,17 +962,15 @@ BEGIN
   SELECT pos.id INTO posid
     FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
    WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
-  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2insp3')::uuid) THEN
-    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
-    VALUES (md5('t2insp3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
-            md5('t2cli3')::uuid,'2026-08-01T06:00:00Z','2026-08-01T06:05:00Z',99000);
-    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
-    VALUES (md5('t2rd3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp3')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,1,'OUTER',15),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,2,'CENTRE',16),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,3,'INNER',17);
-  END IF;
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t2insp3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t2cli3')::uuid,'2026-08-01T06:00:00Z','2026-08-01T06:05:00Z',99000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t2rd3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp3')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,1,'OUTER',15),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,2,'CENTRE',16),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,3,'INNER',17);
   SELECT s.tread_value INTO v FROM app.valuation_snapshot s
    WHERE s.tyre_id = md5('t2probetyre')::uuid AND s.as_at = '2026-08-01';
   IF v IS DISTINCT FROM 1100.00 THEN
@@ -6713,8 +6711,11 @@ BEGIN
   PERFORM set_config('app.actor_id', '', true);
   INSERT INTO app.tyre (id, tenant_id, display_code, status, retread_count, state)
   VALUES (fty, t_two, 'T47TYREF', 'NEW', 0, 'FITTED');
-  -- Queried, never assumed: t2veh1 already carries an open fitment from check
-  -- 19's T2GAP1 probe, and DR-004 admits one open fitment per (position, unit).
+  -- Queried, never assumed: no position id is hardcoded here, because DR-004
+  -- admits only one open fitment per (position, unit) and this section has no
+  -- guarantee that every position on t2veh1 is still free by this point in
+  -- the suite -- the query finds whichever one currently carries no open
+  -- fitment.
   SELECT p.id INTO t2pos
     FROM app.position p
     JOIN app.vehicle v ON v.configuration_id = p.configuration_id
