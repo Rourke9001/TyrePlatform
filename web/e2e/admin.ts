@@ -5,9 +5,7 @@ import { type Page } from "@playwright/test";
 // (TYRE-80).
 //
 // Ids are md5-derived in db/seeds/gen_seed_fixture.py — md5('sbadmin1') and
-// the sandbox tenant's fixed uuid — so they are stable across reseeds. Both
-// conventions hold for every spec in this directory, which cites this file
-// rather than restating them.
+// the sandbox tenant's fixed uuid — so they are stable across reseeds.
 //
 // Identity in the browser is the two localStorage keys actAs stamps below. A
 // raw request carries no localStorage, so a spec calling the API directly
