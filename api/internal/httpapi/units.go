@@ -130,8 +130,9 @@ type depotJSON struct {
 // and returns pgx.ErrNoRows — the same value a genuinely missing id produces —
 // when RLS hides the unit, rather than a distinguishable error: whether the
 // unit is another tenant's or does not exist at all is not the caller's to
-// learn (ADR-0011).
-func unitByID(ctx context.Context, tx pgx.Tx, id uuid.UUID) (unitJSON, error) {
+// learn (ADR-0011). source is unitSource's choice; an out-of-scope id is
+// ErrNoRows exactly like a cross-tenant one.
+func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unitJSON, error) {
 	var u unitJSON
 	var vehID, configID uuid.UUID
 	var homeDepotID, operatingGroupID *uuid.UUID
@@ -157,7 +158,7 @@ func unitByID(ctx context.Context, tx pgx.Tx, id uuid.UUID) (unitJSON, error) {
 		         OR EXISTS (SELECT 1 FROM app.inspection i WHERE i.vehicle_id = v.id)
 		         OR EXISTS (SELECT 1 FROM app.reading r WHERE r.vehicle_id = v.id),
 		       (v.unit_kind IS NOT NULL AND v.unit_kind <> 'TRAILER')
-		  FROM app.vehicle v
+		  FROM `+source+` v
 		  JOIN app.axle_configuration ac ON ac.id = v.configuration_id
 		 WHERE v.id = $1`, id).
 		Scan(&vehID, &u.FleetNumber, &u.Registration, &u.Description, &u.BodyType, &u.UnitDescriptor,
@@ -306,7 +307,7 @@ func getUnit(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
-			u, err := unitByID(ctx, tx, vehicleID)
+			u, err := unitByID(ctx, tx, unitSource(a), vehicleID)
 			if errors.Is(err, pgx.ErrNoRows) {
 				return refusalError{refusal{
 					status:  http.StatusNotFound,
@@ -329,9 +330,10 @@ func getUnit(s *store.Store) http.HandlerFunc {
 
 // listUnitFitments is FR-FIT's history read (D6): every fitment the unit has
 // ever carried, most recent first, open and closed alike. No existence check
-// on the vehicle id beyond RLS — app.fitment carries its own tenant_id, so a
-// missing or cross-tenant vehicle id simply matches no rows (an empty list,
-// not a 404); only the single-unit read composes that refusal.
+// on the unit beyond its scope relation — app.fitment carries its own
+// tenant_id, and an id outside the actor's depots (unitSource) or tenant
+// matches no rows: an empty list, not a 404. Only the single-unit read
+// composes that refusal.
 func listUnitFitments(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -352,6 +354,7 @@ func listUnitFitments(s *store.Store) http.HandlerFunc {
 				  JOIN app.position p ON p.id = f.position_id
 				  JOIN app.tyre t     ON t.id = f.tyre_id
 				 WHERE f.vehicle_id = $1
+				   AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)
 				 ORDER BY f.fitted_at DESC`, vehicleID)
 			if err != nil {
 				return fmt.Errorf("listing fitment history for %s: %w", vehicleID, err)
@@ -652,6 +655,11 @@ func (b patchUnitRequest) validate() (patchUnitArgs, error) {
 // early when an UPDATE leaves the row identical, so nothing is logged that
 // claims a column moved when none did. The tag map rows it does change are
 // not audited — vehicle_audited is on app.vehicle alone (000035).
+//
+// The UPDATE's scope predicate is unitSource's (FR-AUT-008); the read-back is
+// through app.vehicle deliberately — the write was authorised against the row
+// as it was, and an edit that moves the unit out of the editor's own depots
+// is still their edit to see.
 func patchUnit(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -690,7 +698,8 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 				       operating_group_id = CASE WHEN $8::text IS NULL THEN operating_group_id
 				                                 WHEN $8::text = ''     THEN NULL
 				                                 ELSE $8::uuid END
-				 WHERE id = $1`,
+				 WHERE id = $1
+				   AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = app.vehicle.id)`,
 				vehicleID, args.fleetNumber, args.registration, args.description, args.bodyType,
 				args.unitDescriptor, args.homeDepotID, args.operatingGroupID)
 			if err != nil {
@@ -708,7 +717,7 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 					return err
 				}
 			}
-			out, err = unitByID(ctx, tx, vehicleID)
+			out, err = unitByID(ctx, tx, "app.vehicle", vehicleID)
 			if err != nil {
 				return fmt.Errorf("reading back unit %s: %w", vehicleID, err)
 			}
@@ -770,9 +779,11 @@ type setUnitStatusRequest struct {
 // not happen — and a bare UPDATE walks past every one of them, so the whole
 // transition is app.set_vehicle_status's (000035).
 //
-// Nothing is narrowed here but the shape: an unrecognised status reaches the
-// enum cast as 22P02, which submitStatus already answers 422, so this handler
-// keeps no second copy of app.vehicle_status to drift from it.
+// Depot scope for a non-ScopeTenant actor is the write's own check (FR-AUT-008,
+// TYRE-162); beyond that, this handler narrows nothing but the shape: an
+// unrecognised status reaches the enum cast as 22P02, which submitStatus
+// already answers 422, so this handler keeps no second copy of
+// app.vehicle_status to drift from it.
 func setUnitStatus(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -801,6 +812,24 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
+			}
+			// Depot scope for the write (FR-AUT-008, TYRE-162), in the same
+			// shape submitInspection's driver check takes: a ScopeTenant actor
+			// skips it and meets app.set_vehicle_status's own TY012 for an
+			// invisible id, so the controller's contract is unchanged.
+			if a.Scope() != auth.ScopeTenant {
+				var visible bool
+				if err := tx.QueryRow(ctx,
+					`SELECT EXISTS (SELECT 1 FROM app.v_depot_vehicle s WHERE s.id = $1)`, vehicleID).Scan(&visible); err != nil {
+					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+				}
+				if !visible {
+					return refusalError{refusal{
+						status:  http.StatusNotFound,
+						code:    codeNotFound,
+						message: "no such unit in this fleet",
+					}}
+				}
 			}
 			// TY012 and TY016 arrive via refusalForPgError with their messages
 			// intact; each names the rule that refused the transition, which
