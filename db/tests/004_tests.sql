@@ -8044,5 +8044,78 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 54. TYRE-150: NFR-USE-001 reads active seconds (the sum of per-position capture time), not the wall clock from Start (NFR-OBS-007, H.3 criterion 2)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '22222222-2222-2222-2222-222222222222';
+  drv  constant uuid := md5('driver2')::uuid;
+  -- Two vehicles, one per submit, so FR-INS-038's per-unit duplicate window
+  -- cannot explain the control's refusal (section 53's reasoning).
+  v_a constant uuid := md5('t2veh54a')::uuid;
+  v_b constant uuid := md5('t2veh54b')::uuid;
+  p_run  uuid;
+  p_run2 uuid;
+  insp uuid;
+  elapsed int;
+  active  int;
+  base jsonb;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  PERFORM set_config('app.actor_id', drv::text, true);
+
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status) VALUES
+    (v_a, t_id, 'SEC54-A', 'CAA545401', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
+    (v_b, t_id, 'SEC54-B', 'CAA545402', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE');
+
+  SELECT p.id INTO p_run FROM app.position p
+   WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO p_run2 FROM app.position p
+   WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence OFFSET 1 LIMIT 1;
+
+  -- Two readings, 40 and 50 seconds of capture time, against a started_at
+  -- two hours before submitted_at: elapsed_seconds must report the two
+  -- hours and active_seconds the 90, proving the view reads the wall clock
+  -- and the per-position sum from two different sources rather than one
+  -- derived from the other.
+  base := jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v_a,
+    'started_at', now() - interval '2 hours', 'submitted_at', now(),
+    'duration_seconds', 7200,
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v_a, 'position_id', p_run,
+        'pressure_kpa', 800, 'treads', '[12,13,14]'::jsonb, 'seconds', 40),
+      jsonb_build_object('vehicle_id', v_a, 'position_id', p_run2,
+        'pressure_kpa', 800, 'treads', '[12,13,14]'::jsonb, 'seconds', 50)));
+
+  SELECT inspection_id INTO insp FROM app.submit_inspection(base);
+  SELECT elapsed_seconds, active_seconds INTO elapsed, active
+    FROM app.v_inspection_timing WHERE inspection_id = insp;
+  IF elapsed <> 7200 THEN RAISE EXCEPTION 'FAIL 54: elapsed_seconds is %, expected 7200', elapsed; END IF;
+  IF active <> 90 THEN RAISE EXCEPTION 'FAIL 54: active_seconds is %, expected 90 (40 + 50)', active; END IF;
+
+  -- Control: one reading with no capture time beside one that has 50 must
+  -- withhold the sum entirely, never report the 50 alone (ADR-0010 rule 2 --
+  -- absence is absence). A single missing reading is not enough to prove
+  -- this: sum() over one NULL is already NULL with no guard at all, so the
+  -- control needs a second, present value for a guardless sum to leak.
+  -- Both readings move to v_b, inside their own reading objects too: the
+  -- duplicate-window check above reads readings[].vehicle_id, not the
+  -- payload header, so leaving them at v_a would trip TY003 rather than
+  -- exercise this control.
+  SELECT inspection_id INTO insp FROM app.submit_inspection(
+    base || jsonb_build_object('client_uuid', gen_random_uuid(), 'vehicle_id', v_b,
+      'readings', jsonb_build_array(
+        ((base -> 'readings' -> 0) - 'seconds') || jsonb_build_object('vehicle_id', v_b),
+        (base -> 'readings' -> 1) || jsonb_build_object('vehicle_id', v_b))));
+  SELECT active_seconds INTO active FROM app.v_inspection_timing WHERE inspection_id = insp;
+  IF active IS NOT NULL THEN RAISE EXCEPTION 'FAIL 54: one missing capture time beside a present 50 summed to % instead of NULL', active; END IF;
+
+  RAISE NOTICE 'PASS  v_inspection_timing reports elapsed and active seconds apart, and absence as NULL';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

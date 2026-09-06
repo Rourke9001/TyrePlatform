@@ -27,6 +27,9 @@ const WARNING_NAME: Record<WarningCode, string> = {
 // bought. The value is frozen at the moment the review opens rather than
 // ticking: this is a summary of the walk-around, not a stopwatch, and a
 // re-rendering clock on every keystroke in the comment box is noise.
+// The figure is elapsed time, which is what a driver standing at the truck
+// recognises; the acceptance median is measured from the per-position
+// seconds instead (payload.ts, TYRE-150).
 function elapsedWords(fromIso: string, to: number): string {
   const seconds = Math.max(0, Math.round((to - Date.parse(fromIso)) / 1000));
   const minutes = Math.floor(seconds / 60);
