@@ -97,7 +97,7 @@ are gated on capabilities rather than on role names.**
    claiming they are the same job, and makes a future separation of duties an
    additive change rather than a refactor.
 3. The dev resolver extends the existing `X-Tenant-ID` pattern and stays under
-   the `CONTAINER_APP_NAME` veto already table-tested in `main_test.go`. Entra
+   the `CONTAINER_APP_NAME` veto already table-tested in `main_test.go` (on presence since TYRE-160: an operator override to the empty string still vetoes). Entra
    External ID lands later as a second implementation of the same interface,
    with its own ADR.
 

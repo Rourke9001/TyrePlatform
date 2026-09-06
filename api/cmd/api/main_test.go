@@ -6,6 +6,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// The harness answers (value, present) like os.LookupEnv, because the
+// distinction is the whole test: os.Getenv reads "" for both an unset
+// variable and one set to "", and a stray --set-env-vars CONTAINER_APP_NAME=
+// in staging is the second case (TYRE-160).
 func TestDevHeaderResolverGating(t *testing.T) {
 	tests := []struct {
 		name string
@@ -16,12 +20,14 @@ func TestDevHeaderResolverGating(t *testing.T) {
 		{"on when asked", map[string]string{"APP_DEV_TENANT_HEADER": "1"}, true},
 		{"refused inside Container Apps even when asked",
 			map[string]string{"APP_DEV_TENANT_HEADER": "1", "CONTAINER_APP_NAME": "ca-api-staging"}, false},
+		{"refused when CONTAINER_APP_NAME is present but empty",
+			map[string]string{"APP_DEV_TENANT_HEADER": "1", "CONTAINER_APP_NAME": ""}, false},
 		{"other values do not enable it", map[string]string{"APP_DEV_TENANT_HEADER": "true"}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			getenv := func(k string) string { return tt.env[k] }
-			require.Equal(t, tt.want, devHeaderEnabled(getenv))
+			lookup := func(k string) (string, bool) { v, ok := tt.env[k]; return v, ok }
+			require.Equal(t, tt.want, devHeaderEnabled(lookup))
 		})
 	}
 }
