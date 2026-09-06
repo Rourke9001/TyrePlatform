@@ -117,7 +117,7 @@ The code table:
 
 | Source | `code` | Status |
 | --- | --- | --- |
-| Database, named refusals | `TY003`..`TY018` (`TY008`, `TY010` excepted), verbatim | 409 / 422 |
+| Database, named refusals | `TY003`..`TY019` (`TY008`, `TY010` excepted), verbatim — `TY020` is defined in 000040, not mapped: unreachable through any route | 409 / 422 |
 | Database, integrity classes `23502` `23503` `23514` `22P02` `22023` | `invalid_submission` | 422 |
 | Database, other unique violation `23505`, and `23P01` (`vehicle_driver_no_overlap`, 000026) | `conflict` | 409 |
 | `errVehicleNotVisible` (Go scope check) | `TY007` | 422 |
@@ -185,3 +185,13 @@ instead has the unit `PATCH` decoder refuse both fields outright before a
 transaction ever opens (`docs/implementation-order.md` §B5) — a database
 backstop against a path the API deliberately never offers. An entry for it
 would still carry no test able to fail.
+
+**Amended 2026-09-06 (TYRE-164, TYRE-145):** `TY019` joins the table — an
+inspection write refused, which the void endpoint reaches (000040) — with a
+`submitStatus` entry and a `TestRefusalForPgError` row. `TY020` (a reading or
+measurement offered to an inspection submitted in an earlier transaction)
+stays out on `TY008`'s reasoning: no route inserts a reading outside
+`app.submit_inspection`'s own transaction, so an entry would carry no test
+able to fail. The code table's named-refusal row now reads `TY003`..`TY019`
+(`TY008`, `TY010` excepted); `TY020` is defined in 000040, not mapped:
+unreachable through any route.
