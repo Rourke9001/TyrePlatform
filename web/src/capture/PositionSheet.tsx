@@ -302,7 +302,7 @@ export function PositionSheet({
         {rig.position.isSpare && onAbsent && (
           <button
             type="button"
-            className="cap-secondary cap-spare-absent"
+            className="cap-secondary"
             onClick={() => onAbsent(rig.position, !absent)}
           >
             {absent ? "Spare is here" : "No spare on this unit"}

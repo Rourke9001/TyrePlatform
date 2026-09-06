@@ -110,6 +110,22 @@ describe("CaptureDiagram", () => {
     expect(getByLabelText(/Position 3, BAC039SP, Report/)).toBeTruthy();
     expect(getByLabelText(/Position 4, BAC039SP, Not done/)).toBeTruthy();
   });
+
+  // TYRE-155 review finding 3: an absent cell is settled, not unmeasured — the
+  // severity was computed off nothing entered, so "Not done" would contradict
+  // the "done" the header and tally already count it as.
+  it("reads 'No spare', not the severity band, on a cell marked absent", () => {
+    const cell = cellKey(context.vehicleId, "p4");
+    const { container, getByLabelText } = render(
+      <CaptureDiagram {...props} absentCells={new Set([cell])} />,
+    );
+    const el = container.querySelector<HTMLElement>(`[data-position-id="p4"]`);
+    expect(el).toHaveClass("is-absent");
+    expect(el).toHaveTextContent("No spare");
+    expect(el).toHaveTextContent("none");
+    expect(getByLabelText(/Position 4, BAC039SP, no spare/)).toBeTruthy();
+    expect(el?.getAttribute("aria-label")).not.toContain("Not done");
+  });
 });
 
 // Two units of two axles each, plus a spare. The fixture above puts every

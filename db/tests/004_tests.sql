@@ -7943,6 +7943,7 @@ DECLARE
   insp uuid;
   n int;
   ok boolean := false;
+  m text;
   -- Position-shaped and header-shaped templates, completed per submit with
   -- the vehicle and position the case needs; positions belong to the axle
   -- CONFIGURATION (not to a vehicle), so p_run/p_spare hold for all three.
@@ -7982,15 +7983,23 @@ BEGIN
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL 53: expected one absent-spare row, found %', n; END IF;
 
   -- A running position cannot be "absent": only a spare may be reported so.
+  -- Trapped on the message, not the bare SQLSTATE: deleting the "is not a
+  -- spare" guard in 000041 would fall through to the has-a-reading branch
+  -- below, which also raises TY005 for this exact payload (p_run carries no
+  -- reading here, so that branch alone would not fire -- but a bare SQLSTATE
+  -- trap cannot tell "refused for the right reason" from "refused for the
+  -- wrong one", which is the whole point of a control).
   BEGIN
     PERFORM app.submit_inspection(
       base || jsonb_build_object('client_uuid', gen_random_uuid(), 'vehicle_id', v_b,
         'readings', jsonb_build_array(reading || jsonb_build_object('vehicle_id', v_b, 'position_id', p_run)),
         'absent_spares', jsonb_build_array(jsonb_build_object('vehicle_id', v_b, 'position_id', p_run))));
     RAISE EXCEPTION 'FAIL 53: a running position was accepted as an absent spare';
-  EXCEPTION WHEN SQLSTATE 'TY005' THEN ok := true;
+  EXCEPTION WHEN SQLSTATE 'TY005' THEN
+    GET STACKED DIAGNOSTICS m = MESSAGE_TEXT;
+    ok := m LIKE '%is not a spare%';
   END;
-  IF NOT ok THEN RAISE EXCEPTION 'FAIL 53: control did not run'; END IF;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 53: wrong refusal: %', m; END IF;
 
   -- A spare cannot be both read and absent in one submit.
   ok := false;

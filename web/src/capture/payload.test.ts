@@ -329,6 +329,23 @@ describe("toSubmitPayload", () => {
     expect(payload.completeness_pct).toBe(100);
     expect(absentCells(d)).toEqual(new Set(["v1:s1"]));
   });
+
+  // TYRE-155 review finding 1: submit_inspection refuses TY005 outright when
+  // one cell carries both a reading and an absent_spares entry, and the
+  // outbox treats that 422 as permanent — so this must be unreachable from
+  // the payload side too. draft.ts's markSpareAbsent discards the position
+  // the same transaction it records the mark in, so a draft that carries an
+  // absent spare never has a position for that cell to begin with; this pins
+  // the payload the flow actually sends reflects that, not a filter here.
+  it("carries no reading for a cell the draft records as an absent spare", () => {
+    const d = {
+      ...draftWith([{ positionId: "p1", vehicleId: "v1", treads: [12, 13, 14], pressureKpa: 800 }]),
+      absentSpares: [{ vehicleId: "v1", positionId: "s1" }],
+    };
+    const payload = toSubmitPayload(d, meta);
+    expect(payload.readings.some((r) => r.position_id === "s1")).toBe(false);
+    expect(payload.absent_spares).toEqual([{ vehicle_id: "v1", position_id: "s1" }]);
+  });
 });
 
 describe("deviceId", () => {
