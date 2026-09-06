@@ -2,7 +2,42 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Draft, DraftPosition } from "./draft";
 import { cellKey } from "./draft";
-import { deviceId, toSubmitPayload } from "./payload";
+import { deviceId, halfEnteredCell, toSubmitPayload } from "./payload";
+
+// Fills in the DraftPosition/Draft fields a halfEnteredCell test does not
+// care about, so each case states only what it is testing (treads,
+// pressureKpa) and stays legible against the predicate it exercises.
+function draftWith(
+  positions: Pick<DraftPosition, "positionId" | "vehicleId" | "treads" | "pressureKpa">[],
+): Draft {
+  return {
+    clientUuid: "u",
+    vehicleId: "v1",
+    fleetNumber: null,
+    combinationId: null,
+    observedMemberVehicleIds: [],
+    taskId: null,
+    startedAt: "2026-09-06T08:00:00Z",
+    odometerKm: null,
+    comment: null,
+    defectReport: null,
+    positions: Object.fromEntries(
+      positions.map((p) => [
+        cellKey(p.vehicleId, p.positionId),
+        {
+          ...p,
+          tyreId: null,
+          pressureTemperature: "UNKNOWN",
+          damageFlag: false,
+          note: null,
+          seconds: 0,
+          warnings: [],
+        } satisfies DraftPosition,
+      ]),
+    ),
+    warnings: [],
+  };
+}
 
 const meta = {
   submittedAt: "2026-08-25T06:14:40Z",
@@ -298,5 +333,26 @@ describe("deviceId", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("halfEnteredCell", () => {
+  // Only a position with SOME treads and not all is half-entered. Treads done
+  // with no pressure is finished by the flow's own definition (pressure is
+  // deliberately optional), so resume must not reopen it on every reload.
+  it("finds the one position a driver was interrupted in", () => {
+    const d = draftWith([
+      { positionId: "p1", vehicleId: "v1", treads: [12, 13, 14], pressureKpa: null },
+      { positionId: "p2", vehicleId: "v1", treads: [9, null, null], pressureKpa: null },
+    ]);
+    expect(halfEnteredCell(d)).toBe("v1:p2");
+  });
+
+  it("finds nothing when every position is untouched or finished", () => {
+    const d = draftWith([
+      { positionId: "p1", vehicleId: "v1", treads: [12, 13, 14], pressureKpa: 800 },
+      { positionId: "p2", vehicleId: "v1", treads: [null, null, null], pressureKpa: null },
+    ]);
+    expect(halfEnteredCell(d)).toBeNull();
   });
 });

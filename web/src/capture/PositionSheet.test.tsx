@@ -526,4 +526,76 @@ describe("PositionSheet", () => {
     );
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  // TYRE-148 / NFR-USE-011: the phone call mid-position. A driver back from
+  // it with two of three readings entered expects the next digit to fill the
+  // empty box. Seeding field 0 made that digit restart tread 1 — a silent
+  // overwrite of a good reading — or cost two taps to avoid.
+  it("reopens a half-entered position on its first empty field", () => {
+    render(
+      <PositionSheet
+        {...props({})}
+        initial={{
+          positionId: "p1",
+          vehicleId: "v1",
+          tyreId: null,
+          treads: [12, 13, null],
+          pressureKpa: null,
+          pressureTemperature: "UNKNOWN",
+          damageFlag: false,
+          note: null,
+          seconds: 4,
+          warnings: [],
+        }}
+      />,
+    );
+    expect(screen.getByLabelText(/Tread reading 3 of 3/)).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText(/Tread reading 1 of 3/)).not.toHaveAttribute("aria-current");
+  });
+
+  // Treads done, pressure not: the pressure field is the empty one.
+  it("reopens a tread-complete position on the pressure field", () => {
+    render(
+      <PositionSheet
+        {...props({})}
+        initial={{
+          positionId: "p1",
+          vehicleId: "v1",
+          tyreId: null,
+          treads: [12, 13, 14],
+          pressureKpa: null,
+          pressureTemperature: "UNKNOWN",
+          damageFlag: false,
+          note: null,
+          seconds: 4,
+          warnings: [],
+        }}
+      />,
+    );
+    expect(screen.getByLabelText(/Pressure/)).toHaveAttribute("aria-current", "true");
+  });
+
+  // A finished position reopened to LOOK at is seeded on field 1: there is
+  // nothing empty to resume into, and a digit there is an edit the driver
+  // chose (the look-and-leave guard still applies).
+  it("reopens a complete position on the first field", () => {
+    render(
+      <PositionSheet
+        {...props({})}
+        initial={{
+          positionId: "p1",
+          vehicleId: "v1",
+          tyreId: null,
+          treads: [12, 13, 14],
+          pressureKpa: 800,
+          pressureTemperature: "UNKNOWN",
+          damageFlag: false,
+          note: null,
+          seconds: 4,
+          warnings: [],
+        }}
+      />,
+    );
+    expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveAttribute("aria-current", "true");
+  });
 });

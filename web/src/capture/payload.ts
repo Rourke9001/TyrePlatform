@@ -139,6 +139,19 @@ export function capturedCells(draft: Draft): Set<string> {
   );
 }
 
+// TYRE-148: the position a resume should land in. Half-entered means some
+// treads and not all — the one state the flow cannot have moved on from,
+// since finish() returns early on it. Pressure does not count: it is
+// optional by design (see isCaptured), so a tread-complete position with no
+// pressure is finished, and reopening it on every reload would be the
+// regression this predicate exists to avoid.
+export function halfEnteredCell(draft: Draft): string | null {
+  const p = Object.values(draft.positions).find(
+    (x) => x.treads.some((t) => t !== null) && !treadsRead(x.treads),
+  );
+  return p ? cellKey(p.vehicleId, p.positionId) : null;
+}
+
 export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
   const captured = Object.values(draft.positions).filter(isCaptured);
 
