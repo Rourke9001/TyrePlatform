@@ -113,15 +113,27 @@ function byCell(positions: Record<string, DraftPosition>): Record<string, DraftP
   return out;
 }
 
+// The row is one JSON blob under no schema (see byCell above), so a draft
+// written before a field existed reaches every reader raw. loadDraft applied
+// this on the read path; mutate did not, so savePosition/markSpareAbsent/
+// unmarkSpareAbsent ran .filter/.some on an undefined absentSpares and threw
+// — on a device whose draft is the one thing ADR-0009 promises to hold
+// durably, blocking the next write is exactly the failure that promise
+// forbids. Both paths call this now, so a stored row missing a field can
+// never reach a callback un-normalised.
+function normalise(draft: Draft): Draft {
+  return {
+    ...draft,
+    fleetNumber: draft.fleetNumber ?? null,
+    positions: byCell(draft.positions),
+    absentSpares: draft.absentSpares ?? [],
+  };
+}
+
 export async function loadDraft(): Promise<Draft | undefined> {
   const row = await db.drafts.get(DRAFT_KEY);
   if (!row) return undefined;
-  return {
-    ...row.draft,
-    fleetNumber: row.draft.fleetNumber ?? null,
-    positions: byCell(row.draft.positions),
-    absentSpares: row.draft.absentSpares ?? [],
-  };
+  return normalise(row.draft);
 }
 
 export async function startDraft(init: {
@@ -164,7 +176,7 @@ async function mutate(fn: (draft: Draft) => Draft): Promise<void> {
   await db.transaction("rw", db.drafts, async () => {
     const row = await db.drafts.get(DRAFT_KEY);
     if (!row) throw new Error("No inspection in progress.");
-    await db.drafts.put({ key: DRAFT_KEY, draft: fn(row.draft) });
+    await db.drafts.put({ key: DRAFT_KEY, draft: fn(normalise(row.draft)) });
   });
 }
 
