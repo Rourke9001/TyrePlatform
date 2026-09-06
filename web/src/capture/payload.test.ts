@@ -355,4 +355,15 @@ describe("halfEnteredCell", () => {
     ]);
     expect(halfEnteredCell(d)).toBeNull();
   });
+
+  // The focus key can jump straight to the pressure field before every tread
+  // is filled (entry.ts's "focus"), so a half-entered position can carry a
+  // pressure reading too. Coupling the predicate to pressureKpa === null
+  // would miss exactly this driver.
+  it("still finds a half-entered position whose pressure was taken early", () => {
+    const d = draftWith([
+      { positionId: "p1", vehicleId: "v1", treads: [9, null, null], pressureKpa: 800 },
+    ]);
+    expect(halfEnteredCell(d)).toBe("v1:p1");
+  });
 });
