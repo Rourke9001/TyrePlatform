@@ -52,6 +52,7 @@ DECLARE
   v_found      uuid;
   v_reading    uuid;
   v_hours      int;
+  v_skew       int;
   v_want       int;
   v_side       app.side;
   v_spare      boolean;
@@ -86,6 +87,23 @@ BEGIN
   END IF;
   IF (p_payload ->> 'submitted_at') IS NULL THEN
     RAISE EXCEPTION 'the payload carries no submitted_at' USING ERRCODE = 'TY005';
+  END IF;
+
+  -- TYRE-166 (owner, 6 Sep 2026). The past side stays open: ADR-0009's outbox
+  -- delivers a capture hours or days after the device stamped it. The future
+  -- side is bounded, because submitted_at is BR-VAL-007's ordering key and
+  -- the as-at register's cut-off (000036): a reading a wrong device clock
+  -- stamps a year ahead is invisible to every register until that day, an
+  -- older reading prices the tyre meanwhile, and DR-011 means nothing can
+  -- retract it. A phone a few minutes fast is not a wrong clock, so the
+  -- bound carries an allowance that is tenant configuration (rule 5); the
+  -- five-minute fallback is the value the owner seeded and applies only to a
+  -- tenant with no row, as the four hours below do for FR-INS-038.
+  v_skew := COALESCE(
+    (app.config_for(v_tenant, 'submitted_at_future_skew_minutes', now()) #>> '{}')::int, 5);
+  IF (p_payload ->> 'submitted_at')::timestamptz > now() + make_interval(mins => v_skew) THEN
+    RAISE EXCEPTION 'submitted_at % is more than % minutes ahead of the server clock; check the device time and resubmit',
+      p_payload ->> 'submitted_at', v_skew USING ERRCODE = 'TY005';
   END IF;
 
   -- FR-INS-020: an inspection is its readings. jsonb_array_elements over an
@@ -132,11 +150,11 @@ BEGIN
   -- stand the window down for every queued submit — exactly the case
   -- FR-INS-038 exists to catch — because the device-claimed submitted_at
   -- drifts further from the server clock the longer the outbox held it. The
-  -- rest of this function already trusts the device's own clock for
-  -- everything else it stores (duration_seconds, the odometer's reading_date,
-  -- NFR-OBS-007's capture_seconds), so trusting it here too is consistent,
-  -- not a new risk. This is deliberately not bounded against real now() to
-  -- guard a lying device clock — no requirement asks for that.
+  -- rest of this function trusts the device's own clock for everything else
+  -- it stores (duration_seconds, the odometer's reading_date, NFR-OBS-007's
+  -- capture_seconds); the one bound on that clock is the future-side check
+  -- above, and it does not touch this window, which compares capture-clock
+  -- against capture-clock.
   --
   -- Bounded on BOTH sides, and for the same reason: FR-INS-038 asks whether
   -- two captures of one unit are within v_hours OF EACH OTHER, which is a
