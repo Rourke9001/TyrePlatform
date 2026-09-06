@@ -20,12 +20,12 @@ all 44 commits** — `20657e1` became `362c12e` — and `deleteBranchOnMerge` th
 **deleted `origin/develop`**. Trees are identical (`c526b35`), so nothing was
 lost, and `origin/develop` has been recreated from `main`'s tip.
 
-Two consequences for a session reading this page. Every hash cited below is the
-pre-promotion one and **no longer resolves**; the commit subjects still do,
-which is how to find them. And ADR-0004's promotion path is
-`git push origin origin/develop:main` from a terminal, never a pull request —
-CONTRIBUTING.md says so, and the repository setting that allowed the pull
-request is unchanged.
+Two consequences for a session reading this page. Most hashes cited below are
+the pre-promotion ones and **no longer resolve**, so match by **subject** — the
+commit subjects survived the rewrite, which is how to find them. And
+ADR-0004's promotion path is `git push origin origin/develop:main` from a
+terminal, never a pull request — CONTRIBUTING.md says so, and the repository
+setting that allowed the pull request is unchanged.
 
 ## What the verification found
 
@@ -63,7 +63,6 @@ which is why the batches keep its shape.
 |---|---|
 | TYRE-70 | The mobile-viewport projects and specs landed in `11230eb`. What is outstanding is the acceptance run itself — one real vehicle, on a phone, in airplane mode, with its duration measured against the three-minute target. That is a human sitting in a yard, not agent work |
 | TYRE-30 | ~~Two of its folded decisions were outstanding — the PLATFORM\_ADMIN email partial unique index and the `vehicle_driver` overlap constraint~~ — **closed by B1** in migration `000026`; **Done on the board** as of the 31 Aug re-verification. DR-014b remains separate as TYRE-60 |
-| TYRE-90 | Its **homing** commit is on `develop`, not its implementation. A key whose only commit is documentation stays open — this row exists so the next re-verification does not read the subject line and close it |
 
 ### Raised after this page was written
 
@@ -121,11 +120,11 @@ here because otherwise nothing carries them:
 
 Also open and unbuilt, against `develop` rather than any branch in flight — a
 key delivered on a branch that has not yet merged stays listed here until it
-lands: TYRE-36, TYRE-38, TYRE-41, TYRE-48, TYRE-51, TYRE-53, TYRE-58 to
-TYRE-64, TYRE-72, TYRE-73, TYRE-75, TYRE-76, TYRE-79, TYRE-83, TYRE-87,
-TYRE-88, TYRE-89, TYRE-90, TYRE-91 to TYRE-94. TYRE-86 — this page itself —
-closed on 28 Aug once its own method had been re-run against it; TYRE-30 closed
-on the board between the 28 and 31 Aug passes.
+lands. Sixteen keys, re-run against the board on 6 Sep 2026: TYRE-36, TYRE-38,
+TYRE-41, TYRE-51, TYRE-53, TYRE-58 to TYRE-64, TYRE-73, TYRE-75, TYRE-76,
+TYRE-79. TYRE-86 — this page itself — closed on 28 Aug once its own method had
+been re-run against it; TYRE-30 closed on the board between the 28 and 31 Aug
+passes.
 
 ## The batches
 
@@ -145,7 +144,8 @@ FR-FIT-002 that `000011` relaxed and never replaced. TYRE-30's leftovers are
 the same class of small constraint in the same schema territory, so they ride
 along rather than waiting for a pass of their own.
 
-The plan is at `docs/superpowers/plans/2026-08-27-db-integrity-rules.md`.
+The plan is at `docs/superpowers/plans/2026-08-27-db-integrity-rules.md`
+(gitignored per TYRE-128 decision 4).
 
 Delivered on `TYRE-82-db-integrity-rules` as three paired migrations and three
 suite sections:
@@ -171,8 +171,9 @@ are history:
   standalone partial indexes with no `pg_constraint` row.
 - Suite section 24 asserted the odometer-less fitment property on a unit the
   seed declares `HORSE`, so `TY009` refused it. The section now creates its own
-  trailer. It guards its inserts with `IF NOT EXISTS` and is not
-  transaction-wrapped, so only `make db-reset` exercises it.
+  trailer. It guards its inserts with `IF NOT EXISTS` and is
+  transaction-wrapped since TYRE-97 (PR #40, DB-2), so a warm run exercises it
+  too.
 
 ### B2 — the capability map — **delivered**
 
@@ -185,7 +186,8 @@ and DEPOT_MANAGER, so a template gate resting on it would silently hand
 template authoring to two roles that must not have it. Together they are a
 capability constant, two map entries and their tests.
 
-The plan is at `docs/superpowers/plans/2026-08-27-capability-map.md`.
+The plan is at `docs/superpowers/plans/2026-08-27-capability-map.md`
+(gitignored per TYRE-128 decision 4).
 
 Delivered on `TYRE-74-capability-map` as two commits, in that order:
 
@@ -213,15 +215,16 @@ carries. Every write endpoint added after this inherits whatever shape is
 settled here, so the cost of deferring is paid once per endpoint. TYRE-81's own
 description asks for these first.
 
-TYRE-77's stated constraint was not accurate: there are **ten** `TY0xx` codes
-(`TY001`–`TY010`, `TY008`/`TY009` added by B1), and `db/tests/004_tests.sql`
+TYRE-77's stated constraint was not accurate: there were **ten** `TY0xx` codes
+at the time (`TY001`–`TY010`, `TY008`/`TY009` added by B1), and the class has
+since grown to `TY018` (`000037`, `000038`). `db/tests/004_tests.sql`
 asserts the **SQLSTATEs** by name, not the messages — it contains no
 message-text assertion at all. The fix preserves the five messages reachable
 through `app.submit_inspection` (`TY003`–`TY007`) by forwarding them verbatim,
 and cans every other refusal.
 
-The plan is at `docs/superpowers/plans/2026-08-28-submit-refusal-contract.md`,
-the design at
+The plan is at `docs/superpowers/plans/2026-08-28-submit-refusal-contract.md`
+(gitignored per TYRE-128 decision 4), the design at
 `docs/superpowers/specs/2026-08-28-submit-refusal-contract-design.md`.
 
 Delivered on `TYRE-77-refusal-contract` as ADR-0012 plus two feature commits:
@@ -247,14 +250,14 @@ the reactivate branch, the subdomain-login assumption — are cheaper to record
 than to unpick from code. TYRE-83 sits directly on `POST /api/users` and
 cannot start before it exists.
 
-The plan is at `docs/superpowers/plans/2026-08-28-admin-write-surface.md`, the
-design at `docs/superpowers/specs/2026-08-28-admin-write-surface-design.md`,
+The plan is at `docs/superpowers/plans/2026-08-28-admin-write-surface.md`
+(gitignored per TYRE-128 decision 4), the design at
+`docs/superpowers/specs/2026-08-28-admin-write-surface-design.md`,
 the closing proof at `web/e2e/admin.spec.ts`. It covers **TYRE-81 only** — ten
 tasks on branch `TYRE-81-admin-write-surface`, cut from `develop` @
 `3a3d6c2`. TYRE-83 gets its own plan now that this has landed.
 
-Delivered as PR #32, rebase-merged 28 Aug 2026 (hashes below are `develop`'s,
-not the branch's):
+Delivered as PR #32, rebase-merged 28 Aug 2026:
 
 | Commit | Change | Assertion |
 |---|---|---|
@@ -359,14 +362,14 @@ first writes it, so slice 2 cannot be planned to executable detail before
 slice 1's writes exist — a full-B5 plan would be the abstract freeze this
 section warns against.
 
-- **Slice 1 — built, PR open, not yet merged.** TYRE-88 → TYRE-87 → the
+- **Slice 1 — delivered 2026-09-01 (PR #39).** TYRE-88 → TYRE-87 → the
   D12/D13 schema and TYRE-48's vocabulary → TYRE-91's register surface.
-  Plan at `docs/superpowers/plans/2026-09-01-b5-tyre-register.md`, design at
+  Plan at `docs/superpowers/plans/2026-09-01-b5-tyre-register.md` (gitignored
+  per TYRE-128 decision 4), design at
   `docs/superpowers/specs/2026-09-01-b5-tyre-register-design.md`; branch
   `TYRE-91-tyre-register`; migrations `000028`–`000031`; suite sections
-  36–39. When it lands, TYRE-88 and TYRE-87 close; TYRE-91 closes only once
-  the D12 SRS erratum row is pasted by hand; **TYRE-48 stays open** — its
-  retread paths are slice 2's.
+  36–39. TYRE-88, TYRE-87 and TYRE-91 closed with it; **TYRE-48** closed with
+  slice 2, which carries the retread paths it needed.
 
   **TYRE-87's actual sweep found eight offenders, not the ticket's seven** —
   the ticket's manual audit missed `reading`'s 3-uuid tuple. Final
@@ -397,7 +400,8 @@ section warns against.
   deliberately deferred and to which ticket.
 
   **Slice 2 — delivered 2026-09-03 (TYRE-92/93/94/48, PR #41).** Plan and
-  design at `docs/superpowers/plans/2026-09-01-b5-fitment-surface.md` and
+  design at `docs/superpowers/plans/2026-09-01-b5-fitment-surface.md`
+  (gitignored per TYRE-128 decision 4) and
   `docs/superpowers/specs/2026-09-01-b5-fitment-surface-design.md`; branch
   `TYRE-92-fitment-surface`.
 
@@ -496,7 +500,7 @@ controller's rig and fitment work collides with that gating, with TYRE-82's
 trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 **Units · Tyres · Rigs · Fitments**.
 
-### B6 — the rig-setup surface — **slice 3 in progress**
+### B6 — the rig-setup surface — **slice 4 next**
 
 *Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
 `20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch;
@@ -512,8 +516,8 @@ states. Slice plans are gitignored under `docs/superpowers/plans/`.
 |---|---|---|---|
 | B6.1 | TYRE-72 — create and end a dated rig; the Rigs screen | `TYRE-72-rig-setup` | merged 3 Sep 2026, PR #43 |
 | B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | merged 5 Sep 2026, PR #44 |
-| B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | `TYRE-101-rig-rotation` | in progress |
-| B6.4 | TYRE-75 — reconcile reported composition into a dated rig change | after B6.3 merges | not planned |
+| B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | `TYRE-101-rig-rotation` | merged 5 Sep 2026, PR #45 |
+| B6.4 | TYRE-75 — reconcile reported composition into a dated rig change | not cut | not planned |
 | *(B6.5)* | TYRE-73 — the in-transport lock | **only if the owner un-parks it** | parked |
 
 **Correction, 3 Sep 2026 (spec U1):** this page sequenced TYRE-73 inside
@@ -591,8 +595,9 @@ git rev-parse origin/develop^{tree} \          # develop and main must agree
 
 Match against the board with a `statusCategory != Done` search. A key present
 on `develop` and open on the board is a candidate, not a conclusion — read the
-ticket's definition of done before closing it. TYRE-90 is why: its only commit
-on `develop` is the one that homed it in this page.
+ticket's definition of done before closing it: a key whose only commit on
+`develop` is the one that homed it in a page like this one has been written
+down, not built.
 
 The third command is the 29 Aug lesson. Compare **trees**, never hashes: a
 promotion that went through a pull request rewrites every hash while leaving
