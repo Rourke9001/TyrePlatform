@@ -19,6 +19,7 @@ const meta = {
 const draft: Draft = {
   clientUuid: "0f8f0f8f-0f8f-0f8f-0f8f-0f8f0f8f0f8f",
   vehicleId: "v-horse",
+  fleetNumber: "BAC039SP",
   combinationId: "c1",
   observedMemberVehicleIds: ["v-horse", "v-link6"],
   taskId: "task-1",

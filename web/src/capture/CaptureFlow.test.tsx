@@ -8,7 +8,7 @@ import { testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
-import { clearDraft, db } from "./draft";
+import { clearDraft, db, loadDraft, startDraft } from "./draft";
 import { listOutbox } from "./outbox";
 
 // CaptureFlow uses useCaptureContext -> useQuery, so an unwrapped render
@@ -557,5 +557,55 @@ describe("CaptureFlow", () => {
     expect(entry.state).toBe("failed");
     expect(entry.payload.readings).toHaveLength(1);
     expect(entry.payload.readings[0].treads).toEqual([13, 13, 14]);
+  });
+
+  // TYRE-146 (Critical): a driver who taps Start on the wrong truck and
+  // captures nothing had no exit — the held screen's only control was
+  // "Go to it", and a submit needs a position. The discard is the exit, and
+  // it names what is lost.
+  it("lets a driver discard the other vehicle's inspection and start this one", async () => {
+    const user = newUser();
+    stubApi();
+    await startDraft({
+      vehicleId: "v-wrong",
+      taskId: null,
+      startedAt: new Date().toISOString(),
+      fleetNumber: "BAC711TR",
+    });
+    const { container } = renderFlow();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/another vehicle/i);
+    await user.click(screen.getByRole("button", { name: /discard it/i }));
+    expect(screen.getByRole("group", { name: /BAC711TR/ })).toHaveTextContent(
+      /no positions captured|0 captured positions/i,
+    );
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    expect((await loadDraft())?.vehicleId).toBe("v1");
+    expectNothingForbiddenSpoken(container, /discard/i);
+  });
+
+  it("names the vehicle and the positions lost before discarding from the capture screen", async () => {
+    const user = newUser();
+    stubApi();
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /discard this inspection/i }));
+    const panel = screen.getByRole("group", { name: /BAC039SP/ });
+    expect(panel).toHaveTextContent(/1 captured position\b/);
+
+    // Keep it: nothing moves, the draft is intact.
+    await user.click(screen.getByRole("button", { name: "Keep it" }));
+    expect((await loadDraft())?.vehicleId).toBe("v1");
+    expect(screen.getByRole("heading", { name: /1 of 1 done/ })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /discard this inspection/i }));
+    await user.click(screen.getByRole("button", { name: "Discard" }));
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeInTheDocument();
+    expect(await loadDraft()).toBeUndefined();
   });
 });

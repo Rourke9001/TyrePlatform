@@ -186,6 +186,7 @@ describe("the draft buffer", () => {
       [
         "clientUuid",
         "vehicleId",
+        "fleetNumber",
         "combinationId",
         "observedMemberVehicleIds",
         "taskId",
@@ -216,5 +217,43 @@ describe("the draft buffer", () => {
       startedAt: "2026-08-25T09:00:00Z",
     });
     expect(second.clientUuid).not.toBe(first.clientUuid);
+  });
+
+  // TYRE-146 / FR-OFF-014: never SILENTLY discarded. A discard the driver asks
+  // for and confirms is the exit the other-vehicle screen never had — without
+  // it a wrong-vehicle Start locks the phone out of capture for good.
+  it("starts a second inspection once the first is discarded", async () => {
+    await startDraft({
+      vehicleId: "v-wrong",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+      fleetNumber: "BAC711TR",
+    });
+    await expect(
+      startDraft({ vehicleId: "v-right", taskId: null, startedAt: "2026-08-25T06:00:00Z" }),
+    ).rejects.toThrow(/already in progress/);
+
+    await clearDraft();
+
+    const second = await startDraft({
+      vehicleId: "v-right",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
+    expect(second.vehicleId).toBe("v-right");
+    expect((await loadDraft())?.vehicleId).toBe("v-right");
+  });
+
+  // The held-vehicle screen has to NAME the other vehicle: the draft only
+  // knows its id, and the screen is shown precisely when that vehicle's
+  // context has not been fetched.
+  it("keeps the fleet number so a held inspection can be named", async () => {
+    await startDraft({
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+      fleetNumber: "BAC039SP",
+    });
+    expect((await loadDraft())?.fleetNumber).toBe("BAC039SP");
   });
 });

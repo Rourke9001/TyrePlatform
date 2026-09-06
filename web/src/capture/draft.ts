@@ -52,6 +52,11 @@ export interface DraftPosition {
 export interface Draft {
   clientUuid: string;
   vehicleId: string;
+  // Named on the held-vehicle screen (CaptureFlow), which is shown exactly
+  // when this vehicle's context has NOT been fetched — so the name rides in
+  // the draft. Null on a draft written before the field existed; the screen
+  // then says "the other vehicle" rather than inventing one.
+  fleetNumber: string | null;
   combinationId: string | null;
   // FR-INS-062/063: what the driver confirmed was attached. The server records
   // a difference as an observation; it never creates a combination on submit.
@@ -106,13 +111,18 @@ function byCell(positions: Record<string, DraftPosition>): Record<string, DraftP
 export async function loadDraft(): Promise<Draft | undefined> {
   const row = await db.drafts.get(DRAFT_KEY);
   if (!row) return undefined;
-  return { ...row.draft, positions: byCell(row.draft.positions) };
+  return {
+    ...row.draft,
+    fleetNumber: row.draft.fleetNumber ?? null,
+    positions: byCell(row.draft.positions),
+  };
 }
 
 export async function startDraft(init: {
   vehicleId: string;
   taskId: string | null;
   startedAt: string;
+  fleetNumber?: string | null;
   combinationId?: string | null;
   observedMemberVehicleIds?: string[];
 }): Promise<Draft> {
@@ -128,6 +138,7 @@ export async function startDraft(init: {
     // inspection.
     clientUuid: crypto.randomUUID(),
     vehicleId: init.vehicleId,
+    fleetNumber: init.fleetNumber ?? null,
     combinationId: init.combinationId ?? null,
     observedMemberVehicleIds: init.observedMemberVehicleIds ?? [],
     taskId: init.taskId,

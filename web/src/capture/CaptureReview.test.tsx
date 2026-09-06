@@ -88,6 +88,7 @@ describe("CaptureReview", () => {
     const draft: Draft = {
       clientUuid: "c1",
       vehicleId: "v1",
+      fleetNumber: "BAC039SP",
       combinationId: "comb1",
       observedMemberVehicleIds: ["v1", "v2"],
       taskId: null,
