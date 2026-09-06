@@ -13,7 +13,7 @@ import type { Draft, DraftPosition, RecordedWarning } from "./draft";
 import { cellKey, clearDraft, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
 import { historyWarnings } from "./history";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
-import { appVersion, capturedCells, deviceId } from "./payload";
+import { appVersion, capturedCells, deviceId, halfEnteredCell } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { completenessByUnit, nextOutstanding, rigPositions } from "./rig";
 import type { Severity } from "./warnings";
@@ -83,6 +83,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
               : [vehicleId],
           );
           setScreen("capture");
+          // TYRE-148: back into the sheet the driver was typing in, if any.
+          setActiveKey(halfEnteredCell(existing));
         } else if (existing) {
           // FR-OFF-014: one draft per device, and it is never silently
           // discarded. Only a person can decide the other one is finished.

@@ -44,11 +44,15 @@ export function PositionSheet({
   onClose: () => void;
 }) {
   const count = ctx.config.treadReadingCount;
-  const [state, setState] = useState<EntryState>(() =>
-    initial
-      ? { treads: [...initial.treads], pressureKpa: initial.pressureKpa, field: 0, buffer: "" }
-      : newEntryState(count),
-  );
+  const [state, setState] = useState<EntryState>(() => {
+    if (!initial) return newEntryState(count);
+    // TYRE-148: the field a driver comes back to is the first one they have
+    // not filled — NFR-USE-011's interrupted position — and on a position
+    // with nothing left to fill, the first, so a reopen-to-look is unchanged.
+    const firstEmpty = initial.treads.findIndex((t) => t === null);
+    const field = firstEmpty !== -1 ? firstEmpty : initial.pressureKpa === null ? count : 0;
+    return { treads: [...initial.treads], pressureKpa: initial.pressureKpa, field, buffer: "" };
+  });
   const [acknowledged, setAcknowledged] = useState(false);
   // NFR-OBS-007. Wall clock from when the sheet opened, plus anything a
   // previous visit already cost — a driver who backs out and returns is

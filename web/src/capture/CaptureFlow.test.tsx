@@ -283,6 +283,28 @@ describe("CaptureFlow", () => {
     expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
   });
 
+  // TYRE-148, the other half: resume put the driver on the diagram (one tap
+  // to reopen) even when the draft says exactly which sheet they were in.
+  it("resumes straight into the position that was half-entered", async () => {
+    const user = newUser();
+    stubApi(201, [twoPositions]);
+    const { unmount } = renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await user.click(await screen.findByRole("button", { name: /^Position 2,/ }));
+    await user.click(screen.getByRole("button", { name: "9" }));
+    await waitFor(async () => expect((await loadDraft())?.positions["v1:p2"]?.treads[0]).toBe(9));
+    unmount();
+
+    renderFlow();
+    const sheet = await screen.findByRole("region", { name: "Position 2" });
+    expect(sheet).toBeInTheDocument();
+    expect(screen.getByLabelText(/Tread reading 2 of 3/)).toHaveAttribute("aria-current", "true");
+  });
+
+  // The existing resume test above stays on the diagram: its one position is
+  // complete, so there is no half-entered sheet to return to.
+
   // The diagram's active mark is the driver's place-keeper across a 27-position
   // walk-around. Marking every cell satisfies "the open one is marked" just as
   // well as marking one, so the assertion is on the whole set, not on the cell
