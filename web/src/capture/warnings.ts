@@ -130,7 +130,7 @@ export function positionWarnings(
     // FR-INS-037's band: both are true beyond the critical tolerance, and two
     // rows about one number costs seconds the three-minute budget has not got.
     // Strict on the under side, inclusive on the over side — not a style
-    // choice: app.inflation_pressure_summary (000013) bands with
+    // choice: app.inflation_compliance (000013) bands with
     // `pct < 100 - critical_under_pct`, so at exactly -20% the database says
     // WARN and an inclusive client here would say CONFIRM. Same drift the
     // FR-INS-036/041 boundaries are pinned against.

@@ -14,16 +14,11 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	// Aliased: this file shares package httpapi with httpapi.go's own
-	// capability-check function named require, so the unaliased import would
-	// shadow it (see ratelimit_test.go for the same convention).
-	req "github.com/stretchr/testify/require"
+	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
 )
 
-// The Content-Type assertion is the point of this test, not decoration.
-// writeJSON sets the header itself, but WriteHeader locks the header map in,
-// so a writeError that writes the status first answers text/plain while every
-// status and body assertion still passes (ADR-0012).
+// The Content-Type assertion is the point of this test, not decoration — see
+// writeStatus for what the header ordering protects (ADR-0012).
 func TestWriteErrorEnvelope(t *testing.T) {
 	rec := httptest.NewRecorder()
 

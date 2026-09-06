@@ -7,10 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	// Aliased: this file shares package httpapi with httpapi.go's own
-	// capability-check function named require, so the unaliased import would
-	// shadow it (refusal_internal_test.go's own convention).
-	req "github.com/stretchr/testify/require"
+	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
 )
 
 // unitKinds and tenantRoles mirror Postgres enums so a bad value is a 422

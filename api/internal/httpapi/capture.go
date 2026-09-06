@@ -331,10 +331,9 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		// Decoded only for the FR-AUT-005 scope check below — the rest of the
-		// payload stays opaque and travels to app.submit_inspection unparsed
-		// (see the const comment above). A second, fuller Go-side model would
-		// be a second place for the database contract to drift.
+		// Decoded only for the FR-AUT-005 scope check below; the rest of the
+		// payload travels to app.submit_inspection unparsed (maxSubmitBytes
+		// above).
 		var body struct {
 			VehicleID uuid.UUID `json:"vehicle_id"`
 		}
@@ -369,12 +368,9 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			// payload still gets a refusal here rather than a raw Postgres
 			// error.
 			//
-			// The refusal is errVehicleNotVisible (422), not errForbidden
-			// (403). A ScopeTenant actor skips this check entirely and meets
-			// the same condition at app.submit_inspection's TY007 guard, which
-			// answers 422 — so refusing a driver with 403 would have two roles
-			// learn different things about the same vehicle. The sentinel's own
-			// comment in httpapi.go carries the reasoning.
+			// 422 (errVehicleNotVisible), not 403 — see the sentinel's comment
+			// in httpapi.go for why the two roles must not learn different
+			// things about the same vehicle.
 			if a.Scope() != auth.ScopeTenant {
 				var authorized bool
 				if err := tx.QueryRow(r.Context(), `

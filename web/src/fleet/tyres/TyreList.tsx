@@ -169,9 +169,9 @@ export function TyreList() {
             otherwise reachable by URL alone, and a screen someone cannot find
             their way to might as well not exist. */}
         <Link to="/fleet/tyres/new">Receive tyres</Link>
-        {/* The queue's only discoverable entry point (routes and nav are
-            Task 15's) — gated on LogRetread since an actor who cannot log a
-            return has nothing to do on that screen. */}
+        {/* The queue's only discoverable entry point — gated on LogRetread
+            since an actor who cannot log a return has nothing to do on that
+            screen. */}
         {canLogRetread && <Link to="/fleet/tyres/retreads">Retreads</Link>}
       </div>
 

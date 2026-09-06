@@ -70,20 +70,15 @@ func TestSubmitRateLimitTracksTwoIndependentAxes(t *testing.T) {
 }
 
 // TestClientAddressUsesRightmostForwardedForHop pins clientAddress's address
-// derivation: every deployed environment fronts the API with at least one
-// trusted L7 hop (infra/main.bicep's Container Apps ingress, TRUSTED_PROXY_HOPS
-// default 1), so RemoteAddr is always that hop's own address, never the
-// caller's. The Nth-from-right X-Forwarded-For entry is the one that hop
-// itself appended and the caller cannot forge; every earlier entry — in that
-// hop's own line or one before it — is caller-supplied and untrusted.
+// derivation case by case; clientAddress's own doc comment carries why the
+// Nth-from-right entry is the only one the caller cannot forge.
 func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 	tests := []struct {
 		name string
 		// Each entry is added as its own X-Forwarded-For header LINE (via
-		// Header.Add, in order), not comma-joined here: RFC 7230 makes
-		// repeated header lines equivalent to one comma-joined line, so a
-		// proxy may emit either form and clientAddress must treat them the
-		// same. A nil/empty slice means the header is not sent at all.
+		// Header.Add, in order), not comma-joined here — clientAddress says
+		// why both header forms must read the same. A nil/empty slice means
+		// the header is not sent at all.
 		xff         []string
 		trustedHops int
 		remote      string
@@ -105,10 +100,8 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 		},
 		{
 			name: "a forged entry on its own EARLIER header line is ignored in favour of the real LAST line",
-			// A proxy is free under RFC 7230 to append its own observed
-			// address as a separate header line rather than extend the
-			// caller's, and still be conformant — the caller's forged line
-			// arrives first, the trusted ingress line last.
+			// The separate-line form: the caller's forged line arrives first,
+			// the trusted ingress line last (clientAddress).
 			xff:         []string{"9.9.9.9", "203.0.113.9:51712"},
 			trustedHops: 1,
 			remote:      "10.0.0.4:443",
@@ -130,10 +123,8 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 		},
 		{
 			name: "two trusted hops (an L7 hop in front of the ingress) picks second-from-right",
-			// Each trusted hop appends the address of the peer it received
-			// from: the outer hop's own entry is rightmost, and the caller's
-			// real address — what the address counter should key on — is one
-			// entry further in, not at a fixed position the caller controls.
+			// What the counter should key on is one entry further in than the
+			// outer hop's own rightmost entry (clientAddress).
 			xff:         []string{"9.9.9.9, 203.0.113.9:51712, 10.10.10.5:443"},
 			trustedHops: 2,
 			remote:      "10.0.0.4:443",
@@ -141,10 +132,9 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 		},
 		{
 			name: "fewer entries than the configured trusted-hop count falls back to RemoteAddr",
-			// The topology says two trusted hops should have appended their
-			// own entries; only one hop's worth is present. That mismatch is
-			// a misconfiguration or a spoof attempt either way, so this must
-			// never guess by indexing into caller-supplied territory.
+			// The topology says two trusted hops appended entries; one hop's
+			// worth is present. clientAddress says why a mismatch must not be
+			// resolved by indexing into caller-supplied territory.
 			xff:         []string{"203.0.113.9:51712"},
 			trustedHops: 2,
 			remote:      "192.0.2.7:1234",

@@ -18,23 +18,15 @@ import { actAsUser } from "./admin";
 // submitted_at are instants compared to instants (FR-INS-038's window), not
 // tenant days, so a clock here is outside the 2026-09-03 lesson.
 //
-// Sandbox Fleet, never BAC: BAC's rows are the Appendix E/J acceptance
-// fixture and a spec that couples its units changes what they reproduce
-// (TYRE-80). The unit is created by this run rather than reused from the
-// seed (U14) — playwright.config.ts is fullyParallel and fitments.spec.ts
-// disposes sbveh1 mid-suite, so sharing a seeded unit would be an ordering
-// dependency the config does not promise.
+// Sandbox Fleet, never BAC — see admin.ts (TYRE-80). The unit is created by
+// this run rather than reused from the seed (U14) — playwright.config.ts is
+// fullyParallel and fitments.spec.ts disposes sbveh1 mid-suite, so sharing a
+// seeded unit would be an ordering dependency the config does not promise.
 //
-// Serial: every step reads what the step before it wrote, into one shared
-// database.
+// Serial, and Chromium desktop only gated on the device rather than on
+// browserName — rigs.spec.ts carries why each is needed.
 test.describe.configure({ mode: "serial" });
 
-// Chromium desktop only, and gated on the device rather than on browserName:
-// the android project is devices["Pixel 7"], whose defaultBrowserType is
-// "chromium" too, so a browserName test alone would let this whole run of
-// writes repeat there. The config's own way of keeping a writing spec on one
-// project is a testIgnore entry per project (capture/admin/tyres/fitments);
-// this file cannot edit that, so it states the same intent from the inside.
 test.skip(
   ({ browserName, isMobile }) => browserName !== "chromium" || isMobile,
   "a writing spec runs on one project; this is the fleet screen, judged at desktop size",
@@ -45,20 +37,16 @@ test.skip(
 const RUN = Date.now().toString().slice(-6);
 const HORSE_FLEET = `T6H-${RUN}`;
 
-// Ids are md5-derived in db/seeds/gen_seed_fixture.py, so they survive a
-// reseed: md5('sbcontroller1') holds ViewFleet, ManageAssets and
-// ManageAssignments, and md5('sbdriver1') is the Sandbox driver this run
-// schedules and then submits as. admin.ts pins the org admin the same way,
-// and the tenant uuid is the sandbox tenant's fixed one.
+// Seed-derived ids, per admin.ts: md5('sbcontroller1') holds ViewFleet,
+// ManageAssets and ManageAssignments, and md5('sbdriver1') is the Sandbox
+// driver this run schedules and then submits as.
 const TENANT = "33333333-3333-3333-3333-333333333333";
 const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
 const SANDBOX_DRIVER = "40f019ce-192e-92d1-5b15-2eb7b65369df";
 
-// The dev actor headers the API resolves identity from (APP_DEV_TENANT_HEADER;
-// src/api/devTenant.ts is the browser's half). A raw request carries no
-// localStorage, so it has to state them itself. ACTOR and postedResponse are
-// rigs.spec.ts's, restated here rather than exported from it — a spec is not
-// a module other specs import.
+// The dev actor headers a raw request has to state itself (admin.ts). ACTOR
+// and postedResponse are rigs.spec.ts's, restated here rather than exported
+// from it — a spec is not a module other specs import.
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 const DRIVER_ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": SANDBOX_DRIVER };
 

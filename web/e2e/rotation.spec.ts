@@ -9,10 +9,9 @@ import { actAsUser } from "./admin";
 // target narrowed to the sibling's empty positions, and one odometer per unit
 // that has one.
 //
-// Sandbox Fleet, never BAC: BAC's rows are the Appendix E/J acceptance fixture
-// and a spec that couples or fits its units changes what they reproduce
-// (TYRE-80). The two units, the rig and the tyres are all created by this run
-// rather than reused from the seed (U14) — playwright.config.ts is
+// Sandbox Fleet, never BAC — see admin.ts (TYRE-80). The two units, the rig
+// and the tyres are all created by this run rather than reused from the seed
+// (U14) — playwright.config.ts is
 // fullyParallel and fitments.spec.ts disposes a seeded unit mid-suite, so
 // sharing one would be an ordering dependency the config does not promise.
 //
@@ -26,18 +25,14 @@ const RUN = Date.now().toString().slice(-6);
 const HORSE_FLEET = `R3H-${RUN}`;
 const TRAILER_FLEET = `R3T-${RUN}`;
 
-// Ids are md5-derived in db/seeds/gen_seed_fixture.py, so they survive a
-// reseed: md5('sbcontroller1') holds ViewFleet and ManageAssets, which is
-// every write this flow makes, and the tenant uuid is the sandbox tenant's
-// fixed one.
+// Seed-derived ids, per admin.ts: md5('sbcontroller1') holds ViewFleet and
+// ManageAssets, which is every write this flow makes.
 const TENANT = "33333333-3333-3333-3333-333333333333";
 const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
 
-// The dev actor headers the API resolves identity from (APP_DEV_TENANT_HEADER;
-// src/api/devTenant.ts is the browser's half). A raw request carries no
-// localStorage, so it has to state them itself. These helpers are
-// fitments.spec.ts's and rigs.spec.ts's, restated here rather than exported
-// from either — a spec is not a module other specs import.
+// The dev actor headers a raw request has to state itself (admin.ts). These
+// helpers are fitments.spec.ts's and rigs.spec.ts's, restated here rather than
+// exported from either — a spec is not a module other specs import.
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 
 function postedResponse(page: Page, path: RegExp) {
