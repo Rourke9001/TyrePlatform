@@ -248,10 +248,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   }
 
   // TYRE-146: "No spare on this unit" (markSpareAbsent) is an observation, not
-  // a reading, so a draft holding only that mark had n === 0 here and read as
-  // empty — while clearDraft was about to discard the mark along with
-  // everything else. The absent-spare count has to speak for itself, in the
-  // driver's own words for the control that made it.
+  // a reading, and clearDraft discards it with everything else. A draft
+  // holding only that mark is not empty, so the count speaks for itself, in
+  // the driver's own words for the control that made it.
   const lostWords = (n: number, a: number) => {
     if (n === 0 && a === 0) return "No positions captured yet.";
     const captured = n > 0 ? `${n} captured position${n === 1 ? "" : "s"}` : "";
