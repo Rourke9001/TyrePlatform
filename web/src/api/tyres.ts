@@ -73,6 +73,17 @@ export function isDisposed(state: string): boolean {
   return DISPOSALS.some((d) => d.value === state);
 }
 
+// app.dispatch_tyre's two destinations (000033), the FR-FIT-011/012 pair a
+// REMOVED casing can leave the workshop for. Here rather than in the form for
+// DISPOSALS' reason above: the register and its row form must not each carry
+// their own copy of one vocabulary.
+export type Destination = "AT_RETREADER" | "AT_BREAKDOWN_SUPPLIER";
+
+export const DESTINATIONS: { value: Destination; label: string }[] = [
+  { value: "AT_RETREADER", label: "Retreader" },
+  { value: "AT_BREAKDOWN_SUPPLIER", label: "Breakdown supplier" },
+];
+
 // app.cost_source's third member, UNKNOWN, is app.receive_tyres' own default
 // for an omitted source and never a choice a human makes, so it is not here.
 // Shared by the receive form and the register's per-row cost form.

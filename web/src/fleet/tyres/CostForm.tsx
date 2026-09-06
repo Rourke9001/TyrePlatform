@@ -2,6 +2,7 @@ import { type FormEvent, useState } from "react";
 
 import { refusalMessage } from "../../api/refusal";
 import { COST_SOURCES, setTyreCost, type CostSource, type Tyre } from "../../api/tyres";
+import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
 // Its own wording, not DisposeForm's: see DisposeForm.tsx's comment on why a
@@ -39,7 +40,7 @@ export function CostForm({
     // Price stays a string end to end (rule 2) — never Number()'d, here or
     // in setTyreCost itself.
     mutate: (vars: { price: string; source: CostSource }) => setTyreCost(tyre.id, vars),
-    invalidate: [["tyres", tenantKey]],
+    invalidate: [tyresKey(tenantKey)],
     onSuccess: () => {
       setPrice("");
       setCostSource("INVOICE");
