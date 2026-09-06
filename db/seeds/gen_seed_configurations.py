@@ -79,6 +79,7 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 ('wear_rate_min_distance_km',1000),
                 ('odometer_max_daily_km', 1600),          # DR-020's configurable ceiling
                 ('duplicate_inspection_min_hours', 4),    # FR-INS-038's window, read by app.submit_inspection
+                ('submitted_at_future_skew_minutes', 5),  # TYRE-166: how far ahead of the server clock a device may stamp a submit
                 ('wear_rate_alert_multiple', 3),          # FR-INS-035, served to the device in the capture context
                 ('tread_capture_granularity_mm', 1.0)]:
         L.append(f"INSERT INTO app.configuration (tenant_id,key,value,effective_from) VALUES ('{tid}','{k}','{json.dumps(v)}'::jsonb,'2024-01-01T00:00:00Z');")

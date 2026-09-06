@@ -232,9 +232,10 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 	require.NoError(t, err)
 
 	// The six keys every cfg[...] assertion in the test reads, plus
-	// duplicate_inspection_min_hours, which FR-INS-038's 409 needs. Backdated:
-	// app.config_for resolves with a strict '<' against the instant passed
-	// in, and the handler passes now().
+	// duplicate_inspection_min_hours, which FR-INS-038's 409 needs, and
+	// submitted_at_future_skew_minutes, which TYRE-166's future-side bound
+	// reads on every submit. Backdated: app.config_for resolves with a
+	// strict '<' against the instant passed in, and the handler passes now().
 	for _, cfg := range []struct{ key, value string }{
 		{"tread_reading_count", "3"},
 		{"width_spread_warn_mm", "2.0"},
@@ -242,6 +243,7 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 		{"wear_rate_alert_multiple", "1.5"},
 		{"tread_capture_granularity_mm", "1.0"},
 		{"duplicate_inspection_min_hours", "4"},
+		{"submitted_at_future_skew_minutes", "5"},
 	} {
 		_, err = admin.Exec(ctx,
 			`INSERT INTO app.configuration (tenant_id, key, value, effective_from)

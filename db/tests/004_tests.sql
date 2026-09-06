@@ -2859,7 +2859,7 @@ BEGIN
     'client_uuid', gen_random_uuid(), 'vehicle_id', v_id,
     'combination_id', md5('comb1')::uuid,
     'observed_member_vehicle_ids', jsonb_build_array(v_id),
-    'started_at', t_now + interval '10 minutes', 'submitted_at', t_now + interval '12 minutes',
+    'started_at', t_now - interval '12 minutes', 'submitted_at', t_now - interval '10 minutes',
     'readings', jsonb_build_array(
       jsonb_build_object('vehicle_id', md5('veh2')::uuid, 'position_id', posx,
                          'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
@@ -2964,7 +2964,7 @@ BEGIN
     'client_uuid', gen_random_uuid(), 'vehicle_id', v_combo, 'task_id', probe_task,
     'combination_id', md5('comb1')::uuid,
     'observed_member_vehicle_ids', jsonb_build_array(v_id, md5('veh2')::uuid, v_two),
-    'started_at', t_now + interval '30 minutes', 'submitted_at', t_now + interval '32 minutes',
+    'started_at', t_now - interval '32 minutes', 'submitted_at', t_now - interval '30 minutes',
     'readings', jsonb_build_array(
       jsonb_build_object('vehicle_id', v_combo, 'position_id', pos_combo,
                          'tyre_id', md5('tyre2')::uuid,
@@ -3097,7 +3097,7 @@ BEGIN
 
   SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
     'client_uuid', gen_random_uuid(), 'vehicle_id', v_two,
-    'started_at', t_now + interval '1 day' - interval '160 seconds', 'submitted_at', t_now + interval '1 day',
+    'started_at', t_now - interval '1 day' - interval '160 seconds', 'submitted_at', t_now - interval '1 day',
     'odometer_km', 100,
     'readings', jsonb_build_array(
       jsonb_build_object('vehicle_id', v_two, 'position_id', pos2,
@@ -7562,6 +7562,81 @@ BEGIN
     RAISE EXCEPTION 'FAIL 48: the capture refusal does not name the ceiling: %', m;
   END IF;
   RAISE NOTICE 'PASS  one tread ceiling (35 mm, FR-INS-030): the CHECK, the capture path and the fitment writers read it';
+END $$;
+ROLLBACK;
+
+\echo '== 49. TYRE-166: a submitted_at ahead of the server clock beyond the tenant skew is refused; the past stays open (ADR-0009)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '22222222-2222-2222-2222-222222222222';
+  drv  constant uuid := md5('driver2')::uuid;
+  posa uuid;
+  v2   uuid;
+  v3   uuid;
+  v4   uuid;
+  m    text;
+  ok   boolean := false;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  PERFORM set_config('app.actor_id', drv::text, true);
+
+  SELECT p.id INTO posa FROM app.position p
+   WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+
+  -- Three units beyond the fixture's t2veh1, one per probe below, so
+  -- FR-INS-038's per-unit window never explains a result this section means
+  -- to attribute to the future-side bound instead.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status) VALUES
+    (md5('t2veh49b')::uuid, t_id, 'SEC49-B', 'CAA494901', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
+    (md5('t2veh49c')::uuid, t_id, 'SEC49-C', 'CAA494902', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
+    (md5('t2veh49d')::uuid, t_id, 'SEC49-D', 'CAA494903', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE');
+  v2 := md5('t2veh49b')::uuid;
+  v3 := md5('t2veh49c')::uuid;
+  v4 := md5('t2veh49d')::uuid;
+
+  -- control: a device four minutes fast is inside the seeded five and lands
+  PERFORM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', md5('t2veh1')::uuid,
+    'started_at', now() - interval '150 seconds', 'submitted_at', now() + interval '4 minutes',
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', md5('t2veh1')::uuid, 'position_id', posa,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+
+  -- the past side is open: yesterday's capture drains from the outbox
+  PERFORM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v2,
+    'started_at', now() - interval '1 day' - interval '150 seconds', 'submitted_at', now() - interval '1 day',
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v2, 'position_id', posa,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+
+  BEGIN
+    PERFORM app.submit_inspection(jsonb_build_object(
+      'client_uuid', gen_random_uuid(), 'vehicle_id', v3,
+      'started_at', now() - interval '150 seconds', 'submitted_at', now() + interval '6 minutes',
+      'readings', jsonb_build_array(
+        jsonb_build_object('vehicle_id', v3, 'position_id', posa,
+                           'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+    RAISE EXCEPTION 'FAIL 49: a submit six minutes ahead of the server clock was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY005' THEN GET STACKED DIAGNOSTICS m = MESSAGE_TEXT; ok := true;
+  END;
+  IF NOT ok OR strpos(m, '5 minutes') = 0 THEN
+    RAISE EXCEPTION 'FAIL 49: the refusal does not name the tenant allowance: %', m;
+  END IF;
+
+  -- rule 5: the allowance is the tenant's, not a literal -- widen it and the
+  -- same shape of payload lands
+  INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+  VALUES (t_id, 'submitted_at_future_skew_minutes', '10'::jsonb, now() - interval '1 second');
+  PERFORM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v4,
+    'started_at', now() - interval '150 seconds', 'submitted_at', now() + interval '6 minutes',
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v4, 'position_id', posa,
+                         'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0)))));
+  RAISE NOTICE 'PASS  submitted_at is bounded above by now() plus the tenant skew, open below';
 END $$;
 ROLLBACK;
 
