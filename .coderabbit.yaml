@@ -1,0 +1,12 @@
+language: en-GB
+reviews:
+  profile: chill
+  review_status: true
+  auto_review:
+    enabled: true
+    drafts: false
+    # CodeRabbit auto-reviews only pull requests into the default branch
+    # unless the base is listed here. main advances by fast-forward alone
+    # (ADR-0004), so every pull request in this repository targets develop.
+    base_branches:
+      - develop
