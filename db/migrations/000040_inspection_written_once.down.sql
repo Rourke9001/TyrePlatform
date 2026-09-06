@@ -2,6 +2,9 @@
 -- and 000039's ceiling verbatim. The duplication is the point (000039's
 -- down says why); the rows the up's rules refused stay refused-nothing,
 -- and the rows they admitted are the fleet's history.
+DROP TRIGGER reading_measurement_sealed ON app.reading_measurement;
+DROP TRIGGER reading_sealed ON app.reading;
+DROP FUNCTION app.inspection_is_sealed();
 DROP FUNCTION app.submit_inspection(jsonb);
 CREATE FUNCTION app.submit_inspection(p_payload jsonb)
 RETURNS TABLE (inspection_id uuid, created boolean)

@@ -505,3 +505,52 @@ END $$;
 
 REVOKE ALL ON FUNCTION app.submit_inspection(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.submit_inspection(jsonb) TO app_rw;
+
+-- ---------------------------------------------------------------------------
+-- TYRE-145. UPDATE and DELETE on app.reading and app.reading_measurement are
+-- revoked (000001), but INSERT must stay granted -- it is how a capture is
+-- written -- and nothing tied that INSERT to the reading's own submit. One
+-- more measurement on a submitted reading fires refresh_governing_tread and
+-- moves the MIN that prices the tyre (CR-011, BR-INS-005). A reading or a
+-- measurement belongs to the transaction that created its inspection:
+-- inspection.created_at defaults to now(), which is transaction_timestamp(),
+-- so app.submit_inspection's own rows pass and every later append refuses.
+-- Not a state gate: submit_inspection inserts the inspection as SYNCED before
+-- it writes a reading (000023), so SYNCED cannot mean "closed".
+--
+-- INSERT only. UPDATE and DELETE are the grants' job, and a DELETE guard
+-- would fire on the cascade a tenant delete runs through every historic
+-- reading; refresh_governing_tread's own UPDATE of app.reading runs as the
+-- definer inside the submitting transaction and must keep working.
+CREATE FUNCTION app.inspection_is_sealed() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE v_insp uuid; v_created timestamptz;
+BEGIN
+  IF TG_TABLE_NAME = 'reading' THEN
+    v_insp := NEW.inspection_id;
+  ELSE
+    SELECT r.inspection_id INTO v_insp FROM app.reading r WHERE r.id = NEW.reading_id;
+  END IF;
+  SELECT i.created_at INTO v_created FROM app.inspection i WHERE i.id = v_insp;
+  -- a parent this session cannot see is the FK's and RLS's refusal, not this one
+  IF v_created IS NULL THEN
+    RETURN NEW;
+  END IF;
+  IF v_created < transaction_timestamp() THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY020',
+      MESSAGE = format('inspection %s was submitted at %s and is sealed; a %s cannot be added to it',
+                       v_insp, v_created, replace(TG_TABLE_NAME, '_', ' ')),
+      HINT    = 'void the inspection and capture the unit again (FR-INS-012)';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER reading_sealed
+BEFORE INSERT ON app.reading
+FOR EACH ROW EXECUTE FUNCTION app.inspection_is_sealed();
+
+CREATE TRIGGER reading_measurement_sealed
+BEFORE INSERT ON app.reading_measurement
+FOR EACH ROW EXECUTE FUNCTION app.inspection_is_sealed();

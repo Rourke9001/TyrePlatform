@@ -7640,5 +7640,59 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 50. TYRE-145: a submitted inspection is sealed; readings and measurements are written in its own transaction only (CR-011, DR-011)'
+BEGIN;
+DO $$
+DECLARE r_id uuid; before_mm numeric; after_mm numeric; ok boolean := false; posid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  -- a seeded BAC reading: its inspection was committed by the seed, long before this transaction
+  SELECT r.id, r.governing_tread_mm INTO r_id, before_mm FROM app.reading r
+   WHERE r.governing_tread_mm IS NOT NULL ORDER BY r.id LIMIT 1;
+  BEGIN
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known, granularity_mm)
+    VALUES (app.current_tenant_id(), r_id, 99, 'OUTER', 0.5, false, 0.5);
+    RAISE EXCEPTION 'FAIL 50: a measurement was appended to a sealed reading';
+  EXCEPTION WHEN SQLSTATE 'TY020' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: the append was not refused TY020'; END IF;
+  SELECT governing_tread_mm INTO after_mm FROM app.reading WHERE id = r_id;
+  IF after_mm IS DISTINCT FROM before_mm THEN
+    RAISE EXCEPTION 'FAIL 50: governing tread moved % -> %', before_mm, after_mm; END IF;
+  -- the same door on app.reading: a new position cannot be added to an old inspection
+  ok := false;
+  BEGIN
+    INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+    SELECT r.tenant_id, r.inspection_id, r.vehicle_id, p.id, NULL, 700
+      FROM app.reading r JOIN app.vehicle v ON v.id = r.vehicle_id
+      JOIN app.position p ON p.configuration_id = v.configuration_id
+     WHERE r.id = r_id AND NOT EXISTS (SELECT 1 FROM app.reading x WHERE x.inspection_id = r.inspection_id AND x.position_id = p.id AND x.vehicle_id = r.vehicle_id)
+     LIMIT 1;
+    RAISE EXCEPTION 'FAIL 50: a reading was appended to a sealed inspection';
+  EXCEPTION WHEN SQLSTATE 'TY020' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: the reading append was not refused TY020'; END IF;
+  -- control: the legitimate path -- inspection, reading and measurements in one
+  -- transaction -- still lands, and the governing MIN is materialised
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT p.id INTO posid FROM app.position p
+   WHERE p.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t50insp')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t50cli')::uuid, now(), now(), 750);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t50rd')::uuid,'22222222-2222-2222-2222-222222222222',md5('t50insp')::uuid,md5('t2veh1')::uuid,posid,NULL,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,1,'OUTER',9),
+    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,2,'CENTRE',8),
+    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,3,'INNER',10);
+  SELECT governing_tread_mm INTO after_mm FROM app.reading WHERE id = md5('t50rd')::uuid;
+  IF after_mm IS DISTINCT FROM 8 THEN
+    RAISE EXCEPTION 'FAIL 50: the same-transaction write did not materialise its MIN (got %)', after_mm; END IF;
+  RAISE NOTICE 'PASS  a submitted inspection is sealed: later readings and measurements are refused TY020, the submitting transaction still writes';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
