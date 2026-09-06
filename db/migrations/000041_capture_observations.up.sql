@@ -3,8 +3,9 @@
 -- (FR-INS-066 v1.4, BR-VEH-002: "the recorded count follows what
 -- inspections find"), never as a reading and never as configuration; whether
 -- spares are captured at all is tenant configuration (rule 5, key
--- capture_spares, owner 6 Sep 2026 on TYRE-155). A later task on the same
--- branch adds the future-skew SQLSTATE (TYRE-215) to this file.
+-- capture_spares, owner 6 Sep 2026 on TYRE-155). TYRE-215 gives the
+-- future-skew refusal its own SQLSTATE in this file, so the outbox can tell
+-- it apart from the permanent TY005 refusals and retry it.
 --
 -- TYRE-150 adds app.v_inspection_timing, separating duration_seconds
 -- (elapsed wall clock) from the sum of reading.capture_seconds (active
@@ -13,6 +14,8 @@
 -- SQLSTATEs (ours; the TY class forwards verbatim, ADR-0012):
 --   TY005 — a submit refused for its payload (000023), reused: an absent
 --           spare that is not a spare, or that also carries a reading
+--   TY021 — a submitted_at ahead of the server clock beyond the tenant
+--           skew; retryable, time cures it (TYRE-215)
 --
 -- Every routine here is SECURITY INVOKER; app.refresh_governing_tread
 -- (000004) stays the one definer. search_path is pinned on each.
@@ -119,8 +122,12 @@ BEGIN
   v_skew := COALESCE(
     (app.config_for(v_tenant, 'submitted_at_future_skew_minutes', now()) #>> '{}')::int, 5);
   IF (p_payload ->> 'submitted_at')::timestamptz > now() + make_interval(mins => v_skew) THEN
+    -- TYRE-215: its own SQLSTATE, because this is the one refusal in the
+    -- system that time cures — the identical payload lands once the server
+    -- clock passes the stamped instant — and the outbox must retry it rather
+    -- than hand it to the office (TY005 is permanent by contract, ADR-0012).
     RAISE EXCEPTION 'submitted_at % is more than % minutes ahead of the server clock; check the device time and resubmit',
-      p_payload ->> 'submitted_at', v_skew USING ERRCODE = 'TY005';
+      p_payload ->> 'submitted_at', v_skew USING ERRCODE = 'TY021';
   END IF;
 
   -- FR-INS-020: an inspection is its readings. jsonb_array_elements over an

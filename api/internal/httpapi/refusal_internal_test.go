@@ -153,6 +153,12 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:     "TY021 forwards its message, which tells the driver to check the clock",
+			sqlErr:   &pgconn.PgError{Code: "TY021", Message: "submitted_at 2026-09-06T10:00:00Z is more than 5 minutes ahead of the server clock; check the device time and resubmit"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY021", message: "submitted_at 2026-09-06T10:00:00Z is more than 5 minutes ahead of the server clock; check the device time and resubmit"},
+			isClient: true,
+		},
+		{
 			name:     "an unmapped SQLSTATE is not a client mistake",
 			sqlErr:   &pgconn.PgError{Code: "40001", Message: "could not serialize access"},
 			isClient: false,

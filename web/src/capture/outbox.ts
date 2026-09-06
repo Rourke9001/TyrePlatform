@@ -51,6 +51,10 @@ export function backoffMs(attempts: number): number {
 // differs in kind from 403, whose actor gains nothing by waiting.
 export function classify(error: unknown): "permanent" | "retryable" {
   if (error instanceof ApiError) {
+    // TYRE-215: the future-skew refusal (TY021, 000041) is a 422 that time
+    // cures — the same payload lands once the server clock passes the
+    // stamped instant — so it is the one 422 that retries.
+    if (error.code === "TY021") return "retryable";
     if ([400, 403, 409, 422].includes(error.status)) return "permanent";
     return "retryable";
   }
@@ -65,6 +69,23 @@ export function isStale(entry: { queuedAt: number }, now: number = Date.now()): 
 
 export async function listOutbox(): Promise<OutboxEntry[]> {
   return table().toArray();
+}
+
+// TYRE-167 / FR-OFF-013: the recovery action for a refusal that can never
+// succeed is a person saying the office has it. Only a FAILED entry may go:
+// queued and sending are the driver's work in flight, and FR-OFF-014 forbids
+// dropping those under any circumstance. The caller confirms (ConfirmDiscard).
+export async function discardEntry(clientUuid: string): Promise<void> {
+  await db.transaction("rw", table(), async () => {
+    const entry = await table().get(clientUuid);
+    if (!entry) return;
+    if (entry.state !== "failed") {
+      throw new Error(
+        "Only an inspection the office has refused can be removed; this one is not refused.",
+      );
+    }
+    await table().delete(clientUuid);
+  });
 }
 
 // One transaction. Between removing the draft and inserting the queue entry
