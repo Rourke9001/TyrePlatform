@@ -489,8 +489,9 @@ func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
 // Shape refusals the handler owns, answered before any transaction opens
 // (ADR-0013 d.5), and the one it deliberately does not own. An instant that
 // will not parse and an orientation outside app.mount_orientation would both
-// otherwise reach a cast and come back as a SQLSTATE mapped to nothing
-// useful — 22007/22008 is in no map at all, which is a 500 for a client typo.
+// otherwise reach a cast and come back as 22007/22008, canned as
+// invalid_submission, which names no field; the check here is what names
+// one.
 func TestFitmentWriteRefusesMalformedFields(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
