@@ -114,13 +114,11 @@ function byCell(positions: Record<string, DraftPosition>): Record<string, DraftP
 }
 
 // The row is one JSON blob under no schema (see byCell above), so a draft
-// written before a field existed reaches every reader raw. loadDraft applied
-// this on the read path; mutate did not, so savePosition/markSpareAbsent/
-// unmarkSpareAbsent ran .filter/.some on an undefined absentSpares and threw
-// — on a device whose draft is the one thing ADR-0009 promises to hold
-// durably, blocking the next write is exactly the failure that promise
-// forbids. Both paths call this now, so a stored row missing a field can
-// never reach a callback un-normalised.
+// written before a field existed comes back without it. Every reader and
+// every mutate callback goes through here: a callback that runs .filter or
+// .some on a missing absentSpares throws, and the in-progress draft is the
+// one thing ADR-0009 promises to hold durably, so a stored row older than
+// its fields must never block the next write.
 function normalise(draft: Draft): Draft {
   return {
     ...draft,
