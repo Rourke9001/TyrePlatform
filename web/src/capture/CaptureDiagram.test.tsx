@@ -112,9 +112,9 @@ describe("CaptureDiagram", () => {
     expect(getByLabelText(/Position 4, BAC039SP, Not done/)).toBeTruthy();
   });
 
-  // TYRE-155 review finding 3: an absent cell is settled, not unmeasured — the
-  // severity was computed off nothing entered, so "Not done" would contradict
-  // the "done" the header and tally already count it as.
+  // TYRE-155: an absent cell is settled, not unmeasured — the severity was
+  // computed off nothing entered, so "Not done" would contradict the "done"
+  // the header and tally already count it as.
   it("reads 'No spare', not the severity band, on a cell marked absent", () => {
     const cell = cellKey(context.vehicleId, "p4");
     const { container, getByLabelText } = render(

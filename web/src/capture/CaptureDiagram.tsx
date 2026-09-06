@@ -191,12 +191,11 @@ function PositionCell({
   absent: boolean;
 }) {
   const name = rig.displayNumber === null ? "Spare" : `Position ${rig.displayNumber}`;
-  // TYRE-155 review finding 3: an absent cell is settled, not unmeasured — the
-  // severity band was computed with nothing entered (draft.ts discards the
-  // position the same tap that records the mark), so showing SEVERITY_LABEL's
-  // "Not done" here would contradict the "done" the header and tally already
-  // count it as. "No spare" replaces the band entirely rather than appending
-  // to it.
+  // TYRE-155: an absent cell is settled, not unmeasured — the severity band
+  // was computed with nothing entered (draft.ts discards the position the
+  // same tap that records the mark), so showing SEVERITY_LABEL's "Not done"
+  // here would contradict the "done" the header and tally already count it
+  // as. "No spare" replaces the band entirely rather than appending to it.
   const badge = absent ? "No spare" : SEVERITY_LABEL[severity];
   return (
     <button
