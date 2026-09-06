@@ -297,8 +297,16 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 		{60, 10.0, 50000},
 		{30, 9.0, 55000},
 	} {
+		// TYRE-145: app.inspection_is_sealed() keys on the inspection's own
+		// created_at against transaction_timestamp(), so an inspection and
+		// its reading planted as separate autocommit statements on this
+		// *pgx.Conn land in different transactions and the reading insert is
+		// refused TY020. One explicit transaction is what submit_inspection
+		// itself gives every real capture.
+		tx, err := admin.Begin(ctx)
+		require.NoError(t, err)
 		var inspID, readingID uuid.UUID
-		require.NoError(t, admin.QueryRow(ctx,
+		require.NoError(t, tx.QueryRow(ctx,
 			`INSERT INTO app.inspection
 			   (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
 			 VALUES ($1, $2, $3, $4,
@@ -306,16 +314,17 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 			 RETURNING id`,
 			tenantID, motiveID, historyDriver, uuid.New(), rd.daysAgo, rd.odometer,
 		).Scan(&inspID))
-		require.NoError(t, admin.QueryRow(ctx,
+		require.NoError(t, tx.QueryRow(ctx,
 			`INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, tyre_id)
 			 VALUES ($1, $2, $3, $4, $5) RETURNING id`,
 			tenantID, inspID, motiveID, leftPos, tyreID,
 		).Scan(&readingID))
-		_, err = admin.Exec(ctx,
+		_, err = tx.Exec(ctx,
 			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position)
 			 VALUES ($1, $2, 1, $3::numeric, 'CENTRE'::app.tread_position)`,
 			tenantID, readingID, rd.treadMm)
 		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
 	}
 
 	return tenantID, motiveID, trailerID
