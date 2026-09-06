@@ -309,6 +309,13 @@ var submitStatus = map[string]int{
 	"23514": http.StatusUnprocessableEntity, // check: FR-INS-030/031's hard ranges
 	"22P02": http.StatusUnprocessableEntity, // a field that will not parse as its type
 	"22023": http.StatusUnprocessableEntity, // a scalar where the payload promised an array
+	// 22007/22008: a date or instant Postgres cannot read or that is out of
+	// range. Every route validates its dates in Go first (dateField,
+	// instantField), so these are canned like 22P02 for the surface that
+	// forgets — the client mistake stays a 422, never a 500 the outbox
+	// retries forever (ADR-0012, TYRE-174).
+	"22007": http.StatusUnprocessableEntity, // invalid datetime format
+	"22008": http.StatusUnprocessableEntity, // datetime field overflow
 	// A duplicate client_uuid is FR-OFF-011's replay and app.submit_inspection
 	// answers it as one, including when two concurrent drains race for the
 	// same unique index. This entry catches any OTHER unique violation, which

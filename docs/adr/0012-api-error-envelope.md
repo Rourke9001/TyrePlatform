@@ -118,7 +118,7 @@ The code table:
 | Source | `code` | Status |
 | --- | --- | --- |
 | Database, named refusals | `TY003`..`TY019` (`TY008`, `TY010` excepted), verbatim — `TY020` is defined in 000040, not mapped: unreachable through any route | 409 / 422 |
-| Database, integrity classes `23502` `23503` `23514` `22P02` `22023` | `invalid_submission` | 422 |
+| Database, integrity classes `23502` `23503` `23514` `22P02` `22023` `22007` `22008` | `invalid_submission` | 422 |
 | Database, other unique violation `23505`, and `23P01` (`vehicle_driver_no_overlap`, 000026) | `conflict` | 409 |
 | `errVehicleNotVisible` (Go scope check) | `TY007` | 422 |
 

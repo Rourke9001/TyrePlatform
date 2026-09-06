@@ -283,6 +283,22 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 		if !decodeJSON(w, r, &body) {
 			return
 		}
+
+		// ADR-0013 decision 5: a value that cannot be read as its type is
+		// refused here, naming the field, before a transaction opens. The
+		// validated (trimmed) text is what payload() forwards, so the date
+		// app.receive_tyres casts is the one checked (TYRE-174).
+		purchaseDate, err := dateField("purchaseDate", body.PurchaseDate)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		body.PurchaseDate = purchaseDate
+		receivedDate, err := dateField("receivedDate", body.ReceivedDate)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		body.ReceivedDate = receivedDate
+
 		raw, err := json.Marshal(body.payload())
 		if err != nil {
 			// Unreachable in practice — every value above is a string or an

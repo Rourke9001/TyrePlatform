@@ -50,10 +50,11 @@ func requiredText(field, raw string) (string, error) {
 // instantField parses an optional instant before any transaction opens, the
 // way listTyres and assignDriver already parse their dates. A string that
 // will not parse would otherwise reach $n::timestamptz raw, and Postgres's
-// 22007/22008 is in no map here, so withActor would answer 500 for what is
-// really a client typo. The parsed value is what gets bound, not the text it
-// came from: pgx encodes a time.Time as a timestamptz itself, so the instant
-// the function acts on is exactly the one validated here.
+// 22007/22008 would then be the refusal — canned as invalid_submission,
+// which names no field; the check here is what names one. The parsed value
+// is what gets bound, not the text it came from: pgx encodes a time.Time as
+// a timestamptz itself, so the instant the function acts on is exactly the
+// one validated here.
 func instantField(field string, raw *string) (*time.Time, error) {
 	if raw == nil {
 		return nil, nil
@@ -70,9 +71,10 @@ func instantField(field string, raw *string) (*time.Time, error) {
 // retread return carry a date the tenant's own zone resolves to an instant
 // (000033, 000034), so the text is bound to $n::date and the resolution
 // stays in SQL — listTyres validates its on the same way. Without this,
-// "yesterday" reaches the cast raw and Postgres's 22007/22008, which is in
-// no map here, answers 500 for a client typo. A nil raw stays nil so the
-// function's own default applies rather than a Go clock's idea of today.
+// "yesterday" reaches the cast raw, and Postgres's 22007/22008 would then be
+// the refusal — canned as invalid_submission, which names no field; the
+// check here is what names one. A nil raw stays nil so the function's own
+// default applies rather than a Go clock's idea of today.
 func dateField(field string, raw *string) (*string, error) {
 	if raw == nil {
 		return nil, nil

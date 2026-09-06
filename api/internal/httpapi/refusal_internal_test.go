@@ -112,6 +112,18 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:     "an unreadable date is canned identically",
+			sqlErr:   &pgconn.PgError{Code: "22007", Message: `invalid input syntax for type date: "soon"`},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
+			isClient: true,
+		},
+		{
+			name:     "an out-of-range date is canned identically",
+			sqlErr:   &pgconn.PgError{Code: "22008", Message: "date/time field value out of range: \"31/12/2026\""},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
+			isClient: true,
+		},
+		{
 			name:     "a unique violation is a conflict the client can tell from TY003",
 			sqlErr:   &pgconn.PgError{Code: "23505", Message: `duplicate key value violates unique constraint "reading_pkey"`},
 			want:     refusal{status: http.StatusConflict, code: codeConflict, message: msgConflict},

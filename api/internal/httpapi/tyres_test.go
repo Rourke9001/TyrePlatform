@@ -328,6 +328,51 @@ func TestReceiveTyresHappyPath(t *testing.T) {
 	require.Equal(t, "IN_STOCK", state)
 }
 
+// TYRE-174 / ADR-0013 decision 5: a value that cannot be read as its type is
+// refused in Go before the transaction opens, naming the field — the same
+// dateField every sibling date already goes through. Without it the cast
+// inside app.receive_tyres raises 22007, which no map carried, and a clerk's
+// typo answered 500. "yesterday" is deliberately NOT a probe value: Postgres
+// accepts it as a date literal (lane 5's note).
+func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-dates")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	tests := []struct {
+		name, body, wantMessage string
+	}{
+		{"purchaseDate unparseable", `{"displayCode":"D-` + uuid.NewString()[:8] + `","purchaseDate":"soon"}`,
+			"purchaseDate must be a date as YYYY-MM-DD"},
+		{"receivedDate in a non-ISO layout", `{"displayCode":"D-` + uuid.NewString()[:8] + `","receivedDate":"31/12/2026"}`,
+			"receivedDate must be a date as YYYY-MM-DD"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), tt.body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Equal(t, tt.wantMessage, ref.Message)
+		})
+	}
+
+	// control: the same shape with a well-formed date is minted
+	code := "D-" + uuid.NewString()[:8]
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		`{"displayCode":"`+code+`","purchaseDate":" 2026-09-01 ","receivedDate":"2026-09-02"}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var purchased, received string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT purchase_date::text, received_date::text FROM app.tyre WHERE tenant_id = $1 AND display_code = $2`,
+		tenantID, code).Scan(&purchased, &received))
+	require.Equal(t, "2026-09-01", purchased, "the trimmed value is what was bound")
+	require.Equal(t, "2026-09-02", received)
+}
+
 // Gated on ManageAssets like the other write paths — a TECHNICIAN holds
 // ViewFleet and no more.
 func TestReceiveTyresIsCapabilityGated(t *testing.T) {
