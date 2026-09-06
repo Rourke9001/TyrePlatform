@@ -307,4 +307,31 @@ describe("the draft buffer", () => {
     expect(reloaded?.positions[cellKey("v1", "s1")]).toBeUndefined();
     expect(reloaded?.absentSpares).toEqual([{ vehicleId: "v1", positionId: "s1" }]);
   });
+
+  // TYRE-155: the reverse of the case above — a cell reopened after "No spare
+  // on this unit" and given a reading must clear the absent mark, or the
+  // draft holds both and app.submit_inspection refuses the whole capture
+  // (TY005, 000041) with a permanent outbox failure.
+  it("clears the absent mark when a reading is entered for that cell", async () => {
+    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-09-06T08:00:00Z" });
+    await markSpareAbsent("v1", "s1");
+    expect((await loadDraft())?.absentSpares).toEqual([{ vehicleId: "v1", positionId: "s1" }]);
+
+    await savePosition({
+      positionId: "s1",
+      vehicleId: "v1",
+      tyreId: null,
+      treads: [3, 3, 4],
+      pressureKpa: null,
+      pressureTemperature: "UNKNOWN",
+      damageFlag: false,
+      note: null,
+      seconds: 6,
+      warnings: [],
+    });
+
+    const reloaded = await loadDraft();
+    expect(reloaded?.positions[cellKey("v1", "s1")]).toBeDefined();
+    expect(reloaded?.absentSpares).toEqual([]);
+  });
 });
