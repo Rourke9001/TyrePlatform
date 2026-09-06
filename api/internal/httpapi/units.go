@@ -820,7 +820,7 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 			if a.Scope() != auth.ScopeTenant {
 				var visible bool
 				if err := tx.QueryRow(ctx,
-					`SELECT EXISTS (SELECT 1 FROM app.v_depot_vehicle s WHERE s.id = $1)`, vehicleID).Scan(&visible); err != nil {
+					`SELECT EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)`, vehicleID).Scan(&visible); err != nil {
 					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
 				}
 				if !visible {
