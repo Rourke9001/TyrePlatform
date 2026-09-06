@@ -266,13 +266,18 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
   expect(combination?.members).toHaveLength(3);
 
   const total = await captureAll(page);
-  expect(total).toBeGreaterThan(20); // a superlink, not one unit
+  // The arithmetic the whole three-minute constraint rests on, pinned exactly
+  // (lane 6 F14, TYRE-173): a horse plus two links is 26 running positions
+  // and one seeded spare per unit, 29 cells. A configuration change that
+  // halved the walk must fail here, not pass a ">20".
+  expect(total).toBe(29);
 
   // FR-VEH-034: continuous across member units, computed for the screen. Count
   // the RUNNING positions, not every cell — spares carry no rig number and are
   // drawn separately, so total includes one per unit and there is no
   // "Position 29".
   const running = await page.getByRole("button", { name: /^Position \d+,/ }).count();
+  expect(running).toBe(26);
   await expect(page.getByRole("button", { name: /^Position 1,/ })).toBeVisible();
   await expect(
     page.getByRole("button", { name: new RegExp(`^Position ${running},`) }),
