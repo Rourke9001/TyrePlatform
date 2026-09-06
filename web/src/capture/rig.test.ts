@@ -11,6 +11,7 @@ const position = (
   code: String(over.sequence),
   axleClass: "DRIVE",
   axleType: "FIXED",
+  side: "LEFT",
   axleNumber: 1,
   isSpare: false,
   unitLabel: null,
@@ -57,7 +58,7 @@ const horse = unit("v-horse", "BAC039SP", [
   // Deliberately not in sequence order: the projection must sort by the
   // configuration's own sequence, not by the order the API returned, and a
   // fixture already in order cannot tell the two apart.
-  position({ id: "hs", sequence: 99, isSpare: true, axleClass: "SPARE" }),
+  position({ id: "hs", sequence: 99, isSpare: true, axleClass: "SPARE", side: null }),
   position({ id: "h2", sequence: 2, axleClass: "STEER" }),
   position({ id: "h1", sequence: 1, axleClass: "STEER" }),
 ]);

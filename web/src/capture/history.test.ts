@@ -12,6 +12,7 @@ const position: CapturePosition = {
   sequence: 1,
   axleClass: "STEER",
   axleType: "FIXED",
+  side: "LEFT",
   axleNumber: 1,
   isSpare: false,
   unitLabel: "Horse",

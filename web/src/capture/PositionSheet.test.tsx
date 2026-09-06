@@ -17,6 +17,7 @@ const position: CapturePosition = {
   sequence: 1,
   axleClass: "STEER",
   axleType: "FIXED",
+  side: "LEFT",
   axleNumber: 1,
   isSpare: false,
   unitLabel: null,
@@ -639,5 +640,22 @@ describe("PositionSheet", () => {
     await user.click(screen.getByRole("button", { name: /spare is here/i }));
     expect(onAbsent).toHaveBeenCalledWith(spare, false);
     expectNothingForbiddenSpoken(container, /spare is here/i);
+  });
+
+  // TYRE-147: the sheet hides the diagram (capture.css), so the frame the
+  // server maps by has to be ON the sheet. A spare has no side and no glyph.
+  it("shows the plan-view glyph for the tyre's side and the one-line hint", () => {
+    const { container } = render(
+      <PositionSheet {...props({})} rig={{ ...rig, position: { ...position, side: "RIGHT" } }} />,
+    );
+    expect(screen.getByRole("img", { name: /right side of the vehicle/i })).toBeInTheDocument();
+    expect(screen.getByText(/left to right, as seen from above/i)).toBeInTheDocument();
+    expectNothingForbiddenSpoken(container, /as seen from above/i);
+  });
+
+  it("shows no glyph on a spare", () => {
+    const spare = { ...position, isSpare: true, axleClass: "SPARE", axleNumber: null, side: null };
+    render(<PositionSheet {...props({})} rig={{ ...rig, position: spare, displayNumber: null }} />);
+    expect(screen.queryByRole("img")).toBeNull();
   });
 });

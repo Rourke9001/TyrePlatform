@@ -102,8 +102,16 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 				require.True(t, hasFit, "FR-INS-034 cannot excuse an increase without fitment state")
 				if pos["isSpare"] == true {
 					require.Nil(t, pos["targetKpa"], "a spare was given a pressure target")
+					// TYRE-147: a spare has no side, so the sheet must not
+					// attempt to draw a mirrored glyph for one.
+					require.Nil(t, pos["side"], "a spare was given a side")
 					continue
 				}
+				// TYRE-147: submit_inspection maps entry order to
+				// OUTER/CENTRE/INNER by this side (000023 v_side), so a
+				// running position must carry one for the sheet to agree with.
+				require.Contains(t, []any{"LEFT", "RIGHT"}, pos["side"],
+					"a running position's side was not served")
 				if pos["targetKpa"] != nil {
 					sawRunningTarget = true
 					require.NotNil(t, pos["warnUnderPct"], "FR-INS-037 has no band edge")
