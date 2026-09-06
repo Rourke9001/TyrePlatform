@@ -7643,7 +7643,7 @@ ROLLBACK;
 \echo '== 50. TYRE-145: a submitted inspection is sealed; readings and measurements are written in its own transaction only (CR-011, DR-011)'
 BEGIN;
 DO $$
-DECLARE r_id uuid; before_mm numeric; after_mm numeric; ok boolean := false; posid uuid;
+DECLARE r_id uuid; before_mm numeric; after_mm numeric; ok boolean := false; posid uuid; n int;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   -- a seeded BAC reading: its inspection was committed by the seed, long before this transaction
@@ -7668,6 +7668,13 @@ BEGIN
       JOIN app.position p ON p.configuration_id = v.configuration_id
      WHERE r.id = r_id AND NOT EXISTS (SELECT 1 FROM app.reading x WHERE x.inspection_id = r.inspection_id AND x.position_id = p.id AND x.vehicle_id = r.vehicle_id)
      LIMIT 1;
+    -- a zero-row INSERT ... SELECT raises nothing at all: without this check
+    -- an unmatched free position would still print PASS on the "appended"
+    -- exception below, having proven nothing about the trigger.
+    GET DIAGNOSTICS n = ROW_COUNT;
+    IF n = 0 THEN
+      RAISE EXCEPTION 'FAIL 50: the reading probe found no free position';
+    END IF;
     RAISE EXCEPTION 'FAIL 50: a reading was appended to a sealed inspection';
   EXCEPTION WHEN SQLSTATE 'TY020' THEN ok := true;
   END;
@@ -7690,6 +7697,24 @@ BEGIN
   SELECT governing_tread_mm INTO after_mm FROM app.reading WHERE id = md5('t50rd')::uuid;
   IF after_mm IS DISTINCT FROM 8 THEN
     RAISE EXCEPTION 'FAIL 50: the same-transaction write did not materialise its MIN (got %)', after_mm; END IF;
+  -- A row this session can see but cannot date is not this transaction's:
+  -- every writer inside one transaction gets its inspection's created_at
+  -- from that same now(), so an explicit NULL is a claim nobody made.
+  -- app.inspection.created_at is nullable (000017: DEFAULT now(), not
+  -- NOT NULL) and app_rw holds INSERT on app.inspection, so this is directly
+  -- reachable, not a hypothetical row -- it must seal, never read as
+  -- "unsealed forever".
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer,created_at)
+  VALUES (md5('t50inspnull')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t50clinull')::uuid, now(), now(), 750, NULL);
+  ok := false;
+  BEGIN
+    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+    VALUES (md5('t50rdnull')::uuid,'22222222-2222-2222-2222-222222222222',md5('t50inspnull')::uuid,md5('t2veh1')::uuid,posid,NULL,700);
+    RAISE EXCEPTION 'FAIL 50: a reading was appended to an inspection whose created_at is NULL';
+  EXCEPTION WHEN SQLSTATE 'TY020' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: an inspection with a NULL created_at was not sealed'; END IF;
   RAISE NOTICE 'PASS  a submitted inspection is sealed: later readings and measurements are refused TY020, the submitting transaction still writes';
 END $$;
 ROLLBACK;

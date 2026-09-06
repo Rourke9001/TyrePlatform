@@ -533,11 +533,20 @@ BEGIN
     SELECT r.inspection_id INTO v_insp FROM app.reading r WHERE r.id = NEW.reading_id;
   END IF;
   SELECT i.created_at INTO v_created FROM app.inspection i WHERE i.id = v_insp;
-  -- a parent this session cannot see is the FK's and RLS's refusal, not this one
-  IF v_created IS NULL THEN
+  -- a parent this session cannot see is the FK's and RLS's refusal, not this
+  -- one -- NOT FOUND is that case. A row that IS found but carries a NULL
+  -- created_at is a different thing: app.inspection.created_at is nullable
+  -- (000017 added it with a default, not NOT NULL, so a pre-000017 row or a
+  -- future explicit NULL both qualify) and app_rw holds INSERT on
+  -- app.inspection, so a caller can plant one directly. Every writer inside
+  -- this transaction gets its inspection's created_at from the same now(),
+  -- so a NULL there is a claim nobody made -- it cannot equal
+  -- transaction_timestamp() and cannot be compared to it, so treating it as
+  -- "unsealed" would leave such a row appendable forever. Seal it instead.
+  IF NOT FOUND THEN
     RETURN NEW;
   END IF;
-  IF v_created < transaction_timestamp() THEN
+  IF v_created IS NULL OR v_created < transaction_timestamp() THEN
     RAISE EXCEPTION USING
       ERRCODE = 'TY020',
       MESSAGE = format('inspection %s was submitted at %s and is sealed; a %s cannot be added to it',
