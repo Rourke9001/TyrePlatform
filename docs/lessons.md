@@ -1010,3 +1010,16 @@ output.
 at write time (CLAUDE.md) or enforced on the artefact afterwards (hook,
 lint, CI) — ideally both. A standalone standards document with neither is
 decoration. See `docs/comments.md` for the pattern applied.
+
+## 2026-09-06 — A trailing count makes a green gate look red
+
+**What happened:** a background command ran `make e2e`, wrote `EXIT=0` to
+its log, then ended with a `grep -c` for `make: ***` lines. The count was
+0, `grep` exits 1 when it matches nothing, and the harness reported the
+whole command as failed. The gate had passed.
+
+**The rule:** a gate's verdict is the `EXIT=` line written to its log
+immediately after the gate, never the exit status of whatever ran last in
+the same command. Put diagnostics such as a match count before the `EXIT=`
+write or in a separate command, and read the log before believing a
+"failed" notification.
