@@ -11,7 +11,7 @@ import {
   type RetreadReturn,
 } from "../api/retreads";
 import { useTenantDate } from "../time/tenantTime";
-import { retreadJobsKey } from "./unit/queryKeys";
+import { retreadJobsKey, tyresKey } from "./unit/queryKeys";
 import { useFormMutation } from "./useFormMutation";
 import "./fleet.css";
 
@@ -81,7 +81,7 @@ function RetreadReturnRow({
 
   const logReturn = useFormMutation<RetreadReturn, void>({
     mutate: (vars) => logRetreadReturn(job.id, vars),
-    invalidate: [retreadJobsKey(tenantKey), ["tyres", tenantKey]],
+    invalidate: [retreadJobsKey(tenantKey), tyresKey(tenantKey)],
     onSuccess: () => {
       setOutcome("");
       setReturnedOn("");

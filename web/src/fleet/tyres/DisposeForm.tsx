@@ -2,6 +2,7 @@ import { type FormEvent, useState } from "react";
 
 import { refusalMessage } from "../../api/refusal";
 import { disposalsFor, disposeTyre, type Disposal, type Tyre } from "../../api/tyres";
+import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
 // DisposeForm and CostForm refuse for different reasons and must say so:
@@ -47,7 +48,7 @@ export function DisposeForm({
   const dispose = useFormMutation({
     mutate: (vars: { disposal: Disposal; reason?: string; proceeds?: string }) =>
       disposeTyre(tyre.id, vars),
-    invalidate: [["tyres", tenantKey]],
+    invalidate: [tyresKey(tenantKey)],
     onSuccess: () => {
       setDisposal("");
       setReason("");

@@ -3,10 +3,11 @@ import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 
 import { getDevTenantId } from "../../api/devTenant";
-import { fetchTyres, isDisposed, type Tyre } from "../../api/tyres";
+import { fetchTyres, isDisposed, type Destination, type Tyre } from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { byNaturalCode } from "../unit/naturalOrder";
+import { tyresKey } from "../unit/queryKeys";
 import { CostForm } from "./CostForm";
 import { DispatchForm } from "./DispatchForm";
 import { DisposeForm } from "./DisposeForm";
@@ -14,8 +15,8 @@ import { ReturnToStockButton } from "./ReturnToStockButton";
 import "../fleet.css";
 
 // fetchTyres's own optional-filter shape, not redeclared: the two are one
-// contract, and the query key below carries this object verbatim so a query
-// key idiom used elsewhere (AddUnit.tsx) applies unchanged here.
+// contract, and the query key below carries this object verbatim as the third
+// element tyresKey's own comment (unit/queryKeys.ts) describes.
 type TyreFilters = NonNullable<Parameters<typeof fetchTyres>[0]>;
 
 // FR-TYR-043: two active tyres carrying one code is a state the register
@@ -31,7 +32,7 @@ function multiMatchNote(count: number, code: string): string {
 // one, and a line left inside the old cell would show for one round-trip and
 // vanish before anyone could read it (NFR-USE-010).
 type ActedOn =
-  | { kind: "dispatch"; code: string; destination: "AT_RETREADER" | "AT_BREAKDOWN_SUPPLIER" }
+  | { kind: "dispatch"; code: string; destination: Destination }
   | { kind: "return"; code: string }
   | { kind: "dispose"; code: string }
   | { kind: "cost"; code: string };
@@ -134,7 +135,7 @@ export function TyreList() {
   const filters: TyreFilters = lookup ? { code: lookup.code, on: lookup.on } : { awaitingCost };
 
   const tyres = useQuery({
-    queryKey: ["tyres", tenantKey, filters],
+    queryKey: [...tyresKey(tenantKey), filters],
     queryFn: () => fetchTyres(filters),
   });
 

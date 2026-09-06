@@ -1,5 +1,6 @@
 import { refusalMessage } from "../../api/refusal";
 import { returnTyreToStock, type Tyre } from "../../api/tyres";
+import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
 // TY012 only (no such tyre, or app.return_tyre_to_stock's own state guard —
@@ -36,7 +37,7 @@ export function ReturnToStockButton({
 }) {
   const ret = useFormMutation<undefined, void>({
     mutate: () => returnTyreToStock(tyre.id, {}),
-    invalidate: [["tyres", tenantKey]],
+    invalidate: [tyresKey(tenantKey)],
     onSuccess: () => onSuccess?.(),
   });
 

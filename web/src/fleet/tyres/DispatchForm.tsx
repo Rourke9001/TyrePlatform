@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 
 import { refusalMessage } from "../../api/refusal";
-import { dispatchTyre, type Tyre } from "../../api/tyres";
+import { DESTINATIONS, dispatchTyre, type Destination, type Tyre } from "../../api/tyres";
 import { fetchDepots } from "../../api/units";
-import { depotsKey, retreadJobsKey } from "../unit/queryKeys";
+import { depotsKey, retreadJobsKey, tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
 // app.dispatch_tyre reaches TY012 (no such tyre, or its own REMOVED-only
@@ -18,13 +18,6 @@ const DISPATCH_WORDING = {
   forbidden: "You do not have permission to dispatch a tyre.",
   fallback: "The tyre could not be dispatched. Try again, or call support if it keeps happening.",
 };
-
-type Destination = "AT_RETREADER" | "AT_BREAKDOWN_SUPPLIER";
-
-const DESTINATIONS: { value: Destination; label: string }[] = [
-  { value: "AT_RETREADER", label: "Retreader" },
-  { value: "AT_BREAKDOWN_SUPPLIER", label: "Breakdown supplier" },
-];
 
 // app.dispatch_tyre's own destination-to-depot-type mapping (000033): a
 // depot picker must offer only depots the write will accept, not every
@@ -68,7 +61,7 @@ export function DispatchForm({
   const dispatch = useFormMutation({
     mutate: (vars: { destination: string; depotId: string; sentOn?: string }) =>
       dispatchTyre(tyre.id, vars),
-    invalidate: [["tyres", tenantKey], retreadJobsKey(tenantKey)],
+    invalidate: [tyresKey(tenantKey), retreadJobsKey(tenantKey)],
     onSuccess: () => {
       if (destination !== "") onSuccess?.(destination);
       setDestination("");
