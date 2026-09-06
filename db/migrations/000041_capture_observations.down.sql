@@ -1,5 +1,7 @@
 -- 000041 down: restores 000040's submit_inspection verbatim and drops the
 -- observation table. The duplication is the point (000039's down says why).
+DROP VIEW app.v_inspection_timing;
+COMMENT ON COLUMN app.inspection.duration_seconds IS NULL;
 DROP FUNCTION app.submit_inspection(jsonb);
 CREATE FUNCTION app.submit_inspection(p_payload jsonb)
 RETURNS TABLE (inspection_id uuid, created boolean)

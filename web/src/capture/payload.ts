@@ -101,10 +101,11 @@ const wire = (w: RecordedWarning): SubmitWarning => ({
 // and comes back 422. The outbox reads 422 as permanent, so a completed
 // inspection would be discarded with no retry that could ever fix it.
 //
-// Null rather than a clamp to zero, deliberately: NFR-USE-001's three-minute
-// median is computed from this column, so a fabricated 0 drags the project's
-// own acceptance metric down. NFR-PRO-003 forbids exactly that flattery. An
-// absent duration is honest; a zero is not.
+// Null rather than a clamp to zero: a zero is a claim (ADR-0010). This is
+// ELAPSED wall clock, and a draft survives a phone call or a lunch break by
+// design (ADR-0009), so it is not the acceptance figure — NFR-USE-001's
+// median is read from the sum of each reading's `seconds` (NFR-OBS-007),
+// via app.v_inspection_timing.active_seconds (000041, TYRE-150).
 function durationSeconds(startedAt: string, submittedAt: string): number | null {
   const elapsed = Math.round(
     (new Date(submittedAt).getTime() - new Date(startedAt).getTime()) / 1000,

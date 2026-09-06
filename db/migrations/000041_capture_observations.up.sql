@@ -7,6 +7,10 @@
 -- branch add the inspection timing view (TYRE-150) and the future-skew
 -- SQLSTATE (TYRE-215) to this file.
 --
+-- TYRE-150 adds app.v_inspection_timing, separating duration_seconds
+-- (elapsed wall clock) from the sum of reading.capture_seconds (active
+-- seconds), which is what NFR-USE-001 reads.
+--
 -- SQLSTATEs (ours; the TY class forwards verbatim, ADR-0012):
 --   TY005 — a submit refused for its payload (000023), reused: an absent
 --           spare that is not a spare, or that also carries a reading
@@ -552,3 +556,35 @@ END $$;
 
 REVOKE ALL ON FUNCTION app.submit_inspection(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.submit_inspection(jsonb) TO app_rw;
+
+-- ---------------------------------------------------------------------------
+-- TYRE-150. duration_seconds is wall clock from Start to submit, and a draft
+-- is durable across a phone call or a lunch break by design (ADR-0009,
+-- FR-OFF-006), so it measures the driver's afternoon, not the walk-around.
+-- The instrument for NFR-USE-001 / NFR-USE-001a (Appendix H.3 criterion 2)
+-- is the per-position time NFR-OBS-007 records on every reading
+-- (reading.capture_seconds, 000022/000023), summed here — the one
+-- implementation of the figure, so no report or client recomputes it.
+COMMENT ON COLUMN app.inspection.duration_seconds IS
+  'Elapsed wall clock from started_at to submitted_at, as the device reported it. NOT the acceptance figure: an interrupted inspection inflates it without bound. NFR-USE-001 reads app.v_inspection_timing.active_seconds (TYRE-150).';
+
+CREATE VIEW app.v_inspection_timing WITH (security_invoker = true) AS
+SELECT i.tenant_id,
+       i.id            AS inspection_id,
+       i.vehicle_id,
+       i.submitted_at,
+       i.duration_seconds AS elapsed_seconds,
+       -- SUM over NULLs is NULL only when every input is NULL; a single
+       -- reading without a time must not report a partial sum as the whole,
+       -- so the sum is withheld unless every reading carries one (ADR-0010).
+       CASE WHEN bool_and(r.capture_seconds IS NOT NULL)
+            THEN sum(r.capture_seconds)::int END AS active_seconds,
+       count(r.id)::int AS positions_read
+  FROM app.inspection i
+  JOIN app.reading r ON r.inspection_id = i.id
+ WHERE i.state <> 'VOIDED'
+ GROUP BY i.tenant_id, i.id, i.vehicle_id, i.submitted_at, i.duration_seconds;
+
+COMMENT ON VIEW app.v_inspection_timing IS
+  'Per inspection: elapsed_seconds (device wall clock) beside active_seconds (sum of per-position capture time, NFR-OBS-007). Appendix H.3 criterion 2 — median <= 180 s for ten positions, <= 420 s for a 26-position rig — is read from active_seconds.';
+GRANT SELECT ON app.v_inspection_timing TO app_rw;
