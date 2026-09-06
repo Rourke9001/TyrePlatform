@@ -21,7 +21,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "driver",
 			role: auth.RoleDriver,
 			can:  []auth.Capability{auth.CaptureInspection},
-			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates, auth.InviteDriver},
+			cant: []auth.Capability{auth.ViewFleet, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates, auth.InviteDriver, auth.VoidInspection},
 		},
 		{
 			// FR-AUT-006 with §4.7: a technician reads, and has no lifecycle
@@ -29,7 +29,7 @@ func TestRoleCapabilities(t *testing.T) {
 			name: "technician",
 			role: auth.RoleTechnician,
 			can:  []auth.Capability{auth.ViewFleet},
-			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageTemplates, auth.InviteDriver},
+			cant: []auth.Capability{auth.CaptureInspection, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageTemplates, auth.InviteDriver, auth.VoidInspection},
 		},
 		{
 			// FR-AUT-007 with FR-FIT-018: both controller jobs are this role.
@@ -39,7 +39,7 @@ func TestRoleCapabilities(t *testing.T) {
 			// D9: driver onboarding must not queue behind the owner.
 			name: "controller",
 			role: auth.RoleController,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.InviteDriver},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.InviteDriver, auth.VoidInspection},
 			cant: []auth.Capability{auth.ManageUsers, auth.ManageTemplates},
 		},
 		{
@@ -49,7 +49,7 @@ func TestRoleCapabilities(t *testing.T) {
 			// all, since app.configuration is keyed by tenant (D1).
 			name: "depot manager",
 			role: auth.RoleDepotManager,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.InviteDriver},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.InviteDriver, auth.VoidInspection},
 			cant: []auth.Capability{auth.ManageUsers, auth.ManageTemplates},
 		},
 		{
@@ -58,7 +58,7 @@ func TestRoleCapabilities(t *testing.T) {
 			// different reason than ManageUsers — see D8 and the constant.
 			name: "org admin",
 			role: auth.RoleOrgAdmin,
-			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates},
+			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates, auth.VoidInspection},
 			// D9's finer capability is not ORG_ADMIN's: ManageUsers already
 			// creates a DRIVER along with every other role, so InviteDriver
 			// would grant nothing an ORG_ADMIN cannot already do.
