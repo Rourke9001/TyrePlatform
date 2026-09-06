@@ -895,29 +895,27 @@ END $$;
 
 -- Change versus no-change, driven from the tenant-2 side so the append-only
 -- residue (readings cannot be deleted) stays out of the tenant-1 pinned
--- figures. Conditional inserts keep the whole suite re-runnable.
+-- figures. The rollback below is what makes this section re-runnable and
+-- re-tested, not a guard around the inserts (lesson 2026-09-01).
+BEGIN;
 DO $$
 DECLARE n int; v numeric; posid uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
-  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2PROBE1') THEN
-    INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
-    VALUES (md5('t2probetyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PROBE1','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
-  END IF;
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
+  VALUES (md5('t2probetyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PROBE1','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
   SELECT pos.id INTO posid
     FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
    WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
-  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2insp1')::uuid) THEN
-    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
-    VALUES (md5('t2insp1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
-            md5('t2cli1')::uuid,'2026-08-10T08:00:00Z','2026-08-10T08:05:00Z',100000);
-    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
-    VALUES (md5('t2rd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp1')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,1,'OUTER',12),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,2,'CENTRE',13),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,3,'INNER',14);
-  END IF;
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t2insp1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t2cli1')::uuid,'2026-08-10T08:00:00Z','2026-08-10T08:05:00Z',100000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t2rd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp1')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,1,'OUTER',12),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,2,'CENTRE',13),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,3,'INNER',14);
   -- date-scoped: the month-end block later adds its own 2026-08-31 row for
   -- this tyre, and the suite must stay re-runnable after it has
   SELECT count(*), min(s.tread_value) INTO n, v
@@ -927,17 +925,15 @@ BEGIN
     RAISE EXCEPTION 'FAIL: tread change made % snapshots at [%], expected 1 at 800.00', n, v; END IF;
 
   -- An identical re-read is not a change: no second snapshot (FR-VAL-022)
-  IF NOT EXISTS (SELECT 1 FROM app.inspection WHERE id = md5('t2insp2')::uuid) THEN
-    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
-    VALUES (md5('t2insp2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
-            md5('t2cli2')::uuid,'2026-08-15T08:00:00Z','2026-08-15T08:05:00Z',101000);
-    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
-    VALUES (md5('t2rd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp2')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,1,'OUTER',12),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,2,'CENTRE',13),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,3,'INNER',14);
-  END IF;
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t2insp2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t2cli2')::uuid,'2026-08-15T08:00:00Z','2026-08-15T08:05:00Z',101000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t2rd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp2')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,1,'OUTER',12),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,2,'CENTRE',13),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,3,'INNER',14);
   SELECT count(*) INTO n FROM app.valuation_snapshot
    WHERE tyre_id = md5('t2probetyre')::uuid AND as_at = '2026-08-15';
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unchanged re-read wrote % snapshot(s)', n; END IF;
@@ -952,10 +948,11 @@ END $$;
 -- resolving the threshold at sync time would backdate a 6mm valuation onto
 -- a day the tenant's policy was still 4mm — the revisionism 000006 disclaims.
 -- 15mm governing over 4mm at R100/mm = R1100.00; under 6mm it would be 900.00.
--- Transaction-scoped: the probe policy row must not survive into the
--- month-end block below (it would re-price t2probetyre), and DR-014a means
--- rollback is the only cleanup the app role has.
-BEGIN;
+-- A savepoint, not the section's outer rollback: the probe policy row must
+-- not survive into the month-end block below (it would re-price t2probetyre
+-- at 6mm instead of the baseline 4mm), and DR-014a revokes DELETE on
+-- threshold_policy, so a rollback is the only cleanup available here too.
+SAVEPOINT policy_probe;
 DO $$
 DECLARE v numeric; posid uuid;
 BEGIN
@@ -982,7 +979,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: late-synced snapshot priced at [%], expected 1100.00 under the policy of its own date', v; END IF;
   RAISE NOTICE 'PASS  a late-synced inspection is priced under the policy of its own date';
 END $$;
-ROLLBACK;
+ROLLBACK TO SAVEPOINT policy_probe;
 
 -- FR-VAL-022 month-end pass: every valued tyre, once, idempotent. The
 -- scheduler owns invoking this; here only the effect is pinned.
@@ -1008,6 +1005,7 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  month-end snapshots every valued tyre exactly once, per tenant';
 END $$;
+ROLLBACK;
 
 -- The baseline threshold_policy row is a sentinel (-infinity, SRS §5.1
 -- errata E1): history before onboarding resolves to the baseline, never to
@@ -1118,6 +1116,7 @@ END $$;
 -- FR-INS-021 accepts one decimal place, so 4.5mm is capturable, and the
 -- FR-CFG-032 default names 0-4 then 5-7. Classification is by lower bound
 -- (FR-CFG-030 requires continuity), so 4.5 belongs to the 0-4mm band.
+BEGIN;
 DO $$
 DECLARE n int; posid uuid;
 BEGIN
@@ -1130,21 +1129,19 @@ BEGIN
   -- entering any valuation total. Banding does not depend on valuation
   -- (FR-ANL-024 counts fitted tyres, FR-TYR-032 only excludes from value),
   -- and the isolation keeps check 18's tenant-2 figures unmoved.
-  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2GAP1') THEN
-    INSERT INTO app.tyre (id,tenant_id,display_code,status,state)
-    VALUES (md5('t2gaptyre')::uuid,'22222222-2222-2222-2222-222222222222','T2GAP1','NEW','FITTED');
-    INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm)
-    VALUES ('22222222-2222-2222-2222-222222222222',md5('t2gaptyre')::uuid,md5('t2veh1')::uuid,posid,'2026-07-01T06:00:00Z',90000,25.0);
-    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
-    VALUES (md5('t2insp4')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
-            md5('t2cli4')::uuid,'2026-08-20T08:00:00Z','2026-08-20T08:05:00Z',102000);
-    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
-    VALUES (md5('t2rd4')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp4')::uuid,md5('t2veh1')::uuid,posid,md5('t2gaptyre')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,1,'OUTER',4.5),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,2,'CENTRE',4.8),
-      ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,3,'INNER',4.7);
-  END IF;
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,state)
+  VALUES (md5('t2gaptyre')::uuid,'22222222-2222-2222-2222-222222222222','T2GAP1','NEW','FITTED');
+  INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm)
+  VALUES ('22222222-2222-2222-2222-222222222222',md5('t2gaptyre')::uuid,md5('t2veh1')::uuid,posid,'2026-07-01T06:00:00Z',90000,25.0);
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t2insp4')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t2cli4')::uuid,'2026-08-20T08:00:00Z','2026-08-20T08:05:00Z',102000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t2rd4')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp4')::uuid,md5('t2veh1')::uuid,posid,md5('t2gaptyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,1,'OUTER',4.5),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,2,'CENTRE',4.8),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,3,'INNER',4.7);
   -- the invariant, not just the presence of a row: every fitted position the
   -- summary counts must appear in exactly one band
   SELECT (SELECT sum(tyre_count) FROM app.v_tread_distribution
@@ -1159,6 +1156,7 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  a tread between two configured bounds still lands in a band';
 END $$;
+ROLLBACK;
 
 -- CR-005: the bands are configuration. Reconfigure to a two-band policy and
 -- the distribution must follow (check 17's transactional idiom: the rollback
@@ -1277,9 +1275,9 @@ DO $$
 DECLARE mm numeric; v numeric; posid uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
-  -- FIXTURE COUPLING (TYRE-62): T2SNAP1 persists, and its readings must all
-  -- stay in September 2026 — valued at 2026-08-31 it would break check 18's
-  -- tenant-2 month-end count of 1.
+  -- Section 18 rolls back and leaves nothing behind (TYRE-206), so T2SNAP1's
+  -- readings are free to land anywhere in September: there is no persisted
+  -- month-end count from check 18 for an August valuation to disturb.
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2SNAP1') THEN
     INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
     VALUES (md5('t2snap1')::uuid,'22222222-2222-2222-2222-222222222222','T2SNAP1','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
@@ -1358,9 +1356,9 @@ DO $$
 DECLARE n int; v numeric; w numeric; posid uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
-  -- FIXTURE COUPLING (TYRE-62): T2SNAP2 persists under the same September
-  -- constraint as T2SNAP1 — unvalued at 2026-08-31 or check 18's tenant-2
-  -- month-end count of 1 breaks.
+  -- Section 18 rolls back and leaves nothing behind (TYRE-206), so T2SNAP2
+  -- carries the same freedom as T2SNAP1: no persisted month-end count from
+  -- check 18 for an August valuation to disturb.
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2SNAP2') THEN
     INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
     VALUES (md5('t2snap2')::uuid,'22222222-2222-2222-2222-222222222222','T2SNAP2','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
@@ -1887,10 +1885,11 @@ ROLLBACK;
 -- rollout, which is the worst possible day for an overdue tyre to be missing
 -- from the replacement report.
 --
--- Staged on tenant 2 and left VOIDED between runs: these tyres sit below the
--- removal threshold, so a live reading would put them in tenant 2's first
--- tread band and move check 19's pinned count. They come live for the length
--- of this check only.
+-- Staged on tenant 2, live only for the length of this transaction: these
+-- tyres sit below the removal threshold, so a reading that outlived the
+-- check would put them in tenant 2's first tread band and move check 19's
+-- pinned count.
+BEGIN;
 DO $$
 DECLARE dt date; dt2 date; st text; n int; posid uuid;
 BEGIN
@@ -1900,44 +1899,42 @@ BEGIN
    WHERE pos.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
      AND pos.code = '1';
 
-  IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2PARK1') THEN
-    INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status) VALUES
-      (md5('t2veh2')::uuid,'22222222-2222-2222-2222-222222222222','PARKED','CAA222222',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE'),
-      (md5('t2veh3')::uuid,'22222222-2222-2222-2222-222222222222','SOLO','CAA333333',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE');
-    INSERT INTO app.tyre (id,tenant_id,display_code,status,state) VALUES
-      (md5('t2parktyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PARK1','NEW','FITTED'),
-      (md5('t2solotyre')::uuid,'22222222-2222-2222-2222-222222222222','T2SOLO1','NEW','FITTED');
-    INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2parktyre')::uuid,md5('t2veh2')::uuid,posid,'2027-01-01T06:00:00Z',59000,25.0),
-      ('22222222-2222-2222-2222-222222222222',md5('t2solotyre')::uuid,md5('t2veh3')::uuid,posid,'2027-01-01T06:00:00Z',69000,25.0);
-    -- the same odometer on two dates: a trailer that sat in the yard
-    INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer) VALUES
-      (md5('t2park1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh2')::uuid,md5('driver2')::uuid,md5('t2parkcli1')::uuid,'2027-02-01T08:00:00Z','2027-02-01T08:05:00Z',60000),
-      (md5('t2park2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh2')::uuid,md5('driver2')::uuid,md5('t2parkcli2')::uuid,'2027-02-10T08:00:00Z','2027-02-10T08:05:00Z',60000),
-      (md5('t2solo1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh3')::uuid,md5('driver2')::uuid,md5('t2solocli1')::uuid,'2027-03-01T08:00:00Z','2027-03-01T08:05:00Z',70000);
-    INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa) VALUES
-      (md5('t2parkrd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park1')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
-      (md5('t2parkrd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park2')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
-      (md5('t2solord1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2solo1')::uuid,md5('t2veh3')::uuid,posid,md5('t2solotyre')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,1,'OUTER',3),
-      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,2,'CENTRE',3),
-      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,3,'INNER',3),
-      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,1,'OUTER',3),
-      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,2,'CENTRE',3),
-      ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,3,'INNER',3),
-      ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,1,'OUTER',2),
-      ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,2,'CENTRE',2),
-      ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,3,'INNER',2);
-  END IF;
-  UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
-   WHERE id IN (md5('t2park1')::uuid, md5('t2park2')::uuid, md5('t2solo1')::uuid);
+  INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status) VALUES
+    (md5('t2veh2')::uuid,'22222222-2222-2222-2222-222222222222','PARKED','CAA222222',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE'),
+    (md5('t2veh3')::uuid,'22222222-2222-2222-2222-222222222222','SOLO','CAA333333',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE');
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,state) VALUES
+    (md5('t2parktyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PARK1','NEW','FITTED'),
+    (md5('t2solotyre')::uuid,'22222222-2222-2222-2222-222222222222','T2SOLO1','NEW','FITTED');
+  INSERT INTO app.fitment (tenant_id,tyre_id,vehicle_id,position_id,fitted_at,fitted_odometer,fitted_tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2parktyre')::uuid,md5('t2veh2')::uuid,posid,'2027-01-01T06:00:00Z',59000,25.0),
+    ('22222222-2222-2222-2222-222222222222',md5('t2solotyre')::uuid,md5('t2veh3')::uuid,posid,'2027-01-01T06:00:00Z',69000,25.0);
+  -- the same odometer on two dates: a trailer that sat in the yard
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer) VALUES
+    (md5('t2park1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh2')::uuid,md5('driver2')::uuid,md5('t2parkcli1')::uuid,'2027-02-01T08:00:00Z','2027-02-01T08:05:00Z',60000),
+    (md5('t2park2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh2')::uuid,md5('driver2')::uuid,md5('t2parkcli2')::uuid,'2027-02-10T08:00:00Z','2027-02-10T08:05:00Z',60000),
+    (md5('t2solo1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh3')::uuid,md5('driver2')::uuid,md5('t2solocli1')::uuid,'2027-03-01T08:00:00Z','2027-03-01T08:05:00Z',70000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa) VALUES
+    (md5('t2parkrd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park1')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
+    (md5('t2parkrd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park2')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
+    (md5('t2solord1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2solo1')::uuid,md5('t2veh3')::uuid,posid,md5('t2solotyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,1,'OUTER',3),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,2,'CENTRE',3),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,3,'INNER',3),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,1,'OUTER',3),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,2,'CENTRE',3),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,3,'INNER',3),
+    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,1,'OUTER',2),
+    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,2,'CENTRE',2),
+    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,3,'INNER',2);
 
   -- A parked vehicle divides zero distance by zero days. Reading the whole
   -- view is the assertion: an unguarded division takes down every row, not
   -- one of them, so a single parked trailer would blank the dashboard.
+  -- T2PARK1 and T2SOLO1 are the only tenant-2 fitments live at this point in
+  -- the transaction, so the exact count also pins that nothing else leaked in.
   SELECT count(*) INTO n FROM app.v_removal_forecast;
-  IF n < 3 THEN RAISE EXCEPTION 'FAIL: forecast view returned % rows for tenant 2', n; END IF;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL: forecast view returned % rows for tenant 2, expected exactly the 2 probes this block plants', n; END IF;
 
   SELECT earliest_removal_date, latest_removal_date, forecast_status
     INTO dt, dt2, st FROM app.v_removal_forecast WHERE display_code = 'T2PARK1';
@@ -1956,11 +1953,10 @@ BEGIN
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL: an overdue tyre on a once-inspected vehicle is missing from the horizon list'; END IF;
 
-  UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-35 forecast probe'
-   WHERE id IN (md5('t2park1')::uuid, md5('t2park2')::uuid, md5('t2solo1')::uuid);
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  a vehicle that does not move, and one inspected only once, still forecast';
 END $$;
+ROLLBACK;
 
 -- Rule 6: timestamps are stored UTC. A bare cast to date reads the session
 -- timezone, so a connection west of UTC would move every projected date by a
@@ -2280,6 +2276,11 @@ BEGIN
     INSERT INTO app.vehicle (id,tenant_id,fleet_number,configuration_id,unit_kind,status)
     VALUES (md5('t2veh4')::uuid,'22222222-2222-2222-2222-222222222222','PARKED4',
             md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'HORSE','PARKED');
+    -- check 21 rolls back (TYRE-206), so this schedule's own target vehicle
+    -- is planted here rather than read from that section's residue
+    INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status)
+    VALUES (md5('t2veh3')::uuid,'22222222-2222-2222-2222-222222222222','SOLO','CAA333333',
+            md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE');
   END IF;
   INSERT INTO app.inspection_schedule (id,tenant_id,vehicle_id,interval_days) VALUES
     (md5('t2sched1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,7),
@@ -2370,6 +2371,13 @@ BEGIN
     RAISE EXCEPTION 'FAIL: % fixture vehicles without unit_kind', n; END IF;
 
   -- CHG-036: nothing in the fixture awaits a cost; an unpriced tyre surfaces
+  -- an unpriced FITTED probe on tenant 2, planted here rather than read from
+  -- check 19: that section rolls back now (TYRE-206), and CHG-036's queue
+  -- needs one tyre with no price to surface
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,state)
+  VALUES (md5('t2gaptyre')::uuid,'22222222-2222-2222-2222-222222222222','T2GAP1','NEW','FITTED');
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   SELECT count(*) INTO n FROM app.v_tyre_awaiting_cost;
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL: % priced fixture tyres sit in the awaiting-cost queue', n; END IF;
