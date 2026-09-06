@@ -16,8 +16,11 @@ make db-test      # the verification suite — start here
 
 `make db-test` should end with `ALL CHECKS PASSED`. It asserts tenant
 isolation, append-only grants, `security_invoker` on every view, all fifteen
-reference valuations to the cent, and the golden fixture's exact exception set:
+reference valuations to the cent, and the golden fixture's exception set:
 **19 exceptions, 11 urgent, 9 running positions below the removal threshold.**
+What check 8 pins today is the position sets for five of the rules behind that
+total (FR-EXC-020/035/038/036/022); the capture app and the dashboard have no
+exception computation yet (TYRE-41, TYRE-7).
 
 If it passes as `postgres` rather than `app_login`, it has proved nothing —
 superusers bypass row-level security. Check 0 inside the suite catches this.

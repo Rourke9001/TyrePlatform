@@ -47,9 +47,12 @@ primary acceptance gate (FR-VAL-006) — with exactly one implementation of
 the arithmetic in the whole codebase.
 
 **Evidence:** check 7 of the verification suite pins `app.tread_value()` and
-`app.rand_per_mm()` to all 15 SRS Appendix E valuations; the Appendix J
-fixture independently yields the expected 19 exceptions / 11 urgent / 9
-below-threshold sets.
+`app.rand_per_mm()` to all 15 SRS Appendix E valuations; check 8 pins the
+Appendix J fixture's exception positions for five rules
+(FR-EXC-020/035/038/036/022) — the sets behind the expected 19 exceptions /
+11 urgent / 9 below-threshold. The suite is the only tier that computes them
+at this tree: the capture app and the dashboard have no exception computation
+yet (TYRE-41, TYRE-7).
 
 ## Spec and seed data that cannot drift
 
