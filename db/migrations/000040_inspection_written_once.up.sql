@@ -627,3 +627,49 @@ END $$;
 CREATE TRIGGER inspection_written_once
 BEFORE UPDATE ON app.inspection
 FOR EACH ROW EXECUTE FUNCTION app.inspection_is_written_once();
+
+-- ---------------------------------------------------------------------------
+-- TYRE-164. FR-INS-012: "permit a CONTROLLER or higher to void a submitted
+-- inspection with a mandatory reason, retaining the original record and
+-- excluding it from analytics." The exclusion already exists as the
+-- state <> 'VOIDED' predicate every analytics view carries (000006 onward)
+-- and inspection_state_repairs_snapshots (000008) repairs the register on the
+-- transition; this is the writer both were waiting for. Invoker rights: RLS
+-- hides another tenant's row, and a hidden row answers TY012 rather than a
+-- zero-row UPDATE, so the caller can tell "not yours" from "already voided".
+CREATE FUNCTION app.void_inspection(p_inspection uuid, p_reason text) RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE v_state app.inspection_state;
+BEGIN
+  IF p_reason IS NULL OR btrim(p_reason) = '' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY019',
+      MESSAGE = 'a void carries a reason',
+      HINT    = 'say why the capture is wrong (FR-INS-012)';
+  END IF;
+  SELECT i.state INTO v_state FROM app.inspection i WHERE i.id = p_inspection;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY012',
+      MESSAGE = 'no such inspection in this fleet';
+  END IF;
+  IF v_state = 'VOIDED' THEN
+    RAISE EXCEPTION USING
+      ERRCODE = 'TY019',
+      MESSAGE = 'this inspection is already voided',
+      HINT    = 'a void is final; capture the unit again (FR-INS-012)';
+  END IF;
+  UPDATE app.inspection
+     SET state = 'VOIDED', void_reason = btrim(p_reason)
+   WHERE id = p_inspection;
+END $$;
+
+REVOKE ALL ON FUNCTION app.void_inspection(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.void_inspection(uuid, text) TO app_rw;
+
+-- ADR-0014: a table with a write path is audited. The submit's INSERT is
+-- audited under the driver, the void under the controller (FR-AUD-001).
+CREATE TRIGGER inspection_audited
+AFTER INSERT OR UPDATE ON app.inspection
+FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
