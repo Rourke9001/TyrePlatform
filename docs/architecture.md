@@ -15,7 +15,9 @@ the ADRs say why each was chosen and what it costs.
    │  Azure Static Web Apps              │   React + Vite
    │  capture app  │  manager dashboard  │
    └──────────────────┬──────────────────┘
-                      │  HTTPS, JWT from Entra External ID
+                      │  HTTPS. Target: JWT from Entra External ID
+                      │  (FR-AUT-001). Today: the dev header actor
+                      │  resolver is the only one built (ADR-0011)
                       ▼
    ┌─────────────────────────────────────┐
    │  Azure Container Apps  (Go)         │   scale-to-zero

@@ -48,6 +48,6 @@ The specification is not in this repository on purpose. See `.gitignore`.
 
 ## Read first
 
-`CLAUDE.md` — the constraints, the commands, and the seven rules that are not
+`CLAUDE.md` — the constraints, the commands, and the eight rules that are not
 negotiable. It is written for an agent but it is the fastest orientation for a
 human too.
