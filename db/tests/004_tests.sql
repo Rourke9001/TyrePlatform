@@ -459,9 +459,9 @@ BEGIN
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL: expected tenant-2 vehicle HORSE to coexist, found %', n; END IF;
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   BEGIN
-    INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id)
+    INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
     VALUES ('11111111-1111-1111-1111-111111111111', 'HORSE',
-            md5('11111111-1111-1111-1111-111111111111HORSE_6X4')::uuid);
+            md5('11111111-1111-1111-1111-111111111111HORSE_6X4')::uuid, 'HORSE');
     RAISE EXCEPTION 'FAIL: duplicate fleet number accepted within a tenant';
   EXCEPTION WHEN unique_violation THEN ok := true;
   END;
@@ -1903,9 +1903,9 @@ BEGIN
    WHERE pos.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
      AND pos.code = '1';
 
-  INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status) VALUES
-    (md5('t2veh2')::uuid,'22222222-2222-2222-2222-222222222222','PARKED','CAA222222',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE'),
-    (md5('t2veh3')::uuid,'22222222-2222-2222-2222-222222222222','SOLO','CAA333333',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE');
+  INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,status) VALUES
+    (md5('t2veh2')::uuid,'22222222-2222-2222-2222-222222222222','PARKED','CAA222222',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'HORSE','ACTIVE'),
+    (md5('t2veh3')::uuid,'22222222-2222-2222-2222-222222222222','SOLO','CAA333333',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'HORSE','ACTIVE');
   INSERT INTO app.tyre (id,tenant_id,display_code,status,state) VALUES
     (md5('t2parktyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PARK1','NEW','FITTED'),
     (md5('t2solotyre')::uuid,'22222222-2222-2222-2222-222222222222','T2SOLO1','NEW','FITTED');
@@ -2282,9 +2282,9 @@ BEGIN
             md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'HORSE','PARKED');
     -- check 21 rolls back (TYRE-206), so this schedule's own target vehicle
     -- is planted here rather than read from that section's residue
-    INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,status)
+    INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,status)
     VALUES (md5('t2veh3')::uuid,'22222222-2222-2222-2222-222222222222','SOLO','CAA333333',
-            md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'ACTIVE');
+            md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'HORSE','ACTIVE');
   END IF;
   INSERT INTO app.inspection_schedule (id,tenant_id,vehicle_id,interval_days) VALUES
     (md5('t2sched1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,7),
@@ -2733,29 +2733,29 @@ BEGIN
   -- an existing tenant-1 configuration (TRAILER_2AXLE) means these vehicles
   -- get real, valid positions for free, with no new axle configuration to
   -- build.
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-PROBE',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-PROBE',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_probe;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-COMBO',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-COMBO',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_combo;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-QUEUED', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-QUEUED', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_queued;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-LATE',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-LATE',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_late;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-ATOMIC', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-ATOMIC', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_atomic;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-GRAN',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-GRAN',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_gran;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-TASK-B', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-TASK-B', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_taskb;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-TASK-C', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
+    (gen_random_uuid(), t_id, 'SEC31-TASK-C', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
     RETURNING id INTO v_taskc;
 
   SELECT p.id INTO pos_atomic FROM app.position p
@@ -3330,8 +3330,8 @@ BEGIN
   SELECT p.tenant_id, cfg_v2, p.code, p.sequence, p.axle_number,
          p.axle_class, p.side, p.slot, p.is_spare, p.unit_label, p.axle_type, p.spare_ordinal
     FROM app.position p WHERE p.configuration_id = cfg_v1;
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id)
-  VALUES (gen_random_uuid(), t_id, 'SEC31-SUPER', cfg_v2) RETURNING id INTO v_super;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind)
+  VALUES (gen_random_uuid(), t_id, 'SEC31-SUPER', cfg_v2, 'HORSE') RETURNING id INTO v_super;
   SELECT p.id INTO pos_super_v1 FROM app.position p
    WHERE p.configuration_id = cfg_v1 AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
 
@@ -3382,8 +3382,8 @@ BEGIN
   -- A section-local unit on tenant 2's own configuration: its seeded vehicles
   -- all carry a fixture inspection inside the FR-INS-038 window, which would
   -- refuse this submit for a reason that has nothing to do with the uuid.
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id)
-  SELECT gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'SEC31-T2', v.configuration_id
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind)
+  SELECT gen_random_uuid(), '22222222-2222-2222-2222-222222222222', 'SEC31-T2', v.configuration_id, 'HORSE'
     FROM app.vehicle v ORDER BY v.fleet_number LIMIT 1
   RETURNING id INTO t2_veh;
   SELECT p.id INTO t2_pos FROM app.position p
@@ -3462,7 +3462,6 @@ DECLARE
   ok       boolean := false;
   horse    uuid;
   trailer  uuid;
-  nullkind uuid;
   cfg      uuid;
   pos      uuid;
   f        uuid;
@@ -3494,11 +3493,6 @@ BEGIN
        VALUES (t_id, 'TY85-HORSE', cfg, 'HORSE') RETURNING id INTO horse;
   INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
        VALUES (t_id, 'TY85-TRAILER', cfg, 'TRAILER') RETURNING id INTO trailer;
-  -- CHG-027 left underivable kinds NULL. Such a unit must not be blocked:
-  -- we do not know whether it has an odometer, and guessing would refuse
-  -- legitimate work.
-  INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
-       VALUES (t_id, 'TY85-UNKNOWN', cfg, NULL) RETURNING id INTO nullkind;
 
   -- (a) A horse fitted with no odometer is refused.
   BEGIN
@@ -3513,9 +3507,17 @@ BEGIN
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
        VALUES (t_id, spare[2], trailer, pos, now(), NULL);
 
-  -- (c) A NULL-kind unit is not blocked.
-  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
-       VALUES (t_id, spare[3], nullkind, pos, now(), NULL);
+  -- (c) unit_kind is NOT NULL (000042), so a unit of unknown kind cannot
+  -- exist; the exemption 000025 wrote for CHG-027's underivable rows has no
+  -- row left to apply to.
+  ok := false;
+  BEGIN
+    INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+         VALUES (t_id, 'TY85-UNKNOWN', cfg, NULL);
+    RAISE EXCEPTION 'FAIL: a vehicle without a unit_kind was accepted';
+  EXCEPTION WHEN not_null_violation THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL: the NULL-kind insert was not refused'; END IF;
 
   -- (d) A horse fitted WITH an odometer is accepted, then refused a removal
   -- that omits the removed odometer — the second half of FR-FIT-002.
@@ -3724,7 +3726,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 36. TYRE-88: history triggers pass backfill and legacy rows, refuse edits (TY008/TY009)'
+\echo '== 36. TYRE-88: history triggers pass legacy rows, refuse edits (TY008/TY009); the NULL-kind backfill path is closed by 000042'
 BEGIN;
 DO $$
 DECLARE cfg uuid; pos uuid; veh uuid := md5('t88veh')::uuid; veh2 uuid := md5('t88veh2')::uuid;
@@ -3734,22 +3736,20 @@ BEGIN
   SELECT configuration_id INTO cfg FROM app.vehicle WHERE id = md5('veh1')::uuid;
   SELECT id INTO pos FROM app.position WHERE configuration_id = cfg ORDER BY id LIMIT 1;
 
-  -- A unit of unknown kind takes an odometer-less fitment (legal, CHG-027)...
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status)
-  VALUES (veh, '11111111-1111-1111-1111-111111111111', 'T88-1', 'T88 GP', cfg, 'ACTIVE');
+  -- A trailer takes an odometer-less fitment (legal, FR-FIT-002 via 000025).
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (veh, '11111111-1111-1111-1111-111111111111', 'T88-1', 'T88 GP', cfg, 'TRAILER', 'ACTIVE');
   INSERT INTO app.tyre (id, tenant_id, display_code, status, state)
   VALUES (t1, '11111111-1111-1111-1111-111111111111', 'T88TYRE1', 'NEW', 'IN_STOCK');
   INSERT INTO app.fitment (id, tenant_id, tyre_id, vehicle_id, position_id, fitted_at)
   VALUES (fit, '11111111-1111-1111-1111-111111111111', t1, veh, pos, now() - interval '30 days');
 
-  -- ...then its kind is backfilled to HORSE with history present (must pass)...
-  UPDATE app.vehicle SET unit_kind = 'HORSE' WHERE id = veh;
-
-  -- (a) the legacy NULL-odometer fitment can still be closed
-  UPDATE app.fitment SET removed_at = now(), removed_odometer = 120000,
+  -- (a) an odometer-less fitment on a trailer closes without one (FR-FIT-002
+  -- binds only units that carry an odometer)
+  UPDATE app.fitment SET removed_at = now(), removed_odometer = NULL,
          removed_tread_mm = 9.0, removal_reason = 'WORN'
    WHERE id = fit;
-  RAISE NOTICE 'PASS  36a legacy NULL-odometer fitment closed on a HORSE';
+  RAISE NOTICE 'PASS  36a odometer-less fitment on a TRAILER closed without one';
 
   -- (b) an UPDATE cannot null out a supplied fitted_odometer — proven on a
   -- fitment this section creates, so the probe cannot silently match nothing
@@ -3773,7 +3773,7 @@ BEGIN
   EXCEPTION WHEN sqlstate 'TY009' THEN RAISE NOTICE 'PASS  36c repoint refused';
   END;
 
-  -- (d) known-to-different unit_kind with history raises; the NULL backfill above passed
+  -- (d) known-to-different unit_kind with history raises
   BEGIN
     UPDATE app.vehicle SET unit_kind = 'RIGID' WHERE id = veh;
     RAISE EXCEPTION 'FAIL: unit_kind edit with history was accepted';
@@ -7525,9 +7525,9 @@ BEGIN
   -- A throwaway unit of its own for the raw CHECK probe below: it must carry
   -- no reading submit_inspection could later mistake as a prior inspection
   -- of the SAME unit inside FR-INS-038's window (000023).
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
   VALUES (md5('t2veh48raw')::uuid, t_id, 'SEC48-RAW', 'CAA484801',
-          md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE')
+          md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE')
   RETURNING id INTO v_raw;
   INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid,
                               started_at, submitted_at, odometer)
@@ -7563,9 +7563,9 @@ BEGIN
 
   -- A further, still different unit for the refused submit, so FR-INS-038's
   -- window does not refuse it as a second inspection of t2veh1 above.
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status)
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
   VALUES (md5('t2veh48')::uuid, t_id, 'SEC48-CEIL', 'CAA484802',
-          md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE')
+          md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE')
   RETURNING id INTO v_second;
   ok := false;
   BEGIN
@@ -7613,10 +7613,10 @@ BEGIN
   -- Three units beyond the fixture's t2veh1, one per probe below, so
   -- FR-INS-038's per-unit window never explains a result this section means
   -- to attribute to the future-side bound instead.
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status) VALUES
-    (md5('t2veh49b')::uuid, t_id, 'SEC49-B', 'CAA494901', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
-    (md5('t2veh49c')::uuid, t_id, 'SEC49-C', 'CAA494902', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
-    (md5('t2veh49d')::uuid, t_id, 'SEC49-D', 'CAA494903', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE');
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status) VALUES
+    (md5('t2veh49b')::uuid, t_id, 'SEC49-B', 'CAA494901', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE'),
+    (md5('t2veh49c')::uuid, t_id, 'SEC49-C', 'CAA494902', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE'),
+    (md5('t2veh49d')::uuid, t_id, 'SEC49-D', 'CAA494903', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE');
   v2 := md5('t2veh49b')::uuid;
   v3 := md5('t2veh49c')::uuid;
   v4 := md5('t2veh49d')::uuid;
@@ -7979,10 +7979,10 @@ BEGIN
   PERFORM set_config('app.tenant_id', t_id::text, true);
   PERFORM set_config('app.actor_id', drv::text, true);
 
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status) VALUES
-    (v_a, t_id, 'SEC53-A', 'CAA535301', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
-    (v_b, t_id, 'SEC53-B', 'CAA535302', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
-    (v_c, t_id, 'SEC53-C', 'CAA535303', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE');
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status) VALUES
+    (v_a, t_id, 'SEC53-A', 'CAA535301', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE'),
+    (v_b, t_id, 'SEC53-B', 'CAA535302', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE'),
+    (v_c, t_id, 'SEC53-C', 'CAA535303', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE');
 
   SELECT p.id INTO p_run FROM app.position p
    WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
@@ -8081,9 +8081,9 @@ BEGIN
   PERFORM set_config('app.tenant_id', t_id::text, true);
   PERFORM set_config('app.actor_id', drv::text, true);
 
-  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, status) VALUES
-    (v_a, t_id, 'SEC54-A', 'CAA545401', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE'),
-    (v_b, t_id, 'SEC54-B', 'CAA545402', md5(t_id::text || 'HORSE_6X4')::uuid, 'ACTIVE');
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status) VALUES
+    (v_a, t_id, 'SEC54-A', 'CAA545401', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE'),
+    (v_b, t_id, 'SEC54-B', 'CAA545402', md5(t_id::text || 'HORSE_6X4')::uuid, 'HORSE', 'ACTIVE');
 
   SELECT p.id INTO p_run FROM app.position p
    WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
@@ -8193,6 +8193,35 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  56 session TimeZone is UTC for %', current_user;
 END $$;
+
+\echo '== 57. TYRE-172: unit_kind is required by the schema, not only by the API (ADR-0013 accepted gap, closed)'
+BEGIN;
+DO $$
+DECLARE ok boolean := false; nullable text; cfg uuid;
+BEGIN
+  SELECT is_nullable INTO nullable FROM information_schema.columns
+   WHERE table_schema = 'app' AND table_name = 'vehicle' AND column_name = 'unit_kind';
+  IF nullable IS DISTINCT FROM 'NO' THEN
+    RAISE EXCEPTION 'FAIL 57: vehicle.unit_kind is_nullable = %', nullable;
+  END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT configuration_id INTO cfg FROM app.vehicle WHERE id = md5('veh1')::uuid;
+  BEGIN
+    INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'T172-NOKIND', cfg);
+    RAISE EXCEPTION 'FAIL 57: a vehicle without a unit_kind was accepted';
+  EXCEPTION WHEN not_null_violation THEN
+    IF SQLERRM LIKE '%unit_kind%' THEN ok := true;
+    ELSE RAISE EXCEPTION 'FAIL 57: refused on another NOT NULL column, not unit_kind: %', SQLERRM; END IF;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 57: the kind-less insert was not refused as 23502'; END IF;
+  -- control: the same row with a kind lands, so the refusal above is the
+  -- column and not something else about the row
+  INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'T172-KIND', cfg, 'HORSE');
+  RAISE NOTICE 'PASS  57 unit_kind is NOT NULL; a kind-less insert is 23502 and the same row with a kind lands';
+END $$;
+ROLLBACK;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

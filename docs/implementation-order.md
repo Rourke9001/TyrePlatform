@@ -285,12 +285,10 @@ next batch should expect rather than because they are history:
   in ADR-0013 and stated plainly in the PR body rather than left to be
   inferred. If the ticket owner rules it out after the fact,
   Task 5 and the assign panel in Task 8 are what to remove.
-- **`unit_kind` is required by the API and not the schema, owned by TYRE-88.**
-  The column stays nullable: 12 of the 18 `INSERT INTO app.vehicle` statements
-  in `db/tests/004_tests.sql` omit it, so a `NOT NULL` constraint would churn
-  the acceptance suite for a benefit this batch does not need. TYRE-88 already
-  names `unit_kind` edits as part of its trigger-hardening scope, so the gap
-  has an owner rather than sitting unclaimed.
+- **`unit_kind` is required by the API and the schema, landed in 000042
+  (TYRE-172).** The column is `NOT NULL`: every `INSERT INTO app.vehicle`
+  statement in `db/tests/004_tests.sql` and every Go fixture names a kind,
+  and migration 000042 refuses to run over a row it cannot derive one for.
 - **`TY008`/`TY009` are still not in `submitStatus`, and B4 did not discharge
   ADR-0012's deferral.** Both need a write surface this batch does not build —
   `TY008` fires on an *update* of `vehicle.configuration_id`, `TY009` on a

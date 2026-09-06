@@ -76,7 +76,7 @@ func plantTenantWithVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, 
 	require.NoError(t, err)
 
 	_, err = admin.Exec(ctx,
-		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id) VALUES ($1, $2, $3)`,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind) VALUES ($1, $2, $3, 'HORSE'::app.unit_kind)`,
 		tenantID, fleet, configID,
 	)
 	require.NoError(t, err)
@@ -395,14 +395,14 @@ func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
 		`SELECT id, configuration_id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`,
 		tenantID, fleetPlain).Scan(&plainID, &configID))
 
-	// A second unit with a recorded kind: plantTenantWithVehicle's own row
-	// leaves unit_kind NULL, the pre-000011 case the fixture proves still
-	// answers null rather than a zero value.
-	fleetHorse := "unitkind-horse-" + uuid.NewString()[:8]
+	// A second unit of a different kind, so the wire carries two distinct
+	// values rather than one repeated (U13: the rig form filters motive
+	// units from towed by this field).
+	fleetTrailer := "unitkind-trailer-" + uuid.NewString()[:8]
 	_, err := admin.Exec(ctx,
 		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
-		 VALUES ($1, $2, $3, 'HORSE'::app.unit_kind)`,
-		tenantID, fleetHorse, configID)
+		 VALUES ($1, $2, $3, 'TRAILER'::app.unit_kind)`,
+		tenantID, fleetTrailer, configID)
 	require.NoError(t, err)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -428,13 +428,14 @@ func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
 	}
 
 	plainKind, plainStatus := find(fleetPlain)
-	require.Nil(t, plainKind, "unit_kind is NULL on this row and must stay null on the wire")
+	require.NotNil(t, plainKind)
+	require.Equal(t, "HORSE", *plainKind)
 	require.Equal(t, "ACTIVE", plainStatus)
 
-	horseKind, horseStatus := find(fleetHorse)
-	require.NotNil(t, horseKind)
-	require.Equal(t, "HORSE", *horseKind)
-	require.Equal(t, "ACTIVE", horseStatus)
+	trailerKind, trailerStatus := find(fleetTrailer)
+	require.NotNil(t, trailerKind)
+	require.Equal(t, "TRAILER", *trailerKind)
+	require.Equal(t, "ACTIVE", trailerStatus)
 
 	// GET /api/my/vehicles keeps vehicleJSON's own shape — exactly id,
 	// fleetNumber, registration — no new keys. Compared as a key set, not
@@ -693,8 +694,8 @@ func plantDepotWithVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, t
 
 	fleet := "DEPOT-" + suffix
 	_, err := admin.Exec(ctx,
-		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, home_depot_id)
-		 VALUES ($1, $2, $3, $4)`,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, home_depot_id, unit_kind)
+		 VALUES ($1, $2, $3, $4, 'HORSE'::app.unit_kind)`,
 		tenantID, fleet, configID, depotID)
 	require.NoError(t, err)
 	return depotID, fleet

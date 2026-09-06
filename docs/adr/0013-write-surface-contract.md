@@ -216,8 +216,9 @@ depot, and both are deliberate deferrals a reader could mistake for
 oversights without this paragraph.
 
 **Revisit when:** TYRE-83 narrows the creatable-role list to `InviteDriver`
-for `CONTROLLER` and `DEPOT_MANAGER`; TYRE-88 adds the `unit_kind NOT NULL`
-constraint this ADR accepts as a gap; the deactivation surface that decision 7
+for `CONTROLLER` and `DEPOT_MANAGER`; migration 000042 (TYRE-172) added the
+`unit_kind NOT NULL` constraint this ADR accepted as a gap, closing it; the
+deactivation surface that decision 7
 deliberately leaves unbuilt is scheduled (NFR-PRV-004 already governs the
 retained data, 84 months then pseudonymised, so nothing gates it); a write
 surface needs an update or a delete, which is the point decision 7 stops
@@ -273,16 +274,12 @@ more than writing the assumption down first.
 
 ## Accepted gaps
 
-- **`vehicle.unit_kind` is required by the API, not by the schema.** The
-  column stays nullable: 12 of the 18 `INSERT INTO app.vehicle` statements
-  in `db/tests/004_tests.sql` omit it, and so do the Go integration
-  fixtures. A `NOT NULL` constraint would be correct and cheap to write, and
-  would then require editing every one of those statements inside the file
-  that is the acceptance gate, for a benefit no surface governed by this ADR
-  needs — the API requires `unitKind` on create, so the gap is reachable
-  only by a writer that predates this ADR. **Owner: TYRE-88**,
-  which already names `unit_kind` edits as part of its trigger-hardening
-  scope.
+- **`vehicle.unit_kind` was required by the API, not by the schema — closed
+  by 000042 (TYRE-172, 6 Sep 2026).** The cost this ADR predicted was paid:
+  the kind-less `INSERT INTO app.vehicle` statements in
+  `db/tests/004_tests.sql` and the Go fixtures each name a kind, and the two
+  suite legs that depended on a NULL kind (33c, 36's backfill) assert the
+  refusal instead.
 - **The driver-assignment endpoint does not check that its assignee holds
   the `DRIVER` role.** No constraint says an `app.vehicle_driver` row's user
   must be a driver, and none is added here. The gap is inert today: every
