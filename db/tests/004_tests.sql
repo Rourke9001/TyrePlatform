@@ -4691,9 +4691,9 @@ BEGIN
   -- has no such event to bound against. Planted the same way as 41d's
   -- occupancy probes: past app.fit_tyre, straight into the table, so ty9
   -- carries an open fitment and zero tyre_event rows. Without
-  -- fitment_instant_ok's per-fitment fitted_at check this probe passes
-  -- vacuously: last_at is NULL for ty9, the movement guard never fires, and
-  -- the removal below closes the fitment an hour before it was opened — a row
+  -- fitment_instant_ok's per-fitment fitted_at check nothing here refuses:
+  -- last_at is NULL for ty9, the movement guard never fires, and the removal
+  -- below closes the fitment an hour before it was opened — a row
   -- the as-at register's location join (000036: fitted_at < bound.ts AND
   -- (removed_at IS NULL OR removed_at >= bound.ts)) can never match at any
   -- date. Both instants sit inside the last 24 hours on purpose: further back,
