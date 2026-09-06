@@ -196,8 +196,18 @@ export async function saveHeader(patch: {
 // must not double the row app.submit_inspection would otherwise reject as
 // re-reading the same reading (000041, TY005 in reverse).
 export async function markSpareAbsent(vehicleId: string, positionId: string): Promise<void> {
+  const cell = cellKey(vehicleId, positionId);
   await mutate((draft) => ({
     ...draft,
+    // The tap IS the driver saying there is nothing to read: a reading and an
+    // absent_spares entry for the same cell is a shape app.submit_inspection
+    // refuses outright (TY005, 000041), and the outbox treats a 422 as
+    // permanent — so a stale draft position here would lose the whole
+    // capture rather than one cell. Discarding it in the same mutate as the
+    // mark is what makes that combination unreachable rather than merely
+    // filtered out downstream, which would be the silent drop the design
+    // spec forbids.
+    positions: Object.fromEntries(Object.entries(draft.positions).filter(([key]) => key !== cell)),
     absentSpares: draft.absentSpares.some(
       (s) => s.vehicleId === vehicleId && s.positionId === positionId,
     )

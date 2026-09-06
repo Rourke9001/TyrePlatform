@@ -191,6 +191,13 @@ function PositionCell({
   absent: boolean;
 }) {
   const name = rig.displayNumber === null ? "Spare" : `Position ${rig.displayNumber}`;
+  // TYRE-155 review finding 3: an absent cell is settled, not unmeasured — the
+  // severity band was computed with nothing entered (draft.ts discards the
+  // position the same tap that records the mark), so showing SEVERITY_LABEL's
+  // "Not done" here would contradict the "done" the header and tally already
+  // count it as. "No spare" replaces the band entirely rather than appending
+  // to it.
+  const badge = absent ? "No spare" : SEVERITY_LABEL[severity];
   return (
     <button
       type="button"
@@ -199,7 +206,7 @@ function PositionCell({
       // order a form dictates.
       className={`cap-pos cap-pos--${severity}${active ? " is-active" : ""}${absent ? " is-absent" : ""}`}
       data-position-id={rig.position.id}
-      aria-label={`${name}, ${rig.context.fleetNumber}, ${SEVERITY_LABEL[severity]}${absent ? ", no spare" : ""}`}
+      aria-label={`${name}, ${rig.context.fleetNumber}${absent ? ", no spare" : `, ${SEVERITY_LABEL[severity]}`}`}
       onClick={() => onOpen(rig.key)}
     >
       <span className="cap-pos-n">{rig.displayNumber ?? "S"}</span>
@@ -208,7 +215,7 @@ function PositionCell({
       </span>
       {/* NFR-USE-009: colour is never the only encoding. The badge says it in
           words, and it is the thing that survives direct sunlight. */}
-      <span className="cap-pos-badge">{SEVERITY_LABEL[severity]}</span>
+      <span className="cap-pos-badge">{badge}</span>
     </button>
   );
 }

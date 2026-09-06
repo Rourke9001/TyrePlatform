@@ -619,15 +619,16 @@ describe("PositionSheet", () => {
   });
 
   it("shows no spare action on a running position", () => {
-    render(<PositionSheet {...props({})} onAbsent={vi.fn()} />);
+    const { container } = render(<PositionSheet {...props({})} onAbsent={vi.fn()} />);
     expect(screen.queryByRole("button", { name: /no spare/i })).toBeNull();
+    expectNothingForbiddenSpoken(container, /tread reading 1 of 3/);
   });
 
   it("lets the driver take back an absent mark from the same sheet", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onAbsent = vi.fn();
     const spare = { ...position, id: "s1", isSpare: true, axleClass: "SPARE", axleNumber: null };
-    render(
+    const { container } = render(
       <PositionSheet
         {...props({})}
         rig={{ ...rig, position: spare, key: cellKey("v1", "s1"), displayNumber: null }}
@@ -637,5 +638,6 @@ describe("PositionSheet", () => {
     );
     await user.click(screen.getByRole("button", { name: /spare is here/i }));
     expect(onAbsent).toHaveBeenCalledWith(spare, false);
+    expectNothingForbiddenSpoken(container, /spare is here/i);
   });
 });

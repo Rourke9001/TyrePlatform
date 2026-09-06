@@ -23,8 +23,12 @@ export function rigPositions(contexts: CaptureContext[]): RigPosition[] {
     [...context.positions]
       // TYRE-155, rule 5: a tenant that has switched spare capture off gets
       // no spare cell on the walk at all — filtered before the sort so the
-      // running numbering above never counts a cell nobody will see.
-      .filter((p) => context.config.captureSpares || !p.isSpare)
+      // running numbering above never counts a cell nobody will see. Compared
+      // against `!== false`, not truthiness: FR-INS-066 is a Must, and an
+      // absent key (an old response cached before the field existed) must
+      // fail toward capturing the spare, not toward silently dropping it
+      // (ADR-0010 — absence must never be read as a claim).
+      .filter((p) => (p.isSpare ? context.config.captureSpares !== false : true))
       // BR-VEH-001 numbers positions within a unit from 1, foremost axle
       // first, then left to right — which is exactly what position.sequence
       // already encodes. Sorting by it here means the projection depends on
@@ -96,7 +100,9 @@ export function completenessByUnit(
 ): UnitCompleteness[] {
   return contexts.map((context) => {
     const cells = context.positions
-      .filter((p) => context.config.captureSpares || !p.isSpare)
+      // Same rule as rigPositions above: fail toward the Must (FR-INS-066)
+      // on an absent key rather than toward dropping the spare (ADR-0010).
+      .filter((p) => (p.isSpare ? context.config.captureSpares !== false : true))
       .map((p) => cellKey(p.vehicleId, p.id))
       .filter((c) => !absentCells.has(c));
     return {

@@ -657,13 +657,14 @@ describe("CaptureFlow", () => {
   it("reports a unit done when its spare is marked absent, and sends the observation", async () => {
     const user = newUser();
     const api = stubApi(201, [withSpare]);
-    renderFlow();
+    const { container } = renderFlow();
 
     await user.click(await screen.findByRole("button", { name: /start inspection/i }));
     await capturePosition(user); // opens the spare next, by the flow's own advance
     await user.click(await screen.findByRole("button", { name: /no spare on this unit/i }));
 
     expect(await screen.findByRole("heading", { name: /1 of 1 done/ })).toBeInTheDocument();
+    expectNothingForbiddenSpoken(container, /1 of 1 done/);
     await user.click(screen.getByRole("button", { name: /review and submit/i }));
     await user.click(screen.getByRole("button", { name: /submit inspection/i }));
     await screen.findByRole("status");
@@ -680,9 +681,10 @@ describe("CaptureFlow", () => {
   it("renders no spare cell for a tenant that does not capture spares", async () => {
     const user = newUser();
     stubApi(201, [{ ...withSpare, config: { ...withSpare.config, captureSpares: false } }]);
-    renderFlow();
+    const { container } = renderFlow();
     await user.click(await screen.findByRole("button", { name: /start inspection/i }));
     expect(await screen.findByRole("heading", { name: /0 of 1 done/ })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^Spare/ })).toBeNull();
+    expectNothingForbiddenSpoken(container, /0 of 1 done/);
   });
 });
