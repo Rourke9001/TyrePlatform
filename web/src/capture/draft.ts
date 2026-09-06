@@ -175,6 +175,12 @@ export async function savePosition(position: DraftPosition): Promise<void> {
       ...draft.positions,
       [cellKey(position.vehicleId, position.positionId)]: position,
     },
+    // Mirror of markSpareAbsent's discard, in the other direction: a reading
+    // IS the driver saying the spare is here (TYRE-155), so a cell reopened
+    // after "No spare on this unit" must drop its absent mark, not carry both.
+    absentSpares: draft.absentSpares.filter(
+      (s) => !(s.vehicleId === position.vehicleId && s.positionId === position.positionId),
+    ),
   }));
 }
 

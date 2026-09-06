@@ -7985,10 +7985,9 @@ BEGIN
   -- A running position cannot be "absent": only a spare may be reported so.
   -- Trapped on the message, not the bare SQLSTATE: deleting the "is not a
   -- spare" guard in 000041 would fall through to the has-a-reading branch
-  -- below, which also raises TY005 for this exact payload (p_run carries no
-  -- reading here, so that branch alone would not fire -- but a bare SQLSTATE
-  -- trap cannot tell "refused for the right reason" from "refused for the
-  -- wrong one", which is the whole point of a control).
+  -- below, which also raises TY005 for this exact payload (p_run carries a
+  -- reading here, so a bare SQLSTATE trap could not tell the two guards
+  -- apart, which is the whole point of a control).
   BEGIN
     PERFORM app.submit_inspection(
       base || jsonb_build_object('client_uuid', gen_random_uuid(), 'vehicle_id', v_b,

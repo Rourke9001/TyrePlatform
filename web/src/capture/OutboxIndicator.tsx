@@ -88,7 +88,9 @@ export function OutboxIndicator() {
           </span>
         )}
         {blocked.map((e) => (
-          <span key={e.clientUuid} className="cap-outbox-line cap-outbox-line--stop">
+          // ConfirmDiscard renders block content (section/p) once opened, which a
+          // <span> — phrasing content only — cannot legally contain.
+          <div key={e.clientUuid} className="cap-outbox-line cap-outbox-line--stop">
             {/* TYRE-167 / FR-OFF-013: the recovery action once the office has
                 taken the readings over the phone. Confirmed, never automatic.
                 Named by vehicle so two refused entries get two distinguishable
@@ -104,7 +106,7 @@ export function OutboxIndicator() {
               confirm="Remove"
               onConfirm={() => void discardEntry(e.clientUuid)}
             />
-          </span>
+          </div>
         ))}
         {waiting.some((e) => e.lastCode === "TY021") && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
