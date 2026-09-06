@@ -641,7 +641,13 @@ func TestPatchUnitEditsDescriptiveFields(t *testing.T) {
 
 	// A TECHNICIAN holds ViewFleet alone (auth.go), so it reads this unit and
 	// may not edit it — the capability gate, not the route, is what refuses.
+	// A TECHNICIAN is also depot-scoped (FR-AUT-006, TYRE-162): the earlier
+	// clear left "mine" homed nowhere, so it must be re-homed at a depot the
+	// technician holds for the read below to reach it at all.
 	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	joinDepot(t, ctx, admin, tenantID, technician, depotID)
+	_, err := admin.Exec(ctx, `UPDATE app.vehicle SET home_depot_id = $1 WHERE id = $2`, depotID, mine)
+	require.NoError(t, err)
 	require.Equal(t, http.StatusOK,
 		get(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), technician.String()).Code)
 	require.Equal(t, http.StatusForbidden,
@@ -1199,4 +1205,104 @@ func TestUnitStatusCrossTenantIsInvisible(t *testing.T) {
 	own := post(t, h, "/api/vehicles/"+mineA.String()+"/status", tenantA.String(), controllerA.String(),
 		`{"status":"PARKED"}`)
 	require.Equal(t, http.StatusNoContent, own.Code, own.Body.String())
+}
+
+// ADR-0006 names per-role API tests as the only thing standing between a
+// handler that skips the scope view and an intra-tenant overexposure; the
+// fleet list had one and the by-id routes did not (TYRE-162). FR-AUT-008
+// (errata D1) scopes ALL of a controller's permissions to the depot
+// manager's depots, so the writes narrow with the reads (owner, 6 Sep 2026).
+// The out-of-depot unit is homed at a depot the actor does not hold, never
+// at NULL — a NULL home is excluded by any depot join and cannot tell a
+// working predicate from a broken one. Every list case plants a row on the
+// out-of-depot unit, so an empty answer is the narrowing and not an empty
+// fixture; the controller reading the same row is the control.
+func TestUnitByIDSurfaceIsDepotScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "unit-depot")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	mineDepot, mineFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	joinDepot(t, ctx, admin, tenantID, technician, mineDepot)
+	_, elsewhereFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+
+	unitID := func(fleet string) uuid.UUID {
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet).Scan(&id))
+		return id
+	}
+	mine, elsewhere := unitID(mineFleet), unitID(elsewhereFleet)
+
+	// one row of each kind on the OUT-OF-DEPOT unit, so [] means narrowed
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	assignVehicleDriver(t, ctx, admin, tenantID, elsewhere, driver)
+	var configID, posID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT configuration_id FROM app.vehicle WHERE id = $1`, elsewhere).Scan(&configID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.position (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1L', 1, 1, 'STEER'::app.axle_class, 'LEFT'::app.side, 'SINGLE'::app.fitment_slot, false)
+		 RETURNING id`, tenantID, configID).Scan(&posID))
+	tyreID := plantTyre(t, ctx, admin, tenantID, "DEP-"+uuid.NewString()[:8], nil)
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+		 VALUES ($1, $2, $3, $4, now() - interval '1 day', 1000)`, tenantID, tyreID, elsewhere, posID)
+	require.NoError(t, err)
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, assigned_user_id, due_at, state)
+		 VALUES ($1, $2, $3, now() + interval '1 day', 'OPEN')`, tenantID, elsewhere, driver)
+	require.NoError(t, err)
+
+	tn, mgr, ctl := tenantID.String(), manager.String(), controller.String()
+	path := func(id uuid.UUID, suffix string) string { return "/api/vehicles/" + id.String() + suffix }
+
+	// reads: the depot manager reaches their own unit and not the other
+	require.Equal(t, http.StatusOK, get(t, h, path(mine, ""), tn, mgr).Code)
+	notFound := get(t, h, path(elsewhere, ""), tn, mgr)
+	require.Equal(t, http.StatusNotFound, notFound.Code, notFound.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(notFound.Body.Bytes(), &ref))
+	require.Equal(t, "not_found", ref.Code)
+	require.Equal(t, http.StatusNotFound, get(t, h, path(elsewhere, ""), tn, technician.String()).Code,
+		"a technician is depot-scoped too (FR-AUT-006)")
+	require.Equal(t, http.StatusOK, get(t, h, path(elsewhere, ""), tn, ctl).Code,
+		"a controller reads the whole tenant (FR-AUT-007)")
+
+	// the three sub-resource lists answer [] for a unit outside the depot,
+	// and the controller sees the planted row
+	for _, suffix := range []string{"/fitments", "/drivers", "/inspection-tasks"} {
+		t.Run("list"+suffix, func(t *testing.T) {
+			rec := get(t, h, path(elsewhere, suffix), tn, mgr)
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			require.JSONEq(t, `[]`, rec.Body.String(), "narrowed, not refused")
+			var rows []json.RawMessage
+			require.NoError(t, json.Unmarshal(get(t, h, path(elsewhere, suffix), tn, ctl).Body.Bytes(), &rows))
+			require.Len(t, rows, 1, "the control row the controller must see")
+		})
+	}
+
+	// writes narrow with the reads (owner decision on TYRE-162, FR-AUT-008)
+	require.Equal(t, http.StatusOK, patch(t, h, path(mine, ""), tn, mgr, `{"description":"mine"}`).Code)
+	rec := patch(t, h, path(elsewhere, ""), tn, mgr, `{"description":"reached"}`)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	var desc *string
+	require.NoError(t, admin.QueryRow(ctx, `SELECT description FROM app.vehicle WHERE id = $1`, elsewhere).Scan(&desc))
+	require.Nil(t, desc, "the refused PATCH must not have written")
+
+	require.Equal(t, http.StatusNoContent, post(t, h, path(mine, "/status"), tn, mgr, `{"status":"PARKED"}`).Code)
+	rec = post(t, h, path(elsewhere, "/status"), tn, mgr, `{"status":"PARKED"}`)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	var status string
+	require.NoError(t, admin.QueryRow(ctx, `SELECT status::text FROM app.vehicle WHERE id = $1`, elsewhere).Scan(&status))
+	require.Equal(t, "ACTIVE", status, "the refused status change must not have written")
+
+	// control: the controller's write on the same unit lands
+	require.Equal(t, http.StatusOK, patch(t, h, path(elsewhere, ""), tn, ctl, `{"description":"reached"}`).Code)
 }

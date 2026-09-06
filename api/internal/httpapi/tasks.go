@@ -40,10 +40,10 @@ type unitTaskJSON struct {
 	AssignedDisplayName *string `json:"assignedDisplayName"`
 }
 
-// listUnitDrivers is FR-INS-053's chain, read as a list (U4). Neither this
-// read nor listUnitTasks narrows by depot scope, mirroring getUnit and
-// listUnitFitments: a depot-scoped role that already reached this unit by id
-// may read its drivers and its tasks.
+// listUnitDrivers is FR-INS-053's chain, read as a list (U4). Depot scope is
+// the unit's (unitSource), as for every by-id unit route (ADR-0006,
+// FR-AUT-008): a unit outside the actor's depots answers [] here exactly as
+// listUnitFitments does.
 func listUnitDrivers(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -59,9 +59,7 @@ func listUnitDrivers(s *store.Store) http.HandlerFunc {
 			// DISTINCT ON folds a driver assigned to both the horse and its
 			// trailer, who holds two rows in v_user_capture_vehicle (U4:
 			// assignment, or the motive's assignment), into one row, own
-			// assignment first. No existence check on the unit beyond RLS —
-			// an id this tenant cannot see matches no rows and answers [],
-			// as listUnitFitments does.
+			// assignment first.
 			rows, err := tx.Query(ctx, `
 				SELECT d.user_id, d.display_name, d.staff_number, d.via_vehicle_id, d.via_fleet_number
 				  FROM (SELECT DISTINCT ON (ucv.user_id)
@@ -70,6 +68,7 @@ func listUnitDrivers(s *store.Store) http.HandlerFunc {
 				          JOIN app.app_user u ON u.id = ucv.user_id
 				          JOIN app.vehicle vv ON vv.id = ucv.via_vehicle_id
 				         WHERE ucv.vehicle_id = $1
+				           AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)
 				         ORDER BY ucv.user_id, (ucv.via_vehicle_id = $1) DESC) d
 				 ORDER BY (d.via_vehicle_id = $1) DESC, d.display_name, d.user_id`, vehicleID)
 			if err != nil {
@@ -163,6 +162,14 @@ func listUnitTasks(s *store.Store) http.HandlerFunc {
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
+			}
+			var visible bool
+			if err := tx.QueryRow(ctx,
+				`SELECT EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)`, vehicleID).Scan(&visible); err != nil {
+				return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+			}
+			if !visible {
+				return nil
 			}
 			loaded, err := loadUnitTasks(ctx, tx, &vehicleID, nil)
 			if err != nil {

@@ -627,15 +627,27 @@ type fleetUnitJSON struct {
 	Status   string  `json:"status"`
 }
 
+// unitSource is the one place a fleet handler chooses its relation for a
+// unit, by auth.Actor.Scope and never by role name (ADR-0006): the
+// depot-narrowed app.v_depot_vehicle is the default and app.vehicle — the
+// whole tenant — is the exception earned only by ScopeTenant. A role added
+// later without a scope entry lands on the narrow default rather than
+// silently reading everything (FR-AUT-006/007/008). Every by-id unit route
+// composes this, reads and writes alike: FR-AUT-008 scopes all of a
+// controller's permissions to the depot manager's depots, not the reads
+// (TYRE-162, owner 6 Sep 2026).
+func unitSource(a auth.Actor) string {
+	if a.Scope() == auth.ScopeTenant {
+		return `app.vehicle`
+	}
+	return `app.v_depot_vehicle`
+}
+
 // listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
 // and is refused here rather than filtered — FR-AUT-005 is about what they
 // may ask for, not only about what comes back. Their route is /api/my/vehicles.
 //
-// The source relation is chosen by auth.Actor.Scope, never by role name
-// (ADR-0006): the depot-narrowed app.v_depot_vehicle is the default and
-// app.vehicle — the whole tenant — is the exception earned only by
-// ScopeTenant. A role added later without a scope entry lands on the narrow
-// default rather than silently reading everything (FR-AUT-006/007/008).
+// The source relation is unitSource's choice.
 func listVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -645,10 +657,7 @@ func listVehicles(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
-			source := `app.v_depot_vehicle`
-			if a.Scope() == auth.ScopeTenant {
-				source = `app.vehicle`
-			}
+			source := unitSource(a)
 			rows, err := tx.Query(ctx,
 				`SELECT id, fleet_number, registration, unit_kind::text, status::text
 				   FROM `+source+` ORDER BY fleet_number`)
