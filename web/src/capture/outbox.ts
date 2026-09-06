@@ -23,6 +23,11 @@ export interface OutboxEntry {
   // tyre_id with no pre-check), which no driver can act on. FR-OFF-013 asks
   // for a supported recovery action, not the server's reason.
   lastError: string | null;
+  // TYRE-167: the entry outlives the draft (queueDraft clears it), and the
+  // only thing a driver can recognise a refused inspection by is the vehicle
+  // on its cab, not a UUID buried in the payload. Null on an entry queued
+  // before this field existed, and when the draft itself carried none.
+  fleetNumber: string | null;
 }
 
 // FR-OFF-012's ceiling. Thirty minutes, not "about half an hour": the
@@ -68,7 +73,11 @@ export function isStale(entry: { queuedAt: number }, now: number = Date.now()): 
 }
 
 export async function listOutbox(): Promise<OutboxEntry[]> {
-  return table().toArray();
+  const entries = await table().toArray();
+  // TYRE-167: an entry written before fleetNumber existed has no such column
+  // in its stored row, so Dexie hands it back as undefined, not null — one
+  // normalisation here rather than an `?? null` at every consumer.
+  return entries.map((e) => ({ ...e, fleetNumber: e.fleetNumber ?? null }));
 }
 
 // TYRE-167 / FR-OFF-013: the recovery action for a refusal that can never
@@ -115,6 +124,7 @@ export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
       lastStatus: null,
       lastCode: null,
       lastError: null,
+      fleetNumber: draft.fleetNumber ?? null,
     };
     await table().put(entry);
     // Through the module that owns the key, not a second copy of the string.

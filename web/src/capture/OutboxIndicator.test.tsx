@@ -12,7 +12,11 @@ import type { SubmitPayload } from "./payload";
 // component calls flushOutbox() on mount (FR-OFF-009), and an entry that is due
 // would be sent, deleted and never counted. A failed entry is skipped by
 // attemptSend without the guard.
-function entry(clientUuid: string, state: OutboxState): OutboxEntry {
+function entry(
+  clientUuid: string,
+  state: OutboxState,
+  fleetNumber: string | null = null,
+): OutboxEntry {
   return {
     clientUuid,
     state,
@@ -23,6 +27,7 @@ function entry(clientUuid: string, state: OutboxState): OutboxEntry {
     lastStatus: null,
     lastCode: null,
     lastError: null,
+    fleetNumber,
   };
 }
 
@@ -145,7 +150,31 @@ describe("OutboxIndicator", () => {
   // of "needs the office".
   it("tells the driver the phone clock is ahead when that is why it has not sent", async () => {
     await outbox().put({ ...entry("u-skew", "queued"), lastCode: "TY021", attempts: 1 });
-    render(<OutboxIndicator />);
-    expect(await screen.findByText(/clock is ahead/i)).toHaveTextContent(/check the time/i);
+    const { container } = render(<OutboxIndicator />);
+    const line = await screen.findByText(/clock is ahead/i);
+    expect(line).toHaveTextContent(/check the time/i);
+    expectNothingForbiddenSpoken(container, /clock is ahead/i);
+  });
+
+  // TYRE-167 fix round 1: a duplicate accessible name across two failed
+  // entries is a mis-click away from deleting the wrong never-synced
+  // inspection, so the release control must name the vehicle it releases.
+  it("names the vehicle so two failed entries can be told apart", async () => {
+    const user = userEvent.setup();
+    await outbox().put(entry("u-101", "failed", "BAC 101"));
+    await outbox().put(entry("u-202", "failed", "BAC 202"));
+    const { container } = render(<OutboxIndicator />);
+
+    await screen.findByRole("button", { name: /the office has bac 101/i });
+    screen.getByRole("button", { name: /the office has bac 202/i });
+    expectNothingForbiddenSpoken(container, /bac 101/i);
+
+    await user.click(screen.getByRole("button", { name: /the office has bac 101/i }));
+    await user.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(async () => expect(await outbox().count()).toBe(1));
+    const [remaining] = await outbox().toArray();
+    expect(remaining.clientUuid).toBe("u-202");
+    expect(screen.getByRole("button", { name: /the office has bac 202/i })).toBeInTheDocument();
   });
 });
