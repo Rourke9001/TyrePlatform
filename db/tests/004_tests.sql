@@ -1330,18 +1330,23 @@ BEGIN
   IF mm IS DISTINCT FROM 11.0 OR v IS DISTINCT FROM 700.00 THEN
     RAISE EXCEPTION 'FAIL: voiding left the snapshot at [% mm / %], expected 11.0 / 700.00', mm, v; END IF;
 
-  -- and back: un-voiding is the same divergence in the other direction, so it
-  -- repairs an existing row too
-  UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
-   WHERE id = md5('t2s1late')::uuid;
+  -- and there is no way back: VOIDED is terminal (Appendix C.2), so the
+  -- reverse repair inspection_state_repairs_snapshots (000008) can still
+  -- express is unreachable, and the register keeps the 07:00Z reading
+  BEGIN
+    UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
+     WHERE id = md5('t2s1late')::uuid;
+    RAISE EXCEPTION 'FAIL: a void was reversed';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN NULL;
+  END;
   SELECT s.tread_mm, s.tread_value INTO mm, v
     FROM app.valuation_snapshot s
    WHERE s.tyre_id = md5('t2snap1')::uuid AND s.as_at = '2026-09-02';
-  IF mm IS DISTINCT FROM 9.0 OR v IS DISTINCT FROM 500.00 THEN
-    RAISE EXCEPTION 'FAIL: un-voiding left the snapshot at [% mm / %], expected 9.0 / 500.00', mm, v; END IF;
+  IF mm IS DISTINCT FROM 11.0 OR v IS DISTINCT FROM 700.00 THEN
+    RAISE EXCEPTION 'FAIL: a refused un-void moved the snapshot to [% mm / %]', mm, v; END IF;
 
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  RAISE NOTICE 'PASS  out-of-order sync and void/un-void leave the snapshot equal to the register';
+  RAISE NOTICE 'PASS  out-of-order sync and a void leave the snapshot equal to the register; a void is final';
 END $$;
 
 -- Repair is plural: a month-end row taken after a since-voided reading
@@ -1414,16 +1419,18 @@ BEGIN
     IF n <> 0 THEN
       RAISE EXCEPTION 'FAIL: an unvalued tyre kept % snapshot row(s)', n; END IF;
 
-    -- un-voiding restores the register but mints nothing: a deleted row is a
-    -- cache miss, and FR-VAL-022 creates rows on change or at month end, not
-    -- on a state transition. The next month-end fills the gap.
-    UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
-     WHERE id = md5('t2s2a')::uuid;
+    -- and there is no way back: VOIDED is terminal (Appendix C.2), so the
+    -- un-void that would have restored the register is refused, and the
+    -- fully-voided tyre keeps no snapshot row
+    BEGIN
+      UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL
+       WHERE id = md5('t2s2a')::uuid;
+      RAISE EXCEPTION 'FAIL: a void was reversed';
+    EXCEPTION WHEN SQLSTATE 'TY019' THEN NULL;
+    END;
     SELECT count(*) INTO n FROM app.valuation_snapshot WHERE tyre_id = md5('t2snap2')::uuid;
     IF n <> 0 THEN
-      RAISE EXCEPTION 'FAIL: un-voiding resurrected % deleted snapshot row(s)', n; END IF;
-    UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
-     WHERE id = md5('t2s2a')::uuid;
+      RAISE EXCEPTION 'FAIL: a refused un-void left % snapshot row(s)', n; END IF;
   ELSE
     -- the staged end state, re-asserted on every later run
     SELECT count(*) INTO n FROM app.valuation_snapshot WHERE tyre_id = md5('t2snap2')::uuid;
@@ -1432,7 +1439,7 @@ BEGIN
   END IF;
 
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  RAISE NOTICE 'PASS  voiding repairs every snapshot at or after its date, and drops those it unvalues';
+  RAISE NOTICE 'PASS  voiding repairs every snapshot at or after its date, and drops those it unvalues; a void is final';
 END $$;
 
 -- FR-VAL-022 month-end is a reconcile pass, not a first-write-wins one:
@@ -1448,8 +1455,10 @@ BEGIN
   PERFORM app.take_valuation_snapshots('2026-09-30');
   SELECT tread_mm, tread_value INTO mm, v FROM app.valuation_snapshot
    WHERE tyre_id = md5('t2snap1')::uuid AND as_at = '2026-09-30';
-  IF mm IS DISTINCT FROM 9.0 OR v IS DISTINCT FROM 500.00 THEN
-    RAISE EXCEPTION 'FAIL: re-running month-end left [% mm / %], expected the register''s 9.0 / 500.00', mm, v; END IF;
+  -- t2s1late's un-void above is refused (VOIDED is terminal), so it stays
+  -- voided and the live register for T2SNAP1 is t2s1early's 11.0mm.
+  IF mm IS DISTINCT FROM 11.0 OR v IS DISTINCT FROM 700.00 THEN
+    RAISE EXCEPTION 'FAIL: re-running month-end left [% mm / %], expected the register''s 11.0 / 700.00', mm, v; END IF;
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  re-running month-end reconciles an existing row to the register';
 END $$;
@@ -7716,6 +7725,96 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: an inspection with a NULL created_at was not sealed'; END IF;
   RAISE NOTICE 'PASS  a submitted inspection is sealed: later readings and measurements are refused TY020, the submitting transaction still writes';
+END $$;
+ROLLBACK;
+
+\echo '== 51. TYRE-144: an inspection is written once; the void is the one update, and it is final (rule 3, FR-INS-011, FR-INS-012)'
+BEGIN;
+DO $$
+DECLARE i_id uuid; ok boolean := false; st app.inspection_state;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  -- a live SYNCED row for the grant and trigger probes below; the reading's
+  -- own values do not matter, only that the row is real
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t51insp')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t51cli')::uuid, now(), now(), 750);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t51rd')::uuid,'22222222-2222-2222-2222-222222222222',md5('t51insp')::uuid,md5('t2veh1')::uuid,
+          (SELECT p.id FROM app.position p
+             WHERE p.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
+               AND NOT p.is_spare ORDER BY p.sequence LIMIT 1),
+          NULL,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,1,'OUTER',9),
+    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,2,'CENTRE',8),
+    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,3,'INNER',10);
+  i_id := md5('t51insp')::uuid;
+  -- the grant, not a trigger, refuses the columns that price a tyre (rule 3)
+  BEGIN
+    UPDATE app.inspection SET odometer = odometer + 100000 WHERE id = i_id;
+    RAISE EXCEPTION 'FAIL 51: the app role rewrote odometer';
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: odometer UPDATE was not refused by grant'; END IF;
+  ok := false;
+  BEGIN
+    UPDATE app.inspection SET submitted_at = submitted_at + interval '1 year' WHERE id = i_id;
+    RAISE EXCEPTION 'FAIL 51: the app role rewrote submitted_at';
+  EXCEPTION WHEN insufficient_privilege THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: submitted_at UPDATE was not refused by grant'; END IF;
+  IF has_table_privilege('app_rw', 'app.inspection', 'UPDATE')
+     OR NOT has_column_privilege('app_rw', 'app.inspection', 'state', 'UPDATE')
+     OR NOT has_column_privilege('app_rw', 'app.inspection', 'void_reason', 'UPDATE')
+     OR has_column_privilege('app_rw', 'app.inspection', 'odometer', 'UPDATE') THEN
+    RAISE EXCEPTION 'FAIL 51: app_rw''s UPDATE on app.inspection is not exactly (state, void_reason)';
+  END IF;
+  -- the trigger bounds the shape the grant leaves open
+  ok := false;
+  BEGIN
+    UPDATE app.inspection SET state = 'QUEUED' WHERE id = i_id;
+    RAISE EXCEPTION 'FAIL 51: state moved somewhere other than VOIDED';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: a non-void state change was not refused TY019'; END IF;
+  ok := false;
+  BEGIN
+    UPDATE app.inspection SET state = 'VOIDED' WHERE id = i_id;
+    RAISE EXCEPTION 'FAIL 51: a void without a reason was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: a reasonless void was not refused TY019'; END IF;
+  -- the grant admits a void_reason-only UPDATE on a live row (state stays
+  -- SYNCED), which is a shape the terminal-void branch above never reaches;
+  -- this is the trigger's other branch, closing that door too
+  ok := false;
+  BEGIN
+    UPDATE app.inspection SET void_reason = 'stray' WHERE id = i_id;
+    RAISE EXCEPTION 'FAIL 51: void_reason was written on a live row without a void';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: a void_reason edit on a live row was not refused TY019'; END IF;
+  -- control: the one permitted shape lands
+  UPDATE app.inspection SET state = 'VOIDED', void_reason = 'section 51 probe' WHERE id = i_id;
+  SELECT state INTO st FROM app.inspection WHERE id = i_id;
+  IF st IS DISTINCT FROM 'VOIDED' THEN RAISE EXCEPTION 'FAIL 51: the void did not land'; END IF;
+  -- and it is final: no un-void, no second void, no edit of the reason
+  ok := false;
+  BEGIN
+    UPDATE app.inspection SET state = 'SYNCED', void_reason = NULL WHERE id = i_id;
+    RAISE EXCEPTION 'FAIL 51: a void was reversed';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: an un-void was not refused TY019'; END IF;
+  ok := false;
+  BEGIN
+    UPDATE app.inspection SET void_reason = 'rewritten' WHERE id = i_id;
+    RAISE EXCEPTION 'FAIL 51: a void reason was rewritten';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: editing a voided row was not refused TY019'; END IF;
+  RAISE NOTICE 'PASS  app.inspection: only (state, void_reason) are updatable, only SYNCED -> VOIDED with a reason, and a void is final';
 END $$;
 ROLLBACK;
 
