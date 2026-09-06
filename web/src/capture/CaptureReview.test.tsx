@@ -14,6 +14,7 @@ function spare(vehicleId: string): CapturePosition {
     sequence: 90,
     axleClass: "SPARE",
     axleType: "FIXED",
+    side: null,
     axleNumber: null,
     isSpare: true,
     unitLabel: null,

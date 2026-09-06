@@ -26,6 +26,10 @@ type capturePosition struct {
 	Sequence  int       `json:"sequence"`
 	AxleClass string    `json:"axleClass"`
 	AxleType  string    `json:"axleType"`
+	// FR-INS-029a / FR-CFG-024: the server maps entry order to OUTER/CENTRE/
+	// INNER by this side on save, so the sheet has to show the driver the
+	// same frame (TYRE-147). Null on a spare, which has no side.
+	Side *string `json:"side"`
 	// The diagram groups running positions by (vehicle, axle) to draw one row
 	// per axle. Position codes are flat in the fixture, so there is nothing to
 	// parse out of them. Null on a spare, which has no axle geometry.
@@ -183,7 +187,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// order app.inflation_compliance already resolves in; keep them agreeing.
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.axle_type::text,
-		       p.axle_number, p.is_spare, p.unit_label, f.tyre_id, t.display_code,
+		       p.side::text, p.axle_number, p.is_spare, p.unit_label, f.tyre_id, t.display_code,
 		       prev.governing_tread_mm, prev.submitted_at,
 		       EXISTS (SELECT 1 FROM app.fitment fx
 		                WHERE fx.position_id = p.id AND fx.vehicle_id = v.id
@@ -225,7 +229,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	for rows.Next() {
 		var p capturePosition
 		if err := rows.Scan(&p.ID, &p.VehicleID, &p.Code, &p.Sequence, &p.AxleClass,
-			&p.AxleType, &p.AxleNumber, &p.IsSpare, &p.UnitLabel, &p.TyreID, &p.TyreCode,
+			&p.AxleType, &p.Side, &p.AxleNumber, &p.IsSpare, &p.UnitLabel, &p.TyreID, &p.TyreCode,
 			&p.PreviousMm, &p.PreviousAt, &p.FitmentSincePrevious,
 			&p.TargetKpa, &p.WarnUnderPct, &p.CriticalUnderPct,
 			&p.WarnOverPct, &p.CriticalOverPct); err != nil {

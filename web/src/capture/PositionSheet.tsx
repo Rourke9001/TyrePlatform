@@ -8,6 +8,7 @@ import { applyKey, newEntryState } from "./entry";
 import { governingTread, isComplete, positionWarnings, severityFor, treadsRead } from "./warnings";
 import { historyWarnings } from "./history";
 import { Keypad } from "./Keypad";
+import { TreadGlyph } from "./TreadGlyph";
 import "./capture.css";
 
 // FR-INS-029a and decision D-A: numbered, not named. The driver never sees
@@ -309,6 +310,15 @@ export function PositionSheet({
           </button>
         )}
       </header>
+
+      {rig.position.side !== null && (
+        <div className="cap-frame">
+          <TreadGlyph side={rig.position.side} count={count} />
+          {/* The one training sentence decision D-A promised (BR-VEH-001:
+              "one diagram, one training message"). No inner/outer. */}
+          <p className="cap-hint">Enter left to right, as seen from above.</p>
+        </div>
+      )}
 
       <div className="cap-fields">
         {state.treads.map((value, i) => (

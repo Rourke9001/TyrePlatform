@@ -221,6 +221,24 @@
   background: var(--surface-sunken);
 }
 
+/* TYRE-147: the plan-view glyph and its one-line hint, sitting above the
+   fields they explain. The sheet hides the diagram, so this is the only
+   place the frame the server maps entry order by (FR-INS-029a) reaches the
+   driver at all. */
+.cap-frame {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 0 var(--space-3);
+}
+
+.cap-glyph {
+  width: 5rem;
+  height: auto;
+  color: var(--ink);
+}
+
 /* The four tap targets for this position — three tread fields plus pressure,
    left to right, the same order and grammar (index numeral, mono value,
    condensed unit) as a diagram cell (.cap-pos), so the sheet reads as that

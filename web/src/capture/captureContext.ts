@@ -14,6 +14,10 @@ export interface CapturePosition {
   sequence: number;
   axleClass: string;
   axleType: string;
+  // FR-INS-029a: the server maps entry order to OUTER/CENTRE/INNER by this
+  // side. Served so the sheet can draw the same frame (TYRE-147). Null on a
+  // spare.
+  side: "LEFT" | "RIGHT" | null;
   // Null on a spare, which has no axle. The diagram groups running positions
   // by (vehicleId, axleNumber) and draws spares separately.
   axleNumber: number | null;
