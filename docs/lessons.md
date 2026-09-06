@@ -8,6 +8,19 @@ anecdote, not a lesson.
 Entry format — keep each one to this shape:
 
 ```
+## 2026-09-06 — `rg -rn` is a replace flag, and the corrupted quote looks like source
+
+**What happened:** during the review sweep a lane quoted a source line as
+`// n — the same direction the diagram above them reads.` and reasoned about
+it. The file says `// plan view — …`. `rg -rn "plan view"` parses `-r n` as
+`--replace n`, so every match is printed with the matched text swapped for
+the letter `n`; counts and exit codes stay right, only the quoted line is
+wrong, which is why it survived a self-check.
+
+**The rule:** never stack `-r` into an `rg` flag cluster. Use `rg -n` (or
+`rg --color=never -n`), and take any line you intend to quote from `sed -n`
+or `cat -n`, never from a grep's output.
+
 ## YYYY-MM-DD — Title
 **What happened:** one or two lines.
 **The rule:** the behaviour that prevents a repeat, stated imperatively.
@@ -997,16 +1010,3 @@ output.
 at write time (CLAUDE.md) or enforced on the artefact afterwards (hook,
 lint, CI) — ideally both. A standalone standards document with neither is
 decoration. See `docs/comments.md` for the pattern applied.
-
-## 2026-09-06 — `rg -rn` is a replace flag, and the corrupted quote looks like source
-
-**What happened:** during the review sweep a lane quoted a source line as
-`// n — the same direction the diagram above them reads.` and reasoned about
-it. The file says `// plan view — …`. `rg -rn "plan view"` parses `-r n` as
-`--replace n`, so every match is printed with the matched text swapped for
-the letter `n`; counts and exit codes stay right, only the quoted line is
-wrong, which is why it survived a self-check.
-
-**The rule:** never stack `-r` into an `rg` flag cluster. Use `rg -n` (or
-`rg --color=never -n`), and take any line you intend to quote from `sed -n`
-or `cat -n`, never from a grep's output.
