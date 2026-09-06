@@ -34,18 +34,16 @@ describe("formatTenantDate", () => {
   // A calendar date (Postgres `date`, serialised bare — no time component)
   // has no instant to project through a zone: the tenant's clerk wrote "5
   // January", and 5 January is what every viewer must read back. Pinned
-  // against Pacific/Midway (UTC-11) because that is the zone where the old
-  // instant-formatter behaviour (new Date("2026-01-05") parses as UTC
-  // midnight, then re-projects west) visibly loses a day; the pilot tenant's
-  // +02:00 zone rolls forward instead of back and hid this bug entirely.
+  // against Pacific/Midway (UTC-11) because a west-of-UTC zone is where
+  // projecting the instant new Date("2026-01-05") parses as — UTC midnight —
+  // loses a day; east of UTC it rolls forward and reads correctly anyway.
   it("formats a bare YYYY-MM-DD date in the date itself, not the instant UTC midnight becomes in the zone", () => {
     expect(formatTenantDate("2026-01-05", "Pacific/Midway")).toBe("05 Jan 2026");
   });
 
-  // The pilot tenant's own zone (+02:00) rolls a UTC-midnight instant
-  // forward rather than back, so it read correctly even under the old
-  // instant-projecting behaviour. Pin it too, so the date-only branch is
-  // proven right for both directions, not just the one that used to fail.
+  // The pilot tenant's +02:00 zone rolls a UTC-midnight instant forward, the
+  // opposite direction to Midway's. Both are pinned so the date-only branch is
+  // proven for each direction, not one.
   it("keeps the pilot tenant's zone correct for a calendar date", () => {
     expect(formatTenantDate("2026-01-05", "Africa/Johannesburg")).toBe("05 Jan 2026");
   });
@@ -134,8 +132,8 @@ describe("useTenantDate", () => {
     expect(result.current(instant)).toBe("15 Mar 2026");
   });
 
-  // PR #37's accepted trade-off: the in-flight fallback renders plainly, so
-  // the driver's landing screen is never gated on the /api/me round-trip.
+  // An accepted trade-off: the in-flight fallback renders plainly, so the
+  // driver's landing screen is never gated on the /api/me round-trip.
   it("renders plainly in UTC while the actor request is still in flight", () => {
     const { result } = renderHook(() => useTenantDate(), { wrapper: withActor(null, false) });
     expect(result.current(instant)).toBe("14 Mar 2026");

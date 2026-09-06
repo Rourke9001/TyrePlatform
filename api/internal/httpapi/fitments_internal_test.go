@@ -4,10 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	// Aliased: this file shares package httpapi with httpapi.go's own
-	// capability-check function named require, so the unaliased import would
-	// shadow it (refusal_internal_test.go's own convention).
-	req "github.com/stretchr/testify/require"
+	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
 )
 
 // decodeFitWarnings' doc comment (fitments.go) explains why two of these four

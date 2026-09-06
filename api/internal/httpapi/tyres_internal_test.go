@@ -5,10 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
-	// Aliased: this file shares package httpapi with httpapi.go's own
-	// capability-check function named require, so the unaliased import would
-	// shadow it (refusal_internal_test.go's own convention).
-	req "github.com/stretchr/testify/require"
+	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
 )
 
 // tyreJSONFor's doc comment (tyres.go) explains why canSeeMoney=false is

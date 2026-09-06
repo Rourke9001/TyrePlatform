@@ -333,11 +333,9 @@ func TestSubmitAuthorizesEveryVehicleInASuperlinkPayload(t *testing.T) {
 // tenant — no assignment, no coupling — must be refused entirely, not
 // silently accepted for the one unit that slipped past the top-level check.
 //
-// 422, not 403, and that is the point of asserting it here: a ScopeTenant
-// actor never reaches this check and is refused for the same reason by TY007
-// in SQL, which answers 422. Two roles answering differently about the same
-// vehicle is the distinction ADR-0011 denies, so the statuses are pinned
-// together — see TestSubmitUnknownVehicleIsUnprocessable for the other half.
+// The statuses are pinned together deliberately: see errVehicleNotVisible in
+// httpapi.go, and TestSubmitUnknownVehicleIsUnprocessable for the SQL-side
+// half.
 func TestSubmitRefusesReadingAgainstUnauthorizedVehicle(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

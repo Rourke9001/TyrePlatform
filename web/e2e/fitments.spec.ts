@@ -16,18 +16,15 @@ import { actAsUser } from "./admin";
 // suite references sbveh1.
 test.describe.configure({ mode: "serial" });
 
-// Ids are md5-derived in db/seeds/gen_seed_fixture.py, so they survive a
-// reseed: md5('sbcontroller1'), md5('sbveh1') (fleet HORSE, SBX001GP, a
-// 6x4 truck tractor that records an odometer) and md5('sbveh2') (fleet
-// LINK6, SBX002GP, a 2-axle trailer that does not).
+// Seed-derived ids, per admin.ts: md5('sbcontroller1'), md5('sbveh1') (fleet
+// HORSE, SBX001GP, a 6x4 truck tractor that records an odometer) and
+// md5('sbveh2') (fleet LINK6, SBX002GP, a 2-axle trailer that does not).
 const TENANT = "33333333-3333-3333-3333-333333333333";
 const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
 const HORSE = "e66c342e-9472-65ce-752d-78b4035c4ec0";
 const TRAILER = "a8f398e2-2ede-a028-986b-22b86f1d36d5";
 
-// The dev actor headers the API resolves identity from (APP_DEV_TENANT_HEADER;
-// src/api/devTenant.ts is the browser's half). A raw request carries no
-// localStorage, so it has to state them itself.
+// The dev actor headers a raw request has to state itself (admin.ts).
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 
 // The register's own read, used where a fact this flow depends on has no cell

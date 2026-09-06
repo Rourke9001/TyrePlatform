@@ -183,9 +183,7 @@ func clientAddress(r *http.Request, trustedProxyHops int) string {
 
 // forwardedHops flattens every X-Forwarded-For header line into one ordered,
 // trimmed, non-empty chain: line order first, then comma order within each
-// line — the same ordering RFC 7230 requires whether a hop chose to append
-// a new line or extend the last one, so clientAddress does not need to care
-// which form produced the header it is reading.
+// line. clientAddress says why both header forms must read the same.
 func forwardedHops(r *http.Request) []string {
 	var hops []string
 	for _, line := range r.Header.Values("X-Forwarded-For") {

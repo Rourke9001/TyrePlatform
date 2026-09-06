@@ -4,9 +4,8 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 // these are seed-derived ids and one entry path, and a second copy would drift
 // the moment the fixture's driver or its assignments change.
 //
-// Ids are md5-derived in db/seeds/gen_seed_fixture.py, so they are stable
-// across reseeds. Identity is the dev actor headers (src/api/devTenant.ts),
-// which exist only under import.meta.env.DEV — hence vite dev, never a build.
+// Seed-derived ids and the dev actor headers, both per admin.ts. The headers
+// exist only under import.meta.env.DEV — hence vite dev, never a build.
 const DRIVER = "b85aef08-6081-80db-9d4d-dad38ae40545";
 const TENANT = "11111111-1111-1111-1111-111111111111";
 

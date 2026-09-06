@@ -5,7 +5,14 @@ import { type Page } from "@playwright/test";
 // (TYRE-80).
 //
 // Ids are md5-derived in db/seeds/gen_seed_fixture.py — md5('sbadmin1') and
-// the sandbox tenant's fixed uuid — so they are stable across reseeds.
+// the sandbox tenant's fixed uuid — so they are stable across reseeds. Both
+// conventions hold for every spec in this directory, which cites this file
+// rather than restating them.
+//
+// Identity in the browser is the two localStorage keys actAs stamps below. A
+// raw request carries no localStorage, so a spec calling the API directly
+// sends the dev actor headers instead (APP_DEV_TENANT_HEADER; the browser's
+// half is src/api/devTenant.ts). Both forms name the same actor.
 const ORG_ADMIN = "96b10943-acb4-c3d7-e8cd-3e1fb52e067e";
 const TENANT = "33333333-3333-3333-3333-333333333333";
 

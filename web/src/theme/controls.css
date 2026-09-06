@@ -1,8 +1,8 @@
 /* The control and surface patterns more than one screen needs, in one place
    so they cannot drift apart. Loaded beside base.css (ThemeProvider) rather
    than from a feature's own stylesheet: a screen must never reach into
-   another feature's file for a class, which is what made the same primary
-   button exist five times before this file did.
+   another feature's file for a class, so a pattern more than one screen
+   needs lives here.
 
    Custom properties only, per web/CLAUDE.md. capture.css is deliberately not
    a client — the capture surface answers to the three-minute constraint and

@@ -70,10 +70,10 @@ export function tenantDateFormatter(timeZone: string): Intl.DateTimeFormat {
 // UTC is the fallback while GET /api/me has not resolved, and the two ways
 // of not resolving read differently (TYRE-95):
 //
-// - In flight: render plainly. PR #37 accepted the transient UTC flash on
-//   /my deliberately — gating the driver's landing screen behind a
-//   round-trip costs more than the flash, and screens behind
-//   RequireCapability never reach a date pre-settle anyway.
+// - In flight: render plainly. The transient UTC flash on /my is accepted
+//   deliberately — gating the driver's landing screen behind a round-trip
+//   costs more than the flash, and screens behind RequireCapability never
+//   reach a date pre-settle anyway.
 // - Errored: the fallback never lifts, and every date would silently read a
 //   day out for a Johannesburg tenant. Those dates are marked provisional
 //   with the zone they were actually rendered in, so a reader is told the

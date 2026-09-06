@@ -789,7 +789,8 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 			return
 		}
 		// maxTextLen is the same transport bound every free-text field on a
-		// write carries (fitments.go:271, retreads.go:149) — reason is
+		// write carries (fitments.go's removeFitment, retreads.go's
+		// logRetreadReturn) — reason is
 		// discarded unread by app.set_vehicle_status today, but the cap
 		// belongs here regardless of whether the function keeps it.
 		reason, err := text("reason", body.Reason)

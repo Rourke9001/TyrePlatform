@@ -27,10 +27,8 @@ func TestDevHeaderResolverGating(t *testing.T) {
 }
 
 // TestTrustedProxyHopsParsing pins the absent-vs-invalid distinction
-// NFR-SEC-007's address limit depends on: an unset TRUSTED_PROXY_HOPS is the
-// documented default and must not itself be treated as an error, while a set
-// but non-positive-integer value must surface as one for main to fail loudly
-// on rather than silently keep serving at the wrong trust boundary.
+// NFR-SEC-007's address limit depends on; trustedProxyHops in main.go carries
+// the reasoning.
 func TestTrustedProxyHopsParsing(t *testing.T) {
 	tests := []struct {
 		name    string

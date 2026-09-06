@@ -28,8 +28,9 @@ type Screen = "start" | "capture" | "review" | "done";
 // "degraded" is a write that failed with an inspection already in hand: the
 // readings are on screen and the submit path may still work.
 //
-// One string for both told a driver with no draft to keep an inspection open
-// that does not exist, which under NFR-USE-005 is worse than saying nothing.
+// NFR-USE-005: the two must stay distinct on the wire to the driver — telling
+// someone with no draft to keep an inspection open names a thing that does not
+// exist, which is worse than saying nothing.
 type StorageFault = "unavailable" | "degraded";
 
 interface Outcome {

@@ -620,10 +620,7 @@ type fleetUnitJSON struct {
 func listVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		// Initialised, not nil: writeJSON encodes whatever it is handed, so an
-		// empty result must already be []T{} here or the client gets JSON
-		// `null` instead of `[]` for "no rows" (repeated below and in
-		// listMyVehicles/listMyTasks — same reason each time).
+		// Initialised, not nil — see listAxleConfigurations (admin.go).
 		units := []fleetUnitJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ViewFleet); err != nil {
@@ -773,10 +770,6 @@ type errorBody struct {
 
 // writeError is the only way a refusal reaches the wire, so that one shape
 // covers every endpoint rather than each inventing its own (ADR-0012).
-//
-// Content-Type is set before WriteHeader: WriteHeader locks the header map in,
-// so writeJSON's own Set would be dropped and the response would go out as
-// text/plain with every status assertion still green.
 func writeError(ctx context.Context, w http.ResponseWriter, status int, code, message string) {
 	writeStatus(ctx, w, status, errorBody{Code: code, Message: message})
 }

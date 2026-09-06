@@ -752,9 +752,9 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 		return n
 	}
 
-	// units.go:663-667 claims a tags-only PATCH writes no audit row: the
-	// count taken here, across the first tags-only patch below, is what
-	// proves that rather than restates it.
+	// units.go's patchUnit doc comment claims a tags-only PATCH writes no
+	// audit row: the count taken here, across the first tags-only patch
+	// below, is what proves that rather than restates it.
 	countUpdates := func() int {
 		var n int
 		require.NoError(t, admin.QueryRow(ctx,
