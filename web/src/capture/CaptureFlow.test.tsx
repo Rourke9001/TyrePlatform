@@ -269,6 +269,8 @@ describe("CaptureFlow", () => {
 
   // NFR-USE-011 / FR-OFF-006: the buffer is the source of truth, so a remount
   // is a reload and finds the work — with its numbers, not just its progress.
+  // This one stays on the diagram: its one position is complete, so there is
+  // no half-entered sheet to return to (the case the next test covers).
   it("resumes an in-progress inspection after a remount", async () => {
     const user = newUser();
     stubApi();
@@ -301,9 +303,6 @@ describe("CaptureFlow", () => {
     expect(sheet).toBeInTheDocument();
     expect(screen.getByLabelText(/Tread reading 2 of 3/)).toHaveAttribute("aria-current", "true");
   });
-
-  // The existing resume test above stays on the diagram: its one position is
-  // complete, so there is no half-entered sheet to return to.
 
   // The diagram's active mark is the driver's place-keeper across a 27-position
   // walk-around. Marking every cell satisfies "the open one is marked" just as

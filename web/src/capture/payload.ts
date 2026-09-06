@@ -144,7 +144,11 @@ export function capturedCells(draft: Draft): Set<string> {
 // since finish() returns early on it. Pressure does not count: it is
 // optional by design (see isCaptured), so a tread-complete position with no
 // pressure is finished, and reopening it on every reload would be the
-// regression this predicate exists to avoid.
+// regression this predicate exists to avoid. Two half-entered positions can
+// coexist (partially fill one, close it, partially fill another); find()
+// returns whichever was inserted into draft.positions first, which is a
+// reasonable default because it is where the driver's walk first broke off —
+// the flow's own next-outstanding jump (rig.ts) is what reaches the other.
 export function halfEnteredCell(draft: Draft): string | null {
   const p = Object.values(draft.positions).find(
     (x) => x.treads.some((t) => t !== null) && !treadsRead(x.treads),
