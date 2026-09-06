@@ -118,6 +118,10 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 			newRateLimiter(addressSubmitsPerMinute),
 			o.trustedProxyHops,
 		)).Post("/inspections", submitInspection(s))
+		// Unlike the submit above, no rate limiter: FR-INS-012 gates this on
+		// VoidInspection, a human role, not on an unattended outbox retrying
+		// a capture (ADR-0013).
+		r.Post("/inspections/{inspectionID}/void", voidInspection(s))
 		r.Get("/org/branding", orgBranding(s))
 		r.Get("/axle-configurations", listAxleConfigurations(s))
 		r.Get("/tyres", listTyres(s))
@@ -277,6 +281,9 @@ var submitStatus = map[string]int{
 	// TY014 is a fitment write refused, TY015 is the retread cap, TY016 is a
 	// unit status transition refused (000032-000035), TY017 is a rig write
 	// refused (000037), and TY018 is an inspection task refused (000038).
+	// TY019 is an inspection write refused, the void's own refusals among
+	// them (000040); TY020 is a reading offered to a sealed inspection and
+	// has no entry — no route can reach it, as with TY008.
 	"TY009": http.StatusUnprocessableEntity,
 	"TY011": http.StatusUnprocessableEntity,
 	"TY012": http.StatusUnprocessableEntity,
@@ -286,6 +293,7 @@ var submitStatus = map[string]int{
 	"TY016": http.StatusUnprocessableEntity,
 	"TY017": http.StatusUnprocessableEntity,
 	"TY018": http.StatusUnprocessableEntity,
+	"TY019": http.StatusUnprocessableEntity,
 
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API

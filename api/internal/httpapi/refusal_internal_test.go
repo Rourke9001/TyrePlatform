@@ -147,6 +147,12 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:     "TY019 forwards: the void's refusals are written in SQL",
+			sqlErr:   &pgconn.PgError{Code: "TY019", Message: "this inspection is already voided"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY019", message: "this inspection is already voided"},
+			isClient: true,
+		},
+		{
 			name:     "an unmapped SQLSTATE is not a client mistake",
 			sqlErr:   &pgconn.PgError{Code: "40001", Message: "could not serialize access"},
 			isClient: false,

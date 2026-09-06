@@ -53,6 +53,12 @@ const (
 	// it with the requested role, and DRIVER is the only pairing it accepts,
 	// so there is no privilege escalation to reason about.
 	InviteDriver Capability = "InviteDriver"
+	// VoidInspection is FR-INS-012's "CONTROLLER or higher": the one
+	// correction an immutable inspection has. It is not folded into
+	// ManageAssets because voiding rewrites what the register prices, which
+	// a role that may edit a unit's registration should not inherit by
+	// accident (ADR-0011).
+	VoidInspection Capability = "VoidInspection"
 )
 
 // FR-AUT-005..009, carrying erratum D1. DEPOT_MANAGER holds everything
@@ -69,9 +75,9 @@ const (
 var capabilities = map[Role][]Capability{
 	RoleDriver:       {CaptureInspection},
 	RoleTechnician:   {ViewFleet},
-	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, InviteDriver},
-	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, InviteDriver},
-	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, ManageUsers, ManageTemplates},
+	RoleController:   {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, InviteDriver, VoidInspection},
+	RoleDepotManager: {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, InviteDriver, VoidInspection},
+	RoleOrgAdmin:     {ViewFleet, CaptureInspection, ManageAssignments, ManageAssets, LogRetread, ViewValuation, ManageConfig, ManageUsers, ManageTemplates, VoidInspection},
 }
 
 // Scope is how much of the tenant an actor reads. It is deliberately not a
