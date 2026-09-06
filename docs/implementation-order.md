@@ -570,10 +570,10 @@ which is B5's.
 
 ### Blocked on people, not code
 
-**TYRE-43, TYRE-44, TYRE-45, TYRE-46, TYRE-47, TYRE-64** are sponsor questions.
-They are not sequenced because no amount of engineering advances them. Chase
-them in the background; **TYRE-45** — BAC's real inspection sheets — is worth
-pushing hardest, since three other items lean on it.
+**TYRE-44, TYRE-46, TYRE-47, TYRE-64** are sponsor questions. They are not
+sequenced because no amount of engineering advances them. Chase them in the
+background. (TYRE-43 and TYRE-45 closed on 3 Sep 2026 with the OI-31/OI-33
+answers.)
 
 **TYRE-13, TYRE-15, TYRE-19** are the standing blockers in `open-issues.md`.
 They carry no batch here because they are decisions, but two have teeth:
