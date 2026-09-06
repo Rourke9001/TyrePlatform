@@ -1322,8 +1322,7 @@ BEGIN
   -- in the reading itself changes -- the repair has to come from the
   -- inspection's own state change. The register falls back to the 07:00Z
   -- reading: 11.0mm over 4mm at R100/mm = R700.00.
-  UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
-   WHERE id = md5('t2s1late')::uuid;
+  PERFORM app.void_inspection(md5('t2s1late')::uuid, 'TYRE-37 probe');
   SELECT s.tread_mm, s.tread_value INTO mm, v
     FROM app.valuation_snapshot s
    WHERE s.tyre_id = md5('t2snap1')::uuid AND s.as_at = '2026-09-02';
@@ -1403,8 +1402,7 @@ BEGIN
 
     -- void the 6th: the register falls back to the 5th's 15.0mm = R1100.00,
     -- and BOTH the 6th's row and the month-end row that inherited it move
-    UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
-     WHERE id = md5('t2s2b')::uuid;
+    PERFORM app.void_inspection(md5('t2s2b')::uuid, 'TYRE-37 probe');
     SELECT s1.tread_value, s2.tread_value INTO v, w
       FROM app.valuation_snapshot s1, app.valuation_snapshot s2
      WHERE s1.tyre_id = md5('t2snap2')::uuid AND s1.as_at = '2026-09-06'
@@ -1413,8 +1411,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL: after voiding the 6th, snapshots read [% / %] at 09-06 / 09-30, expected 1100.00 / 1100.00', v, w; END IF;
 
     -- void the 5th as well: no live reading left, nothing to value, no rows
-    UPDATE app.inspection SET state = 'VOIDED', void_reason = 'TYRE-37 probe'
-     WHERE id = md5('t2s2a')::uuid;
+    PERFORM app.void_inspection(md5('t2s2a')::uuid, 'TYRE-37 probe');
     SELECT count(*) INTO n FROM app.valuation_snapshot WHERE tyre_id = md5('t2snap2')::uuid;
     IF n <> 0 THEN
       RAISE EXCEPTION 'FAIL: an unvalued tyre kept % snapshot row(s)', n; END IF;
@@ -7815,6 +7812,99 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 51: editing a voided row was not refused TY019'; END IF;
   RAISE NOTICE 'PASS  app.inspection: only (state, void_reason) are updatable, only SYNCED -> VOIDED with a reason, and a void is final';
+END $$;
+ROLLBACK;
+
+\echo '== 52. TYRE-164: app.void_inspection is the correction path -- reason required, audited, tenant-bound, final (FR-INS-012, FR-AUD-001)'
+BEGIN;
+DO $$
+DECLARE i_id uuid; posid uuid; ok boolean := false; n int; st app.inspection_state; rsn text; wst text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  PERFORM set_config('app.actor_id', md5('driver2')::text::uuid::text, true);
+
+  -- A fitted probe tyre with two readings 1500km apart -- past the tenant's
+  -- configured wear_rate_min_distance_km of 1000 (seeds/002_seed_configurations.sql)
+  -- -- so v_tyre_wear_rate reads MEASURED before anything below runs. A single
+  -- reading would already read INSUFFICIENT_READINGS with or without a void,
+  -- which would make the exclusion assertion further down pass regardless of
+  -- whether the trigger chain works (the vacuous-check trap this section
+  -- exists to avoid); confirmed empirically that skipping the void below
+  -- leaves this tyre at MEASURED.
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
+  VALUES (md5('t52tyre')::uuid,'22222222-2222-2222-2222-222222222222','T52TYRE','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
+  INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer, fitted_tread_mm)
+  VALUES ('22222222-2222-2222-2222-222222222222', md5('t52tyre')::uuid, md5('t2veh1')::uuid, posid, '2026-08-01T00:00:00Z', 90000, 10.0);
+
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t52insp_early')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t52clie')::uuid,'2026-08-01T06:55:00Z','2026-08-01T07:00:00Z',90000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t52read_early')::uuid,'22222222-2222-2222-2222-222222222222',md5('t52insp_early')::uuid,md5('t2veh1')::uuid,posid,md5('t52tyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,1,'OUTER',10),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,2,'CENTRE',10),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,3,'INNER',10);
+
+  -- md5('t52insp') is the LATER of the pair and the one this section voids
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t52insp')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('t52cli')::uuid,'2026-08-08T06:55:00Z','2026-08-08T07:00:00Z',91500);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t52read')::uuid,'22222222-2222-2222-2222-222222222222',md5('t52insp')::uuid,md5('t2veh1')::uuid,posid,md5('t52tyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,1,'OUTER',9),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,2,'CENTRE',9),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,3,'INNER',9);
+  i_id := md5('t52insp')::uuid;
+
+  SELECT wear_rate_status INTO wst FROM app.v_tyre_wear_rate WHERE tyre_id = md5('t52tyre')::uuid;
+  IF wst IS DISTINCT FROM 'MEASURED' THEN
+    RAISE EXCEPTION 'FAIL 52: probe tyre read % before any void, expected MEASURED (the exclusion check below would be vacuous)', wst; END IF;
+
+  BEGIN
+    PERFORM app.void_inspection(i_id, '   ');
+    RAISE EXCEPTION 'FAIL 52: a blank reason was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 52: a blank reason was not refused TY019'; END IF;
+  PERFORM app.void_inspection(i_id, '  wrong vehicle  ');
+  SELECT state, void_reason INTO st, rsn FROM app.inspection WHERE id = i_id;
+  IF st IS DISTINCT FROM 'VOIDED' OR rsn IS DISTINCT FROM 'wrong vehicle' THEN
+    RAISE EXCEPTION 'FAIL 52: void landed as [% / %]', st, rsn; END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'inspection' AND entity_id = i_id AND action = 'UPDATE'
+     AND (after ->> 'state') = 'VOIDED' AND actor_id = md5('driver2')::uuid;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 52: expected one audit row for the void, found %', n; END IF;
+  ok := false;
+  BEGIN
+    PERFORM app.void_inspection(i_id, 'again');
+    RAISE EXCEPTION 'FAIL 52: a second void was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY019' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 52: a second void was not refused TY019'; END IF;
+  -- the analytics exclusion FR-INS-012 asks for is the existing state <> 'VOIDED'
+  -- predicate; prove one reader honours it -- the void above removed the probe
+  -- tyre's only reading past the tenant's minimum distance, so the wear rate,
+  -- proven MEASURED above, now carries the reason instead of a stale rate
+  SELECT wear_rate_status INTO wst FROM app.v_tyre_wear_rate WHERE tyre_id = md5('t52tyre')::uuid;
+  IF wst IS DISTINCT FROM 'INSUFFICIENT_READINGS' THEN
+    RAISE EXCEPTION 'FAIL 52: a voided inspection still feeds the wear rate (status %, expected INSUFFICIENT_READINGS)', wst; END IF;
+  -- tenant-bound: another tenant's inspection is invisible, and the answer is
+  -- TY012 -- not a silent zero-row update (lesson 2026-09-01: a shared
+  -- SQLSTATE makes the probe vacuous, so this one is the only TY012 here)
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  ok := false;
+  BEGIN
+    PERFORM app.void_inspection(i_id, 'not mine');
+    RAISE EXCEPTION 'FAIL 52: tenant 1 voided tenant 2''s inspection';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 52: cross-tenant void was not refused TY012'; END IF;
+  RAISE NOTICE 'PASS  void_inspection: reason required and trimmed, audited under the actor, final, tenant-bound (TY012), excludes the tyre from the wear rate';
 END $$;
 ROLLBACK;
 
