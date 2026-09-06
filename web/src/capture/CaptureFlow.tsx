@@ -6,10 +6,11 @@ import { CaptureDiagram } from "./CaptureDiagram";
 import { CaptureDone } from "./CaptureDone";
 import { CaptureReview } from "./CaptureReview";
 import { CaptureStart } from "./CaptureStart";
+import { ConfirmDiscard } from "./ConfirmDiscard";
 import type { CaptureContext } from "./captureContext";
 import { captureContextQuery, useCaptureContext } from "./captureContext";
 import type { Draft, DraftPosition, RecordedWarning } from "./draft";
-import { cellKey, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
+import { cellKey, clearDraft, loadDraft, saveHeader, savePosition, startDraft } from "./draft";
 import { historyWarnings } from "./history";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
 import { appVersion, capturedCells, deviceId } from "./payload";
@@ -187,6 +188,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           // Rule 6: stored UTC. The tenant's timezone is applied on the way
           // out, not on the way in.
           startedAt: new Date().toISOString(),
+          fleetNumber: ctx.fleetNumber,
           combinationId: ctx.combination?.id ?? null,
           observedMemberVehicleIds: init.observedMemberVehicleIds,
         });
@@ -207,6 +209,33 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     setResumed(false);
     setStorageAttempt((n) => n + 1);
   }
+
+  // TYRE-146: the only way out of a wrong-vehicle Start. Everything the
+  // driver typed for that vehicle goes with it — which is why ConfirmDiscard
+  // is told the number — and the device is then free to start this one.
+  function discardHeld() {
+    void clearDraft().then(
+      () => setHeld(null),
+      () => setStorageFault("degraded"),
+    );
+  }
+
+  function discardCurrent() {
+    void clearDraft().then(
+      () => {
+        setDraft(null);
+        setActiveKey(null);
+        setAttachedIds(null);
+        setScreen("start");
+      },
+      () => setStorageFault("degraded"),
+    );
+  }
+
+  const lostWords = (n: number) =>
+    n === 0
+      ? "No positions captured yet."
+      : `${n} captured position${n === 1 ? "" : "s"} will be lost.`;
 
   // FR-OFF-005: written as it is typed, not when the position is finished.
   // PositionSheet fires this once per keystroke and once more for the
@@ -295,6 +324,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   } else if (!resumed || motive.isPending) {
     body = <p className="cap-wait">Loading…</p>;
   } else if (held) {
+    const heldName = held.fleetNumber ?? "the other vehicle";
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
@@ -303,6 +333,13 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <a className="cap-primary" href={`/capture/${held.vehicleId}`}>
           Go to it
         </a>
+        <ConfirmDiscard
+          trigger="Discard it"
+          question={`Discard the inspection of ${heldName}?`}
+          consequence={lostWords(capturedCells(held).size)}
+          confirm="Discard"
+          onConfirm={discardHeld}
+        />
       </section>
     );
   } else if (motive.isError || !motive.data) {
@@ -393,6 +430,16 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         <button type="button" className="cap-primary" onClick={() => setScreen("review")}>
           Review and submit ›
         </button>
+
+        {/* Below the primary action and secondary in weight: a recovery path,
+            never on the clean one (0 taps; 2 to discard). */}
+        <ConfirmDiscard
+          trigger="Discard this inspection"
+          question={`Discard the inspection of ${motiveCtx?.fleetNumber ?? draft.fleetNumber ?? "this vehicle"}?`}
+          consequence={lostWords(doneCount)}
+          confirm="Discard"
+          onConfirm={discardCurrent}
+        />
 
         {/* Laid over the diagram rather than replacing it: the active cell is
           the driver's place-keeper across 27 positions, and remounting the
