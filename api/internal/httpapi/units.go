@@ -813,22 +813,30 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
-			// Depot scope for the write (FR-AUT-008, TYRE-162), in the same
-			// shape submitInspection's driver check takes: a ScopeTenant actor
-			// skips it and meets app.set_vehicle_status's own TY012 for an
-			// invisible id, so the controller's contract is unchanged.
+			// Depot scope for the write (FR-AUT-008, TYRE-162): a ScopeTenant
+			// actor skips it and meets app.set_vehicle_status's own TY012 for
+			// an invisible id, so the controller's contract is unchanged. The
+			// check locks the vehicle row (FOR UPDATE) because the transition
+			// runs in a separate statement inside app.set_vehicle_status: a
+			// concurrent PATCH moving the unit to another depot waits on this
+			// lock, and one that committed first is what the check sees, so the
+			// scope the write was authorised against is the scope it lands in.
 			if a.Scope() != auth.ScopeTenant {
-				var visible bool
-				if err := tx.QueryRow(ctx,
-					`SELECT EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)`, vehicleID).Scan(&visible); err != nil {
-					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
-				}
-				if !visible {
+				var locked uuid.UUID
+				err := tx.QueryRow(ctx,
+					`SELECT v.id FROM app.vehicle v
+					  WHERE v.id = $1
+					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
+					  FOR UPDATE OF v`, vehicleID).Scan(&locked)
+				if errors.Is(err, pgx.ErrNoRows) {
 					return refusalError{refusal{
 						status:  http.StatusNotFound,
 						code:    codeNotFound,
 						message: "no such unit in this fleet",
 					}}
+				}
+				if err != nil {
+					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
 				}
 			}
 			// TY012 and TY016 arrive via refusalForPgError with their messages
