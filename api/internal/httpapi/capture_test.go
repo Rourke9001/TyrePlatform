@@ -437,9 +437,7 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 	}{
 		// An id this tenant cannot see arrives as a bare 23503, a
 		// client_uuid that will not cast as a 22P02 from the function's own
-		// DECLARE; both answer the canned invalid_submission, which is the
-		// whole point of the canning: no constraint or table name reaches a
-		// driver (ADR-0012).
+		// DECLARE; both answer the canned invalid_submission (ADR-0012).
 		{"a tyre_id this tenant cannot see", func(b map[string]any) {
 			firstReading(b)["tyre_id"] = uuid.NewString()
 		}, "invalid_submission", "refused as invalid"},
@@ -449,9 +447,9 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		{"a client_uuid that is not a uuid", func(b map[string]any) {
 			b["client_uuid"] = "not-a-uuid"
 		}, "invalid_submission", "refused as invalid"},
-		// The five TY005 shapes share a code; the fragment is what tells the
-		// named guard from the constraint behind it, which answers the same
-		// 422 with a different message (FR-OFF-013 gives the driver this text).
+		// The five TY005 shapes share a code; the fragment is the driver-facing
+		// text FR-OFF-013 turns into a recovery action, and the only thing that
+		// tells the guard from the constraint behind it (see the doc comment).
 		{"a tread outside FR-INS-030's range", func(b map[string]any) {
 			firstReading(b)["treads"] = []float64{8.0, 40.0, 8.2}
 		}, "TY005", "is outside the accepted range of 0 to"},

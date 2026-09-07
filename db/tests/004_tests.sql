@@ -2279,10 +2279,9 @@ BEGIN
     RAISE EXCEPTION 'FAIL: correct band cold/hot/count %/%/%, expected 1/1/2', cold, hot, n; END IF;
 
   -- Rule 5 makes both thresholds tenant configuration, and this constraint is
-  -- the only thing that keeps them ordered: a retread threshold below the
-  -- scrap threshold is a policy that scraps a casing before anyone may
-  -- retread it. The control row first, so a refusal below is the constraint
-  -- and not a missing column or an RLS write mask.
+  -- the only thing that keeps them ordered (000012's Q3 note says why the
+  -- order matters). The control row first, so a refusal below is the
+  -- constraint and not a missing column or an RLS write mask.
   INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, effective_from)
   VALUES ('22222222-2222-2222-2222-222222222222', 6.0, 4.0, now() - interval '1 minute');
   BEGIN
@@ -3422,10 +3421,13 @@ BEGIN
     RAISE EXCEPTION 'FAIL: a payload omitting granularity_mm recorded % mm, not the tenant''s configured 0.1', gran;
   END IF;
 
-  -- TY010 is the last line of defence for ADR-0011's actor context: with
-  -- nothing bound, submit_inspection must refuse by name before any read,
-  -- because an RLS-empty read would refuse with a retryable shape the outbox
-  -- (ADR-0009) retries to its 30-minute ceiling and never gives up on. Each
+  -- TY010 is the last line of defence for ADR-0011's binding contract: a
+  -- submit with no tenant or actor is an invariant breach, not a client
+  -- mistake, which is why submitStatus leaves it unmapped and lets the 500
+  -- stand (api/internal/httpapi/httpapi.go, the map's comment). Without the
+  -- branch the function falls through to an RLS-empty read and refuses with
+  -- a shape the API cans as a payload fault, so an infrastructure bug would
+  -- read as the driver's. Each
   -- half of `v_tenant IS NULL OR v_actor IS NULL` is refused with the OTHER
   -- half bound — an actor with no tenant, then a tenant with no actor — so
   -- neither disjunct could be dropped from the guard without one of these
