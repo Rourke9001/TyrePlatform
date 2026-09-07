@@ -141,6 +141,24 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:     "TY004 forwards, a payload naming a position not on the vehicle's configuration",
+			sqlErr:   &pgconn.PgError{Code: "TY004", Message: "x"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY004", message: "x"},
+			isClient: true,
+		},
+		{
+			name:     "TY005 forwards, the busiest refusal: any of submit_inspection's many payload validations",
+			sqlErr:   &pgconn.PgError{Code: "TY005", Message: "x"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY005", message: "x"},
+			isClient: true,
+		},
+		{
+			name:     "TY006 forwards, a payload asserting the derived governing_tread_mm field",
+			sqlErr:   &pgconn.PgError{Code: "TY006", Message: "x"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY006", message: "x"},
+			isClient: true,
+		},
+		{
 			name:     "TY014 forwards, a fitment write refused",
 			sqlErr:   &pgconn.PgError{Code: "TY014", Message: "x"},
 			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY014", message: "x"},
