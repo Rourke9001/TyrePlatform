@@ -2197,7 +2197,7 @@ ROLLBACK;
 \echo '== 25. One pressure model: admin targets, banded tolerances, hot/cold label (CHG-034/035/112)'
 BEGIN;
 DO $$
-DECLARE ok boolean; cold bigint; hot bigint; n bigint;
+DECLARE ok boolean; cold bigint; hot bigint; n bigint; cname text;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
 
@@ -2241,6 +2241,25 @@ BEGIN
     FROM app.inflation_compliance('2027-08-01','2027-09-01') WHERE band_key = 'correct';
   IF cold IS DISTINCT FROM 1 OR hot IS DISTINCT FROM 1 OR n IS DISTINCT FROM 2 THEN
     RAISE EXCEPTION 'FAIL: correct band cold/hot/count %/%/%, expected 1/1/2', cold, hot, n; END IF;
+
+  -- Rule 5 makes both thresholds tenant configuration, and this constraint is
+  -- the only thing that keeps them ordered: a retread threshold below the
+  -- scrap threshold is a policy that scraps a casing before anyone may
+  -- retread it. The control row first, so a refusal below is the constraint
+  -- and not a missing column or an RLS write mask.
+  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, effective_from)
+  VALUES ('22222222-2222-2222-2222-222222222222', 6.0, 4.0, now() - interval '1 minute');
+  BEGIN
+    INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, effective_from)
+    VALUES ('22222222-2222-2222-2222-222222222222', 3.0, 4.0, now() - interval '1 minute');
+    RAISE EXCEPTION 'FAIL 25: a retread threshold below the scrap threshold was accepted';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    IF cname <> 'retread_at_or_above_scrap' THEN
+      RAISE EXCEPTION 'FAIL 25: refused by %, not the threshold-order constraint', cname;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  25 a retread threshold below the scrap threshold is refused at the constraint';
 
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  pressure targets are one table; the hot/cold basis is labelled per band';
@@ -4867,12 +4886,13 @@ DECLARE
   tk2   uuid := md5('t42tk2')::uuid;  -- a return that would predate the dispatch
   tl    uuid := md5('t42tl')::uuid;   -- fitted, worn, retreaded: 42l's tread
   vl    uuid := md5('t42vl')::uuid;   -- TRAILER: owes no fitment odometer (TY009)
+  tm    uuid := md5('t42tm')::uuid;   -- the raw-insert probes of retread_job's own constraints
   cfgl uuid; posl uuid; fitl uuid; jl uuid; reg record; last_at_l timestamptz;
   bad_cost numeric; ok_cost numeric;
   ja uuid; jb uuid; jf uuid; ji uuid;
   jg  uuid := md5('t42jg')::uuid;
   jk2 uuid := md5('t42jk2')::uuid;
-  r record; n int; thr numeric;
+  r record; n int; thr numeric; cname text;
   sent_at_k timestamptz; ret_at_k timestamptz;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
@@ -4898,7 +4918,8 @@ BEGIN
     (ti,  bac, 'T42TYREI',  sz1, pt1, 'NEW',     0, 'REMOVED'),
     (tj,  bac, 'T42TYREJ',  sz1, pt1, 'NEW',     0, 'REMOVED'),
     (tk1, bac, 'T42TYREK1', sz1, pt1, 'NEW',     0, 'REMOVED'),
-    (tk2, bac, 'T42TYREK2', sz1, pt1, 'NEW',     0, 'REMOVED');
+    (tk2, bac, 'T42TYREK2', sz1, pt1, 'NEW',     0, 'REMOVED'),
+    (tm,  bac, 'T42TYREM',  sz1, pt1, 'NEW',     0, 'REMOVED');
 
   -- The dated send and return sit in the past deliberately.
   -- app.v_tyre_valuation slices at (now() AT TIME ZONE 'UTC')::date
@@ -5347,6 +5368,36 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  42l an accepted return moves the tread the register prices: % mm / %',
     reg.current_tread_mm, reg.tread_value;
+
+  -- (m)(n) retread_job's own constraints, driven directly: log_retread_return
+  -- refuses these shapes earlier, so a raw INSERT is the only way to reach
+  -- them, and the control shows the row shape is accepted when it is whole.
+  -- Each probe violates exactly one constraint, because two violated at once
+  -- report whichever the executor checks first.
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at, returned_at, casing_accepted)
+  VALUES (md5('t42jm0')::uuid, bac, tm, d_rt, app.tenant_today(tz) - 3, app.tenant_today(tz) - 1, true);
+  BEGIN
+    INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at, returned_at, casing_accepted)
+    VALUES (md5('t42jm1')::uuid, bac, tm, d_rt, app.tenant_today(tz) - 3, app.tenant_today(tz) - 1, NULL);
+    RAISE EXCEPTION 'FAIL 42m: a returned casing with no accept/reject verdict was accepted';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    IF cname <> 'return_is_complete' THEN
+      RAISE EXCEPTION 'FAIL 42m: refused by %, not return_is_complete', cname;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  42m a return without a casing verdict is refused at the constraint';
+  BEGIN
+    INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at, returned_at, casing_accepted)
+    VALUES (md5('t42jn1')::uuid, bac, tm, d_rt, app.tenant_today(tz) - 3, app.tenant_today(tz) - 5, true);
+    RAISE EXCEPTION 'FAIL 42n: a return dated before its own dispatch was accepted';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    IF cname <> 'returned_after_sent' THEN
+      RAISE EXCEPTION 'FAIL 42n: refused by %, not returned_after_sent', cname;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  42n a return that predates its dispatch is refused at the constraint';
 END $$;
 ROLLBACK;
 
