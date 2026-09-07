@@ -515,7 +515,7 @@ states. Slice plans are gitignored under `docs/superpowers/plans/`.
 | B6.1 | TYRE-72 — create and end a dated rig; the Rigs screen | `TYRE-72-rig-setup` | merged 3 Sep 2026, PR #43 |
 | B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | merged 5 Sep 2026, PR #44 |
 | B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | `TYRE-101-rig-rotation` | merged 5 Sep 2026, PR #45 |
-| B6.3.5 | TYRE-143 sweep remediation, slices R1–R4 (`docs/pre-b64-remediation.md`): TYRE-144/145/146 Critical plus the Important set the sweep names as blockers | `TYRE-144-immutable-history` (R1), `TYRE-146-capture-discard` (R2) | R1 merged 6 Sep 2026, PR #47; R2 merged 6 Sep 2026, PR #48 (migration 000041); R3–R4 not cut; gates B6.4 |
+| B6.3.5 | TYRE-143 sweep remediation, slices R1–R4 (`docs/pre-b64-remediation.md`): TYRE-144/145/146 Critical plus the Important set the sweep names as blockers | `TYRE-144-immutable-history` (R1), `TYRE-146-capture-discard` (R2), `TYRE-158-api-isolation` (R3) | R1 merged 6 Sep 2026, PR #47; R2 merged 6 Sep 2026, PR #48 (migration 000041); R3 merged 7 Sep 2026, PR #49 (migration 000042); R4 not cut; gates B6.4 |
 | B6.4 | TYRE-75 — reconcile reported composition into a dated rig change | not cut | not planned until B6.3.5 lands |
 | *(B6.5)* | TYRE-73 — the in-transport lock | **only if the owner un-parks it** | parked |
 
