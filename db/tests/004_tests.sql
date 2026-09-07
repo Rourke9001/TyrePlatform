@@ -3485,7 +3485,7 @@ BEGIN
   -- breaks the next time the seed fills a position.
   WITH made AS (
     INSERT INTO app.tyre (tenant_id, display_code)
-    SELECT t_id, 'TY85-SPARE-' || g FROM generate_series(1, 4) g
+    SELECT t_id, 'TY85-SPARE-' || g FROM generate_series(1, 3) g
     RETURNING id)
   SELECT array_agg(id) INTO spare FROM made;
 
@@ -3522,7 +3522,7 @@ BEGIN
   -- (d) A horse fitted WITH an odometer is accepted, then refused a removal
   -- that omits the removed odometer — the second half of FR-FIT-002.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
-       VALUES (t_id, spare[4], horse, pos, now(), 100000) RETURNING id INTO f;
+       VALUES (t_id, spare[3], horse, pos, now(), 100000) RETURNING id INTO f;
 
   ok := false;
   BEGIN
@@ -8134,10 +8134,10 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 55. TYRE-158: the app role cannot write app.tenant, so tenant_subdomain_key is no longer an existence oracle (rule 1, TYRE-87)'
+\echo '== 55. TYRE-158: the app role cannot write app.tenant, so tenant_subdomain_key cannot answer whether another tenant holds a subdomain (rule 1, TYRE-87)'
 BEGIN;
 DO $$
-DECLARE ok boolean := false; n int; own text;
+DECLARE ok boolean := false; updated boolean := false; n int; own text;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   -- control: the row is readable, so a refusal below is the grant and not RLS
@@ -8157,24 +8157,27 @@ BEGIN
   -- as a raw error.
   BEGIN
     UPDATE app.tenant SET subdomain = 'sandbox' WHERE id = app.current_tenant_id();
-    RAISE EXCEPTION 'FAIL 55: app_rw updated app.tenant (taken subdomain probe)';
+    updated := true;
   EXCEPTION WHEN insufficient_privilege THEN
     IF SQLERRM LIKE 'permission denied%' THEN ok := true;
     ELSE RAISE EXCEPTION 'FAIL 55: taken-subdomain probe refused by something other than the grant: %', SQLERRM; END IF;
   WHEN OTHERS THEN
     RAISE EXCEPTION 'FAIL 55: taken-subdomain probe refused by % (%), not by the grant', SQLSTATE, SQLERRM;
   END;
+  IF updated THEN RAISE EXCEPTION 'FAIL 55: app_rw updated app.tenant (taken subdomain probe)'; END IF;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 55: the taken-subdomain probe was not refused by grant'; END IF;
   ok := false;
+  updated := false;
   BEGIN
     UPDATE app.tenant SET subdomain = 'zz-' || substr(md5(random()::text), 1, 8) WHERE id = app.current_tenant_id();
-    RAISE EXCEPTION 'FAIL 55: app_rw updated app.tenant (free subdomain probe)';
+    updated := true;
   EXCEPTION WHEN insufficient_privilege THEN
     IF SQLERRM LIKE 'permission denied%' THEN ok := true;
     ELSE RAISE EXCEPTION 'FAIL 55: free-subdomain probe refused by something other than the grant: %', SQLERRM; END IF;
   WHEN OTHERS THEN
     RAISE EXCEPTION 'FAIL 55: free-subdomain probe refused by % (%), not by the grant', SQLSTATE, SQLERRM;
   END;
+  IF updated THEN RAISE EXCEPTION 'FAIL 55: app_rw updated app.tenant (free subdomain probe)'; END IF;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 55: the free-subdomain probe was not refused by grant'; END IF;
   RAISE NOTICE 'PASS  55 app.tenant is not writable by app_rw: taken and free subdomains are indistinguishable (permission denied both), own row (%) still readable', own;
 END $$;

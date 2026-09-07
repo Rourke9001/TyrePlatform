@@ -72,7 +72,7 @@ misses. Both came out of B1's delivery:
 | Key | What it is | Home |
 | --- | --- | --- |
 | TYRE-87 | Sweep unique and exclusion constraints, and unique indexes, for a missing `tenant_id`. B1 found one cross-tenant oracle and fixed it; seven pre-existing constraints sit in the same blind spot, three of them standalone partial indexes with no `pg_constraint` row | **Rides with B5.** B5 adds exactly this class of constraint — D12's `display_code_policy` gate and the active-display-code index — and the ordering rule that put B1 first applies unchanged: an integrity rule is cheap before pilot data and expensive after |
-| TYRE-88 | Harden the TY008/TY009 triggers: legacy NULL-odometer fitments and `unit_kind` edits | **Rides with B5, ahead of TYRE-92**, which writes the first fitment and so is the first caller that can meet `TY009` on real data. B4 required `unit_kind` at the API and left the schema alone deliberately; that gap is this ticket's. Note the triggers stay backstops — B5 exposes no endpoint that edits a configuration or a unit kind |
+| TYRE-88 | Harden the TY008/TY009 triggers: legacy NULL-odometer fitments and `unit_kind` edits | **Rides with B5, ahead of TYRE-92**, which writes the first fitment and so is the first caller that can meet `TY009` on real data. B4 required `unit_kind` at the API and left the schema alone deliberately; 000042 (TYRE-172, B6.3.5 R3) closed that gap in the schema. Note the triggers stay backstops — B5 exposes no endpoint that edits a configuration or a unit kind |
 
 ### The asset flow — four keys raised 30 Aug
 

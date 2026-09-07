@@ -327,8 +327,10 @@ func (b createVehicleRequest) validate() (vehicleInsert, error) {
 }
 
 // createVehicle is D8's add-a-unit, gated on ManageAssets and never on a role
-// name. A DEPOT_MANAGER holding it writes tenant-wide: the scope views narrow
-// reads, and write-side depot scoping is deferred deliberately (D8).
+// name. This create is not narrowed by depot: a depot-scoped creator may
+// home a unit anywhere or nowhere (TYRE-222 owns whether that changes),
+// unlike the by-id unit surface, which composes unitSource (FR-AUT-008,
+// TYRE-162).
 func createVehicle(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
