@@ -414,7 +414,9 @@ func TestSubmitEndpointIsRateLimited(t *testing.T) {
 // not parse as its column's type, which the function's own DECLARE casts
 // before any guard runs — arrives as a bare integrity SQLSTATE and is mapped
 // here. Both halves are only observable through the endpoint, which is the
-// only surface the outbox ever sees.
+// only surface the outbox ever sees. Since both kinds answer the same 422,
+// the code and the driver-facing message fragment together are what
+// distinguish a named guard from the constraint behind it.
 func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -428,33 +430,41 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 	}
 
 	tests := []struct {
-		name   string
-		mutate func(map[string]any)
+		name                string
+		mutate              func(map[string]any)
+		wantCode            string
+		wantMessageContains string
 	}{
+		// An id this tenant cannot see arrives as a bare 23503 and answers
+		// the canned invalid_submission, which is the whole point of the
+		// canning: no constraint or table name reaches a driver (ADR-0012).
 		{"a tyre_id this tenant cannot see", func(b map[string]any) {
 			firstReading(b)["tyre_id"] = uuid.NewString()
-		}},
+		}, "invalid_submission", "refused as invalid"},
 		{"a combination_id this tenant cannot see", func(b map[string]any) {
 			b["combination_id"] = uuid.NewString()
-		}},
+		}, "invalid_submission", "refused as invalid"},
 		{"a client_uuid that is not a uuid", func(b map[string]any) {
 			b["client_uuid"] = "not-a-uuid"
-		}},
+		}, "invalid_submission", "refused as invalid"},
+		// The five TY005 shapes share a code; the fragment is what tells the
+		// named guard from the constraint behind it, which answers the same
+		// 422 with a different message (FR-OFF-013 gives the driver this text).
 		{"a tread outside FR-INS-030's range", func(b map[string]any) {
 			firstReading(b)["treads"] = []float64{8.0, 40.0, 8.2}
-		}},
+		}, "TY005", "is outside the accepted range of 0 to"},
 		{"a pressure outside FR-INS-031's range", func(b map[string]any) {
 			firstReading(b)["pressure_kpa"] = 5000
-		}},
+		}, "TY005", "kPa is outside the accepted range"},
 		{"a null inside treads", func(b map[string]any) {
 			firstReading(b)["treads"] = []any{8.0, nil, 8.2}
-		}},
+		}, "TY005", "is not a number"},
 		{"no readings at all", func(b map[string]any) {
 			delete(b, "readings")
-		}},
+		}, "TY005", "carries no readings array"},
 		{"an empty readings array", func(b map[string]any) {
 			b["readings"] = []any{}
-		}},
+		}, "TY005", "carries an empty readings array"},
 	}
 
 	for _, tc := range tests {
@@ -468,6 +478,9 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 
 			rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), string(raw))
 			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			ref := decodeRefusal(t, rec.Body.Bytes())
+			require.Equal(t, tc.wantCode, ref.Code, rec.Body.String())
+			require.Contains(t, ref.Message, tc.wantMessageContains, rec.Body.String())
 		})
 	}
 }
