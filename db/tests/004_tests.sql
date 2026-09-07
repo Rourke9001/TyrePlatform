@@ -3425,13 +3425,19 @@ BEGIN
   -- TY010 is the last line of defence for ADR-0011's actor context: with
   -- nothing bound, submit_inspection must refuse by name before any read,
   -- because an RLS-empty read would refuse with a retryable shape the outbox
-  -- (ADR-0009) retries to its 30-minute ceiling and never gives up on. Both
-  -- halves of the guard are probed — no context at all, then a tenant with
-  -- no actor — and the control below shows the same payload reaching a
-  -- later guard once the context is back, so TY010 came from the binding
-  -- and not from the payload. An empty string is the unbound state
-  -- current_tenant_id()/current_actor_id() read (000001), which is why the
-  -- reset is set_config('', true) inside this transaction and not RESET.
+  -- (ADR-0009) retries to its 30-minute ceiling and never gives up on. Each
+  -- half of `v_tenant IS NULL OR v_actor IS NULL` is refused with the OTHER
+  -- half bound — an actor with no tenant, then a tenant with no actor — so
+  -- neither disjunct could be dropped from the guard without one of these
+  -- probes going green by accident. The control below then shows the same
+  -- payload reaching a later guard once both halves are bound, so TY010 came
+  -- from the binding and not from the payload. An empty string is the
+  -- unbound state current_tenant_id()/current_actor_id() read (000001),
+  -- which is why the reset is set_config('', true) inside this transaction
+  -- and not RESET. A raise inside a probe is its own FAIL, not the
+  -- function's — WHEN sqlstate 'P0001' THEN RAISE precedes WHEN OTHERS so
+  -- that FAIL propagates with its own text instead of being relabelled as
+  -- an unexpected SQLSTATE.
   PERFORM set_config('app.tenant_id', '', true);
   PERFORM set_config('app.actor_id', '', true);
   BEGIN
@@ -3439,15 +3445,28 @@ BEGIN
     RAISE EXCEPTION 'FAIL 31: submit_inspection ran with no tenant or actor bound';
   EXCEPTION
     WHEN sqlstate 'TY010' THEN NULL;
+    WHEN sqlstate 'P0001' THEN RAISE;
     WHEN OTHERS THEN
       RAISE EXCEPTION 'FAIL 31: a submit with no context bound was refused as % (%), not TY010', SQLSTATE, SQLERRM;
   END;
+  PERFORM set_config('app.actor_id', drv::text, true);
+  BEGIN
+    PERFORM app.submit_inspection('{}'::jsonb);
+    RAISE EXCEPTION 'FAIL 31: submit_inspection ran with an actor but no tenant bound';
+  EXCEPTION
+    WHEN sqlstate 'TY010' THEN NULL;
+    WHEN sqlstate 'P0001' THEN RAISE;
+    WHEN OTHERS THEN
+      RAISE EXCEPTION 'FAIL 31: a submit with no tenant bound was refused as % (%), not TY010', SQLSTATE, SQLERRM;
+  END;
   PERFORM set_config('app.tenant_id', t_id::text, true);
+  PERFORM set_config('app.actor_id', '', true);
   BEGIN
     PERFORM app.submit_inspection('{}'::jsonb);
     RAISE EXCEPTION 'FAIL 31: submit_inspection ran with a tenant but no actor bound';
   EXCEPTION
     WHEN sqlstate 'TY010' THEN NULL;
+    WHEN sqlstate 'P0001' THEN RAISE;
     WHEN OTHERS THEN
       RAISE EXCEPTION 'FAIL 31: a submit with no actor bound was refused as % (%), not TY010', SQLSTATE, SQLERRM;
   END;
@@ -3457,10 +3476,11 @@ BEGIN
     RAISE EXCEPTION 'FAIL 31: an empty payload was accepted with the context bound';
   EXCEPTION
     WHEN sqlstate 'TY005' THEN NULL;
+    WHEN sqlstate 'P0001' THEN RAISE;
     WHEN OTHERS THEN
       RAISE EXCEPTION 'FAIL 31: the control with context bound was refused as % (%), not TY005', SQLSTATE, SQLERRM;
   END;
-  RAISE NOTICE 'PASS  31 a submit with no tenant or actor bound refuses TY010 before any read, and the same payload with context bound reaches the payload guards';
+  RAISE NOTICE 'PASS  31 each half of the tenant-or-actor guard is refused as TY010 with the other half bound, and the same payload with both bound reaches the payload guards';
 
   -- FR-OFF-011's uniqueness is per tenant — UNIQUE (tenant_id, client_uuid) —
   -- so two tenants' devices generating the same uuid must not collide, and
