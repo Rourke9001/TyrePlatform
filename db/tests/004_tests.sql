@@ -3367,6 +3367,46 @@ BEGIN
     RAISE EXCEPTION 'FAIL: a payload omitting granularity_mm recorded % mm, not the tenant''s configured 0.1', gran;
   END IF;
 
+  -- TY010 is the last line of defence for ADR-0011's actor context: with
+  -- nothing bound, submit_inspection must refuse by name before any read,
+  -- because an RLS-empty read would refuse with a retryable shape the outbox
+  -- (ADR-0009) retries to its 30-minute ceiling and never gives up on. Both
+  -- halves of the guard are probed — no context at all, then a tenant with
+  -- no actor — and the control below shows the same payload reaching a
+  -- later guard once the context is back, so TY010 came from the binding
+  -- and not from the payload. An empty string is the unbound state
+  -- current_tenant_id()/current_actor_id() read (000001), which is why the
+  -- reset is set_config('', true) inside this transaction and not RESET.
+  PERFORM set_config('app.tenant_id', '', true);
+  PERFORM set_config('app.actor_id', '', true);
+  BEGIN
+    PERFORM app.submit_inspection('{}'::jsonb);
+    RAISE EXCEPTION 'FAIL 31: submit_inspection ran with no tenant or actor bound';
+  EXCEPTION
+    WHEN sqlstate 'TY010' THEN NULL;
+    WHEN OTHERS THEN
+      RAISE EXCEPTION 'FAIL 31: a submit with no context bound was refused as % (%), not TY010', SQLSTATE, SQLERRM;
+  END;
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  BEGIN
+    PERFORM app.submit_inspection('{}'::jsonb);
+    RAISE EXCEPTION 'FAIL 31: submit_inspection ran with a tenant but no actor bound';
+  EXCEPTION
+    WHEN sqlstate 'TY010' THEN NULL;
+    WHEN OTHERS THEN
+      RAISE EXCEPTION 'FAIL 31: a submit with no actor bound was refused as % (%), not TY010', SQLSTATE, SQLERRM;
+  END;
+  PERFORM set_config('app.actor_id', drv::text, true);
+  BEGIN
+    PERFORM app.submit_inspection('{}'::jsonb);
+    RAISE EXCEPTION 'FAIL 31: an empty payload was accepted with the context bound';
+  EXCEPTION
+    WHEN sqlstate 'TY005' THEN NULL;
+    WHEN OTHERS THEN
+      RAISE EXCEPTION 'FAIL 31: the control with context bound was refused as % (%), not TY005', SQLSTATE, SQLERRM;
+  END;
+  RAISE NOTICE 'PASS  31 a submit with no tenant or actor bound refuses TY010 before any read, and the same payload with context bound reaches the payload guards';
+
   -- FR-OFF-011's uniqueness is per tenant — UNIQUE (tenant_id, client_uuid) —
   -- so two tenants' devices generating the same uuid must not collide, and
   -- the second must get a NEW inspection rather than the first's replay. No
