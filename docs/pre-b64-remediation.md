@@ -89,10 +89,10 @@ re-run as `app_login` inside `BEGIN … ROLLBACK`.
 | --- | --- | --- |
 | TYRE-177 | Important | Section 31 reaches TY010 with no actor bound. |
 | TYRE-179 | Important | The three retread and threshold CHECKs driven by `check_violation` blocks. |
-| TYRE-181 | Important | 000039's search_path sentence corrected in 000040's header; suite check 8c reads `proconfig`. |
+| TYRE-181 | Important | 000039's search_path sentence corrected in 000043's header, which pins the three plpgsql routines; suite check 8d reads proconfig. |
 | TYRE-200 | Important | The submit-refusal table asserts a code or message fragment per row. |
 | TYRE-202 | Important | TY004, TY005, TY006 asserted on the wire. |
-| TYRE-204 | Important | The ios Playwright project runs the outbox spec, or its comment stops claiming that it does. |
+| TYRE-204 | Important | The ios Playwright project's comment stops claiming it runs the outbox spec; the WebKit run is TYRE-227. |
 
 ## Deferred past B6.4, by decision of this page
 

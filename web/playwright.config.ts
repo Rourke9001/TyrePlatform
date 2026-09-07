@@ -40,8 +40,11 @@ export default defineConfig({
       testIgnore: /admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec/,
     },
     // iPhone 14 is WebKit, which `make e2e` and CI install alongside chromium.
-    // It earns its place beyond the viewport: iOS is where FR-OFF-020's
-    // storage eviction is a real risk, so the outbox has to be exercised on it.
+    // It buys the second phone viewport and nothing more: capture.spec.ts is
+    // ignored here because FR-INS-038's window is per unit in one shared
+    // database and the fixture has no unit a second project could consume,
+    // so the outbox runs on android alone. TYRE-227 gives ios its own units;
+    // until it lands, FR-OFF-020's WebKit storage eviction is unexercised.
     {
       name: "ios",
       use: { ...devices["iPhone 14"] },
