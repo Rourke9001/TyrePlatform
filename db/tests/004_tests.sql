@@ -3841,8 +3841,9 @@ BEGIN
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: unique/exclusion keys not led by tenant_id: %', bad;
   END IF;
-  -- Second arm: a table WITHOUT a tenant_id column is outside the sweep above
-  -- by construction, yet its unique keys are global by the same construction.
+  -- Second arm (TYRE-158): a table WITHOUT a tenant_id column is outside the
+  -- sweep above by construction, yet its unique keys are global by the same
+  -- construction.
   -- Such a key is safe only when the app role cannot write the table at all —
   -- a probe needs a write to read the outcome. Every table here states why
   -- it has no tenant column; an unexplained entry is a review defect.
@@ -8189,7 +8190,8 @@ DECLARE tz text;
 BEGIN
   -- The API pins its own sessions (store.New). This pins the server the
   -- suite's own date predicates run under, so a changed postgresql.conf or a
-  -- role setting fails the build rather than the register.
+  -- role setting fails the build here instead of shifting the tyre
+  -- register's dates by a day in production.
   tz := current_setting('TimeZone');
   IF tz <> 'UTC' THEN
     RAISE EXCEPTION 'FAIL 56: session TimeZone is % for %, expected UTC', tz, current_user;

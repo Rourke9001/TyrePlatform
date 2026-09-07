@@ -1023,3 +1023,20 @@ immediately after the gate, never the exit status of whatever ran last in
 the same command. Put diagnostics such as a match count before the `EXIT=`
 write or in a separate command, and read the log before believing a
 "failed" notification.
+
+## 2026-09-07 — A grant restored for a teeth proof trips the catalogue sweep first (TYRE-158)
+
+**What happened:** to prove suite section 55 detects a landed write, a fix
+wave re-granted `UPDATE ON app.tenant` to `app_rw` and ran `make db-test`
+expecting section 55 to fail. Section 37b's catalogue sweep — which reads
+`information_schema` for exactly that grant — stopped the suite twenty
+sections earlier, so section 55's own detector never ran under the exploited
+grant, and the implementer could only report "not disproven".
+
+**The rule:** a behavioural probe of a grant or a policy sits behind the
+catalogue sweeps that assert the same fact, so a teeth proof that restores
+the privilege must run the target section standalone: cut the section from
+its `\echo` banner to its `ROLLBACK;` and pipe it through
+`docker exec -i tyre-pg psql -U app_login -d tyre -v ON_ERROR_STOP=1`. Expect
+the section's own attributable FAIL line, then REVOKE and re-run the cut
+section for its PASS before the full gate.

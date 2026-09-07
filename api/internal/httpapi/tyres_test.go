@@ -330,11 +330,9 @@ func TestReceiveTyresHappyPath(t *testing.T) {
 
 // TYRE-174 / ADR-0013 decision 5: a value that cannot be read as its type is
 // refused in Go before the transaction opens, naming the field — the same
-// dateField every sibling date already goes through. Without the check the
-// cast inside app.receive_tyres would come back as 22007, canned as
-// invalid_submission, which names no field; the check here is what names
-// one. "yesterday" is deliberately NOT a probe value: Postgres accepts it
-// as a date literal (lane 5's note).
+// dateField every sibling date already goes through, for the reason
+// instantField's note gives (fitments.go). "yesterday" is deliberately NOT
+// a probe value: Postgres accepts it as a date literal (lane 5's note).
 func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -940,9 +938,7 @@ func TestReturnToStockFromBreakdownSupplier(t *testing.T) {
 }
 
 // sentOn is parsed in Go before the transaction opens, the way listTyres
-// parses its on: a raw "yesterday" reaching $4::date is Postgres's
-// 22007/22008, canned as invalid_submission, which names no field; the
-// check here is what names one.
+// parses its on, for the reason instantField's note gives (fitments.go).
 func TestDispatchRefusesMalformedSentOn(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

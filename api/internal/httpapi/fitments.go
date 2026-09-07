@@ -70,11 +70,9 @@ func instantField(field string, raw *string) (*time.Time, error) {
 // answers the validated TEXT rather than a time.Time: a dispatch and a
 // retread return carry a date the tenant's own zone resolves to an instant
 // (000033, 000034), so the text is bound to $n::date and the resolution
-// stays in SQL — listTyres validates its on the same way. Without this,
-// "yesterday" reaches the cast raw, and Postgres's 22007/22008 would then be
-// the refusal — canned as invalid_submission, which names no field; the
-// check here is what names one. A nil raw stays nil so the function's own
-// default applies rather than a Go clock's idea of today.
+// stays in SQL — listTyres validates its on the same way. Why the check is
+// on this side at all is instantField's note. A nil raw stays nil so the
+// function's own default applies rather than a Go clock's idea of today.
 func dateField(field string, raw *string) (*string, error) {
 	if raw == nil {
 		return nil, nil

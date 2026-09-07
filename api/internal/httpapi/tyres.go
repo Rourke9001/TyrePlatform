@@ -124,10 +124,8 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			return
 		}
 		// Validated before any transaction opens (ADR-0013 decision 5,
-		// admin.go's assignDriver does the same for fromDate): a malformed
-		// on would otherwise reach $2::date as a raw string, and Postgres's
-		// resulting 22007/22008 would be canned as invalid_submission,
-		// which names no field; the check here is what names one.
+		// admin.go's assignDriver does the same for fromDate), for the
+		// reason instantField's note gives (fitments.go).
 		if on != "" {
 			if _, err := time.Parse(isoDate, on); err != nil {
 				refuseInvalid(w, r, invalid("on", "must be a date as YYYY-MM-DD"))
