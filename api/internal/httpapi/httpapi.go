@@ -632,10 +632,11 @@ type fleetUnitJSON struct {
 // depot-narrowed app.v_depot_vehicle is the default and app.vehicle — the
 // whole tenant — is the exception earned only by ScopeTenant. A role added
 // later without a scope entry lands on the narrow default rather than
-// silently reading everything (FR-AUT-006/007/008). Every by-id unit route
-// composes this, reads and writes alike: FR-AUT-008 scopes all of a
-// controller's permissions to the depot manager's depots, not the reads
-// (TYRE-162, owner 6 Sep 2026).
+// silently reading everything (FR-AUT-006/007/008). The unit read, its
+// PATCH and status write, and its fitment, driver and task lists compose
+// this (FR-AUT-008, TYRE-162, owner 6 Sep 2026); the remaining unit-path
+// writes — fitTyre, rotateTyres, assignDriver and scheduleInspectionTask —
+// are TYRE-226's.
 func unitSource(a auth.Actor) string {
 	if a.Scope() == auth.ScopeTenant {
 		return `app.vehicle`

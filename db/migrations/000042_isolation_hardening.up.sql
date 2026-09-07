@@ -18,6 +18,10 @@ REVOKE INSERT, UPDATE ON app.tenant FROM app_rw;
 -- own derivation (configuration code, then fleet-number convention); a row
 -- neither resolves stops the migration rather than being guessed, because
 -- the kind decides whether TY009 demands an odometer of every fitment.
+-- vehicle_audited (000035) logs each backfilled row as an UPDATE whose
+-- actor_id is NULL, because app.current_actor_id() has nothing to read
+-- during a migration; an operator asking who set a unit's kind finds that
+-- row and this migration.
 UPDATE app.vehicle v
    SET unit_kind = COALESCE(
        (SELECT CASE WHEN c.code LIKE 'HORSE%' OR c.code = 'BAC_TRUCKS' THEN 'HORSE'
@@ -30,11 +34,12 @@ UPDATE app.vehicle v
  WHERE v.unit_kind IS NULL;
 
 DO $$
-DECLARE n int;
+DECLARE bad text;
 BEGIN
-  SELECT count(*) INTO n FROM app.vehicle WHERE unit_kind IS NULL;
-  IF n > 0 THEN
-    RAISE EXCEPTION 'TYRE-172: % vehicle(s) with underivable unit_kind; set them by hand before applying 000042', n;
+  SELECT string_agg(t.subdomain || '/' || v.fleet_number, ', ' ORDER BY t.subdomain, v.fleet_number)
+    INTO bad FROM app.vehicle v JOIN app.tenant t ON t.id = v.tenant_id WHERE v.unit_kind IS NULL;
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'TYRE-172: unit_kind is underivable for %; set it by hand before applying 000042', bad;
   END IF;
 END $$;
 

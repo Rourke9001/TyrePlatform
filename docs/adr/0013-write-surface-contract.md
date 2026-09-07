@@ -211,9 +211,14 @@ does without generating the map from the catalogue. `PLATFORM_ADMIN`'s
 rejection is now enforced in two places — the handler and
 `platform_admin_has_no_tenant` — because the constraint alone would answer
 the wrong code, not because either enforcement is redundant to drop. No
-surface here removes a row or narrows `DEPOT_MANAGER` writes to its own
-depot, and both are deliberate deferrals a reader could mistake for
-oversights without this paragraph.
+surface here removes a row, which stays a deliberate deferral a reader
+could mistake for an oversight without this paragraph. The by-id unit
+surface — GET/PATCH `/api/vehicles/{id}`, `POST /api/vehicles/{id}/status`
+and its three sub-resource lists — narrows a `DEPOT_MANAGER`'s writes to
+its own depot by composing `unitSource` (FR-AUT-008, TYRE-162);
+`createVehicle` and this ADR's other admin write surfaces stay tenant-wide,
+as do four unit-path writes that predate the decision (TYRE-226), with a
+unit created or cleared with no `homeDepotId` left as TYRE-222's residual.
 
 **Revisit when:** TYRE-83 narrows the creatable-role list to `InviteDriver`
 for `CONTROLLER` and `DEPOT_MANAGER`; migration 000042 (TYRE-172) added the
@@ -265,12 +270,16 @@ more than writing the assumption down first.
   No real login exists yet — the dev header resolver (ADR-0011) is all
   there is — so recording this now constrains the future auth build at
   zero rework cost.
-- **Depot scoping on a write stays deferred.** `DEPOT_MANAGER` writes are
-  tenant-wide on every surface these decisions govern; the depot-scope
-  views ADR-0006 defined narrow reads only, not writes. This is a
-  deliberate deferral, not an oversight, and it is written down here so
-  that the first person to notice a depot-manager write reaching another
-  depot's rows finds this paragraph before filing a defect.
+- **Depot scoping on a write is split.** The by-id unit surface —
+  GET/PATCH `/api/vehicles/{id}`, `POST /api/vehicles/{id}/status` and its
+  three sub-resource lists — composes `unitSource` (FR-AUT-008, TYRE-162)
+  to narrow a `DEPOT_MANAGER`'s writes to its own depot, the same view
+  ADR-0006 defined for reads. `createVehicle` and the other admin write
+  surfaces this ADR governs stay tenant-wide, and so do four unit-path
+  writes that predate the decision (`fitTyre`, `rotateTyres`,
+  `assignDriver`, `scheduleInspectionTask`) — TYRE-226 owns narrowing
+  those, and TYRE-222 owns a unit created or cleared with no
+  `homeDepotId`.
 
 ## Accepted gaps
 
