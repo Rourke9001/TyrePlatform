@@ -308,6 +308,42 @@ BEGIN
   RAISE NOTICE 'PASS  no unreviewed routine runs with RLS bypassed';
 END $$;
 
+\echo '== 8d. search_path is pinned where names resolve at run time and left open where the planner inlines (TYRE-181)'
+-- Two halves, because the house rule is two rules. A plpgsql routine
+-- resolves every unqualified name when it runs, so without a pinned
+-- search_path it follows the caller's path — the hijack 000004 pins
+-- refresh_governing_tread against. A LANGUAGE sql table function that a
+-- view is built over is inlined into the calling query, and a SET clause
+-- blocks that inlining and changes the plan of every such view (000036),
+-- so those stay unpinned on purpose. Scalar sql routines may go either
+-- way and are not swept. 000043 states the rule.
+DO $$
+DECLARE unpinned text; pinned_tf text;
+BEGIN
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO unpinned
+    FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND p.prokind IN ('f','p')
+     AND l.lanname = 'plpgsql'
+     AND NOT coalesce(p.proconfig @> ARRAY['search_path=app, pg_temp'], false);
+  IF unpinned IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: plpgsql routine(s) with no pinned search_path: %', unpinned;
+  END IF;
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO pinned_tf
+    FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND l.lanname = 'sql' AND p.proretset
+     AND p.proconfig IS NOT NULL
+     AND EXISTS (SELECT 1 FROM pg_depend d
+                   JOIN pg_rewrite r ON r.oid = d.objid AND d.classid = 'pg_rewrite'::regclass
+                   JOIN pg_class c ON c.oid = r.ev_class AND c.relkind = 'v'
+                  WHERE d.refclassid = 'pg_proc'::regclass AND d.refobjid = p.oid);
+  IF pinned_tf IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: sql table function(s) a view is built over carry a SET clause, which blocks inlining (000036): %', pinned_tf;
+  END IF;
+  RAISE NOTICE 'PASS  every plpgsql routine pins search_path; every inlined table function leaves it open';
+END $$;
+
 \echo '== 9. Combination numbering resolves to constituent units (BR-VEH-003, CFL-006)'
 -- The 1..26 projection is computed from combination_member.sequence plus each
 -- unit's own position order — no stored mapping exists to drift from the
