@@ -435,9 +435,11 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		wantCode            string
 		wantMessageContains string
 	}{
-		// An id this tenant cannot see arrives as a bare 23503 and answers
-		// the canned invalid_submission, which is the whole point of the
-		// canning: no constraint or table name reaches a driver (ADR-0012).
+		// An id this tenant cannot see arrives as a bare 23503, a
+		// client_uuid that will not cast as a 22P02 from the function's own
+		// DECLARE; both answer the canned invalid_submission, which is the
+		// whole point of the canning: no constraint or table name reaches a
+		// driver (ADR-0012).
 		{"a tyre_id this tenant cannot see", func(b map[string]any) {
 			firstReading(b)["tyre_id"] = uuid.NewString()
 		}, "invalid_submission", "refused as invalid"},
