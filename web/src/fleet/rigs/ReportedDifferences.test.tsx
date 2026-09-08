@@ -23,11 +23,8 @@ function report(overrides: Partial<ReportedDifference> & { id: string }): Report
   };
 }
 
-// The client comes back too: the empty-list test needs a settle signal the
-// query cache itself can answer (below), because "fetch was called" can be
-// true before the mocked response has resolved — the pending state and the
-// empty-list state both render nothing, so a check that passes on either one
-// proves nothing about which branch ran.
+// The client comes back too: the empty-list test needs the query cache's own
+// settle signal (see below).
 function renderSection(capabilities: string[] = ["ViewFleet", "ManageAssignments"]) {
   const client = testQueryClient();
   const view = render(

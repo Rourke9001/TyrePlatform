@@ -370,10 +370,8 @@ func plantDepotPositions(t *testing.T, ctx context.Context, admin *pgx.Conn, ten
 	return left, right
 }
 
-// FR-AUT-008 (errata D1) scopes a depot manager's writes to their own depots,
-// and these four predate that decision (ADR-0013's accepted gap, TYRE-226).
-// The controller making the same call is the control: without it, a handler
-// that refused everyone would pass.
+// FR-AUT-008's depot narrowing for a write that predates it; TestFitTyreIsDepotScoped
+// carries why, and why the controller is the control (TYRE-226).
 func TestRotateTyresIsDepotScoped(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
