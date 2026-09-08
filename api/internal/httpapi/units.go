@@ -658,8 +658,9 @@ func (b patchUnitRequest) validate() (patchUnitArgs, error) {
 //
 // The UPDATE's scope predicate is unitSource's (FR-AUT-008); the read-back is
 // through app.vehicle deliberately — the write was authorised against the row
-// as it was, and an edit that moves the unit out of the editor's own depots
-// is still their edit to see.
+// as it stood, so the editor reads back what they wrote. A depot-scoped editor
+// cannot move a unit out of their own depots at all: the home depot is a
+// tenant-scope act (TYRE-222 rule 1, below).
 func patchUnit(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

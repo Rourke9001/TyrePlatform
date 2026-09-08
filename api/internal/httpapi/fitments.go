@@ -206,18 +206,31 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 			// Depot scope for the write (FR-AUT-008, TYRE-162/TYRE-226): a
 			// ScopeTenant actor skips it and meets the function's own TY012
 			// for an invisible id, so the controller's contract is unchanged.
-			// The check locks the vehicle row (FOR UPDATE) because the write
-			// runs in a separate statement: a concurrent PATCH moving the unit
-			// to another depot waits on this lock, and one that committed
-			// first is what the check sees, so the scope the write was
-			// authorised against is the scope it lands in.
+			// The check locks the vehicle row because the write runs in a
+			// separate statement: a concurrent PATCH moving the unit to
+			// another depot waits on this lock, and one that committed first
+			// is what the check sees, so the scope the write was authorised
+			// against is the scope it lands in.
+			//
+			// FOR SHARE is the mode, here and in the three pre-checks that
+			// cite this one. None of the four writes the vehicle row, and a
+			// shared lock still conflicts with the exclusive one a PATCH takes
+			// to move the unit, so the race above stays closed. Exclusive here
+			// would invert the order the functions themselves lock in —
+			// app.fit_tyre takes the tyre FOR UPDATE and only then the unit
+			// FOR SHARE (000039:88, :112), and app.rotate_tyres takes every
+			// in-scope unit FOR SHARE in id order (000039:446, :513) — so two
+			// callers addressing one rig from opposite ends would each hold
+			// what the other waits for (40P01). reachableObservation
+			// (observations.go) is the one pre-check that keeps FOR UPDATE,
+			// and carries why.
 			if a.Scope() != auth.ScopeTenant {
 				var locked uuid.UUID
 				err := tx.QueryRow(ctx,
 					`SELECT v.id FROM app.vehicle v
 					  WHERE v.id = $1
 					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
-					  FOR UPDATE OF v`, vehicleID).Scan(&locked)
+					  FOR SHARE OF v`, vehicleID).Scan(&locked)
 				if errors.Is(err, pgx.ErrNoRows) {
 					return refusalError{refusal{
 						status:  http.StatusNotFound,
@@ -519,7 +532,7 @@ func rotateTyres(s *store.Store) http.HandlerFunc {
 					`SELECT v.id FROM app.vehicle v
 					  WHERE v.id = $1
 					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
-					  FOR UPDATE OF v`, vehicleID).Scan(&locked)
+					  FOR SHARE OF v`, vehicleID).Scan(&locked)
 				if errors.Is(err, pgx.ErrNoRows) {
 					return refusalError{refusal{
 						status:  http.StatusNotFound,
