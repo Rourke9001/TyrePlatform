@@ -10,6 +10,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -201,6 +202,32 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
+			}
+			// Depot scope for the write (FR-AUT-008, TYRE-162/TYRE-226): a
+			// ScopeTenant actor skips it and meets the function's own TY012
+			// for an invisible id, so the controller's contract is unchanged.
+			// The check locks the vehicle row (FOR UPDATE) because the write
+			// runs in a separate statement: a concurrent PATCH moving the unit
+			// to another depot waits on this lock, and one that committed
+			// first is what the check sees, so the scope the write was
+			// authorised against is the scope it lands in.
+			if a.Scope() != auth.ScopeTenant {
+				var locked uuid.UUID
+				err := tx.QueryRow(ctx,
+					`SELECT v.id FROM app.vehicle v
+					  WHERE v.id = $1
+					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
+					  FOR UPDATE OF v`, vehicleID).Scan(&locked)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return refusalError{refusal{
+						status:  http.StatusNotFound,
+						code:    codeNotFound,
+						message: "no such unit in this fleet",
+					}}
+				}
+				if err != nil {
+					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+				}
 			}
 			// TY009, TY012 and TY014 arrive via refusalForPgError with their
 			// messages intact; the two occupancy indexes arrive as 23505.
@@ -483,6 +510,26 @@ func rotateTyres(s *store.Store) http.HandlerFunc {
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
+			}
+			// Depot scope for the write (FR-AUT-008, TYRE-226); fitments.go's
+			// fitTyre carries why it locks.
+			if a.Scope() != auth.ScopeTenant {
+				var locked uuid.UUID
+				err := tx.QueryRow(ctx,
+					`SELECT v.id FROM app.vehicle v
+					  WHERE v.id = $1
+					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
+					  FOR UPDATE OF v`, vehicleID).Scan(&locked)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return refusalError{refusal{
+						status:  http.StatusNotFound,
+						code:    codeNotFound,
+						message: "no such unit in this fleet",
+					}}
+				}
+				if err != nil {
+					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+				}
 			}
 			rows, err := tx.Query(ctx,
 				`SELECT tyre_id, fitment_id

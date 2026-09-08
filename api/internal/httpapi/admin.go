@@ -659,6 +659,26 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssignments); err != nil {
 				return err
 			}
+			// Depot scope for the write (FR-AUT-008, TYRE-226); fitments.go's
+			// fitTyre carries why it locks.
+			if a.Scope() != auth.ScopeTenant {
+				var locked uuid.UUID
+				err := tx.QueryRow(ctx,
+					`SELECT v.id FROM app.vehicle v
+					  WHERE v.id = $1
+					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
+					  FOR UPDATE OF v`, vehicleID).Scan(&locked)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return refusalError{refusal{
+						status:  http.StatusNotFound,
+						code:    codeNotFound,
+						message: "no such unit in this fleet",
+					}}
+				}
+				if err != nil {
+					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+				}
+			}
 			var id uuid.UUID
 			var fromDate time.Time
 			err := tx.QueryRow(ctx,
