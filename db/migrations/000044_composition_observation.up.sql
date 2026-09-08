@@ -368,10 +368,8 @@ BEGIN
   END IF;
   SELECT array_agg(e::uuid) INTO observed
     FROM jsonb_array_elements_text(w_value::jsonb) e;
-  -- 000041 forwards the phone's array as it arrived and casts each element
-  -- with jsonb_array_elements_text(...)::uuid, so a JSON null is a NULL id in
-  -- a warning that was raised for it. A NULL element is invisible to every
-  -- check below — `= ANY(observed)` answers NULL for it and the outside
+  -- A JSON null survives the ::uuid cast as a NULL id, invisible to every
+  -- check below: `= ANY(observed)` answers NULL for it, and the outside
   -- check's COALESCE renders it as a member that is simply absent — so a
   -- report of nothing usable would end a rig and open the motive alone. One
   -- message, one home: the same TY022 an absent value answers with.

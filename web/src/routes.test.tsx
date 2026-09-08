@@ -27,8 +27,8 @@ const actor = (capabilities: string[]): Me =>
 // what apiGet actually sent, not just what it rendered.
 //
 // A fresh Response per call, not one shared instance: a Response body can
-// only be read once, and TYRE-75 put a second concurrent query on
-// /fleet/rigs (ReportedDifferences beside RigList) — a shared instance's
+// only be read once, and /fleet/rigs drives two concurrent queries
+// (ReportedDifferences beside RigList, TYRE-75) — a shared instance's
 // second .json() throws, which the second query renders as its own load
 // failure rather than the empty list this mock promises every caller.
 function mockFetchJson(status: number, body: unknown): Mock<typeof fetch> {

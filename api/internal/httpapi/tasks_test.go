@@ -303,13 +303,11 @@ func TestScheduleTaskRefusesAnUnassignedDriver(t *testing.T) {
 	require.Equal(t, 0, countTasks(t, ctx, admin, tenantID))
 }
 
-// FR-AUT-008 (errata D1) scopes a depot manager's writes to their own depots,
-// and these four predate that decision (ADR-0013's accepted gap, TYRE-226).
-// The controller making the same call is the control: without it, a handler
-// that refused everyone would pass. The assignee is planted onto both units
-// first (spec U4): an unassigned driver would be refused by
-// app.create_inspection_task's own TY018, which is the vacuous-check trap
-// this test must not fall into.
+// FR-AUT-008's depot narrowing for a write that predates it; TestFitTyreIsDepotScoped
+// carries why, and why the controller is the control (TYRE-226). The assignee
+// is planted onto both units first (spec U4): an unassigned driver would be
+// refused by app.create_inspection_task's own TY018, which is the
+// vacuous-check trap this test must not fall into.
 func TestScheduleInspectionTaskIsDepotScoped(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

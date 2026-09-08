@@ -86,14 +86,13 @@ func listObservations(s *store.Store) http.HandlerFunc {
 				       -- its id, never dropped, so the card and the refusal agree.
 				       --
 				       -- Both sets below are NULL-safe on an element the register
-				       -- cannot name. 000041 stores the phone's array as the raw
-				       -- payload text and casts each element ::uuid, so a JSON
-				       -- null survives as a NULL id in a warning raised for it;
-				       -- FILTER drops it from the display set and NOT EXISTS keeps
-				       -- the removed set from collapsing to NULL. Rendered rather
-				       -- than skipped: a warning is never updated or deleted, and
-				       -- a row this list withholds is a report no controller can
-				       -- reach to dismiss (TYRE-75).
+				       -- cannot name: the observed array can carry a NULL id (see
+				       -- app.apply_composition_observation, 000044). FILTER drops
+				       -- it from the display set and NOT EXISTS keeps the removed
+				       -- set from collapsing to NULL. Rendered rather than
+				       -- skipped: a warning is never updated or deleted, and a row
+				       -- this list withholds is a report no controller can reach
+				       -- to dismiss (TYRE-75).
 				       (SELECT coalesce(array_agg(coalesce(v.fleet_number, o.id) ORDER BY coalesce(v.fleet_number, o.id))
 				                        FILTER (WHERE o.id IS NOT NULL), '{}')
 				          FROM jsonb_array_elements_text(w.entered_value::jsonb) o(id)
@@ -190,8 +189,7 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 
 type applyObservationResponse struct {
 	// Null when the observed set was the motive alone: the rig ends and none
-	// opens (U10 declines a one-member rig). The client invalidates its rig
-	// list either way.
+	// opens (U10 declines a one-member rig).
 	ResultingRigID *string `json:"resultingRigId"`
 }
 
