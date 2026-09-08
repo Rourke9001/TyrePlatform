@@ -84,7 +84,7 @@ slice:
 | **U8** | **Effective instants follow B5's date rule, through one shared function.** "On" the tenant's today is `now()`; an earlier day is tenant-local midnight; a future day is refused; never a bare date cast. That rule is written inline twice today (`app.dispatch_tyre` 000033:639-654, `app.log_retread_return` 000034:84-94). 000037 extracts it once as `app.tenant_day_instant(p_on date) RETURNS timestamptz` — NULL for a future day, so each caller refuses in its own code and words — and **B6.3, which replaces both of those functions anyway, deletes the two inline copies** rather than leaving a third. A start earlier than a member's last membership end is refused (TY017), never clamped. | `docs/lessons.md` 2026-09-01 and 2026-09-03; one rationale in one place (CLAUDE.md). | None. |
 | **U9** | **Kinds:** a rig is headed by a `HORSE`, `RIGID` or `LIGHT` unit and tows only `TRAILER`s; a unit whose `unit_kind` is NULL (a pre-000011 row) is refused with a message naming it. `DISPOSED` and `INACTIVE` units are refused; `PARKED`, `WORKSHOP` and `OUT_OF_SERVICE` are not — FR-VEH-006 pauses a unit's schedule, not the yard's ability to couple it. | FR-VEH-030's "one motive unit and zero or more towed units"; FR-VEH-005's retirement states. | One predicate. |
 | **U10** | **Zero towed units is refused.** FR-VEH-030 permits it, but a one-member rig changes nothing the capture or the register reads, and offering it invites a controller to "rig" every rigid. | YAGNI; the capture treats no-rig as solo already. | Delete one `IF`. |
-| **U11** | **SQLSTATEs:** TY017 is "a rig write refused"; TY018 is "an inspection task refused" (B6.2); TY019 is "a composition observation refused" (B6.4). TY012 keeps its meaning — a row this tenant cannot see — with a distinct message per object ("no such rig in this fleet"). | ADR-0012's TY-class rule; one code per refusal family so a client can branch. | Rename in one map. |
+| **U11** | **SQLSTATEs:** TY017 is "a rig write refused"; TY018 is "an inspection task refused" (B6.2); TY019 is "a composition observation refused" (B6.4). TY012 keeps its meaning — a row this tenant cannot see — with a distinct message per object ("no such rig in this fleet"). **Corrected 7 Sep 2026:** B6.3.5 took TY019 for an inspection write refused (000040) and TY021 for the submit skew (000041), so B6.4's composition observation is **TY022** (migration 000044). | ADR-0012's TY-class rule; one code per refusal family so a client can branch. | Rename in one map. |
 | **U12** | **`app.audit_row_change()` attaches to `app.combination` and `app.combination_member` in B6.1**, and to `app.inspection_task` in B6.2 — the tables this batch gives write paths to. TYRE-98's wider sweep is unchanged. | ADR-0014's rule: a table with a write path is audited. | Drop two triggers. |
 | **U13** | **`GET /api/vehicles` gains `unitKind` and `status`** so the rig form can filter motive from towed and hide retired units. Additive; no consumer breaks. Both source relations already project them — `app.v_depot_vehicle` is `SELECT v.*` (000014) and `app.vehicle` is the table — so the handler selects two more columns and nothing is joined or bent. The driver's `GET /api/my/vehicles` reads `app.v_driver_vehicle`, which projects a fixed column list, and is **left alone**: the fleet list gets its own response struct rather than widening the shape the driver's list shares. | The form needs the kind; a second endpoint for two columns is worse; a view rewritten for a column its consumer never asked for is a bend. | None. |
 | **U14** | **The Sandbox e2e creates its own units** through the API rather than reusing `sbveh1`/`sbveh2`: `playwright.config.ts` is `fullyParallel`, and `fitments.spec.ts` disposes `sbveh1` mid-run. | Two specs sharing a unit is an order dependency the config does not promise. | None. |
@@ -498,6 +498,12 @@ as they are and the question is carried into the PR.
 
 ## B6.4 — reconcile observed composition (TYRE-75) — outline
 
+**Corrected 7 Sep 2026 (TYRE-75).** The numbers below — migration 000040,
+suite section 48, TY019 — were written before B6.3.5, which took 000040
+through 000043, section 57 and TY019/TY020/TY021. This slice is migration
+**000044**, suite section **58** and SQLSTATE **TY022**. Nothing else in the
+outline changes.
+
 **Shape.** `app.inspection_warning` is append-only (DR-021), so a resolution
 is its own record: migration 000040 adds
 `app.composition_observation` (tenant_id, warning_id UNIQUE, combination_id
@@ -543,7 +549,8 @@ controller applies the difference — which needs B6.2's shared capture walk.
 
 - `docs/implementation-order.md` §B6 rewritten to this slicing, with the
   TYRE-73 correction (U1) — committed with this spec on `TYRE-72-rig-setup`.
-- ADR-0012's code table: TY017 (B6.1), TY018 (B6.2), TY019 (B6.4).
+- ADR-0012's code table: TY017 (B6.1), TY018 (B6.2), TY022 (B6.4) — TY019 was
+  taken by B6.3.5 R1 (000040), corrected 7 Sep 2026.
 - ADR-0014's attached-tables list and the 000036 `search_path` sentence
   (B6.1).
 - An SRS erratum row is owed only if the owner reverses U4 (FR-INS-053
