@@ -8427,23 +8427,54 @@ BEGIN
     END IF;
   END;
 
-  -- An end and a create at the SAME instant, which is what a resolution does:
-  -- combination_member_in_order compares c.effective_to > starts strictly
-  -- (000037), so the trailer leaving at that instant may join the next rig
-  -- starting at it. A non-strict comparison there would refuse this.
-  rig := app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', tr)));
-  started := now();
+  -- The three instants are ordered on purpose — effective_from < started <
+  -- now() — because an assertion that a core wrote the instant it was GIVEN
+  -- is only meaningful where that instant differs from the transaction clock.
+  -- Created through the date wrapper the first rig would start at
+  -- tenant_day_instant(NULL), which is now(); with started = now() as well, a
+  -- core that ignored p_at and wrote now() would satisfy every comparison
+  -- below. Hence the core, and an explicit offset, for the first rig too.
+  -- The offsets are relative to now() rather than to a date, so no tenant
+  -- timezone can move them across a day boundary (lesson 2026-09-03).
+  --
+  -- The end and the create still share ONE instant, which is what a
+  -- resolution does: combination_member_in_order compares c.effective_to >
+  -- starts strictly (000037), so the trailer leaving at that instant may join
+  -- the next rig starting at it. A non-strict comparison there would refuse
+  -- this.
+  rig := app.create_combination_at(h, jsonb_build_array(jsonb_build_object('vehicle_id', tr)),
+                                   now() - interval '2 hours');
+  started := now() - interval '1 hour';
+  -- Each instant is read back immediately after the call that set it, before
+  -- the next call. Asserting both at the end instead would let the member
+  -- trigger answer first: a core that stored now() leaves the offered rig
+  -- ending after the next one starts, and INV-4 refuses that with its own
+  -- message, so the mutation would be caught by the wrong assertion.
   PERFORM app.end_combination_at(rig, started);
-  rig2 := app.create_combination_at(h2, jsonb_build_array(jsonb_build_object('vehicle_id', tr)), started);
   SELECT c.effective_to INTO ended FROM app.combination c WHERE c.id = rig;
   IF ended IS DISTINCT FROM started THEN
     RAISE EXCEPTION 'FAIL 58a: the offered rig ended at %, not at the instant given (%)', ended, started;
   END IF;
+  rig2 := app.create_combination_at(h2, jsonb_build_array(jsonb_build_object('vehicle_id', tr)), started);
   SELECT c.effective_from INTO ended FROM app.combination c WHERE c.id = rig2;
   IF ended IS DISTINCT FROM started THEN
     RAISE EXCEPTION 'FAIL 58a: the new rig starts at %, not at the instant given (%)', ended, started;
   END IF;
-  RAISE NOTICE 'PASS  58a the instant-taking cores exist, refuse a future instant, and hand a trailer straight from one rig to the next at one instant';
+
+  -- The end side's own future refusal, in 000037's words. Without it nothing
+  -- here exercises end_combination_at's date guard, and only the create side
+  -- would show that a core consults p_at at all. rig2 is still open at this
+  -- point, so what answers is the date check and not the already-ended one.
+  BEGIN
+    PERFORM app.end_combination_at(rig2, now() + interval '1 hour');
+    RAISE EXCEPTION 'FAIL 58a: a rig was ended at a future instant';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a rig is ended as at today or earlier, never in the future' THEN
+      RAISE EXCEPTION 'FAIL 58a: wrong message %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  58a the instant-taking cores exist, store the instant given rather than the clock, refuse a future instant on both sides, and hand a trailer straight from one rig to the next at one instant';
 END $$;
 ROLLBACK;
 
