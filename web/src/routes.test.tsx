@@ -25,9 +25,15 @@ const actor = (capabilities: string[]): Me =>
 // stubbed with a real Response so every route can be driven to a specific
 // status without a network call. Returning the mock lets a test assert on
 // what apiGet actually sent, not just what it rendered.
+//
+// A fresh Response per call, not one shared instance: a Response body can
+// only be read once, and TYRE-75 put a second concurrent query on
+// /fleet/rigs (ReportedDifferences beside RigList) — a shared instance's
+// second .json() throws, which the second query renders as its own load
+// failure rather than the empty list this mock promises every caller.
 function mockFetchJson(status: number, body: unknown): Mock<typeof fetch> {
   const mock: Mock<typeof fetch> = vi.fn();
-  mock.mockResolvedValue(new Response(JSON.stringify(body), { status }));
+  mock.mockImplementation(() => Promise.resolve(respond(status, body)));
   vi.stubGlobal("fetch", mock);
   return mock;
 }
