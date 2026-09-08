@@ -681,6 +681,20 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
+			// TYRE-222 rule 1 (owner, 7 Sep 2026): moving a unit between
+			// depots — or out of one, which "" means — is a tenant-scope act.
+			// Composed rather than raised through require(): the actor holds
+			// ManageAssets and the refusal is about this one field, so
+			// msgForbidden's fixed sentence would say the wrong thing.
+			// Presence, not value: body.HomeDepotID is nil only when the
+			// PATCH did not mention the field at all (decodeJSONStrict).
+			if a.Scope() != auth.ScopeTenant && body.HomeDepotID != nil {
+				return refusalError{refusal{
+					status:  http.StatusForbidden,
+					code:    codeForbidden,
+					message: "a unit's home depot is changed by someone who manages the whole fleet",
+				}}
+			}
 			// COALESCE for the text columns: a nil parameter leaves the column
 			// alone. The two ids cannot use it, because NULL is a value they
 			// may legitimately be set to and COALESCE would read that as

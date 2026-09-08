@@ -1308,3 +1308,65 @@ func TestUnitByIDSurfaceIsDepotScoped(t *testing.T) {
 	// control: the controller's write on the same unit lands
 	require.Equal(t, http.StatusOK, patch(t, h, path(elsewhere, ""), tn, ctl, `{"description":"reached"}`).Code)
 }
+
+// TYRE-222 rule 1 (owner, 7 Sep 2026): a transfer between depots is a
+// tenant-scope act, so a depot-scoped actor may not name homeDepotId on a
+// PATCH at all — not a value outside their own depots, and not "", which
+// clears the home and is the same act.
+func TestPatchUnitRefusesAHomeDepotChangeFromADepotActor(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "patch-depot-scope")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	mineDepot, mineFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	otherDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	var mine uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, mineFleet).Scan(&mine))
+
+	homeDepot := func() uuid.UUID {
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT home_depot_id FROM app.vehicle WHERE id = $1`, mine).Scan(&id))
+		return id
+	}
+
+	// A value naming another depot: 403, not 422 — it is not the value that
+	// is wrong, this role does not hold the act of moving a unit.
+	rec := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), manager.String(),
+		`{"homeDepotId":"`+otherDepot.String()+`"}`)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "forbidden", ref.Code)
+	require.Contains(t, ref.Message, "whole fleet")
+	require.Equal(t, mineDepot, homeDepot())
+
+	// "" is presence, not a value that happens to be blank — the assertion
+	// this test exists for: a value check comparing homeDepotId against the
+	// actor's own depots would let this one through as "no change requested."
+	rec = patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), manager.String(),
+		`{"homeDepotId":""}`)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "forbidden", ref.Code)
+	require.Equal(t, mineDepot, homeDepot())
+
+	// control: the rest of the PATCH surface is untouched by this rule.
+	rec = patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), manager.String(),
+		`{"description":"still mine"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	// control: a ScopeTenant actor is unaffected — the transfer this rule
+	// exists to stop is theirs to make.
+	rec = patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(),
+		`{"homeDepotId":"`+otherDepot.String()+`"}`)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, otherDepot, homeDepot())
+}

@@ -1018,3 +1018,85 @@ func TestAssignmentDefaultsToTheTenantDay(t *testing.T) {
 		fmt.Sprintf(`{"userId":%q,"fromDate":"29-02-2020"}`, driver.String()))
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 }
+
+// TYRE-222 rule 1 (owner, 7 Sep 2026). The NULL-homed unit is the ticket's
+// own case: it is visible to a controller and to nobody else, because every
+// depot predicate joins a NULL home out — which is why a depot-scoped creator
+// may not make one.
+func TestCreateVehicleRequiresAHomeDepotFromADepotActor(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "createvehdepot")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.axle_configuration (tenant_id, code, name, axle_count)
+		 VALUES ($1, 'CREATEVEHDEPOT', 'depot create test rig', 2) RETURNING id`,
+		tenantID).Scan(&configID))
+
+	ownDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	otherDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	joinDepot(t, ctx, admin, tenantID, manager, ownDepot)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	// The pin: this is behaviour that already holds (app.v_depot_vehicle joins
+	// a NULL home out today), not a rule this branch adds. Its mutation is
+	// swapping unitSource(a) for "app.vehicle" in getUnit, which would turn
+	// the manager's 404 below into a 200.
+	var nullHomedID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind)
+		 VALUES ($1, $2, $3, 'HORSE'::app.unit_kind) RETURNING id`,
+		tenantID, "NULLHOME-"+uuid.NewString()[:8], configID).Scan(&nullHomedID))
+	rec := get(t, h, "/api/vehicles/"+nullHomedID.String(), tenantID.String(), manager.String())
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	rec = get(t, h, "/api/vehicles/"+nullHomedID.String(), tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	body := func(fleet, homeDepotJSON string) string {
+		return `{"fleetNumber":"` + fleet + `","configurationId":"` + configID.String() +
+			`","unitKind":"HORSE"` + homeDepotJSON + `}`
+	}
+
+	// A depot-scoped creator with no home at all: refused as a field error,
+	// not silently landed NULL.
+	rec = post(t, h, "/api/vehicles", tenantID.String(), manager.String(), body("NOHOME-1", ""))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "is required when you manage a depot")
+
+	// A depot-scoped creator naming another depot's id: refused with the
+	// field named, not the by-id surface's 404 — the value came from a list
+	// this actor can read (GET /api/depots).
+	rec = post(t, h, "/api/vehicles", tenantID.String(), manager.String(),
+		body("NOHOME-2", `,"homeDepotId":"`+otherDepot.String()+`"`))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "must be one of your own depots")
+
+	// A depot-scoped creator naming their own depot: created, and the column
+	// lands as sent.
+	rec = post(t, h, "/api/vehicles", tenantID.String(), manager.String(),
+		body("HOME-1", `,"homeDepotId":"`+ownDepot.String()+`"`))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var created createdVehicleBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+	var landedHome uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT home_depot_id FROM app.vehicle WHERE id = $1`, created.ID).Scan(&landedHome))
+	require.Equal(t, ownDepot, landedHome)
+
+	// A tenant-scoped controller is unaffected by this rule: no home at all,
+	// and another actor's depot, are both still theirs to name.
+	rec = post(t, h, "/api/vehicles", tenantID.String(), controller.String(), body("CTL-1", ""))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	rec = post(t, h, "/api/vehicles", tenantID.String(), controller.String(),
+		body("CTL-2", `,"homeDepotId":"`+ownDepot.String()+`"`))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
