@@ -8377,5 +8377,75 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 58. TYRE-75: a reported composition is applied into a dated rig change, or dismissed with a reason (FR-INS-063 as corrected by D5, BR-FIT-008, TY022)'
+BEGIN;
+DO $$
+DECLARE
+  t_id constant uuid := '22222222-2222-2222-2222-222222222222';
+  ctl  constant uuid := md5('t58ctl')::uuid;
+  cfg  constant uuid := md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid;
+  h    constant uuid := md5('t58ah')::uuid;
+  tr   constant uuid := md5('t58at')::uuid;
+  h2   constant uuid := md5('t58ah2')::uuid;
+  args text; rig uuid; rig2 uuid; ended timestamptz; started timestamptz; msg text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (ctl, t_id, 't58ctl@example.invalid', 'T58 Controller', 'CONTROLLER');
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind, status) VALUES
+    (h,  t_id, 'T58A-H',  cfg, 'HORSE',   'ACTIVE'),
+    (h2, t_id, 'T58A-H2', cfg, 'HORSE',   'ACTIVE'),
+    (tr, t_id, 'T58A-T',  cfg, 'TRAILER', 'ACTIVE');
+
+  -- The cores exist under the signatures app.apply_composition_observation
+  -- calls. Pinned as identity arguments rather than as a bare name: an
+  -- overload added later would leave a name-only check green while the call
+  -- below resolved somewhere else (U11's "one code per refusal family"
+  -- reasoning applied to routines).
+  -- regprocedure renders a name relative to the search_path, and the suite
+  -- sets app first at its head, so the expected spelling is unqualified.
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO args
+    FROM pg_proc p
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND p.proname IN ('create_combination_at', 'end_combination_at');
+  IF args IS DISTINCT FROM
+     'create_combination_at(uuid,jsonb,timestamp with time zone), end_combination_at(uuid,timestamp with time zone)' THEN
+    RAISE EXCEPTION 'FAIL 58a: the instant-taking cores read as [%]', COALESCE(args, 'absent');
+  END IF;
+
+  -- A future instant is refused in the core, in 000037's own words, so the
+  -- date wrapper and a direct instant caller answer the same sentence.
+  BEGIN
+    PERFORM app.create_combination_at(h, jsonb_build_array(jsonb_build_object('vehicle_id', tr)),
+                                      now() + interval '1 hour');
+    RAISE EXCEPTION 'FAIL 58a: a rig was set at a future instant';
+  EXCEPTION WHEN SQLSTATE 'TY017' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a rig is set as at today or earlier, never in the future' THEN
+      RAISE EXCEPTION 'FAIL 58a: wrong message %', msg;
+    END IF;
+  END;
+
+  -- An end and a create at the SAME instant, which is what a resolution does:
+  -- combination_member_in_order compares c.effective_to > starts strictly
+  -- (000037), so the trailer leaving at that instant may join the next rig
+  -- starting at it. A non-strict comparison there would refuse this.
+  rig := app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', tr)));
+  started := now();
+  PERFORM app.end_combination_at(rig, started);
+  rig2 := app.create_combination_at(h2, jsonb_build_array(jsonb_build_object('vehicle_id', tr)), started);
+  SELECT c.effective_to INTO ended FROM app.combination c WHERE c.id = rig;
+  IF ended IS DISTINCT FROM started THEN
+    RAISE EXCEPTION 'FAIL 58a: the offered rig ended at %, not at the instant given (%)', ended, started;
+  END IF;
+  SELECT c.effective_from INTO ended FROM app.combination c WHERE c.id = rig2;
+  IF ended IS DISTINCT FROM started THEN
+    RAISE EXCEPTION 'FAIL 58a: the new rig starts at %, not at the instant given (%)', ended, started;
+  END IF;
+  RAISE NOTICE 'PASS  58a the instant-taking cores exist, refuse a future instant, and hand a trailer straight from one rig to the next at one instant';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
