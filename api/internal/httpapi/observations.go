@@ -111,6 +111,13 @@ func listObservations(s *store.Store) http.HandlerFunc {
 				  JOIN app.vehicle mv    ON mv.id = c.motive_vehicle_id
 				  JOIN app.app_user u    ON u.id = i.user_id
 				 WHERE w.warning_code = 'FR-INS-063'
+				   -- The code alone does not make a report:
+				   -- app.apply_composition_observation's kind check holds the
+				   -- reason (000044). It also guards the casts above, which
+				   -- read an array the server wrote — a client's text raises
+				   -- 22P02 there and empties this list for every controller in
+				   -- the tenant (TYRE-75).
+				   AND w.source = 'SERVER'
 				   AND i.state <> 'VOIDED'
 				   AND NOT EXISTS (SELECT 1 FROM app.composition_observation o
 				                    WHERE o.warning_id = w.id)

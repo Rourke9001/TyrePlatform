@@ -236,7 +236,9 @@ CREATE TABLE app.composition_observation (
   resulting_combination_id  uuid,
   note                      text,
   created_at                timestamptz NOT NULL DEFAULT now(),
-  created_by                uuid DEFAULT app.current_actor_id(),
+  -- A decision without its decider is not a record, and app_rw holds INSERT,
+  -- so an explicit NULL would pass the default by (TYRE-75).
+  created_by                uuid NOT NULL DEFAULT app.current_actor_id(),
   CONSTRAINT composition_observation_warning_fkey
     FOREIGN KEY (tenant_id, warning_id)
       REFERENCES app.inspection_warning (tenant_id, id) ON DELETE CASCADE,
@@ -295,6 +297,7 @@ LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
   w_code      text;
+  w_source    app.warning_source;
   w_value     text;
   i_state     app.inspection_state;
   i_started   timestamptz;
@@ -311,15 +314,22 @@ BEGIN
   -- RLS-scoped, so this answers "visible to this tenant", never "exists".
   -- One SELECT for the warning and its inspection: a warning is only ever
   -- read through the capture that raised it.
-  SELECT w.warning_code, w.entered_value, i.state, i.started_at, i.received_at
-    INTO w_code, w_value, i_state, i_started, i_received
+  SELECT w.warning_code, w.source, w.entered_value, i.state, i.started_at, i.received_at
+    INTO w_code, w_source, w_value, i_state, i_started, i_received
     FROM app.inspection_warning w
     JOIN app.inspection i ON i.id = w.inspection_id
    WHERE w.id = p_warning;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such observation in this fleet';
   END IF;
-  IF w_code IS DISTINCT FROM 'FR-INS-063' THEN
+  -- The source is half the kind. app.submit_inspection writes every warning
+  -- the payload carries with the code the payload names and source = 'CLIENT'
+  -- (000041), and no whitelist stands between the two, so a capture can carry
+  -- an FR-INS-063 row of its own — and a row a client wrote is a claim, never
+  -- the mismatch the server itself detected against the offered rig. One
+  -- message, one home: a client's FR-INS-063 is not a composition report for
+  -- the same reason a fitment warning is not.
+  IF w_code IS DISTINCT FROM 'FR-INS-063' OR w_source IS DISTINCT FROM 'SERVER' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY022',
       MESSAGE = 'this warning is not a composition report';
   END IF;
@@ -462,6 +472,7 @@ LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
   w_code   text;
+  w_source app.warning_source;
   i_state  app.inspection_state;
   rig      app.combination;
   resolved app.composition_observation;
@@ -472,14 +483,14 @@ BEGIN
       MESSAGE = 'a dismissal carries a reason',
       HINT    = 'say why the driver''s report is not being applied';
   END IF;
-  SELECT w.warning_code, i.state INTO w_code, i_state
+  SELECT w.warning_code, w.source, i.state INTO w_code, w_source, i_state
     FROM app.inspection_warning w
     JOIN app.inspection i ON i.id = w.inspection_id
    WHERE w.id = p_warning;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such observation in this fleet';
   END IF;
-  IF w_code IS DISTINCT FROM 'FR-INS-063' THEN
+  IF w_code IS DISTINCT FROM 'FR-INS-063' OR w_source IS DISTINCT FROM 'SERVER' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY022',
       MESSAGE = 'this warning is not a composition report';
   END IF;

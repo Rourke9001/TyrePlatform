@@ -8511,7 +8511,7 @@ DECLARE
   rig1 uuid; rig2 uuid; rig3 uuid; rig4 uuid; rig5 uuid; rig6 uuid;
   rig7 uuid; rig8 uuid;
   insp uuid; new_rig uuid; got uuid; open_before int; open_after int;
-  w1 uuid; w_stale uuid; w_void uuid; w_notours uuid;
+  w1 uuid; w_stale uuid; w_void uuid; w_notours uuid; w_client uuid;
   w_outside uuid; w_ghost uuid; w_nomotive uuid; w_nullel uuid;
   w_early uuid; w_future uuid;
   w_dismiss uuid;
@@ -8723,7 +8723,37 @@ BEGIN
       RAISE EXCEPTION 'FAIL 58d: wrong message %', msg;
     END IF;
   END;
-  RAISE NOTICE 'PASS  58d a stale rig, a voided capture and a warning of another kind are each refused in their own words';
+
+  -- The right code, from the phone (000044's kind check holds the reason). The
+  -- observed set is one an apply would otherwise act on and the offered rig is
+  -- open, so the source is the only thing left that can refuse it.
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4a')::uuid, 'FR-INS-063',
+          jsonb_build_array(h4, t7)::text, 'CLIENT')
+  RETURNING id INTO w_client;
+  BEGIN
+    PERFORM app.apply_composition_observation(w_client, NULL);
+    RAISE EXCEPTION 'FAIL 58d: a warning the client named FR-INS-063 was applied as a composition';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'this warning is not a composition report' THEN
+      RAISE EXCEPTION 'FAIL 58d: wrong message %', msg;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.dismiss_composition_observation(w_client, 'the phone named the code itself');
+    RAISE EXCEPTION 'FAIL 58d: a warning the client named FR-INS-063 was dismissed as a composition';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'this warning is not a composition report' THEN
+      RAISE EXCEPTION 'FAIL 58d: wrong message %', msg;
+    END IF;
+  END;
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig4;
+  IF started IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 58d: the client-named report ended the offered rig at %', started;
+  END IF;
+  RAISE NOTICE 'PASS  58d a stale rig, a voided capture, a warning of another kind and an FR-INS-063 the client named itself are each refused in their own words';
 
   -- (e) What the report itself says, and where the observed instant lands.
   -- The three refusals hang off rig4, which stays open throughout, so none of
@@ -8971,6 +9001,23 @@ BEGIN
       RAISE EXCEPTION 'FAIL 58g: the control refused for a third reason: %', msg;
     END IF;
   END;
+  -- The decider, by constraint rather than by default: app_rw holds INSERT, so
+  -- an explicit NULL passes the column default by (000044's reasoning). Valid
+  -- in every other way — this tenant, an unresolved warning, its own rig — so
+  -- the not-null constraint is the only thing left to answer, and the message
+  -- is read for the column because any other 23502 on this row would otherwise
+  -- stand in for it.
+  BEGIN
+    INSERT INTO app.composition_observation
+      (tenant_id, warning_id, combination_id, action, note, created_by)
+    VALUES (t_id, w_outside, rig4, 'DISMISSED', 'no decider', NULL);
+    RAISE EXCEPTION 'FAIL 58g: a resolution was written without its decider';
+  EXCEPTION WHEN not_null_violation THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%"created_by"%' THEN
+      RAISE EXCEPTION 'FAIL 58g: a column other than created_by refused the row: %', msg;
+    END IF;
+  END;
   -- Rule 3 by grant. WHERE false: privilege is checked at rewrite time against
   -- the table, not the predicate (section 45f's reasoning).
   BEGIN
@@ -8983,7 +9030,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 58g: app role can DELETE app.composition_observation';
   EXCEPTION WHEN insufficient_privilege THEN NULL;
   END;
-  RAISE NOTICE 'PASS  58g another tenant neither reads nor writes a resolution, the owning tenant''s same call refuses differently, and a resolution is never rewritten or removed';
+  RAISE NOTICE 'PASS  58g another tenant neither reads nor writes a resolution, the owning tenant''s same call refuses differently, a resolution names its decider, and it is never rewritten or removed';
 END $$;
 ROLLBACK;
 

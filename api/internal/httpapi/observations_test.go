@@ -109,15 +109,19 @@ func plantReportValued(t *testing.T, ctx context.Context, admin *pgx.Conn,
 	tenantID, motiveID, driverID uuid.UUID, entered string, trailers ...uuid.UUID,
 ) (warningID, rigID, inspectionID uuid.UUID) {
 	t.Helper()
-	return plantReportAddressedTo(t, ctx, admin, tenantID, motiveID, motiveID, driverID, entered, trailers...)
+	return plantReportAddressedTo(t, ctx, admin, tenantID, motiveID, motiveID, driverID, entered, "SERVER", trailers...)
 }
 
 // plantReportAddressedTo is plantReportValued for a capture addressed to a unit
 // of the rig other than its motive. Nothing binds app.inspection.vehicle_id to
 // its combination's motive (000041 checks visibility alone), so a client other
 // than the PWA can submit one, and the depot narrowing has to answer for it.
+//
+// The source is a parameter so a test can plant the CLIENT row
+// app.apply_composition_observation's kind check refuses (000044).
 func plantReportAddressedTo(t *testing.T, ctx context.Context, admin *pgx.Conn,
-	tenantID, motiveID, addressedID, driverID uuid.UUID, entered string, trailers ...uuid.UUID,
+	tenantID, motiveID, addressedID, driverID uuid.UUID, entered, source string,
+	trailers ...uuid.UUID,
 ) (warningID, rigID, inspectionID uuid.UUID) {
 	t.Helper()
 	require.NoError(t, admin.QueryRow(ctx,
@@ -148,8 +152,8 @@ func plantReportAddressedTo(t *testing.T, ctx context.Context, admin *pgx.Conn,
 	require.NoError(t, admin.QueryRow(ctx,
 		`INSERT INTO app.inspection_warning
 		   (tenant_id, inspection_id, warning_code, entered_value, source)
-		 VALUES ($1, $2, 'FR-INS-063', $3, 'SERVER') RETURNING id`,
-		tenantID, inspectionID, entered).Scan(&warningID))
+		 VALUES ($1, $2, 'FR-INS-063', $3, $4::app.warning_source) RETURNING id`,
+		tenantID, inspectionID, entered, source).Scan(&warningID))
 	return warningID, rigID, inspectionID
 }
 
@@ -430,7 +434,7 @@ func TestObservationSurfaceHomesTheRigOnItsMotive(t *testing.T) {
 	require.NoError(t, err)
 
 	warning, rig, _ := plantReportAddressedTo(t, ctx, admin, tenantID,
-		motive, trailer, driver, `["`+motive.String()+`"]`, trailer)
+		motive, trailer, driver, `["`+motive.String()+`"]`, "SERVER", trailer)
 
 	tn := tenantID.String()
 	hMgr, tMgr, ctl := horseManager.String(), trailerManager.String(), controller.String()
@@ -511,4 +515,51 @@ func TestObservationListRendersANullObservedID(t *testing.T) {
 	dismissed := post(t, h, path+"/dismiss", tn, ctl, `{"note":"the phone sent nothing usable"}`)
 	require.Equal(t, http.StatusNoContent, dismissed.Code, dismissed.Body.String())
 	require.Len(t, listReports(t, h, tn, ctl), 1)
+}
+
+// A capture may name FR-INS-063 in its own warnings, and only the server's own
+// row is a composition report (app.apply_composition_observation's kind check,
+// 000044). At the wire that answers twice: a client row carrying text no cast
+// can read would otherwise take the whole list down for every controller in
+// the tenant, and both writes on it refuse in the function's own words.
+func TestObservationSurfaceIgnoresAClientNamedReport(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "obs-client")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+
+	motive, _, configID := plantMotive(t, ctx, admin, tenantID)
+	trailer, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+	healthy, _, _ := plantReport(t, ctx, admin, tenantID, motive, driver,
+		[]uuid.UUID{motive}, trailer)
+
+	// Its own rig, and a value no cast can read: the row has to leave the list
+	// on its source alone, before anything reads what it holds.
+	clientMotive, _, clientConfig := plantMotive(t, ctx, admin, tenantID)
+	clientTrailer, _ := plantTrailer(t, ctx, admin, tenantID, clientConfig)
+	client, clientRig, _ := plantReportAddressedTo(t, ctx, admin, tenantID,
+		clientMotive, clientMotive, driver, `not json`, "CLIENT", clientTrailer)
+
+	tn, ctl := tenantID.String(), controller.String()
+	got := listReports(t, h, tn, ctl)
+	require.Len(t, got, 1)
+	require.Equal(t, healthy.String(), got[0].ID)
+
+	path := "/api/combinations/observations/" + client.String()
+	applied := post(t, h, path+"/apply", tn, ctl, `{"note":"x"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, applied.Code, applied.Body.String())
+	ref := decodeRefusal(t, applied.Body.Bytes())
+	require.Equal(t, "TY022", ref.Code)
+	require.Equal(t, "this warning is not a composition report", ref.Message)
+
+	dismissed := post(t, h, path+"/dismiss", tn, ctl,
+		`{"note":"the phone named the code itself"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, dismissed.Code, dismissed.Body.String())
+	ref = decodeRefusal(t, dismissed.Body.Bytes())
+	require.Equal(t, "TY022", ref.Code)
+	require.Equal(t, "this warning is not a composition report", ref.Message)
+	require.True(t, rigIsOpen(t, ctx, admin, clientRig), "a refused report touches no rig")
 }
