@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -327,10 +328,10 @@ func (b createVehicleRequest) validate() (vehicleInsert, error) {
 }
 
 // createVehicle is D8's add-a-unit, gated on ManageAssets and never on a role
-// name. This create is not narrowed by depot: a depot-scoped creator may
-// home a unit anywhere or nowhere (TYRE-222 owns whether that changes),
-// unlike the by-id unit surface, which composes unitSource (FR-AUT-008,
-// TYRE-162).
+// name. The insert itself reaches every row through app.vehicle rather than
+// composing unitSource, unlike the by-id unit surface (FR-AUT-008,
+// TYRE-162); the depot a unit lands at is narrowed by TYRE-222 rule 1
+// instead, below.
 func createVehicle(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -347,6 +348,30 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
+			}
+			// TYRE-222 rule 1 (owner, 7 Sep 2026). A transfer between depots
+			// is a tenant-scope act, so a depot-scoped creator names a home
+			// and it is one of theirs; a unit created with no home is visible
+			// to nobody but a controller, because every depot predicate joins
+			// it out (app.v_depot_vehicle). Refused as a field error and not
+			// as the by-id surface's 404: a depot id is a value this actor
+			// sent from a list they can read (GET /api/depots), so naming the
+			// field discloses nothing about another depot's fleet.
+			if a.Scope() != auth.ScopeTenant {
+				if ins.homeDepotID == nil {
+					return refusalError{refusal{
+						status:  http.StatusUnprocessableEntity,
+						code:    codeInvalidSubmission,
+						message: "homeDepotId is required when you manage a depot rather than the whole fleet",
+					}}
+				}
+				if !slices.Contains(a.DepotIDs, *ins.homeDepotID) {
+					return refusalError{refusal{
+						status:  http.StatusUnprocessableEntity,
+						code:    codeInvalidSubmission,
+						message: "homeDepotId must be one of your own depots",
+					}}
+				}
 			}
 			var id uuid.UUID
 			// tenant_id comes from the bound session, never from the request:

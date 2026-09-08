@@ -218,8 +218,9 @@ and its three sub-resource lists — narrows a `DEPOT_MANAGER`'s writes to
 its own depot by composing `unitSource` (FR-AUT-008, TYRE-162);
 `createVehicle` and this ADR's other admin write surfaces stay tenant-wide,
 and the four unit-path writes that predated the decision compose it too
-(TYRE-226, 7 Sep 2026), with a unit created or cleared with no `homeDepotId`
-left as TYRE-222's residual.
+(TYRE-226, 7 Sep 2026); a depot-scoped creator must home the unit among their
+own depots and may not move it afterwards (TYRE-222, 7 Sep 2026), leaving
+only the dated transfer history, which is TYRE-228's.
 
 **Revisit when:** TYRE-83 narrows the creatable-role list to `InviteDriver`
 for `CONTROLLER` and `DEPOT_MANAGER`; migration 000042 (TYRE-172) added the
@@ -282,6 +283,16 @@ more than writing the assumption down first.
   `assignDriver`, `scheduleInspectionTask` — compose the same `unitSource`
   pre-check as of TYRE-226 (7 Sep 2026), so a write and a read now answer
   the same question about the same unit.
+
+  **TYRE-222, decided 7 Sep 2026 (owner):** a transfer between depots is a
+  tenant-scope act. `createVehicle` requires a `homeDepotId` from a
+  depot-scoped creator and refuses one outside their own depots; `patchUnit`
+  refuses a depot-scoped actor that names `homeDepotId` at all, including the
+  empty string that clears it. A unit homed nowhere is therefore only ever
+  made by a tenant-scoped actor, which matters because every depot predicate
+  joins a NULL home out — such a unit is invisible to the depot managers who
+  would otherwise be the ones to notice it. A dated `vehicle_depot` history
+  row, so a transfer is recorded rather than overwritten, is TYRE-228.
 
 ## Accepted gaps
 
