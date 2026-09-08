@@ -8930,18 +8930,30 @@ BEGIN
       RAISE EXCEPTION 'FAIL 58g: wrong message %', msg;
     END IF;
   END;
-  -- WITH CHECK, not merely USING: every column is a value the policy is not
+  -- The write half of the policy. Every column is a value the policy is not
   -- under test for — created_by is stamped explicitly with a real user of the
   -- TARGET tenant and both combination references are that tenant's, so the
   -- row is valid in every way but the one being proved (lesson 2026-09-01).
   -- w_outside is unresolved, so composition_observation_once cannot answer
   -- first.
+  --
+  -- The mutation this stands against is `WITH CHECK (true)`: a FOR ALL policy
+  -- that omits the clause reuses its USING expression for writes, so removing
+  -- it changes nothing. And the message is trapped, not the SQLSTATE, because
+  -- this table is audited — a row that cleared its own WITH CHECK carries the
+  -- other tenant's tenant_id into app.audit_log, whose policy refuses with the
+  -- identical 42501 and would otherwise stand in for the check under test
+  -- (section 46g's pattern, lesson 2026-09-08).
   BEGIN
     INSERT INTO app.composition_observation
       (tenant_id, warning_id, combination_id, action, note, created_by)
     VALUES (t_id, w_outside, rig4, 'DISMISSED', 'smuggled', ctl);
     RAISE EXCEPTION 'FAIL 58g: tenant 1 wrote a resolution into tenant 2';
-  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE '%row-level security policy for table "composition_observation"%' THEN
+      RAISE EXCEPTION 'FAIL 58g: refused by something other than composition_observation''s own policy: %', msg;
+    END IF;
   END;
   PERFORM set_config('app.tenant_id', t_id::text, true);
   BEGIN
