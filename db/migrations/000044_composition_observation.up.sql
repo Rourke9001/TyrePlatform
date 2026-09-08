@@ -368,6 +368,18 @@ BEGIN
   END IF;
   SELECT array_agg(e::uuid) INTO observed
     FROM jsonb_array_elements_text(w_value::jsonb) e;
+  -- 000041 forwards the phone's array as it arrived and casts each element
+  -- with jsonb_array_elements_text(...)::uuid, so a JSON null is a NULL id in
+  -- a warning that was raised for it. A NULL element is invisible to every
+  -- check below — `= ANY(observed)` answers NULL for it and the outside
+  -- check's COALESCE renders it as a member that is simply absent — so a
+  -- report of nothing usable would end a rig and open the motive alone. One
+  -- message, one home: the same TY022 an absent value answers with.
+  IF observed IS NULL OR cardinality(observed) = 0
+     OR array_position(observed, NULL) IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'the report carries no observed set; set the rig by hand';
+  END IF;
 
   -- D5 permits removals only, so anything the report names that the offered
   -- rig did not hold is a report this function cannot turn into a composition
