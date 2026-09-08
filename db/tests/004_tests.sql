@@ -8476,6 +8476,473 @@ BEGIN
   END;
   RAISE NOTICE 'PASS  58a the instant-taking cores exist, store the instant given rather than the clock, refuse a future instant on both sides, and hand a trailer straight from one rig to the next at one instant';
 END $$;
+
+DO $$
+DECLARE
+  t_id  constant uuid := '22222222-2222-2222-2222-222222222222';
+  t_one constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl   constant uuid := md5('t58bctl')::uuid;
+  drv   constant uuid := md5('t58bdrv')::uuid;
+  cfg   constant uuid := md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid;
+  h1 constant uuid := md5('t58h1')::uuid;  t1 constant uuid := md5('t58t1')::uuid;
+  t2 constant uuid := md5('t58t2')::uuid;
+  h2 constant uuid := md5('t58h2')::uuid;  t3 constant uuid := md5('t58t3')::uuid;
+  t4 constant uuid := md5('t58t4')::uuid;
+  h3 constant uuid := md5('t58h3')::uuid;  t5 constant uuid := md5('t58t5')::uuid;
+  t6 constant uuid := md5('t58t6')::uuid;
+  h4 constant uuid := md5('t58h4')::uuid;  t7 constant uuid := md5('t58t7')::uuid;
+  t8 constant uuid := md5('t58t8')::uuid;
+  h5 constant uuid := md5('t58h5')::uuid;  t9 constant uuid := md5('t58t9')::uuid;
+  h6 constant uuid := md5('t58h6')::uuid;  t10 constant uuid := md5('t58t10')::uuid;
+  t11 constant uuid := md5('t58t11')::uuid;
+  h7 constant uuid := md5('t58h7')::uuid;  t12 constant uuid := md5('t58t12')::uuid;
+  t13 constant uuid := md5('t58t13')::uuid;
+  h8 constant uuid := md5('t58h8')::uuid;  t14 constant uuid := md5('t58t14')::uuid;
+  t15 constant uuid := md5('t58t15')::uuid;
+  h9 constant uuid := md5('t58h9')::uuid;  t16 constant uuid := md5('t58t16')::uuid;
+  t17 constant uuid := md5('t58t17')::uuid;
+  p_run uuid;
+  rig1 uuid; rig2 uuid; rig3 uuid; rig4 uuid; rig5 uuid; rig6 uuid;
+  rig7 uuid; rig8 uuid;
+  insp uuid; new_rig uuid; got uuid; open_before int; open_after int;
+  w1 uuid; w_stale uuid; w_void uuid; w_notours uuid;
+  w_outside uuid; w_ghost uuid; w_nomotive uuid; w_early uuid; w_future uuid;
+  w_dismiss uuid;
+  ghost uuid; started timestamptz; from_at timestamptz; received timestamptz;
+  n int; msg text; members text;
+  reading jsonb;
+BEGIN
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role) VALUES
+    (ctl, t_id, 't58bctl@example.invalid', 'T58 Controller B', 'CONTROLLER'),
+    (drv, t_id, 't58bdrv@example.invalid', 'T58 Driver B',     'DRIVER');
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind, status) VALUES
+    (h1, t_id, 'T58-H1', cfg, 'HORSE', 'ACTIVE'), (t1, t_id, 'T58-T1', cfg, 'TRAILER', 'ACTIVE'),
+    (t2, t_id, 'T58-T2', cfg, 'TRAILER', 'ACTIVE'),
+    (h2, t_id, 'T58-H2', cfg, 'HORSE', 'ACTIVE'), (t3, t_id, 'T58-T3', cfg, 'TRAILER', 'ACTIVE'),
+    (t4, t_id, 'T58-T4', cfg, 'TRAILER', 'ACTIVE'),
+    (h3, t_id, 'T58-H3', cfg, 'HORSE', 'ACTIVE'), (t5, t_id, 'T58-T5', cfg, 'TRAILER', 'ACTIVE'),
+    (t6, t_id, 'T58-T6', cfg, 'TRAILER', 'ACTIVE'),
+    (h4, t_id, 'T58-H4', cfg, 'HORSE', 'ACTIVE'), (t7, t_id, 'T58-T7', cfg, 'TRAILER', 'ACTIVE'),
+    (t8, t_id, 'T58-T8', cfg, 'TRAILER', 'ACTIVE'),
+    (h5, t_id, 'T58-H5', cfg, 'HORSE', 'ACTIVE'), (t9, t_id, 'T58-T9', cfg, 'TRAILER', 'ACTIVE'),
+    (h6, t_id, 'T58-H6', cfg, 'HORSE', 'ACTIVE'), (t10, t_id, 'T58-T10', cfg, 'TRAILER', 'ACTIVE'),
+    (t11, t_id, 'T58-T11', cfg, 'TRAILER', 'ACTIVE'),
+    (h7, t_id, 'T58-H7', cfg, 'HORSE', 'ACTIVE'), (t12, t_id, 'T58-T12', cfg, 'TRAILER', 'ACTIVE'),
+    (t13, t_id, 'T58-T13', cfg, 'TRAILER', 'ACTIVE'),
+    (h8, t_id, 'T58-H8', cfg, 'HORSE', 'ACTIVE'), (t14, t_id, 'T58-T14', cfg, 'TRAILER', 'ACTIVE'),
+    (t15, t_id, 'T58-T15', cfg, 'TRAILER', 'ACTIVE'),
+    (h9, t_id, 'T58-H9', cfg, 'HORSE', 'ACTIVE'), (t16, t_id, 'T58-T16', cfg, 'TRAILER', 'ACTIVE'),
+    (t17, t_id, 'T58-T17', cfg, 'TRAILER', 'ACTIVE');
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+  VALUES (t_id, h1, drv, (now() AT TIME ZONE 'UTC')::date - 1);
+  SELECT p.id INTO p_run FROM app.position p
+   WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+
+  -- Set two hours ago through the core: now() is one instant for the whole
+  -- transaction, and a capture may not start before the rig it names was set
+  -- (apply's own guard).
+  rig1 := app.create_combination_at(h1, jsonb_build_array(
+            jsonb_build_object('vehicle_id', t1, 'descriptor', 'front'),
+            jsonb_build_object('vehicle_id', t2, 'descriptor', NULL),
+            jsonb_build_object('vehicle_id', t13, 'descriptor', 'rear')),
+            now() - interval '2 hours');
+  rig2 := app.create_combination_at(h2, jsonb_build_array(
+            jsonb_build_object('vehicle_id', t3), jsonb_build_object('vehicle_id', t4)),
+            now() - interval '2 hours');
+  rig3 := app.create_combination_at(h3, jsonb_build_array(
+            jsonb_build_object('vehicle_id', t5), jsonb_build_object('vehicle_id', t6)),
+            now() - interval '2 hours');
+  rig4 := app.create_combination_at(h4, jsonb_build_array(
+            jsonb_build_object('vehicle_id', t7), jsonb_build_object('vehicle_id', t8)),
+            now() - interval '2 hours');
+  rig5 := app.create_combination_at(h5, jsonb_build_array(jsonb_build_object('vehicle_id', t9)),
+            now() - interval '2 hours');
+  rig6 := app.create_combination_at(h6, jsonb_build_array(
+            jsonb_build_object('vehicle_id', t10), jsonb_build_object('vehicle_id', t11)),
+            now() - interval '2 hours');
+  -- 58e's two bounded-instant legs, each on its own rig: both apply, and one
+  -- rig cannot serve two applies.
+  rig7 := app.create_combination_at(h8, jsonb_build_array(
+            jsonb_build_object('vehicle_id', t14), jsonb_build_object('vehicle_id', t15)),
+            now() - interval '2 hours');
+  rig8 := app.create_combination_at(h9, jsonb_build_array(
+            jsonb_build_object('vehicle_id', t16), jsonb_build_object('vehicle_id', t17)),
+            now() - interval '2 hours');
+
+  -- (b) The DoD, end to end. The driver captures the horse and two of its
+  -- three trailers, unticking the middle one — 000041 raises exactly one
+  -- FR-INS-063 warning (section 31 pins that half) — and the controller
+  -- applies it. The payload is section 53's, with the composition keys the
+  -- untick fills in. Two trailers survive the untick on purpose: with one, the
+  -- membership assertion below could not tell walk order from any other order.
+  PERFORM set_config('app.actor_id', drv::text, true);
+  reading := jsonb_build_object(
+    'vehicle_id', h1, 'position_id', p_run, 'tyre_id', NULL, 'pressure_kpa', 800,
+    'pressure_temperature', 'UNKNOWN', 'damage_flag', false, 'note', NULL,
+    'treads', '[12,13,14]'::jsonb, 'granularity_mm', 1.0, 'seconds', 30,
+    'warnings', '[]'::jsonb);
+  SELECT inspection_id INTO insp FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', h1,
+    'combination_id', rig1,
+    'observed_member_vehicle_ids', jsonb_build_array(h1, t1, t13),
+    'started_at', now() - interval '150 seconds', 'submitted_at', now(),
+    'duration_seconds', 150, 'completeness_pct', 100,
+    'device_id', 'suite', 'app_version', 'suite', 'warnings', '[]'::jsonb,
+    'readings', jsonb_build_array(reading)));
+  SELECT w.id INTO w1 FROM app.inspection_warning w
+   WHERE w.inspection_id = insp AND w.warning_code = 'FR-INS-063' AND w.source = 'SERVER';
+  SELECT count(*) INTO n FROM app.inspection_warning w
+   WHERE w.inspection_id = insp AND w.warning_code = 'FR-INS-063';
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 58b: the submit left % FR-INS-063 warnings, not 1', n; END IF;
+
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  new_rig := app.apply_composition_observation(w1, 'seen in the yard');
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig1;
+  IF started IS DISTINCT FROM (SELECT i.started_at FROM app.inspection i WHERE i.id = insp) THEN
+    RAISE EXCEPTION 'FAIL 58b: the offered rig ended at %, not at the capture''s started_at', started;
+  END IF;
+  IF new_rig IS NULL THEN RAISE EXCEPTION 'FAIL 58b: the apply opened no rig'; END IF;
+  SELECT string_agg(v.fleet_number || ':' || cm.sequence || ':' || COALESCE(cm.descriptor, '-'),
+                    ',' ORDER BY cm.sequence)
+    INTO members FROM app.combination_member cm
+    JOIN app.vehicle v ON v.id = cm.vehicle_id WHERE cm.combination_id = new_rig;
+  IF members IS DISTINCT FROM 'T58-H1:1:-,T58-T1:2:front,T58-T13:3:rear' THEN
+    RAISE EXCEPTION 'FAIL 58b: the new rig reads [%], not the observed members in the offered order', members;
+  END IF;
+  SELECT c.effective_from INTO started FROM app.combination c WHERE c.id = new_rig;
+  IF started IS DISTINCT FROM (SELECT i.started_at FROM app.inspection i WHERE i.id = insp) THEN
+    RAISE EXCEPTION 'FAIL 58b: the new rig starts at %, not at the capture''s started_at', started;
+  END IF;
+  SELECT o.resulting_combination_id INTO got FROM app.composition_observation o WHERE o.warning_id = w1;
+  IF got IS DISTINCT FROM new_rig THEN
+    RAISE EXCEPTION 'FAIL 58b: the row cites % as the resulting rig, not %', got, new_rig;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log a
+   WHERE a.entity_type = 'composition_observation' AND a.action = 'INSERT' AND a.actor_id = ctl
+     AND a.entity_id = (SELECT o.id FROM app.composition_observation o WHERE o.warning_id = w1);
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 58b: % audit rows for the resolution, expected 1', n; END IF;
+  -- The control the DoD turns on: the unticked trailer is free, which is only
+  -- observable by coupling it somewhere else. Without it, "the new rig has two
+  -- members" would pass even if the old rig had never been ended.
+  PERFORM app.create_combination(h7, jsonb_build_array(jsonb_build_object('vehicle_id', t2)));
+  RAISE NOTICE 'PASS  58b an applied report ends the offered rig at the capture''s instant, opens one with the observed members in the offered walk order, cites it, is audited, and frees the unticked trailer';
+
+  -- (c) One resolution per report, whichever way it is resolved.
+  BEGIN
+    PERFORM app.apply_composition_observation(w1, NULL);
+    RAISE EXCEPTION 'FAIL 58c: a report was applied twice';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'this report was already applied on %' THEN
+      RAISE EXCEPTION 'FAIL 58c: wrong message %', msg;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.dismiss_composition_observation(w1, 'changed my mind');
+    RAISE EXCEPTION 'FAIL 58c: an applied report was dismissed afterwards';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'this report was already applied on %' THEN
+      RAISE EXCEPTION 'FAIL 58c: wrong message %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  58c a report is resolved once, by apply or by dismissal, and the second attempt names what happened';
+
+  -- (d) A report the register has moved past. Each warning is planted with the
+  -- inspection it belongs to: the submit path is proven at 58b, and planting
+  -- lets each leg name its own condition instead of FR-INS-038's per-unit
+  -- window deciding what may run.
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, state)
+  VALUES (md5('t58istale')::uuid, t_id, h2, rig2, drv, gen_random_uuid(),
+          now() - interval '1 hour', now() - interval '1 hour', 'SYNCED');
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58istale')::uuid, 'FR-INS-063',
+          jsonb_build_array(h2, t3)::text, 'SERVER')
+  RETURNING id INTO w_stale;
+  PERFORM app.end_combination(rig2);
+  BEGIN
+    PERFORM app.apply_composition_observation(w_stale, NULL);
+    RAISE EXCEPTION 'FAIL 58d: a report against an ended rig was applied';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'stale: the rig ended on %' THEN
+      RAISE EXCEPTION 'FAIL 58d: wrong message %', msg;
+    END IF;
+  END;
+
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, state)
+  VALUES (md5('t58ivoid')::uuid, t_id, h3, rig3, drv, gen_random_uuid(),
+          now() - interval '1 hour', now() - interval '1 hour', 'SYNCED');
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58ivoid')::uuid, 'FR-INS-063',
+          jsonb_build_array(h3, t5)::text, 'SERVER')
+  RETURNING id INTO w_void;
+  PERFORM app.void_inspection(md5('t58ivoid')::uuid, 'wrong vehicle');
+  BEGIN
+    PERFORM app.apply_composition_observation(w_void, NULL);
+    RAISE EXCEPTION 'FAIL 58d: a report on a voided capture was applied';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'the inspection was voided; nothing to apply' THEN
+      RAISE EXCEPTION 'FAIL 58d: wrong message %', msg;
+    END IF;
+  END;
+
+  -- The offered rig is still open here (rig3 was never ended), so this leg
+  -- cannot be passing on the stale branch above.
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig3;
+  IF started IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 58d: the voided leg''s rig was ended, so the void check was not what refused';
+  END IF;
+
+  -- A warning of another kind is not a composition report, however it arrived.
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, state)
+  VALUES (md5('t58i4a')::uuid, t_id, h4, rig4, drv, gen_random_uuid(),
+          now() - interval '30 minutes', now() - interval '30 minutes', 'SYNCED');
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4a')::uuid, 'FR-OFF-016', NULL, 'SERVER')
+  RETURNING id INTO w_notours;
+  BEGIN
+    PERFORM app.apply_composition_observation(w_notours, NULL);
+    RAISE EXCEPTION 'FAIL 58d: a fitment-mismatch warning was applied as a composition';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'this warning is not a composition report' THEN
+      RAISE EXCEPTION 'FAIL 58d: wrong message %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  58d a stale rig, a voided capture and a warning of another kind are each refused in their own words';
+
+  -- (e) What the report itself says, and where the observed instant lands.
+  -- The three refusals hang off rig4, which stays open throughout, so none of
+  -- them writes a resolution row; the two bounded-instant legs that follow the
+  -- rig4 control apply, and each has its own rig for that reason.
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4a')::uuid, 'FR-INS-063', jsonb_build_array(h4, t7, t12)::text, 'SERVER')
+  RETURNING id INTO w_outside;
+  BEGIN
+    PERFORM app.apply_composition_observation(w_outside, NULL);
+    RAISE EXCEPTION 'FAIL 58e: a report naming a unit outside the rig was applied';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'the report names T58-T12, which is not in the offered rig; set the rig by hand' THEN
+      RAISE EXCEPTION 'FAIL 58e: wrong message %', msg;
+    END IF;
+  END;
+
+  -- An observed id no unit in this fleet answers to. It is outside the offered
+  -- rig like any other, and the refusal names the raw id because that is all
+  -- there is to name: an inner join to app.vehicle here would drop the id from
+  -- the check and let the resolution run as though the driver had never sent
+  -- it.
+  ghost := gen_random_uuid();
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4a')::uuid, 'FR-INS-063', jsonb_build_array(h4, t7, ghost)::text, 'SERVER')
+  RETURNING id INTO w_ghost;
+  BEGIN
+    PERFORM app.apply_composition_observation(w_ghost, NULL);
+    RAISE EXCEPTION 'FAIL 58e: a report naming a unit this fleet does not know was applied';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> format('the report names %s, which is not in the offered rig; set the rig by hand', ghost) THEN
+      RAISE EXCEPTION 'FAIL 58e: wrong message %', msg;
+    END IF;
+  END;
+
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4a')::uuid, 'FR-INS-063', jsonb_build_array(t7)::text, 'SERVER')
+  RETURNING id INTO w_nomotive;
+  BEGIN
+    PERFORM app.apply_composition_observation(w_nomotive, NULL);
+    RAISE EXCEPTION 'FAIL 58e: a report omitting the motive was applied';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'the report does not name T58-H4, the rig''s motive unit; set the rig by hand' THEN
+      RAISE EXCEPTION 'FAIL 58e: wrong message %', msg;
+    END IF;
+  END;
+
+  -- The control for all three: rig4 is untouched, so none of them
+  -- half-applied. Read here, before the two legs that DO write, so a later
+  -- write can never be mistaken for one of these three leaking through.
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig4;
+  IF started IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 58e: a refused report still ended the offered rig';
+  END IF;
+  SELECT count(*) INTO n FROM app.composition_observation o WHERE o.combination_id = rig4;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 58e: a refused report wrote % resolution row(s)', n; END IF;
+
+  -- A slow phone. The capture is stamped a day before the rig it names was
+  -- set, so the observed instant is the rig's own effective_from and the
+  -- offered rig becomes a zero-length record — set, and immediately
+  -- reported different — rather than a refusal a controller cannot act on (owner,
+  -- 8 Sep 2026). Its own rig: this leg applies, and one rig serves one apply.
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, state)
+  VALUES (md5('t58i4b')::uuid, t_id, h8, rig7, drv, gen_random_uuid(),
+          now() - interval '1 day', now() - interval '1 hour', 'SYNCED');
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4b')::uuid, 'FR-INS-063', jsonb_build_array(h8, t14)::text, 'SERVER')
+  RETURNING id INTO w_early;
+  SELECT c.effective_from INTO from_at FROM app.combination c WHERE c.id = rig7;
+  new_rig := app.apply_composition_observation(w_early, NULL);
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig7;
+  IF started IS DISTINCT FROM from_at THEN
+    RAISE EXCEPTION 'FAIL 58e: the slow phone''s rig ended at %, not at its own start (%)', started, from_at;
+  END IF;
+  IF new_rig IS NULL THEN
+    RAISE EXCEPTION 'FAIL 58e: the slow phone''s report opened no rig';
+  END IF;
+  SELECT c.effective_from INTO started FROM app.combination c WHERE c.id = new_rig;
+  IF started IS DISTINCT FROM from_at THEN
+    RAISE EXCEPTION 'FAIL 58e: the rig that replaced it starts at %, not at % where the last one ended', started, from_at;
+  END IF;
+
+  -- A fast phone. 000041 bounds submitted_at by the tenant's configured skew
+  -- and leaves started_at alone, so a started_at ahead of this server's clock
+  -- is reachable; the observed instant is then the server's own receipt.
+  -- received_at is planted rather than defaulted: the block is one
+  -- transaction, so a defaulted value would equal now() and equal the apply
+  -- instant too, and the assertion could not tell the server's receipt from
+  -- the controller's clock — which is the distinction the ruling turns on.
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, received_at, state)
+  VALUES (md5('t58i4c')::uuid, t_id, h9, rig8, drv, gen_random_uuid(),
+          now() + interval '1 hour', now(), now() - interval '30 minutes', 'SYNCED');
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4c')::uuid, 'FR-INS-063', jsonb_build_array(h9, t16)::text, 'SERVER')
+  RETURNING id INTO w_future;
+  SELECT i.received_at INTO received FROM app.inspection i WHERE i.id = md5('t58i4c')::uuid;
+  new_rig := app.apply_composition_observation(w_future, NULL);
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig8;
+  IF started IS DISTINCT FROM received THEN
+    RAISE EXCEPTION 'FAIL 58e: the fast phone''s rig ended at %, not at the server''s receipt (%)', started, received;
+  END IF;
+  IF started = (SELECT i.started_at FROM app.inspection i WHERE i.id = md5('t58i4c')::uuid) THEN
+    RAISE EXCEPTION 'FAIL 58e: the fast phone''s own stamp was taken as the observed instant';
+  END IF;
+  SELECT c.effective_from INTO started FROM app.combination c WHERE c.id = new_rig;
+  IF started IS DISTINCT FROM received THEN
+    RAISE EXCEPTION 'FAIL 58e: the rig that replaced it starts at %, not at the receipt (%)', started, received;
+  END IF;
+  RAISE NOTICE 'PASS  58e a report naming a unit outside the rig, naming an id this fleet does not know, or omitting the motive is refused and writes nothing; a slow phone lands on the rig''s own instant and a fast phone on the server''s receipt';
+
+  -- (f) The motive alone, and the dismissal.
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, state)
+  VALUES (md5('t58ialone')::uuid, t_id, h5, rig5, drv, gen_random_uuid(),
+          now() - interval '10 minutes', now() - interval '9 minutes', 'SYNCED');
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58ialone')::uuid, 'FR-INS-063', jsonb_build_array(h5)::text, 'SERVER')
+  RETURNING id INTO w_dismiss;
+  new_rig := app.apply_composition_observation(w_dismiss, NULL);
+  IF new_rig IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 58f: an uncoupled motive opened rig %, but U10 declines a one-member rig', new_rig;
+  END IF;
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig5;
+  IF started IS NULL THEN RAISE EXCEPTION 'FAIL 58f: the uncoupled motive''s rig is still open'; END IF;
+  SELECT o.resulting_combination_id INTO got FROM app.composition_observation o WHERE o.warning_id = w_dismiss;
+  IF got IS NOT NULL THEN RAISE EXCEPTION 'FAIL 58f: the row cites a resulting rig that was never opened'; END IF;
+
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, state)
+  VALUES (md5('t58idis')::uuid, t_id, h6, rig6, drv, gen_random_uuid(),
+          now() - interval '20 minutes', now() - interval '19 minutes', 'SYNCED');
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58idis')::uuid, 'FR-INS-063', jsonb_build_array(h6, t10)::text, 'SERVER')
+  RETURNING id INTO w_dismiss;
+  SELECT count(*) INTO open_before FROM app.combination c WHERE c.effective_to IS NULL;
+  BEGIN
+    PERFORM app.dismiss_composition_observation(w_dismiss, '   ');
+    RAISE EXCEPTION 'FAIL 58f: a dismissal with a blank reason was accepted';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'a dismissal carries a reason' THEN
+      RAISE EXCEPTION 'FAIL 58f: wrong message %', msg;
+    END IF;
+  END;
+  PERFORM app.dismiss_composition_observation(w_dismiss, '  the link was there  ');
+  SELECT count(*) INTO open_after FROM app.combination c WHERE c.effective_to IS NULL;
+  IF open_after <> open_before THEN
+    RAISE EXCEPTION 'FAIL 58f: a dismissal moved the open-rig count from % to %', open_before, open_after;
+  END IF;
+  SELECT o.action::text, o.note, o.resulting_combination_id INTO msg, members, got
+    FROM app.composition_observation o WHERE o.warning_id = w_dismiss;
+  IF msg IS DISTINCT FROM 'DISMISSED' OR members IS DISTINCT FROM 'the link was there' OR got IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 58f: the dismissal row reads [% / % / %]', msg, members, got;
+  END IF;
+  -- 58c's rule from the dismissal side, and it lives here because 58c has no
+  -- dismissed report to dismiss again: the resolved check answers first, and
+  -- composition_observation_once is underneath it if it ever does not.
+  BEGIN
+    PERFORM app.dismiss_composition_observation(w_dismiss, 'still not convinced');
+    RAISE EXCEPTION 'FAIL 58f: a report was dismissed twice';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'this report was already dismissed on %' THEN
+      RAISE EXCEPTION 'FAIL 58f: wrong message %', msg;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  58f an uncoupled motive ends its rig and opens none; a dismissal needs a trimmed reason, changes no rig, and happens once';
+
+  -- (g) Rule 1, both halves, plus the append-only grants. The cross-tenant
+  -- probe pairs the SAME call under both tenants: under the owning tenant it
+  -- answers TY022 "already applied", so a leak could not present as TY012 and
+  -- the refusal cannot be some other branch firing (lesson 2026-09-01).
+  PERFORM set_config('app.tenant_id', t_one::text, true);
+  SELECT count(*) INTO n FROM app.composition_observation;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 58g: another tenant reads % resolution row(s)', n; END IF;
+  BEGIN
+    PERFORM app.apply_composition_observation(w1, NULL);
+    RAISE EXCEPTION 'FAIL 58g: tenant 1 applied tenant 2''s report';
+  EXCEPTION WHEN SQLSTATE 'TY012' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'no such observation in this fleet' THEN
+      RAISE EXCEPTION 'FAIL 58g: wrong message %', msg;
+    END IF;
+  END;
+  -- WITH CHECK, not merely USING: every column is a value the policy is not
+  -- under test for — created_by is stamped explicitly with a real user of the
+  -- TARGET tenant and both combination references are that tenant's, so the
+  -- row is valid in every way but the one being proved (lesson 2026-09-01).
+  -- w_outside is unresolved, so composition_observation_once cannot answer
+  -- first.
+  BEGIN
+    INSERT INTO app.composition_observation
+      (tenant_id, warning_id, combination_id, action, note, created_by)
+    VALUES (t_id, w_outside, rig4, 'DISMISSED', 'smuggled', ctl);
+    RAISE EXCEPTION 'FAIL 58g: tenant 1 wrote a resolution into tenant 2';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  PERFORM set_config('app.tenant_id', t_id::text, true);
+  BEGIN
+    PERFORM app.apply_composition_observation(w1, NULL);
+    RAISE EXCEPTION 'FAIL 58g: the control call succeeded, so the TY012 above proved nothing';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'this report was already applied on %' THEN
+      RAISE EXCEPTION 'FAIL 58g: the control refused for a third reason: %', msg;
+    END IF;
+  END;
+  -- Rule 3 by grant. WHERE false: privilege is checked at rewrite time against
+  -- the table, not the predicate (section 45f's reasoning).
+  BEGIN
+    UPDATE app.composition_observation SET note = 'edited' WHERE false;
+    RAISE EXCEPTION 'FAIL 58g: app role can UPDATE app.composition_observation';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  BEGIN
+    DELETE FROM app.composition_observation WHERE false;
+    RAISE EXCEPTION 'FAIL 58g: app role can DELETE app.composition_observation';
+  EXCEPTION WHEN insufficient_privilege THEN NULL;
+  END;
+  RAISE NOTICE 'PASS  58g another tenant neither reads nor writes a resolution, the owning tenant''s same call refuses differently, and a resolution is never rewritten or removed';
+END $$;
 ROLLBACK;
 
 \echo ''
