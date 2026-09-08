@@ -92,6 +92,22 @@ func plantReport(t *testing.T, ctx context.Context, admin *pgx.Conn,
 	tenantID, motiveID, driverID uuid.UUID, observed []uuid.UUID, trailers ...uuid.UUID,
 ) (warningID, rigID, inspectionID uuid.UUID) {
 	t.Helper()
+	ids := make([]string, 0, len(observed))
+	for _, id := range observed {
+		ids = append(ids, id.String())
+	}
+	raw, err := json.Marshal(ids)
+	require.NoError(t, err)
+	return plantReportValued(t, ctx, admin, tenantID, motiveID, driverID, string(raw), trailers...)
+}
+
+// plantReportValued is plantReport for an observed set that Go cannot express
+// as a list of ids: 000041 forwards the phone's array as the raw text it
+// arrived in, so `[null]` is a value the register really holds.
+func plantReportValued(t *testing.T, ctx context.Context, admin *pgx.Conn,
+	tenantID, motiveID, driverID uuid.UUID, entered string, trailers ...uuid.UUID,
+) (warningID, rigID, inspectionID uuid.UUID) {
+	t.Helper()
 	require.NoError(t, admin.QueryRow(ctx,
 		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
 		 VALUES ($1, $2, now() - interval '2 hours') RETURNING id`,
@@ -117,17 +133,11 @@ func plantReport(t *testing.T, ctx context.Context, admin *pgx.Conn,
 		 RETURNING id`,
 		tenantID, motiveID, rigID, driverID, uuid.New()).Scan(&inspectionID))
 
-	ids := make([]string, 0, len(observed))
-	for _, id := range observed {
-		ids = append(ids, id.String())
-	}
-	raw, err := json.Marshal(ids)
-	require.NoError(t, err)
 	require.NoError(t, admin.QueryRow(ctx,
 		`INSERT INTO app.inspection_warning
 		   (tenant_id, inspection_id, warning_code, entered_value, source)
 		 VALUES ($1, $2, 'FR-INS-063', $3, 'SERVER') RETURNING id`,
-		tenantID, inspectionID, string(raw)).Scan(&warningID))
+		tenantID, inspectionID, entered).Scan(&warningID))
 	return warningID, rigID, inspectionID
 }
 
@@ -372,4 +382,61 @@ func TestObservationSurfaceIsDepotScoped(t *testing.T) {
 	require.NoError(t, json.Unmarshal(reach.Body.Bytes(), &result))
 	require.Nil(t, result.ResultingRigID, "the motive alone ends the rig and opens none (U10)")
 	require.False(t, rigIsOpen(t, ctx, admin, elsewhereRig))
+}
+
+// A JSON null in one driver's observed array must not take the list down for
+// everyone who can see that motive. 000041 forwards the phone's array as raw
+// text and its ::uuid cast lets a null through, and a report that will not
+// render is one no controller can reach to dismiss — so the row is projected
+// with the unusable element dropped, and both answers stay available.
+func TestObservationListRendersANullObservedID(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "obs-null")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+
+	motive, _, configID := plantMotive(t, ctx, admin, tenantID)
+	trailer1, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+	trailer2, trailer2Fleet := plantTrailer(t, ctx, admin, tenantID, configID)
+	healthy, _, _ := plantReport(t, ctx, admin, tenantID, motive, driver,
+		[]uuid.UUID{motive, trailer1}, trailer1, trailer2)
+
+	// The null alone, so app.apply_composition_observation refuses it: with a
+	// usable id beside it the apply would succeed and prove nothing about the
+	// recovery path.
+	nullMotive, nullMotiveFleet, nullConfig := plantMotive(t, ctx, admin, tenantID)
+	nullTrailer, nullTrailerFleet := plantTrailer(t, ctx, admin, tenantID, nullConfig)
+	broken, _, _ := plantReportValued(t, ctx, admin, tenantID, nullMotive, driver,
+		`[null]`, nullTrailer)
+
+	tn, ctl := tenantID.String(), controller.String()
+	got := listReports(t, h, tn, ctl)
+	require.Len(t, got, 2)
+	byID := map[string]observationRow{}
+	for _, row := range got {
+		byID[row.ID] = row
+	}
+	require.Equal(t, []string{trailer2Fleet}, byID[healthy.String()].Removed,
+		"a healthy report's removed set is unaffected by another report's null")
+	require.ElementsMatch(t, []string{}, byID[broken.String()].Observed,
+		"the unusable element is dropped, and it was the whole observed set")
+	require.ElementsMatch(t, []string{nullMotiveFleet, nullTrailerFleet},
+		byID[broken.String()].Removed,
+		"nothing was observed, so every member of the offered rig reads as removed")
+
+	// The two answers a controller can still give on it: apply is refused in
+	// the function's own words, and dismiss clears it from the list.
+	path := "/api/combinations/observations/" + broken.String()
+	refused := post(t, h, path+"/apply", tn, ctl, `{"note":"x"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, refused.Code, refused.Body.String())
+	ref := decodeRefusal(t, refused.Body.Bytes())
+	require.Equal(t, "TY022", ref.Code)
+	require.Contains(t, ref.Message, "carries no observed set")
+
+	dismissed := post(t, h, path+"/dismiss", tn, ctl, `{"note":"the phone sent nothing usable"}`)
+	require.Equal(t, http.StatusNoContent, dismissed.Code, dismissed.Body.String())
+	require.Len(t, listReports(t, h, tn, ctl), 1)
 }
