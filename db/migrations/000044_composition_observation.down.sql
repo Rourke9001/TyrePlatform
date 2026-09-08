@@ -1,3 +1,13 @@
+-- 000044 down, part B: the two functions depend on the cores part A's half
+-- restores, so they go first; the table's audit rows stay, because a
+-- migration that deleted them would be destroying facts rather than changing
+-- a schema (rule 3, CR-004 — 000035's and 000037's down files say the same).
+DROP FUNCTION app.dismiss_composition_observation(uuid, text);
+DROP FUNCTION app.apply_composition_observation(uuid, text);
+DROP TABLE app.composition_observation;
+DROP TYPE app.composition_action;
+ALTER TABLE app.inspection_warning DROP CONSTRAINT inspection_warning_tenant_id_id_key;
+
 -- 000044 down, part A: the two cores and the two wrappers go, and 000037's
 -- functions come back verbatim. The duplication is the point — a down
 -- migration restores the state its up migration found (000039's down says

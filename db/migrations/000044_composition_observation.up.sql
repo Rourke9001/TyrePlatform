@@ -204,3 +204,303 @@ SET search_path = app, pg_temp AS $$
 BEGIN
   RETURN app.create_combination_at(p_motive, p_towed, app.tenant_day_instant(p_effective_on));
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- Part B. What a controller decided about a reported difference.
+--
+-- app.inspection_warning is append-only (DR-021, 000022), so a resolution
+-- cannot be a column on the warning; it is its own record. One row per
+-- warning, ever: composition_observation_once is what makes a second apply a
+-- refusal rather than a second rig change, and it is the backstop under the
+-- FOR UPDATE the two functions take on the offered rig.
+--
+-- resulting_combination_id is NULL for a DISMISSED row and for an APPLIED row
+-- whose observed set is the motive alone: under D5 the driver can only untick,
+-- so "everything was uncoupled" ends the rig and opens nothing (U10 declines a
+-- one-member rig).
+
+-- The composite target every tenant-scoped FK in this schema points at
+-- (000004's shape); 000022 did not add it because nothing referenced a warning
+-- until now.
+ALTER TABLE app.inspection_warning
+  ADD CONSTRAINT inspection_warning_tenant_id_id_key UNIQUE (tenant_id, id);
+
+CREATE TYPE app.composition_action AS ENUM ('APPLIED', 'DISMISSED');
+
+CREATE TABLE app.composition_observation (
+  id                        uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id                 uuid NOT NULL REFERENCES app.tenant(id) ON DELETE CASCADE,
+  warning_id                uuid NOT NULL,
+  combination_id            uuid NOT NULL,
+  action                    app.composition_action NOT NULL,
+  resulting_combination_id  uuid,
+  note                      text,
+  created_at                timestamptz NOT NULL DEFAULT now(),
+  created_by                uuid DEFAULT app.current_actor_id(),
+  CONSTRAINT composition_observation_warning_fkey
+    FOREIGN KEY (tenant_id, warning_id)
+      REFERENCES app.inspection_warning (tenant_id, id) ON DELETE CASCADE,
+  CONSTRAINT composition_observation_offered_fkey
+    FOREIGN KEY (tenant_id, combination_id) REFERENCES app.combination (tenant_id, id),
+  CONSTRAINT composition_observation_resulting_fkey
+    FOREIGN KEY (tenant_id, resulting_combination_id) REFERENCES app.combination (tenant_id, id),
+  CONSTRAINT composition_observation_created_by_fkey
+    FOREIGN KEY (tenant_id, created_by) REFERENCES app.app_user (tenant_id, id),
+  CONSTRAINT composition_observation_once UNIQUE (tenant_id, warning_id),
+  -- A dismissal is a person overruling the driver's eyes, so it says why
+  -- (owner, 7 Sep 2026). An apply's note is optional: the rig change itself
+  -- is the record.
+  CONSTRAINT dismissal_has_note
+    CHECK (action <> 'DISMISSED' OR (note IS NOT NULL AND btrim(note) <> '')),
+  CONSTRAINT dismissal_opens_no_rig
+    CHECK (action <> 'DISMISSED' OR resulting_combination_id IS NULL)
+);
+
+-- composition_observation_once already indexes (tenant_id, warning_id), which
+-- is the resolution lookup. This one is the other question the surface asks:
+-- what has been decided about this rig.
+CREATE INDEX composition_observation_by_rig
+  ON app.composition_observation (tenant_id, combination_id);
+
+CALL app.enable_tenant_rls('app.composition_observation'::regclass);
+GRANT SELECT, INSERT ON app.composition_observation TO app_rw;
+-- Rule 3: a record of a decision is enforced by grant, not convention. A wrong
+-- resolution is compensated by a rig set by hand, never rewritten.
+REVOKE UPDATE, DELETE ON app.composition_observation FROM app_rw;
+
+-- ADR-0014: a table with a write path is audited.
+CREATE TRIGGER composition_observation_audited
+AFTER INSERT OR UPDATE ON app.composition_observation
+FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
+
+COMMENT ON TABLE app.composition_observation IS
+  'What a controller decided about one FR-INS-063 report: applied into a dated rig change, or dismissed with a reason (spec B6.4, TYRE-75). One row per warning; append-only.';
+
+-- The reconciliation BR-FIT-008 asks for: a difference a capture inferred is
+-- resolved by a person, and the resolution is a dated composition change, not
+-- an edit to anything already written. The instant is the phone's started_at
+-- bounded by the record's own server-stamped facts (owner, 8 Sep 2026; the SRS
+-- names no instant, so this is a ruling rather than a conflict) — the bound is
+-- computed below, where its reasoning sits beside it.
+--
+-- Returns the new rig's id, or NULL when the observed set is the motive alone.
+--
+-- Nothing here re-implements a rig rule: what may be coupled, INV-4 and its
+-- history, and the written-once triggers are 000037's, met through the cores
+-- 000044 part A created. What this function holds is what a trigger cannot —
+-- the lock, the order of two writes, and a message that names the report.
+CREATE FUNCTION app.apply_composition_observation(p_warning uuid, p_note text DEFAULT NULL)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  w_code      text;
+  w_value     text;
+  i_state     app.inspection_state;
+  i_started   timestamptz;
+  i_received  timestamptz;
+  observed_at timestamptz;
+  rig         app.combination;
+  resolved    app.composition_observation;
+  observed    uuid[];
+  outside     text;
+  motive_fn   text;
+  towed       jsonb;
+  new_rig     uuid;
+BEGIN
+  -- RLS-scoped, so this answers "visible to this tenant", never "exists".
+  -- One SELECT for the warning and its inspection: a warning is only ever
+  -- read through the capture that raised it.
+  SELECT w.warning_code, w.entered_value, i.state, i.started_at, i.received_at
+    INTO w_code, w_value, i_state, i_started, i_received
+    FROM app.inspection_warning w
+    JOIN app.inspection i ON i.id = w.inspection_id
+   WHERE w.id = p_warning;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such observation in this fleet';
+  END IF;
+  IF w_code IS DISTINCT FROM 'FR-INS-063' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'this warning is not a composition report';
+  END IF;
+  IF i_state = 'VOIDED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'the inspection was voided; nothing to apply',
+      HINT    = 'a voided capture is not evidence of a coupling (FR-INS-012)';
+  END IF;
+
+  -- The rig the driver was offered, locked before the resolved check so two
+  -- controllers acting on one report serialise here; composition_observation_once
+  -- is the backstop, not the mechanism. Lock first, then read: 000037's
+  -- end_combination takes its FOR UPDATE in the same statement that reads the
+  -- row, for the same reason.
+  SELECT c.* INTO rig
+    FROM app.combination c
+    JOIN app.inspection i ON i.combination_id = c.id
+   WHERE i.id = (SELECT w.inspection_id FROM app.inspection_warning w WHERE w.id = p_warning)
+     FOR UPDATE OF c;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'the report names no rig; set the rig by hand';
+  END IF;
+
+  SELECT o.* INTO resolved FROM app.composition_observation o
+   WHERE o.warning_id = p_warning;
+  IF FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = format('this report was already %s on %s',
+                       lower(resolved.action::text), resolved.created_at);
+  END IF;
+  IF rig.effective_to IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = format('stale: the rig ended on %s', rig.effective_to),
+      HINT    = 'dismiss the report; the coupling it describes is history';
+  END IF;
+
+  -- 000041 stores the observed set as the raw JSON array text the payload
+  -- carried, motive included (its box is disabled and checked). A value that
+  -- is not an array reaches the ::jsonb cast as 22P02, which
+  -- refusalForPgError maps to invalid_submission — honest, and unreachable
+  -- from the submit path that writes these rows.
+  IF w_value IS NULL OR jsonb_typeof(w_value::jsonb) <> 'array' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'the report carries no observed set; set the rig by hand';
+  END IF;
+  SELECT array_agg(e::uuid) INTO observed
+    FROM jsonb_array_elements_text(w_value::jsonb) e;
+
+  -- D5 permits removals only, so anything the report names that the offered
+  -- rig did not hold is a report this function cannot turn into a composition
+  -- — the FULL JOIN in 000041 raises the warning in either direction, so the
+  -- shape is reachable on the wire even though the client cannot produce it.
+  --
+  -- LEFT JOIN, and the id itself when no unit answers to it: an observed id
+  -- this tenant cannot see is not in the offered rig either, and an inner join
+  -- would drop it from this check and let the resolution proceed as though the
+  -- driver had never named it.
+  SELECT COALESCE(v.fleet_number, o.id::text) INTO outside
+    FROM unnest(observed) o(id)
+    LEFT JOIN app.vehicle v ON v.id = o.id
+   WHERE NOT EXISTS (SELECT 1 FROM app.combination_member cm
+                      WHERE cm.combination_id = rig.id AND cm.vehicle_id = o.id)
+   LIMIT 1;
+  IF outside IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = format('the report names %s, which is not in the offered rig; set the rig by hand', outside);
+  END IF;
+  IF NOT (rig.motive_vehicle_id = ANY(observed)) THEN
+    SELECT v.fleet_number INTO motive_fn FROM app.vehicle v WHERE v.id = rig.motive_vehicle_id;
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = format('the report does not name %s, the rig''s motive unit; set the rig by hand', motive_fn);
+  END IF;
+
+  -- The observed instant (owner, 8 Sep 2026): the phone's started_at, bounded
+  -- by the server's own facts about this very record. The server's time of
+  -- hearing is not the time of seeing — ADR-0009's outbox can hold a submit
+  -- for days, so received_at or the controller's apply instant would date the
+  -- coupling change days after the driver saw the trailer gone — and the
+  -- phone's clock is untrusted, so it is used only inside the window the
+  -- record can defend. A slow phone lands on the rig's own instant, which is
+  -- an honest zero-length rig: set, then immediately reported different. A
+  -- fast phone lands on the instant the server received the submit.
+  --
+  -- This is not the clamp lesson 2026-09-03 forbids: that one clamps a
+  -- user-supplied date onto ANOTHER event's instant, which ties two events
+  -- together and leaves an as-of read unable to order them. Both bounds here
+  -- are this record's own server-stamped facts, and combination_member_in_order
+  -- (000037) compares strictly, so an end and a start at one instant stay
+  -- ordered.
+  observed_at := greatest(rig.effective_from, least(i_started, i_received));
+
+  PERFORM app.end_combination_at(rig.id, observed_at);
+
+  -- The observed members in the offered rig's own walk order, descriptors
+  -- carried: the driver reported which units were absent, not a new order.
+  -- combination_member_in_order compares c.effective_to > starts strictly, so
+  -- a member leaving at this instant may join the rig starting at it.
+  SELECT jsonb_agg(jsonb_build_object('vehicle_id', cm.vehicle_id, 'descriptor', cm.descriptor)
+                   ORDER BY cm.sequence)
+    INTO towed
+    FROM app.combination_member cm
+   WHERE cm.combination_id = rig.id
+     AND cm.vehicle_id = ANY(observed)
+     AND cm.vehicle_id <> rig.motive_vehicle_id;
+  IF towed IS NOT NULL THEN
+    new_rig := app.create_combination_at(rig.motive_vehicle_id, towed, observed_at);
+  END IF;
+
+  INSERT INTO app.composition_observation
+    (tenant_id, warning_id, combination_id, action, resulting_combination_id, note)
+  VALUES (app.current_tenant_id(), p_warning, rig.id, 'APPLIED', new_rig, NULLIF(btrim(p_note), ''));
+  RETURN new_rig;
+END $$;
+
+REVOKE ALL ON FUNCTION app.apply_composition_observation(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.apply_composition_observation(uuid, text) TO app_rw;
+
+-- The other half of BR-FIT-008's resolution: the controller looked and the
+-- rig is right, or the report is too old to act on. It writes the record and
+-- touches no rig — which is what makes "a dismissed report changed nothing"
+-- an assertion section 58 can make about the register, not about a flag.
+--
+-- The visibility, kind and resolved checks are apply's, in apply's order and
+-- for apply's reasons; a stale rig is deliberately NOT refused here, because
+-- dismissing is exactly what a stale report is for.
+CREATE FUNCTION app.dismiss_composition_observation(p_warning uuid, p_note text)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  w_code   text;
+  i_state  app.inspection_state;
+  rig      app.combination;
+  resolved app.composition_observation;
+BEGIN
+  -- Required by the owner's 7 Sep 2026 ruling (TYRE-75 comment 12216).
+  IF p_note IS NULL OR btrim(p_note) = '' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'a dismissal carries a reason',
+      HINT    = 'say why the driver''s report is not being applied';
+  END IF;
+  SELECT w.warning_code, i.state INTO w_code, i_state
+    FROM app.inspection_warning w
+    JOIN app.inspection i ON i.id = w.inspection_id
+   WHERE w.id = p_warning;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such observation in this fleet';
+  END IF;
+  IF w_code IS DISTINCT FROM 'FR-INS-063' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'this warning is not a composition report';
+  END IF;
+  IF i_state = 'VOIDED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'the inspection was voided; nothing to apply',
+      HINT    = 'a voided capture is not evidence of a coupling (FR-INS-012)';
+  END IF;
+
+  SELECT c.* INTO rig
+    FROM app.combination c
+    JOIN app.inspection i ON i.combination_id = c.id
+   WHERE i.id = (SELECT w.inspection_id FROM app.inspection_warning w WHERE w.id = p_warning)
+     FOR UPDATE OF c;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = 'the report names no rig; set the rig by hand';
+  END IF;
+
+  SELECT o.* INTO resolved FROM app.composition_observation o
+   WHERE o.warning_id = p_warning;
+  IF FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY022',
+      MESSAGE = format('this report was already %s on %s',
+                       lower(resolved.action::text), resolved.created_at);
+  END IF;
+
+  INSERT INTO app.composition_observation
+    (tenant_id, warning_id, combination_id, action, note)
+  VALUES (app.current_tenant_id(), p_warning, rig.id, 'DISMISSED', btrim(p_note));
+END $$;
+
+REVOKE ALL ON FUNCTION app.dismiss_composition_observation(uuid, text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION app.dismiss_composition_observation(uuid, text) TO app_rw;
