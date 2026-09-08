@@ -117,7 +117,7 @@ The code table:
 
 | Source | `code` | Status |
 | --- | --- | --- |
-| Database, named refusals | `TY003`..`TY019` (`TY008`, `TY010` excepted), verbatim — `TY020` is defined in 000040, not mapped: unreachable through any route | 409 / 422 |
+| Database, named refusals | `TY003`..`TY022` (`TY008`, `TY010`, `TY020` excepted), verbatim — `TY020` is defined in 000040, not mapped: unreachable through any route | 409 / 422 |
 | Database, integrity classes `23502` `23503` `23514` `22P02` `22023` `22007` `22008` | `invalid_submission` | 422 |
 | Database, other unique violation `23505`, and `23P01` (`vehicle_driver_no_overlap`, 000026) | `conflict` | 409 |
 | `errVehicleNotVisible` (Go scope check) | `TY007` | 422 |
@@ -195,3 +195,11 @@ stays out on `TY008`'s reasoning: no route inserts a reading outside
 able to fail. The code table's named-refusal row now reads `TY003`..`TY019`
 (`TY008`, `TY010` excepted); `TY020` is defined in 000040, not mapped:
 unreachable through any route.
+
+**Amended 2026-09-08 (TYRE-75):** `TY022` joins the table — a composition
+observation refused (000044) — which `POST /api/combinations/observations/{id}/apply`
+and `/dismiss` reach, with a `submitStatus` entry, a `TestRefusalForPgError`
+row and an endpoint test that reaches it. The same edit brings the row into
+line with `TY021` (000041), which had an entry and a test from the day it was
+raised but was never named here. `TY008`, `TY010` and `TY020` stay out on the
+reasoning already recorded above.
