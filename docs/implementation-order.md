@@ -498,7 +498,7 @@ controller's rig and fitment work collides with that gating, with TYRE-82's
 trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 **Units · Tyres · Rigs · Fitments**.
 
-### B6 — the rig-setup surface — **slice 4 in progress**
+### B6 — the rig-setup surface — **slice 4 in review**
 
 *Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
 `20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch;
@@ -516,7 +516,7 @@ states. Slice plans are gitignored under `docs/superpowers/plans/`.
 | B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | merged 5 Sep 2026, PR #44 |
 | B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | `TYRE-101-rig-rotation` | merged 5 Sep 2026, PR #45 |
 | B6.3.5 | TYRE-143 sweep remediation, slices R1–R4 (`docs/pre-b64-remediation.md`): TYRE-144/145/146 Critical plus the Important set the sweep names as blockers | `TYRE-144-immutable-history` (R1), `TYRE-146-capture-discard` (R2), `TYRE-158-api-isolation` (R3), `TYRE-177-sweep-tests` (R4) | R1 merged 6 Sep 2026, PR #47; R2 merged 6 Sep 2026, PR #48 (migration 000041); R3 merged 7 Sep 2026, PR #49 (migration 000042); R4 merged 7 Sep 2026, PR #50 (migration 000043, tests only). **B6.3.5 complete**; B6.4 unblocked |
-| B6.4 | TYRE-75 — reconcile reported composition into a dated rig change; closes TYRE-222 (rule 1) and TYRE-226 (four unit-path writes) | `TYRE-75-reconcile-composition` | in progress — migration 000044, suite section 58, SQLSTATE TY022 |
+| B6.4 | TYRE-75 — reconcile reported composition into a dated rig change; closes TYRE-222 (rule 1) and TYRE-226 (four unit-path writes) | `TYRE-75-reconcile-composition` | in review — PR #51 (migration 000044, suite section 58, SQLSTATE TY022); follow-ups TYRE-229–235 |
 | *(B6.5)* | TYRE-73 — the in-transport lock | **only if the owner un-parks it** | parked |
 
 **Correction, 3 Sep 2026 (spec U1):** this page sequenced TYRE-73 inside
