@@ -1062,3 +1062,28 @@ section as it stands in the suite, because an empty cut piped into psql
 exits 0 and reads like a pass. For file content that must contain
 backslashes, write it with the Write or Edit tool rather than a heredoc.
 
+## 2026-09-08 — Dropping a policy's WITH CHECK weakens nothing, and an audited table refuses twice (TYRE-75)
+
+**What happened:** a red proof was meant to show suite section 58g's
+cross-tenant INSERT probe has teeth, by re-creating
+`app.composition_observation`'s policy with `USING` only. The section stayed
+green. Two probes explained it, and both are traps a mutation-testing pass
+will hit again. First, a `FOR ALL` policy that omits `WITH CHECK` reuses its
+`USING` expression for writes, so the "mutation" was the original policy —
+the refusal named `composition_observation` itself. Second, with the honest
+mutation `WITH CHECK (true)`, the row landed and the table's ADR-0014 audit
+trigger then inserted an `app.audit_log` row carrying the *other* tenant's
+`tenant_id`, which `audit_log`'s own policy refused with the identical
+42501. An `EXCEPTION WHEN insufficient_privilege THEN NULL` probe cannot
+tell the two apart, so the assertion — and the comment above it claiming to
+prove "WITH CHECK, not merely USING" — asserted less than it said.
+
+**The rule:** to isolate a policy's WITH CHECK half, mutate it to
+`WITH CHECK (true)`; omitting the clause is a no-op (`polwithcheck` stores
+NULL and the executor falls back to `polqual`, which is why the catalogue
+shape sweep still flags it). And on any audited tenant table, trap the
+refusal's message text for the table under test —
+`… for table "composition_observation"` — never the bare
+`insufficient_privilege`, because the audit chain answers with the same
+SQLSTATE from a different table.
+
