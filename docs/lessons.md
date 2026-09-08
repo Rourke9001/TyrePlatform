@@ -1040,3 +1040,25 @@ its `\echo` banner to its `ROLLBACK;` and pipe it through
 `docker exec -i tyre-pg psql -U app_login -d tyre -v ON_ERROR_STOP=1`. Expect
 the section's own attributable FAIL line, then REVOKE and re-run the cut
 section for its PASS before the full gate.
+
+## 2026-09-08 — The Bash tool halves doubled backslashes before the shell sees them (TYRE-75)
+
+**What happened:** cutting a suite section with the entry above's recipe,
+`sed -n "/^\\\\echo '== 58\\./,/^ROLLBACK;$/p" db/tests/004_tests.sql`
+printed nothing — which reads as "that section is not in the file" rather
+than as a broken pattern. The section was there. A probe settled it: a
+script invoked as `probe.sh 'x\\y'` — single quotes, where bash preserves
+both characters — reported its argument as `x\y`. Every doubled backslash
+loses one before bash parses the command, so sed received `\e`, which is
+not a literal backslash, and the range never opened. The same collapse
+silently rewrites heredoc bodies, so a file written that way is wrong in
+the same invisible way.
+
+**The rule:** never spell a literal backslash as `\\` through the Bash
+tool. In a regex use a bracket expression, which survives because it holds
+a single backslash: `sed -n "/^[\]echo '== NN\./,/^ROLLBACK;$/p"`. Prove
+any such cut before trusting it — diff the extracted text against the
+section as it stands in the suite, because an empty cut piped into psql
+exits 0 and reads like a pass. For file content that must contain
+backslashes, write it with the Write or Edit tool rather than a heredoc.
+
