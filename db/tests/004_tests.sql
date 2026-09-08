@@ -8506,7 +8506,8 @@ DECLARE
   rig7 uuid; rig8 uuid;
   insp uuid; new_rig uuid; got uuid; open_before int; open_after int;
   w1 uuid; w_stale uuid; w_void uuid; w_notours uuid;
-  w_outside uuid; w_ghost uuid; w_nomotive uuid; w_early uuid; w_future uuid;
+  w_outside uuid; w_ghost uuid; w_nomotive uuid; w_nullel uuid;
+  w_early uuid; w_future uuid;
   w_dismiss uuid;
   ghost uuid; started timestamptz; from_at timestamptz; received timestamptz;
   n int; msg text; members text;
@@ -8767,9 +8768,32 @@ BEGIN
     END IF;
   END;
 
-  -- The control for all three: rig4 is untouched, so none of them
+  -- A JSON null in the array 000041 forwards. It casts to a NULL id, which
+  -- every check below reads as "no unit named here" rather than as a bad
+  -- report: the outside check's COALESCE renders it absent and
+  -- `= ANY(observed)` answers NULL, so an unrefused one would end rig4 and
+  -- open T58-H4 alone. Planted as text because jsonb_build_array cannot
+  -- carry a bare SQL NULL as a JSON null.
+  INSERT INTO app.inspection_warning (tenant_id, inspection_id, warning_code, entered_value, source)
+  VALUES (t_id, md5('t58i4a')::uuid, 'FR-INS-063', '[null]', 'SERVER')
+  RETURNING id INTO w_nullel;
+  BEGIN
+    PERFORM app.apply_composition_observation(w_nullel, NULL);
+    RAISE EXCEPTION 'FAIL 58e: a report whose observed set is a null element was applied';
+  EXCEPTION WHEN SQLSTATE 'TY022' THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg <> 'the report carries no observed set; set the rig by hand' THEN
+      RAISE EXCEPTION 'FAIL 58e: wrong message %', msg;
+    END IF;
+  END;
+  SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig4;
+  IF started IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 58e: the null-element report ended the offered rig at %', started;
+  END IF;
+
+  -- The control for all four: rig4 is untouched, so none of them
   -- half-applied. Read here, before the two legs that DO write, so a later
-  -- write can never be mistaken for one of these three leaking through.
+  -- write can never be mistaken for one of these four leaking through.
   SELECT c.effective_to INTO started FROM app.combination c WHERE c.id = rig4;
   IF started IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 58e: a refused report still ended the offered rig';
@@ -8830,7 +8854,7 @@ BEGIN
   IF started IS DISTINCT FROM received THEN
     RAISE EXCEPTION 'FAIL 58e: the rig that replaced it starts at %, not at the receipt (%)', started, received;
   END IF;
-  RAISE NOTICE 'PASS  58e a report naming a unit outside the rig, naming an id this fleet does not know, or omitting the motive is refused and writes nothing; a slow phone lands on the rig''s own instant and a fast phone on the server''s receipt';
+  RAISE NOTICE 'PASS  58e a report naming a unit outside the rig, naming an id this fleet does not know, omitting the motive, or carrying a null element is refused and writes nothing; a slow phone lands on the rig''s own instant and a fast phone on the server''s receipt';
 
   -- (f) The motive alone, and the dismissal.
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
