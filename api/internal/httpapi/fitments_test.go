@@ -142,6 +142,81 @@ func TestFitTyreHappyPath(t *testing.T) {
 	require.Nil(t, elsewhere.Fitment, "the same position id on the other unit stays empty")
 }
 
+// plantDepotPosition gives a plantDepotWithVehicle unit — which plants no
+// positions of its own — one steer-left position on the configuration that
+// unit actually reads back, since each call to plantDepotWithVehicle mints a
+// fresh axle configuration and no INSERT can serve two units at once.
+func plantDepotPosition(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT configuration_id FROM app.vehicle WHERE tenant_id = $1 AND id = $2`,
+		tenantID, vehicleID).Scan(&configID))
+	var posID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.position
+		   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1L', 1, 1, 'STEER'::app.axle_class, 'LEFT'::app.side, 'SINGLE'::app.fitment_slot, false)
+		 RETURNING id`,
+		tenantID, configID,
+	).Scan(&posID))
+	return posID
+}
+
+// FR-AUT-008 (errata D1) scopes a depot manager's writes to their own depots,
+// and these four predate that decision (ADR-0013's accepted gap, TYRE-226).
+// The controller making the same call is the control: without it, a handler
+// that refused everyone would pass.
+func TestFitTyreIsDepotScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "fit-depot")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	mineDepot, mineFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	_, elsewhereFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+
+	unitID := func(fleet string) uuid.UUID {
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet).Scan(&id))
+		return id
+	}
+	mine, elsewhere := unitID(mineFleet), unitID(elsewhereFleet)
+	minePos := plantDepotPosition(t, ctx, admin, tenantID, mine)
+	elsewherePos := plantDepotPosition(t, ctx, admin, tenantID, elsewhere)
+
+	suffix := uuid.NewString()[:8]
+	mineTyre := plantTyre(t, ctx, admin, tenantID, "FIT-DEP-MINE-"+suffix, nil)
+	elsewhereTyre := plantTyre(t, ctx, admin, tenantID, "FIT-DEP-ELSE-"+suffix, nil)
+
+	rec := post(t, h, "/api/vehicles/"+elsewhere.String()+"/fitments",
+		tenantID.String(), manager.String(), fitBody(elsewhereTyre, elsewherePos, "9.0", int64Ptr(1000)))
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "not_found", ref.Code)
+
+	// the refused write must not have written
+	var open int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.fitment WHERE vehicle_id = $1 AND removed_at IS NULL`,
+		elsewhere).Scan(&open))
+	require.Zero(t, open)
+
+	// control: the same call on the manager's own unit, and the controller's
+	// on the out-of-depot one, both land
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+mine.String()+"/fitments",
+			tenantID.String(), manager.String(), fitBody(mineTyre, minePos, "9.0", int64Ptr(1000))).Code)
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+elsewhere.String()+"/fitments",
+			tenantID.String(), controller.String(), fitBody(elsewhereTyre, elsewherePos, "9.0", int64Ptr(1000))).Code)
+}
+
 // ADR-0012's TY009 deferral discharged: the trigger in 000025 fires through
 // app.fit_tyre on a unit that has an odometer, and submitStatus is what turns
 // it into a 422 the client can act on rather than a 500 the outbox retries
@@ -266,6 +341,109 @@ func TestRemoveFitmentWritesProvenance(t *testing.T) {
 
 	require.Nil(t, fitmentAt(t, h, mine.String(), tenantID.String(), controller.String(), "1L").Fitment,
 		"the position is empty once the fitment is closed")
+}
+
+// plantDepotPositions gives a plantDepotWithVehicle unit the two running
+// positions TestRotateTyresIsDepotScoped needs to have something to rotate,
+// on the configuration that unit actually reads back — plantUnitFixture's
+// column list and enum labels, copied exactly.
+func plantDepotPositions(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID) (left, right uuid.UUID) {
+	t.Helper()
+	var configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT configuration_id FROM app.vehicle WHERE tenant_id = $1 AND id = $2`,
+		tenantID, vehicleID).Scan(&configID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.position
+		   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1L', 1, 1, 'STEER'::app.axle_class, 'LEFT'::app.side, 'SINGLE'::app.fitment_slot, false)
+		 RETURNING id`,
+		tenantID, configID,
+	).Scan(&left))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.position
+		   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1R', 2, 1, 'STEER'::app.axle_class, 'RIGHT'::app.side, 'SINGLE'::app.fitment_slot, false)
+		 RETURNING id`,
+		tenantID, configID,
+	).Scan(&right))
+	return left, right
+}
+
+// FR-AUT-008 (errata D1) scopes a depot manager's writes to their own depots,
+// and these four predate that decision (ADR-0013's accepted gap, TYRE-226).
+// The controller making the same call is the control: without it, a handler
+// that refused everyone would pass.
+func TestRotateTyresIsDepotScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "rotate-depot")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	mineDepot, mineFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	_, elsewhereFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+
+	unitID := func(fleet string) uuid.UUID {
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet).Scan(&id))
+		return id
+	}
+	mine, elsewhere := unitID(mineFleet), unitID(elsewhereFleet)
+	mineLeft, mineRight := plantDepotPositions(t, ctx, admin, tenantID, mine)
+	elsewhereLeft, elsewhereRight := plantDepotPositions(t, ctx, admin, tenantID, elsewhere)
+
+	suffix := uuid.NewString()[:8]
+	mineLeftTyre := plantTyre(t, ctx, admin, tenantID, "ROT-DEP-MINE-L-"+suffix, nil)
+	mineRightTyre := plantTyre(t, ctx, admin, tenantID, "ROT-DEP-MINE-R-"+suffix, nil)
+	elsewhereLeftTyre := plantTyre(t, ctx, admin, tenantID, "ROT-DEP-ELSE-L-"+suffix, nil)
+	elsewhereRightTyre := plantTyre(t, ctx, admin, tenantID, "ROT-DEP-ELSE-R-"+suffix, nil)
+
+	// fit as the controller, whose reach is tenant-wide, so both units carry
+	// something to rotate regardless of which depot this test is proving
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+mine.String()+"/fitments", tenantID.String(), controller.String(),
+			fitBody(mineLeftTyre, mineLeft, "9.0", int64Ptr(1000))).Code)
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+mine.String()+"/fitments", tenantID.String(), controller.String(),
+			fitBody(mineRightTyre, mineRight, "8.0", int64Ptr(1000))).Code)
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+elsewhere.String()+"/fitments", tenantID.String(), controller.String(),
+			fitBody(elsewhereLeftTyre, elsewhereLeft, "9.0", int64Ptr(1000))).Code)
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+elsewhere.String()+"/fitments", tenantID.String(), controller.String(),
+			fitBody(elsewhereRightTyre, elsewhereRight, "8.0", int64Ptr(1000))).Code)
+
+	swap := fmt.Sprintf(`{"moves":[{"tyreId":%q,"toPositionId":%q,"treadMm":"8.5"},
+	                              {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}],"odometer":1500}`,
+		elsewhereLeftTyre, elsewhereRight, elsewhereRightTyre, elsewhereLeft)
+	rec := post(t, h, "/api/vehicles/"+elsewhere.String()+"/rotations",
+		tenantID.String(), manager.String(), swap)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "not_found", ref.Code)
+
+	// the refused rotation must not have moved anything
+	left := fitmentAt(t, h, elsewhere.String(), tenantID.String(), controller.String(), "1L")
+	right := fitmentAt(t, h, elsewhere.String(), tenantID.String(), controller.String(), "1R")
+	require.NotNil(t, left.Fitment)
+	require.NotNil(t, right.Fitment)
+	require.Equal(t, elsewhereLeftTyre.String(), left.Fitment.TyreID, "the refused rotation moved nothing")
+	require.Equal(t, elsewhereRightTyre.String(), right.Fitment.TyreID, "the refused rotation moved nothing")
+
+	// control: the manager's own unit, and the controller's on the
+	// out-of-depot one, both land
+	mineSwap := fmt.Sprintf(`{"moves":[{"tyreId":%q,"toPositionId":%q,"treadMm":"8.5"},
+	                              {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}],"odometer":1500}`,
+		mineLeftTyre, mineRight, mineRightTyre, mineLeft)
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+mine.String()+"/rotations", tenantID.String(), manager.String(), mineSwap).Code)
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+elsewhere.String()+"/rotations", tenantID.String(), controller.String(), swap).Code)
 }
 
 // FR-FIT-010/FR-FIT-014: a rotation is one set of moves or none of them.

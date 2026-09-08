@@ -459,6 +459,52 @@ func TestAssignDriverToVehicle(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 }
 
+// FR-AUT-008 (errata D1) scopes a depot manager's writes to their own depots,
+// and these four predate that decision (ADR-0013's accepted gap, TYRE-226).
+// The controller making the same call is the control: without it, a handler
+// that refused everyone would pass.
+func TestAssignDriverIsDepotScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "assign-depot")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	mineDepot, mineFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	_, elsewhereFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+
+	unitID := func(fleet string) uuid.UUID {
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet).Scan(&id))
+		return id
+	}
+	mine, elsewhere := unitID(mineFleet), unitID(elsewhereFleet)
+
+	body := `{"userId":"` + driver.String() + `","fromDate":"2026-01-01"}`
+	rec := post(t, h, "/api/vehicles/"+elsewhere.String()+"/drivers", tenantID.String(), manager.String(), body)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "not_found", ref.Code)
+
+	// the refused write must not have written
+	var open int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1`, elsewhere).Scan(&open))
+	require.Zero(t, open)
+
+	// control: the same call on the manager's own unit, and the controller's
+	// on the out-of-depot one, both land
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+mine.String()+"/drivers", tenantID.String(), manager.String(), body).Code)
+	require.Equal(t, http.StatusCreated,
+		post(t, h, "/api/vehicles/"+elsewhere.String()+"/drivers", tenantID.String(), controller.String(), body).Code)
+}
+
 // app.vehicle_driver carries three composite tenant FKs (000004, 000017), not
 // tenant_isolation's usual one: (tenant_id, vehicle_id), (tenant_id, user_id)
 // and (tenant_id, created_by). Leaving any of the three to a default or to a

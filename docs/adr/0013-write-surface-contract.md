@@ -217,8 +217,9 @@ surface — GET/PATCH `/api/vehicles/{id}`, `POST /api/vehicles/{id}/status`
 and its three sub-resource lists — narrows a `DEPOT_MANAGER`'s writes to
 its own depot by composing `unitSource` (FR-AUT-008, TYRE-162);
 `createVehicle` and this ADR's other admin write surfaces stay tenant-wide,
-as do four unit-path writes that predate the decision (TYRE-226), with a
-unit created or cleared with no `homeDepotId` left as TYRE-222's residual.
+and the four unit-path writes that predated the decision compose it too
+(TYRE-226, 7 Sep 2026), with a unit created or cleared with no `homeDepotId`
+left as TYRE-222's residual.
 
 **Revisit when:** TYRE-83 narrows the creatable-role list to `InviteDriver`
 for `CONTROLLER` and `DEPOT_MANAGER`; migration 000042 (TYRE-172) added the
@@ -275,11 +276,12 @@ more than writing the assumption down first.
   three sub-resource lists — composes `unitSource` (FR-AUT-008, TYRE-162)
   to narrow a `DEPOT_MANAGER`'s writes to its own depot, the same view
   ADR-0006 defined for reads. `createVehicle` and the other admin write
-  surfaces this ADR governs stay tenant-wide, and so do four unit-path
-  writes that predate the decision (`fitTyre`, `rotateTyres`,
-  `assignDriver`, `scheduleInspectionTask`) — TYRE-226 owns narrowing
-  those, and TYRE-222 owns a unit created or cleared with no
-  `homeDepotId`.
+  surfaces this ADR governs stay tenant-wide except for the home depot a
+  depot-scoped creator may name (TYRE-222, below). The four unit-path
+  writes that predated the decision — `fitTyre`, `rotateTyres`,
+  `assignDriver`, `scheduleInspectionTask` — compose the same `unitSource`
+  pre-check as of TYRE-226 (7 Sep 2026), so a write and a read now answer
+  the same question about the same unit.
 
 ## Accepted gaps
 

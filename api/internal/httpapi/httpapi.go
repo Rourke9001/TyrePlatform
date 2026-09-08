@@ -651,10 +651,11 @@ type fleetUnitJSON struct {
 // whole tenant — is the exception earned only by ScopeTenant. A role added
 // later without a scope entry lands on the narrow default rather than
 // silently reading everything (FR-AUT-006/007/008). The unit read, its
-// PATCH and status write, and its fitment, driver and task lists compose
-// this (FR-AUT-008, TYRE-162, owner 6 Sep 2026); the remaining unit-path
-// writes — fitTyre, rotateTyres, assignDriver and scheduleInspectionTask —
-// are TYRE-226's.
+// PATCH and status write, its fitment, driver and task lists, the four
+// unit-path writes — fitTyre, rotateTyres, assignDriver and
+// scheduleInspectionTask — and the two composition-report writes
+// (observations.go), which reach the unit through the report's inspection,
+// all compose this (FR-AUT-008, TYRE-162, owner 6 Sep 2026; TYRE-226).
 func unitSource(a auth.Actor) string {
 	if a.Scope() == auth.ScopeTenant {
 		return `app.vehicle`
