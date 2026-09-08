@@ -139,6 +139,9 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Post("/vehicles/{vehicleID}/inspection-tasks", scheduleInspectionTask(s))
 		r.Post("/combinations", createCombination(s))
 		r.Post("/combinations/{combinationID}/end", endCombination(s))
+		r.Get("/combinations/observations", listObservations(s))
+		r.Post("/combinations/observations/{observationID}/apply", applyObservation(s))
+		r.Post("/combinations/observations/{observationID}/dismiss", dismissObservation(s))
 	})
 	return r
 }
@@ -233,6 +236,7 @@ const (
 	codeDisplayCodeTaken    = "display_code_taken"
 	codePositionOccupied    = "position_occupied"
 	codeTyreAlreadyFitted   = "tyre_already_fitted"
+	codeObservationResolved = "observation_resolved"
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
@@ -257,6 +261,7 @@ const (
 	msgDisplayCodeTaken    = "an active tyre already carries that display code; two active tyres may never share one (FR-TYR-004/DR-002)"
 	msgPositionOccupied    = "that position already carries a tyre; remove it first (FR-FIT-004)"
 	msgTyreAlreadyFitted   = "that tyre is already fitted elsewhere; remove it first (D14)"
+	msgObservationResolved = "someone has already applied or dismissed that report; refresh the list"
 )
 
 var submitStatus = map[string]int{
@@ -298,6 +303,13 @@ var submitStatus = map[string]int{
 	// TY021 is the future-skew refusal (000041); 422 like TY005 on the wire, but
 	// its own code so the outbox can tell it apart and retry (TYRE-215).
 	"TY021": http.StatusUnprocessableEntity,
+
+	// TY022 is a composition observation refused (000044): a report already
+	// resolved, stale, on a voided capture, or naming a composition the
+	// register cannot be moved to. 422 like its neighbours — the request is
+	// well formed and the answer is permanent, so a client shows the message
+	// and stops (ADR-0012).
+	"TY022": http.StatusUnprocessableEntity,
 
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
@@ -370,16 +382,22 @@ var conflictCodes = map[string]string{
 	// itself once removed.
 	"one_open_fitment_per_position": codePositionOccupied,
 	"one_open_fitment_per_tyre":     codeTyreAlreadyFitted,
+	// composition_observation_once is the UNIQUE both resolution functions
+	// take a FOR UPDATE on the offered rig to stay off (000044). It answers
+	// only the race two controllers acting on one report can still lose, and
+	// a bare 409 there reads to a form as a failure it should retry.
+	"composition_observation_once": codeObservationResolved,
 }
 
 var conflictMessages = map[string]string{
-	codeFleetNumberTaken:   msgFleetNumberTaken,
-	codeEmailTaken:         msgEmailTaken,
-	codeAssignmentOverlaps: msgAssignmentOverlaps,
-	codeStaffNumberTaken:   msgStaffNumberTaken,
-	codeDisplayCodeTaken:   msgDisplayCodeTaken,
-	codePositionOccupied:   msgPositionOccupied,
-	codeTyreAlreadyFitted:  msgTyreAlreadyFitted,
+	codeFleetNumberTaken:    msgFleetNumberTaken,
+	codeEmailTaken:          msgEmailTaken,
+	codeAssignmentOverlaps:  msgAssignmentOverlaps,
+	codeStaffNumberTaken:    msgStaffNumberTaken,
+	codeDisplayCodeTaken:    msgDisplayCodeTaken,
+	codePositionOccupied:    msgPositionOccupied,
+	codeTyreAlreadyFitted:   msgTyreAlreadyFitted,
+	codeObservationResolved: msgObservationResolved,
 }
 
 // Forwarding is decided by the TY class rather than by a list of safe codes.
