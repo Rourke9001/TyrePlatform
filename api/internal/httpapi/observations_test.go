@@ -103,9 +103,21 @@ func plantReport(t *testing.T, ctx context.Context, admin *pgx.Conn,
 
 // plantReportValued is plantReport for an observed set that Go cannot express
 // as a list of ids: 000041 forwards the phone's array as the raw text it
-// arrived in, so `[null]` is a value the register really holds.
+// arrived in, so `[null]` is a value the register really holds. The capture
+// the PWA sends addresses the motive, which is what this plants.
 func plantReportValued(t *testing.T, ctx context.Context, admin *pgx.Conn,
 	tenantID, motiveID, driverID uuid.UUID, entered string, trailers ...uuid.UUID,
+) (warningID, rigID, inspectionID uuid.UUID) {
+	t.Helper()
+	return plantReportAddressedTo(t, ctx, admin, tenantID, motiveID, motiveID, driverID, entered, trailers...)
+}
+
+// plantReportAddressedTo is plantReportValued for a capture addressed to a unit
+// of the rig other than its motive. Nothing binds app.inspection.vehicle_id to
+// its combination's motive (000041 checks visibility alone), so a client other
+// than the PWA can submit one, and the depot narrowing has to answer for it.
+func plantReportAddressedTo(t *testing.T, ctx context.Context, admin *pgx.Conn,
+	tenantID, motiveID, addressedID, driverID uuid.UUID, entered string, trailers ...uuid.UUID,
 ) (warningID, rigID, inspectionID uuid.UUID) {
 	t.Helper()
 	require.NoError(t, admin.QueryRow(ctx,
@@ -131,7 +143,7 @@ func plantReportValued(t *testing.T, ctx context.Context, admin *pgx.Conn,
 		    started_at, submitted_at, state)
 		 VALUES ($1, $2, $3, $4, $5, now() - interval '1 hour', now() - interval '55 minutes', 'SYNCED')
 		 RETURNING id`,
-		tenantID, motiveID, rigID, driverID, uuid.New()).Scan(&inspectionID))
+		tenantID, addressedID, rigID, driverID, uuid.New()).Scan(&inspectionID))
 
 	require.NoError(t, admin.QueryRow(ctx,
 		`INSERT INTO app.inspection_warning
@@ -382,6 +394,66 @@ func TestObservationSurfaceIsDepotScoped(t *testing.T) {
 	require.NoError(t, json.Unmarshal(reach.Body.Bytes(), &result))
 	require.Nil(t, result.ResultingRigID, "the motive alone ends the rig and opens none (U10)")
 	require.False(t, rigIsOpen(t, ctx, admin, elsewhereRig))
+}
+
+// FR-AUT-008 again, on the one capture the PWA cannot produce: an inspection
+// addressed to a TRAILER of the rig. A rig is homed where its horse is (ledger
+// ruling, 7 Sep 2026), so the trailer's depot manager is not the one who
+// answers for a coupling change on a horse based elsewhere — narrowing on the
+// addressed unit would hand them a horse in another depot.
+func TestObservationSurfaceHomesTheRigOnItsMotive(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "obs-motive")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	horseManager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	trailerManager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+
+	horseDepot, horseFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, horseManager, horseDepot)
+	trailerDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, trailerManager, trailerDepot)
+
+	var motive, configID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id, configuration_id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`,
+		tenantID, horseFleet).Scan(&motive, &configID))
+	trailer, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+	// plantTrailer leaves the unit unhomed, and app.v_depot_vehicle joins on
+	// home_depot_id: an unhomed trailer is invisible to every depot-scoped
+	// actor, which would make the assertions below pass for the wrong reason.
+	_, err := admin.Exec(ctx,
+		`UPDATE app.vehicle SET home_depot_id = $1 WHERE id = $2`, trailerDepot, trailer)
+	require.NoError(t, err)
+
+	warning, rig, _ := plantReportAddressedTo(t, ctx, admin, tenantID,
+		motive, trailer, driver, `["`+motive.String()+`"]`, trailer)
+
+	tn := tenantID.String()
+	hMgr, tMgr, ctl := horseManager.String(), trailerManager.String(), controller.String()
+	applyPath := "/api/combinations/observations/" + warning.String() + "/apply"
+	dismissPath := "/api/combinations/observations/" + warning.String() + "/dismiss"
+
+	require.Empty(t, listReports(t, h, tn, tMgr),
+		"a rig is homed on its motive, not on the unit the capture was addressed to")
+	refusedApply := post(t, h, applyPath, tn, tMgr, `{"note":"x"}`)
+	require.Equal(t, http.StatusNotFound, refusedApply.Code, refusedApply.Body.String())
+	refusedDismiss := post(t, h, dismissPath, tn, tMgr, `{"note":"x"}`)
+	require.Equal(t, http.StatusNotFound, refusedDismiss.Code, refusedDismiss.Body.String())
+	require.True(t, rigIsOpen(t, ctx, admin, rig), "a refused write writes nothing")
+
+	// The horse's manager and the controller are the control: without them a
+	// handler that refused everyone would pass.
+	mine := listReports(t, h, tn, hMgr)
+	require.Len(t, mine, 1)
+	require.Equal(t, horseFleet, mine[0].Rig.MotiveFleetNumber)
+	require.Len(t, listReports(t, h, tn, ctl), 1)
+	own := post(t, h, applyPath, tn, hMgr, `{"note":"walked the yard"}`)
+	require.Equal(t, http.StatusOK, own.Code, own.Body.String())
+	require.False(t, rigIsOpen(t, ctx, admin, rig))
 }
 
 // A JSON null in one driver's observed array must not take the list down for

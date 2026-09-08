@@ -115,7 +115,10 @@ func listObservations(s *store.Store) http.HandlerFunc {
 				   AND i.state <> 'VOIDED'
 				   AND NOT EXISTS (SELECT 1 FROM app.composition_observation o
 				                    WHERE o.warning_id = w.id)
-				   AND EXISTS (SELECT 1 FROM `+unitSource(a)+` v WHERE v.id = i.vehicle_id)
+				   -- The motive, not i.vehicle_id: nothing binds the unit a
+				   -- capture was addressed to to its rig's horse, and the rig
+				   -- is homed where the horse is (reachableObservation).
+				   AND EXISTS (SELECT 1 FROM `+unitSource(a)+` v WHERE v.id = c.motive_vehicle_id)
 				 ORDER BY i.started_at DESC`)
 			if err != nil {
 				return fmt.Errorf("listing composition reports: %w", err)
@@ -152,6 +155,12 @@ func listObservations(s *store.Store) http.HandlerFunc {
 // lock, and one that committed first is what the check sees, so the scope the
 // write was authorised against is the scope it lands in (setUnitStatus's
 // reasoning, units.go).
+//
+// FOR UPDATE here, where fitTyre's pre-check takes FOR SHARE: this is the first
+// lock the request takes, and app.create_combination_at then locks every member
+// of the resulting rig FOR UPDATE in id order (000044:121) — the motive among
+// them. A shared lock first and an exclusive one after is an upgrade, and two
+// applies on one rig would deadlock on it (40P01).
 func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {
 	if a.Scope() == auth.ScopeTenant {
 		return nil
@@ -160,8 +169,9 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 	err := tx.QueryRow(ctx,
 		`SELECT v.id
 		   FROM app.inspection_warning w
-		   JOIN app.inspection i ON i.id = w.inspection_id
-		   JOIN app.vehicle v    ON v.id = i.vehicle_id
+		   JOIN app.inspection i   ON i.id = w.inspection_id
+		   JOIN app.combination c  ON c.id = i.combination_id
+		   JOIN app.vehicle v      ON v.id = c.motive_vehicle_id
 		  WHERE w.id = $1
 		    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
 		  FOR UPDATE OF v`, warningID).Scan(&locked)

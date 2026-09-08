@@ -692,7 +692,7 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 					`SELECT v.id FROM app.vehicle v
 					  WHERE v.id = $1
 					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
-					  FOR UPDATE OF v`, vehicleID).Scan(&locked)
+					  FOR SHARE OF v`, vehicleID).Scan(&locked)
 				if errors.Is(err, pgx.ErrNoRows) {
 					return refusalError{refusal{
 						status:  http.StatusNotFound,
