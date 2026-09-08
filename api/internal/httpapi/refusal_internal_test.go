@@ -189,6 +189,12 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:     "TY022 forwards: the resolution's refusals name the report, not a table",
+			sqlErr:   &pgconn.PgError{Code: "TY022", Message: "stale: the rig ended on 2026-09-07 06:00:00+02"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: "TY022", message: "stale: the rig ended on 2026-09-07 06:00:00+02"},
+			isClient: true,
+		},
+		{
 			name:     "an unmapped SQLSTATE is not a client mistake",
 			sqlErr:   &pgconn.PgError{Code: "40001", Message: "could not serialize access"},
 			isClient: false,
