@@ -453,11 +453,17 @@ BEGIN
   RAISE NOTICE 'PASS  every app table has RLS enabled and forced';
 END $$;
 
--- Policy SHAPE, not just presence: ENABLE+FORCE with a hand-written
--- USING-only policy would let a session write rows it cannot read back, and
--- the sweep above cannot see the difference. Every policy must carry both a
--- USING and a WITH CHECK that bind to current_tenant_id(); the read-everyone
--- reference-data policy is the one named exception (CHG-019).
+-- Policy SHAPE, not just presence: the sweep above cannot tell a policy that
+-- binds writes to this tenant from one that does not. Every policy must carry
+-- both a USING and a WITH CHECK that bind to current_tenant_id(); the
+-- read-everyone reference-data policy is the one named exception (CHG-019).
+--
+-- Omitting WITH CHECK weakens nothing by itself: a FOR ALL policy reuses its
+-- USING expression for writes (the 2026-09-08 lesson, docs/lessons.md). What
+-- this check buys is that the write predicate is always written down. A
+-- defaulted one is NULL in pg_policy, so the catalogue holds no expression to
+-- read; requiring it means a weakened WITH CHECK (true) is a visible value
+-- there, and fails here.
 DO $$
 DECLARE bad text;
 BEGIN
