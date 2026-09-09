@@ -49,7 +49,7 @@ type capturePosition struct {
 	// FR-INS-037 and FR-INS-031a both need the position's own resolved
 	// target, not a tenant scalar. Null for a spare: FR-CFG-013 as amended
 	// gives SPARE no target, and a recorded-but-unclassified spare pressure
-	// is deliberate (BR-RPT-001, NFR-PRO-003) — never a zero.
+	// is deliberate (BR-RPT-001, NFR-PRO-003), never a zero.
 	TargetKpa        *int     `json:"targetKpa"`
 	WarnUnderPct     *float64 `json:"warnUnderPct"`
 	CriticalUnderPct *float64 `json:"criticalUnderPct"`
@@ -58,7 +58,7 @@ type capturePosition struct {
 }
 
 // FR-INS-062: the composition a CONTROLLER set, for the driver to confirm.
-// Managing it is a controller surface and not part of this phase — the
+// Managing it is a controller surface and not part of this phase. The
 // driver confirms or reports a difference, never edits the fleet's record
 // of what is coupled to what.
 type captureMember struct {
@@ -78,17 +78,17 @@ type captureContextBody struct {
 	FleetNumber  string    `json:"fleetNumber"`
 	Registration *string   `json:"registration"`
 	// FR-INS-020: a trailer-only inspection has no odometer field at all, and
-	// the client cannot infer that from an absent reading — no unit has one
-	// until the first inspection writes it.
+	// the client cannot infer that from an absent reading, because no unit
+	// has one until the first inspection writes it.
 	UnitKind       string `json:"unitKind"`
 	LastOdometerKm *int64 `json:"lastOdometerKm"`
 	// FR-INS-033 divides by the gap since this date. Serving the value
 	// without it leaves the plausibility warning with no denominator.
 	LastOdometerAt *time.Time `json:"lastOdometerAt"`
-	// FR-INS-020's pre-fill is a PROJECTION — the last known reading carried
-	// forward by this unit's average daily distance — not the last reading
-	// itself, which is what stops one tap recording last inspection's number
-	// as this one's. The rate travels rather than the projected value because
+	// FR-INS-020's pre-fill is a PROJECTION: the last known reading carried
+	// forward by this unit's average daily distance. It is not the last
+	// reading itself, which is what stops one tap recording last inspection's
+	// number as this one's. The rate travels rather than the projected value because
 	// the days elapsed are only known when the driver opens the screen, and
 	// FR-OFF-001 may have taken the signal away hours earlier.
 	AverageDailyKm *float64          `json:"averageDailyKm"`
@@ -153,7 +153,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// projection and the wrong one for "how far has this unit gone since
 	// somebody last read the dial". Ninety days matches the forecast's
 	// convention. A unit with one reading, or two on the same day, divides by
-	// zero days and correctly yields no rate at all — FR-INS-020 then has
+	// zero days and correctly yields no rate at all. FR-INS-020 then has
 	// nothing to project from and the field starts empty.
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text,
@@ -182,8 +182,8 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 
 	// One row per position, carrying everything the phone needs to identify
 	// the tyre (FR-INS-026) and to evaluate FR-INS-034/037/031a with no
-	// signal. Target resolution is most-specific-wins — a row naming both
-	// size and axle class beats one naming only the class — which is the
+	// signal. Target resolution is most-specific-wins: a row naming both
+	// size and axle class beats one naming only the class. That is the
 	// order app.inflation_compliance already resolves in; keep them agreeing.
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.axle_type::text,
@@ -245,7 +245,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// regression rule (BR-ANL-001) keeps exactly one implementation. Spares
 	// are excluded (BR-RPT-007 judges them on age, not wear) and LIFTING
 	// axles assert no rate at all (BR-ANL-009) rather than a flatteringly low
-	// one — a raised axle is not touching the road.
+	// one. A raised axle is not touching the road.
 	out.CohortWearRateMmPerMonth = map[string]float64{}
 	crows, err := tx.Query(ctx, `
 		SELECT p.axle_class::text || ':' || p.axle_type::text, avg(w.rate_mm_per_month)
@@ -276,7 +276,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// FR-INS-062's composition, for the driver to confirm before starting.
 	// Ordered by member sequence, which with each unit's own position
 	// sequence is all FR-VEH-034 needs to compute the rig's 1..n at render
-	// time — nothing about that numbering is stored here or anywhere.
+	// time. Nothing about that numbering is stored here or anywhere.
 	var combo captureCombination
 	mrows, err := tx.Query(ctx, `
 		SELECT c.id, cm.vehicle_id, mv.fleet_number, cm.sequence, cm.descriptor
@@ -360,23 +360,23 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			// unit in the tenant, which is a wider hole than the read ever was.
 			//
 			// A superlink payload legitimately carries readings against several
-			// vehicle_ids in one submit — the motive unit plus each coupled
+			// vehicle_ids in one submit: the motive unit plus each coupled
 			// trailer (the "108 entries, not 52" case). Checking only the
 			// top-level vehicle_id would let a driver assigned to unit A embed
-			// a reading against unrelated unit B in the same tenant: TY004 in
+			// a reading against unrelated unit B in the same tenant. TY004 in
 			// app.submit_inspection only confirms a position belongs to its own
 			// vehicle's configuration, never that the actor may write to that
-			// vehicle — that narrowing is deliberately the handler's
+			// vehicle, and that narrowing is deliberately the handler's
 			// (000023_submit_inspection.up.sql's TY007 comment). So every
-			// vehicle_id referenced anywhere in the payload — this one plus
-			// every readings[].vehicle_id, read straight from raw rather than a
-			// second Go-side model — must resolve through v_capture_vehicle.
-			// COALESCE guards a missing/non-array readings key so a malformed
-			// payload still gets a refusal here rather than a raw Postgres
-			// error.
+			// vehicle_id referenced anywhere in the payload must resolve
+			// through v_capture_vehicle: this one plus every
+			// readings[].vehicle_id, read straight from raw rather than a
+			// second Go-side model. COALESCE guards a missing/non-array
+			// readings key so a malformed payload still gets a refusal here
+			// rather than a raw Postgres error.
 			//
-			// 422 (errVehicleNotVisible), not 403 — see the sentinel's comment
-			// in httpapi.go for why the two roles must not learn different
+			// 422 (errVehicleNotVisible), not 403. The sentinel's comment in
+			// httpapi.go says why the two roles must not learn different
 			// things about the same vehicle.
 			if a.Scope() != auth.ScopeTenant {
 				var authorized bool

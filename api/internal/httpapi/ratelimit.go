@@ -21,17 +21,17 @@ import (
 // rotating N accounts would get N times the address limit. A request is
 // refused if EITHER counter refuses (submitRateLimit below).
 //
-// The two limits are deliberately not equal. Sixty a minute per account is
-// far above any human capture rate — the whole design target is three
-// minutes per vehicle — and far below what a retry loop can manage. The
+// The two limits are deliberately not equal. The design target is three
+// minutes per vehicle, so sixty a minute per account is far above any human
+// capture rate and far below what a retry loop can manage. The
 // address limit is ten times that: a depot's drivers share one NAT egress
 // address, so several phones capturing at once legitimately present as one
 // source, and the address counter exists to catch a hostile client, not
 // normal depot concurrency.
 //
 // Both limits are Go constants, not tenant configuration. CLAUDE.md rule 5
-// governs business policy a tenant sets — thresholds, bands, rates — and a
-// rate limit is an operational transport control, not that. It is also not
+// governs business policy a tenant sets: thresholds, bands, rates. A rate
+// limit is an operational transport control, not that. It is also not
 // mechanically coherent as tenant config here: the limiters are built once
 // at router construction with no tenant in scope, and the address counter
 // in particular is never tenant-scoped at all.
@@ -89,7 +89,7 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 //
 // Keyed on the identity requireActor already resolved, never on a raw
 // header: HeaderActorResolver is documented DEV ONLY (httpapi.go), and once
-// the real identity provider lands the header disappears — keying on it
+// the real identity provider lands the header disappears. Keying on it
 // directly would collapse the per-account limit into one global bucket for
 // the whole fleet the moment that happens. requireActor runs via r.Use on
 // the /api route and this middleware is attached with an inline r.With() on
@@ -135,19 +135,19 @@ func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(h
 // X-Forwarded-For rather than merely relaying whatever the caller sent.
 // Each such hop appends the address of the peer it received the request
 // from, so the Nth trusted hop's own observation sits N entries from the
-// right of the full forwarded chain — never at a fixed position the caller
+// right of the full forwarded chain, never at a fixed position the caller
 // can predict and prepend forged entries in front of.
 //
 // The default of 1 (New's trustedProxyHops option, infra/main.bicep's
 // TRUSTED_PROXY_HOPS) is today's single Azure Container Apps ingress hop
 // (infra/main.bicep's `ingress: { external: true }`), which terminates
-// every connection itself and forwards over its own internal hop — so
+// every connection itself and forwards over its own internal hop, so
 // RemoteAddr is that ingress's own address, never the caller's, on every
 // request in every deployed environment. Keying the address counter on
 // RemoteAddr there would collapse it into one bucket shared by every client
 // on the internet, turning the limiter meant to stop a hostile client into
 // a way for one to lock out every driver. Adding a second hop in front of
-// the ingress — a CDN, WAF or gateway — moves the trusted observation one
+// the ingress, a CDN, WAF or gateway, moves the trusted observation one
 // entry further from the right, which is exactly what raising the option
 // exists to track.
 //
@@ -159,8 +159,8 @@ func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(h
 // form the code does not check and claim a trusted position for itself.
 //
 // If the flattened chain has fewer entries than trustedProxyHops, the
-// header does not match the topology this process was told to expect —
-// either a misconfiguration or a spoof attempt — and this falls back to
+// header does not match the topology this process was told to expect,
+// either a misconfiguration or a spoof attempt, and this falls back to
 // RemoteAddr rather than trust anything closer to the caller than the Nth
 // hop would be. The same fallback covers a header absent or entirely
 // blank, which is also the local/dev and httptest case: nothing sits in

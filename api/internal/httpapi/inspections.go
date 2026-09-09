@@ -1,8 +1,7 @@
 // The inspection correction surface (TYRE-164): the one write an immutable
-// inspection has. Everything the void means — reason mandatory, tenant-bound,
-// terminal, audited — is app.void_inspection's alone (000040); this file
-// validates the shape of the request and forwards its refusals (ADR-0013
-// decision 5).
+// inspection has. What the void means is app.void_inspection's alone (000040):
+// reason mandatory, tenant-bound, terminal, audited. This file validates the
+// shape of the request and forwards its refusals (ADR-0013 decision 5).
 package httpapi
 
 import (
@@ -43,7 +42,7 @@ func voidInspection(s *store.Store) http.HandlerFunc {
 		// requiredText answers presence, not size. The column is unbounded
 		// text, so the same transport cap every free-text field on a write
 		// carries applies here too (maxTextLen, retreads.go's
-		// reportReference) — a void's reason is not kilobytes.
+		// reportReference). A void's reason is not kilobytes.
 		if len(reason) > maxTextLen {
 			refuseInvalid(w, r, invalid("reason", "is too long"))
 			return

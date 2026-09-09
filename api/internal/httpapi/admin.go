@@ -1,5 +1,5 @@
 // The admin write surface: users, units and the assignment between them.
-// Every handler here follows ADR-0013 — shape validated in Go before a
+// Every handler here follows ADR-0013: shape validated in Go before a
 // transaction opens, the row's own rules left to the constraints that already
 // state them, and tenant_id taken from the bound session and never from the
 // request.
@@ -79,13 +79,13 @@ func listAxleConfigurations(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// maxWriteBytes caps every write body — a create, a PATCH, a fitment write.
+// maxWriteBytes caps every write body: a create, a PATCH, a fitment write.
 // It is a transport limit, not a policy one: the largest of these requests is
 // a handful of short strings.
 const maxWriteBytes = 16 << 10
 
 // maxTextLen caps every free-text field on a create. A transport limit for the
-// same reason — the columns are unbounded text, and the database is not the
+// same reason. The columns are unbounded text, and the database is not the
 // place to discover that a client sent a megabyte of description. text()
 // counts it in runes (TYRE-72 D7); the other sites that check it count bytes.
 const maxTextLen = 200
@@ -93,15 +93,16 @@ const maxTextLen = 200
 // maxTagsPerPatch caps how many tags one edit may name. A transport limit like
 // the two above, not a rule about fleets: how a tenant labels its units is its
 // own business (rule 5), and nothing in the schema bounds the set. What is
-// bounded here is the work one request may ask for — a tag replacement is a
+// bounded here is the work one request may ask for. A tag replacement is a
 // delete and an insert per name inside the row lock patchUnit holds.
 const maxTagsPerPatch = 50
 
-// invalidError is a request that is malformed as a request — a missing field,
-// an unparseable id, a value outside an enum — answered 422 with this message
-// forwarded verbatim. That is safe because the message is ours: written here,
-// naming the request field and never a schema object (ADR-0013). A message
-// Postgres wrote is canned, and that distinction is the whole of ADR-0012.
+// invalidError is a request that is malformed as a request: a missing field,
+// an unparseable id, a value outside an enum. It is answered 422 with this
+// message forwarded verbatim. That is safe because the message is ours:
+// written here, naming the request field and never a schema object
+// (ADR-0013). A message Postgres wrote is canned, and that distinction is the
+// whole of ADR-0012.
 type invalidError struct {
 	field, why string
 }
@@ -135,14 +136,14 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 
 // decodeJSONStrict is decodeJSON for a body whose unknown keys are a refusal
 // rather than something to ignore. "Unknown" is whatever encoding/json failed
-// to match, and it matches a key to a json tag case-insensitively — so
+// to match, and it matches a key to a json tag case-insensitively, so
 // "DESCRIPTION" is a known key and only a name no tag spells at all is
-// refused. The unit PATCH is the one caller, and refusing an unknown key here
-// — before a transaction opens — is what keeps TY008 unreachable from the API
-// (units.go's patchUnitRequest).
+// refused. The unit PATCH is the one caller, and refusing an unknown key
+// here, before a transaction opens, is what keeps TY008 unreachable from the
+// API (units.go's patchUnitRequest).
 //
-// The decoder's own error text is never forwarded — ADR-0012 keeps a message
-// a library or Postgres wrote off the wire — but the key it names is the
+// The decoder's own error text is never forwarded, because ADR-0012 keeps a
+// message a library or Postgres wrote off the wire. The key it names is the
 // caller's own input, bounded by maxWriteBytes, and a refusal that withholds
 // it leaves a form with nothing to point at.
 func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
@@ -178,7 +179,7 @@ func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 	// array or object, so a closing delimiter answers false and a body ending
 	// `}}` or `}]` reads as finished. A second Decode instead takes whatever
 	// remains as a value in its own right, so a stray delimiter is a syntax
-	// error and a second object is a value — only a body that truly ended
+	// error and a second object is a value. Only a body that truly ended
 	// gives io.EOF.
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
@@ -210,10 +211,10 @@ func unknownJSONField(err error) (string, bool) {
 }
 
 // typeErrorField names the field whose value was of a type this request
-// cannot read. The decoder's own text is never forwarded — ADR-0012 keeps a
-// message a library wrote off the wire — but the field name is safe to send,
-// and a refusal that withholds it leaves a form with nothing to point at: the
-// reasoning decodeJSONStrict already applies to an unknown key.
+// cannot read. The decoder's own text is never forwarded, because ADR-0012
+// keeps a message a library wrote off the wire. The field name is safe to
+// send, and a refusal that withholds it leaves a form with nothing to point
+// at: the reasoning decodeJSONStrict already applies to an unknown key.
 //
 // No length bound is needed here, unlike there: encoding/json builds this
 // path out of the json tag names of this package's own types, never out of a
@@ -239,7 +240,7 @@ func refuseInvalid(w http.ResponseWriter, r *http.Request, err error) bool {
 // text trims and length-checks an optional free-text field, answering nil for
 // an absent or blank one so the column holds NULL rather than an empty string.
 // maxTextLen bounds runes, not bytes: a multibyte description (the rig
-// descriptor, TYRE-72) is text a controller typed, not wire size to police —
+// descriptor, TYRE-72) is text a controller typed, not wire size to police.
 // maxWriteBytes already does that (TYRE-72 D7).
 func text(field string, in *string) (*string, error) {
 	if in == nil {
@@ -279,7 +280,7 @@ type vehicleInsert struct {
 var unitKinds = map[string]bool{"HORSE": true, "TRAILER": true, "RIGID": true, "LIGHT": true}
 
 // FR-VEH-002 requires a unit's kind to be recorded, and 000025's TY009 trigger
-// passes a NULL kind — so a unit created without one is a unit whose
+// passes a NULL kind, so a unit created without one is a unit whose
 // fitment-odometer rule silently cannot fire. The schema still permits NULL
 // for the rows 000011's backfill could not derive; requiring it here stops the
 // set growing through the product (ADR-0013's accepted gap, owned by TYRE-88).
@@ -287,7 +288,7 @@ func (b createVehicleRequest) validate() (vehicleInsert, error) {
 	var v vehicleInsert
 
 	// FR-VEH-003: alphanumeric fleet numbers, with no numeric assumption. The
-	// only check is that there is one — a pattern here would reject real data.
+	// only check is that there is one. A pattern here would reject real data.
 	v.fleetNumber = strings.TrimSpace(b.FleetNumber)
 	if v.fleetNumber == "" {
 		return v, invalid("fleetNumber", "is required")
@@ -377,8 +378,8 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 			// tenant_id comes from the bound session, never from the request:
 			// the WITH CHECK half of tenant_isolation is the guarantee, and a
 			// request-supplied tenant is the thing it exists to refuse
-			// (non-negotiable rule 1). created_by needs no mention — it
-			// defaults to app.current_actor_id() (DR-013, 000017).
+			// (non-negotiable rule 1). created_by needs no mention, because
+			// it defaults to app.current_actor_id() (DR-013, 000017).
 			err := tx.QueryRow(ctx,
 				`INSERT INTO app.vehicle
 				   (tenant_id, fleet_number, registration, description,
@@ -418,7 +419,7 @@ type userInsert struct {
 	// A staffNumber sent as "" is a decision, not an omission: the admin
 	// blanked the field, so a reactivate clears the column. text() collapses
 	// both to nil, which is right for the insert (NULL either way) but loses
-	// the distinction the reactivate UPDATE needs — this flag carries it.
+	// the distinction the reactivate UPDATE needs. This flag carries it.
 	clearStaffNumber bool
 	role             string
 	reactivate       bool
@@ -466,7 +467,7 @@ func (b createUserRequest) validate() (userInsert, error) {
 	u.role = b.Role
 
 	// FR-AUT-022: a durable identifier independent of the display name, and
-	// optional — R13 identifies its driver as "Melusi" and nothing else.
+	// optional. R13 identifies its driver as "Melusi" and nothing else.
 	var err error
 	if u.staffNumber, err = text("staffNumber", b.StaffNumber); err != nil {
 		return u, err
@@ -480,7 +481,7 @@ func (b createUserRequest) validate() (userInsert, error) {
 
 // mayCreateRole answers D9. ManageUsers creates any role tenantRoles allows;
 // InviteDriver creates a DRIVER and nothing else. Both are capability
-// questions — the actor's role name never appears, so separating the
+// questions. The actor's role name never appears, so separating the
 // controller jobs later stays an edit to auth's table (ADR-0011).
 //
 // The pairing is what makes the guardrail hold: an actor without ManageUsers
@@ -498,7 +499,7 @@ func mayCreateRole(a auth.Actor, role string) error {
 // createUser is FR-AUT-010's invite, gated on ManageUsers, or on InviteDriver
 // for a DRIVER alone (D9). It creates an active user and nothing else: leaving
 // a company is active = false and never a delete (D10, FR-VEH-008). That
-// deactivation surface is not built here — nothing blocks it; NFR-PRV-004
+// deactivation surface is not built here, and nothing blocks it; NFR-PRV-004
 // already governs a deactivated driver's data until OI-17 says otherwise.
 func createUser(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -527,10 +528,10 @@ func createUser(s *store.Store) http.HandlerFunc {
 			// index spans inactive rows and Postgres cannot say which kind it
 			// caught. RLS scopes this lookup, so another tenant's address is
 			// simply not here: a plain create proceeds, and a reactivate is
-			// refused — the honest answers for this tenant, and identical
+			// refused, the honest answers for this tenant, and identical
 			// whether the address lives elsewhere or nowhere.
 			//
-			// lower() on both sides matches 000027's index — 000026's one
+			// lower() on both sides matches 000027's index, 000026's one
 			// email comparison rule in the schema, not two. The stored
 			// address keeps the case the admin typed; only comparison folds,
 			// here and in the reactivate UPDATE below.
@@ -547,14 +548,14 @@ func createUser(s *store.Store) http.HandlerFunc {
 			case lookup == nil:
 				// A rehire is the same person: updating in place keeps the id
 				// their inspections are attributed through (FR-VEH-008).
-				// UPDATE is granted on app_user — only DELETE was revoked
-				// (000002, 000018) — because a person is not an event.
+				// UPDATE is granted on app_user and only DELETE was revoked
+				// (000002, 000018), because a person is not an event.
 				//
-				// staff_number: an absent field means "not supplied" — the
-				// reactivate form never pre-fills it, and FR-AUT-022's
-				// identifier must survive a rehire that omits it — while an
-				// explicitly blank one means "clear it". The clear flag
-				// carries the difference COALESCE alone cannot see.
+				// staff_number: an absent field means "not supplied",
+				// because the reactivate form never pre-fills it and
+				// FR-AUT-022's identifier must survive a rehire that omits
+				// it. An explicitly blank one means "clear it". The clear
+				// flag carries the difference COALESCE alone cannot see.
 				status = http.StatusOK
 				err := tx.QueryRow(ctx,
 					`UPDATE app.app_user
@@ -647,7 +648,7 @@ const isoDate = "2006-01-02"
 // the schema does not hold (ADR-0013). Every assignable role already holds
 // CaptureInspection, so the gap grants nothing.
 //
-// to_date is left NULL — an open assignment. Closing one is a different
+// to_date is left NULL, an open assignment. Closing one is a different
 // action and does not belong on a create.
 func assignDriver(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -668,7 +669,7 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 		// Absent means "today in the tenant's zone", computed in SQL where
 		// that zone lives (rule 6). A browser's calendar day is the admin's,
 		// not the tenant's, and the two differ for most of every day.
-		// Malformed is still refused — only absence defaults.
+		// Malformed is still refused. Only absence defaults.
 		var from *time.Time
 		if raw := strings.TrimSpace(body.FromDate); raw != "" {
 			parsed, err := time.Parse(isoDate, raw)
