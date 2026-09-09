@@ -47,7 +47,7 @@ describe("applyKey at whole-millimetre granularity", () => {
 
   // FR-INS-030: 0-35mm is a rejection, not a warning. Rather than showing an
   // error for a value that cannot exist, the keypad restarts on the digit the
-  // driver just pressed — which is almost always what they meant.
+  // driver just pressed, which is almost always what they meant.
   it("restarts rather than accepting a value past the ceiling", () => {
     const { state } = type(newEntryState(3), "39", whole);
     expect(state.treads[0]).toBe(9);
@@ -114,7 +114,7 @@ describe("applyKey on the pressure field", () => {
   });
 
   // FR-INS-031's ceiling is 1200, so a leading 1 keeps room for a fourth
-  // digit and must not settle early — 1000 kPa is a real reading.
+  // digit and must not settle early. 1000 kPa is a real reading.
   it("waits for a fourth digit where one is still possible", () => {
     const { state, settled } = type(atPressure(), "120", whole);
     expect(state.pressureKpa).toBe(120);
@@ -127,7 +127,7 @@ describe("applyKey on the pressure field", () => {
   });
 
   // FR-INS-031's ceiling is 1200 exactly. Reaching it requires the restart
-  // comparison (grown > ceiling) to stay false at exactly 1200 — a mutation
+  // comparison (grown > ceiling) to stay false at exactly 1200. A mutation
   // to >= here would treat 1200 as an overflow and wipe it back to 0 on the
   // fourth digit. The "waits for a fourth digit" test above pins the settle
   // half of the boundary; this test pins the restart half.
@@ -147,7 +147,7 @@ describe("applyKey on the pressure field", () => {
 
 describe("applyKey at other granularities (FR-CFG-027)", () => {
   // At 0.1mm the last digit is the tenth: 134 reads 13.4. The ceiling rule is
-  // unchanged — it is the value, not the digit count, that decides.
+  // unchanged. It is the value, not the digit count, that decides.
   it("reads the final digit as tenths", () => {
     const { state } = type(newEntryState(3), "134", tenths);
     expect(state.treads[0]).toBeCloseTo(13.4);
@@ -160,7 +160,7 @@ describe("applyKey at other granularities (FR-CFG-027)", () => {
   });
 
   // At 0.5mm the driver types whole millimetres and one extra key adds the
-  // half — no decimal point on a keypad used with gloves.
+  // half. There is no decimal point on a keypad used with gloves.
   it("adds a half and settles", () => {
     const { state } = type(newEntryState(3), "13", halves);
     const r = applyKey(state, { type: "half" }, halves);
@@ -175,7 +175,7 @@ describe("applyKey at other granularities (FR-CFG-027)", () => {
   });
 
   // Guards the `current === null` check in the half case: without it,
-  // Math.floor(null) coerces to 0 and the field is silently written 0.5 — a
+  // Math.floor(null) coerces to 0 and the field is silently written 0.5, a
   // reading the driver never entered.
   it("ignores the half key on an empty tread field", () => {
     const r = applyKey(newEntryState(3), { type: "half" }, halves);
@@ -187,8 +187,8 @@ describe("applyKey at other granularities (FR-CFG-027)", () => {
   // indexing the treads array at the pressure field's index yields
   // undefined, which is not === null, so Math.floor(undefined) writes NaN
   // into a slot past the end of the treads array. That write lands in
-  // treads, not pressureKpa, so it is the settled assertion below — not the
-  // pressureKpa one — that discriminates the guard being removed.
+  // treads, not pressureKpa, so it is the settled assertion below, not the
+  // pressureKpa one, that discriminates the guard being removed.
   it("ignores the half key while focused on the pressure field", () => {
     const atPressure = { ...newEntryState(3), field: 3 };
     const r = applyKey(atPressure, { type: "half" }, halves);

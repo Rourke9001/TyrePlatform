@@ -6,7 +6,7 @@ import type { WarningCode } from "./warnings";
 // driver did about it. The response is what the paper trail turns on months
 // later, so it is captured here rather than reconstructed at submit.
 //
-// Null when the driver left the position without answering — closing the sheet
+// Null when the driver left the position without answering. Closing the sheet
 // is not acknowledging. app.inspection_warning.response is nullable with no
 // CHECK for exactly this case (000022_inspection_warning), so absence is
 // recorded as absence; a "DISMISSED" or "UNANSWERED" value invented here would
@@ -18,9 +18,9 @@ export interface RecordedWarning {
 }
 
 // A position row belongs to an axle CONFIGURATION, not to a vehicle
-// (app.position.configuration_id), so two units of the same configuration —
-// the two links of a superlink, the ordinary case — share every position id.
-// The identity of a reading is therefore the pair, which is exactly what
+// (app.position.configuration_id), so two units of the same configuration
+// share every position id. The two links of a superlink are the ordinary
+// case. The identity of a reading is therefore the pair, which is exactly what
 // app.reading's (inspection_id, position_id, vehicle_id) unique key states and
 // what BR-VEH-003 means by attributing every reading to the unit that owns the
 // position. Anything on the device keyed by position id alone silently
@@ -53,7 +53,7 @@ export interface Draft {
   clientUuid: string;
   vehicleId: string;
   // Named on the held-vehicle screen (CaptureFlow), which is shown exactly
-  // when this vehicle's context has NOT been fetched — so the name rides in
+  // when this vehicle's context has NOT been fetched, so the name rides in
   // the draft. Null on a draft written before the field existed; the screen
   // then says "the other vehicle" rather than inventing one.
   fleetNumber: string | null;
@@ -66,7 +66,7 @@ export interface Draft {
   odometerKm: number | null;
   comment: string | null;
   defectReport: string | null;
-  // Keyed by cellKey, never by position id — see cellKey for why the pair is
+  // Keyed by cellKey, never by position id. See cellKey for why the pair is
   // the identity.
   positions: Record<string, DraftPosition>;
   warnings: RecordedWarning[];
@@ -78,7 +78,7 @@ export interface Draft {
 }
 
 // The single row's fixed key. One in-progress inspection, whose lifetime is
-// minutes or hours (FR-OFF-007 withdrawn in v1.4) — not a sync queue.
+// minutes or hours (FR-OFF-007 withdrawn in v1.4), not a sync queue.
 const DRAFT_KEY = "current";
 
 interface DraftRow {
@@ -96,7 +96,7 @@ export const db = database;
 // Nothing versions the shape of the persisted draft: it is one JSON blob in one
 // row, so a change to cellKey or to DraftPosition meets a row written under a
 // different shape with no schema to refuse it and no error to raise. That
-// failure is silent and expensive — a key the reader cannot match reads back as
+// failure is silent and expensive: a key the reader cannot match reads back as
 // an untouched vehicle under a header counting it done, and a position entered
 // again lands beside the unreachable entry instead of replacing it, so the
 // submit carries the same wheel twice.
@@ -104,7 +104,7 @@ export const db = database;
 // Rebuilding from the values removes the dependency on the keys altogether:
 // DraftPosition names its own unit and its own position, so every entry is
 // self-describing whatever it happens to be filed under. Last one wins on a
-// collision, which is the right answer — Object.values keeps insertion order,
+// collision, which is the right answer. Object.values keeps insertion order,
 // so an entry written under a superseded key is overwritten by the one written
 // after it.
 function byCell(positions: Record<string, DraftPosition>): Record<string, DraftPosition> {
@@ -144,8 +144,8 @@ export async function startDraft(init: {
 }): Promise<Draft> {
   const existing = await loadDraft();
   if (existing) {
-    // FR-OFF-014: never silently discard. The caller decides — finish it,
-    // queue it, or explicitly abandon it — because only a person can.
+    // FR-OFF-014: never silently discard. The caller decides: finish it,
+    // queue it, or explicitly abandon it, because only a person can.
     throw new Error("An inspection is already in progress on this device.");
   }
   const draft: Draft = {
@@ -218,7 +218,7 @@ export async function markSpareAbsent(vehicleId: string, positionId: string): Pr
     // The tap IS the driver saying there is nothing to read: a reading and an
     // absent_spares entry for the same cell is a shape app.submit_inspection
     // refuses outright (TY005, 000041), and the outbox treats a 422 as
-    // permanent — so a stale draft position here would lose the whole
+    // permanent, so a stale draft position here would lose the whole
     // capture rather than one cell. Discarding it in the same mutate as the
     // mark is what makes that combination unreachable rather than merely
     // filtered out downstream, which would be the silent drop the design
@@ -232,7 +232,7 @@ export async function markSpareAbsent(vehicleId: string, positionId: string): Pr
   }));
 }
 
-// TYRE-155: the reading markSpareAbsent discarded is not restored here — the
+// TYRE-155: the reading markSpareAbsent discarded is not restored here. The
 // driver re-enters it. Restoring a value from before the tap would be the
 // app guessing at a reading the driver said was absent.
 export async function unmarkSpareAbsent(vehicleId: string, positionId: string): Promise<void> {

@@ -13,7 +13,7 @@ const props = {
 };
 
 describe("ConfirmDiscard", () => {
-  // ADR-0009: a discard is explicit, confirmed and NAMED — which vehicle and
+  // ADR-0009: a discard is explicit, confirmed and NAMED: which vehicle and
   // how many positions. Two taps on the recovery path, none on the clean one:
   // the trigger is the only thing rendered until it is pressed.
   it("shows nothing but the trigger until it is pressed", () => {

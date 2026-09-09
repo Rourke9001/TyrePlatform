@@ -69,7 +69,7 @@ describe("historyWarnings", () => {
   });
 
   // The unless-clause is the whole rule. A new tyre reads deeper and that is
-  // not an anomaly — warning anyway would train drivers to confirm blindly.
+  // not an anomaly. Warning anyway would train drivers to confirm blindly.
   it("stays silent when a fitment since the last reading explains the increase", () => {
     const fitted = { ...position, fitmentSincePrevious: true };
     const w = historyWarnings({ treads: [14, 14, 15], pressureKpa: 800 }, fitted, ctx, NOW);
@@ -190,11 +190,11 @@ describe("historyWarnings", () => {
 
 describe("odometerRejection", () => {
   // FR-INS-032 says reject, not warn. BR-INS-002 is unconditional and the
-  // server raises TY001 for it — refusing here saves the driver finding out
+  // server raises TY001 for it. Refusing here saves the driver finding out
   // after the walk-around.
   it("refuses a reading below the last recorded one", () => {
     // Intl.NumberFormat("en-ZA") groups with a non-breaking space, and a
-    // small-ICU build may group differently again — so match any single
+    // small-ICU build may group differently again, so match any single
     // non-digit rather than guessing which separator shipped.
     expect(odometerRejection(412000, ctx)).toMatch(/412\D?180/);
   });

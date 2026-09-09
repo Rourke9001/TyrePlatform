@@ -65,8 +65,8 @@ export function CaptureDone({
       <h1 className="cap-done-title">This one needs the office</h1>
       <p className="cap-done-body">
         {lastCode === "TY003"
-          ? "This vehicle was already inspected a short while ago. Your readings are saved — call the tyre office and they can accept it."
-          : "The office could not accept this inspection. Your readings are saved — call the tyre office."}
+          ? "This vehicle was already inspected a short while ago. Your readings are saved. Call the tyre office and they can accept it."
+          : "The office could not accept this inspection. Your readings are saved. Call the tyre office."}
       </p>
       <BackToWork />
     </section>

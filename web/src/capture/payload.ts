@@ -3,7 +3,7 @@ import { cellKey } from "./draft";
 import { treadsRead } from "./warnings";
 
 // Wire shape of POST /api/inspections. snake_case because the body reaches
-// app.submit_inspection(jsonb) and is read with SQL-style keys — deliberately
+// app.submit_inspection(jsonb) and is read with SQL-style keys, deliberately
 // unlike the camelCase GET response, which Go struct tags shape.
 export interface SubmitWarning {
   code: string;
@@ -35,11 +35,11 @@ export interface SubmitPayload {
   submitted_at: string;
   odometer_km: number | null;
   // app.inspection.duration_seconds CHECK (duration_seconds >= 0)
-  // (db/migrations/000001_init.up.sql) — negative is not clamped, it is
+  // (db/migrations/000001_init.up.sql). Negative is not clamped, it is
   // omitted. See durationSeconds() below.
   duration_seconds: number | null;
   // app.inspection.completeness_pct defaults to 100, so a partial
-  // inspection submitted without this is stored as complete — and
+  // inspection submitted without this is stored as complete, and
   // FR-INS-047's coverage figure then counts it as one (NFR-PRO-003
   // forbids exactly that kind of silent flattery).
   completeness_pct: number;
@@ -60,13 +60,13 @@ export interface SubmitMeta {
   granularityMm: number;
   deviceId: string;
   appVersion: string;
-  // Every position across every member unit, from the capture contexts —
+  // Every position across every member unit, from the capture contexts:
   // the denominator the draft itself does not know.
   totalPositions: number;
 }
 
 // NFR-OBS-004 records submit success rate per device, so the id has to be
-// stable across sessions — which means localStorage, and which is NOT a
+// stable across sessions, which means localStorage, and which is NOT a
 // breach of FR-OFF-002: that prohibits caching the fleet REFERENCE DATA on
 // the device, not a random opaque string that identifies nobody. It carries
 // no personal information (NFR-PRV-002) and survives a cleared browser only
@@ -96,14 +96,15 @@ const wire = (w: RecordedWarning): SubmitWarning => ({
   response: w.response,
 });
 
-// A phone clock that steps backwards mid-inspection — an NTP correction, or a
-// driver changing it — makes this negative, which fails the column's CHECK
-// and comes back 422. The outbox reads 422 as permanent, so a completed
+// A phone clock that steps backwards mid-inspection, whether from an NTP
+// correction or a driver changing it, makes this negative, which fails the
+// column's CHECK and comes back 422. The outbox reads 422 as permanent, so a
+// completed
 // inspection would be discarded with no retry that could ever fix it.
 //
 // Null rather than a clamp to zero: a zero is a claim (ADR-0010). This is
 // ELAPSED wall clock, and a draft survives a phone call or a lunch break by
-// design (ADR-0009), so it is not the acceptance figure — NFR-USE-001's
+// design (ADR-0009), so it is not the acceptance figure. NFR-USE-001's
 // median is read from the sum of each reading's `seconds` (NFR-OBS-007),
 // via app.v_inspection_timing.active_seconds (000041, TYRE-150).
 function durationSeconds(startedAt: string, submittedAt: string): number | null {
@@ -119,13 +120,13 @@ function durationSeconds(startedAt: string, submittedAt: string): number | null 
 // cannot be sent and completeness reports the shortfall instead.
 //
 // Pressure is the opposite case and deliberately not required: 000023 accepts a
-// NULL pressure by design (BR-RPT-001, NFR-PRO-003 — absent, never zero).
+// NULL pressure by design (BR-RPT-001, NFR-PRO-003: absent, never zero).
 // Requiring one here would discard a position whose treads are complete, and
 // the draft is cleared on submit, so those readings would be gone for good.
 //
 // The draft-shaped adapter over treadsRead (warnings.ts), never a second rule.
 // The capture screens count progress with it too (FR-INS-065), through
-// capturedCells below — a second predicate there would let the driver read
+// capturedCells below. A second predicate there would let the driver read
 // "10 of 10 done" off one definition while completeness_pct was computed from
 // another.
 function isCaptured(position: DraftPosition): boolean {
@@ -151,15 +152,15 @@ export function absentCells(draft: Draft): Set<string> {
 }
 
 // TYRE-148: the position a resume should land in. Half-entered means some
-// treads and not all — the one state the flow cannot have moved on from,
+// treads and not all, the one state the flow cannot have moved on from,
 // since finish() returns early on it. Pressure does not count: it is
 // optional by design (see isCaptured), so a tread-complete position with no
 // pressure is finished, and reopening it on every reload would be the
 // regression this predicate exists to avoid. Two half-entered positions can
 // coexist (partially fill one, close it, partially fill another); find()
 // returns whichever was inserted into draft.positions first, which is a
-// reasonable default because it is where the driver's walk first broke off —
-// the flow's own next-outstanding jump (rig.ts) is what reaches the other.
+// reasonable default because it is where the driver's walk first broke off.
+// The flow's own next-outstanding jump (rig.ts) is what reaches the other.
 export function halfEnteredCell(draft: Draft): string | null {
   const p = Object.values(draft.positions).find(
     (x) => x.treads.some((t) => t !== null) && !treadsRead(x.treads),
@@ -176,7 +177,7 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
     // the tie, which is what makes the comparator total: two member units of
     // the same axle configuration carry the SAME position ids, so comparing
     // those alone returns 0 for every such couple, and a stable sort settles a
-    // tie by insertion order — which is the walk order this is here to remove.
+    // tie by insertion order, which is the walk order this is here to remove.
     .sort(
       (a, b) =>
         a.positionId.localeCompare(b.positionId, undefined, { numeric: true }) ||
@@ -196,7 +197,7 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
       damage_flag: p.damageFlag,
       note: p.note,
       // FR-INS-029a: entry order, left to right in the plan view. Never
-      // sorted, never reversed — the server maps ordinal to
+      // sorted, never reversed. The server maps ordinal to
       // OUTER/CENTRE/INNER by the position's side. No governing value is sent
       // (CR-011, DR-017); the trigger derives it.
       treads: p.treads.filter((t): t is number => t !== null),
@@ -217,7 +218,7 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
     duration_seconds: durationSeconds(draft.startedAt, meta.submittedAt),
     // Clamped rather than trusted. A draft survives a restart (FR-OFF-006) but
     // totalPositions comes from a context fetched after it, so a rig that has
-    // since lost a member unit gives readings > totalPositions — and >100
+    // since lost a member unit gives readings > totalPositions, and >100
     // fails the column's CHECK, which is a 422 the outbox never retries.
     completeness_pct:
       meta.totalPositions <= 0

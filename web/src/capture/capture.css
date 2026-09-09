@@ -1,4 +1,4 @@
-/* Driver capture screens (TYRE-69). The capture app's one stylesheet — a new
+/* Driver capture screens (TYRE-69). The capture app's one stylesheet. A new
    capture component adds its own section below rather than a second file, so
    cascade order for shared classes never depends on which file loaded last.
    Every colour and font here is a custom property from theme/tokens.ts; a hex
@@ -32,14 +32,14 @@
 
 /* The unit's own identity leads and stands out in full ink; the
    configuration label after it inherits .cap-unitband's muted styling
-   unchanged — see CaptureDiagram.tsx's UnitGroup comment for why the two may
+   unchanged. See CaptureDiagram.tsx's UnitGroup comment for why the two may
    never collapse into one string. */
 .cap-unitband-id {
   font-weight: 700;
   color: var(--ink);
 }
 
-/* The coupling mark between member units — see CaptureDiagram.tsx's
+/* The coupling mark between member units. See CaptureDiagram.tsx's
    CouplingMark for why it exists. Neutral ink-muted, same as the rest of the
    diagram's structural (non-severity) marks. */
 .cap-coupling {
@@ -62,7 +62,7 @@
   border-top: 1px dashed var(--line);
 }
 
-/* The axle itself, drawn behind the positions mounted to it — the same
+/* The axle itself, drawn behind the positions mounted to it, the same
    line-through-wheels grammar as fleet/unit/UnitPlan.tsx's plan view, so a
    driver who has seen a unit's screen recognises the picture. */
 .cap-beam {
@@ -124,7 +124,7 @@
   box-shadow: 0 0 0 3px var(--primary);
 }
 
-/* TYRE-155: settled, not flagged — the strike-through is the words-not-colour
+/* TYRE-155: settled, not flagged. The strike-through is the words-not-colour
    half (NFR-USE-009) of a state the accessible name already says. */
 .cap-pos.is-absent {
   opacity: 0.6;
@@ -239,7 +239,7 @@
   color: var(--ink);
 }
 
-/* The four tap targets for this position — three tread fields plus pressure,
+/* The four tap targets for this position, three tread fields plus pressure,
    left to right, the same order and grammar (index numeral, mono value,
    condensed unit) as a diagram cell (.cap-pos), so the sheet reads as that
    one cell zoomed in rather than as a new picture the driver has to learn. */
@@ -251,7 +251,7 @@
   padding: var(--space-3);
 }
 
-/* The same beam-under-the-wheels motif as .cap-beam on the diagram above —
+/* The same beam-under-the-wheels motif as .cap-beam on the diagram above,
    one wheel position, still standing on its axle, now filling the screen. */
 .cap-fields::before {
   content: "";
@@ -290,7 +290,7 @@
    .cap-pos.is-active's shape so a driver who has seen the diagram already
    knows what it means; the border thickening on top of it is a second, purely
    structural cue that survives a printed-in-black-and-white screenshot
-   (NFR-USE-009 — colour is never the only signal). */
+   (NFR-USE-009: colour is never the only signal). */
 .cap-fld.is-on {
   border-width: 3px;
   border-color: var(--primary);
@@ -323,7 +323,7 @@
 }
 
 /* The placeholder dash reads as "not entered yet" rather than as a value of
-   its own — the same distinction a blank instrument dial makes with a dimmer
+   its own, the same distinction a blank instrument dial makes with a dimmer
    needle before the first reading arrives. */
 .cap-fld-v.is-empty {
   color: var(--ink-muted);
@@ -339,7 +339,7 @@
 
 /* A left accent bar carries the severity so it is legible in the sun and
    survives greyscale: the colour is reinforced by, never the only source of,
-   which band a warning belongs to — the message text itself always names the
+   which band a warning belongs to. The message text itself always names the
    fleet's policy in words (warnings.ts), never a colour alone. */
 .cap-alert {
   margin: 0;
@@ -408,8 +408,8 @@
 }
 
 /* The one key whose physical position never changes meaning across all 27
-   positions on a rig — bottom-right, filled, distinct from every digit
-   around it — is what lets a driver stop looking at it by position four. */
+   positions on a rig, bottom-right, filled, distinct from every digit
+   around it, is what lets a driver stop looking at it by position four. */
 .cap-key--go {
   font-family: var(--font-condensed);
   font-weight: 700;
@@ -425,7 +425,7 @@
 }
 
 /* FR-INS-040: held open on a warning. The label text is what actually says
-   so ("Seen it ›" — NFR-USE-009 again); this tone is the reinforcing signal,
+   so ("Seen it ›", NFR-USE-009 again); this tone is the reinforcing signal,
    not the only one, and caution rather than the below-removal red because
    the keypad only ever knows default/warn, not which band triggered it. */
 .cap-key--warn {
@@ -627,7 +627,7 @@
 }
 
 /* The motive unit's box is disabled because it cannot be unticked
-   (FR-INS-064), not because it is unavailable — dimming it would say the
+   (FR-INS-064), not because it is unavailable. Dimming it would say the
    opposite of what it means. */
 .cap-check:disabled {
   opacity: 1;
@@ -714,7 +714,7 @@
 /* Hoisted above the screen switch, so it reaches all four screens rather than
    the one it happens to be nested in. Full-width and at the top: it is the
    only thing on any capture screen that outranks the driver's own work. A
-   column because the standing-refusal variant carries its own retry — the
+   column because the standing-refusal variant carries its own retry. The
    recovery action belongs with the sentence explaining why it is needed. */
 .cap-storage {
   display: flex;

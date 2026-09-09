@@ -28,7 +28,7 @@ interface UnitGroup {
   // never the configuration label alone: app.position belongs to an axle
   // CONFIGURATION, not a vehicle, so two member units built from the same
   // configuration (an ordinary superlink's two trailers) carry the identical
-  // unitLabel. Leading with fleetNumber is what BR-VEH-003 needs — a driver
+  // unitLabel. Leading with fleetNumber is what BR-VEH-003 needs. A driver
   // tells units apart by what is painted on them, not by list order.
   fleetNumber: string;
   // The configuration's own label ("2-axle trailer"), kept as a secondary
@@ -39,7 +39,7 @@ interface UnitGroup {
 }
 
 // One pass, grouped by the unit that owns each position and then by axle
-// within it. The axle key is vehicleId:axleNumber, not axleNumber alone — on
+// within it. The axle key is vehicleId:axleNumber, not axleNumber alone: on
 // a rig the horse's axle 1 and the trailer's axle 1 are different axles that
 // would otherwise collapse into one row. Building groups with find() rather
 // than assuming contiguous runs keeps this correct however `cells`
@@ -73,7 +73,7 @@ function groupRig(cells: RigPosition[]): UnitGroup[] {
   return units;
 }
 
-// Plan view, nose up — the same frame BR-VEH-001 numbers positions in and the
+// Plan view, nose up. The same frame BR-VEH-001 numbers positions in and the
 // frame FR-INS-029a means by "left-to-right". Every entry screen in the app
 // shows the vehicle this way round so the driver learns one picture.
 export function CaptureDiagram({
@@ -123,7 +123,7 @@ export function CaptureDiagram({
           so an ordinary superlink draws one S cell per unit. Under a single
           band they are identical, and a driver who enters one link's spare
           into the other's cell files the reading against the wrong vehicle_id
-          in an append-only table — nothing refuses it at entry, and nothing in
+          in an append-only table. Nothing refuses it at entry, and nothing in
           the stored data tells it apart afterwards (BR-VEH-003). */}
       {groupRig(spares).map((unit) => {
         const cells = unit.axles.flatMap((axle) => axle.positions);
@@ -187,11 +187,11 @@ function PositionCell({
   active: boolean;
   onOpen: (cell: string) => void;
   // TYRE-155: a spare the driver has already reported absent. Words, not
-  // colour alone (NFR-USE-009) — the accessible name says so too.
+  // colour alone (NFR-USE-009). The accessible name says so too.
   absent: boolean;
 }) {
   const name = rig.displayNumber === null ? "Spare" : `Position ${rig.displayNumber}`;
-  // TYRE-155: an absent cell is settled, not unmeasured — the severity band
+  // TYRE-155: an absent cell is settled, not unmeasured. The severity band
   // was computed with nothing entered (draft.ts discards the position the
   // same tap that records the mark), so showing SEVERITY_LABEL's "Not done"
   // here would contradict the "done" the header and tally already count it

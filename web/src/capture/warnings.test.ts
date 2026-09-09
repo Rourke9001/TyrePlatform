@@ -61,7 +61,7 @@ const spare: CapturePosition = {
 const codes = (ws: { code: string }[]) => ws.map((w) => w.code).sort();
 
 describe("governingTread", () => {
-  // BR-INS-003, and the client never sends it — the trigger derives it. This
+  // BR-INS-003, and the client never sends it. The trigger derives it. This
   // exists so the driver sees the same number the database will store.
   it("is the minimum of the width-wise readings", () => {
     expect(governingTread([7.4, 7.1, 6.9])).toBe(6.9);
@@ -122,7 +122,7 @@ describe("positionWarnings", () => {
   });
 
   // FR-CFG-013 as amended: SPARE carries no target. An unclassified spare
-  // pressure is deliberate (BR-RPT-001, NFR-PRO-003) — inventing a band for
+  // pressure is deliberate (BR-RPT-001, NFR-PRO-003). Inventing a band for
   // it would create a spare-pressure exception the SRS does not have.
   it("never raises a pressure warning on a spare", () => {
     const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 200 }, spare, config);
@@ -130,7 +130,7 @@ describe("positionWarnings", () => {
   });
 
   // BR-RPT-006 is the carve-out: spares are excluded from exception reports
-  // by default, but a spare at threshold is the one that matters — it is the
+  // by default, but a spare at threshold is the one that matters. It is the
   // vehicle's only replacement.
   it("still raises the tread warning on a spare", () => {
     const w = positionWarnings({ treads: [3, 4, 4], pressureKpa: 200 }, spare, config);
@@ -143,8 +143,8 @@ describe("positionWarnings", () => {
   });
 
   // A position whose treads are read and whose pressure was never taken is a
-  // designed case — 000023 accepts a NULL pressure and payload.ts sends the
-  // reading — and the tread bands are final the moment the last reading is in.
+  // designed case: 000023 accepts a NULL pressure and payload.ts sends the
+  // reading, and the tread bands are final the moment the last reading is in.
   // Gating them on a pressure would hide FR-INS-036 on a position that may
   // never get one, on the diagram as well as here.
   it("raises the tread warning as soon as the treads are read, with no pressure", () => {

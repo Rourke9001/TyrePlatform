@@ -21,7 +21,7 @@ export interface Warning {
   code: WarningCode;
   // Where the SRS says "warn and require confirmation" the driver must act;
   // where it says "warn immediately" an acknowledgement is enough. Both are
-  // recorded under FR-INS-040 — this only decides which response is written.
+  // recorded under FR-INS-040. This only decides which response is written.
   requiresConfirmation: boolean;
   // NFR-USE-005: what happened and what to do, in plain language. Never the
   // words legal, roadworthy or minimum (CR-010, OR-LEG-001).
@@ -39,7 +39,7 @@ export type Severity = "roadworthy" | "caution" | "below-removal" | "unmeasured"
 
 // The one definition of done. Every surface that counts, bands or submits a
 // position reads it: the payload filters on it (payload.ts), the tallies count
-// it, and the diagram bands on it. Pressure is deliberately not part of it —
+// it, and the diagram bands on it. Pressure is deliberately not part of it.
 // 000023 accepts a NULL pressure by design, so a position with its treads read
 // and no pressure is captured and is sent, and calling it unmeasured would hide
 // a tread band the app already holds every number for.
@@ -129,7 +129,7 @@ export function positionWarnings(
     // At most one pressure warning. FR-INS-031a's confirmation supersedes
     // FR-INS-037's band: both are true beyond the critical tolerance, and two
     // rows about one number costs seconds the three-minute budget has not got.
-    // Strict on the under side, inclusive on the over side — not a style
+    // Strict on the under side, inclusive on the over side. Not a style
     // choice: app.inflation_compliance (000013) bands with
     // `pct < 100 - critical_under_pct`, so at exactly -20% the database says
     // WARN and an inclusive client here would say CONFIRM. Same drift the
@@ -154,7 +154,7 @@ export function positionWarnings(
   return out;
 }
 
-// Colour is never the only encoding (NFR-USE-009) — this names the state and
+// Colour is never the only encoding (NFR-USE-009). This names the state and
 // the component pairs it with a text badge. The names are the fixed band names
 // in theme/tokens.ts; the millimetres that reach them are tenant configuration.
 //

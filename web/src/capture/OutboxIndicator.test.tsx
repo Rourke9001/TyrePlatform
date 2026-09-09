@@ -60,7 +60,7 @@ describe("OutboxIndicator", () => {
 
   // The one assertion the hand-rolled useSyncExternalStore exists for. The
   // entry is written AFTER mount, with nothing telling this component about
-  // it — a mount-time read would show an empty queue for the rest of the
+  // it. A mount-time read would show an empty queue for the rest of the
   // session, which is precisely how a driver ends up watching nothing.
   it("counts an inspection queued after it mounted", async () => {
     render(<OutboxIndicator />);
@@ -83,8 +83,8 @@ describe("OutboxIndicator", () => {
 
   // NFR-USE-009: the count is in words, so the words have to be right. The
   // noun and the verb both inflect, and a plural verb on a singular noun is
-  // the kind of thing that quietly costs a pilot its credibility —
-  // driver-facing copy is part of the product, not decoration.
+  // the kind of thing that quietly costs a pilot its credibility.
+  // Driver-facing copy is part of the product, not decoration.
   it("agrees with itself about number in both directions", async () => {
     await outbox().put(entry("u1", "failed"));
     render(<OutboxIndicator />);
@@ -116,7 +116,7 @@ describe("OutboxIndicator", () => {
   });
 
   // TYRE-167: the "needs the office" line stops being permanent. Two taps,
-  // on the shell banner, only for a refused entry — a queued one shows no
+  // on the shell banner, only for a refused entry. A queued one shows no
   // such control.
   it("lets the driver hand a refused inspection to the office and drop it", async () => {
     const user = userEvent.setup();

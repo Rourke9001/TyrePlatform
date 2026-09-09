@@ -5,8 +5,8 @@ import "./capture.css";
 // the tyre from above with the readings numbered the way the fields are. Only
 // the centreline moves between sides: the fields are numbered left to right
 // on the sheet regardless of side, the plan view is the fixed frame the
-// driver reads against, and it is the vehicle's centreline — not the
-// reading order — that sits on the tyre's left for a RIGHT-side position and
+// driver reads against, and it is the vehicle's centreline, not the
+// reading order, that sits on the tyre's left for a RIGHT-side position and
 // on its right for a LEFT-side one (FR-INS-029a/FR-CFG-024).
 export function TreadGlyph({ side, count }: { side: "LEFT" | "RIGHT"; count: number }) {
   const label = `Tyre from above, ${side === "LEFT" ? "left" : "right"} side of the vehicle; readings 1 to ${count} run left to right`;

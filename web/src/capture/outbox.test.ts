@@ -73,7 +73,7 @@ describe("classify", () => {
   });
 
   // FR-OFF-012: everything else is the network or the server, and both come
-  // back. Rate limiting especially (NFR-SEC-007) — a 429 is a "later", not a
+  // back. Rate limiting especially (NFR-SEC-007): a 429 is a "later", not a
   // "never".
   it("treats a server fault, a rate limit and a dead network as retryable", () => {
     expect(classify(new ApiError(500, "x"))).toBe("retryable");
@@ -84,7 +84,7 @@ describe("classify", () => {
   // 401 is deliberately NOT permanent, though it shares its middleware with
   // 403. An expired session is recovered by signing in, and the queue then
   // drains; treating it as permanent would throw away a completed inspection
-  // because a token timed out. 403 differs in kind — a capability is not
+  // because a token timed out. 403 differs in kind. A capability is not
   // acquired by waiting.
   it("treats an expired session as retryable", () => {
     expect(classify(new ApiError(401, "unauthorized"))).toBe("retryable");
@@ -116,7 +116,7 @@ describe("backoffMs", () => {
 describe("the outbox", () => {
   // FR-OFF-005: the draft moves to the queue, and the two never both hold it
   // or neither does. One transaction, or an inspection can vanish between
-  // them — which FR-OFF-014 forbids outright.
+  // them, which FR-OFF-014 forbids outright.
   it("moves the draft to the queue atomically", async () => {
     await queueOne();
     expect(await listOutbox()).toHaveLength(1);
@@ -127,7 +127,7 @@ describe("the outbox", () => {
   });
 
   // TYRE-167: the entry outlives the draft, so it needs its own copy of the
-  // fleet number — it is the only thing the shell banner's release control
+  // fleet number. It is the only thing the shell banner's release control
   // can name a refused inspection by.
   it("carries the draft's fleet number onto the entry, and null when the draft has none", async () => {
     const named = await queueOne({ fleetNumber: "BAC 101" });
@@ -187,7 +187,7 @@ describe("the outbox", () => {
   });
 
   // FR-OFF-013: preserved locally, presented to the user, with a recovery
-  // action — never retried into the void and never dropped.
+  // action, never retried into the void and never dropped.
   it("stops retrying a permanent refusal but keeps the inspection", async () => {
     vi.stubGlobal(
       "fetch",
@@ -258,7 +258,7 @@ describe("the outbox", () => {
     await vi.advanceTimersByTimeAsync(backoffMs(1) + 2000);
     // The heartbeat's flushOutbox is fire-and-forget, and fake-indexeddb
     // completes a request on a real (unfaked) timer tick, so the fake clock
-    // advance above does not itself wait for it to finish — landing the
+    // advance above does not itself wait for it to finish. Landing the
     // retry takes several real ticks (a Dexie read, the fetch, a Dexie
     // write). One tick is enough to cover that on an idle machine and not
     // under a loaded full-suite run, so the wait has to bound itself on the
@@ -289,7 +289,7 @@ describe("the outbox", () => {
   });
 
   // 000023 refuses an empty readings array (TY005 -> 422), which the
-  // classifier reads as permanent — so queueing one would strand a draft the
+  // classifier reads as permanent, so queueing one would strand a draft the
   // driver can still finish in a queue that can never drain (FR-OFF-014,
   // SRS Appendix H).
   it("refuses to queue an inspection with nothing completed, and keeps the draft", async () => {
@@ -320,7 +320,7 @@ describe("the outbox", () => {
     expect(await listOutbox()).toHaveLength(0);
   });
 
-  // TYRE-215: the one 422 that time cures. Classified by CODE, not status —
+  // TYRE-215: the one 422 that time cures. Classified by CODE, not status:
   // the same status with no code stays permanent.
   it("keeps retrying a future-skew refusal with backoff", async () => {
     vi.stubGlobal(
@@ -340,7 +340,7 @@ describe("the outbox", () => {
   });
 
   // TYRE-167 / FR-OFF-013: once the office has the readings there is no
-  // recovery action left, and the entry can be released — by a person, with
+  // recovery action left, and the entry can be released: by a person, with
   // confirmation, and only a FAILED one. A queued or sending entry is the
   // driver's work in flight and cannot be dropped.
   it("drops a failed entry on request and refuses to drop a queued one", async () => {
