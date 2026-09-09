@@ -9,7 +9,8 @@ Closes TYRE-
 
 - [ ] `make check` passes locally
 - [ ] `make db-test` reports ALL CHECKS PASSED **as a non-superuser** (check 0 confirms this)
-- [ ] Requirement IDs cited in comments for any non-obvious rule
+- [ ] Requirement IDs cited in comments for any non-obvious rule, taken from the SRS in Confluence, never invented
+- [ ] `/comment-audit` run over the branch diff; every comment states a constraint the code cannot, and reads per the Prose section of `docs/comments.md` (`/unslop`)
 
 ## The non-negotiables
 
