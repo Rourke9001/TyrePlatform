@@ -658,7 +658,7 @@ func TestPatchUnitEditsDescriptiveFields(t *testing.T) {
 // D5: configuration_id and unit_kind are not fields of this request, in any
 // spelling, and the decoder is what says so — before a transaction opens, so
 // TY008 (000028's trigger) stays a pure database backstop no endpoint can
-// reach (docs/implementation-order.md §B5). Each refusal names the key the
+// reach (docs/delivery-history.md §B5). Each refusal names the key the
 // caller sent, because "invalid_submission" alone leaves a form with nothing
 // to point at.
 func TestPatchUnitRefusesConfigurationID(t *testing.T) {

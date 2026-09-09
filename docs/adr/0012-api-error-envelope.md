@@ -182,7 +182,7 @@ writers, `app.fit_tyre`/`app.remove_tyre`/`app.rotate_tyres`, and
 `TY008` stays out permanently rather than temporarily: TYRE-94, the batch
 that could have reopened `vehicle.configuration_id`/`unit_kind` editing,
 instead has the unit `PATCH` decoder refuse both fields outright before a
-transaction ever opens (`docs/implementation-order.md` §B5) — a database
+transaction ever opens (`docs/delivery-history.md` §B5) — a database
 backstop against a path the API deliberately never offers. An entry for it
 would still carry no test able to fail.
 
