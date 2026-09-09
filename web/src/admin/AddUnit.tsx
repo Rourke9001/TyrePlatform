@@ -23,7 +23,7 @@ const CREATE_WORDING = {
 };
 
 // FR-VEH-001..005, gated on ManageAssets (D8). Authoring an axle configuration
-// is not here and is ORG_ADMIN's alone through ManageTemplates (TYRE-84) — this
+// is not here and is ORG_ADMIN's alone through ManageTemplates (TYRE-84). This
 // screen picks from the library and never adds to it.
 export function AddUnit() {
   const tenantKey = getDevTenantId() ?? "default";
@@ -73,7 +73,7 @@ export function AddUnit() {
       {configs.isSuccess && (
         <form onSubmit={submit}>
           <label htmlFor="fleetNumber">Fleet number</label>
-          {/* FR-VEH-003: alphanumeric, never assumed numeric — so this is a
+          {/* FR-VEH-003: alphanumeric, never assumed numeric, so this is a
               text input with no pattern, and the server checks only that
               there is one. */}
           <input

@@ -52,7 +52,7 @@ describe("navItemsFor", () => {
     const users = navItemsFor(["ViewFleet", "ManageUsers"]).map((i) => i.to);
     expect(users).toContain("/admin/users/new");
 
-    // A driver holds neither, and the menu is a courtesy — the route checks
+    // A driver holds neither, and the menu is a courtesy. The route checks
     // again regardless (NFR-SEC-006).
     expect(navItemsFor(["CaptureInspection"]).map((i) => i.to)).toEqual(["/my"]);
   });
@@ -74,7 +74,7 @@ describe("navItemsFor", () => {
   });
 
   // Tyres is gated on ManageAssets, a capability distinct from the ViewFleet
-  // that governs Units itself — holding one must not imply the other, so
+  // that governs Units itself. Holding one must not imply the other, so
   // this actor sees Units and nothing else.
   it("shows Units without Tyres to an actor who can view the fleet but not manage assets", () => {
     const items = navItemsFor(["ViewFleet"]).map((i) => i.to);
@@ -88,7 +88,7 @@ describe("navItemsFor", () => {
     expect(tyres?.capability).toBe("ManageAssets");
   });
 
-  // A CONTROLLER sees both; a DRIVER — holding only CaptureInspection — sees
+  // A CONTROLLER sees both; a DRIVER, holding only CaptureInspection, sees
   // neither Units nor its Tyres sibling.
   it("gives a controller both Units and Tyres, and a driver neither", () => {
     const controller = navItemsFor(["ViewFleet", "ManageAssets"]).map((i) => i.to);
@@ -100,8 +100,8 @@ describe("navItemsFor", () => {
     expect(driver).not.toContain("/fleet/tyres");
   });
 
-  // D7: Fitments is a ViewFleet read like Units, not gated on ManageAssets —
-  // a reader who cannot manage a tyre can still see what is fitted where.
+  // D7: Fitments is a ViewFleet read like Units, not gated on ManageAssets.
+  // A reader who cannot manage a tyre can still see what is fitted where.
   // TYRE-72: Rigs joins them as a third ViewFleet read, between Tyres and
   // Fitments in registry order.
   it("gives a ViewFleet holder Units, Rigs and Fitments, and nothing else", () => {
@@ -117,7 +117,7 @@ describe("navItemsFor", () => {
   });
 
   // A controller holds ManageAssets as well as ViewFleet, so Tyres joins the
-  // menu — registry order puts Rigs between Tyres and Fitments regardless of
+  // menu. Registry order puts Rigs between Tyres and Fitments regardless of
   // which capability let each item in.
   it("keeps Tyres, Rigs and Fitments in registry order for a ManageAssets holder", () => {
     const labels = navItemsFor(["ViewFleet", "ManageAssets"])
@@ -134,7 +134,7 @@ describe("navItemsFor", () => {
     expect(labels).toEqual(["Retreads"]);
   });
 
-  // ManageAssets alone, without ViewFleet, must not surface Units — Tyres
+  // ManageAssets alone, without ViewFleet, must not surface Units. Tyres
   // and its own Add-a-unit gate are independent of the fleet read.
   it("gives a ManageAssets holder Tyres and Add a unit, without Units", () => {
     const labels = navItemsFor(["ManageAssets"]).map((i) => i.label);

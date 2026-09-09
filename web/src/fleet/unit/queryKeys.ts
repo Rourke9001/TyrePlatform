@@ -65,7 +65,7 @@ export function rigsKey(tenantKey: string): QueryKey {
 }
 
 // Same reasoning as openFitmentsKey above: applying or dismissing a report
-// changes what the Rigs screen shows — both this list and the register below
+// changes what the Rigs screen shows, both this list and the register below
 // it (D5, TYRE-75).
 export function observationsKey(tenantKey: string): QueryKey {
   return ["observations", tenantKey];

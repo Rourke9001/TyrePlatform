@@ -1,4 +1,4 @@
-// The menu's one list — navItemsFor drives which links render. It does not
+// The menu's one list. navItemsFor drives which links render. It does not
 // drive route enforcement: each route's RequireCapability checks its own
 // capability independently, which it must, since a route can exist with no
 // menu item (capture, added later, has none). This registry and every
@@ -24,10 +24,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/my", label: "My inspections", capability: "CaptureInspection" },
   // Add-a-unit and add-a-user stay two items, never one "Admin" group: they
   // gate on different capabilities, and the second's is an any-of array
-  // (D9, ADR-0011) — a merged group has no single capability to gate on.
+  // (D9, ADR-0011). A merged group has no single capability to gate on.
   { to: "/admin/units/new", label: "Add a unit", capability: "ManageAssets" },
   // This item's gate is an array, not the single capability every other item
-  // uses — see useCanAny's doc comment (web/src/auth/actorContext.ts) for
+  // uses. See useCanAny's doc comment (web/src/auth/actorContext.ts) for
   // why this one needs an any-of gate (D9, ADR-0011).
   { to: "/admin/users/new", label: "Add a user", capability: ["ManageUsers", "InviteDriver"] },
 ] as const;

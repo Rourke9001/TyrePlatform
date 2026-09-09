@@ -27,7 +27,7 @@ const RECEIVE_WORDING = {
 // all rather than offering it and losing the submission to a refusal the
 // operator could not have predicted. Under FREE the platform mints nothing,
 // so the code is the one thing this form must collect, and a bulk receive
-// makes no sense against one hand-typed code (the function's own rule) —
+// makes no sense against one hand-typed code (the function's own rule).
 // quantity is a GENERATED-only control for the same reason.
 export function ReceiveTyre() {
   const actor = useActor();
@@ -94,10 +94,10 @@ export function ReceiveTyre() {
           <>
             {/* AS-014: under a generated scheme nobody types a code, so the
                 one thing this screen must say out loud is the workshop step
-                that follows saving — otherwise a minted code sits unread on
+                that follows saving. Otherwise a minted code sits unread on
                 screen and the sidewall never gets marked. */}
             <p className="tyres-receive-hint">
-              The platform assigns the next code — mark the sidewall with the code shown after
+              The platform assigns the next code. Mark the sidewall with the code shown after
               saving.
             </p>
             <label htmlFor="quantity">Quantity</label>
@@ -138,7 +138,7 @@ export function ReceiveTyre() {
           </>
         ) : (
           // CFL-002: an unpriced receive is not an error, it is the normal
-          // shape of most intake — most of what a tenant eventually knows
+          // shape of most intake. Most of what a tenant eventually knows
           // about a tyre is not known yet at the workshop door.
           <p className="tyres-receive-hint">
             Leave the price blank to add this tyre to the awaiting-cost queue.
@@ -154,7 +154,7 @@ export function ReceiveTyre() {
 
       {received && (
         // NFR-USE-010: success is shown explicitly, never inferred from the
-        // absence of an error — and every code minted here is one the
+        // absence of an error. Every code minted here is one the
         // operator still has to go mark a sidewall with.
         <div role="status" className="tyres-receive-success note-card">
           <p>{received.length === 1 ? "1 tyre" : `${received.length} tyres`} received.</p>

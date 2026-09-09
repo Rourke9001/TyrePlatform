@@ -11,7 +11,7 @@ export function testQueryClient(): QueryClient {
 }
 
 // The one construction site for a test actor. When the server adds a field
-// to Me, tsc fails here and nowhere else — a search cannot find every
+// to Me, tsc fails here and nowhere else. A search cannot find every
 // literal a test file builds (docs/lessons.md, 31 Aug 2026).
 export function me(overrides: Partial<Me> = {}): Me {
   return {

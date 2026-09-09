@@ -92,7 +92,7 @@
 }
 
 /* NFR-USE-003: direct sunlight. The focus ring has to survive a washed-out
-   screen, so it is a solid offset outline rather than a tinted glow —
+   screen, so it is a solid offset outline rather than a tinted glow,
    stronger than base.css's global 2px because the shell chrome is the one
    thing a driver must never lose track of. */
 .shell-nav a:focus-visible,

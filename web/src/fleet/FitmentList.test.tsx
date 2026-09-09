@@ -68,7 +68,7 @@ describe("the fitments list", () => {
     expect(within(row).getByText("42")).toBeInTheDocument();
   });
 
-  // rule 6: an instant renders in the tenant's own zone, not the browser's —
+  // rule 6: an instant renders in the tenant's own zone, not the browser's.
   // 22:30Z is 00:30 the next day in Africa/Johannesburg (me()'s own zone).
   it("renders fitted on through useTenantDate", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(

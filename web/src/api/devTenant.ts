@@ -87,7 +87,7 @@ export const DEV_ACTORS = [
     name: "Thabo (driver, Second Fleet)",
     tenant: "22222222-2222-2222-2222-222222222222",
   },
-  // The tenant to type into when exploring — db/seeds/gen_seed_configurations.py
+  // The tenant to type into when exploring. db/seeds/gen_seed_configurations.py
   // holds why it exists. Anything entered here is discarded by the next
   // db-reset, which is the property the other two tenants do not have.
   {

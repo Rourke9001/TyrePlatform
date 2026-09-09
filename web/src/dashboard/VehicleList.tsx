@@ -93,7 +93,7 @@ function VehicleRows({
       <div className="note-card">
         <h2>No matches</h2>
         <p>
-          No fleet number or registration contains “{query.trim()}”. Clear the search to see all{" "}
+          No fleet number or registration contains "{query.trim()}". Clear the search to see all{" "}
           {total} units.
         </p>
       </div>

@@ -59,7 +59,7 @@ describe("the unit plan", () => {
   });
 
   // A <g> has no activation behaviour of its own, so both keys a button
-  // answers to have to be handled — and each must fire exactly once, since a
+  // answers to have to be handled. Each must fire exactly once, since a
   // second call would select a position the user did not pick.
   it("selects on click, on Enter and on Space, so the plan needs no mouse", async () => {
     const user = userEvent.setup();

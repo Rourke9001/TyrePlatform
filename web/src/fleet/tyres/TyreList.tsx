@@ -23,7 +23,7 @@ type TyreFilters = NonNullable<Parameters<typeof fetchTyres>[0]>;
 // must surface, never resolve on the user's behalf (ADR-0008 rule 3).
 function multiMatchNote(count: number, code: string): string {
   const subject = count === 2 ? "Two tyres" : `${count} tyres`;
-  return `${subject} carried code ${code} on that date — resolve by eye, the system never guesses.`;
+  return `${subject} carried code ${code} on that date. Resolve by eye, the system never guesses.`;
 }
 
 // The last write this screen's rows made, held here rather than inside the
@@ -57,7 +57,7 @@ function actedMessage(acted: ActedOn): string {
 // offers is a fact about where the casing currently sits, not a flag this
 // screen invents. Every transition rule enforced past this point belongs to
 // the write it fronts (app.dispatch_tyre, app.return_tyre_to_stock,
-// app.dispose_tyre) — this only decides which form the state makes
+// app.dispose_tyre). This only decides which form the state makes
 // reachable. onActed carries a row's success up to the screen-level
 // confirmation (see ActedOn above).
 function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => void) {
@@ -97,7 +97,7 @@ function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => voi
       // No disposal reaches this state directly: app.dispose_tyre (000031)
       // refuses SCRAPPED and LOST alike unless the tyre is IN_STOCK or
       // REMOVED. The path today is return to stock, then dispose from
-      // IN_STOCK — this offers only the write that actually succeeds.
+      // IN_STOCK. This offers only the write that actually succeeds.
       return (
         <ReturnToStockButton
           tyre={t}
@@ -109,9 +109,9 @@ function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => voi
       // Tyre carries no depot field: the register cannot name which
       // retreader without one, so this reads generically rather than a Go
       // field added for one row's text.
-      return "At the retreader — log the return under Retreads";
+      return "At the retreader, log the return under Retreads";
     case "FITTED":
-      return "Fitted — see the unit";
+      return "Fitted, see the unit";
     default:
       return "—";
   }
@@ -130,7 +130,7 @@ export function TyreList() {
   const [acted, setActed] = useState<ActedOn | null>(null);
 
   // code+on take over from the awaiting-cost toggle when a lookup is active
-  // (FR-TYR-042 resolves by date, not by the backlog filter) — the same
+  // (FR-TYR-042 resolves by date, not by the backlog filter). The same
   // precedence listTyres itself applies server-side.
   const filters: TyreFilters = lookup ? { code: lookup.code, on: lookup.on } : { awaitingCost };
 
@@ -170,7 +170,7 @@ export function TyreList() {
             otherwise reachable by URL alone, and a screen someone cannot find
             their way to might as well not exist. */}
         <Link to="/fleet/tyres/new">Receive tyres</Link>
-        {/* The queue's only discoverable entry point — gated on LogRetread
+        {/* The queue's only discoverable entry point, gated on LogRetread
             since an actor who cannot log a return has nothing to do on that
             screen. */}
         {canLogRetread && <Link to="/fleet/tyres/retreads">Retreads</Link>}
@@ -220,7 +220,7 @@ export function TyreList() {
         <p className="tyres-lookup-note">{multiMatchNote(rows.length, lookup.code)}</p>
       )}
 
-      {/* One confirmation region for every row write — see ActedOn above
+      {/* One confirmation region for every row write. See ActedOn above
           for why this cannot live inside the row. */}
       {acted !== null && <p role="status">{actedMessage(acted)}</p>}
 

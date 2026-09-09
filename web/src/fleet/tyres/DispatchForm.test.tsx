@@ -23,7 +23,7 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
 }
 
 // A deferred whose executor assigns the resolver, released before the test
-// ends (docs/lessons.md, 31 Aug 2026) — holds the depot read in flight long
+// ends (docs/lessons.md, 31 Aug 2026). Holds the depot read in flight long
 // enough to assert the pending option, without a fake timer.
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -118,7 +118,7 @@ describe("dispatching a tyre", () => {
     expect(within(depotSelect).queryByRole("option", { name: "Retread Co" })).toBeNull();
     expect(depotSelect).toHaveValue("");
     // A controlled select whose value matches no option renders the first
-    // non-disabled one instead — "" reads the same whether depotId actually
+    // non-disabled one instead. "" reads the same whether depotId actually
     // cleared or is stale at "r1". The submit button's own disabled check
     // does not share that ambiguity: a stale depotId leaves it enabled and
     // would dispatch to the wrong depot.
@@ -209,7 +209,7 @@ describe("dispatching a tyre", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  // TY015's own sentence is the whole content of the refusal (NFR-USE-005) —
+  // TY015's own sentence is the whole content of the refusal (NFR-USE-005),
   // rendered verbatim, not replaced by a general one.
   it("renders TY015's message verbatim when the casing is at its retread cap", async () => {
     vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {

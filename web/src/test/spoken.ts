@@ -1,8 +1,8 @@
 import { expect } from "vitest";
 
 // One list, in one place. CR-010 / OR-LEG-001 keeps compliance language away
-// from a driver — the platform reports the tenant's configured policy and never
-// determines roadworthiness — and FR-INS-029a (decision D-A) keeps the
+// from a driver, the platform reports the tenant's configured policy and never
+// determines roadworthiness, and FR-INS-029a (decision D-A) keeps the
 // prototype's Outer/Centre/Inner field names away too. "roadworthy" is a
 // legitimate internal band name in warnings.ts, which is exactly why it needs
 // pinning at the surface. A copy of this list per test file is how a word slips

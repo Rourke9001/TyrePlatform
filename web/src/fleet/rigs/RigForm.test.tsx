@@ -92,7 +92,7 @@ describe("setting a rig", () => {
         vehicle({ id: "u3", fleetNumber: "DISPOSED-3", unitKind: "TRAILER", status: "DISPOSED" }),
         vehicle({ id: "u4", fleetNumber: "DRIVER-4", unitKind: null, status: "ACTIVE" }),
         // U9 positive control: PARKED and WORKSHOP only pause a unit's
-        // schedule, so a rig still couples them — RETIRED holds neither.
+        // schedule, so a rig still couples them. RETIRED holds neither.
         vehicle({ id: "u6", fleetNumber: "PARKED-6", unitKind: "TRAILER", status: "PARKED" }),
         vehicle({ id: "u7", fleetNumber: "WORKSHOP-7", unitKind: "HORSE", status: "WORKSHOP" }),
       ],
@@ -149,7 +149,7 @@ describe("setting a rig", () => {
     expect(within(rowsBefore[1]).getByText("2")).toBeInTheDocument();
 
     await userEvent.click(screen.getByRole("button", { name: "Move LINK-B up" }));
-    // After the swap LINK-B leads, so its own Up control is aria-disabled —
+    // After the swap LINK-B leads, so its own Up control is aria-disabled,
     // not `disabled`, so it stays focusable at the boundary (RigForm.tsx).
     expect(screen.getByRole("button", { name: "Move LINK-B up" })).toHaveAttribute(
       "aria-disabled",
@@ -164,7 +164,7 @@ describe("setting a rig", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Remove LINK-A" }));
     // Removing it from the towed list makes it a free trailer again, so it
-    // reappears in the Trailer select's own options — scope to the towed
+    // reappears in the Trailer select's own options. Scope to the towed
     // list itself rather than the whole document.
     expect(within(screen.getByRole("list")).queryByText("LINK-A")).not.toBeInTheDocument();
   });
@@ -247,7 +247,7 @@ describe("setting a rig", () => {
       motiveVehicleId: "u1",
       towed: [{ vehicleId: "u2", descriptor: "front" }],
     });
-    // The form clears once the write succeeds — towed is empty, so the
+    // The form clears once the write succeeds. towed is empty, so the
     // list unmounts rather than sitting empty in the DOM (RigForm.tsx).
     expect(screen.queryByRole("list")).not.toBeInTheDocument();
   });

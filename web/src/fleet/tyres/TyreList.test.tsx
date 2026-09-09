@@ -51,7 +51,7 @@ describe("the tyre register", () => {
   });
 
   // NFR-USE-012: natural order, not the order the server happened to send
-  // (received_date DESC, then display_code — tyres.go's own ORDER BY).
+  // (received_date DESC, then display_code, tyres.go's own ORDER BY).
   it("lists tyres in natural display-code order regardless of server order", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
@@ -80,7 +80,7 @@ describe("the tyre register", () => {
   });
 
   // FR-TYR-042/043: a code resolves only against a date, and when more than
-  // one tyre carried it the screen must show every match and say so — never
+  // one tyre carried it the screen must show every match and say so. Never
   // pick one for the user.
   it("shows every match for a code+date lookup and the resolve-by-eye note when more than one carried it", async () => {
     vi.mocked(fetch)
@@ -127,7 +127,7 @@ describe("the tyre register", () => {
 
   // REMOVED, not the fixture's default IN_STOCK: app.dispose_tyre (000031)
   // sells from REMOVED alone, so it is the only state whose row offers Sold
-  // at all — the test below pins the other half of that mapping.
+  // at all. The test below pins the other half of that mapping.
   it("shows the reason field only for a scrap and the proceeds field only for a sale", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, { tyres: [tyre({ id: "t1", displayCode: "POS1", state: "REMOVED" })] }),
@@ -171,7 +171,7 @@ describe("the tyre register", () => {
   // spec's own comment says so): DisposeForm must not stay on offer once a
   // tyre is terminal, or its refusal reads as advice for a tyre that is not
   // scrapped. Both rows are awaiting cost so CostForm, not a dash, owns the
-  // Set-cost cell — the only dash left in POS1's row is the Dispose cell's.
+  // Set-cost cell. The only dash left in POS1's row is the Dispose cell's.
   it("shows a dash, never a dispose form, for a terminal tyre, while a non-terminal row keeps the form", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
@@ -248,7 +248,7 @@ describe("the tyre register", () => {
 
   // Whitespace satisfies the input's `required` attribute, so a space-only
   // proceeds would otherwise reach app.dispose_tyre's numeric cast and come
-  // back as 22P02 — a code this screen cannot speak. Refused locally instead,
+  // back as 22P02, a code this screen cannot speak. Refused locally instead,
   // and no request is sent at all.
   it("refuses locally, without sending a request, when proceeds is whitespace only", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -305,7 +305,7 @@ describe("the tyre register", () => {
   });
 
   // The server-side handler for POST /api/tyres/{id}/cost requires only
-  // ManageAssets, not ViewValuation (api/internal/httpapi/tyres.go) — the
+  // ManageAssets, not ViewValuation (api/internal/httpapi/tyres.go). The
   // cost control must render for every actor who reaches this route the
   // same way DisposeForm already does, never behind an invented
   // ViewValuation gate. Every other awaiting-cost test above renders with
@@ -326,7 +326,7 @@ describe("the tyre register", () => {
   });
 
   // D5/TY013: a correction later is a decision this surface does not take,
-  // so an already-costed row must never offer a second submission — not a
+  // so an already-costed row must never offer a second submission: not a
   // form, not a disabled form, nothing that invites one.
   it("shows a dash, never a cost form, for a tyre that already has a cost recorded", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -335,7 +335,7 @@ describe("the tyre register", () => {
       }),
     );
     // No ViewValuation: the money columns are absent, so the only dash left
-    // in this row is the Set-cost cell's — nothing else to confuse it with.
+    // in this row is the Set-cost cell's. Nothing else to confuse it with.
     renderScreen(["ManageAssets"]);
     await screen.findAllByRole("rowheader");
 
@@ -378,7 +378,7 @@ describe("the tyre register", () => {
   // The two forms on this screen share one helper, so this is the assertion
   // that keeps their wording apart: a cost that fails for a reason the client
   // cannot speak must not tell the operator the tyre "could not be disposed
-  // of" — an action they did not take.
+  // of," an action they did not take.
   it("falls back to a cost-specific message for a refusal with an unrecognised code", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
@@ -445,7 +445,7 @@ describe("the tyre register", () => {
   // ReceiveTyre (/fleet/tyres/new) is otherwise reachable by URL alone; the
   // register is its one discoverable entry point. Every actor who can render
   // this screen already holds ManageAssets (AdminRoute in routes.tsx), so the
-  // link needs no capability check of its own — renderScreen's default
+  // link needs no capability check of its own. renderScreen's default
   // capabilities cover that gate the same way the route does.
   it("links to the receive-tyres screen", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [] }));
@@ -482,7 +482,7 @@ describe("the tyre register", () => {
 
   // app.dispose_tyre's own SCRAPPED/LOST guard (000031) refuses both unless
   // the tyre is IN_STOCK or REMOVED, so no disposal reaches
-  // AT_BREAKDOWN_SUPPLIER directly — only Return to stock is offered here.
+  // AT_BREAKDOWN_SUPPLIER directly. Only Return to stock is offered here.
   it("offers only return to stock, no dispose control, for a tyre AT_BREAKDOWN_SUPPLIER", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
@@ -518,14 +518,14 @@ describe("the tyre register", () => {
     renderScreen();
     await screen.findAllByRole("rowheader");
 
-    expect(screen.getByText(/fitted — see the unit/i)).toBeInTheDocument();
+    expect(screen.getByText(/fitted, see the unit/i)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /return to stock/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox", { name: /disposal for pos1/i })).not.toBeInTheDocument();
   });
 
   // A dispatch's own invalidation swaps this row's cell (REMOVED's controls
   // for AT_RETREADER's text) on the very refetch that would carry a
-  // row-level confirmation away with it — proven here by mocking that
+  // row-level confirmation away with it. Proven here by mocking that
   // refetch with the server's real post-dispatch answer, not the tyre left
   // standing at REMOVED.
   it("shows the confirmation and swaps the row once a dispatch's refetch reports the new state", async () => {
@@ -655,7 +655,7 @@ describe("the tyre register", () => {
   });
 
   // A confirmation names one past write; it must not sit above a register a
-  // lookup has since replaced (NFR-USE-010) — the previous test proves it
+  // lookup has since replaced (NFR-USE-010). The previous test proves it
   // survives its own refetch, this one proves it does not survive a lookup.
   it("clears the confirmation once a lookup is submitted", async () => {
     vi.mocked(fetch)

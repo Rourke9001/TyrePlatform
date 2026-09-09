@@ -13,7 +13,7 @@ import {
 } from "./tenantTime";
 
 // A fixed instant in two zones 25 hours apart. Their civil dates can never
-// agree, so this asserts the zone is honoured no matter where it runs — which
+// agree, so this asserts the zone is honoured no matter where it runs, which
 // is the whole point of the rule (rule 6, FR-TEN-005).
 describe("formatTenantDate", () => {
   const instant = "2026-01-01T23:00:00Z";
@@ -31,12 +31,11 @@ describe("formatTenantDate", () => {
     expect(formatTenantDate("2026-03-14T22:30:00Z", "America/Los_Angeles")).toBe("14 Mar 2026");
   });
 
-  // A calendar date (Postgres `date`, serialised bare — no time component)
-  // has no instant to project through a zone: the tenant's clerk wrote "5
-  // January", and 5 January is what every viewer must read back. Pinned
-  // against Pacific/Midway (UTC-11) because a west-of-UTC zone is where
-  // projecting the instant new Date("2026-01-05") parses as — UTC midnight —
-  // loses a day; east of UTC it rolls forward and reads correctly anyway.
+  // formatTenantDate's own comment (tenantTime.ts) says why a calendar date
+  // is formatted in UTC rather than projected through a zone. Pinned against
+  // Pacific/Midway (UTC-11) because a west-of-UTC zone is where projecting
+  // the instant loses a day; east of UTC it rolls forward and reads
+  // correctly anyway.
   it("formats a bare YYYY-MM-DD date in the date itself, not the instant UTC midnight becomes in the zone", () => {
     expect(formatTenantDate("2026-01-05", "Pacific/Midway")).toBe("05 Jan 2026");
   });
@@ -80,7 +79,7 @@ describe("formatTenantDate", () => {
   });
 
   // The date-only branch's regex shapes the string (four digits, two, two)
-  // but does not validate calendar semantics — "2026-13-01" matches it and
+  // but does not validate calendar semantics. "2026-13-01" matches it and
   // is not a real date. Same failure mode as the instant branch above, same
   // fix: the marker, not a thrown RangeError.
   it("returns the marker rather than throwing on a regex-shaped but invalid calendar date", () => {
@@ -88,10 +87,11 @@ describe("formatTenantDate", () => {
   });
 });
 
-// The cache is keyed per zone. Reusing one instance is the optimisation;
-// the assertion that matters is the second one — a wrong key would render
-// every tenant in the first tenant's zone (rule 6), a far worse defect than
-// the construction cost the cache removes.
+// The cache is keyed per zone; tenantDateFormatter's own comment
+// (tenantTime.ts) says why. Reusing one instance is the optimisation, but
+// the assertion that matters is the second one: a wrong key would render
+// every tenant in the first tenant's zone, a far worse defect than the
+// construction cost the cache removes.
 describe("tenantDateFormatter", () => {
   const instant = "2026-01-01T23:00:00Z";
 

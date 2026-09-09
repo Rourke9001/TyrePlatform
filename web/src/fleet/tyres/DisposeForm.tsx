@@ -18,7 +18,7 @@ const DISPOSE_WORDING = {
 const BLANK_PROCEEDS = "Proceeds are required before a sale can be recorded.";
 
 // Every rule about which transitions are legal, and about reason/proceeds, is
-// app.dispose_tyre's alone (ADR-0013 decision 5) — this only shapes the
+// app.dispose_tyre's alone (ADR-0013 decision 5). This only shapes the
 // request and shows the field the chosen disposal actually needs. Which
 // disposals the state even makes offerable is disposalsFor's (api/tyres.ts),
 // which holds the rationale for narrowing the menu at all.
@@ -40,7 +40,7 @@ export function DisposeForm({
   const [reason, setReason] = useState("");
   const [proceeds, setProceeds] = useState("");
   // A refusal this form raised itself, distinct from the server's own
-  // (rendered below from dispose.error) — RetreadReturnRow's `refused`
+  // (rendered below from dispose.error). RetreadReturnRow's `refused`
   // pattern (RetreadQueue.tsx).
   const [refused, setRefused] = useState("");
   const offered = disposalsFor(tyre.state);
@@ -62,7 +62,7 @@ export function DisposeForm({
     if (disposal === "") return;
     // Whitespace satisfies `required`, so jsdom's (and a real browser's)
     // constraint validation lets a space-only proceeds through and it would
-    // reach app.dispose_tyre's numeric cast, which rejects it as 22P02 — a
+    // reach app.dispose_tyre's numeric cast, which rejects it as 22P02, a
     // code this screen cannot speak. Refused here, before the wire, the same
     // way omitIfBlank does for a genuinely optional field (RetreadQueue.tsx);
     // proceeds is not optional on a sale, so the refusal is local rather than

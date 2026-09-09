@@ -228,7 +228,7 @@ describe("a position panel", () => {
   });
 
   // D13: nobody touching the radios is a fit nobody asserted an orientation
-  // for, and the fitment row is immutable — MARK_OUTBOARD must never be the
+  // for, and the fitment row is immutable. MARK_OUTBOARD must never be the
   // default the write carries.
   it("sends UNKNOWN orientation when the radios are never touched", async () => {
     stubFetch();

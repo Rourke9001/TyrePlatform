@@ -103,7 +103,7 @@ describe("the refusal envelope", () => {
     expect((error as ApiError).message).toContain("502");
   });
 
-  // Pins apiPost's 204 handling — see client.ts's own comment for why.
+  // Pins apiPost's 204 handling. See client.ts's own comment for why.
   it("resolves with nothing on a 204, without trying to parse an empty body", async () => {
     vi.stubGlobal("fetch", vi.fn());
     vi.mocked(fetch).mockResolvedValue(new Response(null, { status: 204 }));
@@ -122,7 +122,7 @@ describe("apiPatch", () => {
 
   // The unit PATCH answers with the same body the unit read does (D6), so
   // this pins method, body and the dev actor/tenant headers apiGet and
-  // apiPost already carry — the one thing genuinely new about apiPatch.
+  // apiPost already carry. That is the one thing genuinely new about apiPatch.
   it("sends PATCH with the JSON body and the dev headers", async () => {
     const devTenantId = "11111111-1111-1111-1111-111111111111";
     const devActorId = "b85aef08-6081-80db-9d4d-dad38ae40545";

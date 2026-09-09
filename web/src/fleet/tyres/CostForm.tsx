@@ -15,8 +15,8 @@ const COST_WORDING = {
 
 // FR-TYR-041's costing step, the discharge for the awaiting-cost backlog
 // CFL-002 names. Rendered only on a row where awaitingCost is true (the
-// caller's job, not this component's): D5's own TY013 rationale — "a
-// correction later is a decision this surface does not take" — means an
+// caller's job, not this component's): D5's own TY013 rationale: "a
+// correction later is a decision this surface does not take" means an
 // already-costed row must never offer a second submission, not even a
 // disabled one. Every rule about a re-costed or negative price is
 // app.set_tyre_cost's alone (ADR-0013 decision 5).
@@ -37,7 +37,7 @@ export function CostForm({
   const [costSource, setCostSource] = useState<CostSource>("INVOICE");
 
   const cost = useFormMutation({
-    // Price stays a string end to end (rule 2) — never Number()'d, here or
+    // Price stays a string end to end (rule 2), never Number()'d, here or
     // in setTyreCost itself.
     mutate: (vars: { price: string; source: CostSource }) => setTyreCost(tyre.id, vars),
     invalidate: [tyresKey(tenantKey)],

@@ -17,10 +17,10 @@ const STATUS_WORDING = {
   fallback: "The status could not be changed. Try again, or call support if it keeps happening.",
 };
 
-// FR-VEH-005/006. Which transitions are legal — DISPOSED is terminal, a
-// disposal needs an empty unit and a stated reason — is
-// app.set_vehicle_status' rule, so this offers all six and lets the refusal
-// explain (ADR-0013 decision 5).
+// FR-VEH-005/006. Which transitions are legal is app.set_vehicle_status'
+// rule, so this offers all six and lets the refusal explain (ADR-0013
+// decision 5): DISPOSED is terminal, and a disposal needs an empty unit and
+// a stated reason.
 export function UnitStatusForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const [status, setStatus] = useState(unit.status);

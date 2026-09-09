@@ -188,7 +188,7 @@ describe("adding a driver", () => {
   });
 
   // The refusal has to become an offer, or the admin's only reading is "pick
-  // another address" — which for a rehire is wrong and creates a second person.
+  // another address", which for a rehire is wrong and creates a second person.
   it("offers reactivation when the email belongs to a deactivated user", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(
@@ -216,7 +216,7 @@ describe("adding a driver", () => {
   });
 
   // A double-click here reads as "Thandi was added" followed immediately by
-  // "already in use" for the same person — on the one screen meant to stop a
+  // "already in use" for the same person, on the one screen meant to stop a
   // rehire becoming a second one.
   it("disables the reactivate button while the reactivate request is in flight, then completes", async () => {
     // Hold the reactivate request open so "in flight" is a state the test can
@@ -246,8 +246,8 @@ describe("adding a driver", () => {
     expect(again).toBeDisabled();
     // Tanstack Query clears create.error the moment this second mutation
     // starts, so this alert must still be reading state captured at the
-    // first refusal rather than re-deriving from the (now cleared) error —
-    // otherwise a live region announces the generic fallback sentence over a
+    // first refusal rather than re-deriving from the (now cleared) error.
+    // Otherwise a live region announces the generic fallback sentence over a
     // request that is in fact succeeding (D10).
     expect(screen.getByRole("alert")).toHaveTextContent(/deactivated/i);
 

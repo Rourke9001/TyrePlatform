@@ -15,7 +15,7 @@ interface Task {
 }
 
 // FR-DSH-012: the driver's landing view is their own units and their own
-// outstanding work — not the fleet, which they cannot read at all.
+// outstanding work, not the fleet, which they cannot read at all.
 export function DriverHome() {
   const tenantKey = getDevTenantId() ?? "default";
   const tenantDate = useTenantDate();
@@ -43,7 +43,7 @@ export function DriverHome() {
                     driver opening the app and entering their first reading,
                     and it carries the task so submitting can close it. */}
                 <Link to={`/capture/${t.vehicleId}?taskId=${t.id}`}>
-                  {t.fleetNumber} — due {tenantDate(t.dueAt)}
+                  {t.fleetNumber}, due {tenantDate(t.dueAt)}
                   {/* Never colour alone (NFR-USE-009): overdue says so in words. */}
                   {t.overdue ? " (overdue)" : ""}
                 </Link>

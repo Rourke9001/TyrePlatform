@@ -23,7 +23,7 @@ function NotFound() {
 // fleet view to land on, and sending them to one they would be refused is a
 // worse first impression than sending them to their work. Nothing is rendered
 // until the actor resolves: a capability check reads false before GET /api/me
-// answers, and this redirect is one-shot — it cannot revise itself later.
+// answers, and this redirect is one-shot. It cannot revise itself later.
 function Landing() {
   const settled = useActorSettled();
   const canViewFleet = useCan("ViewFleet");
@@ -33,7 +33,7 @@ function Landing() {
 
 // FR-INS-048's one tap into the work. The vehicle is in the path and the task
 // is a query parameter because an inspection can be started off a task or off
-// the vehicle alone (FR-INS-049) — the same screen, with or without a task to
+// the vehicle alone (FR-INS-049). The same screen, with or without a task to
 // close.
 function CaptureRoute() {
   const { vehicleId } = useParams();
@@ -54,7 +54,7 @@ function CaptureRoute() {
 // someone navigated to, and AdminRoute below holds that rule. /fleet and
 // /fleet/fitments stay hidden, per D7. A param segment never matches empty,
 // so this guard covers UnitDetail's non-empty-id contract, not a reachable
-// URL — CaptureRoute's shape, for the same reason.
+// URL, CaptureRoute's shape, for the same reason.
 export function UnitRoute() {
   const { unitId } = useParams();
   if (!unitId) return <NotFound />;
@@ -66,8 +66,8 @@ export function UnitRoute() {
 //
 // capability accepts a bare string or an array so a caller with one
 // capability need not wrap it, but useCanAny needs the fixed-arity array
-// form — rules-of-hooks forbids calling useCan conditionally per shape at
-// this call site — so this normalises before the one hook call. See
+// form, rules-of-hooks forbids calling useCan conditionally per shape at
+// this call site, so this normalises before the one hook call. See
 // useCanAny's doc comment (auth/actorContext.ts) for why a route needs an
 // any-of gate at all (D9, ADR-0011).
 function AdminRoute({

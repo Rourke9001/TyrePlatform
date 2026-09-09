@@ -1,7 +1,7 @@
 /* The tyre register (TYRE-91). Custom properties only, per web/CLAUDE.md. */
 
 /* .retreads, .fitments (TYRE-93) and .rigs (TYRE-72) share this register's
-   page width — one rule, not a clone, so the screens cannot drift apart by
+   page width. One rule, not a clone, so the screens cannot drift apart by
    accident. */
 .tyres,
 .retreads,
@@ -77,7 +77,7 @@
 }
 
 /* .retreads-table and .fitments-table (TYRE-93) are this same table, so
-   they take these four rules by selector, not by a second copy — the
+   they take these four rules by selector, not by a second copy. The
    register, the retread queue and the fitments list cannot render three
    different tables by accident. */
 .tyres-table,
@@ -188,7 +188,7 @@
   margin: 0;
 }
 
-/* A .note-card with its own rhythm and a tighter box — it follows a form
+/* A .note-card with its own rhythm and a tighter box. It follows a form
    rather than standing in for a screen's content. */
 .tyres-receive-success {
   margin-top: var(--space-3);
@@ -349,7 +349,7 @@
   padding: 0;
 }
 
-/* Advisories, not refusals — toned with the caution colour and still read as
+/* Advisories, not refusals, toned with the caution colour and still read as
    sentences, because colour never carries the meaning alone (NFR-USE-009). */
 .unit-panel-warnings {
   list-style: disc;
@@ -443,7 +443,7 @@
 
 /* ------------------------------------------------- the rigs screen (TYRE-72) */
 
-/* The train's towed units, quieter than the motive that leads it — the
+/* The train's towed units, quieter than the motive that leads it. The
    sequence device belongs to this one cell, so the weight difference is the
    only thing styling here does; the text itself is pinned (RigList.tsx). */
 .rigs-towed {

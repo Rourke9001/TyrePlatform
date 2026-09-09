@@ -10,7 +10,7 @@ import { refusalMessage } from "../api/refusal";
 import { testQueryClient } from "../test/fixtures";
 
 // A deferred whose executor assigns the resolver, released before the test
-// ends (docs/lessons.md, 31 Aug 2026) — holds the mutation in flight long
+// ends (docs/lessons.md, 31 Aug 2026). Holds the mutation in flight long
 // enough to assert the pending-disabled button, without a fake timer.
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -82,7 +82,7 @@ function renderProbe(mutate: (vars: { value: string }) => Promise<{ id: string }
 }
 
 // TVars/TResult = void: the shape the 204 writes have (removeFitment,
-// setUnitStatus, logRetreadReturn, returnTyreToStock) — an endpoint whose only
+// setUnitStatus, logRetreadReturn, returnTyreToStock). An endpoint whose only
 // observable outcome is isSuccess, since `result` stays permanently null for
 // them.
 function VoidProbeForm({ mutate }: { mutate: (vars: { value: string }) => Promise<void> }) {
@@ -163,18 +163,18 @@ describe("useFormMutation", () => {
   // TanStack does not dedupe: without useFormMutation's own guard, a second
   // submit reaching the handler while the first is still in flight would
   // fire a second write. The button's disabled attribute already stops a
-  // real second click, so this bypasses it — fireEvent.submit on the form
-  // itself, the way a stray Enter-key resubmission or a second
-  // form.requestSubmit() would — to prove the hook's guard, not the DOM, is
+  // real second click, so this bypasses it, using fireEvent.submit on the
+  // form itself, the way a stray Enter-key resubmission or a second
+  // form.requestSubmit() would, to prove the hook's guard, not the DOM, is
   // what holds a fitment or rotation write to one event (rule 3).
   //
   // The assertion sits after the awaited findByText, not right after the
   // second fireEvent.submit: TanStack's own execute() yields at its
   // onMutate await before ever reaching mutationFn, so a synchronous read
   // immediately after fireEvent.submit reads 1 whether or not the guard
-  // exists — it is checking a call that has not had a chance to happen yet,
+  // exists. It is checking a call that has not had a chance to happen yet,
   // guarded or not. Only once every microtask this test's own `promise`
-  // resolution can trigger has drained — which findByText's wait forces —
+  // resolution can trigger has drained, which findByText's wait forces,
   // would an unguarded second execute() have reached the spy.
   it("fires one request for two submits inside one pending window", async () => {
     const { promise, resolve } = deferred<{ id: string }>();
@@ -206,7 +206,7 @@ describe("useFormMutation", () => {
     expect(screen.getByTestId("result")).toHaveTextContent("null");
   });
 
-  // A fresh submit is a new mutation, not a continuation of the failed one —
+  // A fresh submit is a new mutation, not a continuation of the failed one.
   // isSuccess must read false for the whole pending window, never briefly
   // true off the previous attempt's state before the new result lands.
   it("keeps isSuccess false while a fresh submit is pending after an earlier error", async () => {
