@@ -19,8 +19,10 @@ import { basename, extname } from 'node:path';
 
 const SLASH = new Set(['.go', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.bicep']);
 const BLOCK_ONLY = new Set(['.css']);
-const HASH = new Set(['.py', '.sh', '.bash', '.yml', '.yaml', '.toml', '.npmrc']);
-const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig']);
+const HASH = new Set(['.py', '.sh', '.bash', '.yml', '.yaml', '.toml']);
+// A bare dotfile has no extension as far as extname() is concerned, so these
+// are keyed by name.
+const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig', '.npmrc']);
 const DASH = new Set(['.sql']);
 
 // docs/ and markdown are prose: comparing alternatives and recording history
