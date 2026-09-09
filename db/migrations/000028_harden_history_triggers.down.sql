@@ -20,7 +20,7 @@ BEGIN
     RAISE EXCEPTION USING
       ERRCODE  = 'TY008',
       MESSAGE  = 'axle configuration cannot change once the unit has history',
-      HINT     = 'correct a wrong configuration by retiring the unit and re-adding it, or by a dated migration that moves the history with it — never by an edit';
+      HINT     = 'correct a wrong configuration by retiring the unit and re-adding it, or by a dated migration that moves the history with it, never by an edit';
   END IF;
 
   RETURN NEW;

@@ -3,7 +3,7 @@
 --
 -- The audit rows the trigger wrote stay. They are the fleet's record of who
 -- changed what, and a migration that deleted them would be destroying facts
--- rather than changing a schema (rule 3, CR-004) — the same reason 000034
+-- rather than changing a schema (rule 3, CR-004), the same reason 000034
 -- leaves the events and valuations it wrote in place.
 DROP TRIGGER vehicle_audited ON app.vehicle;
 DROP FUNCTION app.audit_row_change();

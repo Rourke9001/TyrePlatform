@@ -44,7 +44,7 @@ BEGIN
   -- The other half of "closed once": removal_is_complete (000001, narrowed by
   -- 000011) ties removed_at to removal_reason and says nothing about the four
   -- columns beside them, so a distance or a removal tread can be written onto
-  -- a row that is still open — a closure figure on a fitment that was never
+  -- a row that is still open, a closure figure on a fitment that was never
   -- closed, which the register and the wear rate then read as fact. A closure
   -- column moves only in the statement that sets removed_at.
   IF NEW.removed_at IS NULL

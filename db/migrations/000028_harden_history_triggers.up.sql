@@ -1,7 +1,7 @@
 -- TY009, second cut (TYRE-88 defect 1). The fitted-odometer leg must not
 -- re-fire on the UPDATE of a fitment that was legitimately created without
--- one — a NULL-kind unit later backfilled to HORSE (CHG-027), or any
--- pre-000025 legacy row — or such fitments can never be closed. The gate is
+-- one: a NULL-kind unit later backfilled to HORSE (CHG-027), or any
+-- pre-000025 legacy row, which could then never be closed. The gate is
 -- exactly the ticket's: TG_OP = 'UPDATE' AND OLD.fitted_odometer IS NULL AND
 -- NEW.vehicle_id = OLD.vehicle_id. Not a bare INSERT gate (it would re-break
 -- the backfill), and not a bare OLD-is-NULL pass (a repoint must not escape).
@@ -45,8 +45,8 @@ END $$;
 
 -- TY008 widens to unit_kind (TYRE-88 defect 2): editing the kind of a unit
 -- with history retroactively changes what recorded MEASURED distances meant
--- and what TY009 enforces. A NULL kind may be backfilled once — that is
--- CHG-027's legitimate path and the very one that makes defect 1's rows —
+-- and what TY009 enforces. A NULL kind may be backfilled once. That is
+-- CHG-027's legitimate path and the very one that makes defect 1's rows,
 -- but any change FROM a known kind is refused, including to NULL: allowing
 -- known→NULL would let two legal steps launder the edit the rule refuses.
 -- That last clause exceeds TYRE-88's literal wording (which names only
@@ -68,7 +68,7 @@ BEGIN
       RAISE EXCEPTION USING
         ERRCODE  = 'TY008',
         MESSAGE  = 'axle configuration cannot change once the unit has history',
-        HINT     = 'correct a wrong configuration by retiring the unit and re-adding it, or by a dated migration that moves the history with it — never by an edit';
+        HINT     = 'correct a wrong configuration by retiring the unit and re-adding it, or by a dated migration that moves the history with it, never by an edit';
     END IF;
     RAISE EXCEPTION USING
       ERRCODE  = 'TY008',
@@ -80,7 +80,7 @@ BEGIN
 END $$;
 
 -- TYRE-88 defect 3: name the legacy rows the new gate grandfathers, in the
--- 000011 RAISE WARNING idiom — visibility, not enforcement.
+-- 000011 RAISE WARNING idiom. Visibility, not enforcement.
 DO $$
 DECLARE r record;
 BEGIN

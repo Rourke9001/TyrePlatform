@@ -3,7 +3,7 @@
 -- and app.v_my_inspection_task (000014) to their exact text. Text, not
 -- shape: it.* re-expands against whatever columns app.inspection_task holds
 -- at the time, 000017's audit columns among them, so a restore that copied
--- only the column list would answer a different view — the same reason the
+-- only the column list would answer a different view, the same reason the
 -- up drops that view rather than replacing it. The audit rows the trigger
 -- wrote stay: a migration that deleted them would be destroying facts, not
 -- changing a schema (rule 3, CR-004), the reasoning 000035's and 000037's

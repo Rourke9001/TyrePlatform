@@ -7,8 +7,8 @@
 --  spec U4 (the assignee can capture the unit), U11 (TY018), U12 (audited).
 -- ============================================================================
 -- SQLSTATEs (ours; the TY class forwards verbatim, ADR-0012):
---   TY012 — a row this tenant cannot see (one message per object)
---   TY018 — an inspection task refused
+--   TY012: a row this tenant cannot see (one message per object)
+--   TY018: an inspection task refused
 --
 -- Nothing new is stored. app.inspection_task (000012) has held a task's shape
 -- since the sponsor answers, app.v_my_inspection_task (000014) reads it for
@@ -46,7 +46,7 @@ SELECT cm.tenant_id, ca.user_id, cm.vehicle_id, ca.vehicle_id AS via_vehicle_id
 
 -- The capture read, re-created whole on the base above: the same two columns,
 -- so capture.go and suite 45a read it unchanged. The base excludes an
--- inactive actor, which this read inherits — unreachable through the API,
+-- inactive actor, which this read inherits. It is unreachable through the API,
 -- since withActor refuses an inactive actor before a query runs (ADR-0011).
 -- CREATE OR REPLACE keeps its grants; security_invoker is restated because
 -- reloptions are not carried over (suite 8b would catch an omission).
@@ -69,7 +69,7 @@ $$;
 -- due date, computed once. 000014 wrote it inside the driver's own view; the
 -- unit's task list (tasks.go) needs the same answer for every assignee, and a
 -- second expression in a Go query string would be a second place for the
--- rule to be wrong. `outstanding` — still needing doing — is factored beside
+-- rule to be wrong. `outstanding`, still needing doing, is factored beside
 -- it for the same reason: the driver's list, the unit's list and any later
 -- reader ask one expression rather than each repeating the state literals.
 -- v_my_inspection_task is dropped and re-created rather than replaced: its

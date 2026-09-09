@@ -5,7 +5,7 @@
 
 -- fitted_odometer is nullable (000011) because a trailer has none to give, and
 -- trailers carry roughly two-thirds of the tyres on a superlink. That is half
--- of the corrected requirement; this trigger is the other half — required
+-- of the corrected requirement; this trigger is the other half, required
 -- where the unit HAS one. Without it a horse fitment with no odometer is
 -- accepted and its distance degrades to UNAVAILABLE, understating cost-per-km
 -- coverage for exactly the units where MEASURED was available.

@@ -5,11 +5,11 @@
 -- the tread ceiling has one definition (FR-INS-030, TYRE-185).
 --
 -- SQLSTATEs (ours; the TY class forwards verbatim, ADR-0012):
---   TY005 — a submit refused for its payload (000023), reused here
---   TY012 — a row this tenant cannot see (one message per object)
---   TY019 — an inspection write refused: history is written once and the
+--   TY005: a submit refused for its payload (000023), reused here
+--   TY012: a row this tenant cannot see (one message per object)
+--   TY019: an inspection write refused. History is written once and the
 --           void is its only transition
---   TY020 — a reading or measurement offered to an inspection that was
+--   TY020: a reading or measurement offered to an inspection that was
 --           submitted in an earlier transaction
 --
 -- Every routine here is SECURITY INVOKER; app.refresh_governing_tread
@@ -18,7 +18,7 @@
 -- ---------------------------------------------------------------------------
 -- TYRE-185. FR-INS-030: "The system shall reject tread depth values outside
 -- the range 0 to 35 millimetres." An input-sanity bound and deliberately NOT
--- tenant configuration -- a fleet does not get to declare that 900mm is a
+-- tenant configuration. A fleet does not get to declare that 900mm is a
 -- tread (TYRE-128 decision 8). Every writer that accepts a tread reads it:
 -- the four fitment writers (000033, 000034, 000039), app.submit_inspection
 -- (below) and reading_measurement_tread_mm_check (below), so the CHECK and
@@ -75,7 +75,7 @@ BEGIN
 
   -- Preconditions, refused by name before anything reads them. Each of the
   -- three is a body that can only ever fail, and ADR-0009's outbox retries a
-  -- 5xx to a 30-minute ceiling and never gives up — so a shape that reached
+  -- 5xx to a 30-minute ceiling and never gives up, so a shape that reached
   -- its column's own not-null violation instead would be retried forever
   -- (FR-OFF-013 needs a permanent refusal it can surface to the driver).
   -- Both keys are also load-bearing for the guards immediately below: the
@@ -110,7 +110,7 @@ BEGIN
   -- absent key yields the empty set rather than an error, so without this an
   -- empty submit lands a SYNCED inspection at the default 100% completeness
   -- (see completeness_pct below) recording nothing, closes the driver's task,
-  -- and never arms FR-INS-038 — whose window keys on readings[].vehicle_id,
+  -- and never arms FR-INS-038, whose window keys on readings[].vehicle_id,
   -- not on the header. jsonb_typeof screens the missing key, the JSON null
   -- and the non-array in one: only the last two would otherwise reach
   -- jsonb_array_elements, and they reach it as "cannot extract elements from
@@ -133,8 +133,8 @@ BEGIN
   -- FR-INS-038, per UNIT rather than per rig, so a superlink's member units
   -- are each protected. Reached only past the replay check above: resubmitting
   -- one capture is not a second inspection and must never trip this.
-  -- FR-INS-038 states the default in the requirement itself — "a
-  -- configurable minimum interval, defaulting to four hours" — so a tenant
+  -- FR-INS-038 states the default in the requirement itself: "a
+  -- configurable minimum interval, defaulting to four hours". So a tenant
   -- with no configured row still gets the window. Failing open here would
   -- stand a Must down silently, which is not the same trade DR-020's
   -- configurable ceiling makes (migration 000021: there, no configured
@@ -147,8 +147,8 @@ BEGIN
   -- genuinely double-captures unit X at 08:00 and 09:00, both draining from
   -- the outbox at 18:00, must still be caught at submit time regardless of
   -- when the sync happened to land. Anchoring on real now() would silently
-  -- stand the window down for every queued submit — exactly the case
-  -- FR-INS-038 exists to catch — because the device-claimed submitted_at
+  -- stand the window down for every queued submit, exactly the case
+  -- FR-INS-038 exists to catch, because the device-claimed submitted_at
   -- drifts further from the server clock the longer the outbox held it. The
   -- rest of this function trusts the device's own clock for everything else
   -- it stores (duration_seconds, the odometer's reading_date, NFR-OBS-007's
@@ -160,7 +160,7 @@ BEGIN
   -- two captures of one unit are within v_hours OF EACH OTHER, which is a
   -- symmetric question, and the outbox is exactly what makes the payload
   -- arrive out of order. A capture held offline on Monday and drained on
-  -- Friday meets a Wednesday capture that is already stored — one bound alone
+  -- Friday meets a Wednesday capture that is already stored. One bound alone
   -- refuses that Monday walk-around no matter how far apart the two are, and
   -- the outbox reads TY003's 409 as permanent, so a completed inspection
   -- would be discarded rather than retried (FR-OFF-014). Both bounds are
@@ -186,7 +186,7 @@ BEGIN
   -- cross-tenant vehicle_id reaches the composite FK
   -- inspection_vehicle_id_fkey (tenant_id, vehicle_id) and arrives as
   -- SQLSTATE 23503, which is not in submitStatus and therefore surfaces as a
-  -- server fault — telling the outbox to retry forever something that will
+  -- server fault, telling the outbox to retry forever something that will
   -- never succeed.
   --
   -- RLS-scoped, so this answers "visible to this tenant" and not "exists".
@@ -200,8 +200,8 @@ BEGIN
   -- FR-OFF-011 under concurrency. Two drains of the same outbox entry can
   -- both pass the lookup above before either commits; the loser then blocks
   -- on inspection_tenant_id_client_uuid_key and surfaces as a 23505. That is
-  -- still a replay, not a conflict, so it must answer the replay contract —
-  -- reporting it as an error would have the outbox raise FR-OFF-013 over an
+  -- still a replay, not a conflict, so it must answer the replay contract.
+  -- Reporting it as an error would have the outbox raise FR-OFF-013 over an
   -- inspection that is already safely stored. The re-read is correct because
   -- the transaction is READ COMMITTED: this statement takes a fresh snapshot
   -- and therefore sees the winner's now-committed row.
@@ -244,7 +244,7 @@ BEGIN
     -- The members of THIS combination, narrowed before the join. Joining the
     -- whole table and filtering afterwards makes every other combination's
     -- rows look like unmatched members, so a tenant with two rigs would get a
-    -- spurious FR-INS-063 warning on every submit — and the fixture, which
+    -- spurious FR-INS-063 warning on every submit, and the fixture, which
     -- has exactly one combination, could never reveal it.
     IF EXISTS (
       SELECT 1
@@ -271,13 +271,13 @@ BEGIN
   -- key. 4 subscripts past the end of the width array and lands a NOT NULL
   -- violation on position, so every submit that tenant makes fails with no
   -- client bug involved; 2 raises nothing at all and records the far edge of
-  -- the tread as the CENTRE — permanently, because DR-014a revokes UPDATE, so
+  -- the tread as the CENTRE, permanently, because DR-014a revokes UPDATE, so
   -- it is compensable but never correctable. Refusing the configuration is
   -- smaller and safer than inventing a width convention the SRS has not
   -- settled. The IS NULL half is load-bearing: NULL NOT IN (1,3) is NULL, not
   -- true, so a guard without it would still admit an unconfigured tenant and
   -- land readings carrying no tread at all, which is rule 4 inverted. No
-  -- configured width means no capture — unlike the FR-INS-038 window above,
+  -- configured width means no capture. Unlike the FR-INS-038 window above,
   -- whose default the requirement itself states, nothing states this one.
   IF v_want IS NULL OR v_want NOT IN (1, 3) THEN
     RAISE EXCEPTION 'the tenant configures tread_reading_count = %, which is neither 1 nor 3',
@@ -352,7 +352,7 @@ BEGIN
     -- produced the reading, on an append-only table, so a wrong one is
     -- permanent and silently degrades every later analysis that trusts it.
     -- The payload's value if it sent one, else the tenant's configured
-    -- capture granularity — a literal fallback here would stamp 1.0 mm
+    -- capture granularity. A literal fallback here would stamp 1.0 mm
     -- precision on a tenant capturing at 0.1 the moment a client omitted the
     -- field, which is easy to omit because it is session reference data
     -- rather than per-reading input. reading_measurement_granularity_mm_check
@@ -381,8 +381,8 @@ BEGIN
     RETURNING id INTO v_reading;
 
     -- FR-OFF-016: fitment can move between capture and submit. The driver's
-    -- eyes are the record of what was on the vehicle, so accept and flag —
-    -- rejecting the inspection is the one response the requirement forbids.
+    -- eyes are the record of what was on the vehicle, so accept and flag.
+    -- Rejecting the inspection is the one response the requirement forbids.
     IF (r ->> 'tyre_id') IS NOT NULL THEN
       SELECT f.tyre_id INTO v_fitted FROM app.fitment f
        WHERE f.tenant_id = v_tenant
@@ -397,11 +397,11 @@ BEGIN
       END IF;
     END IF;
 
-    -- FR-INS-029a. The driver enters left to right in the plan view — the
-    -- frame BR-VEH-001 numbers positions in — and never sees these words;
+    -- FR-INS-029a. The driver enters left to right in the plan view, which is
+    -- the frame BR-VEH-001 numbers positions in, and never sees these words;
     -- OUTER is away from the centreline (CHG-010), so the order reverses
     -- between sides. A spare has no vehicle-relative geometry,
-    -- so its orientation is recorded as unknown rather than invented — such
+    -- so its orientation is recorded as unknown rather than invented. Such
     -- rows still count toward MIN but are excluded from directional diagnosis.
     v_ord := 0;
     FOR t IN SELECT * FROM jsonb_array_elements(r -> 'treads') LOOP
@@ -442,7 +442,7 @@ BEGIN
   END LOOP;
 
   -- DR-016's contiguity guard is DEFERRABLE INITIALLY DEFERRED, so left alone
-  -- it fires at COMMIT — after the handler has returned, where the API can
+  -- it fires at COMMIT, after the handler has returned, where the API can
   -- only call it a 500. Forcing it here makes a malformed position a refusal
   -- the client can act on.
   SET CONSTRAINTS ALL IMMEDIATE;
@@ -456,7 +456,7 @@ BEGIN
   -- FR-INS-020: the odometer never blocks the inspection, and FR-INS-064 puts
   -- only the motive unit's reading on a timeline. DR-020 still refuses a value
   -- that would corrupt the vehicle's rates, and DR-018 makes that refusal the
-  -- only safe answer — the timeline is append-only, so an accepted implausible
+  -- only safe answer. The timeline is append-only, so an accepted implausible
   -- reading is permanent. Containing it here is what lets both hold at once.
   --
   -- Only the timeline's own SQLSTATEs are trapped. A generic WHEN OTHERS would
@@ -491,7 +491,7 @@ BEGIN
   -- task down and C leaves the controller's outstanding-work view. A driver
   -- holding several open tasks plus one client-side index slip is enough, and
   -- GET /api/my/tasks hands the client every id needed to make it. A task the
-  -- submit does not cover closes nothing, silently — the same trade made for
+  -- submit does not cover closes nothing, silently. The same trade made for
   -- an absent task_id above and for one belonging to another tenant.
   IF v_task IS NOT NULL THEN
     UPDATE app.inspection_task
@@ -508,8 +508,8 @@ GRANT EXECUTE ON FUNCTION app.submit_inspection(jsonb) TO app_rw;
 
 -- ---------------------------------------------------------------------------
 -- TYRE-145. UPDATE and DELETE on app.reading and app.reading_measurement are
--- revoked (000001), but INSERT must stay granted -- it is how a capture is
--- written -- and nothing tied that INSERT to the reading's own submit. One
+-- revoked (000001), but INSERT must stay granted, since it is how a capture
+-- is written, and nothing tied that INSERT to the reading's own submit. One
 -- more measurement on a submitted reading fires refresh_governing_tread and
 -- moves the MIN that prices the tyre (CR-011, BR-INS-005). A reading or a
 -- measurement belongs to the transaction that created its inspection:
@@ -534,7 +534,7 @@ BEGIN
   END IF;
   SELECT i.created_at INTO v_created FROM app.inspection i WHERE i.id = v_insp;
   -- a parent this session cannot see is the FK's and RLS's refusal, not this
-  -- one -- NOT FOUND is that case. A reading or measurement belongs to the
+  -- one. NOT FOUND is that case. A reading or measurement belongs to the
   -- transaction that created its inspection, and every writer in that
   -- transaction gets its inspection's created_at from the same now(), which
   -- equals transaction_timestamp() exactly (000023's own rows land this
@@ -542,7 +542,7 @@ BEGIN
   -- and no NOT NULL (000017), so any other instant is a claim nobody made:
   -- earlier (a prior transaction's row), later (a future-dated row that
   -- would otherwise stay appendable until that instant passes) or absent
-  -- (NULL) are all refused alike -- IS DISTINCT FROM is what makes NULL one
+  -- (NULL) are all refused alike. IS DISTINCT FROM is what makes NULL one
   -- more case of "not equal" instead of a silent pass.
   IF NOT FOUND THEN
     RETURN NEW;
@@ -582,7 +582,7 @@ GRANT UPDATE (state, void_reason) ON app.inspection TO app_rw;
 -- retains the record and excludes it). A mistaken void is corrected by
 -- capturing the unit again, never by reversing the void, so the row freezes
 -- entire once voided. The comparison subtracts the stamp columns rather than
--- relying on trigger order -- 000032's reasoning -- and uses the whole row so
+-- relying on trigger order, as 000032 does, and uses the whole row so
 -- a column added later is frozen by default rather than editable by omission.
 CREATE FUNCTION app.inspection_is_written_once() RETURNS trigger
 LANGUAGE plpgsql

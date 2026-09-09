@@ -7,7 +7,7 @@
 -- two PLATFORM_ADMIN rows can share an email. Hygiene rather than exposure:
 -- app_rw's WITH CHECK rejects any NULL-tenant insert, so this is reachable
 -- only through the postgres provisioning path. Case folding deliberately
--- matches the existing index rather than improving on it — one email
+-- matches the existing index rather than improving on it. One email
 -- comparison rule in the schema, not two.
 CREATE UNIQUE INDEX app_user_platform_admin_email_key
   ON app.app_user (email) WHERE tenant_id IS NULL;
@@ -21,8 +21,8 @@ CREATE EXTENSION IF NOT EXISTS btree_gist;
 -- shows the unit twice.
 --
 -- Keyed on (vehicle_id, user_id), NOT on vehicle_id alone. Constraining a
--- vehicle to one driver at a time would answer OI-32 — fixed per horse or
--- pooled per trip (TYRE-44) — which is an open sponsor question. This rejects
+-- vehicle to one driver at a time would answer OI-32, fixed per horse or
+-- pooled per trip (TYRE-44), which is an open sponsor question. This rejects
 -- a driver overlapping themselves on one unit and nothing else.
 --
 -- No SRS requirement ID: TYRE-30 asked for a decision rather than citing one,

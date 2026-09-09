@@ -9,9 +9,9 @@
 --  non-permitted axle warns; only the cap refuses)
 -- ============================================================================
 -- SQLSTATEs (all ours; the TY class forwards verbatim, ADR-0012):
---   TY012 — an invalid lifecycle transition, or a row this tenant cannot see
---   TY014 — an input this surface does not accept
---   TY015 — the casing is at its retread cap (BR-FIT-009)
+--   TY012: an invalid lifecycle transition, or a row this tenant cannot see
+--   TY014: an input this surface does not accept
+--   TY015: the casing is at its retread cap (BR-FIT-009)
 --
 -- A missing row and another tenant's row are indistinguishable under RLS, so
 -- each object gets its own message rather than a shared one: a cross-tenant
@@ -30,7 +30,7 @@
 -- FR-FIT-016, one rule for every writer below rather than four copies of it.
 -- app.tyre_in_estate_asof and the wear-rate views read a tyre's LATEST
 -- to_state event, so an instant stamped out of order silently reorders the
--- tyre's history — the same invariant app.dispose_tyre guards from the
+-- tyre's history, the same invariant app.dispose_tyre guards from the
 -- disposal end (000031). A backdate of more than a day is a claim about the
 -- past that has to carry its justification into the record.
 CREATE FUNCTION app.fitment_instant_ok(p_tyre uuid, p_at timestamptz, p_reason text)
@@ -113,9 +113,9 @@ BEGIN
   -- INV-2's converse. app.set_vehicle_status (000035) refuses a disposal
   -- while the unit has an open fitment, which holds the invariant only at the
   -- instant that call runs; this is what holds it afterwards. FOR SHARE on
-  -- the row is what makes the pair race-free in both directions — the
+  -- the row is what makes the pair race-free in both directions: the
   -- disposal's FOR UPDATE waits for an in-flight fit, and a fit that starts
-  -- after one sees the committed status — while two fits on the same unit
+  -- after one sees the committed status, while two fits on the same unit
   -- still do not queue behind each other, which FOR UPDATE here would force.
   --
   -- DISPOSED alone is refused. A PARKED, WORKSHOP, INACTIVE or OUT_OF_SERVICE
@@ -166,7 +166,7 @@ BEGIN
 
   -- FR-FIT-006, FR-CFG-044, U11: warn without blocking. The class row wins
   -- over the tenant-wide one where it exists, which is how the seeded STEER
-  -- rule reaches a fit at all (CHG-038 — fleet practice, never a legal claim).
+  -- rule reaches a fit at all (CHG-038: fleet practice, never a legal claim).
   IF ty.status = 'RETREAD' THEN
     SELECT tp.retreads_permitted INTO permitted
       FROM app.threshold_policy tp
@@ -323,8 +323,8 @@ BEGIN
   -- FR-FIT-016, and the as-at register's location join (000036):
   -- fitted_at < bound.ts AND (removed_at IS NULL OR removed_at >= bound.ts).
   -- fitment_instant_ok bounds an instant only against the tyre's latest
-  -- to_state EVENT, which a fitment opened outside app.fit_tyre never has —
-  -- every one of the pilot tenant's 27 open fitments is in that shape. Left
+  -- to_state EVENT, which a fitment opened outside app.fit_tyre never has.
+  -- Every one of the pilot tenant's 27 open fitments is in that shape. Left
   -- unchecked, a removal stamped before its own fitment's fitted_at makes
   -- that join unsatisfiable at any date, so the casing shows no unit or
   -- position anywhere in its own history. Checked against the fitment row
@@ -648,8 +648,8 @@ BEGIN
   -- removal and leave the estate reading REMOVED while the row reads
   -- AT_RETREADER. An earlier date means midnight in the TENANT's zone
   -- (rule 6) rather than the session's. Both arms are bounded by now() in the
-  -- expression itself — the future date is already refused above, and least()
-  -- closes the tenant-zone arm — so no separate future check follows it.
+  -- expression itself: the future date is already refused above, and least()
+  -- closes the tenant-zone arm, so no separate future check follows it.
   stamp := CASE WHEN sent = app.tenant_today(tz) THEN now()
                 ELSE least((sent::timestamp AT TIME ZONE tz), now()) END;
   -- The guard is inline rather than app.fitment_instant_ok: that helper's

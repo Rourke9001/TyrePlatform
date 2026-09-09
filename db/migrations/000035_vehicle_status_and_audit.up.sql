@@ -6,8 +6,8 @@
 --  app.vehicle in this slice), U6 (a tag edit replaces the set)
 -- ============================================================================
 -- SQLSTATEs (the TY class forwards verbatim, ADR-0012):
---   TY012 — a unit this tenant cannot see
---   TY016 — a status transition the rules do not allow
+--   TY012: a unit this tenant cannot see
+--   TY016: a status transition the rules do not allow
 --
 -- A missing unit and another fleet's unit are indistinguishable under RLS and
 -- share one message, so a cross-tenant probe can pin which branch refused it
@@ -23,7 +23,7 @@
 -- api/internal/httpapi/httpapi.go's submitStatus map, and this function does
 -- not make it reachable: it writes neither configuration_id nor unit_kind.
 -- That supersedes 000024:55-59's instruction to map TY008 when the vehicle
--- write surface arrives — the unit PATCH refuses both fields at the decoder
+-- write surface arrives. The unit PATCH refuses both fields at the decoder
 -- instead (docs/implementation-order.md §B5, D5).
 --
 -- Invoker rights, like every routine in app except
@@ -42,7 +42,7 @@ BEGIN
   -- FOR UPDATE serialises this call against another status change on the
   -- same unit: two concurrent parks resolve to one PARKED and one TY016
   -- rather than to two audit rows claiming the same transition. It does not
-  -- by itself keep a casing off a disposed unit — a removal committing
+  -- by itself keep a casing off a disposed unit. A removal committing
   -- between the count and the write only lowers the count. That direction is
   -- closed from the other side: app.fit_tyre and app.rotate_tyres take the
   -- unit row FOR SHARE (000033), so a disposal waits for an in-flight fit and
@@ -79,8 +79,8 @@ BEGIN
 
   IF p_status = 'DISPOSED' THEN
     -- INV-2: the unit is empty at the moment it is disposed. A casing left on
-    -- it would have no removal path — a fitment closes only against the unit
-    -- it is open on — and the register would carry it as fleet value on a
+    -- it would have no removal path, since a fitment closes only against the
+    -- unit it is open on, and the register would carry it as fleet value on a
     -- unit that is gone. Keeping it empty afterwards is app.fit_tyre's and
     -- app.rotate_tyres' guard (000033), not this count.
     SELECT count(*) INTO n FROM app.fitment f
@@ -97,7 +97,7 @@ BEGIN
     IF NULLIF(btrim(COALESCE(p_reason, '')), '') IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'TY016',
         MESSAGE = 'a disposal records the reason the unit left the fleet',
-        HINT    = 'give the reason (sold, written off, returned to lessor) — FR-VEH-005';
+        HINT    = 'give the reason (sold, written off, returned to lessor). FR-VEH-005';
     END IF;
   END IF;
 
@@ -117,7 +117,7 @@ END $$;
 -- SECURITY INVOKER is the decision, not a default left alone: the trigger runs
 -- as the writer, so tenant_isolation on app.audit_log evaluates against the
 -- writer's own session-bound tenant. tenant_id comes from NEW rather than
--- app.current_tenant_id() — the departure from ADR-0013 decision 2 that ADR-
+-- app.current_tenant_id(), the departure from ADR-0013 decision 2 that ADR-
 -- 0014 records: app.audit_log.tenant_id is nullable, and a session-derived
 -- source would stamp NULL on every superuser-written row, an audit entry that
 -- tenant_isolation's USING clause then hides from every tenant session.
@@ -139,7 +139,7 @@ BEGIN
   -- not one. app.set_vehicle_status refuses a no-op transition outright
   -- (TY016) for that reason; the unit PATCH is a COALESCE UPDATE, so a client
   -- resending an unchanged field would otherwise write an entry whose before
-  -- and after are the same row — a log that claims a change nobody made.
+  -- and after are the same row, a log that claims a change nobody made.
   --
   -- updated_at/updated_by are out of the comparison because app.stamp_updated
   -- (000017) is a BEFORE UPDATE trigger and has already written them into NEW
@@ -167,7 +167,7 @@ END $$;
 
 -- U4: app.vehicle is the one table this slice gives an update endpoint to, so
 -- it is the one table the trigger attaches to here. app.tyre and app.app_user
--- carry unaudited update paths of their own — widening to them is the
+-- carry unaudited update paths of their own. Widening to them is the
 -- follow-up ticket ADR-0014's Consequences names, not a gap in this migration.
 CREATE TRIGGER vehicle_audited
 AFTER INSERT OR UPDATE ON app.vehicle
@@ -177,6 +177,6 @@ FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 -- history: the unit edit replaces a unit's whole tag set in one transaction,
 -- which is a delete of its map rows followed by an insert of the new set.
 -- 000018 revoked DELETE across the 000012 tables as a block; this restores it
--- for the map alone. app.vehicle_tag stays undeletable there — a tag name is
+-- for the map alone. app.vehicle_tag stays undeletable there. A tag name is
 -- shared across units, and one unit's edit must not remove it from the others.
 GRANT DELETE ON app.vehicle_tag_map TO app_rw;

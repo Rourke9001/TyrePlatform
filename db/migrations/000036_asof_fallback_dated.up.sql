@@ -16,8 +16,8 @@
 -- already slices every one of its other joins at. It is not a comparison of
 -- tenant calendar dates. Any event whose instant falls in a different UTC day
 -- from its tenant date is priced from that UTC day: east of UTC that is every
--- instant in the tenant's first offset hours — a return logged at 01:30 SAST
--- stamps in the previous UTC day — and the guaranteed case is a backdated
+-- instant in the tenant's first offset hours. A return logged at 01:30 SAST
+-- stamps in the previous UTC day. The guaranteed case is a backdated
 -- dispatch or return, which 000033/000034 stamp at tenant-zone midnight. A
 -- fit, removal or rotation carries the client's own instant (p_occurred_at)
 -- and is exposed the same way whenever that instant lands there. One day, in
@@ -30,7 +30,7 @@
 -- The rule is on the date, not on where the figure came from. A row whose
 -- last_tread_at is NULL keeps answering for every date, because NULL here is
 -- "no date to be before" and not "a date that fails the test" (CR-012:
--- absence is absence, never a value) — which is every row app.receive_tyres
+-- absence is absence, never a value), which is every row app.receive_tyres
 -- writes, and every row of the BAC fixture, none of which carries the pair at
 -- all. An onboarding audit that DID record when it was measured is honoured
 -- on the same rule and prices from its own date forward, which is the answer
@@ -39,7 +39,7 @@
 -- The accepted consequence, stated rather than left to be discovered: for a
 -- casing the fitment writers have touched, dates before that write are
 -- UNVALUED by this fallback. One column holds one measurement, so the
--- onboarding figure does not survive a later event writing over it — and
+-- onboarding figure does not survive a later event writing over it, and
 -- UNVALUED is a true answer where carrying today's tread into 2021 is a false
 -- one. The dated history is on app.fitment already (fitted_tread_mm/fitted_at,
 -- removed_tread_mm/removed_at), for an as-at register that resolves tread from
@@ -101,7 +101,7 @@ LANGUAGE sql STABLE AS $$
     -- FR-VAL-020, U10. The fallback is a dated measurement, so it answers
     -- only from the UTC day its instant falls in onward; before that the tyre
     -- is UNVALUED rather than priced at a tread nobody had measured yet. UTC
-    -- day, not tenant date — see the header on the one-day over-reach that
+    -- day, not tenant date. See the header on the one-day over-reach that
     -- costs a backdated event east of UTC (TYRE-123).
     -- Strict '<' against bound.ts, matching the reading join below: bound.ts
     -- is the exclusive upper edge of p_as_at, so '<' is how this function
@@ -144,7 +144,7 @@ LANGUAGE sql STABLE AS $$
                                           thr.mm, t.rand_per_mm) END AS val) tv
     -- current casing value = the latest valuation event as at the date
     -- (CHG-016), labelled by its source; the size estimate and the onboarding
-    -- audit figure are fallbacks, each under its own label — never blended
+    -- audit figure are fallbacks, each under its own label, never blended
     LEFT JOIN LATERAL (
          SELECT c.value, c.source
            FROM app.casing_valuation c
@@ -177,4 +177,4 @@ $$;
 COMMENT ON COLUMN app.tyre.last_tread_mm IS
   'The casing''s tread as a dated measurement (FR-TYR-016 errata E1, U10): set at onboarding where a tread is known, and maintained thereafter by app.fit_tyre, app.remove_tyre, app.rotate_tyres and an accepted retread return, each writing the event''s own instant to last_tread_at. Ranked below reading: the register (app.tyre_valuation_asof) reads this column only where no reading exists as at the date, whatever the two dates are. The as-at register reads it only from the UTC day last_tread_at falls in onward (FR-VAL-020, TYRE-123 on the one-day over-reach a backdated event east of UTC still costs); the live register (app.v_tyre_valuation) reads it as current tread.';
 COMMENT ON COLUMN app.tyre.last_tread_at IS
-  'The instant last_tread_mm was measured, stamped by the same writers (U10) and monotonic: a backdated event leaves a newer measurement in place. Drives the AUDIT tread_source label and staleness display (FR-TYR-017), and gates the as-at register''s fallback to the UTC day it falls in and later (FR-VAL-020, TYRE-123). Never a substitute for reading.submitted_at — a reading outranks this pair wherever one exists.';
+  'The instant last_tread_mm was measured, stamped by the same writers (U10) and monotonic: a backdated event leaves a newer measurement in place. Drives the AUDIT tread_source label and staleness display (FR-TYR-017), and gates the as-at register''s fallback to the UTC day it falls in and later (FR-VAL-020, TYRE-123). Never a substitute for reading.submitted_at. A reading outranks this pair wherever one exists.';
