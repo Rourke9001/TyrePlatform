@@ -28,6 +28,31 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-09 — A punctuation rule anchored to a neighbouring letter misses the line end (TYRE-237)
+
+**What happened:** the first em-dash rule in `scripts/check-comment-style.mjs`
+required a letter or digit beside the dash so a quoted lone glyph would pass.
+It reported 0 findings on files that still held about twenty em dashes: a
+dash after `"`, `)` or `}` at the end of a wrapped comment line has no
+letter on either side. Three slice agents found them by a plain `grep`
+after the checker had said clean.
+
+**The rule:** a gate for a character matches the character, then subtracts
+the one legal form (`strip` the quoted lone glyph before matching), never
+the other way round. After changing a checker, confirm it with the dumbest
+possible grep over the same files before trusting its zero.
+
+## 2026-09-09 — Parallel agents share the session scratchpad as well as the git index (TYRE-237)
+
+**What happened:** seven agents dispatched in one message each wrote
+`edits.json` and `checker-before.txt` to the session scratchpad root. Two
+reported their before-state files overwritten by a sibling mid-run; their
+"before" numbers came from memory rather than from disk.
+
+**The rule:** give every parallel agent its own scratch subdirectory in the
+packet (`scratchpad/<slice>/`), and have it record its baseline inside the
+report, not only in a file.
+
 ## 2026-09-05 — A control character in source passes every gate and turns `git diff` into "Binary files differ" (TYRE-101)
 
 **What happened:** a template-string key separator was written as a literal
