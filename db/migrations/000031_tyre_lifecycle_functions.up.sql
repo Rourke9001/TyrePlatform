@@ -5,9 +5,9 @@
 --  of its own is a SQL function, shaped like app.submit_inspection)
 -- ============================================================================
 -- SQLSTATEs (all ours; the TY class forwards verbatim, ADR-0012):
---   TY011 — display-code policy refusal (D12)
---   TY012 — invalid lifecycle transition, or a tyre this tenant cannot see
---   TY013 — cost entry refused (already recorded, or not a valid amount)
+--   TY011: display-code policy refusal (D12)
+--   TY012: invalid lifecycle transition, or a tyre this tenant cannot see
+--   TY013: cost entry refused (already recorded, or not a valid amount)
 
 -- Invoker rights, deliberately, on all four: the suite allows exactly one
 -- SECURITY DEFINER routine in this schema (app.refresh_governing_tread,
@@ -125,7 +125,7 @@ DECLARE
   -- A parameter's type modifier is discarded by Postgres, so p_price arrives
   -- unrounded however it is declared; only assignment to a typmod'd local
   -- rounds it. Rounding before the divide is what makes the stored rate
-  -- reproducible from the stored price — see app.receive_tyres' own price
+  -- reproducible from the stored price. See app.receive_tyres' own price
   -- local for the invariant.
   price numeric(12,2);
 BEGIN
@@ -136,7 +136,7 @@ BEGIN
   -- Extends D5, which specified no state guard: costing recomputes
   -- rand_per_mm, and doing that to a tyre that has left the estate rewrites
   -- the rate behind valuations already taken against it. Only the three
-  -- terminal states are refused — a FITTED tyre is still in
+  -- terminal states are refused. A FITTED tyre is still in
   -- v_tyre_awaiting_cost and must stay costable (CFL-002).
   IF st IN ('SCRAPPED','SOLD','LOST') THEN
     RAISE EXCEPTION USING ERRCODE = 'TY013',
@@ -229,12 +229,12 @@ END $$;
 
 -- FR-TYR-042: a code resolves to the tyre carrying it ON THAT DATE. The
 -- governing brand per tyre is its latest BRANDED event on or before the
--- date — but a disposed tyre is never re-branded, so its latest event
+-- date, but a disposed tyre is never re-branded, so its latest event
 -- matches forever; "carrying the code" therefore also means being in the
 -- estate on that date (app.tyre_in_estate_asof, 000016): the scrapped
 -- tyre's sidewall may still read the code, but it is not in the fleet to
 -- be found. Historical reuse then returns the right tyre per date, and two
--- ACTIVE matches return two rows for a human to resolve — never fewer
+-- ACTIVE matches return two rows for a human to resolve, never fewer
 -- (FR-TYR-043, ADR-0008 rule 3).
 CREATE FUNCTION app.tyre_for_code(p_code text, p_on date)
 RETURNS SETOF uuid

@@ -5,7 +5,7 @@
 
 -- Positions belong to a configuration version, not to a vehicle (FR-VEH-016).
 -- Repointing vehicle.configuration_id leaves every existing fitment and
--- reading referencing position rows of the superseded version — a tyre fitted
+-- reading referencing position rows of the superseded version, a tyre fitted
 -- to a position the vehicle does not have. Nothing downstream can detect that
 -- afterwards, which is why this is a constraint and not a review item.
 --
@@ -38,7 +38,7 @@ BEGIN
     RAISE EXCEPTION USING
       ERRCODE  = 'TY008',
       MESSAGE  = 'axle configuration cannot change once the unit has history',
-      HINT     = 'correct a wrong configuration by retiring the unit and re-adding it, or by a dated migration that moves the history with it — never by an edit';
+      HINT     = 'correct a wrong configuration by retiring the unit and re-adding it, or by a dated migration that moves the history with it, never by an edit';
   END IF;
 
   RETURN NEW;
@@ -55,5 +55,5 @@ CREATE TRIGGER vehicle_configuration_is_immutable
 -- TY008 has no entry in api/internal/httpapi/httpapi.go's submitStatus map.
 -- That is deliberate: no HTTP path updates app.vehicle yet, and an unreachable
 -- map entry is dead code. Whoever builds the vehicle write surface maps it to
--- 422 and disables the field in the UI once history exists — TYRE-82 asks for
+-- 422 and disables the field in the UI once history exists. TYRE-82 asks for
 -- that citation, and this comment is it.

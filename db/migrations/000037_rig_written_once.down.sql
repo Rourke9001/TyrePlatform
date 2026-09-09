@@ -1,7 +1,7 @@
 -- Reverses 000037: drops the two functions that write a rig, the shared
 -- day-to-instant helper, the four triggers and their two trigger functions,
 -- restores UPDATE on app.combination_member (000001), and clears the
--- TYRE-124 comment correction. The audit rows the triggers wrote stay — a
+-- TYRE-124 comment correction. The audit rows the triggers wrote stay. A
 -- migration that deleted them would be destroying facts, not changing a
 -- schema (rule 3, CR-004), the same reasoning 000035's down migration
 -- carries for app.vehicle's audit trail.

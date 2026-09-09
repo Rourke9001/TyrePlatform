@@ -6,8 +6,8 @@
 
 -- A rehire whose address is retyped in different case must land on the same
 -- row, or one human splits into two and their inspection history with them
--- (FR-VEH-008). 000026 stated the governing principle — one email comparison
--- rule in the schema, not two — so both uniqueness rules fold together here:
+-- (FR-VEH-008). 000026 stated the governing principle: one email comparison
+-- rule in the schema, not two. Both uniqueness rules fold together here:
 -- folding only the tenant-scoped one would leave the platform-admin index
 -- answering a different question about the same column. Case is preserved in
 -- storage; only comparison folds.

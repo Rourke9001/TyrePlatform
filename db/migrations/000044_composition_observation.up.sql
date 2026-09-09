@@ -5,16 +5,16 @@
 --  inference from a capture raises a reconciliation a person resolves).
 -- ============================================================================
 -- SQLSTATEs (ours; the TY class forwards verbatim, ADR-0012):
---   TY012 — a row this tenant cannot see (one message per object)
---   TY017 — a rig write refused (000037's own code, raised by the cores)
---   TY022 — a composition observation refused (part B, below)
+--   TY012: a row this tenant cannot see (one message per object)
+--   TY017: a rig write refused (000037's own code, raised by the cores)
+--   TY022: a composition observation refused (part B, below)
 --
 -- Part A. The rig write rules live in 000037 and are not restated here: what
 -- may head a rig, what may be towed, INV-4 and its history, the day-to-instant
 -- rule and the written-once triggers are all that migration's, and the two
 -- cores below carry its two function bodies forward unchanged except for where
 -- the instant comes from. A resolution has to end the offered rig and open the
--- next one at the instant the capture observed — an instant, not a day — and
+-- next one at the instant the capture observed, an instant and not a day, and
 -- 000037 exposes only a date. Rather than amend a merged migration or add a
 -- timestamptz overload (ambiguous: section 45 calls end_combination(rig) and
 -- passes untyped literals), the instant-taking form gets its own name and the
@@ -93,8 +93,8 @@ BEGIN
   END IF;
 
   -- Every unit in the rig, motive first, in walk order. What is checked in
-  -- the walk-order loop below is the shape of the inputs — kind, state,
-  -- length — never a rule the trigger already holds.
+  -- the walk-order loop below is the shape of the inputs: kind, state and
+  -- length, never a rule the trigger already holds.
   ids := ARRAY[p_motive] || ARRAY(SELECT (e ->> 'vehicle_id')::uuid FROM jsonb_array_elements(p_towed) e);
   IF p_motive IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY017', MESSAGE = 'a rig names its motive unit';
@@ -148,7 +148,7 @@ BEGIN
         MESSAGE = format('only a trailer is towed; %s is a %s', veh.fleet_number, lower(veh.unit_kind::text));
     END IF;
     -- U9: retired units are refused; PARKED, WORKSHOP and OUT_OF_SERVICE are
-    -- not — FR-VEH-006 pauses a unit's schedule, not the yard's coupling.
+    -- not. FR-VEH-006 pauses a unit's schedule, not the yard's coupling.
     IF veh.status IN ('DISPOSED', 'INACTIVE') THEN
       RAISE EXCEPTION USING ERRCODE = 'TY017',
         MESSAGE = format('%s is %s; a retired unit is not coupled', veh.fleet_number, lower(veh.status::text));
@@ -282,14 +282,14 @@ COMMENT ON TABLE app.composition_observation IS
 -- resolved by a person, and the resolution is a dated composition change, not
 -- an edit to anything already written. The instant is the phone's started_at
 -- bounded by the record's own server-stamped facts (owner, 8 Sep 2026; the SRS
--- names no instant, so this is a ruling rather than a conflict) — the bound is
+-- names no instant, so this is a ruling rather than a conflict). The bound is
 -- computed below, where its reasoning sits beside it.
 --
 -- Returns the new rig's id, or NULL when the observed set is the motive alone.
 --
 -- Nothing here re-implements a rig rule: what may be coupled, INV-4 and its
 -- history, and the written-once triggers are 000037's, met through the cores
--- 000044 part A created. What this function holds is what a trigger cannot —
+-- 000044 part A created. What this function holds is what a trigger cannot:
 -- the lock, the order of two writes, and a message that names the report.
 CREATE FUNCTION app.apply_composition_observation(p_warning uuid, p_note text DEFAULT NULL)
 RETURNS uuid
@@ -325,7 +325,7 @@ BEGIN
   -- The source is half the kind. app.submit_inspection writes every warning
   -- the payload carries with the code the payload names and source = 'CLIENT'
   -- (000041), and no whitelist stands between the two, so a capture can carry
-  -- an FR-INS-063 row of its own — and a row a client wrote is a claim, never
+  -- an FR-INS-063 row of its own, and a row a client wrote is a claim, never
   -- the mismatch the server itself detected against the offered rig. One
   -- message, one home: a client's FR-INS-063 is not a composition report for
   -- the same reason a fitment warning is not.
@@ -370,7 +370,7 @@ BEGIN
   -- 000041 stores the observed set as the raw JSON array text the payload
   -- carried, motive included (its box is disabled and checked). A value that
   -- is not an array reaches the ::jsonb cast as 22P02, which
-  -- refusalForPgError maps to invalid_submission — honest, and unreachable
+  -- refusalForPgError maps to invalid_submission, honest and unreachable
   -- from the submit path that writes these rows.
   IF w_value IS NULL OR jsonb_typeof(w_value::jsonb) <> 'array' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY022',
@@ -380,7 +380,7 @@ BEGIN
     FROM jsonb_array_elements_text(w_value::jsonb) e;
   -- A JSON null survives the ::uuid cast as a NULL id, invisible to every
   -- check below: `= ANY(observed)` answers NULL for it, and the outside
-  -- check's COALESCE renders it as a member that is simply absent — so a
+  -- check's COALESCE renders it as a member that is simply absent, so a
   -- report of nothing usable would end a rig and open the motive alone. One
   -- message, one home: the same TY022 an absent value answers with.
   IF observed IS NULL OR cardinality(observed) = 0
@@ -390,8 +390,8 @@ BEGIN
   END IF;
 
   -- D5 permits removals only, so anything the report names that the offered
-  -- rig did not hold is a report this function cannot turn into a composition
-  -- — the FULL JOIN in 000041 raises the warning in either direction, so the
+  -- rig did not hold is a report this function cannot turn into a composition.
+  -- The FULL JOIN in 000041 raises the warning in either direction, so the
   -- shape is reachable on the wire even though the client cannot produce it.
   --
   -- LEFT JOIN, and the id itself when no unit answers to it: an observed id
@@ -416,9 +416,9 @@ BEGIN
 
   -- The observed instant (owner, 8 Sep 2026): the phone's started_at, bounded
   -- by the server's own facts about this very record. The server's time of
-  -- hearing is not the time of seeing — ADR-0009's outbox can hold a submit
+  -- hearing is not the time of seeing: ADR-0009's outbox can hold a submit
   -- for days, so received_at or the controller's apply instant would date the
-  -- coupling change days after the driver saw the trailer gone — and the
+  -- coupling change days after the driver saw the trailer gone, and the
   -- phone's clock is untrusted, so it is used only inside the window the
   -- record can defend. A slow phone lands on the rig's own instant, which is
   -- an honest zero-length rig: set, then immediately reported different. A
@@ -460,7 +460,7 @@ GRANT EXECUTE ON FUNCTION app.apply_composition_observation(uuid, text) TO app_r
 
 -- The other half of BR-FIT-008's resolution: the controller looked and the
 -- rig is right, or the report is too old to act on. It writes the record and
--- touches no rig — which is what makes "a dismissed report changed nothing"
+-- touches no rig, which is what makes "a dismissed report changed nothing"
 -- an assertion section 58 can make about the register, not about a flag.
 --
 -- The visibility, kind and resolved checks are apply's, in apply's order and

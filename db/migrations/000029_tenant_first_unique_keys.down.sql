@@ -1,6 +1,6 @@
 -- Restores the pre-000029 constraint shapes and, for
--- app.reconcile_valuation_snapshots, its 000016 body -- its inline
--- rationale comments live there, not repeated here -- with ON CONFLICT
+-- app.reconcile_valuation_snapshots, its 000016 body, whose inline
+-- rationale comments live there and are not repeated here, with ON CONFLICT
 -- back on (tyre_id, as_at). The mirror image of the up migration, nothing
 -- more.
 

@@ -5,7 +5,7 @@
 -- last_tread_mm values written by fit, removal, rotation and retread return.
 -- This migration restores the undated read of that column, so as-at valuations
 -- before those events price at the latest measurement again. It does not undo
--- the writes themselves — they are event-driven facts on app.tyre (rule 3).
+-- the writes themselves. They are event-driven facts on app.tyre (rule 3).
 CREATE OR REPLACE FUNCTION app.tyre_valuation_asof(p_as_at date)
 RETURNS TABLE (tenant_id uuid, tyre_id uuid, display_code text, size_name text,
                brand_name text, pattern_name text, status app.tyre_status,
@@ -83,7 +83,7 @@ LANGUAGE sql STABLE AS $$
                                           thr.mm, t.rand_per_mm) END AS val) tv
     -- current casing value = the latest valuation event as at the date
     -- (CHG-016), labelled by its source; the size estimate and the onboarding
-    -- audit figure are fallbacks, each under its own label — never blended
+    -- audit figure are fallbacks, each under its own label, never blended
     LEFT JOIN LATERAL (
          SELECT c.value, c.source
            FROM app.casing_valuation c
@@ -114,6 +114,6 @@ $$;
 -- objects exist, so the comment below has to hold with only those four
 -- writers in place and no as-at register reading it by date.
 COMMENT ON COLUMN app.tyre.last_tread_mm IS
-  'Onboarding-audit fallback (FR-TYR-016 errata E1), maintained thereafter by the fitment and retread writers (U10). Not a cache of the latest reading — current tread always derives from reading. Read undated: without this migration''s as-at register, every consumer sees only the current value, whatever date it was measured at.';
+  'Onboarding-audit fallback (FR-TYR-016 errata E1), maintained thereafter by the fitment and retread writers (U10). Not a cache of the latest reading. Current tread always derives from reading. Read undated: without this migration''s as-at register, every consumer sees only the current value, whatever date it was measured at.';
 COMMENT ON COLUMN app.tyre.last_tread_at IS
   'Measurement date accompanying last_tread_mm, maintained by the same writers. Drives the AUDIT tread_source label and staleness display (FR-TYR-017), never a substitute for reading.submitted_at. Read undated without this migration''s as-at register, same as last_tread_mm.';

@@ -5,14 +5,14 @@
 -- ============================================================================
 
 -- Each of these unique/exclusion keys omitted tenant_id, so its
--- duplicate-key check fires during index insertion -- before RLS and before
--- the composite FK's AFTER ROW trigger -- letting a caller who supplies the
+-- duplicate-key check fires during index insertion, before RLS and before
+-- the composite FK's AFTER ROW trigger, letting a caller who supplies the
 -- non-tenant columns learn whether another tenant already holds that
 -- combination (23505) rather than merely an invalid cross-tenant reference
 -- (23503). Each key pairs one or more opaque uuids with a caller-chosen
 -- natural value (a capture code, a sequence ordinal, a valuation date, a
 -- four-tag discriminator), the same shape as vehicle_driver_no_overlap
--- (000026) -- the closed oracle this generalises. The four table
+-- (000026), the closed oracle this generalises. The four table
 -- constraints (position, combination_member, reading_measurement,
 -- valuation_snapshot) keep the table-prefix convention 000004 already uses
 -- for its composite keys (axle_configuration_tenant_id_id_key);
@@ -35,7 +35,7 @@ ALTER TABLE app.reading_measurement
 
 -- one_open_exception_per_subject (000001) pairs two opaque uuids (rule_id,
 -- subject_id) with a caller-chosen natural value (subject_type, a four-tag
--- text discriminator) -- vehicle_driver_no_overlap's shape (000026), which
+-- text discriminator), vehicle_driver_no_overlap's shape (000026), which
 -- 000026 already re-keyed despite its own two uuids. subject_id is
 -- polymorphic (no REFERENCES, no CHECK tying it to subject_type), so
 -- nothing in the schema makes subject_type redundant. Kept its descriptive
@@ -49,7 +49,7 @@ CREATE UNIQUE INDEX one_open_exception_per_subject
 -- valuation_snapshot (tyre_id, as_at) is TYRE-87's named case, empirically
 -- confirmed rather than assumed: a tenant-2 session inserting a tenant-1
 -- tyre_id/as_at pair read off that tenant's own row got back 23505
--- (duplicate key on this constraint) -- the composite FK on
+-- (duplicate key on this constraint). The composite FK on
 -- (tenant_id, tyre_id) never got a chance to fire its own 23503.
 ALTER TABLE app.valuation_snapshot
   DROP CONSTRAINT valuation_snapshot_tyre_id_as_at_key,
@@ -58,12 +58,12 @@ ALTER TABLE app.valuation_snapshot
 
 -- app.reconcile_valuation_snapshots (live version: 000016) is the only
 -- writer of this table and the only place ON CONFLICT names the
--- constraint's column list by value -- PostgreSQL infers the arbiter index
+-- constraint's column list by value. PostgreSQL infers the arbiter index
 -- from the exact column set, so the old (tyre_id, as_at) target now matches
 -- no constraint and every call would fail with "no unique or exclusion
 -- constraint matching the ON CONFLICT specification" instead of upserting.
--- Restated from 000016 -- its inline rationale comments live there, not
--- repeated here -- with one functional change: the ON CONFLICT target.
+-- Restated from 000016, whose inline rationale comments live there and are
+-- not repeated here, with one functional change: the ON CONFLICT target.
 CREATE OR REPLACE FUNCTION app.reconcile_valuation_snapshots(
     p_tenant uuid,
     p_as_at  date,

@@ -11,12 +11,12 @@
 --  U18 (a target is the unit-and-position pair), U19 (one ROTATED per casing),
 --  U20 (an odometer reading per unit), U21 (one tread ceiling),
 --  U22 (the dual-mate warning reads its mate as at the fitment instant)
---  — docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md
+--  see docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md
 -- ============================================================================
 -- SQLSTATEs (all ours; the TY class forwards verbatim, ADR-0012):
---   TY012 — an invalid lifecycle transition, or a row this tenant cannot see
---   TY014 — an input this surface does not accept
---   TY015 — the casing is at its retread cap (BR-FIT-009)
+--   TY012: an invalid lifecycle transition, or a row this tenant cannot see
+--   TY014: an input this surface does not accept
+--   TY015: the casing is at its retread cap (BR-FIT-009)
 --
 -- A missing row and another tenant's row are indistinguishable under RLS, so
 -- each object gets its own message rather than a shared one: a cross-tenant
@@ -51,7 +51,7 @@ DROP FUNCTION app.fit_tyre(uuid, uuid, uuid, numeric, app.mount_orientation, big
 
 -- The deepest drive pattern sold plus headroom: a keyed-in odometer or a
 -- misplaced decimal is refused rather than stored as a tread. This is an
--- input-sanity bound and deliberately NOT tenant configuration -- a fleet
+-- input-sanity bound and deliberately NOT tenant configuration. A fleet
 -- does not get to declare that 900mm is a tread (TYRE-128 decision 8,
 -- owner of record 3 September 2026). Every writer that accepts a tread
 -- calls it and interpolates it into its own refusal, so the number lives
@@ -116,9 +116,9 @@ BEGIN
   -- INV-2's converse. app.set_vehicle_status (000035) refuses a disposal
   -- while the unit has an open fitment, which holds the invariant only at the
   -- instant that call runs; this is what holds it afterwards. FOR SHARE on
-  -- the row is what makes the pair race-free in both directions — the
+  -- the row is what makes the pair race-free in both directions: the
   -- disposal's FOR UPDATE waits for an in-flight fit, and a fit that starts
-  -- after one sees the committed status — while two fits on the same unit
+  -- after one sees the committed status, while two fits on the same unit
   -- still do not queue behind each other, which FOR UPDATE here would force.
   --
   -- DISPOSED alone is refused. A PARKED, WORKSHOP, INACTIVE or OUT_OF_SERVICE
@@ -170,7 +170,7 @@ BEGIN
 
   -- FR-FIT-006, FR-CFG-044, U11: warn without blocking. The class row wins
   -- over the tenant-wide one where it exists, which is how the seeded STEER
-  -- rule reaches a fit at all (CHG-038 — fleet practice, never a legal claim).
+  -- rule reaches a fit at all (CHG-038: fleet practice, never a legal claim).
   IF ty.status = 'RETREAD' THEN
     SELECT tp.retreads_permitted INTO permitted
       FROM app.threshold_policy tp
@@ -202,11 +202,11 @@ BEGIN
     IF band IS NOT NULL THEN
       -- FR-FIT-020, TYRE-126: the register ranks an inspection reading above
       -- app.tyre.last_tread_mm wherever one exists (000036), so the warning
-      -- reads the same precedence -- a gap measured against a depth the
+      -- reads the same precedence. A gap measured against a depth the
       -- dashboard does not show is a gap nobody can check. The reading arm is
       -- as at this fitment's own instant, not the latest overall: a reading
       -- taken after the fitter put the casing on did not inform the fitter.
-      -- The last_tread_mm fallback carries no such cut-off -- it is the
+      -- The last_tread_mm fallback carries no such cut-off. It is the
       -- column's current value, which a backdated fit can leave later than
       -- p_occurred_at.
       SELECT COALESCE(lr.governing_tread_mm, o.last_tread_mm) INTO mate
@@ -347,11 +347,11 @@ BEGIN
   END IF;
   -- FR-FIT-016, against the fitment row itself, which fitment_instant_ok has
   -- no way to see: that helper bounds an instant against the tyre's latest
-  -- to_state EVENT, which a fitment opened outside app.fit_tyre never has —
-  -- every one of the pilot tenant's 27 open fitments is in that shape. A
+  -- to_state EVENT, which a fitment opened outside app.fit_tyre never has.
+  -- Every one of the pilot tenant's 27 open fitments is in that shape. A
   -- closure stamped before its own fitment orders the casing's history
   -- against itself, the removal standing ahead of the fit that caused it,
-  -- and gives the fitment a negative elapsed time — a span a distance and a
+  -- and gives the fitment a negative elapsed time, a span a distance and a
   -- cost-per-kilometre would then be computed over (FR-VAL-022, CR-012).
   IF p_occurred_at < fit.fitted_at THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012',
@@ -659,14 +659,14 @@ BEGIN
       -- with a scale is numerically whole and still not a bigint, so a value
       -- test would pass it through to the casts below and answer a bare 22P02
       -- the form has nothing to show for (ADR-0012). Refused rather than
-      -- rounded — an odometer the caller did not enter is a distance nobody
+      -- rounded. An odometer the caller did not enter is a distance nobody
       -- can check afterwards (FR-FIT-009).
       --
       -- No sign, and this is the only rule that refuses one: the bound below
       -- is answered per unit against the fitments that unit has being rotated
       -- OUT, so a unit this rotation only opens a row on meets no bound at
       -- all and its reading goes straight into fitted_odometer, where
-      -- 000001's CHECK (fitted_odometer >= 0) answers 23514 — a constraint's
+      -- 000001's CHECK (fitted_odometer >= 0) answers 23514, a constraint's
       -- own text, naming no unit and outside the TY class an outbox stops
       -- retrying on (ADR-0012, suite 47p).
       IF jsonb_typeof(kv.v) <> 'number' OR (kv.v #>> '{}') !~ '^[0-9]+$' THEN
@@ -781,7 +781,7 @@ BEGIN
     SELECT p.code INTO to_code FROM app.position p WHERE p.id = mv.pid;
     SELECT v.fleet_number INTO to_fleet FROM app.vehicle v WHERE v.id = mv.vid;
     -- One event per casing, and its states repeat FITTED: the casing did not
-    -- leave the estate, it changed position -- possibly onto another unit of
+    -- leave the estate, it changed position, possibly onto another unit of
     -- the same rig. Two to_state events sharing one instant would leave
     -- app.tyre_in_estate_asof unable to say which is later, which is the
     -- ambiguity app.dispatch_tyre's own instant guard exists to prevent; the
@@ -1018,7 +1018,7 @@ BEGIN
   -- Bounded on the parameter for the reason the tread bound below carries: a
   -- figure wider than numeric(12,2) overflows at the assignment on the next
   -- line and reaches the client as a bare 22003 it cannot act on (ADR-0012).
-  -- The ceiling is the column's own capacity, not a policy limit — a limit on
+  -- The ceiling is the column's own capacity, not a policy limit. A limit on
   -- what a casing may be worth would be tenant configuration (rule 5); this
   -- is the point at which a figure stops being storable at all.
   IF abs(p_casing_value) > 9999999999.99 THEN
@@ -1063,7 +1063,7 @@ BEGIN
     cost  := p_retread_cost;
     tread := p_post_tread_mm;
     -- FR-TYR-009, BR-VAL-004: a zero casing value is what a rejection means,
-    -- so an accepted casing may not carry one — the register labels both
+    -- so an accepted casing may not carry one. The register labels both
     -- ACTUAL from the RETREADER source alone and could not tell them apart.
     IF cval <= 0 THEN
       RAISE EXCEPTION USING ERRCODE = 'TY014',
@@ -1090,7 +1090,7 @@ BEGIN
     -- FR-VAL-006, BR-VAL-002. Bounding the cost at its own column's capacity
     -- does not bound the rate it produces: the divide is by the usable tread,
     -- so a cost at or above 10^8 times the usable millimetres overflows
-    -- app.tyre.rand_per_mm on the UPDATE below as a bare 22003 — outside the
+    -- app.tyre.rand_per_mm on the UPDATE below as a bare 22003, outside the
     -- TY class, a 500 on the wire, and an outbox retry that never stops. The
     -- figure that gets there is not absurd: a casing returned 0.1 mm over the
     -- threshold reaches the ceiling at R10 000 000.
@@ -1113,7 +1113,7 @@ BEGIN
     -- BR-FIT-009 again, on the way back: app.dispatch_tyre checked the cap
     -- when the casing went out, and the policy can be lowered in between, so
     -- the count that is about to be incremented is checked against the cap in
-    -- force now. Same resolver as the dispatch — U5, a REMOVED casing has no
+    -- force now. Same resolver as the dispatch: U5, a REMOVED casing has no
     -- axle class, so the tenant-wide row governs.
     SELECT tp.max_retreads INTO cap
       FROM app.threshold_policy tp
@@ -1143,7 +1143,7 @@ BEGIN
     -- (stated in full at app.fit_tyre, 000033): the returned depth is a
     -- measured value on a report, and a casing left at the depth it was
     -- pulled at would sit in the register priced as worn while carrying a
-    -- new tread and a new rate — the CR-012 defect of a stale figure read as
+    -- new tread and a new rate, the CR-012 defect of a stale figure read as
     -- current. Monotonic on time like its siblings, so a return logged
     -- against an older date never overwrites a newer measurement.
     UPDATE app.tyre t
@@ -1181,7 +1181,7 @@ BEGIN
     UPDATE app.tyre t SET state = 'SCRAPPED' WHERE t.id = ty.id;
     -- U9, FR-TYR-009, BR-VAL-004: the rejection is the one legitimate source
     -- of a zero casing value, and it is written as a valuation citing the job
-    -- rather than left absent — an absent figure reads as UNVALUED in the
+    -- rather than left absent. An absent figure reads as UNVALUED in the
     -- register, which is a different claim from a casing the retreader
     -- inspected and found worthless.
     INSERT INTO app.casing_valuation (tenant_id, tyre_id, value, source,

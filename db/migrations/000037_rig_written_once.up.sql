@@ -6,8 +6,8 @@
 --  U9 (kinds and states), U10 (at least one towed unit), U12 (audited).
 -- ============================================================================
 -- SQLSTATEs (ours; the TY class forwards verbatim, ADR-0012):
---   TY012 — a row this tenant cannot see (one message per object)
---   TY017 — a rig write refused
+--   TY012: a row this tenant cannot see (one message per object)
+--   TY017: a rig write refused
 --
 -- Nothing new is stored. app.combination and app.combination_member have held
 -- a rig's shape since 000001 and the capture read (000022's v_capture_vehicle)
@@ -30,7 +30,7 @@ COMMENT ON FUNCTION app.require_odometer_where_unit_has_one() IS
 -- (000001) and only DELETE was revoked (000018); this bounds that UPDATE to
 -- one shape. updated_at/updated_by are excluded from the comparison rather
 -- than relying on trigger order, because combination_stamps_updated (000017)
--- writes them on every UPDATE — 000032's reasoning, applied here.
+-- writes them on every UPDATE. This is 000032's reasoning, applied here.
 CREATE FUNCTION app.combination_is_written_once()
 RETURNS trigger
 LANGUAGE plpgsql
@@ -76,8 +76,8 @@ REVOKE UPDATE ON app.combination_member FROM app_rw;
 -- unit is in so the controller knows which one to end.
 --
 -- U6: this trigger is also the only place that refuses growing an ENDED
--- rig's membership by raw INSERT. An INSERT into an OPEN rig is left alone —
--- it is indistinguishable from app.create_combination's own inserts, which
+-- rig's membership by raw INSERT. An INSERT into an OPEN rig is left alone.
+-- It is indistinguishable from app.create_combination's own inserts, which
 -- run through this same trigger, so the function stays the only place that
 -- decides whether a fresh member belongs.
 CREATE FUNCTION app.combination_member_in_order()
@@ -130,7 +130,7 @@ CREATE TRIGGER combination_member_audited
 AFTER INSERT OR UPDATE ON app.combination_member
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 
--- U8, the one day-to-instant rule. Today is now() — midnight would lose to
+-- U8, the one day-to-instant rule. Today is now(). Midnight would lose to
 -- the same day's earlier events (000033:644-654's reasoning); an earlier
 -- day is that day's midnight in the TENANT's zone, never the session's
 -- (rule 6, lesson 2026-09-01); a later day answers NULL so the caller
@@ -186,8 +186,8 @@ BEGIN
   END IF;
 
   -- Every unit in the rig, motive first, in walk order. What is checked in
-  -- the walk-order loop below is the shape of the inputs — kind, state,
-  -- length — never a rule the trigger already holds.
+  -- the walk-order loop below is the shape of the inputs: kind, state and
+  -- length, never a rule the trigger already holds.
   ids := ARRAY[p_motive] || ARRAY(SELECT (e ->> 'vehicle_id')::uuid FROM jsonb_array_elements(p_towed) e);
   IF p_motive IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY017', MESSAGE = 'a rig names its motive unit';
@@ -241,7 +241,7 @@ BEGIN
         MESSAGE = format('only a trailer is towed; %s is a %s', veh.fleet_number, lower(veh.unit_kind::text));
     END IF;
     -- U9: retired units are refused; PARKED, WORKSHOP and OUT_OF_SERVICE are
-    -- not — FR-VEH-006 pauses a unit's schedule, not the yard's coupling.
+    -- not. FR-VEH-006 pauses a unit's schedule, not the yard's coupling.
     IF veh.status IN ('DISPOSED', 'INACTIVE') THEN
       RAISE EXCEPTION USING ERRCODE = 'TY017',
         MESSAGE = format('%s is %s; a retired unit is not coupled', veh.fleet_number, lower(veh.status::text));
@@ -273,7 +273,7 @@ END $$;
 
 -- Ending a rig touches nothing else: the tyres stay on their units (INV-1),
 -- which is the reason a rig is not a configuration (ADR-0007). An open task
--- or an in-progress capture is unaffected — the driver's next capture start
+-- or an in-progress capture is unaffected. The driver's next capture start
 -- simply offers no rig.
 CREATE FUNCTION app.end_combination(p_combination uuid, p_ended_on date DEFAULT NULL)
 RETURNS void

@@ -1,5 +1,5 @@
 -- Reverses 000030. A type can only be dropped once every column using it is
--- gone, so this is not simply the up.sql groups in reverse order — it
+-- gone, so this is not simply the up.sql groups in reverse order. It
 -- interleaves: the vocabulary CHECKs first (no dependency), then each column
 -- before its own type.
 ALTER TABLE app.tyre_event

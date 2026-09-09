@@ -6,9 +6,9 @@
 --  U9 (a rejected casing writes a zero RETREADER valuation citing the job)
 -- ============================================================================
 -- SQLSTATEs, the same three the fitment surface raises (ADR-0012):
---   TY012 — an invalid lifecycle transition, or a row this tenant cannot see
---   TY014 — an input this surface does not accept
---   TY015 — the casing is at its retread cap (BR-FIT-009)
+--   TY012: an invalid lifecycle transition, or a row this tenant cannot see
+--   TY014: an input this surface does not accept
+--   TY015: the casing is at its retread cap (BR-FIT-009)
 --
 -- This is the one place a retread's arithmetic is done. The rate is recomputed
 -- from the retread cost through app.rand_per_mm, so the same implementation
@@ -109,7 +109,7 @@ BEGIN
   -- Bounded on the parameter for the reason the tread bound below carries: a
   -- figure wider than numeric(12,2) overflows at the assignment on the next
   -- line and reaches the client as a bare 22003 it cannot act on (ADR-0012).
-  -- The ceiling is the column's own capacity, not a policy limit — a limit on
+  -- The ceiling is the column's own capacity, not a policy limit. A limit on
   -- what a casing may be worth would be tenant configuration (rule 5); this
   -- is the point at which a figure stops being storable at all.
   IF abs(p_casing_value) > 9999999999.99 THEN
@@ -151,7 +151,7 @@ BEGIN
     cost  := p_retread_cost;
     tread := p_post_tread_mm;
     -- FR-TYR-009, BR-VAL-004: a zero casing value is what a rejection means,
-    -- so an accepted casing may not carry one — the register labels both
+    -- so an accepted casing may not carry one. The register labels both
     -- ACTUAL from the RETREADER source alone and could not tell them apart.
     IF cval <= 0 THEN
       RAISE EXCEPTION USING ERRCODE = 'TY014',
@@ -178,7 +178,7 @@ BEGIN
     -- FR-VAL-006, BR-VAL-002. Bounding the cost at its own column's capacity
     -- does not bound the rate it produces: the divide is by the usable tread,
     -- so a cost at or above 10^8 times the usable millimetres overflows
-    -- app.tyre.rand_per_mm on the UPDATE below as a bare 22003 — outside the
+    -- app.tyre.rand_per_mm on the UPDATE below as a bare 22003, outside the
     -- TY class, a 500 on the wire, and an outbox retry that never stops. The
     -- figure that gets there is not absurd: a casing returned 0.1 mm over the
     -- threshold reaches the ceiling at R10 000 000.
@@ -201,7 +201,7 @@ BEGIN
     -- BR-FIT-009 again, on the way back: app.dispatch_tyre checked the cap
     -- when the casing went out, and the policy can be lowered in between, so
     -- the count that is about to be incremented is checked against the cap in
-    -- force now. Same resolver as the dispatch — U5, a REMOVED casing has no
+    -- force now. Same resolver as the dispatch: U5, a REMOVED casing has no
     -- axle class, so the tenant-wide row governs.
     SELECT tp.max_retreads INTO cap
       FROM app.threshold_policy tp
@@ -231,7 +231,7 @@ BEGIN
     -- (stated in full at app.fit_tyre, 000033): the returned depth is a
     -- measured value on a report, and a casing left at the depth it was
     -- pulled at would sit in the register priced as worn while carrying a
-    -- new tread and a new rate — the CR-012 defect of a stale figure read as
+    -- new tread and a new rate, the CR-012 defect of a stale figure read as
     -- current. Monotonic on time like its siblings, so a return logged
     -- against an older date never overwrites a newer measurement.
     UPDATE app.tyre t
@@ -269,7 +269,7 @@ BEGIN
     UPDATE app.tyre t SET state = 'SCRAPPED' WHERE t.id = ty.id;
     -- U9, FR-TYR-009, BR-VAL-004: the rejection is the one legitimate source
     -- of a zero casing value, and it is written as a valuation citing the job
-    -- rather than left absent — an absent figure reads as UNVALUED in the
+    -- rather than left absent. An absent figure reads as UNVALUED in the
     -- register, which is a different claim from a casing the retreader
     -- inspected and found worthless.
     INSERT INTO app.casing_valuation (tenant_id, tyre_id, value, source,
