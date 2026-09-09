@@ -1,6 +1,6 @@
 import type { Vehicle } from "../api/vehicles";
 
-// numeric: true is what makes BAC2 sort before BAC10 (NFR-USE-012 — natural
+// numeric: true is what makes BAC2 sort before BAC10 (NFR-USE-012, natural
 // order, not lexicographic).
 const collator = new Intl.Collator("en", { numeric: true, sensitivity: "base" });
 

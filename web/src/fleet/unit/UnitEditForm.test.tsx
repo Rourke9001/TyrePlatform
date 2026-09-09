@@ -148,8 +148,8 @@ describe("editing a unit's description", () => {
   });
 
   // A blank on a text column is read as absence, not as a clear (see
-  // patchUnit's comment in api/units.ts), so a blanked field cannot be sent —
-  // the save would claim an edit the server declined to make.
+  // patchUnit's comment in api/units.ts), so a blanked field cannot be sent.
+  // The save would claim an edit the server declined to make.
   it("omits a text field the user blanked rather than sending an empty string", async () => {
     const user = userEvent.setup();
     renderForm();
@@ -190,8 +190,8 @@ describe("editing a unit's description", () => {
     expect(sentBody(1)).toEqual({ tags: ["Reefer", "Long haul"] });
   });
 
-  // The unit read refetches under this form — on a window focus, or on any
-  // write's invalidation — and the fields keep what they were seeded with. A
+  // The unit read refetches under this form, on a window focus, or on any
+  // write's invalidation, and the fields keep what they were seeded with. A
   // diff against the newer prop would send every untouched field back to the
   // value it held at mount, silently reverting whoever made the change.
   it("never sends a field it was not edited in, even after the read moved on", async () => {

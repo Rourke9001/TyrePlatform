@@ -3,7 +3,7 @@ import { contrastRatio, deriveBrandTheme } from "./derive";
 import { palette } from "./tokens";
 
 // WCAG 2.1 AA normal-text contrast (NFR-USE-007). The derivation must clear
-// this for ANY tenant primary — a non-technical admin picks one colour and
+// this for ANY tenant primary. A non-technical admin picks one colour and
 // cannot be allowed to make the app illegible (TYRE-27).
 const AA = 4.5;
 

@@ -26,7 +26,7 @@ export function fetchRetreadJobs(): Promise<RetreadJob[]> {
 
 // retreadReturnRequest's body. casingAccepted stays a required boolean here:
 // the server's own *bool exists to keep an omitted key from decoding into
-// false, which SCRAPS the casing (retreads.go's own comment) — the form that
+// false, which SCRAPS the casing (retreads.go's own comment). The form that
 // builds this object is what must make the choice explicit, never a default.
 export interface RetreadReturn {
   returnedOn: string;

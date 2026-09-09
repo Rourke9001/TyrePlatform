@@ -202,7 +202,7 @@ describe("the tyre register API module", () => {
 
     // A body with no retreadJobId key at all (the shape dispatchTyreResponse's
     // omitempty produces for the breakdown-supplier branch) round-trips as
-    // undefined here, not null — this is a client-side parsing check, not a
+    // undefined here, not null. This is a client-side parsing check, not a
     // pin on the server's own wire format.
     it("omits retreadJobId when the destination opens no job", async () => {
       vi.mocked(fetch).mockResolvedValue(respond(201, {}));

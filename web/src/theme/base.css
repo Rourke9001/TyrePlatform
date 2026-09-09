@@ -1,5 +1,5 @@
 /* Base surface styles. Every colour and font here is a custom property set
-   from tokens.ts — this file makes no colour or type decisions of its own. */
+   from tokens.ts. This file makes no colour or type decisions of its own. */
 
 *,
 *::before,

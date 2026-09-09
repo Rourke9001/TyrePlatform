@@ -60,7 +60,7 @@ function DevTenantSwitcher() {
 
 // Dev stand-in for real user identity until the IdP slice (TYRE-2). Switching
 // actor also switches that actor's tenant, since a driver on tenant B does
-// not exist under tenant A's rows — reload for the same from-scratch reason
+// not exist under tenant A's rows. Reload for the same from-scratch reason
 // as DevTenantSwitcher.
 function DevActorSwitcher() {
   if (!import.meta.env.DEV) return null;
@@ -111,8 +111,8 @@ function ActorBadge() {
 // end on every link: the registry's paths nest (/fleet, /fleet/tyres,
 // /fleet/tyres/retreads), and NavLink's default prefix match would mark all
 // three current at once, so "you are here" would name three places. The cost
-// is that a path with no item of its own — /fleet/tyres/new, a unit — marks
-// nothing current, which is honest: none of them is a menu destination.
+// is that a path with no item of its own, such as /fleet/tyres/new, a unit,
+// marks nothing current, which is honest: none of them is a menu destination.
 function MainNav() {
   const actor = useActor();
   const items = navItemsFor(actor?.capabilities ?? []);

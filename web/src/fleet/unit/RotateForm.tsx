@@ -17,7 +17,7 @@ import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
 import { openFitmentsKey, rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 
 // app.rotate_tyres refuses the whole set or none of it, and the codes it can
-// reach are TY009, TY012 and TY014 — no occupancy code, because a rotation's
+// reach are TY009, TY012 and TY014. No occupancy code, because a rotation's
 // targets are freed inside the same statement. TY009 arrives from the fitment
 // rows this write closes, not the ones it opens: app.rotate_tyres closes every
 // row in the set before opening any, and 000025's
@@ -46,7 +46,7 @@ function pairKey(unitId: string, positionId: string): string {
 // FR-FIT-010: one set of moves across the units of one open rig, applied whole
 // or not at all. A tread is asked per tyre because each is measured where it
 // comes off, and an odometer per unit because the reading belongs to the unit
-// (U20) — never the same value twice (NFR-USE-006).
+// (U20), never the same value twice (NFR-USE-006).
 export function RotateForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const occupied = unit.positions.filter((p) => p.fitment !== null);
@@ -100,7 +100,7 @@ export function RotateForm({ unit }: { unit: Unit }) {
   const rotate = useFormMutation({
     mutate: (vars: Rotation) => rotateTyres(unit.id, vars),
     // Every unit of the rig, not only this one: a move lands a fitment on
-    // whichever unit it names, and membership — unlike the picked set — is
+    // whichever unit it names, and membership, unlike the picked set, is
     // still true at the moment onSuccess clears the form.
     invalidate: [
       ...rigUnits.flatMap((u) => [unitKey(u.id), unitFitmentsKey(u.id)]),
@@ -122,7 +122,7 @@ export function RotateForm({ unit }: { unit: Unit }) {
   }
 
   // TYRE-127: a target is offerable when it is empty, or emptied by this same
-  // set of moves — app.rotate_tyres closes every row in the set before opening
+  // set of moves. app.rotate_tyres closes every row in the set before opening
   // any, so a position another picked row leaves is free by the time this move
   // lands on it.
   const vacated = new Set(chosen.map((p) => pairKey(unit.id, p.id)));

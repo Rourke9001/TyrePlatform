@@ -10,7 +10,7 @@ import { unitDriversKey, unitTasksKey } from "./queryKeys";
 import "../fleet.css";
 
 // app.create_inspection_task's own refusal (TY018, spec U11) plus the
-// not-visible read (TY012) — the only two codes this screen's one write can
+// not-visible read (TY012). The only two codes this screen's one write can
 // reach.
 const SCHEDULE_WORDING = {
   speakable: ["TY018", "TY012"],
@@ -19,7 +19,7 @@ const SCHEDULE_WORDING = {
 };
 
 // spec U2: reads on this screen are ViewFleet's, but this write is
-// ManageAssignments' — a narrower capability than the ManageAssets forms
+// ManageAssignments', a narrower capability than the ManageAssets forms
 // beside it, so the two must not be conflated at the call site.
 export function ScheduleInspectionForm({ unit }: { unit: Unit }) {
   const drivers = useQuery({

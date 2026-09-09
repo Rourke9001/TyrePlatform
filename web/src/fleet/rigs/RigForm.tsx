@@ -10,7 +10,7 @@ import { rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
 
 // app.create_combination's refusals that a controller can still hit after
-// the client narrows the option lists (D2's table — kind, retirement and
+// the client narrows the option lists (D2's table: kind, retirement and
 // duplicate checks are pre-filtered below, but a second controller can win
 // the race) plus the not-visible read.
 const CREATE_WORDING = {
@@ -56,7 +56,7 @@ export function RigForm() {
   });
 
   // U5/INV-4: a unit already coupled in an open rig cannot join another one
-  // until that rig ends — app.combination_member_in_order's own rule
+  // until that rig ends, app.combination_member_in_order's own rule
   // (D1.2), narrowed here so the option lists never offer a choice the
   // server would only refuse.
   const inOpenRig = new Set(
@@ -171,7 +171,7 @@ export function RigForm() {
                   />
                   {/* aria-disabled, not disabled: a boundary row stays in the
                       tab order so focus survives a reorder that lands it
-                      there — move() already no-ops past either end. */}
+                      there. move() already no-ops past either end. */}
                   <button
                     type="button"
                     aria-label={`Move ${fleetNumber} up`}

@@ -1,7 +1,7 @@
 import { apiGet, apiPatch, apiPost } from "./client";
 
 // Wire shapes of the unit and fitment surface (api/internal/httpapi/units.go,
-// fitments.go — TYRE-92/93/94). Every nullable Go field is mirrored as
+// fitments.go, TYRE-92/93/94). Every nullable Go field is mirrored as
 // `T | null`, never coerced to a default: registration and the rest are
 // nullable columns (units.go's own comment), and a client that treated an
 // absent value as "" would be inventing a fact the register never recorded.
@@ -37,7 +37,7 @@ export interface UnitPosition {
 }
 
 // unitJSON: the GET /api/vehicles/{id} body, and the unit PATCH's response
-// (D6) — one shape for both, so a screen that just edited a unit holds the
+// (D6). One shape for both, so a screen that just edited a unit holds the
 // same read it would get from re-fetching it.
 export interface Unit {
   id: string;
@@ -60,7 +60,7 @@ export interface Unit {
 }
 
 // fitmentHistoryJSON: one row of GET /api/vehicles/{id}/fitments. distanceKm
-// is nil whenever distanceSource is UNAVAILABLE — CR-012's pairing, kept
+// is nil whenever distanceSource is UNAVAILABLE, CR-012's pairing, kept
 // intact here rather than collapsed into a single optional number.
 export interface FitmentHistoryRow {
   fitmentId: string;
@@ -81,7 +81,7 @@ export interface FitmentHistoryRow {
 
 // fleetFitmentJSON: one row of GET /api/fitments?open=true, the Fitments
 // screen. daysFitted arrives computed in the tenant's own civil calendar
-// (rule 6) — never recomputed client-side from a browser clock.
+// (rule 6). Never recomputed client-side from a browser clock.
 export interface FleetFitment {
   fitmentId: string;
   vehicleId: string;
@@ -107,7 +107,7 @@ export function fetchUnit(id: string): Promise<Unit> {
 }
 
 // fetchUnitFitments is FR-FIT's history read: every fitment the unit has
-// ever carried, open and closed, most recent first — the server's own order.
+// ever carried, open and closed, most recent first, the server's own order.
 export function fetchUnitFitments(id: string): Promise<FitmentHistoryRow[]> {
   return apiGet<FitmentHistoryRow[]>(`/api/vehicles/${id}/fitments`);
 }
@@ -120,7 +120,7 @@ export function fetchOpenFitments(): Promise<FleetFitment[]> {
 }
 
 // fetchDepots backs the dispatch and return forms' pickers. type is built
-// only when given — an unrecognised value reaches the cast and comes back
+// only when given. An unrecognised value reaches the cast and comes back
 // as invalid_submission (22P02; TYRE-128 decision 7), not narrowed a second
 // time here.
 export function fetchDepots(type?: string): Promise<Depot[]> {
@@ -150,7 +150,7 @@ export interface FitResult {
 
 // fitTyre is FR-FIT-001's write. Occupancy, the retread and dual-mate
 // warnings and every other rule about what may be fitted are app.fit_tyre's
-// alone (fitments.go's own comment) — this only carries the request and
+// alone (fitments.go's own comment). This only carries the request and
 // unwraps the result.
 export function fitTyre(unitId: string, body: NewFitment): Promise<FitResult> {
   return apiPost<FitResult>(`/api/vehicles/${unitId}/fitments`, body);
@@ -172,7 +172,7 @@ export function removeFitment(fitmentId: string, body: Removal): Promise<void> {
   return apiPost<void>(`/api/fitments/${fitmentId}/remove`, body);
 }
 
-// Omitted, never sent as null — fitments.go's rotateRequest.payload comment
+// Omitted, never sent as null. fitments.go's rotateRequest.payload comment
 // says why (U15, U17).
 export interface RotationMove {
   tyreId: string;
@@ -181,11 +181,11 @@ export interface RotationMove {
   treadMm: string;
 }
 
-// odometer and odometers are alternatives — never both — refused as a
+// odometer and odometers are alternatives, never both, refused as a
 // wire-shape contradiction, fitments.go's odometerPayload. A reading belongs
 // to one unit (FR-FIT-002), so a rotation across a rig keys them by unit id
 // and one inside a single unit keeps the scalar. Keys exactly as the API
-// returned them — fitments.go's odometerPayload says why.
+// returned them. fitments.go's odometerPayload says why.
 export interface Rotation {
   moves: RotationMove[];
   odometer?: number;
@@ -203,7 +203,7 @@ export interface RotationResult {
 }
 
 // rotateTyres is FR-FIT-010's write: one set of moves across the units of one
-// open rig, applied whole or not at all — the atomicity, and which units share
+// open rig, applied whole or not at all. The atomicity, and which units share
 // a rig at the moment of the write (U16), are app.rotate_tyres' own
 // (fitments.go's own comment), not re-implemented here. The path names the
 // unit the request is addressed to, which is what an unqualified move and a
@@ -226,7 +226,7 @@ export interface UnitPatch {
 // patchUnit is FR-VEH-041's descriptive edit (D5): a key the caller omits
 // leaves that column untouched server-side, which is what lets a form send
 // only what someone actually changed rather than the whole unit back. "" means
-// three different things by field — clear, no-op or refusal — all of it
+// three different things by field: clear, no-op or refusal, all of it
 // decided in patchUnitRequest's validate() (units.go), none re-implemented
 // here.
 export function patchUnit(id: string, body: UnitPatch): Promise<Unit> {
@@ -234,10 +234,10 @@ export function patchUnit(id: string, body: UnitPatch): Promise<Unit> {
 }
 
 // setUnitStatus is FR-VEH-005/006's write, answering 204. Status is
-// deliberately not one of UnitPatch's fields: which transitions are legal —
-// DISPOSED is terminal, a disposal needs an empty unit and a stated reason —
-// is app.set_vehicle_status's rule, not this client's (units.go's own
-// comment).
+// deliberately not one of UnitPatch's fields. Which transitions are legal is
+// app.set_vehicle_status's rule, not this client's (units.go's own comment):
+// DISPOSED is terminal, and a disposal needs an empty unit and a stated
+// reason.
 export function setUnitStatus(
   id: string,
   body: { status: string; reason?: string },

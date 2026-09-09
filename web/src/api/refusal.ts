@@ -2,7 +2,7 @@
 // the rule about *which* messages may be rendered lives in one place: our own
 // validation and conflict messages are safe to show (ADR-0012/ADR-0013), and
 // anything else gets the screen's general sentence rather than a wrong
-// specific one. The wording stays per-screen — that is content, not logic.
+// specific one. The wording stays per-screen. That is content, not logic.
 
 import { ApiError } from "./client";
 

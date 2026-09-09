@@ -127,8 +127,8 @@ describe("the unit screen", () => {
   });
 
   // ViewFleet is the read (D7). Every write on this screen needs a further
-  // capability — ManageAssets for rotate/edit/status, ManageAssignments for
-  // the schedule form (spec U2) — so a reader is shown the unit rather than
+  // capability: ManageAssets for rotate/edit/status, ManageAssignments for
+  // the schedule form (spec U2), so a reader is shown the unit rather than
   // a row of controls that would refuse them.
   it("shows a reader the plan and the history and none of the writes", async () => {
     renderScreen(["ViewFleet"]);

@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from "./client";
 import type { UnitKind } from "./admin";
 
-// Wire shapes of the rig surface (api/internal/httpapi/combinations.go — D3).
+// Wire shapes of the rig surface (api/internal/httpapi/combinations.go, D3).
 // The motive unit is always member sequence 1 with a null descriptor (U7),
 // mirrored here rather than special-cased: the server enforces the order,
 // this module only carries what it sends.
@@ -26,7 +26,7 @@ export interface NewRig {
   motiveVehicleId: string;
   towed: { vehicleId: string; descriptor?: string }[];
   // Omitted means the tenant's today, resolved server-side by
-  // app.tenant_day_instant — a browser-computed day is a day out for any
+  // app.tenant_day_instant. A browser-computed day is a day out for any
   // controller not sitting in the tenant's zone (rule 6, lessons 2026-09-03).
   effectiveOn?: string;
 }

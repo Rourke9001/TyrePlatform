@@ -1,6 +1,6 @@
 import { apiGet, apiPost } from "./client";
 
-// Wire shapes of the inspection-task surface (api/internal/httpapi/tasks.go —
+// Wire shapes of the inspection-task surface (api/internal/httpapi/tasks.go,
 // TYRE-90). UnitTask is a superset of DriverHome's own inline task type: a
 // shared shape is not widened for one consumer (spec U13's reasoning), so
 // the driver's list keeps its own type.
@@ -38,7 +38,7 @@ export function fetchUnitTasks(unitId: string): Promise<UnitTask[]> {
 }
 
 // scheduleTask is FR-INS-051's write. An omitted dueOn is the tenant's today,
-// resolved server-side (api/internal/httpapi/tasks.go) — never a
+// resolved server-side (api/internal/httpapi/tasks.go). Never a
 // browser-computed day.
 export function scheduleTask(unitId: string, body: NewTask): Promise<UnitTask> {
   return apiPost<UnitTask>(`/api/vehicles/${unitId}/inspection-tasks`, body);

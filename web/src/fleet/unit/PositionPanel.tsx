@@ -24,7 +24,7 @@ import { MOUNT_ORIENTATIONS, ORIENTATION_UNKNOWN, orientationLabel } from "./voc
 // codes each endpoint can actually raise are listed: app.fit_tyre reaches
 // TY009 (FR-FIT-002: a unit that has an odometer needs the reading), TY012,
 // TY014 and the two occupancy conflicts, and app.remove_tyre reaches TY009 and
-// neither occupancy code — 000025's fitment_odometer_matches_unit_kind fires
+// neither occupancy code. 000025's fitment_odometer_matches_unit_kind fires
 // BEFORE INSERT OR UPDATE, so the removal's own closing UPDATE answers to it
 // as the fit's INSERT does.
 const FIT_WORDING = {
@@ -47,7 +47,7 @@ function belowFittedOdometer(fitted: number): string {
   return `The odometer cannot be below ${fitted}, the reading this tyre was fitted at.`;
 }
 
-// The selected position: what it carries, and the one write it admits — a
+// The selected position: what it carries, and the one write it admits: a
 // fit when it is empty, a removal when it is not (D7). Both mutations are
 // held here rather than in two child forms because a successful fit turns
 // this position into an occupied one: a child holding the result would
@@ -60,7 +60,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
 
   const [tyreId, setTyreId] = useState("");
   const [fitTread, setFitTread] = useState("");
-  // D13: an unasserted orientation is recorded as UNKNOWN, never guessed —
+  // D13: an unasserted orientation is recorded as UNKNOWN, never guessed.
   // mountOrientation is a required field on the wire (fitTyreRequest.validate,
   // fitments.go) so whatever this holds at submit is written to an immutable
   // row (rule 3), and a default of MARK_OUTBOARD would record a positive
@@ -74,7 +74,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   // The first two are needed because the fields clear on success and the read
   // behind them has moved on, so a confirmation could not otherwise name what
   // it confirmed (NFR-USE-010), and because both mutations keep their
-  // isSuccess for the life of the panel — a fit followed by a removal would
+  // isSuccess for the life of the panel. A fit followed by a removal would
   // otherwise leave the fit's sentence standing beside the removal's. The
   // fitment id is what keeps the sentence honest afterwards: a rotation
   // elsewhere on the unit can put a different tyre in this position, and
@@ -91,7 +91,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   const [refused, setRefused] = useState("");
 
   // The removal form's own fields, reset during render rather than in an
-  // effect (react-hooks/set-state-in-effect) — an extra commit is not needed
+  // effect (react-hooks/set-state-in-effect). An extra commit is not needed
   // to derive this state from a prop. A background refetch (window focus, or
   // any write's invalidation) can swap the occupant of this position out from
   // under a half-typed removal, and readings typed for the old fitment must
@@ -156,7 +156,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   // Advisories belong to the fit that raised them, so they leave with it.
   const warnings = acted?.kind === "fit" ? (fit.result?.warnings ?? []) : [];
   // A confirmation stands while this position still shows the fitment the
-  // write acted on, or shows nothing yet — the invalidated read has not come
+  // write acted on, or shows nothing yet. The invalidated read has not come
   // back. A *different* fitment here belongs to some other write, and a
   // sentence about this one would describe a vehicle that has moved on.
   const actedStillHolds =

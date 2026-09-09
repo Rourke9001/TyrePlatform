@@ -3,14 +3,14 @@ import { apiGet, apiPost } from "./client";
 // Wire shapes of the tyre register (api/internal/httpapi/tyres.go, TYRE-91).
 // Tyre mirrors the server's projection exactly, so a screen that just
 // received or costed a tyre holds the same shape it would have read from the
-// register. The request shapes carry only what a screen actually sends —
+// register. The request shapes carry only what a screen actually sends.
 // receiveTyresRequest accepts more, and a field is added here when something
 // produces it, not before.
 
 // Money fields carry the server's own omission: absent (never null) unless
 // the actor holds ViewValuation, or the tyre has none recorded yet
 // (CFL-002's awaiting-cost backlog). Kept as optional strings, never
-// numbers — money over the wire is always a string (web/CLAUDE.md).
+// numbers. Money over the wire is always a string (web/CLAUDE.md).
 export interface Tyre {
   id: string;
   displayCode: string;
@@ -32,7 +32,7 @@ export interface ReceivedTyre {
   displayCode: string;
 }
 
-// FR-TYR-040's intake body. Every field but quantity is optional — most of
+// FR-TYR-040's intake body. Every field but quantity is optional. Most of
 // what a tenant eventually knows about a tyre is often not known at
 // receipt, which is exactly the awaiting-cost backlog CFL-002 names. The
 // bound on quantity and the display-code policy refusal (D12/TY011) both
@@ -56,7 +56,7 @@ const DISPOSALS: { value: Disposal; label: string }[] = [
 
 // app.dispose_tyre (000031) sells from REMOVED alone and scraps or loses from
 // IN_STOCK or REMOVED; every other pairing it refuses with TY012. Enforcement
-// stays there (ADR-0013 decision 5) — this narrows the menu so a screen never
+// stays there (ADR-0013 decision 5). This narrows the menu so a screen never
 // offers a choice the write is certain to reject, which reads as a broken
 // button rather than as a rule (NFR-USE-005). One mapping, here, because the
 // register and its row form must not each carry their own copy of it.
@@ -97,8 +97,8 @@ export const COST_SOURCES: { value: CostSource; label: string }[] = [
 // fetchTyres is the register read (FR-TYR-040..042). code and on together
 // resolve a display code as of a date (a code is reissued after a tyre
 // leaves the estate); awaitingCost narrows to the CFL-002 backlog. Neither
-// pairing is validated here — the server owns that 400 (ADR-0013 decision
-// 5) — this only shapes the query string and unwraps the envelope.
+// pairing is validated here. The server owns that 400 (ADR-0013 decision
+// 5). This only shapes the query string and unwraps the envelope.
 export function fetchTyres(opts?: {
   code?: string;
   on?: string;
@@ -158,7 +158,7 @@ export function dispatchTyre(
 
 // returnTyreToStock is FR-FIT-013's receipt back, answering 204. depotId is
 // optional: an absent one leaves the casing where the register already has
-// it (tyres.go's own comment) — this says the fleet has it back, not that it
+// it (tyres.go's own comment). This says the fleet has it back, not that it
 // moved. Which states restock and which depot types may hold stock are
 // app.return_tyre_to_stock's rules.
 export function returnTyreToStock(tyreId: string, body: { depotId?: string }): Promise<void> {

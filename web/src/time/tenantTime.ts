@@ -5,14 +5,14 @@ import { useActor, useActorSettled } from "../auth/actorContext";
 // What an unparseable instant renders as. /api/my/tasks is typed as
 // returning ISO strings, but the server is the authority over the wire:
 // Intl.DateTimeFormat.format() throws RangeError on an invalid Date, and a
-// throw here unwinds the whole route — a blank screen on the one page a
+// throw here unwinds the whole route, a blank screen on the one page a
 // driver opens to start a capture, against the three-minute constraint
 // (TYRE-95).
 export const INVALID_INSTANT = "invalid date";
 
 // The only path a stored instant takes to a screen (rule 6, DR-010,
 // FR-TEN-005). Storage is UTC throughout; what a person reads is their
-// tenant's civil time, which is not the browser's — a South African fleet's
+// tenant's civil time, which is not the browser's. A South African fleet's
 // truck inspected in America must still read as the South African day.
 //
 // en-ZA rather than the browser's locale: the tenant's calendar is the
@@ -23,13 +23,13 @@ export function formatTenantDate(instant: string | Date, timeZone: string): stri
   // clerk wrote "5 January", and 5 January is what they must read back in
   // every zone. new Date("2026-01-05") parses as UTC midnight; projecting
   // THAT through the tenant's zone shifts the day for any tenant west of
-  // UTC — the mirror of the bug rule 6 exists to prevent. Format it in UTC
-  // instead, which always returns the same calendar date it was given.
+  // UTC. This is the mirror of the bug rule 6 exists to prevent. Format it
+  // in UTC instead, which always returns the same calendar date it was given.
   if (typeof instant === "string" && /^\d{4}-\d{2}-\d{2}$/.test(instant)) {
     const asUtcMidnight = new Date(`${instant}T00:00:00Z`);
     // The regex only shapes the string; "2026-13-01" matches it but is not a
     // real date. Same guard as the instant branch below, for the same
-    // reason — .format() throws on an Invalid Date rather than returning one.
+    // reason. .format() throws on an Invalid Date rather than returning one.
     if (Number.isNaN(asUtcMidnight.getTime())) {
       return INVALID_INSTANT;
     }
@@ -45,8 +45,8 @@ export function formatTenantDate(instant: string | Date, timeZone: string): stri
 // Constructing an Intl.DateTimeFormat costs roughly ten times a .format()
 // call on an existing instance, and a dashboard list or inspection history
 // pays it per cell on the phone the three-minute constraint is judged on
-// (NFR-USE-001). Keyed per zone because a session sees at most a handful —
-// the tenant's and the UTC fallback — and a wrong key would render every
+// (NFR-USE-001). Keyed per zone because a session sees at most a handful,
+// the tenant's and the UTC fallback, and a wrong key would render every
 // tenant in the first tenant's zone (rule 6).
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -71,7 +71,7 @@ export function tenantDateFormatter(timeZone: string): Intl.DateTimeFormat {
 // of not resolving read differently (TYRE-95):
 //
 // - In flight: render plainly. The transient UTC flash on /my is accepted
-//   deliberately — gating the driver's landing screen behind a round-trip
+//   deliberately. Gating the driver's landing screen behind a round-trip
 //   costs more than the flash, and screens behind RequireCapability never
 //   reach a date pre-settle anyway.
 // - Errored: the fallback never lifts, and every date would silently read a

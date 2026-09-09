@@ -12,7 +12,7 @@ const branding = { displayName: "Sandbox Fleet", primaryColor: "#E2202A", logoUr
 
 // The nav is the only thing under test, but AppShell mounts OutboxIndicator,
 // which flushes the queue on mount (FR-OFF-009) and would otherwise reach the
-// network — the same stub OutboxIndicator's own suite uses.
+// network. That is the same stub that OutboxIndicator's own suite uses.
 function renderShellAt(path: string, capabilities: string[]) {
   return render(
     <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
@@ -45,7 +45,7 @@ describe("the shell's main nav", () => {
   // ancestor current too: /fleet/tyres/retreads would read as Units, Tyres and
   // Retreads all at once, and "you are here" naming three places tells a
   // reader nothing (NFR-USE-005). The deepest path in the registry is the case
-  // that catches it — an actor holding all three capabilities so all three
+  // that catches it, an actor holding all three capabilities so all three
   // links render and a prefix match has something to over-claim.
   it("marks exactly one link current on the deepest nested path", () => {
     renderShellAt("/fleet/tyres/retreads", ["ViewFleet", "ManageAssets", "LogRetread"]);

@@ -9,9 +9,9 @@ import { useFormMutation } from "../useFormMutation";
 
 // app.dispatch_tyre reaches TY012 (no such tyre, or its own REMOVED-only
 // state guard), TY014 (the depot: none, the wrong type, or inactive; or a
-// sentOn in the future — 000033's depot/date branches) and TY015 (BR-FIT-009's
-// retread cap), rendered verbatim since TY015's own sentence — "a purchase,
-// not a retread candidate" — is the whole content of the refusal
+// sentOn in the future, 000033's depot/date branches) and TY015 (BR-FIT-009's
+// retread cap), rendered verbatim since TY015's own sentence: "a purchase,
+// not a retread candidate" is the whole content of the refusal
 // (NFR-USE-005).
 const DISPATCH_WORDING = {
   speakable: ["TY012", "TY014", "TY015"],
@@ -22,7 +22,7 @@ const DISPATCH_WORDING = {
 // app.dispatch_tyre's own destination-to-depot-type mapping (000033): a
 // depot picker must offer only depots the write will accept, not every
 // depot in the fleet. Accepts the unpicked "" so the query below needs no
-// cast to call it — the query itself never runs against that branch
+// cast to call it. The query itself never runs against that branch
 // (`enabled: destination !== ""`).
 function depotTypeFor(destination: Destination | ""): string {
   if (destination === "AT_RETREADER") return "RETREADER";

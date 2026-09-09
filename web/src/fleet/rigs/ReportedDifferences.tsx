@@ -17,7 +17,7 @@ import "../fleet.css";
 
 // The codes these two writes can actually raise, and no others (api/refusal.ts:
 // a code that cannot arrive is a claim the next reader has to disprove).
-// TY022 is the resolution's own refusals — already resolved, stale, voided,
+// TY022 is the resolution's own refusals: already resolved, stale, voided,
 // a report the register cannot be moved to. TY017 arrives from inside
 // app.create_combination_at when a unit the driver saw has since been
 // disposed or coupled elsewhere. TY012 is a report outside what a controller
@@ -98,7 +98,7 @@ function DifferenceCard({ row, tenantKey }: { row: ReportedDifference; tenantKey
 
 // D5: the reports sit above the register they change, because acting on one
 // is what the controller came to this screen to do. Nothing renders when
-// there are none — an empty state here would be a permanent line of furniture
+// there are none. An empty state here would be a permanent line of furniture
 // on a screen whose own job is the rig list below it.
 export function ReportedDifferences() {
   const tenantKey = getDevTenantId() ?? "default";

@@ -16,7 +16,7 @@ import { useFormMutation } from "./useFormMutation";
 import "./fleet.css";
 
 // app.log_retread_return reaches TY012 (no such job), TY014 (an input this
-// surface does not accept — a missing casingAccepted, a returnedOn earlier
+// surface does not accept: a missing casingAccepted, a returnedOn earlier
 // than the dispatch) and TY015 (BR-FIT-009's cap, on the accepted branch's
 // re-rating), rendered verbatim (NFR-USE-005).
 const RETURN_WORDING = {
@@ -29,8 +29,8 @@ const INCOMPLETE_RETURN =
   "An outcome, a report reference and a returned-on date are all required before a return can be logged.";
 
 // An absent optional is an omitted key, never "": app.log_retread_return takes
-// these as numeric, and the cast rejects an empty or all-space string as 22P02
-// — a refusal with no code this screen can speak, so it would surface as the
+// these as numeric, and the cast rejects an empty or all-space string as 22P02.
+// A refusal with no code this screen can speak, so it would surface as the
 // generic fallback rather than as anything about the field. The `required`
 // attributes stop a genuinely empty submit; whitespace satisfies them, which
 // is the case this closes. DispatchForm.tsx omits its own optional the same
@@ -48,7 +48,7 @@ type Outcome = "accepted" | "rejected";
 //
 // newPatternId is not offered here, and is unlikely to be soon: no
 // pattern-list read exists yet, and a raw uuid text box is not a usable
-// control for a driver or a controller — app.log_retread_return already
+// control for a driver or a controller. app.log_retread_return already
 // accepts the field, so a follow-up ticket raises the picker rather than
 // this slice inventing one.
 //
@@ -75,8 +75,8 @@ function RetreadReturnRow({
   const [postTreadMm, setPostTreadMm] = useState("");
   const [casingValue, setCasingValue] = useState("");
   // A refusal this row raised itself, distinct from the server's own
-  // (rendered below from logReturn.error) — the pattern PositionPanel.tsx
-  // uses for its own client-side guard.
+  // (rendered below from logReturn.error). This is the pattern
+  // PositionPanel.tsx uses for its own client-side guard.
   const [refused, setRefused] = useState("");
 
   const logReturn = useFormMutation<RetreadReturn, void>({
@@ -103,7 +103,7 @@ function RetreadReturnRow({
     setRefused("");
 
     // D3: money stays a string all the way to the wire (rule 2), never
-    // Number()'d — the database rounds, this does not. Trimmed like every
+    // Number()'d. The database rounds, this does not. Trimmed like every
     // other free-text field on this row; still a string either way.
     if (outcome === "accepted") {
       logReturn.submit({
@@ -219,7 +219,7 @@ function RetreadReturnRow({
   );
 }
 
-// D7: the open retread jobs, and the one write this screen owns — logging
+// D7: the open retread jobs, and the one write this screen owns: logging
 // the return app.dispatch_tyre started (retreads.go's own comment: dispatch
 // opens the job, this closes it).
 export function RetreadQueue() {
@@ -228,7 +228,7 @@ export function RetreadQueue() {
   // The last job this screen closed, held here rather than in the row that
   // closed it: a successful return invalidates retreadJobsKey, the row's
   // own job leaves the refetched list, and RetreadReturnRow unmounts with
-  // it — a line left inside that row would show for one round-trip and
+  // it. A line left inside that row would show for one round-trip and
   // vanish (NFR-USE-010). Cleared as soon as any row's onStart fires: the
   // message names one specific job, and stays accurate only until an
   // operator's attention visibly moves to another return.

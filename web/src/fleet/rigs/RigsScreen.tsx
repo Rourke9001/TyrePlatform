@@ -5,7 +5,7 @@ import { RigList } from "./RigList";
 import "../fleet.css";
 
 // D5: the whole register on one screen. The form renders only for a
-// controller who can write it (ManageAssignments, U2) — the route itself
+// controller who can write it (ManageAssignments, U2). The route itself
 // gates the read at ViewFleet, so the list below always renders. The reported
 // differences come first: a report is about the rigs listed underneath, and
 // acting on one changes them (TYRE-75).

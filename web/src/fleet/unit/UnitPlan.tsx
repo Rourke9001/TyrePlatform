@@ -6,7 +6,7 @@ import type { UnitPosition } from "../../api/units";
 // to right, LEFT above the chassis line and RIGHT below it, OUTER further
 // from the line than INNER, spares in their own column beside axle 1. Every
 // coordinate is derived from the array, so a superlink and a light vehicle
-// are the same code — a fleet's axle library is tenant data (FR-VEH-002) and
+// are the same code. A fleet's axle library is tenant data (FR-VEH-002) and
 // a layout that assumed three axles would be wrong for most of it.
 //
 // Occupancy is stated in text, never by colour alone (NFR-USE-009): each
@@ -22,8 +22,8 @@ const BEAM_GAP = 15;
 const AXLE_PITCH = POS_W + 26;
 const PAD = 6;
 // A stroke straddles its path, so half of it falls outside the rect's own
-// box. Without this margin the outermost positions — flush against the top
-// and bottom of the drawing — would have that half clipped by the viewBox,
+// box. Without this margin the outermost positions, flush against the top
+// and bottom of the drawing, would have that half clipped by the viewBox,
 // and the selected position's heavier stroke would clip worse than the rest.
 const STROKE_MARGIN = 2;
 // Two slots deep is app.fitment_slot's maximum (SINGLE, or OUTER/INNER), so

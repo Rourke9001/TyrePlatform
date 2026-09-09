@@ -88,7 +88,7 @@ export function deriveBrandTheme(primaryInput: string): BrandTheme {
     contrastRatio(primary, WHITE) >= contrastRatio(primary, palette.ink) ? WHITE : palette.ink;
 
   // Hover/pressed step toward ink; a near-black primary has no darker to go,
-  // so its states step toward white instead — the shift stays visible.
+  // so its states step toward white instead. The shift stays visible.
   const towardsLight = luminance(rgb) < 0.03;
   const target = towardsLight ? WHITE_RGB : INK;
   const [hoverT, pressedT] = towardsLight ? [0.14, 0.26] : [0.12, 0.22];

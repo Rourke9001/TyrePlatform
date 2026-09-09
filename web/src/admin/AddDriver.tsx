@@ -56,20 +56,20 @@ export function AddDriver() {
   // Tanstack Query v5 clears create.error the instant the Reactivate click
   // starts its own mutation, so re-deriving the offer's paragraph from
   // create.error would swap in the generic sentence while that request is
-  // still in flight — announced by the role="alert" live region over a
+  // still in flight, announced by the role="alert" live region over a
   // retry that is in fact succeeding. The server's message is captured once,
   // when onError first learns it, and outlives the mutation that produced it
   // (D10).
   const [rehire, setRehire] = useState<{ email: string; message: string } | null>(null);
   // Whether the success sentence says "restored" or "added" (TYRE-95): an
   // admin who restored someone with years of history must not read that they
-  // added a stranger. Derived from the request that succeeded — a
+  // added a stranger. Derived from the request that succeeded: a
   // reactivate: true that matched nobody is refused, never a create, so the
   // flag cannot lie about which happened.
   const [restored, setRestored] = useState(false);
 
   // D9. ManageUsers offers the whole list; InviteDriver alone offers DRIVER.
-  // The server decides the same question again (mayCreateRole) — this only
+  // The server decides the same question again (mayCreateRole). This only
   // keeps the form from expressing a request it knows will be refused.
   const canManageUsers = useCan("ManageUsers");
   const roles = canManageUsers ? ROLES : ROLES.filter((r) => r.value === "DRIVER");
@@ -148,7 +148,7 @@ export function AddDriver() {
         />
 
         {/* FR-AUT-022: a durable identifier independent of the display name,
-            and optional — R13 identifies its driver as "Melusi" and nothing
+            and optional. R13 identifies its driver as "Melusi" and nothing
             else. */}
         <label htmlFor="staffNumber">Staff number</label>
         <input
@@ -213,11 +213,11 @@ export function AddDriver() {
           <h2>Assign to a unit</h2>
           {vehicles.isPending && <p>Loading units…</p>}
           {vehicles.isError && <p role="alert">The unit list could not be loaded.</p>}
-          {/* A silent no-op here — an Assign button over an empty select — is
+          {/* A silent no-op here, an Assign button over an empty select, is
               worse than telling the admin there is nothing to assign to yet
               (NFR-USE-005). */}
           {vehicles.isSuccess && vehicles.data.length === 0 && (
-            <p>No units yet — add a unit first.</p>
+            <p>No units yet. Add a unit first.</p>
           )}
           {vehicles.isSuccess && vehicles.data.length > 0 && (
             <>

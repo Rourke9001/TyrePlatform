@@ -72,7 +72,7 @@ describe("the rigs list", () => {
     expect(row).toHaveTextContent("HORSE-1 › LINK-A (front) › LINK-B");
   });
 
-  // rule 6: an instant renders in the tenant's own zone, not the browser's —
+  // rule 6: an instant renders in the tenant's own zone, not the browser's.
   // 22:30Z is 00:30 the next day in Africa/Johannesburg (me()'s own zone).
   it("renders Since through the tenant zone", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, [rig({ id: "r1" })]));
@@ -135,7 +135,7 @@ describe("the rigs list", () => {
     expect(await screen.findByText(/03 Sept 2026/)).toBeInTheDocument();
     expect(await screen.findByRole("status")).toHaveTextContent("Rig ended for HORSE-1.");
     // The refetched list carries only the now-ended rig, so Open rigs falls
-    // back to its empty state — the row has actually left that table, not
+    // back to its empty state. The row has actually left that table, not
     // merely gained a second entry in Ended.
     expect(
       await screen.findByText(/no open rigs\. a unit not in a rig is inspected on its own\./i),

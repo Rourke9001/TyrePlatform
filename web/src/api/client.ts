@@ -63,7 +63,7 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
     throw new ApiError(res.status, message ?? `${method} ${path} failed: ${res.status}`, code);
   }
   // A 204 from any verb carries no body, by spec, and res.json() rejects on
-  // an empty stream — a bare parse here would turn a successful call into a
+  // an empty stream. A bare parse here would turn a successful call into a
   // thrown SyntaxError indistinguishable from a transport failure.
   if (res.status === 204) {
     return undefined as unknown as T;

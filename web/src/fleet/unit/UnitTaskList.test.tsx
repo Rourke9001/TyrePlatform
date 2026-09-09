@@ -40,8 +40,8 @@ describe("the unit's open inspections", () => {
   });
 
   // rule 6: the instant renders in the tenant's own zone. The fixture
-  // straddles — 22:30 UTC is the 4th in UTC and the 5th in me()'s
-  // Africa/Johannesburg — so a render in the browser's zone reads the wrong
+  // straddles: 22:30 UTC is the 4th in UTC and the 5th in me()'s
+  // Africa/Johannesburg, so a render in the browser's zone reads the wrong
   // day and fails here. The fractional second is the wire's own shape
   // (000038's due instant carries microseconds) and must not move the day.
   it("lists a task's driver, tenant-zone due date and status", async () => {
@@ -58,7 +58,7 @@ describe("the unit's open inspections", () => {
     expect(within(row).getByText("Open")).toBeInTheDocument();
   });
 
-  // Due last year and still overdue: false — app.v_inspection_task computes
+  // Due last year and still overdue: false. app.v_inspection_task computes
   // overdue for OPEN alone (000038), so an escalated task past its due day
   // reads Escalated rather than borrowing the word from its date.
   it("reads Escalated for an escalated task, whatever its due day", async () => {

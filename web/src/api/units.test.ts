@@ -201,7 +201,7 @@ describe("the unit and fitment API module", () => {
       expect(JSON.stringify(body)).not.toContain("toVehicleId");
     });
 
-    // Keys exactly as the API returned them — fitments.go's odometerPayload
+    // Keys exactly as the API returned them. fitments.go's odometerPayload
     // says why.
     it("carries a per-move destination unit and per-unit odometers verbatim", async () => {
       vi.mocked(fetch).mockResolvedValue(respond(201, { moves: [] }));

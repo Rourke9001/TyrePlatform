@@ -11,7 +11,7 @@ import { rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
 
 // app.end_combination's own refusals (TY017: already ended, or an end before
-// the start) and the not-visible read (TY012) — the only two codes this
+// the start) and the not-visible read (TY012). The only two codes this
 // screen's one write can reach (D4).
 const END_WORDING = {
   speakable: ["TY017", "TY012"],
@@ -21,7 +21,7 @@ const END_WORDING = {
 
 // D5's train: the motive first, then each trailer in walk order, its
 // descriptor in parentheses immediately after its fleet number. The text
-// content is pinned (e2e rigs.spec.ts) — the quieter weight on the towed
+// content is pinned (e2e rigs.spec.ts). The quieter weight on the towed
 // units is styling only, never a change to the text itself.
 function TrainCell({ rig }: { rig: Rig }) {
   const towed = rig.members.filter((m) => m.sequence > 1).sort((a, b) => a.sequence - b.sequence);

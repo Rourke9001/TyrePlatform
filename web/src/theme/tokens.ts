@@ -1,5 +1,5 @@
 // The design system's single source of colour and type (TYRE-27). Components
-// consume these only through the CSS custom properties below — a hex or font
+// consume these only through the CSS custom properties below. A hex or font
 // literal anywhere else in web/src is a bug.
 //
 // "Yard signage" direction: sunlight-first light UI (NFR-USE-003), highway
@@ -13,12 +13,12 @@ export const palette = {
   surface: "#ffffff",
   surfaceSunken: "#eff1f0",
   line: "#d8dcda",
-  // "Convoy" petrol blue — the platform's own brand, used until a tenant
+  // "Convoy" petrol blue: the platform's own brand, used until a tenant
   // configures one (same default the API serves, TYRE-26).
   brand: "#14586e",
 } as const;
 
-// Tread band status colours are FIXED and keyed to band NAMES — tenant
+// Tread band status colours are FIXED and keyed to band NAMES. Tenant
 // branding themes the chrome, never the safety language. The mm thresholds
 // that put a reading in a band are tenant configuration (rule 5) and never
 // appear in this codebase. Colour is never the only encoding (NFR-USE-009):

@@ -34,8 +34,8 @@ describe("receiving tyres into the fleet", () => {
     vi.unstubAllGlobals();
   });
 
-  // D12/AS-014: under a generated scheme the operator never types a code —
-  // one is minted server-side and must be carried to the physical tyre by
+  // D12/AS-014: under a generated scheme the operator never types a code.
+  // One is minted server-side and must be carried to the physical tyre by
   // hand, so the screen has to say that step out loud, not just omit the
   // field and leave the operator guessing.
   it("hides the code field, bounds the quantity 1-200 defaulting to 1, and names the sidewall step under GENERATED", () => {
@@ -65,8 +65,8 @@ describe("receiving tyres into the fleet", () => {
   // ReceiveTyre.tsx's own guard (`if (isFree && displayCode.trim() === "")
   // return;`), proven independently of the `required` attribute. Two
   // non-obvious things: a real click on the submit button never even reaches
-  // React's onSubmit here — jsdom's constraint validation intercepts it
-  // first — so fireEvent.submit dispatches the "submit" event directly,
+  // React's onSubmit here, because jsdom's constraint validation intercepts
+  // it first. fireEvent.submit dispatches the "submit" event directly,
   // skipping that interception. And useMutation's mutate() does not call
   // fetch synchronously, so asserting "not called" right after firing the
   // event passes whether or not the guard exists; the setTimeout flush lets
@@ -153,7 +153,7 @@ describe("receiving tyres into the fleet", () => {
   });
 
   // NFR-USE-010: success must be shown explicitly, never inferred from the
-  // absence of an error — and a bulk GENERATED receive mints more than one
+  // absence of an error. A bulk GENERATED receive mints more than one
   // code, every one of which the operator now has to go and mark a sidewall
   // with.
   it("shows every issued display code explicitly and clears the form on success", async () => {

@@ -28,7 +28,7 @@ const actor = (capabilities: string[]): Me =>
 //
 // A fresh Response per call, not one shared instance: a Response body can
 // only be read once, and /fleet/rigs drives two concurrent queries
-// (ReportedDifferences beside RigList, TYRE-75) — a shared instance's
+// (ReportedDifferences beside RigList, TYRE-75). A shared instance's
 // second .json() throws, which the second query renders as its own load
 // failure rather than the empty list this mock promises every caller.
 function mockFetchJson(status: number, body: unknown): Mock<typeof fetch> {
@@ -76,7 +76,7 @@ describe("AppRoutes", () => {
   });
 
   // The landing redirect keeps a driver off /fleet, but the route itself must
-  // refuse the same actor if they land here another way — a pasted link or a
+  // refuse the same actor if they land here another way, a pasted link or a
   // bookmark, not just an offered nav link. RequireCapability hides silently,
   // so "refused" reads as the heading never appearing rather than an error.
   it("shows nothing at /fleet for an actor who can only capture inspections", () => {
@@ -84,7 +84,7 @@ describe("AppRoutes", () => {
     expect(screen.queryByRole("heading", { name: /units/i })).toBeNull();
   });
 
-  // GET /api/my/tasks returns 200 with [] for an unassigned driver — an empty
+  // GET /api/my/tasks returns 200 with [] for an unassigned driver. An empty
   // result is a legitimate answer, not a refusal, and must not render as one.
   it("shows an unassigned driver's empty task list rather than an error", async () => {
     mockFetchJson(200, []);
@@ -249,7 +249,7 @@ describe("AppRoutes", () => {
   });
 
   // A unit is reached by following a link from the unit list, so it is a
-  // destination someone navigated to and says why it is refused — routes.tsx's
+  // destination someone navigated to and says why it is refused, routes.tsx's
   // own rule, the same one /capture answers to.
   it("explains a refusal at /fleet/units/:unitId rather than rendering nothing", () => {
     renderAt("/fleet/units/u9", actor(["CaptureInspection"]));
@@ -257,13 +257,13 @@ describe("AppRoutes", () => {
     expect(screen.queryByRole("heading", { name: "HORSE-1" })).toBeNull();
     // renderAt is synchronous: with the guard gone, UnitDetail would still
     // mount and its query would still be pending on this first render, so the
-    // assertions above could pass on a screen that had merely not loaded yet
-    // — this is the one that separates a refusal from a slow read.
+    // assertions above could pass on a screen that had merely not loaded yet.
+    // This is the one that separates a refusal from a slow read.
     expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // Unreachable through AppRoutes' own path table (:unitId never matches an
-  // empty segment) — mirrors CaptureRoute's defensive shape, so this drives
+  // empty segment). Mirrors CaptureRoute's defensive shape, so this drives
   // UnitRoute directly rather than through a URL nothing can produce.
   it("renders not-found from UnitRoute itself when unitId is absent", () => {
     render(
@@ -302,7 +302,7 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { name: "Rigs" })).toBeInTheDocument();
   });
 
-  // U2: rig writes gate on ManageAssignments, reads on ViewFleet — the same
+  // U2: rig writes gate on ManageAssignments, reads on ViewFleet, the same
   // split D7 already drew for Fitments.
   it("shows nothing at /fleet/rigs for an actor without ViewFleet", () => {
     renderAt("/fleet/rigs", actor(["CaptureInspection"]));
@@ -312,7 +312,7 @@ describe("AppRoutes", () => {
   });
 
   // U2/D5: RigsScreen itself, not the route, gates Set a rig on
-  // ManageAssignments — a ViewFleet-only actor reads the register and never
+  // ManageAssignments. A ViewFleet-only actor reads the register and never
   // sees the write form.
   it("shows Open rigs without the Set a rig form for a ViewFleet holder alone", async () => {
     mockFetchJson(200, []);

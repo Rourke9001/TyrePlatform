@@ -9,7 +9,7 @@ import "./fleet.css";
 
 // D7/ViewFleet: every position the fleet currently has occupied, in one
 // list. daysFitted comes from the server's own tenant-time arithmetic (rule
-// 6) — this renders the number, never derives one from a browser clock.
+// 6). This renders the number, never derives one from a browser clock.
 export function FitmentList() {
   const asDate = useTenantDate();
   const tenantKey = getDevTenantId() ?? "default";

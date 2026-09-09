@@ -1,5 +1,5 @@
 // An odometer reading rides on a fitment event, and a fitment event can never
-// be edited — the app role holds no UPDATE or DELETE on it (CLAUDE.md rule 3),
+// be edited. The app role holds no UPDATE or DELETE on it (CLAUDE.md rule 3),
 // and CR-012 turns the pair of readings into the distance a tyre ran. A parse
 // that truncates rather than refuses would write a wrong reading no
 // compensating event can take back: Number.parseInt reads "125 000" as 125,
@@ -10,7 +10,7 @@
 // is a free-text field a manager types into, so the digits have to be checked
 // here.
 export const ODOMETER_REFUSAL =
-  "Enter the odometer in whole kilometres, digits only — no spaces, decimal point or units.";
+  "Enter the odometer in whole kilometres, digits only, no spaces, decimal point or units.";
 
 // FR-FIT-002: a unit that has one needs the reading on every write that
 // touches a fitment, and 000025's trigger refuses the whole write for its

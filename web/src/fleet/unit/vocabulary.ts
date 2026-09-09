@@ -36,8 +36,8 @@ const DISTANCE_SOURCES: Record<string, string> = {
 };
 
 // CR-012: a distance is never shown without where it came from. An
-// unrecognised source falls back to its own value rather than to silence —
-// an unlabelled number would read as measured.
+// unrecognised source falls back to its own value rather than to silence.
+// An unlabelled number would read as measured.
 export function distanceSourceLabel(source: string): string {
   return DISTANCE_SOURCES[source] ?? source;
 }

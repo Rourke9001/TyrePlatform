@@ -190,7 +190,7 @@ describe("rotating tyres across the units of a rig", () => {
     vi.unstubAllGlobals();
   });
 
-  it("offers only the occupied positions — an empty one has nothing to move", () => {
+  it("offers only the occupied positions, an empty one has nothing to move", () => {
     renderForm();
     expect(screen.getByRole("checkbox", { name: "Rotate POS1" })).toBeTruthy();
     expect(screen.queryByRole("checkbox", { name: "Rotate POS3" })).toBeNull();
@@ -341,7 +341,7 @@ describe("rotating tyres across the units of a rig", () => {
   });
 
   // FR-FIT-002/U20: the reading belongs to the unit, so a rotation across two
-  // of them sends one per unit that has an odometer — a trailer has none.
+  // of them sends one per unit that has an odometer. A trailer has none.
   it("asks an odometer per unit and sends odometers when the rotation crosses units", async () => {
     wireFetch({ rigs: [rig()], units: [sibling()] });
     const user = userEvent.setup();
@@ -494,7 +494,7 @@ describe("rotating tyres across the units of a rig", () => {
 
   // FR-FIT-002: 000025's trigger refuses the whole write for a missing
   // reading, so the blank is refused here rather than round-tripped. The
-  // required attribute is the first layer and this guard the second — the
+  // required attribute is the first layer and this guard the second. The
   // submit below is dispatched past constraint validation to reach it.
   it("refuses a blank odometer on a unit that has one", async () => {
     const user = userEvent.setup();

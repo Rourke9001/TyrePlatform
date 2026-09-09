@@ -21,7 +21,7 @@ const BLANK_KEPT =
 // reach only two of them: a blank is read as absence, not as a clear, so a
 // blanked field is deliberately not sent and the form says so rather than
 // reporting a save the server declined to make. The two nullable ids are the
-// opposite — "" is how they are cleared, which is why the depot picker's None
+// opposite: "" is how they are cleared, which is why the depot picker's None
 // option sends one. See patchUnit's comment in api/units.ts for the wire
 // contract this follows (D5, FR-VEH-041).
 function changedText(current: string, loaded: string | null): string | undefined {
@@ -35,7 +35,7 @@ function sameTags(a: string[], b: string[]): boolean {
 }
 
 // The snapshot after a save: what was sent, folded into what was loaded. The
-// response's own unit is deliberately not taken whole — it also carries the
+// response's own unit is deliberately not taken whole. It also carries the
 // fields this form did not send, and a change someone else made to one of
 // those would enter the snapshot without ever reaching the screen, which is
 // the revert the snapshot exists to prevent.
@@ -63,12 +63,12 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   const depots = useQuery({ queryKey: depotsKey(tenantKey), queryFn: () => fetchDepots() });
 
   // What the fields were last known to hold server-side, which the prop stops
-  // saying the moment the unit read refetches — on a window focus, or on any
+  // saying the moment the unit read refetches, on a window focus, or on any
   // write's invalidation. The diff below has to be against what the person
   // editing was shown: measured against a refetch carrying someone else's
   // change, an untouched field reads as an edit back to the old value and the
   // PATCH reverts them (FR-VEH-041, D5). It advances on each save, or a field
-  // could not be edited twice in one sitting — typing back what was saved a
+  // could not be edited twice in one sitting. Typing back what was saved a
   // moment ago would match the mount value and be dropped as no change.
   const seed = useRef(unit);
   const sentPatch = useRef<UnitPatch | null>(null);
@@ -88,7 +88,7 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
 
   const save = useFormMutation({
     // Recorded here rather than at submit: useFormMutation drops a second
-    // submit while one is in flight (rule 3 — a write is an event), and only
+    // submit while one is in flight (rule 3: a write is an event), and only
     // a body that was actually sent may advance the snapshot.
     mutate: (body: UnitPatch) => {
       sentPatch.current = body;
