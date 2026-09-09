@@ -107,6 +107,36 @@ not yet in the spec; both are worth knowing.
 `TODO`/`FIXME`/`HACK` must carry an ID on the same line. An untracked TODO
 is a decision nobody made; the checker rejects it.
 
+The IDs come from the SRS in Confluence, which is the authority; a comment
+never invents one. If the rule a comment states has no requirement, the
+comment says so and names the ticket or open issue that will decide it.
+
+## Prose
+
+Code comments and the strings a user reads follow the repo's `unslop`
+skill (`.claude/skills/unslop/SKILL.md`, TYRE-237). The parts that apply to
+a comment, which states a constraint rather than an opinion:
+
+- No em dashes, and no en dash or hyphen standing in for one. End the
+  sentence or use a comma. A lone em dash as a display glyph for an absent
+  value is not prose and is allowed.
+- Straight quotes only.
+- A colon introduces a list or an example, never joins two clauses.
+- Plain words. "Use", not "leverage" or "utilise"; "to", not "in order to";
+  "because", not "due to the fact that". "It is important to note" is
+  deleted. Delve, pivotal, testament, showcase and their kind do not appear.
+- Say the mechanism or the number, not the feeling. A sentence that could
+  sit unchanged in another project's file says nothing about this one.
+- One idea per sentence. Active voice unless the actor is unknown.
+
+The skill's "adding soul" section (opinions, first person, rhythm) is for
+documents people read end to end, not for comments; a comment with a
+personality is a comment that is longer than its load-bearing content.
+
+The checker enforces the punctuation and the vocabulary list. It reads whole
+source lines for punctuation, so a string literal cannot carry an em dash
+either; a `RAISE ... HINT` or a UI label is prose too.
+
 ## Explicit exceptions
 
 Named here so nobody cites them as precedent for the wrong thing:
