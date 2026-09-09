@@ -76,7 +76,7 @@ func fitBody(tyreID, positionID uuid.UUID, treadMm string, odometer *int64) stri
 }
 
 // fitmentAt answers the fitment the unit read shows at one position code, or
-// nil for an empty position — the client-visible proof that a write landed
+// nil for an empty position, the client-visible proof that a write landed
 // on the unit it named. Position ids repeat across units of one axle
 // configuration (lesson 2026-08-26), so "the fit landed" is only ever an
 // assertion about a named unit's own read.
@@ -99,7 +99,7 @@ func fitmentAt(t *testing.T, h http.Handler, vehicleID, tenantID, userID, positi
 // the unit read then shows the casing where it was put. "other" is a TRAILER
 // so no odometer is the realistic shape (000025 exempts one) rather than a
 // value this test has to invent; "mine" shares the configuration and so the
-// identical position id, and its 1L must stay empty — a query keyed on the
+// identical position id, and its 1L must stay empty. A query keyed on the
 // position alone would show the fit on both units.
 func TestFitTyreHappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -142,8 +142,8 @@ func TestFitTyreHappyPath(t *testing.T) {
 	require.Nil(t, elsewhere.Fitment, "the same position id on the other unit stays empty")
 }
 
-// plantDepotPosition gives a plantDepotWithVehicle unit — which plants no
-// positions of its own — one steer-left position on the configuration that
+// plantDepotPosition gives a plantDepotWithVehicle unit, which plants no
+// positions of its own, one steer-left position on the configuration that
 // unit actually reads back, since each call to plantDepotWithVehicle mints a
 // fresh axle configuration and no INSERT can serve two units at once.
 func plantDepotPosition(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID) uuid.UUID {
@@ -244,7 +244,7 @@ func TestFitOnHorseWithoutOdometerIsTY009(t *testing.T) {
 	require.Zero(t, landed, "a refused fit leaves no fitment behind")
 }
 
-// Occupancy is one_open_fitment_per_position's alone (000001) — app.fit_tyre
+// Occupancy is one_open_fitment_per_position's alone (000001). app.fit_tyre
 // deliberately carries no pre-check, so the raw 23505 reaches Go and
 // conflictCodes is what names it for a caller. Both tyres are IN_STOCK, so
 // the second fit passes every check the function does make and can only be
@@ -278,7 +278,7 @@ func TestFitOnOccupiedPositionIs409PositionOccupied(t *testing.T) {
 
 // FR-FIT-006/U11: the platform reports the tenant's configured policy, it
 // does not decide what may be fitted. The warning reaches the wire AND the
-// fitment lands — a handler that turned a warning into a refusal would pass
+// fitment lands. A handler that turned a warning into a refusal would pass
 // the first assertion and fail the last.
 func TestFitReturnsWarningsWithoutBlocking(t *testing.T) {
 	ctx := context.Background()
@@ -345,7 +345,7 @@ func TestRemoveFitmentWritesProvenance(t *testing.T) {
 
 // plantDepotPositions gives a plantDepotWithVehicle unit the two running
 // positions TestRotateTyresIsDepotScoped needs to have something to rotate,
-// on the configuration that unit actually reads back — plantUnitFixture's
+// on the configuration that unit actually reads back, plantUnitFixture's
 // column list and enum labels, copied exactly.
 func plantDepotPositions(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID) (left, right uuid.UUID) {
 	t.Helper()
@@ -447,7 +447,7 @@ func TestRotateTyresIsDepotScoped(t *testing.T) {
 // FR-FIT-010/FR-FIT-014: a rotation is one set of moves or none of them.
 // The valid swap runs first, so the 201 shape the unit screen's rotation form
 // consumes is exercised and the "unchanged" assertion afterwards has a
-// non-trivial state to be unchanged from — a rotation asserted only against a
+// non-trivial state to be unchanged from. A rotation asserted only against a
 // fresh unit would pass an implementation that silently wrote nothing at all.
 func TestRotateIsAtomic(t *testing.T) {
 	ctx := context.Background()
@@ -485,7 +485,7 @@ func TestRotateIsAtomic(t *testing.T) {
 	require.Contains(t, byTyre, rightTyre.String())
 
 	// The second move's tread is outside the range every move records in, so
-	// the set is refused — TY014, and the wire code has to be mapped for it
+	// the set is refused: TY014, and the wire code has to be mapped for it
 	// to arrive as anything but a 500.
 	bad := fmt.Sprintf(`{"moves":[{"tyreId":%q,"toPositionId":%q,"treadMm":"8.0"},
 	                             {"tyreId":%q,"toPositionId":%q,"treadMm":"0"}]}`,
@@ -506,7 +506,7 @@ func TestRotateIsAtomic(t *testing.T) {
 	require.Equal(t, "a rotation is two or more moves", emptyRef.Message)
 
 	// Not merely "unchanged from the start": the unit still shows the state
-	// the valid swap left it in, down to the fitment ids — a refused set that
+	// the valid swap left it in, down to the fitment ids. A refused set that
 	// had closed and reopened one row would carry the right tyres on new
 	// fitments and pass a tyre-id-only assertion.
 	left := fitmentAt(t, h, other.String(), tenantID.String(), controller.String(), "1L")
@@ -565,8 +565,8 @@ func TestFitmentWritesAreCapabilityGated(t *testing.T) {
 // fitments on a TRAILER, so no removal-odometer rule applies (000025) and a
 // rotation of the pair is a legal set; tenant B carries the removal_reasons
 // vocabulary its request names and an IN_STOCK casing of its own. Each
-// subtest is therefore refused by exactly one thing — RLS hiding tenant A's
-// row — and each pins the message of the lookup that did the hiding, because
+// subtest is therefore refused by exactly one thing, RLS hiding tenant A's
+// row, and each pins the message of the lookup that did the hiding, because
 // a leak answers a DIFFERENT refusal rather than the same one differently
 // worded (see each subtest).
 func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
@@ -614,13 +614,13 @@ func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
 	})
 
 	// The casing named is tenant B's own and IN_STOCK, so app.fit_tyre's
-	// three TY012 tyre-state guards — no such tyre, already FITTED, and any
-	// state other than IN_STOCK — all pass before the unit is ever looked up.
+	// three TY012 tyre-state guards all pass before the unit is ever looked
+	// up: no such tyre, already FITTED, and any state other than IN_STOCK.
 	// The refusal below can only be the unit lookup, and only RLS can make
 	// that one fail. A leak could not answer this same refusal differently
 	// worded: it would get past the lookup to fitment_vehicle_id_fkey, whose
 	// composite (tenant_id, vehicle_id) pair is unsatisfiable across tenants,
-	// and answer 23503 as invalid_submission — so the code is pinned as well
+	// and answer 23503 as invalid_submission, so the code is pinned as well
 	// as the message.
 	t.Run("fit", func(t *testing.T) {
 		refuses(t, post(t, h, "/api/vehicles/"+otherA.String()+"/fitments", tenantB.String(), controllerB.String(),
@@ -632,7 +632,7 @@ func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
 	// lookup app.rotate_tyres opens with is the only thing that can refuse it.
 	t.Run("rotate", func(t *testing.T) {
 		// Both fields name tenant A's own unit, so the anchor lookup is
-		// still the only thing that can refuse this — a destination and a
+		// still the only thing that can refuse this. A destination and a
 		// per-unit reading are read long after it.
 		swap := fmt.Sprintf(`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.5"},
 		                              {"tyreId":%q,"toPositionId":%q,"treadMm":"7.5"}],
@@ -665,7 +665,7 @@ func TestFitmentWriteCrossTenantIsInvisible(t *testing.T) {
 // Shape refusals the handler owns, answered before any transaction opens
 // (ADR-0013 d.5), and the one it deliberately does not own. An instant that
 // will not parse and an orientation outside app.mount_orientation would both
-// otherwise reach a cast unnamed — instantField's note (fitments.go) says
+// otherwise reach a cast unnamed. instantField's note (fitments.go) says
 // why the handler names them first.
 func TestFitmentWriteRefusesMalformedFields(t *testing.T) {
 	ctx := context.Background()
@@ -705,7 +705,7 @@ func TestFitmentWriteRefusesMalformedFields(t *testing.T) {
 // tenant_id from the session, so only a raw insert naming another tenant
 // exercises it (admin_test.go's TestWriteAimedAtAnotherTenantIsRefused).
 // Every id is tenant B's own and created_by is a real tenant-B user, so the
-// composite FKs (000017) cannot be what refuses this row — the one thing
+// composite FKs (000017) cannot be what refuses this row. The one thing
 // wrong with it is that tenant A is writing it (lesson 2026-08-28).
 func TestWriteAimedAtAnotherTenantIsRefused_Fitment(t *testing.T) {
 	ctx := context.Background()
@@ -740,7 +740,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_Fitment(t *testing.T) {
 
 // maxTextLen on the four free-text fields the fitment surface added. The
 // actor is a DRIVER, which holds none of the capabilities these three
-// handlers require — so a 422 is only possible if the length check runs
+// handlers require, so a 422 is only possible if the length check runs
 // before withActor opens a transaction, and the control at the end (the same
 // actor, the same route, a short value) is what shows the 403 is otherwise
 // what this actor gets. Nothing is planted beyond the tenant and the user:
@@ -784,7 +784,7 @@ func TestFitmentTextFieldsAreLengthCapped(t *testing.T) {
 	}
 
 	// The control: the same routes and the same actor, with the capped field at
-	// maxTextLen rather than one over. Each answers 403 — so the 422s above are
+	// maxTextLen rather than one over. Each answers 403, so the 422s above are
 	// the cap, not the route, the actor or anything else in the request. The
 	// remove route has one control for its two capped fields: it holds
 	// backdateReason at the cap beside a short reason, so it is a one-field
@@ -813,7 +813,7 @@ func TestFitmentTextFieldsAreLengthCapped(t *testing.T) {
 // The TECHNICIAN rows are what make the ManageAssets ones discriminate. That
 // role holds ViewFleet and nothing else (auth.go's capabilities map), so the
 // same actor is admitted to the two ViewFleet reads and refused the three
-// ManageAssets surfaces — the gate under test is the capability itself, not
+// ManageAssets surfaces, the gate under test is the capability itself, not
 // tenant membership and not the route.
 func TestFitmentSurfaceEndpointsAreCapabilityGated(t *testing.T) {
 	ctx := context.Background()
@@ -840,7 +840,7 @@ func TestFitmentSurfaceEndpointsAreCapabilityGated(t *testing.T) {
 		want   int
 	}{
 		// units.go listDepots: require(a, auth.ManageAssets). Of these five
-		// it is the one read gated on a write capability — a depot list is
+		// it is the one read gated on a write capability, a depot list is
 		// the dispatch and return forms' picker, so a role that may not act
 		// on it has no use for it. The TECHNICIAN row is what proves the gate
 		// is ManageAssets and not ViewFleet.
@@ -867,7 +867,7 @@ func TestFitmentSurfaceEndpointsAreCapabilityGated(t *testing.T) {
 			technician, http.StatusForbidden},
 
 		// tyres.go returnTyreToStock: require(a, auth.ManageAssets). An empty
-		// body is a valid request here — depotId is optional — so the refusal
+		// body is a valid request here, depotId is optional, so the refusal
 		// cannot be a validation one.
 		{"return refuses a driver", http.MethodPost, "/api/tyres/" + tyreID.String() + "/return", `{}`,
 			driver, http.StatusForbidden},
@@ -984,7 +984,7 @@ func TestRotateCrossesUnitsAndReadsAnOdometerPerUnit(t *testing.T) {
 	require.Equal(t, int64(1200), *crossed.Fitment.FittedOdometer)
 	require.Nil(t, stayed.Fitment.FittedOdometer, "a trailer has no reading to record")
 
-	// Keys exactly as the API returned them — fitments.go's odometerPayload
+	// Keys exactly as the API returned them. fitments.go's odometerPayload
 	// says why.
 	back := fmt.Sprintf(
 		`{"moves":[{"tyreId":%q,"toVehicleId":%q,"toPositionId":%q,"treadMm":"8.0"},
@@ -1036,7 +1036,7 @@ func TestRotateNormalisesTheLoneOdometer(t *testing.T) {
 }
 
 // The shapes this handler refuses before a transaction opens, and the one
-// contradiction it will not resolve — fitments.go's odometerPayload says why.
+// contradiction it will not resolve. fitments.go's odometerPayload says why.
 func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -1113,7 +1113,7 @@ func TestRotateRefusesContradictoryAndMalformedFields(t *testing.T) {
 		{
 			// Beside a key that IS a unit of this rotation, so the alternative
 			// to this side naming the field is app.rotate_tyres' own TY014
-			// about a key it does not recognise — not a set that lands.
+			// about a key it does not recognise, not a set that lands.
 			name:     "an odometers key that is not a uuid",
 			body:     swap(fmt.Sprintf(`,"odometers":{"not-a-unit":1500,%q:1500}`, horse)),
 			status:   http.StatusUnprocessableEntity,

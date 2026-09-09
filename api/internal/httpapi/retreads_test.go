@@ -25,15 +25,15 @@ type retreadJobBody struct {
 }
 
 // plantOpenRetreadJob plants a retreader depot, a tyre AT_RETREADER, and the
-// open retread_job row (returned_at NULL) that put it there — the fixture
+// open retread_job row (returned_at NULL) that put it there, the fixture
 // shape app.dispatch_tyre's own INSERT produces (000033), planted directly
 // since dispatching a casing (TYRE-93) is a separate write surface.
 //
 // sent_at is computed from app.tenant_today(tn.timezone), never from the
 // session's wall clock: `now()::date` is the container's UTC calendar, which
 // agrees with a South African tenant's civil date for most of the day but
-// disagrees with it — and with an extreme-zone tenant's for a much wider
-// window — for the hours either side of the tenant's own midnight, so a
+// disagrees with it, and with an extreme-zone tenant's for a much wider
+// window, for the hours either side of the tenant's own midnight, so a
 // daysOut assertion built on it would pass by coincidence rather than by the
 // tenant-zone rule actually holding.
 func plantOpenRetreadJob(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, sentDaysAgo int) (jobID, tyreID uuid.UUID, depotName string) {
@@ -89,7 +89,7 @@ func TestRetreadJobsRequireLogRetread(t *testing.T) {
 	require.Equal(t, depotName, jobs[0].DepotName)
 	require.Equal(t, 3, jobs[0].DaysOut, "daysOut is computed in the tenant's own civil calendar")
 
-	// open=true is required, like /api/fitments — refused before a
+	// open=true is required, like /api/fitments, refused before a
 	// transaction opens rather than answering an unfiltered "every job ever
 	// sent" list this slice does not build.
 	require.Equal(t, http.StatusBadRequest,
@@ -152,7 +152,7 @@ func retreadReturnBody(returnedOn, reportReference, retreadCost, postTreadMm, ca
 // FR-TYR-018/019: a retread is a new tread on the same casing, re-rated at
 // what that tread cost, and this is the one test that watches the money
 // reach the wire. The expected rate is fetched from app.rand_per_mm on the
-// figures the function stored — the test computes nothing (rule 2), and the
+// figures the function stored, the test computes nothing (rule 2), and the
 // cost carries three decimals so that a rate derived before the
 // numeric(12,2) rounding lands on a different number from one derived after
 // it (lesson 2026-09-01: a parameter's numeric(p,s) is discarded, only a
@@ -175,7 +175,7 @@ func TestLogRetreadReturnPropagates(t *testing.T) {
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 
 	// The same function, on the same inputs, inside the tenant's own session
-	// so app.current_removal_threshold_mm resolves — never arithmetic here.
+	// so app.current_removal_threshold_mm resolves, never arithmetic here.
 	var expectedRate string
 	require.NoError(t, s.InActorTx(ctx, tenantID, controller, func(tx pgx.Tx, _ auth.Actor) error {
 		return tx.QueryRow(ctx,
@@ -223,7 +223,7 @@ func TestLogRetreadReturnPropagates(t *testing.T) {
 // D6: Log Retread is the capability's first write, and it is the one thing
 // on this surface a ManageAssets holder alone may not do. TECHNICIAN is the
 // probe because it is the only role that holds neither (it holds ViewFleet
-// alone) — which means this 403 proves a gate exists, not which capability
+// alone), which means this 403 proves a gate exists, not which capability
 // it names: no tenant role today holds ManageAssets without LogRetread, so
 // the two cannot be told apart by driving a handler (ADR-0011). The body is
 // well formed throughout, so the refusal is provably the gate and not the
@@ -250,7 +250,7 @@ func TestLogRetreadRequiresLogRetread(t *testing.T) {
 
 // The invisibility probe for the one write that names a retread job. Tenant
 // A's job is genuinely open with its casing AT_RETREADER, and tenant B holds
-// its own cap and its own removal threshold — so a leak would let this
+// its own cap and its own removal threshold, so a leak would let this
 // SUCCEED outright rather than merely change the wording of a refusal, which
 // is what makes the probe worth having (lesson 2026-09-01: two branches
 // sharing a SQLSTATE make a cross-tenant probe vacuous).
@@ -351,7 +351,7 @@ func TestLogRetreadReturnRequiresTheCasingDecision(t *testing.T) {
 // U9, FR-TYR-009, BR-VAL-004: the rejection is the other half of D3 and the
 // destructive one. A rejected casing carries no cost and no value, is
 // scrapped rather than restocked, and gets a zero RETREADER valuation citing
-// the job — an absent figure would read as UNVALUED, which is a different
+// the job, an absent figure would read as UNVALUED, which is a different
 // claim from a casing the retreader inspected and found worthless. The
 // retread count does not move: a rejection is not a retread.
 func TestLogRetreadReturnRejectedCasingIsScrapped(t *testing.T) {

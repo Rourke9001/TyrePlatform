@@ -17,7 +17,7 @@ import (
 	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
 )
 
-// The Content-Type assertion is the point of this test, not decoration — see
+// The Content-Type assertion is the point of this test, not decoration. See
 // writeStatus for what the header ordering protects (ADR-0012).
 func TestWriteErrorEnvelope(t *testing.T) {
 	rec := httptest.NewRecorder()

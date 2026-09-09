@@ -20,9 +20,9 @@ import (
 )
 
 // plantUnitFixture plants one axle configuration carrying two road positions
-// off a single axle plus a spare, and two vehicles sharing it — "mine" (a
+// off a single axle plus a spare, and two vehicles sharing it: "mine" (a
 // HORSE) and "other" (a TRAILER, so hasOdometer's false branch and an
-// UNAVAILABLE distance both have a realistic source — 000025's rule exempts
+// UNAVAILABLE distance both have a realistic source, 000025's rule exempts
 // a TRAILER, and two-thirds of the tyres on a superlink carry exactly this
 // shape). Position ids repeat across units of the same configuration
 // (lesson 2026-08-26), so a test asserting the unit read shows only its own
@@ -74,7 +74,7 @@ func plantUnitFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, label 
 	return
 }
 
-// plantRemovalReasons plants rule 5's removal-reason vocabulary — the
+// plantRemovalReasons plants rule 5's removal-reason vocabulary, the
 // configuration key app.remove_tyre itself resolves and unitByID reads for
 // the screen's picker.
 func plantRemovalReasons(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, reasons ...string) {
@@ -111,7 +111,7 @@ func fitTyreViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID
 // fitTyreAtViaActor is fitTyreViaActor with an explicit occurredAt, for a
 // test that needs a fitment planted a known number of tenant-civil-days in
 // the past rather than "now" (daysFitted's own denominator). reason is
-// forwarded as app.fitment_instant_ok's backdate justification — required
+// forwarded as app.fitment_instant_ok's backdate justification, required
 // once occurredAt is more than 24 hours behind now(), harmless otherwise.
 func fitTyreAtViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID, actorID, tyreID, vehicleID, positionID uuid.UUID, treadMm, orientation string, odometer *int64, occurredAt time.Time, reason string) uuid.UUID {
 	t.Helper()
@@ -200,7 +200,7 @@ type unitBody struct {
 // A fitted position carries its occupant's code and orientation, an empty
 // one carries null, hasHistory follows TY008's own predicate once a fitment
 // exists, removalReasons answers once configured, and hasOdometer follows
-// unit_kind (000025's rule: NOT NULL and not TRAILER) — proven on both
+// unit_kind (000025's rule: NOT NULL and not TRAILER), proven on both
 // branches: "mine" is a HORSE and reads true, "other" is a TRAILER sharing
 // the same position id and reads false, so an implementation that dropped
 // the TRAILER exclusion (leaving only "IS NOT NULL") could not pass both.
@@ -265,7 +265,7 @@ func TestGetUnitCarriesPositionsAndCurrentFitments(t *testing.T) {
 	require.True(t, otherBody.HasHistory, "other's own fitment above is history too")
 }
 
-// A missing or another tenant's unit answers 404 not_found, never TY012 —
+// A missing or another tenant's unit answers 404 not_found, never TY012,
 // this handler writes nothing, so it must not reach for the write path's
 // vocabulary. Tenant A's own read is asserted 200 first, on the identical
 // unit and an actor holding the identical capability, so a missing route (or
@@ -318,7 +318,7 @@ type fitmentHistoryBody struct {
 // CR-012: a closed row never shows a distance without the provenance it was
 // derived under. The MEASURED row is planted on "mine", a HORSE, with both
 // odometers given; the UNAVAILABLE row is planted on "other", a TRAILER,
-// with neither — the realistic source of an UNAVAILABLE distance (000025's
+// with neither, the realistic source of an UNAVAILABLE distance (000025's
 // rule exempts a TRAILER; two-thirds of the tyres on a superlink carry
 // exactly this shape), not a unit_kind edited out from under a HORSE, which
 // TY008 forbids one row later regardless. Each unit's own /fitments read is
@@ -372,10 +372,10 @@ type fleetFitmentBody struct {
 }
 
 // GET /api/fitments?open=true reads across every unit in the tenant, not one
-// vehicle at a time — the Fitments screen's whole point — and stays inside
+// vehicle at a time, the Fitments screen's whole point, and stays inside
 // tenant isolation while doing it. daysFitted is asserted exactly, against a
 // fitment planted at tenant-today minus N (never a Go wall-clock offset,
-// which would answer in the runner's zone rather than the tenant's) — a
+// which would answer in the runner's zone rather than the tenant's), a
 // bare "not negative" assertion would pass an implementation that answered
 // the wrong number every time it was not literally negative.
 func TestOpenFitmentsAreFleetWide(t *testing.T) {
@@ -480,7 +480,7 @@ func TestDepotsFilterByType(t *testing.T) {
 
 // A DRIVER holds CaptureInspection alone, never ViewFleet, so the unit read
 // is refused before unitByID ever runs (FR-AUT-005's "what may be asked
-// for", not only what comes back — the same shape TestFleetListIsCapabilityGated
+// for", not only what comes back, the same shape TestFleetListIsCapabilityGated
 // asserts for the fleet list).
 func TestUnitReadIsCapabilityGated(t *testing.T) {
 	ctx := context.Background()
@@ -499,7 +499,7 @@ func TestUnitReadIsCapabilityGated(t *testing.T) {
 }
 
 // A unit with no positions, fitments, inspections or readings must not
-// merely happen to look empty — a hasHistory implementation hardcoded true,
+// merely happen to look empty, a hasHistory implementation hardcoded true,
 // or a Go nil slice left uninitialised, would pass every fitted-unit
 // assertion above but not this one. plantTenantWithVehicle's own contract
 // plants a configuration with no position rows at all, which is also the one
@@ -640,7 +640,7 @@ func TestPatchUnitEditsDescriptiveFields(t *testing.T) {
 	require.Nil(t, groupAfter, "a refused edit leaves the column as it stood")
 
 	// A TECHNICIAN holds ViewFleet alone (auth.go), so it reads this unit and
-	// may not edit it — the capability gate, not the route, is what refuses.
+	// may not edit it. The capability gate, not the route, is what refuses.
 	// A TECHNICIAN is also depot-scoped (FR-AUT-006, TYRE-162): the earlier
 	// clear left "mine" homed nowhere, so it must be re-homed at a depot the
 	// technician holds for the read below to reach it at all.
@@ -656,7 +656,7 @@ func TestPatchUnitEditsDescriptiveFields(t *testing.T) {
 }
 
 // D5: configuration_id and unit_kind are not fields of this request, in any
-// spelling, and the decoder is what says so — before a transaction opens, so
+// spelling, and the decoder is what says so, before a transaction opens, so
 // TY008 (000028's trigger) stays a pure database backstop no endpoint can
 // reach (docs/delivery-history.md §B5). Each refusal names the key the
 // caller sent, because "invalid_submission" alone leaves a form with nothing
@@ -728,7 +728,7 @@ func TestPatchUnitRefusesConfigurationID(t *testing.T) {
 	// The control: the same route, the same actor, a field that IS of this
 	// request. Without it every refusal above would also pass against a route
 	// that refused everything. The trailing newline and spaces are part of the
-	// control — whitespace after the value is what a body that ended cleanly
+	// control, whitespace after the value is what a body that ended cleanly
 	// looks like, and a trailing-token check that refused it would refuse
 	// every pretty-printed request a client sends.
 	edited := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
@@ -738,7 +738,7 @@ func TestPatchUnitRefusesConfigurationID(t *testing.T) {
 }
 
 // FR-VEH-041/U6: tags replace, they do not merge. The three edits are set,
-// narrow and clear, each read back — a merging implementation passes the
+// narrow and clear, each read back, a merging implementation passes the
 // first and fails the second, and one that ignored an empty array passes
 // both and fails the third. The tag NAME survives a clear (000035 restores
 // DELETE on the map alone, never on app.vehicle_tag), which the second unit
@@ -917,7 +917,7 @@ func TestPatchUnitFleetNumberConflictIs409(t *testing.T) {
 }
 
 // FR-AUD-001: the edit is audited by 000035's vehicle_audited trigger, which
-// is why the handler carries no audit code at all — an implementation that
+// is why the handler carries no audit code at all, an implementation that
 // wrote its own row would fail the "exactly one" count. action is filtered to
 // UPDATE because the fixture's own INSERT already wrote a row for this unit
 // with a NULL actor (the trigger fires on both).
@@ -959,7 +959,7 @@ func TestPatchUnitAuditsTheChange(t *testing.T) {
 
 // The WITH CHECK kill for the tag map, the shape admin_test.go's
 // TestWriteAimedAtAnotherTenantIsRefused established. Every id is tenant B's
-// own — its unit and its tag — so a composite FK (000012) cannot be what
+// own, its unit and its tag, so a composite FK (000012) cannot be what
 // refuses this row: the one thing wrong with it is that tenant A is writing
 // it (lesson 2026-08-28). app.vehicle_tag_map has no created_by column, so
 // that lesson's FK trap has no counterpart to fall into here.
@@ -1003,7 +1003,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleTag(t *testing.T) {
 // holding an OPEN or ESCALATED task whatever its status, so a second generate
 // creates nothing for either unit and that assertion would pass with the
 // v.status = 'ACTIVE' filter deleted. What is asserted instead is generation
-// itself, with a control — both units are scheduled and both generate a task;
+// itself, with a control, both units are scheduled and both generate a task;
 // the tasks are then cancelled and one unit parked; a later generate, later
 // than the interval so the due-date window is not what answers, issues a task
 // for the ACTIVE unit and none for the PARKED one. The driver's own
@@ -1144,7 +1144,7 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 		post(t, h, "/api/vehicles/"+mine.String()+"/status", tenantID.String(), driver.String(),
 			`{"status":"ACTIVE"}`).Code)
 
-	// A TECHNICIAN holds ViewFleet alone (auth.go) — the row a DRIVER cannot
+	// A TECHNICIAN holds ViewFleet alone (auth.go), the row a DRIVER cannot
 	// distinguish from a ManageAssets gate, since a DRIVER lacks both
 	// capabilities.
 	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
@@ -1155,7 +1155,7 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 
 // A caller holding no capability for this route still gets 422 rather than
 // 403, which is what proves the maxTextLen cap on reason runs before
-// withActor opens a transaction (ADR-0013) — the same shape as
+// withActor opens a transaction (ADR-0013), the same shape as
 // TestFitmentTextFieldsAreLengthCapped.
 func TestSetUnitStatusReasonIsLengthCapped(t *testing.T) {
 	ctx := context.Background()
@@ -1176,7 +1176,7 @@ func TestSetUnitStatusReasonIsLengthCapped(t *testing.T) {
 
 // The handler-level invisibility probe. Tenant A's unit is ACTIVE and the
 // target is PARKED, so a leak would let this call SUCCEED outright rather
-// than meet a second refusal sharing TY016's SQLSTATE (lesson 2026-09-01) —
+// than meet a second refusal sharing TY016's SQLSTATE (lesson 2026-09-01),
 // and tenant A performing the identical transition afterwards is what proves
 // the move itself was legal.
 func TestUnitStatusCrossTenantIsInvisible(t *testing.T) {
@@ -1213,7 +1213,7 @@ func TestUnitStatusCrossTenantIsInvisible(t *testing.T) {
 // (errata D1) scopes ALL of a controller's permissions to the depot
 // manager's depots, so the writes narrow with the reads (owner, 6 Sep 2026).
 // The out-of-depot unit is homed at a depot the actor does not hold, never
-// at NULL — a NULL home is excluded by any depot join and cannot tell a
+// at NULL, a NULL home is excluded by any depot join and cannot tell a
 // working predicate from a broken one. Every list case plants a row on the
 // out-of-depot unit, so an empty answer is the narrowing and not an empty
 // fixture; the controller reading the same row is the control.
@@ -1311,7 +1311,7 @@ func TestUnitByIDSurfaceIsDepotScoped(t *testing.T) {
 
 // TYRE-222 rule 1 (owner, 7 Sep 2026): a transfer between depots is a
 // tenant-scope act, so a depot-scoped actor may not name homeDepotId on a
-// PATCH at all — not a value outside their own depots, and not "", which
+// PATCH at all, not a value outside their own depots, and not "", which
 // clears the home and is the same act.
 func TestPatchUnitRefusesAHomeDepotChangeFromADepotActor(t *testing.T) {
 	ctx := context.Background()
@@ -1337,7 +1337,7 @@ func TestPatchUnitRefusesAHomeDepotChangeFromADepotActor(t *testing.T) {
 		return id
 	}
 
-	// A value naming another depot: 403, not 422 — it is not the value that
+	// A value naming another depot: 403, not 422. It is not the value that
 	// is wrong, this role does not hold the act of moving a unit.
 	rec := patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), manager.String(),
 		`{"homeDepotId":"`+otherDepot.String()+`"}`)
@@ -1348,7 +1348,7 @@ func TestPatchUnitRefusesAHomeDepotChangeFromADepotActor(t *testing.T) {
 	require.Contains(t, ref.Message, "whole fleet")
 	require.Equal(t, mineDepot, homeDepot())
 
-	// "" is presence, not a value that happens to be blank — the assertion
+	// "" is presence, not a value that happens to be blank, the assertion
 	// this test exists for: a value check comparing homeDepotId against the
 	// actor's own depots would let this one through as "no change requested."
 	rec = patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), manager.String(),
@@ -1363,7 +1363,7 @@ func TestPatchUnitRefusesAHomeDepotChangeFromADepotActor(t *testing.T) {
 		`{"description":"still mine"}`)
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 
-	// control: a ScopeTenant actor is unaffected — the transfer this rule
+	// control: a ScopeTenant actor is unaffected, the transfer this rule
 	// exists to stop is theirs to make.
 	rec = patch(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String(),
 		`{"homeDepotId":"`+otherDepot.String()+`"}`)

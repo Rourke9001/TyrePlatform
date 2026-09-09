@@ -26,8 +26,8 @@ type axleConfigBody struct {
 	AxleCount int    `json:"axleCount"`
 }
 
-// The library a create form picks from. Gated on ManageAssets — the capability
-// that can act on the answer — so a driver is refused the list as well as the
+// The library a create form picks from. Gated on ManageAssets, the capability
+// that can act on the answer. So a driver is refused the list as well as the
 // write (FR-AUT-005 is about what may be asked for, not only what comes back).
 func TestAxleConfigurationsAreCapabilityGatedAndTenantScoped(t *testing.T) {
 	ctx := context.Background()
@@ -106,7 +106,7 @@ func TestCreateVehicle(t *testing.T) {
 	require.NotEmpty(t, created.ID)
 
 	// DR-013: created_by is stamped from the bound actor, without the handler
-	// naming it — app.current_actor_id() is the column's default.
+	// naming it. app.current_actor_id() is the column's default.
 	var createdBy string
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT created_by FROM app.vehicle WHERE id = $1`, created.ID).Scan(&createdBy))
@@ -153,7 +153,7 @@ func TestCreateVehicle(t *testing.T) {
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 
 	// The row carries the actor's tenant. This proves the handler binds it
-	// from the session — it does NOT prove the policy would refuse one that
+	// from the session. It does NOT prove the policy would refuse one that
 	// did not, because the handler never sends a tenant to be refused. That
 	// is TestWriteAimedAtAnotherTenantIsRefused's job, and this assertion
 	// must not be described as doing it.
@@ -163,7 +163,7 @@ func TestCreateVehicle(t *testing.T) {
 	require.Equal(t, tenantID.String(), landedTenant)
 }
 
-// maxTextLen bounds runes, not bytes (TYRE-72 D7) — description is the
+// maxTextLen bounds runes, not bytes (TYRE-72 D7). Description is the
 // existing field that already runs through text(), and "ü" is two bytes in
 // UTF-8, so a byte-counting bound would refuse 200 of them well short of the
 // field's declared 200-character limit.
@@ -238,7 +238,7 @@ func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
 	// resolve to userA, and vehicle_created_by_fkey's own composite FK
 	// (tenant_id, created_by) would then refuse this row on a foreign-key
 	// violation whether or not tenant_isolation's WITH CHECK is even
-	// evaluated — which would prove nothing about the policy under test.
+	// evaluated, which would prove nothing about the policy under test.
 	// userB is a real row in tenant B, so this is the one field that differs
 	// from a genuine tenant-B insert being the tenant_id smuggled in above.
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
@@ -342,12 +342,12 @@ func TestCreateUser(t *testing.T) {
 	require.Equal(t, tenantID.String(), landedTenant)
 }
 
-// The WITH CHECK half of tenant_isolation — see
+// The WITH CHECK half of tenant_isolation. See
 // TestWriteAimedAtAnotherTenantIsRefused for what this proves and why no
 // handler-driven test can reach it any other way.
 //
 // app.app_user.created_by is a self-referencing column with its own composite
-// FK (tenant_id, created_by) REFERENCES app.app_user (tenant_id, id) — if
+// FK (tenant_id, created_by) REFERENCES app.app_user (tenant_id, id). If
 // created_by is left at its default app.current_actor_id(), a row that
 // smuggles in another tenant's tenant_id will fail on that FK, not on the RLS
 // policy (000017, DR-013). To prove the policy fires, created_by must be
@@ -426,7 +426,7 @@ func TestAssignDriverToVehicle(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "vehicle_driver_no_overlap")
 
 	// U7: a path id that does not parse as a uuid is a malformed request, not
-	// an invalid submission (pathID, TYRE-92) — unlike the two body-field
+	// an invalid submission (pathID, TYRE-92), unlike the two body-field
 	// rows below, which stay 422 because they are payload validation.
 	rec = post(t, h, "/api/vehicles/not-a-uuid/drivers", tenantID.String(), orgAdmin.String(), body)
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
@@ -434,8 +434,8 @@ func TestAssignDriverToVehicle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pathRef))
 	require.Equal(t, "bad_request", pathRef.Code)
 
-	// An absent fromDate is not malformed — it defaults to the tenant's day
-	// (rule 6, TestAssignmentDefaultsToTheTenantDay) — so this table holds
+	// An absent fromDate is not malformed. It defaults to the tenant's day
+	// (rule 6, TestAssignmentDefaultsToTheTenantDay), so this table holds
 	// only genuinely malformed body fields.
 	for _, tt := range []struct{ name, path, payload, field string }{
 		{"unparseable user", path, `{"userId":"nope","fromDate":"2026-01-01"}`, "userId"},
@@ -507,7 +507,7 @@ func TestAssignDriverIsDepotScoped(t *testing.T) {
 // tenant_isolation's usual one: (tenant_id, vehicle_id), (tenant_id, user_id)
 // and (tenant_id, created_by). Leaving any of the three to a default or to a
 // tenant-A value would fail that FK before WITH CHECK is ever evaluated
-// (2026-08-28 lessons entry) — a red for the wrong reason, indistinguishable
+// (2026-08-28 lessons entry), a red for the wrong reason, indistinguishable
 // from a working policy. To isolate tenant_id as the sole confound,
 // vehicle_id, user_id and created_by must each be a real row genuinely
 // belonging to tenant B.
@@ -588,7 +588,7 @@ func TestTieredInvite(t *testing.T) {
 			if tt.want != http.StatusCreated {
 				return
 			}
-			// A status alone cannot see a wrong parameter binding — resolve
+			// A status alone cannot see a wrong parameter binding. Resolve
 			// the id the response names through the admin connection and hold
 			// the landed row to the requested role and the actor's tenant
 			// (D9; rule 1's write half).
@@ -607,7 +607,7 @@ func TestTieredInvite(t *testing.T) {
 // D9's other edge, recorded as intentional on TYRE-83's PR: an actor holding
 // only InviteDriver may reactivate a former ORG_ADMIN, because mayCreateRole
 // bounds the REQUESTED role and the reactivate UPDATE's role = $4 makes the
-// row match it — a demotion to DRIVER, never an escalation. This is the test
+// row match it, a demotion to DRIVER, never an escalation. This is the test
 // that catches a later edit reordering mayCreateRole or dropping role = $4,
 // either of which would hand a controller a live ORG_ADMIN (TYRE-95).
 func TestInviteDriverReactivateDemotesAnOrgAdmin(t *testing.T) {
@@ -683,8 +683,8 @@ func TestReactivateAnInactiveUser(t *testing.T) {
 
 	// The same request carrying the admin's answer reactivates in place: the
 	// id is the original person's, so their inspection history stays theirs
-	// (FR-VEH-008). It omits staffNumber, the way the reactivate form does —
-	// absence must not wipe FR-AUT-022's identifier. 200, not 201: nobody
+	// (FR-VEH-008). It omits staffNumber, the way the reactivate form does.
+	// Absence must not wipe FR-AUT-022's identifier. 200, not 201: nobody
 	// new exists, and an integration counting 201s must not count a person
 	// who has been on the fleet for years (TYRE-95).
 	reactivate := fmt.Sprintf(
@@ -736,7 +736,7 @@ func TestReactivateCollidesWithReusedStaffNumber(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	// Alice returns. The reactivate omits staffNumber, so admin.go's COALESCE
-	// preserves SBX-100 — which Bob now legitimately, and actively, holds.
+	// preserves SBX-100, which Bob now legitimately, and actively, holds.
 	reactivate := fmt.Sprintf(
 		`{"email":%q,"displayName":"Alice Returned","role":"DRIVER","reactivate":true}`, aliceEmail)
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(), reactivate)
@@ -747,7 +747,7 @@ func TestReactivateCollidesWithReusedStaffNumber(t *testing.T) {
 
 // An email that exists only in another tenant is invisible under
 // tenant_isolation's USING half, so the classification SELECT finds nothing
-// and a reactivate is refused as having nothing to restore (TYRE-95) —
+// and a reactivate is refused as having nothing to restore (TYRE-95),
 // identically to an address no tenant holds at all, which is the non-leak
 // property this test guards: the refusal must not tell my admin whether the
 // address lives elsewhere. The other tenant's row stays untouched and no row
@@ -771,7 +771,7 @@ func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 
 	// My admin asks to reactivate an address only the other tenant holds. The
 	// row is invisible under RLS, so to this tenant there is no deactivated
-	// user to restore, and the request must refuse — never touch theirs, and
+	// user to restore, and the request must refuse: never touch theirs, and
 	// never mint a new person the admin did not ask for.
 	mineAdmin := plantUser(t, ctx, admin, mine, auth.RoleOrgAdmin)
 	rec := post(t, h, "/api/users", mine.String(), mineAdmin.String(),
@@ -797,7 +797,7 @@ func TestReactivateCannotReachAnotherTenant(t *testing.T) {
 	// The other direction of "identical whether the address lives elsewhere
 	// or nowhere": a plain create under the same cross-tenant shadow still
 	// falls through to the INSERT, and rule 1's write half says the row must
-	// land in MY tenant — proven by resolving the response id through the
+	// land in MY tenant, proven by resolving the response id through the
 	// admin connection, so a handler that fabricated its body could not pass.
 	rec = post(t, h, "/api/users", mine.String(), mineAdmin.String(),
 		fmt.Sprintf(`{"email":%q,"displayName":"Mine","role":"DRIVER"}`, email))
@@ -838,7 +838,7 @@ func TestReactivateWithNothingToRestoreRefuses(t *testing.T) {
 	require.Zero(t, minted, "a refused reactivate must not create a user")
 
 	// Without the reactivate flag the same request is a plain create and
-	// still proceeds — the refusal is scoped to the restore that had nothing
+	// still proceeds. The refusal is scoped to the restore that had nothing
 	// to restore, not to the address.
 	rec = post(t, h, "/api/users", tenantID.String(), orgAdmin.String(),
 		fmt.Sprintf(`{"email":%q,"displayName":"Somebody New","role":"DRIVER"}`, email))
@@ -846,7 +846,7 @@ func TestReactivateWithNothingToRestoreRefuses(t *testing.T) {
 }
 
 // TYRE-95, FR-AUT-022's counterpart: absence keeps a rehire's staff number,
-// but an explicitly blank one is the admin clearing it — the same tri-state
+// but an explicitly blank one is the admin clearing it, the same tri-state
 // display_name never needed because it is required. Proven through the admin
 // connection, not the response body.
 func TestReactivateClearsAnExplicitlyBlankStaffNumber(t *testing.T) {
@@ -878,7 +878,7 @@ func TestReactivateClearsAnExplicitlyBlankStaffNumber(t *testing.T) {
 
 // TYRE-95: a rehire's email is retyped, not pasted, so it arrives in whatever
 // case the admin's thumbs produce. 000027 folds both uniqueness indexes and
-// the handler folds its lookup to match; this proves the whole path — a
+// the handler folds its lookup to match; this proves the whole path. A
 // mixed-case retype classifies as the same person, and the reactivate lands
 // on the original row rather than minting a second one (FR-VEH-008).
 func TestRehireEmailDiffersOnlyInCase(t *testing.T) {
@@ -918,7 +918,7 @@ func TestRehireEmailDiffersOnlyInCase(t *testing.T) {
 
 	// Through the admin connection, not the response body: the id is
 	// unchanged, exactly one row holds the folded address, and it kept the
-	// case it was stored with — comparison folds, storage does not.
+	// case it was stored with: comparison folds, storage does not.
 	var rows int
 	var keptEmail string
 	require.NoError(t, admin.QueryRow(ctx,
@@ -940,7 +940,7 @@ type userBody struct {
 
 // errorCode reads the refusal envelope's machine-readable half (ADR-0012), so
 // an assertion names the contract rather than a sentence that may be reworded.
-// The envelope is flat — errorBody is {"code": …, "message": …} — with no
+// The envelope is flat: errorBody is {"code": …, "message": …}, with no
 // wrapper key.
 func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
@@ -998,7 +998,7 @@ func TestAssignmentDefaultsToTheTenantDay(t *testing.T) {
 	require.NotEqual(t, landed(east), landed(west),
 		"two tenants 25 hours apart must never land an omitted date on the same day")
 
-	// An explicit date is still honoured — the default is a default.
+	// An explicit date is still honoured. The default is a default.
 	actor := plantUser(t, ctx, admin, east, auth.RoleOrgAdmin)
 	driver := plantUser(t, ctx, admin, east, auth.RoleDriver)
 	var vehicleID uuid.UUID
@@ -1019,7 +1019,7 @@ func TestAssignmentDefaultsToTheTenantDay(t *testing.T) {
 
 // TYRE-222 rule 1 (owner, 7 Sep 2026). The NULL-homed unit is the ticket's
 // own case: it is visible to a controller and to nobody else, because every
-// depot predicate joins a NULL home out — which is why a depot-scoped creator
+// depot predicate joins a NULL home out, which is why a depot-scoped creator
 // may not make one.
 func TestCreateVehicleRequiresAHomeDepotFromADepotActor(t *testing.T) {
 	ctx := context.Background()
@@ -1069,7 +1069,7 @@ func TestCreateVehicleRequiresAHomeDepotFromADepotActor(t *testing.T) {
 	require.Contains(t, ref.Message, "is required when you manage a depot")
 
 	// A depot-scoped creator naming another depot's id: refused with the
-	// field named, not the by-id surface's 404 — the value came from a list
+	// field named, not the by-id surface's 404, the value came from a list
 	// this actor can read (GET /api/depots).
 	rec = post(t, h, "/api/vehicles", tenantID.String(), manager.String(),
 		body("NOHOME-2", `,"homeDepotId":"`+otherDepot.String()+`"`))

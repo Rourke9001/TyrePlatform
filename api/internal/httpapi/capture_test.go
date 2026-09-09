@@ -78,7 +78,7 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 
 			// FR-OFF-002 as amended by E2. Each of these is the sole input to
 			// a Must inside Appendix H.1, and each is unreachable once
-			// FR-OFF-001 takes the signal away — so an absent field is a
+			// FR-OFF-001 takes the signal away, so an absent field is a
 			// warning that silently never fires, not a cosmetic gap.
 			cfg, ok := body["config"].(map[string]any)
 			require.True(t, ok)
@@ -86,12 +86,12 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 			require.NotNil(t, cfg["removalThresholdMm"], "FR-INS-036 has no threshold")
 			require.NotNil(t, cfg["widthSpreadWarnMm"], "FR-INS-041 has no margin")
 			require.NotNil(t, cfg["odometerMaxDailyKm"], "FR-INS-033 has no ceiling")
-			// TYRE-155: rule 5 — whether spares are captured is served, not assumed.
+			// TYRE-155: rule 5, whether spares are captured is served, not assumed.
 			require.Equal(t, true, cfg["captureSpares"], "TYRE-155: whether spares are captured is tenant configuration")
 			require.NotNil(t, body["cohortWearRateMmPerMonth"], "FR-INS-035 has no denominator")
 
 			// A running position must carry a resolvable target; a spare must
-			// not (FR-CFG-013 as amended — a spare's pressure is recorded and
+			// not (FR-CFG-013 as amended, a spare's pressure is recorded and
 			// deliberately unclassified, and a zero would be a claim).
 			var sawRunningTarget bool
 			for _, raw := range body["positions"].([]any) {
@@ -119,7 +119,7 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 				}
 			}
 			require.True(t, sawRunningTarget,
-				"no running position resolved a target — app.target_pressure is seeded by 000013, "+
+				"no running position resolved a target. app.target_pressure is seeded by 000013, "+
 					"so this means the resolution join is wrong, not that the tenant has no targets")
 		})
 	}
@@ -128,7 +128,7 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 // capturePositionAndTyre looks up vehicleID's first non-spare position (by
 // sequence) and any tyre currently fitted there. Positions belong to the
 // axle_configuration, not the vehicle row, so this resolves correctly for
-// any vehicle sharing plantCaptureFixture's one shared configuration —
+// any vehicle sharing plantCaptureFixture's one shared configuration:
 // motive unit or trailer alike.
 func capturePositionAndTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, vehicleID uuid.UUID) (uuid.UUID, *uuid.UUID) {
 	t.Helper()
@@ -192,7 +192,7 @@ func TestSubmitReplayContract(t *testing.T) {
 	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "submit")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	// FR-AUT-005: plantCaptureFixture deliberately plants no assignment
-	// (its docstring names this calling convention) — without it the
+	// (its docstring names this calling convention). Without it the
 	// driver's own submit would 403 before ever reaching submit_inspection.
 	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -249,7 +249,7 @@ func TestSubmitRefusals(t *testing.T) {
 // app.submit_inspection's own comment explains that SQLSTATE exists so an
 // unrecognised or cross-tenant vehicle_id never falls through to the
 // composite FK violation (23503), which is not in submitStatus and would
-// otherwise surface as a 500 — telling the outbox to retry forever something
+// otherwise surface as a 500, telling the outbox to retry forever something
 // that will never succeed. A CONTROLLER (ScopeTenant) is used deliberately:
 // it skips the handler's own FR-AUT-005 v_capture_vehicle check, so this is
 // the one path that actually reaches submit_inspection's own guard.
@@ -271,7 +271,7 @@ func TestSubmitUnknownVehicleIsUnprocessable(t *testing.T) {
 }
 
 // plantUnrelatedVehicle plants a second vehicle in tenantID with its own
-// axle_configuration and single running position — coupled to nothing,
+// axle_configuration and single running position, coupled to nothing,
 // assigned to no one. It exists to be the vehicle a driver has no route to
 // through app.v_capture_vehicle, for the FR-AUT-005 per-reading check below.
 func plantUnrelatedVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, uuid.UUID) {
@@ -307,7 +307,7 @@ func plantUnrelatedVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, t
 // fix does not break the platform's actual reason for existing: a driver
 // responsible for a motive unit must be able to submit readings against its
 // coupled trailer in the SAME payload (CLAUDE.md's "108 entries, not 52").
-// The driver is assigned only to the motive unit — the trailer is reachable
+// The driver is assigned only to the motive unit. The trailer is reachable
 // solely through app.v_capture_vehicle's combination-membership branch.
 func TestSubmitAuthorizesEveryVehicleInASuperlinkPayload(t *testing.T) {
 	ctx := context.Background()
@@ -340,8 +340,8 @@ func TestSubmitAuthorizesEveryVehicleInASuperlinkPayload(t *testing.T) {
 // TestSubmitRefusesReadingAgainstUnauthorizedVehicle is the negative half of
 // the FR-AUT-005 fix: a payload whose top-level vehicle_id the driver may
 // reach, but that embeds a reading against an unrelated vehicle in the same
-// tenant — no assignment, no coupling — must be refused entirely, not
-// silently accepted for the one unit that slipped past the top-level check.
+// tenant, one with no assignment and no coupling, must be refused entirely,
+// not silently accepted for the one unit that slipped past the top-level check.
 //
 // The statuses are pinned together deliberately: see errVehicleNotVisible in
 // httpapi.go, and TestSubmitUnknownVehicleIsUnprocessable for the SQL-side
@@ -378,7 +378,7 @@ func TestSubmitRefusesReadingAgainstUnauthorizedVehicle(t *testing.T) {
 // runs ahead of the handler in the chain, so it still consumes budget on a
 // 400, which keeps this test fast and independent of the capture fixture. It
 // also doubles as empirical proof that requireActor's identity is visible to
-// the limiter — if it were not, every request here would 500 instead of 400,
+// the limiter. If it were not, every request here would 500 instead of 400,
 // and none would ever reach 429 (see submitRateLimit's own doc comment).
 func TestSubmitEndpointIsRateLimited(t *testing.T) {
 	h := httpapi.New(nil, httpapi.HeaderActorResolver{})
@@ -410,9 +410,9 @@ func TestSubmitEndpointIsRateLimited(t *testing.T) {
 //
 // The cases are deliberately of both kinds. app.submit_inspection refuses what
 // it can name (FR-INS-030/031's ranges, an absent readings array) as TY005;
-// what it cannot pre-empt — an id this tenant cannot see, a field that will
+// what it cannot pre-empt, an id this tenant cannot see, a field that will
 // not parse as its column's type, which the function's own DECLARE casts
-// before any guard runs — arrives as a bare integrity SQLSTATE and is mapped
+// before any guard runs, arrives as a bare integrity SQLSTATE and is mapped
 // here. Both halves are only observable through the endpoint, which is the
 // only surface the outbox ever sees. Since both kinds answer the same 422,
 // the code and the driver-facing message fragment together are what
@@ -488,7 +488,7 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 // TestCaptureContextServesTheLastOdometerReading pins FR-INS-033's
 // denominator. The rule divides the tread lost since the previous reading by
 // the distance covered since it, so the capture context has to carry both the
-// last odometer value AND the date it was taken — serving the value alone
+// last odometer value AND the date it was taken. Serving the value alone
 // leaves the plausibility warning with nothing to divide by.
 //
 // The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by

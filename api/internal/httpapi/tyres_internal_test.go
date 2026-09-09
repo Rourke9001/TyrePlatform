@@ -9,7 +9,7 @@ import (
 )
 
 // tyreJSONFor's doc comment (tyres.go) explains why canSeeMoney=false is
-// untestable through the handler — this is the only place the hidden branch
+// untestable through the handler, this is the only place the hidden branch
 // runs.
 func TestTyreJSONForProjectsMoneyByCapability(t *testing.T) {
 	price, rate, casing := "1500.00", "250.0000", "800.00"
@@ -36,7 +36,7 @@ func TestTyreJSONForProjectsMoneyByCapability(t *testing.T) {
 	req.Nil(t, withoutMoney.PurchasePrice)
 	req.Nil(t, withoutMoney.RandPerMm)
 	req.Nil(t, withoutMoney.CasingValue)
-	// The projection hides money only — everything else on the row survives.
+	// The projection hides money only. Everything else on the row survives.
 	req.Equal(t, row.displayCode, withoutMoney.DisplayCode)
 	req.Equal(t, row.id.String(), withoutMoney.ID)
 	req.Equal(t, row.state, withoutMoney.State)
