@@ -34,7 +34,7 @@ func TestRoleCapabilities(t *testing.T) {
 		{
 			// FR-AUT-007 with FR-FIT-018: both controller jobs are this role.
 			// FR-AUT-005a: a controller carries the commercial picture.
-			// FR-AUT-007 carries erratum D1 — the cadence belongs to whoever
+			// FR-AUT-007 carries erratum D1. The cadence belongs to whoever
 			// is responsible for the drivers, and an ORG_ADMIN is not.
 			// D9: driver onboarding must not queue behind the owner.
 			name: "controller",
@@ -45,7 +45,7 @@ func TestRoleCapabilities(t *testing.T) {
 		{
 			// FR-AUT-008: every CONTROLLER permission, ViewValuation included.
 			// The narrowing is by depot in the scope views, never by
-			// withholding a capability — and ManageConfig has no narrowing at
+			// withholding a capability, and ManageConfig has no narrowing at
 			// all, since app.configuration is keyed by tenant (D1).
 			name: "depot manager",
 			role: auth.RoleDepotManager,
@@ -55,7 +55,7 @@ func TestRoleCapabilities(t *testing.T) {
 		{
 			// FR-AUT-009 with erratum D1: configuration is shared, user
 			// management is not. ManageTemplates is ORG_ADMIN's alone for a
-			// different reason than ManageUsers — see D8 and the constant.
+			// different reason than ManageUsers. See D8 and the constant.
 			name: "org admin",
 			role: auth.RoleOrgAdmin,
 			can:  []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments, auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig, auth.ManageUsers, auth.ManageTemplates, auth.VoidInspection},

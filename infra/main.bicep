@@ -6,7 +6,7 @@
 // Bicep: the resource group (this template's own scope), the budget (guards
 // the subscription, not one environment), the registry and Log Analytics
 // workspace (state that must survive an environment teardown), and the deploy
-// identity id-tyre-deploy-staging with its role assignments — it is the
+// identity id-tyre-deploy-staging with its role assignments. It is the
 // credential that runs this template, so the template cannot own it.
 //
 // ACCEPTED TRADE: id-tyre-deploy-staging's Contributor scope on
@@ -23,7 +23,7 @@
 param location string = 'southafricanorth'
 
 // Static Web Apps has no South Africa region (ADR-0002). The SWA serves only
-// the compiled frontend from a global CDN - no personal information at rest.
+// the compiled frontend from a global CDN. No personal information at rest.
 param swaLocation string = 'westeurope'
 
 param env string = 'staging'
@@ -84,7 +84,7 @@ resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01'
 }
 
 // Inspection photos (FR-INS-023/024: photos and damage observations per
-// position). Private; the API issues SAS URLs - the PWA never gets account
+// position). Private; the API issues SAS URLs, so the PWA never gets account
 // keys.
 resource photosContainer 'Microsoft.Storage/storageAccounts/blobServices/containers@2023-05-01' = {
   parent: blobService
@@ -252,7 +252,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       secrets: [
         // Resolved from Key Vault by the API's managed identity, so the
         // app_login credential never exists in this repo, CI, or the app's
-        // configuration — only in kv-tyre-staging. The secret must exist
+        // configuration, only in kv-tyre-staging. The secret must exist
         // before this template deploys or revision activation fails:
         //   az keyvault secret set --vault-name kv-tyre-staging \
         //     --name database-url --value 'postgres://app_login:...'
@@ -276,11 +276,11 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             // trusting that many hops to have appended their own observation
             // rather than relayed the caller's claim untouched. '1' matches
             // the ingress above being the only hop between the caller and
-            // this container. Putting any additional L7 hop in front of it —
-            // Front Door, Application Gateway, a CDN, a WAF — moves the
-            // trustworthy entry further from the right; leaving this stale
-            // after doing so collapses the address limit into one bucket
-            // shared by every client on the internet.
+            // this container. Putting any additional L7 hop in front of it,
+            // whether Front Door, Application Gateway, a CDN or a WAF,
+            // moves the trustworthy entry further from the right; leaving
+            // this stale after doing so collapses the address limit into one
+            // bucket shared by every client on the internet.
             { name: 'TRUSTED_PROXY_HOPS', value: '1' }
           ]
         }

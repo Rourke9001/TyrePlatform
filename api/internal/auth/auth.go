@@ -1,6 +1,6 @@
 // Package auth holds the authorisation vocabulary: who is acting, what role
 // they hold, and what that role may do. It knows nothing of HTTP and nothing
-// of SQL — the resolver supplies identity, the store supplies the role, and
+// of SQL. The resolver supplies identity, the store supplies the role, and
 // this package answers only "may they".
 package auth
 
@@ -31,7 +31,7 @@ const (
 	ManageAssignments Capability = "ManageAssignments"
 	ManageAssets      Capability = "ManageAssets"
 	LogRetread        Capability = "LogRetread"
-	// ViewValuation gates every monetary field and its aggregates — purchase
+	// ViewValuation gates every monetary field and its aggregates: purchase
 	// price, rand/mm, casing value, tread value, total value, sale proceeds
 	// (FR-AUT-005a). The restriction is enforced server-side by projection: a
 	// client surface that omits the field is not the control (NFR-SEC-006).
@@ -42,7 +42,7 @@ const (
 	// (FR-CFG-001..007); authoring one outside it is ORG_ADMIN's alone,
 	// because a wrong template silently corrupts every position on every unit
 	// that uses it. ManageConfig reaches thresholds, bands, rates and cadence
-	// and is held by CONTROLLER and DEPOT_MANAGER — sharing a gate would hand
+	// and is held by CONTROLLER and DEPOT_MANAGER. Sharing a gate would hand
 	// template authoring to both.
 	ManageTemplates Capability = "ManageTemplates"
 	ManageUsers     Capability = "ManageUsers"
@@ -64,11 +64,11 @@ const (
 // FR-AUT-005..009, carrying erratum D1. DEPOT_MANAGER holds everything
 // CONTROLLER does: FR-AUT-008 narrows it by depot, and that narrowing lives in
 // the scope views, not here. ManageConfig is the one capability with no
-// narrowing to live anywhere — app.configuration is keyed by tenant, not by
+// narrowing to live anywhere. app.configuration is keyed by tenant, not by
 // depot, so a depot manager holding it configures the whole tenant. D1 accepts
 // that breadth deliberately; there is no depot-scoped variant to reach for, and
 // template authoring is held away from it entirely (TYRE-84).
-// PLATFORM_ADMIN holds nothing — its rows carry a NULL tenant_id and cannot be
+// PLATFORM_ADMIN holds nothing. Its rows carry a NULL tenant_id and cannot be
 // seen from inside a tenant session, so it is never the actor on a
 // tenant-scoped request (ADR-0011). A role absent from this map holds nothing,
 // which is what makes an unrecognised value fail closed.
@@ -127,7 +127,7 @@ func (a Actor) Can(c Capability) bool {
 
 // Capabilities lists what the actor may do, for GET /api/me. The client uses
 // it to decide what to render; the server re-checks on every request
-// (NFR-SEC-006). The copy is deliberate — the caller must not be able to
+// (NFR-SEC-006). The copy is deliberate. The caller must not be able to
 // edit the table through the slice it is handed.
 func (a Actor) Capabilities() []Capability {
 	held := capabilities[a.Role]

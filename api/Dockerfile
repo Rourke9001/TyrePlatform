@@ -1,5 +1,5 @@
-# Build and runtime are separate stages: the runtime image carries only a
-# static binary — no shell, no libc, no package manager. There is nothing to
+# Build and runtime are separate stages. The runtime image carries only a
+# static binary: no shell, no libc, no package manager. There is nothing to
 # exploit or patch in the final layer.
 FROM golang:1.24-alpine AS build
 WORKDIR /src

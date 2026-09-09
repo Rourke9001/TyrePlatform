@@ -56,7 +56,7 @@ func (s *Store) Close() {
 // Pool is for tenant-free work only. Nothing on the request path takes it;
 // its only callers are the tests proving what an unbound query sees. Any
 // tenant-scoped query on it runs with no tenant bound, and RLS returns zero
-// rows — which looks like a data bug and is actually a missing transaction.
+// rows, which looks like a data bug and is actually a missing transaction.
 func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
 }
@@ -107,7 +107,7 @@ var ErrNoSuchActor = errors.New("actor not found or inactive")
 func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn func(pgx.Tx, auth.Actor) error) error {
 	// READ COMMITTED is pinned, not assumed: createUser's reactivate race is
 	// a 409 only because the losing UPDATE re-evaluates its WHERE against the
-	// winner's committed row and matches nothing — under REPEATABLE READ the
+	// winner's committed row and matches nothing. Under REPEATABLE READ the
 	// same interleaving raises 40001, which submitStatus does not map, so a
 	// form would see a 500. default_transaction_isolation is a server
 	// parameter a DBA can flip with no test failing; a guarantee handlers

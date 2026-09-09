@@ -102,21 +102,21 @@ api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 web-test: ## Frontend tests
 	cd web && npm test
 
-# Deliberately NOT in `make test`: the smoke specs need a live stack — API on
+# Deliberately NOT in `make test`. The smoke specs need a live stack, API on
 # :8080 (`make api-run` in another terminal, APP_DEV_TENANT_HEADER=1 in .env)
-# over a seeded database (`make db-reset`) — and `make check` must stay
+# over a seeded database (`make db-reset`), and `make check` must stay
 # runnable without one. CI runs this as its own job with the stack it builds
 # itself, so the gate is still real on every PR (TYRE-65).
 #
 # The reseed is mandatory, not advice: the capture specs submit, and
 # FR-INS-038 refuses a second inspection of the same unit inside the tenant's
-# configured window — so a second run against the same seed fails at the first
+# configured window, so a second run against the same seed fails at the first
 # spec, for a reason the failure itself does not explain. CI is safe either way
 # (it builds the stack per job), and a running API survives the schema drop.
 # It is a recipe line rather than a prerequisite so the reachability check
 # runs FIRST: every prerequisite is built before any recipe line, so as a
 # prerequisite it would drop and reseed the database and only then report
-# that the API — the thing actually missing — is not up.
+# that the API, the thing actually missing, is not up.
 #
 # webkit as well as chromium: the ios project is iPhone 14, which is WebKit, and
 # a project that cannot launch is a gate that cannot run. The android project is
@@ -124,7 +124,7 @@ web-test: ## Frontend tests
 .PHONY: e2e
 e2e: ## Browser smoke tests (reseeds first; needs `make api-run` running)
 	@curl -s -o /dev/null http://localhost:8080/api/me \
-	  || { echo "API not reachable on :8080 — run 'make api-run' first"; exit 1; }
+	  || { echo "API not reachable on :8080. Run 'make api-run' first"; exit 1; }
 	$(MAKE) db-reset
 	cd web && npx playwright install chromium webkit && npm run e2e
 
@@ -148,7 +148,7 @@ fmt: ## Format everything
 # check that never ran (TYRE-49).
 #
 # This is deliberately the same set CI runs, in the same order, so a green
-# `make lint` means a green CI lint — the reason to run it before committing.
+# `make lint` means a green CI lint, the reason to run it before committing.
 # `fmt` writes; `lint` only reads, which is why both formatters appear here in
 # check mode: `make check` runs fmt first, so locally they are always clean,
 # and on CI they are the drift detector.

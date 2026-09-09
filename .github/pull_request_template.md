@@ -15,13 +15,13 @@ Closes TYRE-
 
 Tick only what this change actually touches; delete the rest.
 
-- [ ] **Tenancy** — new tables have RLS `ENABLE`d *and* `FORCE`d, with `USING` and `WITH CHECK`
-- [ ] **Views** — every new view sets `security_invoker = true`
-- [ ] **Connections** — tenant context is `SET LOCAL` inside a transaction, never plain `SET`
-- [ ] **Money** — `numeric`/`DECIMAL` end to end; no float anywhere near an amount
-- [ ] **Immutability** — no new `UPDATE`/`DELETE` grant on readings, measurements, events or audit
-- [ ] **Configuration** — no threshold, band or rate hard-coded
-- [ ] **Capture speed** — this does not add taps or seconds to the driver flow (NFR-USE-001)
+- [ ] **Tenancy**: new tables have RLS `ENABLE`d *and* `FORCE`d, with `USING` and `WITH CHECK`
+- [ ] **Views**: every new view sets `security_invoker = true`
+- [ ] **Connections**: tenant context is `SET LOCAL` inside a transaction, never plain `SET`
+- [ ] **Money**: `numeric`/`DECIMAL` end to end; no float anywhere near an amount
+- [ ] **Immutability**: no new `UPDATE`/`DELETE` grant on readings, measurements, events or audit
+- [ ] **Configuration**: no threshold, band or rate hard-coded
+- [ ] **Capture speed**: this does not add taps or seconds to the driver flow (NFR-USE-001)
 
 ## Decisions
 

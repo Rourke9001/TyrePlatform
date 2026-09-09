@@ -12,7 +12,7 @@ SPARE=(700,[6,2,6])
 # (TYRE-35). One sheet cannot yield a wear rate: BR-ANL-001 needs a pair of
 # readings and FR-ANL-002 needs them a configured distance apart. The deltas
 # differ across positions so that a rate cannot pass a test by being a
-# constant -- over 10,000km, +0.5/+1.0/+2.0mm are 0.05/0.10/0.20 mm per
+# constant: over 10,000km, +0.5/+1.0/+2.0mm are 0.05/0.10/0.20 mm per
 # 1000km.
 PRIOR_DELTA={1:0.5, 9:2.0, 15:1.5}
 PRIOR_DEFAULT=1.0
@@ -77,7 +77,7 @@ L.append("  (md5('admin1')::uuid,'%s','pieter@example.invalid','Pieter','EMP-000
 L.append("")
 # The second tenant gets a depot-scoped user too, so the cross-tenant sweep
 # in the verification suite has real foreign user_depot rows to prove
-# invisible — with none, that isolation check would pass vacuously.
+# invisible. With none, that isolation check would pass vacuously.
 T2="22222222-2222-2222-2222-222222222222"
 L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('depot2')::uuid,'%s','Cape Town','DEPOT');"%T2)
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
@@ -87,8 +87,8 @@ L.append("")
 # Deliberately carries NO tyres, fitments or readings: nothing here may be
 # reachable by an Appendix E or Appendix J assertion, and an empty estate is
 # the cheapest guarantee of that. What it does carry is the
-# minimum an operator needs to be present in the app at all — a depot, one user
-# per role, and two units on the shared configuration library — so the write
+# minimum an operator needs to be present in the app at all: a depot, one user
+# per role, and two units on the shared configuration library. The write
 # surfaces have a tenant to be exercised against as they land (TYRE-3, TYRE-55).
 # Its fleet numbers repeat tenant 1's on purpose: fleet numbers are unique per
 # tenant, never globally (DR-003), and a sandbox that quietly used distinct ones
@@ -96,7 +96,7 @@ L.append("")
 T3="33333333-3333-3333-3333-333333333333"
 L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('sbdepot1')::uuid,'%s','Sandbox Depot','DEPOT');"%T3)
 # Dispatch (TYRE-92) needs a destination of each kind, and nothing creates a
-# depot through the API yet. Sandbox only — BAC's rows are the fixture.
+# depot through the API yet. Sandbox only, because BAC's rows are the fixture.
 L.append("INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('sbretreader1')::uuid,'%s','Sandbox Retreaders','RETREADER'),(md5('sbbreakdown1')::uuid,'%s','Sandbox Roadside','BREAKDOWN_SUPPLIER');"%(T3,T3))
 L.append("INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES")
 L.append("  (md5('sbdriver1')::uuid,'%s','sandbox-driver@example.invalid','Sandbox Driver','SBX-0001','DRIVER'),"%T3)
@@ -126,12 +126,12 @@ for seq,(fleet,reg,cfg,kind,label) in UNIT.items():
     L.append(f"INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,body_type,unit_descriptor,home_depot_id,current_odometer,status)")
     L.append(f"  VALUES (md5('veh{seq}')::uuid,'{T}','{fleet}','{reg}',md5('{T}{cfg}')::uuid,'{kind}','Flat deck',$${label}$$,md5('depot1')::uuid,412500,'ACTIVE');")
 L.append("")
-# Driver assignment (FR-VEH-007/008, FR-AUT-005): the shapes the verification
-# suite pins — one vehicle with two current drivers, one driver on two
+# Driver assignment (FR-VEH-007/008, FR-AUT-005). The verification suite pins
+# these shapes: one vehicle with two current drivers, one driver on two
 # vehicles, one ended assignment that must survive as history, and the open
 # Melusi->HORSE window covering the fixture inspection date so attribution
 # holds. Tenant 2 gets a vehicle named HORSE (fleet numbers may collide
-# across tenants, DR-003) and one assignment — foreign rows for the
+# across tenants, DR-003) and one assignment, foreign rows for the
 # isolation sweep, same rationale as the tenant-2 user_depot seed above.
 L.append("INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES")
 L.append(f"  (md5('vd1')::uuid,'{T}',md5('veh1')::uuid,md5('driver1')::uuid,'2025-01-01',NULL),")
