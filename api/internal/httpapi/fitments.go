@@ -1,11 +1,11 @@
 // The fitment surface (TYRE-92): the three writes that move a casing on and
-// off a unit, over the functions in migration 000033. Everything a fitment
-// means — which states a casing may be fitted from, whether the position
-// belongs to the unit, the retread and dual-mate warnings, the removal
-// vocabulary, that a rotation is all of its moves or none of them — is
-// app.fit_tyre's, app.remove_tyre's and app.rotate_tyres' alone. What
-// follows validates the shape of a request and reads back a result
-// (ADR-0013 decision 5); it decides nothing about tyres.
+// off a unit, over the functions in migration 000033. What a fitment means is
+// app.fit_tyre's, app.remove_tyre's and app.rotate_tyres' alone: which states
+// a casing may be fitted from, whether the position belongs to the unit, the
+// retread and dual-mate warnings, the removal vocabulary, and that a rotation
+// is all of its moves or none of them. What follows validates the shape of a
+// request and reads back a result (ADR-0013 decision 5); it decides nothing
+// about tyres.
 package httpapi
 
 import (
@@ -51,7 +51,7 @@ func requiredText(field, raw string) (string, error) {
 // instantField parses an optional instant before any transaction opens, the
 // way listTyres and assignDriver already parse their dates. A string that
 // will not parse would otherwise reach $n::timestamptz raw, and Postgres's
-// 22007/22008 would then be the refusal — canned as invalid_submission,
+// 22007/22008 would then be the refusal, canned as invalid_submission,
 // which names no field; the check here is what names one. The parsed value
 // is what gets bound, not the text it came from: pgx encodes a time.Time as
 // a timestamptz itself, so the instant the function acts on is exactly the
@@ -71,7 +71,7 @@ func instantField(field string, raw *string) (*time.Time, error) {
 // answers the validated TEXT rather than a time.Time: a dispatch and a
 // retread return carry a date the tenant's own zone resolves to an instant
 // (000033, 000034), so the text is bound to $n::date and the resolution
-// stays in SQL — listTyres validates its on the same way. Why the check is
+// stays in SQL. listTyres validates its on the same way. Why the check is
 // on this side at all is instantField's note. A nil raw stays nil so the
 // function's own default applies rather than a Go clock's idea of today.
 func dateField(field string, raw *string) (*string, error) {
@@ -101,7 +101,7 @@ type fitTyreRequest struct {
 	Reason           *string `json:"reason"`
 }
 
-// fitTyreArgs is the validated request. Nothing here narrows a value — the
+// fitTyreArgs is the validated request. Nothing here narrows a value. The
 // mount orientation is checked by the enum cast, and the tread's range by
 // app.fit_tyre.
 type fitTyreArgs struct {
@@ -141,7 +141,7 @@ func (b fitTyreRequest) validate() (fitTyreArgs, error) {
 
 // fitWarningJSON is one entry of app.fit_tyre's warnings array, forwarded
 // verbatim. A warning is advice the fleet's own configuration produced
-// (FR-FIT-006, FR-FIT-020, U11) — it is never a refusal, and the fit that
+// (FR-FIT-006, FR-FIT-020, U11). It is never a refusal, and the fit that
 // carried it has already landed by the time the client reads one.
 type fitWarningJSON struct {
 	Code    string `json:"code"`
@@ -154,13 +154,13 @@ type fitTyreResponse struct {
 }
 
 // decodeFitWarnings reads app.fit_tyre's warnings column into the wire shape,
-// answering an empty list — never a nil one — for every way the column can say
+// answering an empty list, never a nil one, for every way the column can say
 // "no warnings". app.fit_tyre answers '[]'::jsonb today, so the other two arms
 // guard a contract rather than a case seen in practice: a SQL NULL scans as a
 // nil []byte that json.Unmarshal refuses outright, and a jsonb `null` literal
 // decodes into a nil slice. Either would reach the capture and fitment
 // screens, which branch on the list's length, as an absent list rather than an
-// empty one — and the first would have answered 500 for a fit that landed.
+// empty one, and the first would have answered 500 for a fit that landed.
 func decodeFitWarnings(raw []byte) ([]fitWarningJSON, error) {
 	if len(raw) == 0 {
 		return []fitWarningJSON{}, nil
@@ -216,10 +216,10 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 			// cite this one. None of the four writes the vehicle row, and a
 			// shared lock still conflicts with the exclusive one a PATCH takes
 			// to move the unit, so the race above stays closed. Exclusive here
-			// would invert the order the functions themselves lock in —
+			// would invert the order the functions themselves lock in.
 			// app.fit_tyre takes the tyre FOR UPDATE and only then the unit
 			// FOR SHARE (000039:88, :112), and app.rotate_tyres takes every
-			// in-scope unit FOR SHARE in id order (000039:446, :513) — so two
+			// in-scope unit FOR SHARE in id order (000039:446, :513), so two
 			// callers addressing one rig from opposite ends would each hold
 			// what the other waits for (40P01). reachableObservation
 			// (observations.go) is the one pre-check that keeps FOR UPDATE,
@@ -271,8 +271,8 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 
 // removeFitmentRequest is app.remove_tyre's body. Reason is not checked for
 // presence here: the vocabulary is tenant configuration (rule 5,
-// FR-FIT-008), so the only place that can say what a valid reason is — and
-// name the fleet's own list in the refusal — is the function.
+// FR-FIT-008), so the only place that can say what a valid reason is, and
+// name the fleet's own list in the refusal, is the function.
 type removeFitmentRequest struct {
 	Reason         string  `json:"reason"`
 	TreadMm        string  `json:"treadMm"`
@@ -285,7 +285,7 @@ type removeFitmentRequest struct {
 // projection a caller cannot already read from the unit, and the fitment id
 // it closed is the one in the URL. A second removal, a reason outside the
 // fleet's list, a distance running backwards and a cross-tenant fitment are
-// all app.remove_tyre's refusals (ADR-0013 decision 5) — a cross-tenant id
+// all app.remove_tyre's refusals (ADR-0013 decision 5). A cross-tenant id
 // meets the same "no such fitment in this fleet" a genuinely missing one
 // does, because RLS makes the two indistinguishable by construction.
 func removeFitment(s *store.Store) http.HandlerFunc {
@@ -310,7 +310,7 @@ func removeFitment(s *store.Store) http.HandlerFunc {
 		// Length only, and no trim: which reasons a fleet accepts is
 		// app.remove_tyre's list to check (rule 5), and trimming here would
 		// hand the function a token the caller did not send. maxTextLen is the
-		// same transport bound every free-text field on a write carries — a
+		// same transport bound every free-text field on a write carries. A
 		// reason longer than the whole vocabulary can spell is not one this
 		// side needs to open a transaction to refuse.
 		if len(body.Reason) > maxTextLen {
@@ -415,9 +415,9 @@ func (b rotateRequest) payload() ([]map[string]any, error) {
 // two a caller meant.
 //
 // Every key runs through the same parse-and-format the move ids get, because
-// SQL resolves a unit's reading with (p_odometers ->> f.vehicle_id::text) —
-// Postgres's lowercase, hyphenated, unbraced uuid text. A key spelled any
-// other way matches nothing there, so a unit whose reading the caller did
+// SQL resolves a unit's reading with (p_odometers ->> f.vehicle_id::text),
+// which is Postgres's lowercase, hyphenated, unbraced uuid text. A key
+// spelled any other way matches nothing there, so a unit whose reading the caller did
 // send reads as having sent none and answers TY009 on a horse (U20).
 func (b rotateRequest) odometerPayload(vehicleID string) (map[string]int64, error) {
 	if b.Odometer != nil && b.Odometers != nil {
@@ -434,7 +434,7 @@ func (b rotateRequest) odometerPayload(vehicleID string) (map[string]int64, erro
 		// The byte clip decodeJSONStrict states its reason for (admin.go), and
 		// for that reason: this is the package's other refusal built out of a
 		// key the caller chose, bounded only by maxWriteBytes. The clip is on
-		// the name the message carries and nothing else — uuidField still
+		// the name the message carries and nothing else. uuidField still
 		// parses the ORIGINAL key, because a truncation that turned a
 		// malformed key into a well-formed one would let a reading through
 		// under an id the caller never sent.
@@ -511,8 +511,8 @@ func rotateTyres(s *store.Store) http.HandlerFunc {
 			odometers, err = json.Marshal(byUnit)
 		}
 		if err != nil {
-			// Unreachable in practice — every value above is a string or an
-			// int64 — but a handler never panics (api/CLAUDE.md), so the
+			// Unreachable in practice, since every value above is a string or
+			// an int64, but a handler never panics (api/CLAUDE.md), so the
 			// failure still answers rather than crashing.
 			slog.ErrorContext(ctx, "marshalling rotation payload", "err", err)
 			writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)

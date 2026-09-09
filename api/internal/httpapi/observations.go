@@ -57,7 +57,7 @@ type observationNoteRequest struct {
 
 // listObservations is D5's "Reported differences": every FR-INS-063 warning
 // on a capture that still stands, whose motive unit this actor can see, that
-// nobody has resolved. Newest capture first — a controller works the fresh
+// nobody has resolved. Newest capture first, so a controller works the fresh
 // reports and dismisses the old ones.
 //
 // One statement. The observed set is the raw JSON array 000041 stored, and the
@@ -67,7 +67,7 @@ type observationNoteRequest struct {
 func listObservations(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		// Initialised, not nil — see listAxleConfigurations (admin.go).
+		// Initialised, not nil. See listAxleConfigurations (admin.go).
 		out := []observationJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ViewFleet); err != nil {
@@ -114,7 +114,7 @@ func listObservations(s *store.Store) http.HandlerFunc {
 				   -- The code alone does not make a report:
 				   -- app.apply_composition_observation's kind check holds the
 				   -- reason (000044). It also guards the casts above, which
-				   -- read an array the server wrote — a client's text raises
+				   -- read an array the server wrote. A client's text raises
 				   -- 22P02 there and empties this list for every controller in
 				   -- the tenant (TYRE-75).
 				   AND w.source = 'SERVER'
@@ -164,7 +164,7 @@ func listObservations(s *store.Store) http.HandlerFunc {
 //
 // FOR UPDATE here, where fitTyre's pre-check takes FOR SHARE: this is the first
 // lock the request takes, and app.create_combination_at then locks every member
-// of the resulting rig FOR UPDATE in id order (000044:121) — the motive among
+// of the resulting rig FOR UPDATE in id order (000044:121), the motive among
 // them. A shared lock first and an exclusive one after is an upgrade, and two
 // applies on one rig would deadlock on it (40P01).
 func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {

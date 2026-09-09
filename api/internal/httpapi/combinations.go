@@ -1,9 +1,10 @@
-// The rig surface (TYRE-72): a controller sets a dated combination — one
-// motive unit and its towed units in walk order — and ends one. What may be
-// coupled to what, which day a rig may start on, and that a unit is in at most
-// one open rig are app.create_combination's and app.end_combination's alone
-// (000037); this file validates shape, gates the capability and projects the
-// row (ADR-0013 decision 5). It decides nothing about rigs.
+// The rig surface (TYRE-72): a controller sets a dated combination and ends
+// one. A combination is one motive unit and its towed units in walk order.
+// What may be coupled to what, which day a rig may start on, and that a unit
+// is in at most one open rig are app.create_combination's and
+// app.end_combination's alone (000037); this file validates shape, gates the
+// capability and projects the row (ADR-0013 decision 5). It decides nothing
+// about rigs.
 package httpapi
 
 import (
@@ -62,8 +63,8 @@ type endCombinationRequest struct {
 
 // loadCombinations answers the rigs the session's tenant can see, in D3's
 // order: open first, then most recently started. Both filters are bound
-// parameters rather than SQL assembled per call — a nil id is every rig, and
-// openOnly narrows to the open ones — so there is one statement to read and no
+// parameters rather than SQL assembled per call. A nil id is every rig and
+// openOnly narrows to the open ones, so there is one statement to read and no
 // string ever reaches the planner from a request.
 //
 // Two round trips, never one per rig: the members of every rig just read come
@@ -212,7 +213,7 @@ func (b createCombinationRequest) payload() ([]map[string]any, error) {
 
 // createCombination is FR-VEH-030's write. The rig it answers with is read
 // back through combinationByID rather than assembled from the request, so the
-// caller sees the row as stored — including the start instant the tenant's own
+// caller sees the row as stored, including the start instant the tenant's own
 // zone resolved and the member sequence the function assigned.
 func createCombination(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -235,8 +236,8 @@ func createCombination(s *store.Store) http.HandlerFunc {
 		}
 		raw, err := json.Marshal(towed)
 		if err != nil {
-			// Unreachable in practice — every value above is a string or nil —
-			// but a handler never panics (api/CLAUDE.md).
+			// Unreachable in practice, since every value above is a string or
+			// nil, but a handler never panics (api/CLAUDE.md).
 			slog.ErrorContext(ctx, "marshalling rig payload", "err", err)
 			writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)
 			return

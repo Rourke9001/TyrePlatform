@@ -2,10 +2,10 @@
 // setTyreCost and disposeTyre write to it through the lifecycle functions in
 // migration 000031, while dispatchTyre and returnTyreToStock send a casing
 // off site and take it back, over the functions in migration 000033. Every
-// business rule any of these depends on — the dated code lookup, the
-// awaiting-cost set, the display-code policy, the disposal transition
-// table, the retread cap — lives in SQL, per db/CLAUDE.md; nothing here
-// does more than shape a request and read back a result.
+// business rule any of these depends on lives in SQL, per db/CLAUDE.md: the
+// dated code lookup, the awaiting-cost set, the display-code policy, the
+// disposal transition table, the retread cap. Nothing here does more than
+// shape a request and read back a result.
 package httpapi
 
 import (
@@ -67,7 +67,7 @@ type tyreJSON struct {
 // tyreJSONFor is the FR-AUT-005a projection: every field copies straight
 // across except the three money fields, which are nilled unless the actor
 // holds ViewValuation. It is a pure function of its two arguments so the
-// no-money branch is unit-testable directly — every role that can reach
+// no-money branch is unit-testable directly. Every role that can reach
 // listTyres today (gated on ManageAssets) also holds ViewValuation, so that
 // branch is not reachable by driving the handler; see
 // TestTyreJSONForProjectsMoneyByCapability.
@@ -96,7 +96,7 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 }
 
 // listTyres is the register read (FR-TYR-040..042). Gated on ManageAssets,
-// like the other asset reads (admin.go's listAxleConfigurations) — the
+// like the other asset reads (admin.go's listAxleConfigurations). The
 // register is only useful to someone who may act on what it shows.
 //
 // code+on together resolve through app.tyre_for_code (FR-TYR-042): a display
@@ -111,7 +111,7 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 // v_depot_tyre (migration 000014) exists and is intentionally unused by this
 // endpoint, which answers tenant-wide regardless of actor scope.
 // Widening or narrowing this read is TYRE-76's open scope question to
-// answer, not this slice's — see design D6. Do not "fix" this in passing.
+// answer, not this slice's. See design D6. Do not "fix" this in passing.
 func listTyres(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -144,7 +144,7 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			canSeeMoney := a.Can(auth.ViewValuation)
 			// v_tyre_awaiting_cost is joined rather than reimplemented inline
 			// (WHERE purchase_price IS NULL AND state NOT IN
-			// ('SCRAPPED','LOST','SOLD'), migration 000012) — see this
+			// ('SCRAPPED','LOST','SOLD'), migration 000012). See this
 			// function's doc comment for why the flag and the filter share it.
 			sql := `SELECT t.id, t.display_code, t.state::text, t.status::text,
 			               t.retread_count, s.name, b.name, p.name,
@@ -190,13 +190,13 @@ func listTyres(s *store.Store) http.HandlerFunc {
 }
 
 // receiveTyresRequest is FR-TYR-040's intake body. Every field but Quantity
-// is optional — most of what a tenant eventually knows about a tyre (its
+// is optional. Most of what a tenant eventually knows about a tyre (its
 // size, its cost) is often not known at receipt, which is exactly the
 // awaiting-cost backlog CFL-002 names. Quantity is *int so that "absent" and
 // "zero" stay distinguishable: an absent key lets app.receive_tyres's own
 // COALESCE supply its default of 1, while an explicit 0 is forwarded and
 // comes back as that function's TY011. The 1..200 bound is its rule, not one
-// this struct duplicates (ADR-0013 decision 5 — no threshold in a Go
+// this struct duplicates (ADR-0013 decision 5, no threshold in a Go
 // validator).
 type receiveTyresRequest struct {
 	Quantity      *int    `json:"quantity"`
@@ -215,7 +215,7 @@ type receiveTyresRequest struct {
 // payload builds app.receive_tyres's jsonb argument, snake_case and omitting
 // every field the caller did not send. A present key with a NULL value and
 // an absent key mean different things to the function's own COALESCE/NULLIF
-// logic — quantity's default of 1 only applies when the key is missing
+// logic, and quantity's default of 1 only applies when the key is missing
 // entirely. Every value the caller did send is forwarded verbatim, zero and
 // negative included: refusing one here would be a bound check this struct
 // does not own (ADR-0013 decision 5), so an out-of-range quantity reaches
@@ -259,7 +259,7 @@ func (b receiveTyresRequest) payload() map[string]any {
 	return p
 }
 
-// receivedTyreJSON is what a receive answers per tyre minted — enough for a
+// receivedTyreJSON is what a receive answers per tyre minted: enough for a
 // caller to display or immediately act on what it just created, nothing
 // more (ADR-0013 decision 9's 201-with-projection shape).
 type receivedTyreJSON struct {
@@ -268,12 +268,12 @@ type receivedTyreJSON struct {
 }
 
 // receiveTyres is FR-TYR-040's intake, the first write over the lifecycle
-// functions in migration 000031. Every rule — the display-code
-// policy refusal (D12/TY011), the 1..200 bulk bound, the code's own
-// uniqueness (one_active_display_code_per_tenant) — belongs to
-// app.receive_tyres, not here: this handler only decodes the request shape,
-// translates it to the function's jsonb argument, and reads back what it
-// minted (ADR-0013 decision 5).
+// functions in migration 000031. Every rule belongs to app.receive_tyres,
+// not here: the display-code policy refusal (D12/TY011), the 1..200 bulk
+// bound, and the code's own uniqueness (one_active_display_code_per_tenant).
+// This handler only decodes the request shape, translates it to the
+// function's jsonb argument, and reads back what it minted (ADR-0013
+// decision 5).
 func receiveTyres(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -299,8 +299,8 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 
 		raw, err := json.Marshal(body.payload())
 		if err != nil {
-			// Unreachable in practice — every value above is a string or an
-			// int — but a handler never panics (api/CLAUDE.md), so the
+			// Unreachable in practice, since every value above is a string or
+			// an int, but a handler never panics (api/CLAUDE.md), so the
 			// failure still answers rather than crashing.
 			slog.ErrorContext(ctx, "marshalling receive payload", "err", err)
 			writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)
@@ -344,7 +344,7 @@ type setTyreCostRequest struct {
 
 // setTyreCost is FR-TYR-041's costing step, the discharge for the
 // awaiting-cost backlog CFL-002 names. The tyre id is the URL's, refused
-// before any transaction opens if it does not even parse as a uuid — every
+// before any transaction opens if it does not even parse as a uuid. Every
 // actual rule (a second costing, a negative amount, and TY012's RLS-hidden
 // tyre) is app.set_tyre_cost's alone (ADR-0013 decision 5).
 func setTyreCost(s *store.Store) http.HandlerFunc {
@@ -386,10 +386,10 @@ type disposeTyreRequest struct {
 
 // disposeTyre is the disposal step (Appendix C's transition table): scrap,
 // sale or loss. The tyre id is the URL's, refused before any
-// transaction opens if it does not parse. Everything else — which
-// transitions are legal from which state, that a scrap records its reason,
-// that a sale records its proceeds, and TY012's cross-tenant/RLS-hidden
-// case — is app.dispose_tyre's alone (ADR-0013 decision 5). A cross-tenant
+// transaction opens if it does not parse. Everything else is
+// app.dispose_tyre's alone (ADR-0013 decision 5): which transitions are
+// legal from which state, that a scrap records its reason, that a sale
+// records its proceeds, and TY012's cross-tenant/RLS-hidden case. A cross-tenant
 // actor naming another tenant's tyre id meets the identical "no such tyre in
 // this fleet" refusal a genuinely missing id would, because RLS makes the
 // two indistinguishable by construction (db/tests/004_tests.sql section 39).
@@ -428,7 +428,7 @@ func disposeTyre(s *store.Store) http.HandlerFunc {
 // the function's own list (FR-FIT-011/012), so a value outside it reaches
 // the enum cast as 22P02 rather than a second list kept in step here.
 // SentOn is *string so an absent date reaches the function's own
-// tenant_today default — today is the tenant's civil day (rule 6), which a
+// tenant_today default. Today is the tenant's civil day (rule 6), which a
 // Go clock cannot name.
 type dispatchTyreRequest struct {
 	Destination string  `json:"destination"`
@@ -446,11 +446,11 @@ type dispatchTyreResponse struct {
 
 // dispatchTyre is FR-FIT-011/012's write: a removed casing leaves the
 // workshop for the retreader or for the breakdown supplier. Everything the
-// dispatch means — that only a REMOVED casing goes (U2, Appendix C), that
-// the depot's type must match the destination, that BR-FIT-009's retread cap
-// refuses a casing with no retread left in it, and that the retreader branch
-// is what opens the job — is app.dispatch_tyre's alone (ADR-0013 decision
-// 5). A cross-tenant tyre id meets the same "no such tyre in this fleet" a
+// dispatch means is app.dispatch_tyre's alone (ADR-0013 decision 5): that
+// only a REMOVED casing goes (U2, Appendix C), that the depot's type must
+// match the destination, that BR-FIT-009's retread cap refuses a casing with
+// no retread left in it, and that the retreader branch is what opens the
+// job. A cross-tenant tyre id meets the same "no such tyre in this fleet" a
 // missing one does, because RLS makes the two indistinguishable.
 func dispatchTyre(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -514,7 +514,7 @@ type returnTyreRequest struct {
 // workshop has in hand again. No occurred-at field: a receipt is recorded
 // when it happens, so the function's own now() default is the instant, and
 // backdating one is not a screen this slice builds. Which states restock
-// (never AT_RETREADER — that casing comes back through Log Retread, which
+// (never AT_RETREADER, because that casing comes back through Log Retread, which
 // records the tread, the cost and the casing decision) and which depot types
 // may hold stock are app.return_tyre_to_stock's rules.
 func returnTyreToStock(s *store.Store) http.HandlerFunc {

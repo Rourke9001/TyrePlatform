@@ -1,5 +1,5 @@
 // Package httpapi assembles the HTTP surface: routing, tenant resolution and
-// the handlers. Handlers stay dumb — a business decision about tyres belongs
+// the handlers. Handlers stay dumb. A business decision about tyres belongs
 // in SQL, not here (api/CLAUDE.md).
 package httpapi
 
@@ -68,9 +68,9 @@ type options struct {
 // WithTrustedProxyHops sets how many trusted L7 hops sit between the caller
 // and this process, for NFR-SEC-007's per-source-address rate limit
 // (ratelimit.go's clientAddress) to read the address the outermost trusted
-// hop actually observed rather than one a caller can forge. Defaults to 1 —
-// today's single Azure Container Apps ingress hop, infra/main.bicep's
-// TRUSTED_PROXY_HOPS — for every call site that does not name one.
+// hop actually observed rather than one a caller can forge. Every call site
+// that does not name one defaults to 1: today's single Azure Container Apps
+// ingress hop, infra/main.bicep's TRUSTED_PROXY_HOPS.
 func WithTrustedProxyHops(n int) Option {
 	return func(o *options) { o.trustedProxyHops = n }
 }
@@ -83,7 +83,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 
 	r := chi.NewRouter()
 	// chi answers both of these itself, in text/plain, unless they are
-	// registered — the envelope's only escapees (ADR-0012).
+	// registered. They are the envelope's only escapees (ADR-0012).
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
 		writeError(r.Context(), w, http.StatusNotFound, codeNotFound, "no such endpoint")
 	})
@@ -109,7 +109,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Get("/my/vehicles", listMyVehicles(s))
 		r.Get("/my/tasks", listMyTasks(s))
 		r.Get("/capture/vehicles/{vehicleID}", captureContext(s))
-		// NFR-SEC-007: rate-limited, unlike the reference read above — a
+		// NFR-SEC-007: rate-limited, unlike the reference read above. A
 		// driver fetches capture context once per vehicle, but a bad outbox
 		// retry loop or a hostile client can hammer a write. Built once
 		// here, not per request (ratelimit.go's const comment).
@@ -188,13 +188,13 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 // are trapped inside app.submit_inspection's own exception block and turned
 // into an app.inspection_warning row, so they never escape as an error for
 // this map to see. TY010 (no tenant/actor bound) is also deliberately
-// absent — that is a genuine invariant breach, not a client mistake, so the
+// absent. That is a genuine invariant breach, not a client mistake, so the
 // default 500 is the honest answer.
 //
 // The integrity classes below the private ones are the backstop to that rule
 // rather than a second vocabulary. app.submit_inspection guards the shapes it
 // can name and refuses them as TY005, but it cannot pre-empt every constraint
-// the payload reaches — an unknown tyre_id or combination_id arrives as a
+// the payload reaches. An unknown tyre_id or combination_id arrives as a
 // foreign-key violation, and a value that will not parse as its column's type
 // never reaches a guard at all, because the function's own DECLARE casts it.
 // Each of those means "this body is wrong" and can only ever mean that: the
@@ -205,7 +205,7 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 // canned (ADR-0012): a foreign-key violation means the request named
 // something that does not exist, and 422 with no schema object in it is the
 // honest answer wherever it is raised. A refusal a client must branch on
-// earns a code of its own instead — raised as a TY in SQL where a rule is
+// earns a code of its own instead: raised as a TY in SQL where a rule is
 // being evaluated, or translated from the constraint that detects it where
 // the schema already states the rule (ADR-0013).
 
@@ -240,9 +240,9 @@ const (
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
-// is the same for all of them — the payload is wrong in a way the database
-// declined to name, and it fails identically on every retry — so one code
-// covers the class (ADR-0012). msgConflict is separate only because it is a
+// is the same for all of them, because the payload is wrong in a way the
+// database declined to name and it fails identically on every retry, so one
+// code covers the class (ADR-0012). msgConflict is separate only because it is a
 // 409 and must be distinguishable from TY003's duplicate window (FR-INS-038).
 const (
 	msgInvalidSubmission = "the submission was refused as invalid"
@@ -270,7 +270,7 @@ var submitStatus = map[string]int{
 	"TY005": http.StatusUnprocessableEntity,
 	"TY006": http.StatusUnprocessableEntity,
 	// TY007: an unrecognised or cross-tenant vehicle_id. Migration 000023's
-	// own comment on this SQLSTATE explains why it exists — without an entry
+	// own comment on this SQLSTATE explains why it exists. Without an entry
 	// here, the alternative is the composite FK violation (23503) reaching
 	// this map unmapped and surfacing as a 500, which tells the outbox to
 	// retry forever a submit that will never succeed. Reachable in practice
@@ -281,14 +281,14 @@ var submitStatus = map[string]int{
 	// TY011/TY012/TY013 are the tyre lifecycle's refusals (000031). TY009 is
 	// fitment_odometer_matches_unit_kind's, and that trigger is BEFORE INSERT
 	// OR UPDATE, so all four fitment writes reach it: app.fit_tyre's fit,
-	// app.remove_tyre's closure, and both of app.rotate_tyres' — the rows it
+	// app.remove_tyre's closure, and both of app.rotate_tyres', the rows it
 	// closes and the rows it opens (TYRE-92).
 	// TY014 is a fitment write refused, TY015 is the retread cap, TY016 is a
 	// unit status transition refused (000032-000035), TY017 is a rig write
 	// refused (000037), and TY018 is an inspection task refused (000038).
 	// TY019 is an inspection write refused, the void's own refusals among
 	// them (000040); TY020 is a reading offered to a sealed inspection and
-	// has no entry — no route can reach it, as with TY008.
+	// has no entry, because no route can reach it, as with TY008.
 	"TY009": http.StatusUnprocessableEntity,
 	"TY011": http.StatusUnprocessableEntity,
 	"TY012": http.StatusUnprocessableEntity,
@@ -306,7 +306,7 @@ var submitStatus = map[string]int{
 
 	// TY022 is a composition observation refused (000044): a report already
 	// resolved, stale, on a voided capture, or naming a composition the
-	// register cannot be moved to. 422 like its neighbours — the request is
+	// register cannot be moved to. 422 like its neighbours. The request is
 	// well formed and the answer is permanent, so a client shows the message
 	// and stops (ADR-0012).
 	"TY022": http.StatusUnprocessableEntity,
@@ -324,14 +324,14 @@ var submitStatus = map[string]int{
 	// 22007/22008: a date or instant Postgres cannot read or that is out of
 	// range. Every route validates its dates in Go first (dateField,
 	// instantField), so these are canned like 22P02 for the surface that
-	// forgets — the client mistake stays a 422, never a 500 the outbox
+	// forgets. The client mistake stays a 422, never a 500 the outbox
 	// retries forever (ADR-0012, TYRE-174).
 	"22007": http.StatusUnprocessableEntity, // invalid datetime format
 	"22008": http.StatusUnprocessableEntity, // datetime field overflow
 	// A duplicate client_uuid is FR-OFF-011's replay and app.submit_inspection
 	// answers it as one, including when two concurrent drains race for the
 	// same unique index. This entry catches any OTHER unique violation, which
-	// is a conflict rather than a fault — and, like the classes above, must
+	// is a conflict rather than a fault and, like the classes above, must
 	// not become a 500 the outbox retries to no end.
 	"23505": http.StatusConflict,
 
@@ -349,9 +349,9 @@ type refusal struct {
 }
 
 // The conflicts a client acts on differently from any other conflict, keyed by
-// the constraint that detects them (ADR-0013). The rule is the constraint's —
+// the constraint that detects them (ADR-0013). The rule is the constraint's:
 // DR-003 for a fleet number, D10 for an email, B1's exclusion for an
-// assignment — and this map only names the refusal for a caller. The name is
+// assignment. This map only names the refusal for a caller. The name is
 // translated, never forwarded, so ADR-0012 holds; an unrecognised constraint
 // keeps the generic conflict, which is the safe direction.
 //
@@ -367,18 +367,18 @@ var conflictCodes = map[string]string{
 	// A rehire preserves the returning employee's staff_number rather than
 	// blanking it (admin.go's COALESCE, FR-AUT-022), and 000019's partial
 	// index permits another active user to hold that same number once the
-	// original left (D2) — so the two legitimate rules collide on
+	// original left (D2), so the two legitimate rules collide on
 	// reactivation. That is a state an admin must be told how to resolve,
 	// not a bare conflict.
 	"one_active_staff_number_per_tenant": codeStaffNumberTaken,
 	// one_active_display_code_per_tenant is a unique index, not a table
-	// constraint (000011), scoped to ACTIVE tyres only — historical reuse
+	// constraint (000011), scoped to ACTIVE tyres only. Historical reuse
 	// across a scrapped/sold/lost tyre is valid and does not collide
 	// (FR-TYR-004/DR-002).
 	"one_active_display_code_per_tenant": codeDisplayCodeTaken,
 	// one_open_fitment_per_position and one_open_fitment_per_tyre are partial
 	// unique indexes, not table constraints, scoped to an open fitment
-	// (removed_at IS NULL) — a tyre's fitment history does not collide with
+	// (removed_at IS NULL), so a tyre's fitment history does not collide with
 	// itself once removed.
 	"one_open_fitment_per_position": codePositionOccupied,
 	"one_open_fitment_per_tyre":     codeTyreAlreadyFitted,
@@ -403,7 +403,7 @@ var conflictMessages = map[string]string{
 // Forwarding is decided by the TY class rather than by a list of safe codes.
 // A message in that class is ours: app.submit_inspection writes it, it names
 // no table or constraint, and it interpolates values a Go constant could not
-// state — TY003's window is tenant configuration (rule 5, FR-INS-038). Every
+// state: TY003's window is tenant configuration (rule 5, FR-INS-038). Every
 // other message is Postgres's and can name a constraint and a table
 // (reading_tyre_id_fkey), so it is canned. A SQLSTATE added to submitStatus
 // without a case below is canned by default, which is the safe direction.
@@ -487,13 +487,13 @@ type refusalError struct{ refusal }
 func (e refusalError) Error() string { return e.code + ": " + e.message }
 
 // errVehicleNotVisible is the write path's FR-AUT-005 narrowing, answered as
-// 422 and not 403 — the status and the wording are TY007's, deliberately.
+// 422 and not 403. The status and the wording are TY007's, deliberately.
 // A ScopeTenant actor skips the Go-side check and meets the same condition at
 // app.submit_inspection's TY007 guard, which answers 422 "vehicle not
 // visible"; a driver refused here with 403 would tell the two roles different
 // things about the same vehicle, which is the distinction ADR-0011 exists to
 // deny. 422 says nothing about whether the vehicle exists elsewhere, so
-// indistinguishability is preserved either way — and it is the status the
+// indistinguishability is preserved either way, and it is the status the
 // capture design's refusal table already names for this row.
 var errVehicleNotVisible = errors.New("vehicle not visible")
 
@@ -531,12 +531,12 @@ type meJSON struct {
 	// per-response because it changes about never and every screen needs it.
 	Timezone string `json:"timezone"`
 	// D12: under GENERATED the receive screen must not offer a code field at
-	// all (a hand-typed one is refused server-side, TY011) — sent here so
-	// ReceiveTyre.tsx can branch before the user ever sees the wrong form.
+	// all (a hand-typed one is refused server-side, TY011). It is sent here
+	// so ReceiveTyre.tsx can branch before the user ever sees the wrong form.
 	DisplayCodePolicy string `json:"displayCodePolicy"`
 }
 
-// me tells the client what to render. Presentation only — every other
+// me tells the client what to render. Presentation only. Every other
 // endpoint re-checks server-side, because a client-side control is a
 // convenience and never a boundary (NFR-SEC-006).
 func me(s *store.Store) http.HandlerFunc {
@@ -578,7 +578,7 @@ func me(s *store.Store) http.HandlerFunc {
 }
 
 // defaultPrimaryColor is the platform's own brand blue, used until a tenant
-// configures one. Chrome only — never a status colour, and not a threshold,
+// configures one. Chrome only, never a status colour, and not a threshold,
 // so hard-coding it does not touch rule 5. The web's design tokens (TYRE-27)
 // carry the same value as their default.
 const defaultPrimaryColor = "#14586E"
@@ -591,7 +591,7 @@ type brandingJSON struct {
 
 // orgBranding serves the tenant's branding from configuration key "branding"
 // (FR-TEN-011; stored per rule 5 in app.configuration). The governing row is
-// the newest effective_from not in the future — FR-CFG-051, prospective only.
+// the newest effective_from not in the future. FR-CFG-051 is prospective only.
 // An absent key is not an error: the tenant simply has not branded yet, so
 // the response falls back to its registered name and the platform colour.
 func orgBranding(s *store.Store) http.HandlerFunc {
@@ -637,8 +637,8 @@ type vehicleJSON struct {
 
 // fleetUnitJSON is the management list's row: the shared three fields plus
 // the two the Rigs form filters on (unit kind, status). The driver's list
-// keeps vehicleJSON — its source view projects neither, and a driver picking
-// a unit to inspect needs neither.
+// keeps vehicleJSON, because its source view projects neither and a driver
+// picking a unit to inspect needs neither.
 type fleetUnitJSON struct {
 	vehicleJSON
 	UnitKind *string `json:"unitKind"`
@@ -647,15 +647,16 @@ type fleetUnitJSON struct {
 
 // unitSource is the one place a fleet handler chooses its relation for a
 // unit, by auth.Actor.Scope and never by role name (ADR-0006): the
-// depot-narrowed app.v_depot_vehicle is the default and app.vehicle — the
-// whole tenant — is the exception earned only by ScopeTenant. A role added
+// depot-narrowed app.v_depot_vehicle is the default, and app.vehicle, the
+// whole tenant, is the exception earned only by ScopeTenant. A role added
 // later without a scope entry lands on the narrow default rather than
 // silently reading everything (FR-AUT-006/007/008). The unit read, its
 // PATCH and status write, its fitment, driver and task lists, the four
-// unit-path writes — fitTyre, rotateTyres, assignDriver and
-// scheduleInspectionTask — and the two composition-report writes
+// unit-path writes, and the two composition-report writes
 // (observations.go), which reach the unit through the report's inspection,
-// all compose this (FR-AUT-008, TYRE-162, owner 6 Sep 2026; TYRE-226).
+// all compose this (FR-AUT-008, TYRE-162, owner 6 Sep 2026; TYRE-226). The
+// four unit-path writes are fitTyre, rotateTyres, assignDriver and
+// scheduleInspectionTask.
 func unitSource(a auth.Actor) string {
 	if a.Scope() == auth.ScopeTenant {
 		return `app.vehicle`
@@ -664,14 +665,14 @@ func unitSource(a auth.Actor) string {
 }
 
 // listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
-// and is refused here rather than filtered — FR-AUT-005 is about what they
+// and is refused here rather than filtered. FR-AUT-005 is about what they
 // may ask for, not only about what comes back. Their route is /api/my/vehicles.
 //
 // The source relation is unitSource's choice.
 func listVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		// Initialised, not nil — see listAxleConfigurations (admin.go).
+		// Initialised, not nil. See listAxleConfigurations (admin.go).
 		units := []fleetUnitJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ViewFleet); err != nil {
@@ -795,7 +796,7 @@ func scanVehicles(ctx context.Context, tx pgx.Tx, query string) ([]vehicleJSON, 
 }
 
 // writeJSON is the one encode-and-log path shared by the list handlers. It
-// encodes exactly what it is handed — the empty-vs-null guarantee belongs to
+// encodes exactly what it is handed. The empty-vs-null guarantee belongs to
 // each caller's slice initialisation, not to this function.
 func writeJSON(ctx context.Context, w http.ResponseWriter, body any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -809,7 +810,7 @@ func writeJSON(ctx context.Context, w http.ResponseWriter, body any) {
 // Message's audience depends on who wrote it (ADR-0013): a message written in
 // Go or raised as a TY in SQL is ours and may be rendered, and a message
 // Postgres wrote is canned before it ever reaches this struct. A driver's
-// sentence is still the client's, keyed on Code — that is FR-OFF-013's
+// sentence is still the client's, keyed on Code. That is FR-OFF-013's
 // recovery action and not a diagnostic.
 type errorBody struct {
 	Code    string `json:"code"`

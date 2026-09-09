@@ -29,7 +29,7 @@ type retreadJobJSON struct {
 }
 
 // listRetreadJobs is the retread queue (D6). Gated on LogRetread, which today
-// only CONTROLLER, DEPOT_MANAGER and ORG_ADMIN hold — a TECHNICIAN reads the
+// only CONTROLLER, DEPOT_MANAGER and ORG_ADMIN hold. A TECHNICIAN reads the
 // fleet but does not act on the retread queue, so it is refused here exactly
 // as it is on the register (tyres.go's listTyres). open=true is required for
 // the same reason listOpenFitments requires it: an unfiltered "every job
@@ -96,7 +96,7 @@ func listRetreadJobs(s *store.Store) http.HandlerFunc {
 //
 // CasingAccepted is *bool rather than bool deliberately. A missing key
 // decodes into a bare bool as false, and false here means the retreader
-// rejected the casing — which SCRAPS it and writes a zero valuation against
+// rejected the casing, which SCRAPS it and writes a zero valuation against
 // an append-only event log, so the default must not be silently reachable.
 // Absence is refused in Go beside the other two required fields: whether a
 // key is present is the request's shape, not a rule about tyres (ADR-0013
@@ -117,7 +117,7 @@ type retreadReturnRequest struct {
 // logRetreadReturn is FR-FIT-021/022's write: the casing comes back from the
 // retreader, the job closes with its turnaround, and FR-TYR-018/019 re-rate
 // the casing at what the new tread cost. It is the first use of the
-// LogRetread capability B2 defined (ADR-0011) — a fleet may let a workshop
+// LogRetread capability B2 defined (ADR-0011). A fleet may let a workshop
 // log a retread without letting it manage assets at large, so this is the
 // one write on the surface not gated on ManageAssets.
 //
@@ -146,7 +146,7 @@ func logRetreadReturn(s *store.Store) http.HandlerFunc {
 		}
 		// requiredText answers presence, not size. The column is unbounded
 		// text, so the same transport cap every free-text field on a write
-		// carries applies here too (maxTextLen) — a retreader's docket number
+		// carries applies here too (maxTextLen). A retreader's docket number
 		// is not kilobytes.
 		if len(reportReference) > maxTextLen {
 			refuseInvalid(w, r, invalid("reportReference", "is too long"))
@@ -174,7 +174,7 @@ func logRetreadReturn(s *store.Store) http.HandlerFunc {
 				return err
 			}
 			// TY012, TY014 and TY015 arrive via refusalForPgError with their
-			// messages intact — including the cap re-checked on the way back,
+			// messages intact, including the cap re-checked on the way back,
 			// which a policy lowered while the casing was away can fail.
 			if _, err := tx.Exec(ctx,
 				`SELECT app.log_retread_return($1, $2::date, $3, $4,

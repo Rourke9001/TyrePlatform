@@ -101,7 +101,7 @@ func listUnitDrivers(s *store.Store) http.HandlerFunc {
 }
 
 // loadUnitTasks answers OPEN and ESCALATED tasks, by due date, with each
-// task's assignee — either the unit's (vehicleID bound, taskID nil) or one
+// task's assignee, either the unit's (vehicleID bound, taskID nil) or one
 // task by id (taskID bound, so a write that creates one can read its own row
 // back through it, as combinationByID does for rigs). Both filters are bound
 // parameters, so a nil id is every task and there is one statement to read.
@@ -196,7 +196,7 @@ type scheduleTaskRequest struct {
 
 // scheduleInspectionTask is FR-INS-051's write. The task it answers with is
 // read back through loadUnitTasks rather than assembled from the request, so
-// the caller sees the row as stored — the due instant the tenant's zone
+// the caller sees the row as stored: the due instant the tenant's zone
 // resolved, and overdue as the view computes it.
 func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

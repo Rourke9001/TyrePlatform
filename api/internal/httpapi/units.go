@@ -1,7 +1,7 @@
 // The unit surface (TYRE-92/TYRE-94): a manager-facing view of one unit's
 // positions and current fitments, its fitment history, the fleet-wide
 // open-fitments list the Fitments screen drives from, and the two writes that
-// edit a unit — its descriptive fields and tags, and its status. The split
+// edit a unit: its descriptive fields and tags, and its status. The split
 // between those two writes is the point: the descriptive edit is a plain
 // UPDATE because no rule governs it, and the status change is a call into
 // app.set_vehicle_status because rules do (D5).
@@ -25,7 +25,7 @@ import (
 
 // openFitmentJSON is what a position's current occupant looks like. It
 // carries no money: nothing here is a monetary field, so unlike tyreJSONFor
-// there is no ViewValuation branch to gate — the place one would go, if a
+// there is no ViewValuation branch to gate. The place one would go, if a
 // money field is ever added, is a canSeeMoney parameter on unitByID mirroring
 // tyres.go's projection.
 type openFitmentJSON struct {
@@ -81,12 +81,12 @@ type unitJSON struct {
 	Positions         []unitPositionJSON `json:"positions"`
 }
 
-// fitmentHistoryJSON is one row of GET /api/vehicles/{id}/fitments — every
+// fitmentHistoryJSON is one row of GET /api/vehicles/{id}/fitments: every
 // fitment the unit has ever carried, open or closed. DistanceSource is never
 // null (distance_source carries NOT NULL DEFAULT 'UNAVAILABLE', 000011);
-// DistanceKm is nil when the source is UNAVAILABLE — INFERRED is written by
-// nothing until OI-31 (000033) — which is CR-012's pairing: a distance is
-// never shown without the provenance it was derived under.
+// DistanceKm is nil when the source is UNAVAILABLE, which is CR-012's
+// pairing: a distance is never shown without the provenance it was derived
+// under. INFERRED is written by nothing until OI-31 (000033).
 type fitmentHistoryJSON struct {
 	FitmentID        string  `json:"fitmentId"`
 	TyreID           string  `json:"tyreId"`
@@ -106,7 +106,7 @@ type fitmentHistoryJSON struct {
 
 // fleetFitmentJSON is one row of GET /api/fitments?open=true, the Fitments
 // screen. DaysFitted is computed in SQL, in the tenant's own civil calendar
-// (rule 6) — never in Go from time.Now(), which would answer in the runner's
+// (rule 6), never in Go from time.Now(), which would answer in the runner's
 // zone instead of the fleet's.
 type fleetFitmentJSON struct {
 	FitmentID    string `json:"fitmentId"`
@@ -127,7 +127,7 @@ type depotJSON struct {
 
 // unitByID is the one query shape for a manager-facing unit read. The unit
 // PATCH answers with this same body (D6), so it stays free of HTTP concerns
-// and returns pgx.ErrNoRows — the same value a genuinely missing id produces —
+// and returns pgx.ErrNoRows, the same value a genuinely missing id produces,
 // when RLS hides the unit, rather than a distinguishable error: whether the
 // unit is another tenant's or does not exist at all is not the caller's to
 // learn (ADR-0011). source is unitSource's choice; an out-of-scope id is
@@ -140,14 +140,14 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 	// hasHistory is exactly TY008's own predicate (000028's
 	// reject_configuration_change_with_history): any fitment, inspection or
 	// reading row is history the trigger would refuse to move the unit's
-	// configuration or kind out from under (D4). Keep the two agreeing —
-	// a unit the screen shows as "has history" must be one the trigger
+	// configuration or kind out from under (D4). Keep the two agreeing.
+	// A unit the screen shows as "has history" must be one the trigger
 	// would also refuse.
 	//
 	// hasOdometer below is the same tension: it is the exact negation of
 	// app.require_odometer_where_unit_has_one's own exemption (000025's
 	// fitment_odometer_matches_unit_kind exempts a NULL kind and a TRAILER).
-	// One predicate stated in two languages — should either move without the
+	// One predicate stated in two languages. Should either move without the
 	// other, the fit form hides the odometer field for a unit whose write
 	// TY009 then refuses, or asks for one no rule wants.
 	err := tx.QueryRow(ctx, `
@@ -203,7 +203,7 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 
 	// Rule 5's removal-reason vocabulary: the newest row not in the future
 	// (FR-CFG-051), the identical lookup app.remove_tyre's own SELECT performs
-	// (000033) — read here so the screen can render the picker before a
+	// (000033), read here so the screen can render the picker before a
 	// removal is ever opened. An absent key is absence, not a fault: the
 	// tenant simply has not configured reasons yet.
 	u.RemovalReasons = []string{}
@@ -218,12 +218,12 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 			return unitJSON{}, fmt.Errorf("decoding removal reasons: %w", err)
 		}
 	case errors.Is(err, pgx.ErrNoRows):
-		// configured nowhere yet — leave the empty slice above.
+		// configured nowhere yet, so leave the empty slice above.
 	default:
 		return unitJSON{}, fmt.Errorf("loading removal reasons: %w", err)
 	}
 
-	// One row per position with its open fitment if any — the same LEFT JOIN
+	// One row per position with its open fitment if any, the same LEFT JOIN
 	// chain capture.go's loadCaptureContext already establishes for the
 	// driver's context, reused here for the manager's read (D4).
 	u.Positions = []unitPositionJSON{}
@@ -291,7 +291,7 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 }
 
 // getUnit is the manager-facing unit read (D4, D6). A read answers a missing
-// or RLS-hidden unit as 404 not_found — never TY012, which is the write
+// or RLS-hidden unit as 404 not_found, never TY012, which is the write
 // path's own vocabulary for the identical condition (000033's fit_tyre and
 // friends); this handler writes nothing, so it composes its own refusal
 // rather than reaching for a write-surface code.
@@ -330,7 +330,7 @@ func getUnit(s *store.Store) http.HandlerFunc {
 
 // listUnitFitments is FR-FIT's history read (D6): every fitment the unit has
 // ever carried, most recent first, open and closed alike. No existence check
-// on the unit beyond its scope relation — app.fitment carries its own
+// on the unit beyond its scope relation, because app.fitment carries its own
 // tenant_id, and an id outside the actor's depots (unitSource) or tenant
 // matches no rows: an empty list, not a 404. Only the single-unit read
 // composes that refusal.
@@ -405,7 +405,7 @@ func listUnitFitments(s *store.Store) http.HandlerFunc {
 // screen this slice builds, so the query parameter is refused rather than
 // silently ignored.
 //
-// Depot scope is deliberately not applied here, mirroring listTyres — TYRE-76
+// Depot scope is deliberately not applied here, mirroring listTyres. TYRE-76
 // owns widening or narrowing this read, not this slice (D6).
 func listOpenFitments(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -466,7 +466,7 @@ func listOpenFitments(s *store.Store) http.HandlerFunc {
 // listDepots is the dispatch and return forms' picker (D6). Gated on
 // ManageAssets, like the other asset reads (listAxleConfigurations,
 // listTyres): a depot list is only useful to someone who may act on it.
-// Only active depots are returned — a retired depot is not a valid
+// Only active depots are returned. A retired depot is not a valid
 // destination for a new dispatch. An unrecognised ?type= reaches the cast
 // and is refused as 22P02, mapped in submitStatus (TYRE-128 decision 7):
 // the enum lives in the database and Go holds no copy of it.
@@ -513,12 +513,12 @@ func listDepots(s *store.Store) http.HandlerFunc {
 // send leaves its column exactly as it stands, which is what lets a form
 // submit only what someone actually changed. The two nullable ids also take
 // "" to clear, the one intent a bare pointer cannot express; the five text
-// columns have no clear at all — a unit's description is edited through this
+// columns have no clear at all. A unit's description is edited through this
 // surface, never emptied.
 //
 // configuration_id and unit_kind are deliberately not fields here, and
-// decodeJSONStrict refuses any key matching none of them — as encoding/json
-// matches, case-insensitively, so no spelling of either gets through — which
+// decodeJSONStrict refuses any key matching none of them, as encoding/json
+// matches, case-insensitively, so no spelling of either gets through. That
 // is what keeps TY008 (000028) unreachable from the API (D5,
 // docs/delivery-history.md §B5).
 type patchUnitRequest struct {
@@ -535,8 +535,8 @@ type patchUnitRequest struct {
 }
 
 // patchUnitArgs is the validated request. The two ids are carried as text
-// rather than *uuid.UUID because one parameter has to express three states —
-// unchanged, cleared, set — and NULL is already taken by "unchanged".
+// rather than *uuid.UUID because one parameter has to express three states,
+// unchanged, cleared and set, and NULL is already taken by "unchanged".
 type patchUnitArgs struct {
 	fleetNumber, registration, description, bodyType, unitDescriptor *string
 	homeDepotID, operatingGroupID                                    *string
@@ -598,7 +598,7 @@ func (b patchUnitRequest) validate() (patchUnitArgs, error) {
 	// fleet_number is NOT NULL (000001), so a blank one is asking for
 	// something the column cannot hold; answering "unchanged" would hide that
 	// from whoever typed it. The other four text fields take text()'s
-	// reading, where blank is absence — D5 gives them no clear.
+	// reading, where blank is absence. D5 gives them no clear.
 	if b.FleetNumber != nil {
 		fleetNumber := strings.TrimSpace(*b.FleetNumber)
 		if fleetNumber == "" {
@@ -642,25 +642,25 @@ func (b patchUnitRequest) validate() (patchUnitArgs, error) {
 // patchUnit is FR-VEH-041's descriptive edit (D5, ADR-0013 decision 1): one
 // parameterised UPDATE, because no rule governs these columns. Fleet-number
 // uniqueness is a constraint that already states itself (23505 →
-// conflictCodes), and the two rules that do govern a unit — its configuration
-// and kind once it has history (TY008), and its status (FR-VEH-005) — are
-// reached through neither this body nor this statement.
+// conflictCodes), and the two rules that do govern a unit are reached through
+// neither this body nor this statement: its configuration and kind once it
+// has history (TY008), and its status (FR-VEH-005).
 //
 // The UPDATE runs even when the body names no column, because it is doing two
-// further jobs. It is the existence check — RLS is what makes "no such unit"
-// and "another tenant's unit" the same 404 (ADR-0011) — and its row lock is
-// what serialises two concurrent tag replacements on one unit, which a bare
+// further jobs. It is the existence check, where RLS is what makes "no such
+// unit" and "another tenant's unit" the same 404 (ADR-0011), and its row lock
+// is what serialises two concurrent tag replacements on one unit, which a bare
 // SELECT in its place would not. A tags-only edit therefore still touches the
 // vehicle row, and writes no audit entry for it: app.audit_row_change returns
 // early when an UPDATE leaves the row identical, so nothing is logged that
 // claims a column moved when none did. The tag map rows it does change are
-// not audited — vehicle_audited is on app.vehicle alone (000035).
+// not audited, because vehicle_audited is on app.vehicle alone (000035).
 //
 // The UPDATE's scope predicate is unitSource's (FR-AUT-008); the read-back is
-// through app.vehicle deliberately — the write was authorised against the row
-// as it stood, so the editor reads back what they wrote. A depot-scoped editor
-// cannot move a unit out of their own depots at all: the home depot is a
-// tenant-scope act (TYRE-222 rule 1, below).
+// through app.vehicle deliberately, because the write was authorised against
+// the row as it stood, so the editor reads back what they wrote. A
+// depot-scoped editor cannot move a unit out of their own depots at all: the
+// home depot is a tenant-scope act (TYRE-222 rule 1, below).
 func patchUnit(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -683,7 +683,7 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 				return err
 			}
 			// TYRE-222 rule 1 (owner, 7 Sep 2026): moving a unit between
-			// depots — or out of one, which "" means — is a tenant-scope act.
+			// depots, or out of one, which "" means, is a tenant-scope act.
 			// Composed rather than raised through require(): the actor holds
 			// ManageAssets and the refusal is about this one field, so
 			// msgForbidden's fixed sentence would say the wrong thing.
@@ -699,7 +699,7 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 			// COALESCE for the text columns: a nil parameter leaves the column
 			// alone. The two ids cannot use it, because NULL is a value they
 			// may legitimately be set to and COALESCE would read that as
-			// "unchanged" — hence the three-way CASE.
+			// "unchanged", hence the three-way CASE.
 			tag, err := tx.Exec(ctx, `
 				UPDATE app.vehicle SET
 				       fleet_number       = COALESCE($2::text, fleet_number),
@@ -750,7 +750,7 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 // this surface that deletes a row, and the named exception to ADR-0013
 // decision 7: a map row is a unit's current label rather than a record of
 // anything that happened, which is why 000035 restores DELETE for
-// app.vehicle_tag_map alone — a tag NAME is shared across units, and one
+// app.vehicle_tag_map alone. A tag NAME is shared across units, and one
 // unit's edit must never delete the name the rest of the fleet still carries.
 //
 // tenant_id is app.current_tenant_id() and never the request's (ADR-0013
@@ -788,11 +788,11 @@ type setUnitStatusRequest struct {
 }
 
 // setUnitStatus is FR-VEH-005/FR-VEH-006's write. Status is deliberately not
-// a column the PATCH above updates: rules govern the move — DISPOSED is
-// terminal, a disposal needs an empty unit (INV-2) and a stated reason, a
-// no-op is refused so the audit log carries no row claiming a change that did
-// not happen — and a bare UPDATE walks past every one of them, so the whole
-// transition is app.set_vehicle_status's (000035).
+// a column the PATCH above updates, because rules govern the move: DISPOSED
+// is terminal, a disposal needs an empty unit (INV-2) and a stated reason,
+// and a no-op is refused so the audit log carries no row claiming a change
+// that did not happen. A bare UPDATE walks past every one of them, so the
+// whole transition is app.set_vehicle_status's (000035).
 //
 // Depot scope for a non-ScopeTenant actor is the write's own check (FR-AUT-008,
 // TYRE-162); beyond that, this handler narrows nothing but the shape: an
@@ -816,9 +816,9 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 		}
 		// maxTextLen is the same transport bound every free-text field on a
 		// write carries (fitments.go's removeFitment, retreads.go's
-		// logRetreadReturn) — reason is
-		// discarded unread by app.set_vehicle_status today, but the cap
-		// belongs here regardless of whether the function keeps it.
+		// logRetreadReturn). The reason is discarded unread by
+		// app.set_vehicle_status today, but the cap belongs here regardless
+		// of whether the function keeps it.
 		reason, err := text("reason", body.Reason)
 		if refuseInvalid(w, r, err) {
 			return
