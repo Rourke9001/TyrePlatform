@@ -17,7 +17,7 @@ import (
 )
 
 // The drivers read is FR-INS-053's chain as a list: the unit's own current
-// drivers first, then — for a trailer in an open rig — the motive's, each row
+// drivers first, then, for a trailer in an open rig, the motive's, each row
 // saying which unit the assignment is on. The horse's driver appears once
 // for the horse (U4: the horse's own assignment satisfies the capture
 // predicate directly, so the rig leg adds no second row for it), and a
@@ -81,7 +81,7 @@ func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 
 	// Reactivated before the rig is ended: the two filters remove the same
 	// row, so leaving the driver inactive here would let the rig end prove
-	// nothing — the list would already be down to one either way.
+	// nothing, the list would already be down to one either way.
 	_, err = admin.Exec(ctx, `UPDATE app.app_user SET active = true WHERE id = $1`, horseDriver)
 	require.NoError(t, err)
 	rec = get(t, h, "/api/vehicles/"+trailerID.String()+"/drivers", tenantID.String(), controller.String())
@@ -122,7 +122,7 @@ func TestUnitTasksListsOpenAndEscalatedWithAssignee(t *testing.T) {
 	escalated := plantTask("ESCALATED", "2099-06-01T21:59:59Z", nil, nil)
 	cancelledReason := "test"
 	// A CANCELLED task must carry a reason (cancellation_is_explained, 000012)
-	// and must not appear in the read below — that is this row's whole point.
+	// and must not appear in the read below, that is this row's whole point.
 	_ = plantTask("CANCELLED", "2099-06-01T21:59:59Z", nil, &cancelledReason)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -156,7 +156,7 @@ func TestUnitTasksListsOpenAndEscalatedWithAssignee(t *testing.T) {
 }
 
 // Both reads are ViewFleet's (spec U2): a TECHNICIAN reads them, a DRIVER
-// does not — the driver's own list is /api/my/tasks.
+// does not, the driver's own list is /api/my/tasks.
 func TestUnitTaskReadsAreCapabilityGated(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -399,7 +399,7 @@ func TestScheduleTaskShapeAndDate(t *testing.T) {
 // ManageAssignments gates the write (spec U2): a TECHNICIAN holds ViewFleet
 // alone and is refused; a DRIVER is refused. The positive control is
 // TestScheduleTaskIsSeenByTheDriverAndClosedBySubmit above, where a
-// CONTROLLER posts the same body and is answered 201 — so a 403 here is the
+// CONTROLLER posts the same body and is answered 201, so a 403 here is the
 // capability and not the route refusing everyone.
 func TestScheduleTaskIsCapabilityGated(t *testing.T) {
 	ctx := context.Background()
@@ -422,7 +422,7 @@ func TestScheduleTaskIsCapabilityGated(t *testing.T) {
 // the first probe reaches the insert and dies as 23503 on
 // app.inspection_task's composite tenant FKs (000012:366-369, on 000004's
 // parent keys) because the row stamps tenant B's tenant_id against tenant
-// A's vehicle — FK checks bypass RLS. The second dies earlier and as TY018:
+// A's vehicle. FK checks bypass RLS. The second dies earlier and as TY018:
 // tenant A's driver holds no assignment to tenant B's unit, so
 // app.user_can_capture answers false before any row is written. Each
 // tenant's own identical call is the control that the refusal was
@@ -458,7 +458,7 @@ func TestScheduleTaskCrossTenantIsInvisible(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, "the control: the unit's own tenant schedules it: %s", rec.Body.String())
 
 	// Tenant B's own control for its own probe: the same controller, on the
-	// same unit, with an assignee of its own succeeds — so the second refusal
+	// same unit, with an assignee of its own succeeds, so the second refusal
 	// was the assignee's tenant and not something standing about horseB.
 	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
 	assignVehicleDriver(t, ctx, admin, tenantB, horseB, driverB)

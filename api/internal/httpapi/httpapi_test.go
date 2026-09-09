@@ -84,7 +84,7 @@ func plantTenantWithVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, 
 }
 
 // plantTenantInZone is plantTenantWithVehicle for a tenant that is not on the
-// runner's clock — the only way to prove a date was computed in the tenant's
+// runner's clock, the only way to prove a date was computed in the tenant's
 // zone rather than coincidentally matching UTC.
 func plantTenantInZone(t *testing.T, ctx context.Context, admin *pgx.Conn, label, tz string) (uuid.UUID, string) {
 	t.Helper()
@@ -162,7 +162,7 @@ func plantUser(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid
 //
 // It deliberately plants no vehicle_driver row. FR-AUT-005's assignment
 // names a specific user, and the only user this fixture could name is one it
-// invents — which would satisfy nothing the caller's actor actually is,
+// invents, which would satisfy nothing the caller's actor actually is,
 // since the caller plants its own actors afterwards via plantUser. Callers
 // that need the assignment call assignVehicleDriver once they hold the
 // driver's id.
@@ -271,11 +271,11 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 		tenantID)
 	require.NoError(t, err)
 
-	// A tyre with real money on it — proves the monetary-field ban is an
-	// actual projection, not a vacuous absence — fitted to the LEFT running
-	// position, with two backdated inspections so previousGoverningMm and the
-	// cohort wear rate are real numbers rather than nulls that would satisfy
-	// a presence-only assertion vacuously. Attributed to a throwaway driver
+	// A tyre with real money on it, fitted to the LEFT running position, with
+	// two backdated inspections so previousGoverningMm and the cohort wear
+	// rate are real numbers rather than nulls that would satisfy a
+	// presence-only assertion vacuously. This proves the monetary-field ban
+	// is an actual projection, not a vacuous absence. Attributed to a throwaway driver
 	// that is never used to authenticate anything.
 	historyDriver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 
@@ -334,11 +334,11 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 
 // assignVehicleDriver gives userID FR-AUT-005's current assignment to
 // vehicleID, backdated a day so app.v_current_assignment's "from today"
-// window is unambiguously satisfied regardless of what hour the suite runs
-// — the same shape TestDriverVehiclesAreAssignmentScoped uses below.
+// window is unambiguously satisfied regardless of what hour the suite runs,
+// the same shape TestDriverVehiclesAreAssignmentScoped uses below.
 // Deliberately not folded into plantCaptureFixture: the driver being
 // assigned here is created by the caller, per role, inside the test's own
-// loop — after the fixture has already returned — so the fixture has no
+// loop, after the fixture has already returned, so the fixture has no
 // user_id to assign to yet.
 func assignVehicleDriver(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID, userID uuid.UUID) {
 	t.Helper()
@@ -355,7 +355,7 @@ func TestVehiclesScopedToHeaderTenant(t *testing.T) {
 	tenantA, fleetA := plantTenantWithVehicle(t, ctx, admin, "a")
 	_, fleetB := plantTenantWithVehicle(t, ctx, admin, "b")
 	// CONTROLLER because /api/vehicles requires ViewFleet, which a DRIVER
-	// does not hold — it carries CaptureInspection alone.
+	// does not hold, it carries CaptureInspection alone.
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleController)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -382,7 +382,7 @@ func TestVehiclesScopedToHeaderTenant(t *testing.T) {
 // relations already project the columns (app.v_depot_vehicle is SELECT v.*,
 // 000014), so the plain CONTROLLER scope (app.vehicle, ScopeTenant) is
 // enough to prove the shape. The driver's GET /api/my/vehicles is asserted
-// unchanged in the same test — the shared shape is not widened for one
+// unchanged in the same test, the shared shape is not widened for one
 // consumer (spec U13, docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md).
 func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
 	ctx := context.Background()
@@ -437,8 +437,8 @@ func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
 	require.Equal(t, "TRAILER", *trailerKind)
 	require.Equal(t, "ACTIVE", trailerStatus)
 
-	// GET /api/my/vehicles keeps vehicleJSON's own shape — exactly id,
-	// fleetNumber, registration — no new keys. Compared as a key set, not
+	// GET /api/my/vehicles keeps vehicleJSON's own shape: exactly id,
+	// fleetNumber, registration, no new keys. Compared as a key set, not
 	// against a fixed struct, so field order carries no meaning here.
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	assignVehicleDriver(t, ctx, admin, tenantID, plainID, driver)
@@ -544,7 +544,7 @@ func TestBrandingWithoutTenantIsUnauthorized(t *testing.T) {
 }
 
 // The refusal paths never reach the database, so a nil store keeps these
-// runnable without one — they must not silently skip in environments where
+// runnable without one. They must not silently skip in environments where
 // only the unit tests run.
 func TestVehiclesWithoutTenantIsUnauthorized(t *testing.T) {
 	h := httpapi.New(nil, httpapi.HeaderActorResolver{})
@@ -568,8 +568,8 @@ func TestHealthzNeedsNoTenant(t *testing.T) {
 
 // The refusal envelope as a client meets it (ADR-0012). chi answers an
 // unrouted path and a wrong method itself, in text/plain, unless the router
-// registers handlers — a contract every later endpoint inherits does not ship
-// with two exceptions to it.
+// registers handlers. That is a contract every later endpoint inherits, and
+// it must not ship with two exceptions to it.
 func TestRefusalsCarryTheEnvelope(t *testing.T) {
 	h := httpapi.New(nil, nil)
 
@@ -762,7 +762,7 @@ func TestFleetListIsCapabilityGated(t *testing.T) {
 
 // ADR-0011: PLATFORM_ADMIN rows carry a NULL tenant_id, so the actor lookup
 // inside a tenant-bound transaction cannot see them. The refusal is layer 2,
-// unresolvable actor — the capability gate is never reached, and the client
+// unresolvable actor, the capability gate is never reached, and the client
 // cannot tell this apart from a user that does not exist.
 func TestPlatformAdminCannotActInATenant(t *testing.T) {
 	ctx := context.Background()
@@ -784,7 +784,7 @@ func TestPlatformAdminCannotActInATenant(t *testing.T) {
 
 // FR-AUT-006/008: the depot roles read the fleet through the depot predicate.
 // The negative case is a vehicle homed at a *different* depot, not one homed
-// nowhere — a NULL home_depot_id is excluded by any depot join at all, so it
+// nowhere, a NULL home_depot_id is excluded by any depot join at all, so it
 // cannot tell a working predicate from a broken one.
 func TestFleetListIsDepotScopedForDepotRoles(t *testing.T) {
 	ctx := context.Background()

@@ -47,7 +47,7 @@ func TestRateLimiterWindowTurnsOver(t *testing.T) {
 // TestSubmitRateLimitTracksTwoIndependentAxes pins NFR-SEC-007's "per account
 // and per source address": one account rotating source addresses must not
 // multiply its own limit, and one address rotating accounts must not
-// multiply the address limit either — each axis is a separate counter,
+// multiply the address limit either, each axis is a separate counter,
 // never a combined key.
 func TestSubmitRateLimitTracksTwoIndependentAxes(t *testing.T) {
 	t.Run("one account from two addresses shares the account counter", func(t *testing.T) {
@@ -76,7 +76,7 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 	tests := []struct {
 		name string
 		// Each entry is added as its own X-Forwarded-For header LINE (via
-		// Header.Add, in order), not comma-joined here — clientAddress says
+		// Header.Add, in order), not comma-joined here, clientAddress says
 		// why both header forms must read the same. A nil/empty slice means
 		// the header is not sent at all.
 		xff         []string
@@ -233,9 +233,9 @@ func TestSubmitRateLimitRefusesWithoutIdentity(t *testing.T) {
 
 // TestRequireActorRunsBeforeInlineRateLimitMiddleware is empirical proof that
 // the identity submitRateLimit depends on is genuinely present: it builds
-// the same shape New() wires — requireActor registered with r.Use on the
+// the same shape New() wires: requireActor registered with r.Use on the
 // /api group, the rate limiter attached with an inline r.With() on one
-// route — and shows the identity requireActor resolves is visible inside
+// route. It shows the identity requireActor resolves is visible inside
 // the inline middleware. Were chi's ordering the other way round,
 // submitRateLimit would find no identity and refuse with 500 before the
 // no-op handler below ever ran.

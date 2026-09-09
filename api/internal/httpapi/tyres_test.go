@@ -54,7 +54,7 @@ func plantTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid
 }
 
 // plantScrappedTyre plants a tyre with no purchase price that has already
-// left the estate — the case that distinguishes app.v_tyre_awaiting_cost's
+// left the estate, the case that distinguishes app.v_tyre_awaiting_cost's
 // actual predicate (migration 000012: purchase_price IS NULL AND state NOT
 // IN ('SCRAPPED','LOST','SOLD')) from a bare "purchase_price IS NULL" check.
 func plantScrappedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, code string) uuid.UUID {
@@ -173,7 +173,7 @@ func TestListTyresCodeAndDateLookup(t *testing.T) {
 	rec = get(t, h, "/api/tyres?on="+on, tenantID.String(), controller.String())
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 
-	// A malformed on is a client mistake refused before any query runs — not
+	// A malformed on is a client mistake refused before any query runs, not
 	// a 500 from Postgres failing to cast it to ::date (ADR-0013 decision 5).
 	rec = get(t, h, "/api/tyres?code="+code+"&on=not-a-date", tenantID.String(), controller.String())
 	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
@@ -183,7 +183,7 @@ func TestListTyresCodeAndDateLookup(t *testing.T) {
 	require.Equal(t, "on must be a date as YYYY-MM-DD", ref.Message)
 }
 
-// CFL-002: listTyres's doc comment (tyres.go — the awaitingCost filter and
+// CFL-002: listTyres's doc comment (tyres.go, the awaitingCost filter and
 // the per-row flag must agree) is what this pins, for both a costed and a
 // disposed tyre.
 func TestListTyresAwaitingCostFilter(t *testing.T) {
@@ -271,13 +271,13 @@ type receivedTyresBody struct {
 }
 
 // plantGeneratedPolicyTenant is a tenant under D12's GENERATED display-code
-// scheme (BAC's own policy) — the counter row app.receive_tyres's issuing
+// scheme (BAC's own policy), the counter row app.receive_tyres's issuing
 // branch reads is seeded here rather than relying on a seed fixture, per
 // plantTenant's own rationale: the Go suite runs against a migrated but
 // unseeded database.
 //
 // display_code_counter.tenant_id (000030) is the one tenant-scoped FK in the
-// whole schema with no ON DELETE CASCADE — every other one has it. Without
+// whole schema with no ON DELETE CASCADE. Every other one has it. Without
 // this explicit cleanup, plantTenant's own t.Cleanup (already registered)
 // tries to delete the tenant first and dies on
 // display_code_counter_tenant_id_fkey; t.Cleanup runs LIFO, so registering
@@ -329,7 +329,7 @@ func TestReceiveTyresHappyPath(t *testing.T) {
 }
 
 // TYRE-174 / ADR-0013 decision 5: a value that cannot be read as its type is
-// refused in Go before the transaction opens, naming the field — the same
+// refused in Go before the transaction opens, naming the field, the same
 // dateField every sibling date already goes through, for the reason
 // instantField's note gives (fitments.go). "yesterday" is deliberately NOT
 // a probe value: Postgres accepts it as a date literal (lane 5's note).
@@ -372,7 +372,7 @@ func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 	require.Equal(t, "2026-09-02", received)
 }
 
-// Gated on ManageAssets like the other write paths — a TECHNICIAN holds
+// Gated on ManageAssets like the other write paths, a TECHNICIAN holds
 // ViewFleet and no more.
 func TestReceiveTyresIsCapabilityGated(t *testing.T) {
 	ctx := context.Background()
@@ -387,7 +387,7 @@ func TestReceiveTyresIsCapabilityGated(t *testing.T) {
 }
 
 // D12: the display-code policy is enforced by app.receive_tyres itself
-// (TY011), and its own message is forwarded verbatim (ADR-0012's TY class) —
+// (TY011), and its own message is forwarded verbatim (ADR-0012's TY class),
 // this pins both directions of the policy through the handler.
 func TestReceiveTyresDisplayCodePolicyRefusals(t *testing.T) {
 	ctx := context.Background()
@@ -446,7 +446,7 @@ func TestReceiveTyresDuplicateDisplayCodeIsConflict(t *testing.T) {
 
 // An out-of-range quantity must reach app.receive_tyres and be refused as its
 // own TY011, not be silently coerced to the COALESCE default of 1 by
-// payload()'s omission logic — the bound is the function's rule, and a client
+// payload()'s omission logic, the bound is the function's rule, and a client
 // that sends garbage is told so rather than having a tyre minted from it
 // (ADR-0013 decision 5: the bound is not re-checked in Go, but it must not be
 // swallowed either). Zero is the case that made Quantity a pointer: it is
@@ -519,7 +519,7 @@ func TestSetTyreCostIsCapabilityGated(t *testing.T) {
 }
 
 // app.set_tyre_cost's own TY013: a second costing is refused rather than
-// silently overwriting provenance already recorded (000031's own comment —
+// silently overwriting provenance already recorded (000031's own comment,
 // a correction is a decision this surface does not take).
 func TestSetTyreCostTwiceIsRefused(t *testing.T) {
 	ctx := context.Background()
@@ -618,12 +618,12 @@ func TestTyreWriteMalformedIDIsBadRequest(t *testing.T) {
 
 // The cross-tenant probe (B4's TestWriteAimedAtAnotherTenantIsRefused shape,
 // adapted): every function-backed write here takes the tyre id from the URL
-// and the tenant only from the session, so RLS's USING half — not WITH CHECK
-// — is what has to refuse a tenant-2 actor naming a tenant-1 id. All four
+// and the tenant only from the session, so RLS's USING half, not WITH CHECK,
+// is what has to refuse a tenant-2 actor naming a tenant-1 id. All four
 // functions answer 422 TY012 "no such tyre in this fleet" for both a
 // genuinely missing id and one RLS has hidden (db/tests/004_tests.sql
-// section 39l/39m), so each fixture below is planted so that a leak — RLS
-// letting the row through — would make the call SUCCEED instead of merely
+// section 39l/39m), so each fixture below is planted so that a leak, RLS
+// letting the row through, would make the call SUCCEED instead of merely
 // changing the error text: tenant A's tyre is deliberately uncosted for the
 // costing probe, deliberately REMOVED (a legal SOLD source) for the disposal
 // probe and (with tenant B's own cap and retreader) for the dispatch probe,
@@ -679,7 +679,7 @@ func TestTyreWriteCrossTenantIsInvisible(t *testing.T) {
 	// tenant B's own active RETREADER under tenant B's own cap of 2, so every
 	// branch app.dispatch_tyre checks after the tyre lookup passes. The
 	// message is pinned as well as the code because a leak answers a
-	// DIFFERENT refusal rather than this one reworded — past the lookup it
+	// DIFFERENT refusal rather than this one reworded. Past the lookup it
 	// would reach retread_job's composite (tenant_id, tyre_id) FK, whose pair
 	// is unsatisfiable across tenants, and answer 23503.
 	t.Run("dispatch", func(t *testing.T) {
@@ -740,7 +740,7 @@ type dispatchedBody struct {
 	RetreadJobID *string `json:"retreadJobId"`
 }
 
-// plantRemovedTyre is plantTyre for a casing already off a unit — the one
+// plantRemovedTyre is plantTyre for a casing already off a unit, the one
 // state app.dispatch_tyre accepts (Appendix C lists no dispatch out of
 // stock, 000033).
 func plantRemovedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, code string) uuid.UUID {
@@ -798,7 +798,7 @@ func tenantToday(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uu
 }
 
 // FR-FIT-011: sending a casing to the retreader is what opens the job the
-// retread queue reads, so the two are asserted together — the id the
+// retread queue reads, so the two are asserted together, the id the
 // dispatch answers is the id the queue lists, and it reads zero days out
 // because it left today.
 func TestDispatchToRetreaderOpensAJob(t *testing.T) {
@@ -836,8 +836,8 @@ func TestDispatchToRetreaderOpensAJob(t *testing.T) {
 
 // U2: Appendix C lists no dispatch out of stock, so a casing still in the
 // store is refused by the transition table rather than by anything here. The
-// cap is planted so that state refusal is the only one this request can meet
-// — without it an unconfigured policy would answer TY015 and the test would
+// cap is planted so that state refusal is the only one this request can meet,
+// without it an unconfigured policy would answer TY015 and the test would
 // pass for the wrong reason.
 func TestDispatchFromInStockIsTY012(t *testing.T) {
 	ctx := context.Background()
@@ -866,7 +866,7 @@ func TestDispatchFromInStockIsTY012(t *testing.T) {
 // BR-FIT-009 on the way out, and the fail-without-it test for TY015's entry
 // in submitStatus: remove that entry and this answers 500. The message is
 // pinned as well as the code because "no retread policy is configured for
-// this fleet" is also TY015 — a code-only assertion would pass against a
+// this fleet" is also TY015, a code-only assertion would pass against a
 // tenant that merely has no policy row, which is the opposite claim.
 func TestDispatchAtCapIsTY015(t *testing.T) {
 	ctx := context.Background()
@@ -896,8 +896,8 @@ func TestDispatchAtCapIsTY015(t *testing.T) {
 
 // FR-FIT-013's receipt back, over the round trip a breakdown supplier makes.
 // The dispatch is driven through the API too, so the absent retreadJobId is
-// asserted on the answer that actually produces one — a breakdown dispatch
-// opens no retread job (000033) — and the return then puts the casing back
+// asserted on the answer that actually produces one, a breakdown dispatch
+// opens no retread job (000033), and the return then puts the casing back
 // in stock at the store it names.
 func TestReturnToStockFromBreakdownSupplier(t *testing.T) {
 	ctx := context.Background()

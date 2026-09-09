@@ -332,7 +332,7 @@ func TestObservationApplyAndDismiss(t *testing.T) {
 
 // FR-AUT-008: a rig is homed where its horse is, so a report on a motive
 // outside the actor's depots is not theirs to see or act on. The controller
-// reading and writing the same report is the control — without it, a handler
+// reading and writing the same report is the control. Without it, a handler
 // that refused everyone would pass.
 func TestObservationSurfaceIsDepotScoped(t *testing.T) {
 	ctx := context.Background()
@@ -362,7 +362,7 @@ func TestObservationSurfaceIsDepotScoped(t *testing.T) {
 
 	// A report on each horse, so an empty list is the narrowing and not an
 	// empty fixture. The observed set is the motive alone, which is the one
-	// resolution that opens no rig (U10) — the controller's apply below is
+	// resolution that opens no rig (U10), the controller's apply below is
 	// therefore also the null-result path's only proof.
 	mineWarning, _, _ := plantReport(t, ctx, admin, tenantID, mine, driver,
 		[]uuid.UUID{mine}, mineTrailer)
@@ -403,7 +403,7 @@ func TestObservationSurfaceIsDepotScoped(t *testing.T) {
 // FR-AUT-008 again, on the one capture the PWA cannot produce: an inspection
 // addressed to a TRAILER of the rig. A rig is homed where its horse is (ledger
 // ruling, 7 Sep 2026), so the trailer's depot manager is not the one who
-// answers for a coupling change on a horse based elsewhere — narrowing on the
+// answers for a coupling change on a horse based elsewhere. Narrowing on the
 // addressed unit would hand them a horse in another depot.
 func TestObservationSurfaceHomesTheRigOnItsMotive(t *testing.T) {
 	ctx := context.Background()
@@ -463,7 +463,7 @@ func TestObservationSurfaceHomesTheRigOnItsMotive(t *testing.T) {
 // A JSON null in one driver's observed array must not take the list down for
 // everyone who can see that motive. 000041 forwards the phone's array as raw
 // text and its ::uuid cast lets a null through, and a report that will not
-// render is one no controller can reach to dismiss — so the row is projected
+// render is one no controller can reach to dismiss, so the row is projected
 // with the unusable element dropped, and both answers stay available.
 func TestObservationListRendersANullObservedID(t *testing.T) {
 	ctx := context.Background()

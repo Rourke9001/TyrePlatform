@@ -11,7 +11,7 @@ import (
 // cases cannot be reached by driving the handler: app.fit_tyre answers
 // '[]'::jsonb, so nothing this side can make its warnings column arrive as a
 // SQL NULL or as a jsonb null literal. This is the only place those arms run,
-// and what each asserts is the same property — the caller is handed a list it
+// and what each asserts is the same property, the caller is handed a list it
 // can take len() of, never a nil the screens would read as an absent one.
 func TestDecodeFitWarningsNeverAnswersNil(t *testing.T) {
 	for _, tc := range []struct {
@@ -50,8 +50,8 @@ func TestDecodeFitWarningsNeverAnswersNil(t *testing.T) {
 // app.rotate_tyres reads a move's destination with COALESCE((m->>'to_vehicle_id')::uuid,
 // p_vehicle), and ->> answers SQL NULL for both an absent key and a JSON null,
 // so no request driven through the handler can tell the two apart. The shape
-// still matters — the function's default is the one place the anchor is
-// filled in (U15, U17) — and this is the only place able to assert it.
+// still matters, the function's default is the one place the anchor is
+// filled in (U15, U17), and this is the only place able to assert it.
 func TestRotatePayloadNamesADestinationOnlyWhenTheCallerDid(t *testing.T) {
 	anchored := "11111111-1111-4111-8111-111111111111"
 	crossing := "22222222-2222-4222-8222-222222222222"
