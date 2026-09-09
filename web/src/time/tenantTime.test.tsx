@@ -90,7 +90,7 @@ describe("formatTenantDate", () => {
 // The cache is keyed per zone; tenantDateFormatter's own comment
 // (tenantTime.ts) says why. Reusing one instance is the optimisation, but
 // the assertion that matters is the second one: a wrong key would render
-// every tenant in the first tenant's zone, a far worse defect than the
+// every tenant in the first tenant's zone (rule 6), a far worse defect than the
 // construction cost the cache removes.
 describe("tenantDateFormatter", () => {
   const instant = "2026-01-01T23:00:00Z";
