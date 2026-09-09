@@ -7,7 +7,7 @@ import json
 # (CHG-071), so the tipper/tanker/tautliner entries collapsed into these six.
 #
 # Status per CHG-072: BAC confirmed it runs only what its own sheets show.
-# UNVERIFIED is not "proposed" — nobody proposed anything (CFL-008).
+# UNVERIFIED is not "proposed". Nobody proposed anything (CFL-008).
 UNITS = [
  # code            name                 kind      status        axles: (class, dual?)
  ('HORSE_4X2',    'Truck tractor 4x2', 'HORSE',  'CONFIRMED',  [('STEER',False),('DRIVE',True)]),
@@ -34,7 +34,7 @@ L.append("-- Three tenants. Isolation must hold at n=2 (SRS Appendix H); the thi
 L.append("-- carries no acceptance data and exists so exploratory test data has a")
 L.append("-- home that is not the pilot tenant. BAC's rows reproduce Appendix E and")
 L.append("-- Appendix J to the cent, so anything typed into BAC during the POC has")
-L.append("-- to be found and unpicked before go-live — the sandbox is that cleanup")
+L.append("-- to be found and unpicked before go-live. The sandbox is that cleanup")
 L.append("-- avoided rather than deferred.")
 L.append("-- D12: BAC and Sandbox run the platform-issued mark (the pilot's stated")
 L.append("-- posture); Second Fleet stays FREE so the isolation control also proves")
@@ -58,8 +58,8 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
     L.append("-- seeded reading or historical dates would value as 'no policy configured'.")
     for k,v in [('tread_reading_count',3),
                 # TYRE-155 (owner, 6 Sep 2026): whether the capture app puts a
-                # spare cell on the sheet at all. Default yes — FR-INS-066 is a
-                # Must — but the right answer for a real fleet is unknown, so
+                # spare cell on the sheet at all. Default yes, as FR-INS-066 is
+                # a Must, but the right answer for a real fleet is unknown, so
                 # it is a key, not a constant (rule 5).
                 ('capture_spares', True),
                 ('spare_capture_scope','COMBINATION'),
@@ -92,16 +92,16 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
     L.append("-- CHG-111: threshold_policy is the one threshold source; no")
     L.append("-- removal_threshold_mm / warning_threshold_mm config key may exist.")
     L.append("-- Both retread and scrap sit at 4.0mm: BAC runs a single pull point")
-    L.append("-- today, and 4mm is its policy figure — never a legal claim (CFL-012).")
+    L.append("-- today, and 4mm is its policy figure, never a legal claim (CFL-012).")
     L.append("-- A tenant's FIRST policy rows carry the sentinel -infinity (SRS §5.1,")
     L.append("-- errata E1): the baseline asserts no date before which it did not apply,")
-    L.append("-- so as-at valuation for any historical date — including the 2021 survey")
-    L.append("-- rows — resolves to it rather than to 'no policy configured'. This is")
+    L.append("-- so as-at valuation for any historical date, including the 2021 survey")
+    L.append("-- rows, resolves to it rather than to 'no policy configured'. This is")
     L.append("-- the baseline FR-CFG-051 applies prospectively from, not a retroactive")
     L.append("-- change under it. Every deliberate change thereafter is a new dated row.")
     L.append("INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,scrap_threshold_mm,warning_threshold_mm,effective_from)")
     L.append(f"  VALUES (md5('{tid}thrpol-default')::uuid,'{tid}',4.0,4.0,6.0,'-infinity');")
-    L.append("-- CHG-038: retreads are not fitted to steer axles — fleet practice, not a")
+    L.append("-- CHG-038: retreads are not fitted to steer axles. Fleet practice, not a")
     L.append("-- legal claim (CHG-107 tracks the sign-off question). A seeded row, so the")
     L.append("-- rule is data the resolver can reach, not a comment. Part of the same")
     L.append("-- baseline as the default row, so it carries the same sentinel.")
@@ -116,7 +116,7 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
     L.append("-- unclassifiable, never silently compliant. TAG does carry a row: unlike")
     L.append("-- a spare it is a running road-contact position, and without a target its")
     L.append("-- readings would be unclassifiable and FR-INS-031a's capture-time warning")
-    L.append("-- silently disabled — latent until the first tag-axle trailer, then live.")
+    L.append("-- silently disabled, latent until the first tag-axle trailer, then live.")
     for cls,kpa in [('STEER',800),('DRIVE',750),('TRAILER',750),('TAG',750)]:
         L.append("INSERT INTO app.target_pressure (id,tenant_id,axle_class,target_kpa,warn_under_pct,critical_under_pct,warn_over_pct,critical_over_pct,effective_from)")
         L.append(f"  VALUES (md5('{tid}tgtp-{cls}')::uuid,'{tid}','{cls}',{kpa},10.0,20.0,10.0,20.0,'2024-01-01T00:00:00Z');")

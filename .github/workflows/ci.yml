@@ -35,7 +35,7 @@ jobs:
       # Actions are pinned to commit SHAs, not tags. A tag is a movable
       # pointer: whoever can push to the action's repository can repoint v7 at
       # new code that runs inside our job. This repo already refuses npm
-      # packages younger than 14 days (web/.npmrc) — an action is the same
+      # packages younger than 14 days (web/.npmrc). An action is the same
       # threat model with more privilege, because it executes rather than just
       # ships bytes. Renovate bumps these SHAs; the trailing comment is the
       # human-readable version it keys off (TYRE-50).
@@ -58,7 +58,7 @@ jobs:
           [ "$sha_a" = "$sha_b" ] || { echo "::error::seed generation is not deterministic"; exit 1; }
 
       # Same image `make db-migrate` uses locally, so a migration that works
-      # on a laptop works here — and schema_migrations versioning is exercised
+      # on a laptop works here, and schema_migrations versioning is exercised
       # on every build, not just in production.
       - name: Run migrations
         run: |
@@ -76,7 +76,7 @@ jobs:
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
 
       # NFR-SEC-005. This is the gate that matters. It runs as app_login, NOT
-      # as postgres — superusers bypass RLS (DEPLOYMENT NOTE at the end of
+      # as postgres. Superusers bypass RLS (DEPLOYMENT NOTE at the end of
       # db/migrations/000001_init.up.sql). Check 0 inside the suite asserts
       # this and aborts if it is not true.
       - name: Verification suite (as non-superuser)
@@ -100,8 +100,8 @@ jobs:
   api:
     name: Go
     runs-on: ubuntu-latest
-    # The store and httpapi tests are integration tests against RLS itself —
-    # a mocked database cannot fail a policy — so this job carries the same
+    # The store and httpapi tests are integration tests against RLS itself.
+    # A mocked database cannot fail a policy, so this job carries the same
     # migrated Postgres the database job uses. Seeds are not needed: the tests
     # plant their own tenants.
     services:
@@ -162,14 +162,14 @@ jobs:
       # not understand min-release-age installs anyway, with no warning.
       #
       # Both halves are needed. `npm config get` echoes back any key present in
-      # .npmrc whether or not npm understands it — npm 9.8.0 reports 14 just as
-      # happily as npm 12 does — so the value alone proves only that the file
+      # .npmrc whether or not npm understands it. npm 9.8.0 reports 14 just as
+      # happily as npm 12 does, so the value alone proves only that the file
       # was read. The version comparison is what proves the gate is enforced.
       - name: Release-age gate is active
         run: |
           cd web
           age=$(npm config get min-release-age)
-          [ "$age" = "14" ] || { echo "::error::min-release-age is '$age', expected 14 — web/.npmrc not read"; exit 1; }
+          [ "$age" = "14" ] || { echo "::error::min-release-age is '$age', expected 14. web/.npmrc not read"; exit 1; }
           have=$(npm -v); need=11.10.0
           [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" = "$need" ] \
             || { echo "::error::npm $have ignores min-release-age; need >= $need"; exit 1; }
@@ -178,7 +178,7 @@ jobs:
       # TYRE-21. The gate above proves npm *would* enforce the window on the
       # next resolution; this proves the lockfile actually in the tree does,
       # which is a different claim. The full rationale lives at the top of
-      # scripts/check-release-age.mjs — one canonical copy. Runs before
+      # scripts/check-release-age.mjs, one canonical copy. Runs before
       # install so a poisoned lockfile is rejected before any of it is
       # fetched.
       - name: Locked packages are old enough
@@ -187,7 +187,7 @@ jobs:
       # The same four commands `make lint` and `make test` run locally, spelled
       # out rather than delegated to make: the runner has no docker-based Go
       # toolchain to hand and this job is web-only. No `--if-present` on any of
-      # them — a missing script must fail the build, not pass silently
+      # them. A missing script must fail the build, not pass silently
       # (TYRE-49).
       - name: Format, lint, typecheck, test
         run: |

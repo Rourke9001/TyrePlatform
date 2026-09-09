@@ -243,7 +243,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL FR-EXC-036: expected [%] got [%]', expected, got; END IF;
   RAISE NOTICE 'PASS  FR-EXC-036 dual-mate mismatch -> %', got;
 
-  -- FR-EXC-022: pressure below 80% of target, resolved from target_pressure —
+  -- FR-EXC-022: pressure below 80% of target, resolved from target_pressure,
   -- the one pressure-target source (CHG-112)
   SELECT string_agg(d.combination_position || ' @ ' || d.pressure_kpa || 'kPa', ',') INTO got
     FROM app.v_combination_reading d
@@ -311,7 +311,7 @@ END $$;
 \echo '== 8d. search_path is pinned where names resolve at run time and left open where the planner inlines (TYRE-181)'
 -- Two halves, because the house rule is two rules. A plpgsql routine
 -- resolves every unqualified name when it runs, so without a pinned
--- search_path it follows the caller's path — the hijack 000004 pins
+-- search_path it follows the caller's path, the hijack 000004 pins
 -- refresh_governing_tread against. A LANGUAGE sql table function that a
 -- view is built over is inlined into the calling query, and a SET clause
 -- blocks that inlining and changes the plan of every such view (000036),
@@ -346,7 +346,7 @@ END $$;
 
 \echo '== 9. Combination numbering resolves to constituent units (BR-VEH-003, CFL-006)'
 -- The 1..26 projection is computed from combination_member.sequence plus each
--- unit's own position order — no stored mapping exists to drift from the
+-- unit's own position order. No stored mapping exists to drift from the
 -- composition (the table that held one is dropped, asserted in check 22).
 DO $$
 DECLARE got text;
@@ -387,7 +387,7 @@ END $$;
 
 \echo '== 11. Users cannot be deleted by the app role (FR-AUT-011)'
 -- A fresh unreferenced user, so the only thing that can stop the DELETE is
--- the grant itself — a seeded user would trip inspection's FK first and the
+-- the grant itself. A seeded user would trip inspection's FK first and the
 -- check would pass for the wrong reason.
 DO $$
 DECLARE ok boolean := false;
@@ -408,7 +408,7 @@ BEGIN
 END $$;
 
 -- FR-AUT-022 (errata E1 note): staff numbers are unique among ACTIVE users
--- and reusable across time — the display-code lesson of 000011 applied to
+-- and reusable across time, the display-code lesson of 000011 applied to
 -- people. TYRE-64 carries the sponsor question; this partial-index default
 -- survives both possible answers. Transaction-scoped: nothing persists.
 BEGIN;
@@ -605,8 +605,8 @@ END $$;
 ROLLBACK;
 
 \echo '== 16. Foreign keys cannot dangle across tenants (CR-001, DR-017)'
--- FK checks bypass RLS by design, so an id-only FK lets a session reference —
--- and through triggers, corrupt — a row it cannot see (TYRE-29). First the
+-- FK checks bypass RLS by design, so an id-only FK lets a session reference a
+-- row it cannot see, and through triggers corrupt it (TYRE-29). First the
 -- reproduced attack: tenant 2 aims a measurement at a tenant-1 reading, which
 -- would drag the victim's materialised MIN down (BR-VAL-001, FR-EXC-020).
 DO $$
@@ -638,7 +638,7 @@ END $$;
 
 -- Structural companion, same shape as check 12: the attack above only probes
 -- one FK, so sweep the catalog for any FK between tenant-scoped tables that
--- omits tenant_id — each one is the same dangling-reference class.
+-- omits tenant_id. Each one is the same dangling-reference class.
 DO $$
 DECLARE offender text;
 BEGIN
@@ -717,8 +717,8 @@ BEGIN
     FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'IN_STOCK';
   IF n <> 2 OR v IS DISTINCT FROM 1234.26 OR c IS DISTINCT FROM 150.00 THEN
     RAISE EXCEPTION 'FAIL: IN_STOCK split n=% tread=% casing=%, expected 2/1234.26/150.00', n, v, c; END IF;
-  -- Estate total deliberately counts the casing of unvalued tyres — casing is
-  -- a stored fact, only the tread side is unknown — so it exceeds the sum of
+  -- Estate total deliberately counts the casing of unvalued tyres. Casing is
+  -- a stored fact and only the tread side is unknown, so it exceeds the sum of
   -- per-tyre totals (NULL for PROBE2) by exactly PROBE2's casing. The
   -- unvalued_count column is what flags the gap.
   SELECT unvalued_count, tread_value, casing_value, total_value INTO n, v, c, tot
@@ -731,10 +731,10 @@ END $$;
 ROLLBACK;
 
 -- Rule 8 through the production path: rand_per_mm is the tyre's own figure,
--- never the pattern's — SP431's real batches diverge (R205.71 vs R284.38).
+-- never the pattern's. SP431's real batches diverge (R205.71 vs R284.38).
 -- Check 7 pins the pure function; this pins the register reading real rows.
 -- Transaction-scoped on purpose: a persisted second SP431 tyre would move
--- estate totals (BR-VAL-008), per-unit counts and band distributions — the
+-- estate totals (BR-VAL-008), per-unit counts and band distributions, the
 -- coupling check 20's probes already carry (TYRE-62).
 BEGIN;
 DO $$
@@ -806,7 +806,7 @@ END $$;
 ROLLBACK;
 
 -- A tenant with NO effective threshold row (fresh provisioning, or policy
--- dated forward) must surface every tyre unvalued — GREATEST(0, NULL) is 0,
+-- dated forward) must surface every tyre unvalued. GREATEST(0, NULL) is 0,
 -- so an unguarded call would silently price the whole estate at R0.00 tread,
 -- indistinguishable from a bald fleet. The row's valuation_basis says so out
 -- loud (CHG-115): UNVALUED, never a zero.
@@ -816,7 +816,7 @@ DECLARE n int;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   -- DR-014a revoked DELETE from the app role, and privilege checks do not
-  -- care that a transaction rolls back — so shift the baseline out of reach
+  -- care that a transaction rolls back, so shift the baseline out of reach
   -- instead of destroying it: effective_from = +infinity makes the row
   -- unresolvable at every as-at date, which is exactly the "no effective
   -- policy" condition this check probes.
@@ -988,7 +988,7 @@ END $$;
 -- capture makes the two diverge routinely: this inspection was taken on
 -- 2026-08-01 and reaches the server after the 2026-08-05 policy change, so
 -- resolving the threshold at sync time would backdate a 6mm valuation onto
--- a day the tenant's policy was still 4mm — the revisionism 000006 disclaims.
+-- a day the tenant's policy was still 4mm, the revisionism 000006 disclaims.
 -- 15mm governing over 4mm at R100/mm = R1100.00; under 6mm it would be 900.00.
 -- A savepoint, not the section's outer rollback: the probe policy row must
 -- not survive into the month-end block below (it would re-price t2probetyre
@@ -1049,7 +1049,7 @@ ROLLBACK;
 
 -- The baseline threshold_policy row is a sentinel (-infinity, SRS §5.1
 -- errata E1): history before onboarding resolves to the baseline, never to
--- 'no policy configured'. 2021-10-04 is the survey date — years before any
+-- 'no policy configured'. 2021-10-04 is the survey date, years before any
 -- onboarding date the fixture carries, which is the class of as-at date the
 -- sentinel exists to resolve.
 DO $$
@@ -1231,9 +1231,9 @@ END $$;
 -- readings, 26 carry a target for their axle class: one at 26.67% of target
 -- and 25 in the correct band (four at 93.33%, twenty-one at 100%). The spare
 -- position has no configured SPARE target, so it is unclassifiable rather
--- than compliant -- the FR-TYR-032 pattern of reporting the excluded count.
+-- than compliant, the FR-TYR-032 pattern of reporting the excluded count.
 -- Targets resolve from target_pressure (CHG-112); the sheet recorded no
--- temperature state, so every classified reading reports as UNKNOWN — the
+-- temperature state, so every classified reading reports as UNKNOWN, the
 -- CHG-035 label that says these are not proven cold-compliant.
 DO $$
 DECLARE pct numeric; rc bigint; tc bigint; uc bigint; cold bigint; unk bigint; got text;
@@ -1262,8 +1262,8 @@ BEGIN
   RAISE NOTICE 'PASS  inflation compliance reports counts, shares and the temperature label';
 END $$;
 
--- FR-ANL-027/028 rankings (BR-ANL-007/008). Ties are real in this fixture --
--- two positions share a 5.0mm spread -- so the ranking pins a deterministic
+-- FR-ANL-027/028 rankings (BR-ANL-007/008). Ties are real in this fixture,
+-- two positions share a 5.0mm spread, so the ranking pins a deterministic
 -- order as well as the values.
 DO $$
 DECLARE got text; d int; dall int;
@@ -1281,7 +1281,7 @@ BEGIN
 
   -- the ranking presents the same measure FR-EXC-035 raises on, not a second
   -- definition of it: at a 4mm spread the RUNNING positions are exactly the
-  -- five check 8 pins, and the sixth is the spare -- BR-RPT-001 keeps spares
+  -- five check 8 pins, and the sixth is the spare. BR-RPT-001 keeps spares
   -- out of exception reporting and in composition reporting, so the two
   -- counts differ by exactly that one position and neither is wrong
   SELECT count(*) FILTER (WHERE NOT is_spare), count(*) INTO d, dall
@@ -1359,7 +1359,7 @@ BEGIN
   END IF;
 
   -- Case B (TYRE-37): voiding does not touch governing_tread_mm, so nothing
-  -- in the reading itself changes -- the repair has to come from the
+  -- in the reading itself changes, and the repair has to come from the
   -- inspection's own state change. The register falls back to the 07:00Z
   -- reading: 11.0mm over 4mm at R100/mm = R700.00.
   PERFORM app.void_inspection(md5('t2s1late')::uuid, 'TYRE-37 probe');
@@ -1392,7 +1392,7 @@ END $$;
 -- inherited that reading's value, so every snapshot at or after the voided
 -- inspection's date has to be reconciled, not just the one on its own date.
 -- Voiding the tyre's LAST live reading leaves it unvalued, and an unvalued
--- tyre has no snapshot to hold -- valuation_snapshot.tread_value is NOT NULL,
+-- tyre has no snapshot to hold. valuation_snapshot.tread_value is NOT NULL,
 -- so the row goes rather than turning null. That is not a DR-014 breach:
 -- DR-011 names reading, reading_measurement and tyre_event as the INSERT-only
 -- set and deliberately leaves this table out of it.
@@ -1507,7 +1507,7 @@ END $$;
 -- reconciled or silently skipped.
 -- What this pins is the RLS-BOUND branch. Running as app_login, a foreign
 -- tyre is invisible, so the lookup finds nothing and the refusal comes from
--- the NULL -- which is the branch most likely to fail open, and it does not.
+-- the NULL, which is the branch most likely to fail open, and it does not.
 -- The unbound branch, where the lookup returns a real foreign tenant, cannot
 -- be staged from this suite: it needs a SECURITY DEFINER wrapper and check 8c
 -- rejects those by design. TYRE-38 owns how a control in that position is
@@ -1554,7 +1554,7 @@ END $$;
 ROLLBACK;
 
 -- TYRE-52 / BR-VAL-008 (errata E1): a month-end snapshot asserts estate
--- membership AT ITS DATE, judged from the event history — never from
+-- membership AT ITS DATE, judged from the event history, never from
 -- tyre.state, or re-running the repair duty after a disposal would eat valid
 -- history. Transaction-scoped: nothing persists.
 BEGIN;
@@ -1643,7 +1643,7 @@ BEGIN
 END $$;
 
 -- CHG-113/CHG-043. The projection is a RANGE anchored to the tyre's own
--- latest reading, from the mm/month regression over all its readings — the
+-- latest reading, from the mm/month regression over all its readings. The
 -- fixture pair sits 25 days plus 90 seconds apart, so a 1.0mm loss is
 -- 30.44/25.00104 = 1.2175 mm/month. Remaining tread over the rate gives
 -- months; the two-reading slack multiplier (0.50) widens it to the band, and
@@ -1700,7 +1700,7 @@ BEGIN
 
   -- Precedence: the spare is below the threshold AND has one reading. Being
   -- past the threshold answers "when does this need replacing" without
-  -- needing a rate at all, so it outranks the missing-rate reason — and its
+  -- needing a rate at all, so it outranks the missing-rate reason. Its
   -- reading count still travels so the consumer sees how thin the data is.
   SELECT forecast_status, reading_count, earliest_removal_date INTO st, cnt, d1
     FROM app.v_removal_forecast WHERE display_code = '2102BACS';
@@ -1734,7 +1734,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: overdue running positions [%]', got; END IF;
 
   -- Thirty days out adds the three tyres whose EARLIEST range end falls
-  -- inside the window — the horizon plans for the pessimistic end, because a
+  -- inside the window. The horizon plans for the pessimistic end, because a
   -- forecast that runs late is worth less than one that runs early. Spares
   -- are carried, never filtered: BR-RPT-001 is a reporting convention and
   -- FR-RPT-005 makes the caller state which it applied.
@@ -1771,7 +1771,7 @@ BEGIN
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL: % rates survived a minimum wider than the window', n; END IF;
   -- the regression forecast needs no odometer (CHG-043), so it stands while
-  -- the odometer sibling withdraws — each column reports its own truth
+  -- the odometer sibling withdraws, and each column reports its own truth
   SELECT forecast_status, wear_rate_mm_per_1000km INTO st, r
     FROM app.v_removal_forecast WHERE display_code = '2102BAC2';
   IF st IS DISTINCT FROM 'FORECAST' OR r IS NOT NULL THEN
@@ -1877,7 +1877,7 @@ BEGIN
     FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
    WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '3';
   -- FIXTURE COUPLING (TYRE-62): T2FLAT1 persists FITTED, read twice with no
-  -- tread change, in September and with no purchase price — so re-runs give
+  -- tread change, in September and with no purchase price, so re-runs give
   -- it a tread band but never a valuation or a snapshot, keeping check 18's
   -- tenant-2 figures unmoved.
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2FLAT1') THEN
@@ -2045,7 +2045,7 @@ END $$;
 -- BAC brands licence number + position, so a replacement tyre on the same
 -- position repeats the code. Uniqueness binds only while a tyre is active;
 -- SCRAPPED, LOST and SOLD release the code. Probes are tenant 2's and roll
--- back at the end — nothing references them, and DR-014a leaves no DELETE.
+-- back at the end. Nothing references them, and DR-014a leaves no DELETE.
 BEGIN;
 DO $$
 DECLARE t1 uuid; t2 uuid; ok boolean;
@@ -2183,7 +2183,7 @@ BEGIN
     -- The unit carrying this fitment has to be a TRAILER. FR-FIT-002 requires a
     -- fitted odometer wherever the unit kind has one (TY009, migration 000025),
     -- so a horse is the one kind that cannot demonstrate the odometer-less case
-    -- CFL-003 is about — it is the kind the rule refuses.
+    -- CFL-003 is about. It is the kind the rule refuses.
     INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,status) VALUES
       (md5('t2trlveh')::uuid,'22222222-2222-2222-2222-222222222222','TRAILER1','CAA444444',md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid,'TRAILER','ACTIVE');
     INSERT INTO app.tyre (id,tenant_id,display_code,state)
@@ -2207,8 +2207,8 @@ BEGIN
             md5('driver2')::uuid,md5('t2noodocli')::uuid,'2027-06-01T08:00:00Z','2027-06-01T08:05:00Z',NULL);
   END IF;
 
-  -- CHG-024: the vehicle timeline validates monotonicity and plausibility —
-  -- a transposed digit poisons every rate on the vehicle thereafter
+  -- CHG-024: the vehicle timeline validates monotonicity and plausibility.
+  -- A transposed digit poisons every rate on the vehicle thereafter
   IF NOT EXISTS (SELECT 1 FROM app.vehicle_odometer_reading
                   WHERE vehicle_id = md5('t2veh1')::uuid AND reading_date = '2027-07-01') THEN
     INSERT INTO app.vehicle_odometer_reading (tenant_id,vehicle_id,reading_date,odometer_km,source)
@@ -2258,8 +2258,8 @@ BEGIN
               WHERE key IN ('target_pressure_kpa','inflation_bands','pressure_deviation_margin_pct')) THEN
     RAISE EXCEPTION 'FAIL: a retired pressure config key is still seeded'; END IF;
 
-  -- CHG-035: the temperature state rides the reading and surfaces per band —
-  -- a HOT 750 against a COLD 750 target is never silently "correct"
+  -- CHG-035: the temperature state rides the reading and surfaces per band.
+  -- A HOT 750 against a COLD 750 target is never silently "correct"
   IF NOT EXISTS (SELECT 1 FROM app.tyre WHERE display_code = 'T2PRS1') THEN
     INSERT INTO app.tyre (id,tenant_id,display_code,state)
     VALUES (md5('t2prstyre')::uuid,'22222222-2222-2222-2222-222222222222','T2PRS1','IN_STOCK');
@@ -2422,8 +2422,8 @@ BEGIN
      <> 'numeric' THEN
     RAISE EXCEPTION 'FAIL: tread is not stored as decimal (CHG-012)'; END IF;
 
-  -- CHG-011: every fixture measurement predates the orientation convention —
-  -- 78 on the earlier capture, 81 on the sheet — and says so
+  -- CHG-011: every fixture measurement predates the orientation convention
+  -- and says so: 78 on the earlier capture, 81 on the sheet
   SELECT count(*) INTO n FROM app.reading_measurement m
    WHERE m.tenant_id = '11111111-1111-1111-1111-111111111111' AND NOT m.orientation_known;
   IF n <> 159 THEN
@@ -2449,7 +2449,7 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE display_code = 'T2GAP1') THEN
     RAISE EXCEPTION 'FAIL: the unpriced probe tyre is missing from the awaiting-cost queue'; END IF;
 
-  -- CHG-037: SOLD is a disposal — outside the estate, its proceeds a typed
+  -- CHG-037: SOLD is a disposal, outside the estate, its proceeds a typed
   -- money column on the event log, never a jsonb number
   -- deliberately unpriced and unread: a valued probe would be swept into the
   -- month-end snapshot pass on a re-run (the pass keys on tread_value, not
@@ -2462,13 +2462,13 @@ BEGIN
     RAISE EXCEPTION 'FAIL: a SOLD tyre fell out of the register (it is history, not deleted)'; END IF;
   SELECT count(*) INTO n FROM app.v_estate_valuation WHERE location_class = 'SOLD';
   IF n <> 0 THEN
-    RAISE EXCEPTION 'FAIL: SOLD tyres are counted in the estate — their value has left the fleet'; END IF;
+    RAISE EXCEPTION 'FAIL: SOLD tyres are counted in the estate, their value has left the fleet'; END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns
                   WHERE table_schema='app' AND table_name='tyre_event'
                     AND column_name='proceeds' AND data_type='numeric') THEN
     RAISE EXCEPTION 'FAIL: tyre_event.proceeds is missing or not numeric'; END IF;
 
-  -- CHG-019: legal minima are platform reference data — visible from any
+  -- CHG-019: legal minima are platform reference data, visible from any
   -- tenant context, carrying the citation, and immutable to the app role
   SELECT minimum_mm::text || '|' || citation INTO got
     FROM app.jurisdiction_tread_minimum WHERE jurisdiction='ZA';
@@ -2547,7 +2547,7 @@ BEGIN
 
   -- Staged rather than seeded: without a depot Melusi is not a member of,
   -- the count above cannot tell "tyres in my depots" from "every tyre in the
-  -- tenant" — this fixture's one depot homes every unit (FR-AUT-006).
+  -- tenant". This fixture's one depot homes every unit (FR-AUT-006).
   INSERT INTO app.depot (tenant_id, name, type)
   VALUES ('11111111-1111-1111-1111-111111111111', 'Bloemfontein', 'DEPOT')
   RETURNING id INTO other_depot;
@@ -2935,7 +2935,7 @@ BEGIN
   END IF;
 
   -- TY007: a vehicle from another tenant must reach a 422-shaped refusal, not
-  -- the composite FK's 23503 — RLS makes the row invisible, not merely foreign.
+  -- the composite FK's 23503. RLS makes the row invisible, not merely foreign.
   -- 422 and not the 403 the endpoint gives an invisible vehicle elsewhere:
   -- FR-OFF-013's permanent-refusal set is 409 and 422, so a 403 here would be
   -- retryable to the outbox and it would hammer a submit that can never
@@ -2956,7 +2956,7 @@ BEGIN
   END IF;
 
   -- TY004: a position genuinely on the wrong vehicle's configuration within
-  -- the same tenant (not off-tenant — TY007 above already covers that). posl
+  -- the same tenant (not off-tenant, TY007 above already covers that). posl
   -- belongs to v_id's HORSE_6X4 lineage; v_probe carries TRAILER_2AXLE.
   got := NULL;
   BEGIN
@@ -3062,7 +3062,7 @@ BEGIN
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL: a payload-level CLIENT warning did not land, got % rows', n; END IF;
 
   -- D5, the exact-match case: the observed set equals comb1's real
-  -- membership, so no FR-INS-063 warning at all — the earlier D5 probe in
+  -- membership, so no FR-INS-063 warning at all. The earlier D5 probe in
   -- this section already pins the mismatch case; this pins the match.
   SELECT count(*) INTO n FROM app.inspection_warning
    WHERE inspection_id = res.inspection_id AND warning_code = 'FR-INS-063';
@@ -3080,9 +3080,9 @@ BEGIN
 
   -- C1: the window compares capture-clock to capture-clock, not to the real
   -- server clock. Both submits below claim a submitted_at two days in the
-  -- past — an hour apart from EACH OTHER, but both far from real now() — the
-  -- shape of a pair that queued offline and drained together. The predicate
-  -- this replaced (i.submitted_at > now() - 4h) would have missed this: the
+  -- past, an hour apart from EACH OTHER but both far from real now(), the
+  -- shape of a pair that queued offline and drained together. A server-clock
+  -- predicate (i.submitted_at > now() - 4h) would miss this: the
   -- first inspection's stored submitted_at is nowhere near real now(), so
   -- its EXISTS check would find nothing and wrongly accept the second.
   SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
@@ -3111,8 +3111,8 @@ BEGIN
 
   -- C2, the mirror of C1: the window is symmetric, so a payload OLDER than
   -- what is already stored is judged the same way as a newer one. The outbox
-  -- makes this ordinary — a capture held offline for days drains after a
-  -- capture taken later has already landed — and a one-sided window would
+  -- makes this ordinary, since a capture held offline for days drains after a
+  -- capture taken later has already landed, and a one-sided window would
   -- refuse it however far apart the two are. TY003 reaches the device as a
   -- 409, which the outbox treats as permanent, so a wrongly refused submit is
   -- a completed walk-around discarded (FR-OFF-014).
@@ -3180,7 +3180,7 @@ BEGIN
   -- Every payload and configuration shape that can ONLY ever fail must refuse
   -- by name. ADR-0009's outbox retries a 5xx with backoff to a 30-minute
   -- ceiling and never gives up, so a body that reached a generic integrity
-  -- SQLSTATE — which the transport can only call a 500 — would be retried
+  -- SQLSTATE, which the transport can only call a 500, would be retried
   -- forever, FR-OFF-020 would nag about a queue that can never drain, and the
   -- only exit would be a support engineer with database access. A named
   -- refusal is what FR-OFF-013 gives the driver to act on instead.
@@ -3290,7 +3290,7 @@ BEGIN
   -- guard, and the one NULL semantics hide: NULL NOT IN (1,3) is NULL.
   --
   -- The superseding configuration row is undone by the very exception being
-  -- asserted — a plpgsql EXCEPTION block is a savepoint — which is what lets
+  -- asserted, and a plpgsql EXCEPTION block is a savepoint, which is what lets
   -- these three run against the shared tenant without disturbing what follows.
   FOR probe IN SELECT * FROM jsonb_array_elements(jsonb_build_array(
       jsonb_build_object('cfg', '4'::jsonb,    'treads', jsonb_build_array(7.0, 7.0, 7.0, 7.0)),
@@ -3376,8 +3376,8 @@ BEGIN
   -- FR-VEH-016: amending a configuration must not invalidate a capture taken
   -- against the version it replaced. A finished walk-around can wait days in
   -- the outbox, and throwing it away because an admin revised the
-  -- configuration meanwhile is the adoption wound ADR-0009 exists to prevent
-  -- — which is why the function compares the (tenant_id, code) lineage rather
+  -- configuration meanwhile is the adoption wound ADR-0009 exists to prevent.
+  -- The function therefore compares the (tenant_id, code) lineage rather
   -- than the vehicle's current configuration_id. The fixture ships only
   -- version 1 of everything, so this argument had never been executed.
   cfg_v1 := md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid;
@@ -3408,8 +3408,8 @@ BEGIN
   -- ADR-0010 provenance: granularity_mm is a claim about the gauge that took
   -- the reading, on an append-only table, so a wrong one is permanent and
   -- silently degrades every later analysis that trusts it. The client omits
-  -- the field here — easy to omit, since it is session reference data rather
-  -- than per-reading input — and must inherit the tenant's configured capture
+  -- the field here, easy to omit since it is session reference data rather
+  -- than per-reading input, and must inherit the tenant's configured capture
   -- granularity. A literal fallback would stamp 1.0mm precision on every
   -- measurement a 0.1mm tenant ever captures.
   INSERT INTO app.configuration (tenant_id, key, value, effective_from)
@@ -3435,7 +3435,7 @@ BEGIN
   -- a shape the API cans as a payload fault, so an infrastructure bug would
   -- read as the driver's. Each
   -- half of `v_tenant IS NULL OR v_actor IS NULL` is refused with the OTHER
-  -- half bound — an actor with no tenant, then a tenant with no actor — so
+  -- half bound, an actor with no tenant, then a tenant with no actor, so
   -- neither disjunct could be dropped from the guard without one of these
   -- probes going green by accident. The control below then shows the same
   -- payload reaching a later guard once both halves are bound, so TY010 came
@@ -3443,7 +3443,7 @@ BEGIN
   -- unbound state current_tenant_id()/current_actor_id() read (000001),
   -- which is why the reset is set_config('', true) inside this transaction
   -- and not RESET. A raise inside a probe is its own FAIL, not the
-  -- function's — WHEN sqlstate 'P0001' THEN RAISE precedes WHEN OTHERS so
+  -- function's. WHEN sqlstate 'P0001' THEN RAISE precedes WHEN OTHERS so
   -- that FAIL propagates with its own text instead of being relabelled as
   -- an unexpected SQLSTATE.
   PERFORM set_config('app.tenant_id', '', true);
@@ -3490,7 +3490,7 @@ BEGIN
   END;
   RAISE NOTICE 'PASS  31 each half of the tenant-or-actor guard is refused as TY010 with the other half bound, and the same payload with both bound reaches the payload guards';
 
-  -- FR-OFF-011's uniqueness is per tenant — UNIQUE (tenant_id, client_uuid) —
+  -- FR-OFF-011's uniqueness is per tenant, UNIQUE (tenant_id, client_uuid),
   -- so two tenants' devices generating the same uuid must not collide, and
   -- the second must get a NEW inspection rather than the first's replay. No
   -- submit anywhere in this suite had ever run under tenant 2. Last in the
@@ -3625,7 +3625,7 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL: a HORSE fitment without an odometer was accepted'; END IF;
 
-  -- (b) A trailer fitted with no odometer is accepted — it has none to give,
+  -- (b) A trailer fitted with no odometer is accepted. It has none to give,
   -- and refusing it makes two-thirds of a superlink unrecordable.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
        VALUES (t_id, spare[2], trailer, pos, now(), NULL);
@@ -3643,7 +3643,7 @@ BEGIN
   IF NOT ok THEN RAISE EXCEPTION 'FAIL: the NULL-kind insert was not refused'; END IF;
 
   -- (d) A horse fitted WITH an odometer is accepted, then refused a removal
-  -- that omits the removed odometer — the second half of FR-FIT-002.
+  -- that omits the removed odometer, the second half of FR-FIT-002.
   INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
        VALUES (t_id, spare[3], horse, pos, now(), 100000) RETURNING id INTO f;
 
@@ -3686,7 +3686,7 @@ BEGIN
   --
   -- Asserted through the catalog, not by behaviour, and the reason is the
   -- point of the uniqueness rule rather than a shortcut. The suite runs as
-  -- app_login, which is a member of app_rw and nothing else — it cannot
+  -- app_login, which is a member of app_rw and nothing else. It cannot
   -- SET ROLE postgres, and app_rw's WITH CHECK rejects a NULL-tenant insert
   -- outright. The only actor that can reach this duplicate is the postgres
   -- provisioning path, which the suite deliberately never becomes (section 0
@@ -3742,8 +3742,8 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL: a duplicate open assignment was accepted'; END IF;
 
-  -- (c) A SECOND DRIVER on the same vehicle is still permitted. OI-32 —
-  -- fixed per horse or pooled per trip — is an open sponsor question
+  -- (c) A SECOND DRIVER on the same vehicle is still permitted. OI-32,
+  -- fixed per horse or pooled per trip, is an open sponsor question
   -- (TYRE-44), and a constraint that answered it would be this migration
   -- deciding scope it has no authority over.
   SELECT au.id INTO u_two FROM app.app_user au
@@ -3755,8 +3755,8 @@ BEGIN
   INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
        VALUES (t_id, v, u_two, current_date, NULL);
 
-  -- (d) A non-overlapping re-assignment of the SAME driver is permitted —
-  -- a driver returning to a unit after a gap is ordinary. The pair is the one
+  -- (d) A non-overlapping re-assignment of the SAME driver is permitted.
+  -- A driver returning to a unit after a gap is ordinary. The pair is the one
   -- case (b) held, not a fresh pick: a fresh pick can land on the row (c) just
   -- opened today, and closing that in the past violates the table's own CHECK.
   UPDATE app.vehicle_driver SET to_date = current_date - 10
@@ -3767,12 +3767,12 @@ BEGIN
   -- (e) The constraint must not become a cross-tenant oracle. An exclusion
   -- check bypasses RLS, so a key without tenant_id would answer "is that
   -- driver on that unit on this date?" for a tenant whose rows this session
-  -- cannot see — exclusion_violation when the probe lands inside the foreign
+  -- cannot see: exclusion_violation when the probe lands inside the foreign
   -- assignment, foreign_key_violation when it lands outside, and the caller
   -- picks the date. Both probes must now fail identically, on the FK.
   --
   -- The probe itself cannot see what it probes for, so the uuids are
-  -- hard-coded — but the precondition can be checked, and has to be. Both
+  -- hard-coded, but the precondition can be checked, and has to be. Both
   -- probes draw 23503 from the composite FK whether or not the seeded
   -- assignment exists, so without this the section would still print PASS
   -- after a seed change quietly removed the only thing case (e) discriminates
@@ -3874,7 +3874,7 @@ BEGIN
    WHERE id = fit;
   RAISE NOTICE 'PASS  36a odometer-less fitment on a TRAILER closed without one';
 
-  -- (b) an UPDATE cannot null out a supplied fitted_odometer — proven on a
+  -- (b) an UPDATE cannot null out a supplied fitted_odometer, proven on a
   -- fitment this section creates, so the probe cannot silently match nothing
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
   VALUES (veh2, '11111111-1111-1111-1111-111111111111', 'T88-2', 'T88B GP', cfg, 'HORSE', 'ACTIVE');
@@ -3930,7 +3930,7 @@ BEGIN
       FROM pg_constraint con JOIN tenant_tables t ON t.oid = con.conrelid
      WHERE con.contype IN ('u','x')
     UNION ALL
-    -- Standalone unique indexes with no pg_constraint row — the three-of-seven
+    -- Standalone unique indexes with no pg_constraint row, the three-of-seven
     -- blind spot the ticket names. indkey[0] = 0 (an expression) yields NULL
     -- and is treated as an offender unless allowlisted.
     SELECT t.relname, ic.relname,
@@ -3957,8 +3957,8 @@ BEGIN
        'one_open_fitment_per_position',  -- 000001: (position_id, vehicle_id) is two opaque uuids
        'one_open_fitment_per_tyre'       -- 000001: tyre_id alone is one opaque uuid
        -- exception.one_open_exception_per_subject is NOT here: it paired two
-       -- opaque uuids with subject_type, a caller-chosen natural value — the
-       -- vehicle_driver_no_overlap shape, not this arm's — so 000029
+       -- opaque uuids with subject_type, a caller-chosen natural value. That
+       -- is the vehicle_driver_no_overlap shape, not this arm's, so 000029
        -- re-keyed it tenant-first instead of allowlisting it.
      );
   IF bad IS NOT NULL THEN
@@ -3967,8 +3967,8 @@ BEGIN
   -- Second arm (TYRE-158): a table WITHOUT a tenant_id column is outside the
   -- sweep above by construction, yet its unique keys are global by the same
   -- construction.
-  -- Such a key is safe only when the app role cannot write the table at all —
-  -- a probe needs a write to read the outcome. Every table here states why
+  -- Such a key is safe only when the app role cannot write the table at all.
+  -- A probe needs a write to read the outcome. Every table here states why
   -- it has no tenant column; an unexplained entry is a review defect.
   SELECT string_agg(c.relname || ':' || priv, ', ') INTO bad
     FROM pg_class c
@@ -4021,7 +4021,7 @@ BEGIN
   EXCEPTION WHEN check_violation THEN RAISE NOTICE 'PASS  38c a sale records proceeds';
   END;
 
-  -- D12: policies are seeded as decided — BAC and Sandbox generate, and a
+  -- D12: policies are seeded as decided. BAC and Sandbox generate, and a
   -- FREE tenant exists so both branches stay provable (tenant 2)
   IF (SELECT display_code_policy FROM app.tenant
        WHERE id = '11111111-1111-1111-1111-111111111111') <> 'GENERATED' THEN
@@ -4132,13 +4132,13 @@ BEGIN
   RAISE NOTICE 'PASS  39k code lookup resolves by date across reuse';
 
   -- Cross-tenant: tenant 2 disposing tenant 1''s tyre finds nothing to
-  -- dispose — RLS makes another tenant''s uuid indistinguishable from a
+  -- dispose. RLS makes another tenant''s uuid indistinguishable from a
   -- missing one, which is the point. md5('tyre1') is 003_seed_fixture.sql's
   -- own tyre1, seeded outside any rolled-back section so it persists here;
   -- section 38's md5('t48tyre') does not (its own transaction rolls back).
   --
   -- md5('tyre1') is seeded FITTED, which is ALSO an invalid source state for
-  -- a LOST disposal on its own terms — TY012 fires from either "RLS hid the
+  -- a LOST disposal on its own terms. TY012 fires from either "RLS hid the
   -- row" or "RLS leaked it but the state check refused it anyway", so a bare
   -- `WHEN sqlstate 'TY012'` cannot tell an isolation hole from a correctly
   -- working one (TYRE-91 RLS audit: proven by rerunning this probe with RLS
@@ -4157,7 +4157,7 @@ BEGIN
   -- A second, independent probe so the section does not rest on message-text
   -- matching alone: md5('tyre1')''s cost is already set (seeded 4319.91,
   -- INVOICE), so a leaked row raises TY013 (already-priced) from a wholly
-  -- different function, never TY012 — any outcome but TY012 here is a leak.
+  -- different function, never TY012. Any outcome but TY012 here is a leak.
   BEGIN
     PERFORM app.set_tyre_cost(md5('tyre1')::uuid, 1.00, 'INVOICE');
     RAISE EXCEPTION 'FAIL: cross-tenant cost entry was accepted';
@@ -4165,7 +4165,7 @@ BEGIN
   END;
 
   -- FR-VAL-006: the two writers of rand_per_mm agree to the cent only if each
-  -- rounds the price into its column before dividing — a 3dp price set through
+  -- rounds the price into its column before dividing. A 3dp price set through
   -- the cost path otherwise stores a rate that cannot be reproduced from the
   -- price stored beside it. Pinned at 3dp deliberately: a 2dp price cannot
   -- fail this.
@@ -4183,7 +4183,7 @@ BEGIN
   RAISE NOTICE 'PASS  39n cost-path rate reproducible from the stored price: %', stored_rate;
 
   -- A receive dated in the future would stamp its RECEIVED event after every
-  -- later event, and app.tyre_in_estate_asof reads the LATEST to_state — so a
+  -- later event, and app.tyre_in_estate_asof reads the LATEST to_state, so a
   -- tyre disposed afterwards would sit in the valuation estate for good
   -- (FR-VAL-022). Refused outright.
   BEGIN
@@ -4207,7 +4207,7 @@ BEGIN
   SELECT tyre_id INTO e FROM app.receive_tyres('{"display_code":"CLAMP-1"}'::jsonb);
   PERFORM app.dispose_tyre(e, 'SCRAPPED', 'audit', NULL, now());
   IF app.tyre_in_estate_asof(e, current_date + 365) THEN
-    RAISE EXCEPTION 'FAIL: a disposed tyre is back in the estate — its receipt outranks its disposal';
+    RAISE EXCEPTION 'FAIL: a disposed tyre is back in the estate, its receipt outranks its disposal';
   END IF;
   RAISE NOTICE 'PASS  39p a same-day receipt never outranks a later disposal';
 
@@ -4288,7 +4288,7 @@ BEGIN
   -- removal_is_complete (000001, narrowed by 000011) ties removed_at to
   -- removal_reason and says nothing about the other four, so a removal tread,
   -- a distance or a provenance can otherwise be written onto a fitment that is
-  -- still open —
+  -- still open. Those are
   -- closure figures on a fitment nobody closed, which the register, the wear
   -- rate and the cost-per-kilometre then read as fact (FR-FIT-014). Split in
   -- two because the two shapes reach the rule by different columns: a
@@ -4651,7 +4651,7 @@ BEGIN
   RAISE NOTICE 'PASS  41l a rotation closes, reopens and carries the orientation';
 
   -- (m) FR-FIT-014: a refused rotation leaves nothing behind. The TY014 is
-  -- the half with teeth — a caught exception rolls its subtransaction back
+  -- the half with teeth. A caught exception rolls its subtransaction back
   -- whatever the function did, so the row counts below state the invariant
   -- while the refusal is what proves the position check exists at all.
   BEGIN
@@ -4729,7 +4729,7 @@ BEGIN
 
   -- (p) BR-FIT-009, FR-CFG-044: the cap is the one dispatch rule that
   -- refuses. A REMOVED casing has no axle class, so the cap it resolves to is
-  -- the tenant-wide policy row (U5) — lowered here, on that row.
+  -- the tenant-wide policy row (U5), lowered here, on that row.
   INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
                                     warning_threshold_mm, max_retreads, effective_from)
   VALUES (md5('t41pol')::uuid, bac, 4.0, 4.0, 6.0, 1, now());
@@ -4766,7 +4766,7 @@ BEGIN
   -- probe vacuous). Neither target can refuse for a reason other than
   -- invisibility: ty5 is IN_STOCK and has never been fitted, so a leaked row
   -- would clear the state gate and go on to fail on the composite FK or
-  -- TY009 — never with this message; tyd1's open fitment is open, and
+  -- TY009, never with this message; tyd1's open fitment is open, and
   -- 'damage' is in tenant 2's own removal_reasons, so a leaked row would
   -- simply be closed. app.actor_id is left unset throughout, so nothing here
   -- can fail on the created_by FK instead (lesson 2026-08-28: a WITH CHECK
@@ -4840,14 +4840,14 @@ BEGIN
   END;
 
   -- (u) I1: fitment_instant_ok (000033) bounds an instant only against the
-  -- tyre's LATEST to_state EVENT, so a fitment opened outside app.fit_tyre —
-  -- the shape every one of BAC's 27 live open fitments is in —
+  -- tyre's LATEST to_state EVENT, so a fitment opened outside app.fit_tyre,
+  -- the shape every one of BAC's 27 live open fitments is in,
   -- has no such event to bound against. Planted the same way as 41d's
   -- occupancy probes: past app.fit_tyre, straight into the table, so ty9
   -- carries an open fitment and zero tyre_event rows. Without
   -- fitment_instant_ok's per-fitment fitted_at check nothing here refuses:
   -- last_at is NULL for ty9, the movement guard never fires, and the removal
-  -- below closes the fitment an hour before it was opened — a row
+  -- below closes the fitment an hour before it was opened, a row
   -- the as-at register's location join (000036: fitted_at < bound.ts AND
   -- (removed_at IS NULL OR removed_at >= bound.ts)) can never match at any
   -- date. Both instants sit inside the last 24 hours on purpose: further back,
@@ -4878,9 +4878,9 @@ BEGIN
   -- above) has no to_state event either; ty5 is fitted twenty days back, so
   -- its own fitment_instant_ok check already passes and cannot be the one
   -- refusing the set. Only the per-move check against each tyre's own
-  -- fitted_at can catch ty9 here. The rotation is stamped two hours back —
+  -- fitted_at can catch ty9 here. The rotation is stamped two hours back,
   -- inside the 24-hour rule, which rotate_tyres cannot satisfy with a reason
-  -- (TYRE-108) — so without the per-move check this call closes ty9's fitment
+  -- (TYRE-108), so without the per-move check this call closes ty9's fitment
   -- an hour before it was opened.
   SELECT * INTO r FROM app.fit_tyre(ty5, vh, p7, 12.0, 'MARK_OUTBOARD', 290000,
                                     now() - interval '20 days',
@@ -4990,7 +4990,7 @@ BEGIN
   -- (000011:397) while casing_valuation.effective_from is a date in the
   -- tenant's calendar (rule 6), so a valuation effective on the tenant's
   -- today is outside the register's window for the hours that day runs ahead
-  -- of UTC's — a return logged at 00:30 SAST is invisible to 42b's read until
+  -- of UTC's. A return logged at 00:30 SAST is invisible to 42b's read until
   -- the UTC day rolls over. Dating the return at tenant_today - 1 sidesteps
   -- that window at every hour. The five-day send also gives 42c a turnaround
   -- that is not zero.
@@ -5030,7 +5030,7 @@ BEGIN
 
   -- (b) FR-FIT-022: the casing figure is the retreader's, on a report, and
   -- the register reads it as ACTUAL rather than as an estimate (000013's
-  -- precedence). app.tyre.casing_value stays untouched — it is that
+  -- precedence). app.tyre.casing_value stays untouched. It is that
   -- precedence's AUDIT fallback, and writing both would give one casing two
   -- figures of different provenance with no rule to choose between them.
   SELECT count(*) INTO n FROM app.casing_valuation c WHERE c.tyre_id = ta;
@@ -5080,7 +5080,7 @@ BEGIN
 
   -- (e) FR-TYR-009, BR-VAL-004, U9: a rejected casing is the one legitimate
   -- source of a zero casing value, and it is recorded as a valuation citing
-  -- the job rather than as an absence — an absent figure reads as UNVALUED
+  -- the job rather than as an absence. An absent figure reads as UNVALUED
   -- downstream, a different claim from "the retreader looked at it and it is
   -- worth nothing".
   SELECT * INTO r FROM app.dispatch_tyre(tb, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5);
@@ -5161,7 +5161,7 @@ BEGIN
   END;
   -- FR-TYR-009, BR-VAL-004: a zero on an accepted casing would reach the
   -- register as an ACTUAL zero indistinguishable from a rejection, so it is
-  -- refused — including the zero a sub-cent figure rounds into.
+  -- refused, including the zero a sub-cent figure rounds into.
   BEGIN
     PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F', 1000.00, 16.0, 0.00);
     RAISE EXCEPTION 'FAIL 42f: an accepted casing was valued at zero';
@@ -5189,7 +5189,7 @@ BEGIN
   -- The two money parameters, past what numeric(12,2) can hold. Bounded on
   -- the parameter for the reason the tread bound is (ADR-0012): the locals
   -- carry the column's type, so an unbounded figure raises a bare 22003 at
-  -- the assignment — a numeric-overflow SQLSTATE outside the TY class, which
+  -- the assignment, a numeric-overflow SQLSTATE outside the TY class, which
   -- the wire maps to a 500 and the outbox then retries for ever. The excess
   -- is one cent past the ceiling, so the probe fails on the bound rather than
   -- on being obviously absurd.
@@ -5238,7 +5238,7 @@ BEGIN
   END;
   -- The other side of the same edge, and the reason it is last in 42f: this
   -- one is accepted, so it closes jf. The stored rate is read back against
-  -- app.rand_per_mm rather than against a literal — the ceiling must refuse
+  -- app.rand_per_mm rather than against a literal. The ceiling must refuse
   -- what will not fit and nothing else (FR-VAL-006, one implementation).
   PERFORM app.log_retread_return(jf, app.tenant_today(tz) - 1, true, 'T42-RPT-F',
                                  ok_cost, 16.0, 500.00);
@@ -5252,7 +5252,7 @@ BEGIN
 
   -- (g) BR-FIT-009, FR-CFG-044, U5: the cap is read again here because the
   -- policy can be lowered between the send and the return, and a casing with
-  -- no axle class resolves to the tenant-wide row. jg goes in directly —
+  -- no axle class resolves to the tenant-wide row. jg goes in directly because
   -- app.dispatch_tyre would have refused this casing at the door, which is
   -- precisely the job this backstop exists to catch.
   INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
@@ -5272,7 +5272,7 @@ BEGIN
 
   -- (h) FR-TYR-009: the rejected-casing scrap belongs to this function, so
   -- the general disposal surface has to keep refusing a casing the retreader
-  -- still holds — otherwise the same scrap exists twice, once without the
+  -- still holds. Otherwise the same scrap exists twice, once without the
   -- report and the casing figure that go with it.
   BEGIN
     PERFORM app.dispose_tyre(th, 'SCRAPPED', 'audit', NULL, now());
@@ -5327,7 +5327,7 @@ BEGIN
   -- calendar day's opening midnight: app.tyre_in_estate_asof resolves a tyre
   -- from its LATEST to_state event, so a midnight return would sort behind
   -- the same day's dispatch. Strict ordering between the two events is not
-  -- assertable — now() is fixed for the whole transaction, so both land on
+  -- assertable. now() is fixed for the whole transaction, so both land on
   -- one instant; what is asserted is that the return is stamped at now() and
   -- never behind the dispatch, which a midnight stamp fails by being refused.
   SELECT * INTO r FROM app.dispatch_tyre(tk1, 'AT_RETREADER', d_rt);
@@ -5343,8 +5343,8 @@ BEGIN
   END IF;
   -- The other half of the same rule: an instant that would fall behind the
   -- tyre's last movement is refused, never clamped onto it. jk2 goes in
-  -- directly because app.dispatch_tyre cannot produce the divergence — it
-  -- stamps the send from the same date it stores — while a job carried over
+  -- directly because app.dispatch_tyre cannot produce the divergence, since it
+  -- stamps the send from the same date it stores, while a job carried over
   -- from a paper record can.
   PERFORM app.dispatch_tyre(tk2, 'AT_RETREADER', d_rt);
   INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
@@ -5364,7 +5364,7 @@ BEGIN
   -- exists at the join: app.remove_tyre leaves last_tread_mm at the depth the
   -- casing was pulled at, and a return that re-treads and re-rates the casing
   -- without moving that column leaves the register pricing a 16.0 mm retread
-  -- at its 4.5 mm worn figure — a new rate against an old tread, which is
+  -- at its 4.5 mm worn figure, a new rate against an old tread, which is
   -- neither of the two answers.
   --
   -- The instants are spread deliberately: last_tread_at only moves forward
@@ -5411,7 +5411,7 @@ BEGIN
   -- arithmetic restated here (FR-VAL-006, one implementation). The threshold
   -- is read off the register row rather than from this block's own thr, which
   -- 42g's policy row supersedes. At that row's 4.0 mm it is 12.0 mm of usable
-  -- tread at 2500.00/12 per mm — the retread cost back out again, which is
+  -- tread at 2500.00/12 per mm, the retread cost back out again, which is
   -- what makes 4.5 mm's answer (R104.17 of the same rate) visibly wrong.
   SELECT v.current_tread_mm, v.tread_source, v.tread_value, v.rand_per_mm,
          v.removal_threshold_mm
@@ -5682,7 +5682,7 @@ BEGIN
 
   -- (h) FR-VEH-041, U6: a tag map row is a current label, so the tag edit
   -- replaces the set in one transaction and needs DELETE on the map alone.
-  -- app.vehicle_tag itself stays undeletable (000018) — a tag other units
+  -- app.vehicle_tag itself stays undeletable (000018). A tag other units
   -- still carry must not vanish with one unit's edit.
   DELETE FROM app.vehicle_tag_map m WHERE m.vehicle_id = vu;
   GET DIAGNOSTICS n = ROW_COUNT;
@@ -5704,8 +5704,8 @@ BEGIN
   -- (i) ADR-0014's "loaded, not acted": the unit was planted with no actor
   -- bound, so the INSERT audit row exists with a NULL actor rather than the
   -- insert failing. before IS NULL is the other half of ADR-0014's row shape:
-  -- an insert has no prior state, and a log that shows one — the reading a
-  -- trigger stamping to_jsonb(NEW) into both columns would produce — makes
+  -- an insert has no prior state, and a log that shows one, the reading a
+  -- trigger stamping to_jsonb(NEW) into both columns would produce, makes
   -- the creation of a unit indistinguishable from an edit that changed
   -- nothing.
   SELECT count(*) INTO n FROM app.audit_log al
@@ -5725,7 +5725,7 @@ BEGIN
   -- ADR-0014 departs from ADR-0013 decision 2 for: tenant_id comes from NEW,
   -- so the row is readable here. Sourced from app.current_tenant_id() it would
   -- be NULL and tenant_isolation's USING clause would hide it from this
-  -- session — an audit entry that exists and that no one can read.
+  -- session, an audit entry that exists and that no one can read.
   -- actor_id IS NULL is the genuinely-unset-GUC path, which nothing else
   -- reaches: this section binds app.actor_id to the empty string, the seed
   -- loader never sets it at all, and both have to resolve to NULL.
@@ -5899,7 +5899,7 @@ BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   -- (c) Section 18's pins, against the writer that would move them. 2102BAC1
   -- is fitted in the fixture and its casing carries no dated tread, so a
-  -- removal logged today is the first thing to date the column — and with an
+  -- removal logged today is the first thing to date the column, and with an
   -- undated read of it, June 2026 and June 2021 both pick up today's 5.0 mm.
   -- Without the date guard this read answers 27 rows / 1 valued at
   -- 2026-06-01, against the 27/0 section 18 pins. The odometer is derived
@@ -5933,7 +5933,7 @@ BEGIN
   -- (d) The rank between the two sources, which (c) cannot see: a reading
   -- outranks this column wherever one exists, whatever the two dates are.
   -- 2102BAC1 was read on 2026-07-23, so the live register still prices it
-  -- from that reading and the 5.0 mm removal is invisible there — which is
+  -- from that reading and the 5.0 mm removal is invisible there, which is
   -- what app.tyre.last_tread_mm's comment claims and what the as-at
   -- register's AUDIT branch is a fallback FROM.
   SELECT v.tread_source, v.current_tread_mm INTO r
@@ -6068,7 +6068,7 @@ BEGIN
     END IF;
   END;
   -- U9 positive control: PARKED pauses a unit's inspection schedule
-  -- (FR-VEH-006), not the yard's ability to couple it — a rig towing a
+  -- (FR-VEH-006), not the yard's ability to couple it. A rig towing a
   -- PARKED trailer is created, not refused. hz heads it (a LIGHT unit is a
   -- valid motive, U9) and is never reused as a motive elsewhere in this
   -- section, so leaving this rig open does not disturb a later probe.
@@ -6116,7 +6116,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 45d: a rig set yesterday starts at %, not tenant-local midnight', r.effective_from;
   END IF;
   -- The inverse pin: read back in the tenant's own zone, yesterday's date at
-  -- exactly midnight — not merely "not the session-zone cast" but "is the
+  -- exactly midnight, not merely "not the session-zone cast" but "is the
   -- tenant-zone answer", so the two checks cannot both be fooled by a third,
   -- unrelated instant.
   IF (r.effective_from AT TIME ZONE tz)::date IS DISTINCT FROM today - 1
@@ -6125,7 +6125,7 @@ BEGIN
   END IF;
   -- Session TimeZone is pinned to UTC above; BAC is Africa/Johannesburg
   -- (UTC+2), so a bare cast of "yesterday" in the session zone lands on a
-  -- different instant than the tenant-zone midnight above — this catches the
+  -- different instant than the tenant-zone midnight above. This catches the
   -- regression the 2026-09-01 lesson names directly, on any host.
   IF r.effective_from = (today - 1)::timestamptz THEN
     RAISE EXCEPTION 'FAIL 45d: yesterday was cast in the session zone, not the tenant''s';
@@ -6223,10 +6223,10 @@ BEGIN
   RAISE NOTICE 'PASS  45f a rig is written once and ended once; members are never updated or deleted, and never added to an ended rig';
 
   -- (g) Cross-tenant, through both functions, with the pinned messages.
-  -- Under a leak the CREATE would still die — on 23503 from a composite
+  -- Under a leak the CREATE would still die, on 23503 from a composite
   -- tenant FK (combination_motive_vehicle_id_fkey or
   -- combination_member_vehicle_id_fkey, 000004; or combination_created_by_fkey,
-  -- 000017), still red but not TY012 — so pinning TY012 and the message, not
+  -- 000017), still red but not TY012, so pinning TY012 and the message, not
   -- merely "an error was raised", is what a leak could not pass. The END
   -- probe has no such FK and would SUCCEED outright under a leak: the same
   -- two calls succeeding for the owning tenant immediately after is the
@@ -6318,7 +6318,7 @@ BEGIN
   -- (a) The predicate, asked about someone else (U4, FR-AUT-005 as amended
   -- by D3): drv reaches h by assignment and ta through the rig; drv2
   -- reaches nothing; and v_capture_vehicle answers the same set for the
-  -- acting driver — the capture read and the predicate are one rule
+  -- acting driver. The capture read and the predicate are one rule
   -- (FR-AUT-005/D3).
   IF NOT app.user_can_capture(drv, h)  THEN RAISE EXCEPTION 'FAIL 46a: the assigned driver cannot capture the horse'; END IF;
   IF NOT app.user_can_capture(drv, ta) THEN RAISE EXCEPTION 'FAIL 46a: the horse''s driver cannot capture its trailer'; END IF;
@@ -6336,8 +6336,8 @@ BEGIN
   RAISE NOTICE 'PASS  46a a user can capture a unit by assignment or through the rig its horse heads, and the capture read agrees';
 
   -- (b) Schedule (FR-INS-051/052): OPEN, assigned, requested and created by
-  -- the controller, due at the tenant-local end of today — not overdue now,
-  -- overdue once the tenant's day ends — and the trailer's task goes to the
+  -- the controller, due at the tenant-local end of today, not overdue now
+  -- but overdue once the tenant's day ends, and the trailer's task goes to the
   -- horse's driver (U4, FR-INS-053). The driver then reads both on their
   -- own list (FR-INS-048).
   task := app.create_inspection_task(h, drv);
@@ -6477,12 +6477,12 @@ BEGIN
   -- refusal was tenant-caused. Through the function: tenant 2 naming BAC's
   -- unit, and BAC's driver on tenant 2's own unit. The insert stamps
   -- tenant_id from the session, so under any leak it dies as 23503 on a
-  -- composite tenant FK (000012:367-368, on 000004's parent keys) — FK checks
-  -- bypass RLS — never as TY012 and never as a success; the code and message
+  -- composite tenant FK (000012:367-368, on 000004's parent keys), as FK checks
+  -- bypass RLS, never as TY012 and never as a success; the code and message
   -- are therefore the discriminating assert, and the owning tenant's
   -- identical call below is the control. Then a raw INSERT (FR-TEN-004, NFR-SEC-004)
-  -- aimed at tenant 2 with every column valid for tenant 2 — created_by a
-  -- real tenant-2 user (lessons 2026-08-28) — which only tenant_isolation's
+  -- aimed at tenant 2 with every column valid for tenant 2, created_by a
+  -- real tenant-2 user (lessons 2026-08-28), which only tenant_isolation's
   -- WITH CHECK can refuse. The policy message is pinned to THIS table: with
   -- the audit trigger attached, a kill that disables RLS on inspection_task
   -- alone still dies as 42501 on app.audit_log's own policy, and an unpinned
@@ -6594,7 +6594,7 @@ BEGIN
 
   -- (a) U21: one bound, four voices. Each refusal is caught for its message
   -- rather than its code alone, because a single shared message would be the
-  -- shape of four call sites collapsed into one refusal — which is what the
+  -- shape of four call sites collapsed into one refusal, which is what the
   -- workshop loses if the bound is shared carelessly (FR-FIT-001, FR-FIT-007,
   -- FR-FIT-010, FR-FIT-022). The bound is read from the function, so the
   -- probe cannot restate the number it exists to stop being restated.
@@ -6640,7 +6640,7 @@ BEGIN
   END IF;
   -- The same rule at the source, because four sites each carrying the bound
   -- as a literal and four sites reading one function answer identically from
-  -- outside — and it is literals that drift apart (U21).
+  -- outside, and it is literals that drift apart (U21).
   --
   -- The pattern is built from a whole-number rendering, which carries no
   -- regex metacharacter to escape: a bound rendered with a scale would put a
@@ -6876,8 +6876,8 @@ BEGIN
   -- unit, for the same purpose: the source is resolved from an OPEN fitment,
   -- and a casing with none is NOT FOUND for every tenant, which would answer
   -- the invisibility TY012 with the policy off as readily as on. With the
-  -- fitment there, an unpoliced run resolves the source to T2's own horse --
-  -- a unit outside this rig -- and answers TY014 naming it instead, so the
+  -- fitment there, an unpoliced run resolves the source to T2's own horse,
+  -- a unit outside this rig, and answers TY014 naming it instead, so the
   -- TY012 asserted below can only be RLS.
   PERFORM set_config('app.tenant_id', t_two::text, true);
   -- Unbound with '': app.current_actor_id is nullif(..., ''), so BAC's
@@ -6888,7 +6888,7 @@ BEGIN
   -- Queried, never assumed: no position id is hardcoded here, because DR-004
   -- admits only one open fitment per (position, unit) and this section has no
   -- guarantee that every position on t2veh1 is still free by this point in
-  -- the suite -- the query finds whichever one currently carries no open
+  -- the suite, so the query finds whichever one currently carries no open
   -- fitment.
   SELECT p.id INTO t2pos
     FROM app.position p
@@ -6971,7 +6971,7 @@ BEGIN
 
   -- (g) The DoD's other half: a unit this fleet can see, that shares no rig
   -- with the one the rotation is addressed to. The refusal names the unit,
-  -- which is what tells this apart from 47f's visibility branch — an
+  -- which is what tells this apart from 47f's visibility branch. An
   -- unnamed unit would mean the two answers had been merged (U16).
   BEGIN
     PERFORM app.rotate_tyres(h,
@@ -6989,8 +6989,8 @@ BEGIN
   RAISE NOTICE 'PASS  47g a rotation onto a unit sharing no rig is refused by that unit''s name';
 
   -- (q) 47g's twin at the source. A move's source is resolved on the same two
-  -- branches as its destination and in the same order — visibility, then
-  -- membership (U11, U16, ADR-0012) — so the membership half owes its own
+  -- branches as its destination and in the same order: visibility, then
+  -- membership (U11, U16, ADR-0012), so the membership half owes its own
   -- probe: without one, a body that simply dropped the source's rig check
   -- would let a controller rotate a casing off a unit the rig never held and
   -- leave the whole suite green. hx is visible here and shares no rig with h,
@@ -7043,7 +7043,7 @@ BEGIN
 
   -- (j) U18: position identity is per axle configuration, so h and ta share
   -- every position id and two moves onto the same id are two different
-  -- targets. The pair is what the duplicate rule is on, proven both ways —
+  -- targets. The pair is what the duplicate rule is on, proven both ways:
   -- the same id on two units is accepted, the same id on one unit is not.
   IF q2 IN (SELECT p.id FROM app.position p WHERE p.configuration_id = cfg) THEN
     RAISE EXCEPTION 'FAIL 47j: the cross-configuration target is not off the anchor''s configuration';
@@ -7083,8 +7083,8 @@ BEGIN
   -- (k) U20: a horse records an odometer and a trailer has none, so TY009 is
   -- answered per unit and the reading each closure and each opening carries
   -- is that row's own unit's (FR-FIT-002, FR-FIT-009, CR-012). The two
-  -- refusals below are two different inputs — a reading for the wrong unit,
-  -- and no reading at all — and both leave the horse's rows without one.
+  -- refusals below are two different inputs, a reading for the wrong unit
+  -- and no reading at all, and both leave the horse's rows without one.
   BEGIN
     PERFORM app.rotate_tyres(h,
       jsonb_build_array(
@@ -7250,7 +7250,7 @@ BEGIN
 
   -- Both casings start on the anchor unit, which is in scope at every
   -- instant. A casing parked on t3 would make t3 the answer to two questions
-  -- at once — a source outside the rig and a destination outside it — and the
+  -- at once, a source outside the rig and a destination outside it, and the
   -- refusal below would be free to come from either, leaving the probe unable
   -- to say which rule it caught (U15, U16).
   PERFORM app.fit_tyre(tyh, h2, p1, 12.0, 'MARK_OUTBOARD', 400000, now() - interval '3 hours');
@@ -7258,7 +7258,7 @@ BEGIN
   mid := now() - interval '2 hours';
 
   -- (h) U16: the rig a rotation is scoped to is the one that was true at
-  -- p_occurred_at, not the one that is open now — a yard move recorded after
+  -- p_occurred_at, not the one that is open now. A yard move recorded after
   -- the units were uncoupled is still a move that happened while they were
   -- coupled (FR-VEH-031). The refusing leg runs first and writes nothing, so
   -- the succeeding leg below is the same call with only the instant moved.
@@ -7380,7 +7380,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 47m: a mate read at 12mm warned against this 12mm: %', r.warnings;
   END IF;
 
-  -- As at the fitment instant, not latest overall — the precedence
+  -- As at the fitment instant, not latest overall, the precedence
   -- app.tyre_valuation_asof already uses. A reading taken after the fit
   -- describes a tyre the fitter had not seen.
   PERFORM app.fit_tyre(m5, h4, p7, 12.0, 'MARK_OUTBOARD', 100400, now() - interval '1 hour');
@@ -7579,7 +7579,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 47p: two different readings were refused in identical words: %', m_zero;
   END IF;
   -- A negative reading, here on a unit that does have a fitment being
-  -- rotated out — and which rule refused it is read, not assumed. It must be
+  -- rotated out, and which rule refused it is read, not assumed. It must be
   -- the input rule and not the per-unit bound below it: that bound is
   -- answered only for units a casing is leaving, so a sign caught there
   -- would be caught for this unit and missed for the next one, which is the
@@ -7666,7 +7666,7 @@ BEGIN
   END IF;
 
   -- Two positions off HORSE_6X4, tenant 2's configuration for t2veh1 and
-  -- every unit planted below -- shared by configuration, the way
+  -- every unit planted below, shared by configuration, the way
   -- submit_inspection itself reads them.
   SELECT p.id INTO posa FROM app.position p
    WHERE p.configuration_id = md5(t_id::text || 'HORSE_6X4')::uuid
@@ -7807,7 +7807,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 49: the refusal does not name the tenant allowance: %', m;
   END IF;
 
-  -- rule 5: the allowance is the tenant's, not a literal -- widen it and the
+  -- rule 5: the allowance is the tenant's, not a literal. Widen it and the
   -- same shape of payload lands
   INSERT INTO app.configuration (tenant_id, key, value, effective_from)
   VALUES (t_id, 'submitted_at_future_skew_minutes', '10'::jsonb, now() - interval '1 second');
@@ -7860,8 +7860,8 @@ BEGIN
   EXCEPTION WHEN SQLSTATE 'TY020' THEN ok := true;
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: the reading append was not refused TY020'; END IF;
-  -- control: the legitimate path -- inspection, reading and measurements in one
-  -- transaction -- still lands, and the governing MIN is materialised
+  -- control: the legitimate path, inspection, reading and measurements in one
+  -- transaction, still lands, and the governing MIN is materialised
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   SELECT p.id INTO posid FROM app.position p
    WHERE p.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
@@ -7883,7 +7883,7 @@ BEGIN
   -- from that same now(), so an explicit NULL is a claim nobody made.
   -- app.inspection.created_at is nullable (000017: DEFAULT now(), not
   -- NOT NULL) and app_rw holds INSERT on app.inspection, so this is directly
-  -- reachable, not a hypothetical row -- it must seal, never read as
+  -- reachable, not a hypothetical row. It must seal, never read as
   -- "unsealed forever".
   INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer,created_at)
   VALUES (md5('t50inspnull')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
@@ -7897,7 +7897,7 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 50: an inspection with a NULL created_at was not sealed'; END IF;
   -- rls-auditor (TYRE-145 fix round 2): a future-dated created_at is the
-  -- same hole from the other side -- app_rw can set the column to anything,
+  -- same hole from the other side. app_rw can set the column to anything,
   -- so a row dated ahead of its own transaction would stay appendable until
   -- that instant passed. Only equality to transaction_timestamp() is sound.
   INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer,created_at)
@@ -8013,9 +8013,9 @@ BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   PERFORM set_config('app.actor_id', md5('driver2')::text::uuid::text, true);
 
-  -- A fitted probe tyre with two readings 1500km apart -- past the tenant's
-  -- configured wear_rate_min_distance_km of 1000 (seeds/002_seed_configurations.sql)
-  -- -- so v_tyre_wear_rate reads MEASURED before anything below runs. A single
+  -- A fitted probe tyre with two readings 1500km apart, past the tenant's
+  -- configured wear_rate_min_distance_km of 1000 (seeds/002_seed_configurations.sql),
+  -- so v_tyre_wear_rate reads MEASURED before anything below runs. A single
   -- reading would already read INSUFFICIENT_READINGS with or without a void,
   -- which would make the exclusion assertion further down pass regardless of
   -- whether the trigger chain works (the vacuous-check trap this section
@@ -8077,14 +8077,14 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL 52: a second void was not refused TY019'; END IF;
   -- the analytics exclusion FR-INS-012 asks for is the existing state <> 'VOIDED'
-  -- predicate; prove one reader honours it -- the void above removed the probe
+  -- predicate; prove one reader honours it. The void above removed the probe
   -- tyre's only reading past the tenant's minimum distance, so the wear rate,
   -- proven MEASURED above, now carries the reason instead of a stale rate
   SELECT wear_rate_status INTO wst FROM app.v_tyre_wear_rate WHERE tyre_id = md5('t52tyre')::uuid;
   IF wst IS DISTINCT FROM 'INSUFFICIENT_READINGS' THEN
     RAISE EXCEPTION 'FAIL 52: a voided inspection still feeds the wear rate (status %, expected INSUFFICIENT_READINGS)', wst; END IF;
   -- tenant-bound: another tenant's inspection is invisible, and the answer is
-  -- TY012 -- not a silent zero-row update (lesson 2026-09-01: a shared
+  -- TY012, not a silent zero-row update (lesson 2026-09-01: a shared
   -- SQLSTATE makes the probe vacuous, so this one is the only TY012 here)
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   ok := false;
@@ -8205,7 +8205,7 @@ BEGIN
   RAISE NOTICE 'PASS  an absent spare is recorded once, only for a spare, never beside a reading, and never rewritten';
 END $$;
 -- Tenant isolation (RLS, rule 1): switched to tenant 1 via set_config inside
--- its own DO block, not a bare SET LOCAL -- the plant above belongs to
+-- its own DO block, not a bare SET LOCAL. The plant above belongs to
 -- tenant 2, so this has to land on the OTHER tenant to prove anything.
 DO $$
 DECLARE n int;
@@ -8270,7 +8270,7 @@ BEGIN
   IF active <> 90 THEN RAISE EXCEPTION 'FAIL 54: active_seconds is %, expected 90 (40 + 50)', active; END IF;
 
   -- Control: one reading with no capture time beside one that has 50 must
-  -- withhold the sum entirely, never report the 50 alone (ADR-0010 rule 2 --
+  -- withhold the sum entirely, never report the 50 alone (ADR-0010 rule 2,
   -- absence is absence). A single missing reading is not enough to prove
   -- this: sum() over one NULL is already NULL with no guard at all, so the
   -- control needs a second, present value for a guardless sum to leak.
@@ -8433,8 +8433,8 @@ BEGIN
     END IF;
   END;
 
-  -- The three instants are ordered on purpose — effective_from < started <
-  -- now() — because an assertion that a core wrote the instant it was GIVEN
+  -- The three instants are ordered on purpose, effective_from < started <
+  -- now(), because an assertion that a core wrote the instant it was GIVEN
   -- is only meaningful where that instant differs from the transaction clock.
   -- Created through the date wrapper the first rig would start at
   -- tenant_day_instant(NULL), which is now(); with started = now() as well, a
@@ -8579,8 +8579,8 @@ BEGIN
             now() - interval '2 hours');
 
   -- (b) The DoD, end to end. The driver captures the horse and two of its
-  -- three trailers, unticking the middle one — 000041 raises exactly one
-  -- FR-INS-063 warning (section 31 pins that half) — and the controller
+  -- three trailers, unticking the middle one, so 000041 raises exactly one
+  -- FR-INS-063 warning (section 31 pins that half), and the controller
   -- applies it. The payload is section 53's, with the composition keys the
   -- untick fills in. Two trailers survive the untick on purpose: with one, the
   -- membership assertion below could not tell walk order from any other order.
@@ -8839,8 +8839,8 @@ BEGIN
 
   -- A slow phone. The capture is stamped a day before the rig it names was
   -- set, so the observed instant is the rig's own effective_from and the
-  -- offered rig becomes a zero-length record — set, and immediately
-  -- reported different — rather than a refusal a controller cannot act on (owner,
+  -- offered rig becomes a zero-length record, set and immediately reported
+  -- different, rather than a refusal a controller cannot act on (owner,
   -- 8 Sep 2026). Its own rig: this leg applies, and one rig serves one apply.
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
                               started_at, submitted_at, state)
@@ -8869,7 +8869,7 @@ BEGIN
   -- received_at is planted rather than defaulted: the block is one
   -- transaction, so a defaulted value would equal now() and equal the apply
   -- instant too, and the assertion could not tell the server's receipt from
-  -- the controller's clock — which is the distinction the ruling turns on.
+  -- the controller's clock, which is the distinction the ruling turns on.
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
                               started_at, submitted_at, received_at, state)
   VALUES (md5('t58i4c')::uuid, t_id, h9, rig8, drv, gen_random_uuid(),
@@ -8967,7 +8967,7 @@ BEGIN
     END IF;
   END;
   -- The write half of the policy. Every column is a value the policy is not
-  -- under test for — created_by is stamped explicitly with a real user of the
+  -- under test for. created_by is stamped explicitly with a real user of the
   -- TARGET tenant and both combination references are that tenant's, so the
   -- row is valid in every way but the one being proved (lesson 2026-09-01).
   -- w_outside is unresolved, so composition_observation_once cannot answer
@@ -8976,7 +8976,7 @@ BEGIN
   -- The mutation this stands against is `WITH CHECK (true)`: a FOR ALL policy
   -- that omits the clause reuses its USING expression for writes, so removing
   -- it changes nothing. And the message is trapped, not the SQLSTATE, because
-  -- this table is audited — a row that cleared its own WITH CHECK carries the
+  -- this table is audited. A row that cleared its own WITH CHECK carries the
   -- other tenant's tenant_id into app.audit_log, whose policy refuses with the
   -- identical 42501 and would otherwise stand in for the check under test
   -- (section 46g's pattern, lesson 2026-09-08).
@@ -9003,7 +9003,7 @@ BEGIN
   END;
   -- The decider, by constraint rather than by default: app_rw holds INSERT, so
   -- an explicit NULL passes the column default by (000044's reasoning). Valid
-  -- in every other way — this tenant, an unresolved warning, its own rig — so
+  -- in every other way, this tenant, an unresolved warning, its own rig, so
   -- the not-null constraint is the only thing left to answer, and the message
   -- is read for the column because any other 23502 on this row would otherwise
   -- stand in for it.

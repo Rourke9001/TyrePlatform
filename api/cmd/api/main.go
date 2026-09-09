@@ -1,6 +1,6 @@
 // The API is deliberately thin: auth, tenant context, transport, sync
 // reconciliation. Business rules about tyres live in SQL (see
-// docs/architecture.md) — do not add them here.
+// docs/architecture.md). Do not add them here.
 package main
 
 import (
@@ -21,7 +21,7 @@ import (
 
 // devHeaderEnabled decides whether the trust-any-header resolver may exist in
 // this process. Container Apps injects CONTAINER_APP_NAME into every deployed
-// revision, so its PRESENCE vetoes the flag — presence, not value, because a
+// revision, so its PRESENCE vetoes the flag. Presence, not value, because a
 // stray --set-env-vars CONTAINER_APP_NAME= would read as absent through
 // os.Getenv and switch the dev path on in staging (TYRE-160). The accessor is
 // injected so the table test can say "present and empty".
@@ -38,7 +38,7 @@ func devHeaderEnabled(lookup func(string) (string, bool)) bool {
 // (httpapi.WithTrustedProxyHops). getenv-injected like devHeaderEnabled
 // above, so parsing is unit-testable without touching the process
 // environment. Absent is the documented default of 1 and is not a deploy
-// mistake — every environment that has not added an L7 hop in front of the
+// mistake. Every environment that has not added an L7 hop in front of the
 // ingress leaves this unset. Present but not a positive integer IS a
 // mistake worth failing loudly for: silently falling back to 1 on a typo
 // would collapse the per-address limit into one bucket shared by every

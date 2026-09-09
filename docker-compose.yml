@@ -1,5 +1,5 @@
 # Local development database. Deliberately Postgres 16 to match the target
-# Azure Database for PostgreSQL Flexible Server version — RLS and
+# Azure Database for PostgreSQL Flexible Server version. RLS and
 # security_invoker behaviour must be identical between local and deployed.
 services:
   postgres:
@@ -19,7 +19,7 @@ services:
       timeout: 3s
       retries: 20
 
-  # Migration runner. Not started by default (profile: tools) — invoked by
+  # Migration runner. Not started by default (profile: tools). Invoked by
   # `make db-migrate` / `make db-reset`. Same image family CI uses, so a
   # migration that works locally works in the pipeline.
   migrate:

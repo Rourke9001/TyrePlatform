@@ -3,7 +3,7 @@
 # production for the BAC pilot (ADR-0005).
 #
 # Auth is OIDC federated credentials on the user-assigned managed identity
-# id-tyre-deploy-staging — no long-lived Azure secret exists in this repo.
+# id-tyre-deploy-staging. No long-lived Azure secret exists in this repo.
 # The identity holds AcrPush on the registry and Contributor on the resource
 # group only.
 name: Deploy staging
@@ -43,8 +43,8 @@ env:
 
 # A workflow_run fires on every completion, failure included, so the gate is
 # the conclusion AND the event: ci.yml also runs for pull_requests, and a
-# PR-sourced run must never release. workflow_dispatch carries no conclusion —
-# it stays open so main's head can be re-released when CI is red — and is
+# PR-sourced run must never release. workflow_dispatch carries no conclusion,
+# so it stays open and main's head can be re-released when CI is red. It is
 # pinned to main so a dispatch from another ref cannot ship unvetted code.
 jobs:
   api:
@@ -71,7 +71,7 @@ jobs:
           docker build -t "$image" api
           docker push "$image"
 
-      # The live image is owned by this workflow, not by Bicep — the ACCEPTED
+      # The live image is owned by this workflow, not by Bicep. The ACCEPTED
       # TRADE note on the container app in infra/main.bicep says why.
       - name: Deploy to Container Apps
         run: |
@@ -138,7 +138,7 @@ jobs:
       # The third-party action in the job holding the OIDC token, so the one
       # that most needed pinning. This repository carries both a `v1` tag and a
       # `v1` branch, three years apart, and the runner resolves `@v1` to the
-      # tag — so the tag's SHA is the pin that preserves behaviour. TYRE-53
+      # tag, so the tag's SHA is the pin that preserves behaviour. TYRE-53
       # holds the decision about moving to the branch.
       - uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
         with:
