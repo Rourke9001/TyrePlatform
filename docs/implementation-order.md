@@ -1,7 +1,8 @@
 # Implementation order
 
 Snapshot of **27 Aug 2026**, re-verified **31 Aug 2026** against `develop` @
-`362c12e`.
+`362c12e`; the B6 and "What is next" sections re-verified **9 Sep 2026**
+against `develop` @ `db84995` and the board's open sprint.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase, the same way
@@ -498,45 +499,60 @@ controller's rig and fitment work collides with that gating, with TYRE-82's
 trigger, and with every SRS reference from FR-VEH-010 on. The Fleet tab is
 **Units · Tyres · Rigs · Fitments**.
 
-### B6 — the rig-setup surface — **complete unless the owner un-parks TYRE-73**
+### B6 — the rig-setup surface — **delivered**
 
-*Numbered B5 until 31 Aug 2026, when the asset flow took that slot. Commit
-`20657e1` — "home the FR-INS-049 schedule surface in B5" — means this batch;
-the recurring schedule itself left B6 at B6.2 (spec U3, TYRE-133).*
+*Numbered B5 until 31 Aug 2026, when the asset flow took that slot.* Design:
+`docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md`. It ran as four
+slices with a review-sweep remediation between the third and the fourth, each
+its own branch, PR and independent review; slice plans are gitignored under
+`docs/superpowers/plans/` (TYRE-128 decision 4).
 
-**Design:** `docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md`
-(committed, 3 Sep 2026). **The batch runs as four slices, each its own
-branch, PR, independent review and Sandbox smoke chain, planned one at a
-time after the previous merges** — the gate the spec's "Why slices" section
-states. Slice plans are gitignored under `docs/superpowers/plans/`.
+| Slice | Ticket | Landed |
+|---|---|---|
+| B6.1 | TYRE-72 — create and end a dated rig; the Rigs screen; carries TYRE-124 | PR #43, 3 Sep 2026 (migration 000037) |
+| B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | PR #44, 5 Sep 2026 |
+| B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | PR #45, 5 Sep 2026 |
+| B6.3.5 | TYRE-143 sweep remediation R1–R4 (`docs/pre-b64-remediation.md`): TYRE-144/145/146 Critical plus the Important set the sweep named as blockers | PRs #47–#50, 6–7 Sep 2026 (migrations 000041–000043) |
+| B6.4 | TYRE-75 — reconcile reported composition into a dated rig change; closes TYRE-222 and TYRE-226 | PR #51, 9 Sep 2026 (migration 000044, suite section 58, SQLSTATE TY022) |
 
-| Slice | Ticket | Branch | Status |
-|---|---|---|---|
-| B6.1 | TYRE-72 — create and end a dated rig; the Rigs screen | `TYRE-72-rig-setup` | merged 3 Sep 2026, PR #43 |
-| B6.2 | TYRE-90 — the ad-hoc inspection task (FR-INS-051/052; spec U3) | `TYRE-90-inspection-task` | merged 5 Sep 2026, PR #44 |
-| B6.3 | TYRE-101 — cross-unit rotation within a rig; carries TYRE-126, TYRE-127, TYRE-128 item 8 | `TYRE-101-rig-rotation` | merged 5 Sep 2026, PR #45 |
-| B6.3.5 | TYRE-143 sweep remediation, slices R1–R4 (`docs/pre-b64-remediation.md`): TYRE-144/145/146 Critical plus the Important set the sweep names as blockers | `TYRE-144-immutable-history` (R1), `TYRE-146-capture-discard` (R2), `TYRE-158-api-isolation` (R3), `TYRE-177-sweep-tests` (R4) | R1 merged 6 Sep 2026, PR #47; R2 merged 6 Sep 2026, PR #48 (migration 000041); R3 merged 7 Sep 2026, PR #49 (migration 000042); R4 merged 7 Sep 2026, PR #50 (migration 000043, tests only). **B6.3.5 complete**; B6.4 unblocked |
-| B6.4 | TYRE-75 — reconcile reported composition into a dated rig change; closes TYRE-222 (rule 1) and TYRE-226 (four unit-path writes) | `TYRE-75-reconcile-composition` | merged 9 Sep 2026, PR #51 (migration 000044, suite section 58, SQLSTATE TY022); follow-ups TYRE-229–236 |
-| *(B6.5)* | TYRE-73 — the in-transport lock | **only if the owner un-parks it** | parked |
-
-**Correction, 3 Sep 2026 (spec U1):** this page sequenced TYRE-73 inside
-B6. The ticket says "Post-pilot. Parked deliberately — do not pick this up
-before the pilot has run", and the board wins over this page, so the lock is
-not in B6 unless the owner says otherwise. Nothing in B6.1's schema
-forecloses it.
-
-Riders: TYRE-124 lands with 000037 (B6.1); TYRE-128 item 7 (`depotTypes`)
-landed with B6.2, which adds the drivers read beside the unit reads; the
-000033-area items ride B6.3, which replaces those functions; the rest of the
-small-fixes list is assigned in the spec's D7 table.
+TYRE-73, the in-transport lock, is not part of B6: the ticket says post-pilot
+and the board wins over this page (spec U1, 3 Sep 2026). Nothing in B6's
+schema forecloses it. The recurring schedule and daily task generator left B6
+at B6.2 as TYRE-133. B6.4's own residue is TYRE-229–236, all under TYRE-55.
 
 Two standing rules from B5's close-out apply to every branch from here: the
 API container is restarted immediately before every `make e2e` and never
 reused across two runs, and no test derives a tenant-relative date from the
 browser or CI clock (`docs/lessons.md`, 2026-09-03).
 
-TYRE-82's front-end consequence — disabling the configuration field once a
-unit has history — belongs to TYRE-94, delivered in B5.
+### What is next — the open sprint, then a batch to plan
+
+**The board's open sprint is "B6 — Rig-setup surface", 3–17 Sep 2026.** Six
+of its nine issues are Done. What remains in it is not code:
+
+| Key | State | What remains |
+|---|---|---|
+| TYRE-124 | Done 9 Sep 2026 | The correction landed in 000037 (PR #43) and the sweep confirmed it; the ticket had never been transitioned. 000024's twin stale claim (TY008) belongs to TYRE-191 |
+| TYRE-125 | owner decision | Which `tread_source` label a fit-, removal- or retread-written tread carries: a third label such as `FITMENT`, or record that `AUDIT` is the umbrella for "not an inspection reading". Suite 44b pins today's behaviour; nothing to build until answered |
+| TYRE-128 | owner questions | The register of PR #41's close-out. The eight decisions were answered 3 Sep; items 7 and 8 and the small fixes landed on B6.1–B6.3. Still open: whether decision 7 (enums are cast-authoritative) reaches `unitKinds` and `tenantRoles`; `cost_source` after a retread re-rate (spec D3 is silent); INFERRED distance provenance has no front-end exercise until OI-31 coupling records exist. Close it once those are answered or split out |
+
+So the sprint closes on decisions, not pull requests. **The next batch is
+planned before it is cut** — brainstorm and design first, as B5 and B6 were —
+and the sections below already name the candidates:
+
+- **The tail — analytics and lifecycle.** TYRE-41 first, then TYRE-38 and
+  TYRE-36. This is the manager dashboard the brief promises and the
+  application does not have: no exception surface, no fleet valuation and no
+  cost per kilometre exists anywhere in the API or the web app. The 19/11/9
+  agreement lives only in suite section 8 (TYRE-183).
+- **The deployment track.** TYRE-79, TYRE-51, TYRE-53. Nobody can log in to
+  staging until TYRE-2, and its last deploy went green over a crash-looping
+  revision. Every demo is a laptop until this lands.
+- **Capture residue under TYRE-4.** TYRE-129, TYRE-216–220, TYRE-227, and
+  TYRE-70's acceptance run, which needs a human with a phone and a vehicle.
+
+Which comes first is the owner's call: the dashboard gap decides what the POC
+can show, the deployment gap decides where it can be shown.
 
 ### Parallel track — deployment
 
