@@ -1,6 +1,6 @@
 -- ============================================================================
 --  Reverse TYRE-37: restore the 000006 write paths verbatim.
---  Snapshot rows this migration repaired stay repaired — they hold values the
+--  Snapshot rows this migration repaired stay repaired. They hold values the
 --  register agrees with, and reversing a schema change is not a licence to
 --  reintroduce arithmetic nobody wants back.
 -- ============================================================================

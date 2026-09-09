@@ -1,5 +1,5 @@
 -- Reverses 000006 to the schema exactly as 000005 left it. Snapshot rows the
--- trigger wrote are data, not schema — they stay; make db-reset owns
+-- trigger wrote are data, not schema. They stay; make db-reset owns
 -- destruction. Order matters: the view must be restored to its 000005 body
 -- before tyre_valuation_asof() can be dropped, and the delegating threshold
 -- resolver before removal_threshold_mm_for().

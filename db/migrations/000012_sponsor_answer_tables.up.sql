@@ -2,7 +2,7 @@
 --  Sponsor-answer new tables, RLS and grants (TYRE-42)
 --  Implements: CHG-013/014, CHG-016..020, CHG-024, CHG-026, CHG-028 (skip
 --  logic), CHG-032..034, CHG-036 (price list + awaiting-cost), CHG-038 seed
---  posture, CHG-040/041 — manifest v1.1 §4.2.
+--  posture, CHG-040/041. Manifest v1.1 §4.2.
 --
 --  Every FK between tenant-scoped tables is composite (tenant_id, id), the
 --  000004 convention: FK checks run below RLS, so an id-only FK would let a
@@ -63,9 +63,10 @@ CREATE TABLE app.vehicle_tag_map (
 -- ---------------------------------------------------------------------------
 
 -- Platform-level reference data: public law, identical for every tenant, so it
--- carries no tenant_id. RLS is still ENABLED and FORCED — the structural sweep
--- (check 12) holds for every table — with a read-everyone policy and no write
--- policy: informational only, never an alert source, never legal advice.
+-- carries no tenant_id. RLS is still ENABLED and FORCED, because the
+-- structural sweep (check 12) holds for every table, with a read-everyone
+-- policy and no write policy: informational only, never an alert source,
+-- never legal advice.
 CREATE TABLE app.jurisdiction_tread_minimum (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   jurisdiction   text NOT NULL,
@@ -93,7 +94,7 @@ VALUES
 --
 -- TWO pull thresholds, not one: the depth at which a tyre is pulled to RETREAD
 -- sits at or above the depth at which it would be pulled to scrap, because
--- pulling earlier protects the casing — which is where half the value is (Q3).
+-- pulling earlier protects the casing, which is where half the value is (Q3).
 -- warning_threshold_mm is the dashboard warning band; CHG-111 folds both
 -- threshold config keys into this table, so both live here.
 CREATE TABLE app.threshold_policy (
@@ -119,14 +120,14 @@ CREATE INDEX threshold_policy_lookup
   ON app.threshold_policy (tenant_id, operating_group_id, axle_class, effective_from DESC);
 
 COMMENT ON COLUMN app.threshold_policy.retreads_permitted IS
-  'Per axle class. Seeded FALSE for STEER by fleet convention, not by regulation — no SA rule was found (CHG-038, CHG-107).';
+  'Per axle class. Seeded FALSE for STEER by fleet convention, not by regulation. No SA rule was found (CHG-038, CHG-107).';
 
 -- ---------------------------------------------------------------------------
 -- 3. Odometer as a vehicle timeline (Q6/Q8, CHG-024 / CHG-026)
 --
 -- The odometer belongs to the VEHICLE, not the inspection. Any source counts:
 -- BAC's come from fuel records, which are weekly-or-better, kept for
--- accounting, and go back years — a better foundation than the monthly paper
+-- accounting, and go back years, a better foundation than the monthly paper
 -- trail suggested. Tyre distance is DERIVED: for each period a tyre was fitted
 -- at a position, it accrues that vehicle's kilometres over that period.
 -- ---------------------------------------------------------------------------
@@ -254,7 +255,7 @@ COMMENT ON TABLE app.casing_valuation IS
   'CHG-016. Append-only. Current casing value is the latest RETREADER row; an admin estimate is a different kind of number and is never blended with it.';
 
 -- The day-one gap: if value only exists after a retread, a newly onboarded
--- fleet has no value on any never-retreaded casing — roughly half its tyre
+-- fleet has no value on any never-retreaded casing, roughly half its tyre
 -- asset value. An admin may set an estimate per size. It is ALWAYS labelled as
 -- an estimate and never blended with a retreader's figure (ADR-0010).
 CREATE TABLE app.casing_estimate_by_size (
@@ -270,8 +271,8 @@ CREATE TABLE app.casing_estimate_by_size (
 );
 
 -- CHG-036: a tenant price list gives an estimated purchase cost for tyres that
--- predate the system. Ten to twenty rows covers most fleets — realistic, unlike
--- reconstructing five years of invoices (Q15).
+-- predate the system. Ten to twenty rows covers most fleets, which is
+-- realistic, unlike reconstructing five years of invoices (Q15).
 CREATE TABLE app.tyre_price_list (
   id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id      uuid NOT NULL REFERENCES app.tenant(id) ON DELETE CASCADE,
@@ -290,7 +291,7 @@ CREATE TABLE app.tyre_price_list (
 -- 5. Target pressures (Q12, CHG-034 / CHG-035)
 --
 -- ADMIN-SET ONLY. A driver who can lower the target can erase the alert, and
--- the control becomes worthless — the same reason the person being measured
+-- the control becomes worthless, for the same reason the person being measured
 -- does not set the pass mark. Drivers record measured values and may raise a
 -- query against a target; they cannot change it. (Role enforcement is the
 -- API's; the schema keeps the audit trail via created_by.)
@@ -329,7 +330,7 @@ ALTER TABLE app.reading
 -- An inspection is ASSIGNED, not merely recorded. A fleet controller sets a
 -- recurring interval or issues an ad-hoc instruction; both produce a task.
 --
--- OVERDUE therefore means "an issued task was not completed by its due date" —
+-- OVERDUE therefore means "an issued task was not completed by its due date",
 -- not a rule the software invented. That distinction is what prevents the
 -- permanently-red dashboard that trains people to ignore alerts.
 -- ---------------------------------------------------------------------------
@@ -381,9 +382,9 @@ COMMENT ON TABLE app.inspection_task IS
 
 -- CHG-028 as logic, CHG-033's escalation as logic. Invoker rights: RLS scopes
 -- it to the calling tenant, and the scheduler invokes it per tenant exactly as
--- take_valuation_snapshots is invoked. A unit that is not ACTIVE is skipped —
--- PARKED and OUT_OF_SERVICE units are not wearing (Q21) — and a task that
--- resolves no assignee is created ESCALATED, never silently dropped. The
+-- take_valuation_snapshots is invoked. A unit that is not ACTIVE is skipped,
+-- because PARKED and OUT_OF_SERVICE units are not wearing (Q21), and a task
+-- that resolves no assignee is created ESCALATED, never silently dropped. The
 -- resolution here is the trivial link only (the vehicle's own current
 -- driver); the coupled-trailer chain is blocked on OI-32 (who owns an
 -- uncoupled trailer / fixed-vs-pooled driver assignment).
@@ -453,7 +454,7 @@ ALTER TABLE app.tyre_pattern ADD COLUMN platform_catalogue_id uuid;
 
 -- CHG-064. A spare has full tread and never wears, so it looks permanently
 -- healthy and rises to the top of no tread-ranked report. It needs its own
--- list, and it is judged on AGE, not wear — an old spare that has never been
+-- list, and it is judged on AGE, not wear. An old spare that has never been
 -- measured is the one that fails when it is finally needed (Q21).
 CREATE VIEW app.v_spare_tyre_age WITH (security_invoker = true) AS
 SELECT t.tenant_id,
@@ -486,7 +487,7 @@ SELECT v.tenant_id,
  GROUP BY v.tenant_id;
 
 -- CHG-063. Pressure readings exactly equal to target on every wheel indicate
--- the standard is being TRANSCRIBED rather than measured — real gauge readings
+-- the standard is being TRANSCRIBED rather than measured. Real gauge readings
 -- scatter. Near-zero cost, and it doubles as a check on whether the
 -- walk-around is genuinely happening (Q12).
 CREATE VIEW app.v_pressure_uniformity_anomaly WITH (security_invoker = true) AS
@@ -499,9 +500,9 @@ SELECT r.tenant_id,
  WHERE r.pressure_kpa IS NOT NULL
  GROUP BY r.tenant_id, r.inspection_id;
 
--- CHG-036: a tyre may be received without a price — the brander is not the
--- person who saw the invoice — and waits in an admin queue rather than being
--- silently unpriced forever.
+-- CHG-036: a tyre may be received without a price, because the brander is not
+-- the person who saw the invoice, and waits in an admin queue rather than
+-- being silently unpriced forever.
 CREATE VIEW app.v_tyre_awaiting_cost WITH (security_invoker = true) AS
 SELECT t.tenant_id,
        t.id AS tyre_id,

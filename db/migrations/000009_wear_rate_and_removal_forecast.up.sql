@@ -7,9 +7,9 @@
 
 -- Every reading of a fitted tyre with the odometer of the capture it belongs
 -- to. The odometer is the inspection's, so a towed unit's tyres are measured
--- against the distance the combination ran while they were on it — exact
--- while a link stays behind one motive unit, and the closest available figure
--- when it does not (OI-26).
+-- against the distance the combination ran while they were on it. That is
+-- exact while a link stays behind one motive unit, and the closest available
+-- figure when it does not (OI-26).
 CREATE VIEW app.v_tyre_reading_odometer WITH (security_invoker = true) AS
 SELECT r.tenant_id,
        r.tyre_id,
@@ -22,7 +22,7 @@ SELECT r.tenant_id,
    AND r.governing_tread_mm IS NOT NULL;
 
 -- FR-ANL-001/002/003 over BR-ANL-001. The pair is the LATEST reading and the
--- most recent reading at least the configured distance behind it — BR-ANL-001
+-- most recent reading at least the configured distance behind it. BR-ANL-001
 -- says "the most recent pair separated by at least the configured minimum",
 -- so the walk goes back until one qualifies. Reading it as "the last two,
 -- which must qualify" would silence the rate for any fleet inspecting more
@@ -32,7 +32,7 @@ SELECT r.tenant_id,
 -- wear_rate_status carries the reason wherever the rate is NULL (FR-ANL-003):
 -- a blank cell and a zero read identically on a dashboard and only one of them
 -- is true. The three absences BR-ANL-004 names are distinguished, because
--- they call for different actions — inspect again, drive further, or nothing
+-- they call for different actions: inspect again, drive further, or nothing
 -- at all.
 CREATE VIEW app.v_tyre_wear_rate WITH (security_invoker = true) AS
 SELECT ft.tenant_id,
@@ -107,15 +107,15 @@ SELECT ft.tenant_id,
 -- OWN tenant rather than from the session, matching tyre_valuation_asof: the
 -- two then read one configuration key and a policy change moves the valuation
 -- and the forecast together or neither. Resolving it once per query would be
--- correct under RLS — every visible row is the session tenant's — and wrong
--- the moment anything reads this view unbound, which is exactly what a
+-- correct under RLS, where every visible row is the session tenant's, and
+-- wrong the moment anything reads this view unbound, which is exactly what a
 -- SECURITY DEFINER routine does (TYRE-33 has one).
 --
 -- The 90-day mean daily distance is anchored to the tyre's own latest reading
 -- rather than to now(): a projection that shifts because the suite ran on a
 -- different day is not reproducible, and BR-ANL-002's window is a property of
 -- the measurement, not of when someone looks at it. It is resolved from the
--- readings, never from inspection.vehicle_id — a combination inspection
+-- readings, never from inspection.vehicle_id. A combination inspection
 -- carries the motive unit there, so resolving that way loses every towed unit
 -- (FR-INS-061).
 CREATE VIEW app.v_removal_forecast WITH (security_invoker = true) AS
@@ -141,7 +141,7 @@ SELECT wr.tenant_id,
        --
        -- Zero remaining distance is zero days at any speed, which is what
        -- keeps a tyre already past the threshold in the horizon list on a
-       -- fleet whose distance history cannot be derived yet — the first day
+       -- fleet whose distance history cannot be derived yet, the first day
        -- of any rollout, when no vehicle has a second capture. NULLIF guards
        -- the parked-vehicle case: two captures at the same odometer make the
        -- mean zero, and 0/0 raises rather than returning NULL.

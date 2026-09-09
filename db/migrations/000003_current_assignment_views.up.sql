@@ -3,11 +3,11 @@
 --  Implements: FR-VEH-007/008 read side, FR-AUT-005 (SRS v1.3 §4.3, §4.5)
 -- ============================================================================
 
--- "Current" means the date window covers today, end date inclusive — the
+-- "Current" means the date window covers today, end date inclusive, the
 -- same inclusive shape as vehicle_driver's CHECK (to_date >= from_date).
 -- "Today" is fixed to the UTC date, independent of the session TimeZone GUC
 -- (CURRENT_DATE would follow that GUC): an assignment starting "today" in SAST
--- is not current until UTC midnight. Accepted for the POC — the mismatch
+-- is not current until UTC midnight. Accepted for the POC. The mismatch
 -- window closes at 02:00 SAST, before depot working hours. Rendering in tenant
 -- timezone (CR-003, tenant.timezone) is a display concern, not this predicate.
 CREATE VIEW app.v_current_assignment WITH (security_invoker = true) AS

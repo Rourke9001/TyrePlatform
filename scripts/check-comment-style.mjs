@@ -39,8 +39,8 @@ const CURLY = String.fromCharCode(0x2018, 0x2019, 0x201c, 0x201d);
 
 // `scope: 'line'` rules read the whole source line, not just its comment:
 // a string literal is prose the user reads, so the punctuation tells apply
-// there too. The em-dash pattern needs a letter or digit beside the dash so
-// a lone U+2014 used as a display glyph for an absent value stays legal.
+// there too. `strip` removes the one legal use before the match: a quoted
+// lone U+2014 is a display glyph for an absent value, not prose.
 const RULES = [
   {
     name: 'change-narration',
@@ -61,7 +61,8 @@ const RULES = [
   {
     name: 'em-dash',
     scope: 'line',
-    re: new RegExp(`[\\p{L}\\p{N}]\\s*${EM_DASH}|${EM_DASH}\\s*[\\p{L}\\p{N}]`, 'u'),
+    strip: (s) => s.replace(new RegExp(`(["'\`])${EM_DASH}\\1`, 'g'), ''),
+    re: new RegExp(EM_DASH),
     advice: 'em dash in prose; end the sentence or use a comma (docs/comments.md, Prose)',
   },
   {
@@ -139,7 +140,8 @@ function checkFile(path) {
     state = r.state;
     const text = r.text.trim();
     for (const rule of RULES) {
-      const subject = rule.scope === 'line' ? line : text;
+      let subject = rule.scope === 'line' ? line : text;
+      if (rule.strip) subject = rule.strip(subject);
       if (!subject) continue;
       const m = rule.re.exec(subject);
       if (!m) continue;

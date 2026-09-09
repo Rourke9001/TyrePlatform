@@ -16,7 +16,7 @@
 -- app_user: tenant_id is NULL for PLATFORM_ADMIN (FR-AUT-003); NULLS DISTINCT
 -- keeps those rows from colliding, and a NULL parent key never matches a
 -- child, so a tenant row cannot reference platform staff. Accepted for the
--- POC — platform staff do not act inside a tenant.
+-- POC. Platform staff do not act inside a tenant.
 ALTER TABLE app.depot              ADD CONSTRAINT depot_tenant_id_id_key              UNIQUE (tenant_id, id);
 ALTER TABLE app.app_user           ADD CONSTRAINT app_user_tenant_id_id_key           UNIQUE (tenant_id, id);
 ALTER TABLE app.axle_configuration ADD CONSTRAINT axle_configuration_tenant_id_id_key UNIQUE (tenant_id, id);
@@ -151,7 +151,7 @@ ALTER TABLE app.notification
 -- DR-017: governing depth is always MIN of that reading's measurements.
 -- The composite FK above is the enforcement for the cross-tenant case; the
 -- tenant check here is a backstop, because this function runs as its DEFINER
--- and RLS never binds it — any future FK regression would otherwise reopen
+-- and RLS never binds it. Any future FK regression would otherwise reopen
 -- the silent cross-tenant write (CR-001). search_path is pinned for the
 -- separate definer-hijack vector: an attacker-created operator or function
 -- earlier on the caller's path would also run with the definer's rights.

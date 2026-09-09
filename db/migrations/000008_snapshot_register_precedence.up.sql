@@ -9,10 +9,10 @@
 --  with no refresh path is not one, so the refresh path is here.
 --
 --  Two divergences this closes, both reproduced against the fixture:
---    * two inspections of one tyre on one day syncing out of order — the day
+--    * two inspections of one tyre on one day syncing out of order. The day
 --      belongs to the greatest submitted_at (BR-VAL-007), not to whichever
 --      reading reached the server last;
---    * an inspection VOIDed after its reading snapshotted — voiding leaves
+--    * an inspection VOIDed after its reading snapshotted. Voiding leaves
 --      governing_tread_mm untouched, so no reading-driven trigger can notice
 --      it at all.
 --
@@ -25,12 +25,12 @@
 -- ============================================================================
 
 -- The one place a valuation_snapshot row is written, so the arithmetic cannot
--- drift between the write paths — the drift class TYRE-32's audit caught,
--- held closed for the register by 000006 and for the cache here.
+-- drift between the write paths. That is the drift class TYRE-32's audit
+-- caught, held closed for the register by 000006 and for the cache here.
 --
 -- p_tenant is load-bearing, not decoration. This runs both under RLS (the
 -- month-end pass, as app_rw) and inside refresh_governing_tread()'s SECURITY
--- DEFINER chain, where RLS never binds — 000004 states that reasoning at the
+-- DEFINER chain, where RLS never binds. 000004 states that reasoning at the
 -- function itself. Every statement below therefore carries the tenant in its
 -- own predicate rather than trusting a policy that is only sometimes there.
 --
@@ -111,7 +111,7 @@ END $$;
 
 -- FR-VAL-022, change-driven half. Derives from the register rather than from
 -- NEW, so which reading governs the day is decided by submitted_at and the
--- order the phones happened to sync in stops mattering — out-of-order sync is
+-- order the phones happened to sync in stops mattering. Out-of-order sync is
 -- the normal operating mode of an offline-first capture app, not an anomaly.
 -- Still runs inside refresh_governing_tread()'s definer chain, so it hands the
 -- row's own tenant down rather than reading the session GUC, and prices at the
@@ -136,7 +136,7 @@ END $$;
 --
 -- Every snapshot at or after the inspection's date, not just the one on it: a
 -- month-end row taken later inherited the value of the reading being retracted.
--- Invoker rights, unlike its sibling on reading_measurement — the row being
+-- Invoker rights, unlike its sibling on reading_measurement. The row being
 -- updated is the caller's own tenant's, so RLS binds and is welcome to.
 CREATE FUNCTION app.repair_snapshots_on_inspection_state() RETURNS trigger
 LANGUAGE plpgsql SET search_path = app, pg_temp AS $$

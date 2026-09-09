@@ -1,7 +1,7 @@
 -- ============================================================================
 --  Sponsor-answer enum extensions and new types (TYRE-42)
 --  Implements: CHG-010, CHG-016, CHG-027, CHG-028, CHG-030, CHG-033, CHG-035,
---  CHG-036, CHG-037, CHG-042 (type layer only) — manifest v1.1 §4.2.
+--  CHG-036, CHG-037, CHG-042 (type layer only). Manifest v1.1 §4.2.
 --
 --  A migration of its own because golang-migrate applies each file as one
 --  transaction and PostgreSQL forbids USING an enum value in the transaction
@@ -10,7 +10,7 @@
 
 -- CHG-037: a tyre can leave the fleet by SALE, not only by scrapping. The sale
 -- price is a real market valuation of a used casing (Q19) and is one of only
--- three money figures recoverable going forward — see CHG-036.
+-- three money figures recoverable going forward. See CHG-036.
 ALTER TYPE app.tyre_state     ADD VALUE IF NOT EXISTS 'SOLD';
 
 -- CHG-028: a unit that is not moving is not wearing. Recurring inspection
@@ -56,7 +56,7 @@ CREATE TYPE app.cost_source AS ENUM ('INVOICE','PRICE_LIST_ESTIMATE','UNKNOWN');
 CREATE TYPE app.distance_provenance AS ENUM ('MEASURED','INFERRED','UNAVAILABLE');
 
 -- CHG-035. Manufacturer pressures are COLD figures. Inspections happen
--- mid-trip and at rest stops, when tyres are hot and read high — a hot 750
+-- mid-trip and at rest stops, when tyres are hot and read high. A hot 750
 -- against a cold 750 target can conceal genuine under-inflation (Q12).
 CREATE TYPE app.temperature_state AS ENUM ('COLD','HOT','UNKNOWN');
 

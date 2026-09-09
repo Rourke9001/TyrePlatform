@@ -2,7 +2,7 @@
 --  Analytics reconciliation (TYRE-42)
 --  Implements: CHG-111 (one threshold model), CHG-112 (one pressure model),
 --  CHG-113 (one forecast implementation), and the CHG-016 casing chain in the
---  register — manifest v1.1 §7.2. One implementation per concept: after this
+--  register, manifest v1.1 §7.2. One implementation per concept: after this
 --  file no config-key threshold, no config-key pressure target and no point-
 --  date forecast exists anywhere.
 -- ============================================================================
@@ -11,7 +11,7 @@
 -- 1. Threshold consolidation (CHG-111)
 --
 -- threshold_policy becomes authoritative. Existing tenants' config-key values
--- migrate across so behaviour is continuous, then the keys are removed — a
+-- migrate across so behaviour is continuous, then the keys are removed. A
 -- retired key that stays resolvable is a second source of truth.
 -- ---------------------------------------------------------------------------
 INSERT INTO app.threshold_policy
@@ -29,8 +29,8 @@ SELECT c.tenant_id,
 
 DELETE FROM app.configuration WHERE key IN ('removal_threshold_mm', 'warning_threshold_mm');
 
--- Same signature, new source: every consumer — the register, the snapshots,
--- the forecast — moves to the policy table in this one statement. The removal
+-- Same signature, new source. The register, the snapshots and the forecast
+-- all move to the policy table in this one statement. The removal
 -- point is the RETREAD threshold: a tyre is pulled when retreading protects
 -- the casing, and BR-VAL-001's tread value floors at the depth the fleet
 -- would actually pull it. Resolution is the tenant-wide default row
@@ -194,7 +194,7 @@ $$;
 -- precision that will eventually be caught out and cost trust. The reading
 -- count travels with the answer so the consumer can see how much to believe
 -- (ADR-0010). The slack multiplier is an honesty band scaled by how little
--- underpins the estimate — a heuristic, not a statistical interval, which is
+-- underpins the estimate, a heuristic, not a statistical interval, which is
 -- why the basis says REGRESSION_MM_PER_MONTH and not "95% CI".
 --
 -- Anchored to the tyre's own latest reading, not to when someone looks: a
@@ -237,7 +237,7 @@ DROP VIEW app.v_removal_forecast;
 
 -- FR-ANL-004/005 over CHG-043: the ONE forecast surface. mm/month regression
 -- is the primary rate; the odometer sibling rides along per CFL-009 for the
--- vehicles that have distance. Point-date columns are retired — the range and
+-- vehicles that have distance. Point-date columns are retired. The range and
 -- its reading count are the projection. A tyre already at or below the
 -- threshold reached it no later than its last reading: both range ends land
 -- on that date whatever the rate says, because being past the threshold
@@ -381,7 +381,7 @@ LANGUAGE sql STABLE AS $$
                                           thr.mm, t.rand_per_mm) END AS val) tv
     -- current casing value = the latest valuation event as at the date
     -- (CHG-016), labelled by its source; the size estimate and the onboarding
-    -- audit figure are fallbacks, each under its own label — never blended
+    -- audit figure are fallbacks, each under its own label, never blended
     LEFT JOIN LATERAL (
          SELECT c.value, c.source
            FROM app.casing_valuation c

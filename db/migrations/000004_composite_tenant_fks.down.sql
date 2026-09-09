@@ -1,6 +1,6 @@
--- Reverses 000004 to the schema exactly as 000003 left it — id-only foreign
--- keys, the 000001 trigger function, no (tenant_id, id) keys — so the
--- migration chain replays cleanly. This state carries the cross-tenant write
+-- Reverses 000004 to the schema exactly as 000003 left it, so the migration
+-- chain replays cleanly: id-only foreign keys, the 000001 trigger function,
+-- no (tenant_id, id) keys. This state carries the cross-tenant write
 -- path 000004 closes (TYRE-29); 004_tests.sql check 16 fails on it by design.
 
 -- 000001's definition. CREATE OR REPLACE resets attributes it does not

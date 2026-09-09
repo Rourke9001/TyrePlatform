@@ -1,5 +1,5 @@
 -- ============================================================================
---  Fleet Tyre Management Platform — core schema
+--  Fleet Tyre Management Platform: core schema
 --  Target: PostgreSQL 16
 --  Implements: SRS v1.3 §5 (data requirements), CR-001..CR-011, DR-001..DR-017
 --
@@ -16,7 +16,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 -- This is a golang-migrate migration: it runs exactly once against a database
 -- and is recorded in schema_migrations. It must therefore never DROP anything
--- it did not create in this same file — `make db-reset` owns destruction.
+-- it did not create in this same file. `make db-reset` owns destruction.
 CREATE SCHEMA app;
 
 -- ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ CREATE TYPE app.evidential_status AS ENUM ('CONFIRMED','PROPOSED','VARIANT');
 CREATE TYPE app.reading_source  AS ENUM ('MANUAL','TPMS','IMPORT');
 
 -- ---------------------------------------------------------------------------
--- tenant — the isolation root. Not itself tenant-scoped.
+-- tenant: the isolation root. Not itself tenant-scoped.
 -- ---------------------------------------------------------------------------
 CREATE TABLE app.tenant (
   id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -69,7 +69,7 @@ CREATE TABLE app.tenant (
 );
 
 -- ---------------------------------------------------------------------------
--- configuration — every threshold, band and rate (CR-005).
+-- configuration: every threshold, band and rate (CR-005).
 -- Stored as key/value with effective dating so FR-CFG-051 (prospective only)
 -- is a query concern rather than an overwrite.
 -- ---------------------------------------------------------------------------
@@ -147,7 +147,7 @@ CREATE TABLE app.position (
   side             app.side,               -- NULL for spare
   slot             app.fitment_slot,       -- NULL for spare
   is_spare         boolean NOT NULL DEFAULT false,
-  unit_label       text,                   -- 'Horse', '6m link' — FR-VEH-023
+  unit_label       text,                   -- 'Horse', '6m link' (FR-VEH-023)
   UNIQUE (configuration_id, code),
   CONSTRAINT spare_has_no_geometry CHECK (
     (is_spare AND axle_number IS NULL AND side IS NULL AND slot IS NULL AND axle_class = 'SPARE')
@@ -243,7 +243,7 @@ CREATE TABLE app.tyre_pattern (
 );
 
 -- ---------------------------------------------------------------------------
--- tyre — the central asset.
+-- tyre: the central asset.
 -- rand_per_mm is stored on the tyre, never derived from pattern at read time
 -- (FR-TYR-007). Proven by SP431 at R205.71/mm in one batch and R284.38/mm in
 -- another (SRS Appendix E).
@@ -278,7 +278,7 @@ CREATE INDEX tyre_by_state ON app.tyre (tenant_id, state);
 CREATE INDEX tyre_branded_search ON app.tyre (tenant_id, branded_number text_pattern_ops);
 
 -- ---------------------------------------------------------------------------
--- fitment — the spine of cost-per-kilometre.
+-- fitment: the spine of cost-per-kilometre.
 -- Partial unique indexes enforce BR-FIT-001 and BR-FIT-002 in the database
 -- rather than in application code (DR-004, DR-005).
 -- ---------------------------------------------------------------------------
@@ -421,7 +421,7 @@ CREATE TABLE app.photo (
 );
 
 -- ---------------------------------------------------------------------------
--- tyre_event — append-only lifecycle log (FR-FIT-014, BR-FIT-007)
+-- tyre_event: append-only lifecycle log (FR-FIT-014, BR-FIT-007)
 -- ---------------------------------------------------------------------------
 CREATE TABLE app.tyre_event (
   id                   uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -562,8 +562,8 @@ CREATE POLICY tenant_self ON app.tenant
 
 -- ---------------------------------------------------------------------------
 -- Roles.
---  app_rw   — what the application connects as. Subject to RLS.
---  app_migrator — owns the schema, used only by migrations.
+--  app_rw:       what the application connects as. Subject to RLS.
+--  app_migrator: owns the schema, used only by migrations.
 -- ---------------------------------------------------------------------------
 DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_rw') THEN
@@ -693,7 +693,7 @@ HAVING count(*) FILTER (WHERE side = 'LEFT') > 0
    AND count(*) FILTER (WHERE side = 'RIGHT') > 0;
 
 -- ---------------------------------------------------------------------------
--- DEPLOYMENT NOTE — the one way to defeat all of the above.
+-- DEPLOYMENT NOTE: the one way to defeat all of the above.
 --
 -- FORCE ROW LEVEL SECURITY binds the table owner. It does NOT bind a
 -- superuser, and it does not bind a role with the BYPASSRLS attribute.
@@ -746,12 +746,12 @@ SELECT d.tenant_id,
  WHERE NOT d.is_spare;
 
 -- ---------------------------------------------------------------------------
--- SECURITY NOTE — views and RLS.
+-- SECURITY NOTE: views and RLS.
 --
 -- A PostgreSQL view executes with the privileges of its OWNER unless
 -- security_invoker is set. Because these views are owned by the migration
 -- role, a view without security_invoker would evaluate the underlying tables'
--- RLS policies as that owner — and return every tenant's rows to any caller.
+-- RLS policies as that owner, and return every tenant's rows to any caller.
 -- Every view above therefore sets `WITH (security_invoker = true)`.
 -- 004_tests.sql asserts this for each view; adding a view without it will
 -- fail the build.

@@ -1,8 +1,8 @@
 -- ============================================================================
 --  Single-inspection analytics (TYRE-34)
 --  Implements: FR-ANL-023..028, data layer for FR-RPT-022/023/037.
---  Everything here is computable from the latest inspection alone — no
---  history, no odometer — which is why it ships before wear rate (TYRE-35).
+--  Everything here is computable from the latest inspection alone, with no
+--  history and no odometer, which is why it ships before wear rate (TYRE-35).
 -- ============================================================================
 
 -- Generic resolver for a jsonb-valued setting at an explicit moment, the
@@ -25,7 +25,7 @@ $$;
 -- exhaustive). The configured pairs are read for their LOWER bounds only:
 -- each band runs to the next band's lower bound, the last is unbounded. The
 -- stated upper bound survives as the display label, which is what FR-CFG-032
--- is really specifying — its default reads "0-4, 5-7, ..." and taken
+-- is really specifying. Its default reads "0-4, 5-7, ..." and taken
 -- literally as closed intervals it leaves 4.5mm in no band at all, while
 -- FR-INS-021 accepts tread to one decimal place. Lower-bound classification
 -- agrees with the default on every whole millimetre and closes the gap.
@@ -76,7 +76,7 @@ SELECT t.tenant_id,
         LIMIT 1) lr ON true;
 
 -- FR-ANL-023: average governing depth by tenant, depot and vehicle.
--- position_class is the FR-RPT-005 disclosure, not a filter — 'ALL' is the
+-- position_class is the FR-RPT-005 disclosure, not a filter. 'ALL' is the
 -- rollup BR-RPT-001 makes the default for composition reporting.
 CREATE VIEW app.v_tread_summary WITH (security_invoker = true) AS
 SELECT tenant_id,
@@ -97,8 +97,8 @@ SELECT tenant_id,
 
 -- FR-ANL-024. Built on the summary so the denominator of every percentage is
 -- the same population the averages describe, and left-joined off the band
--- list so an empty band still reports as zero rather than disappearing —
--- a missing row and a zero row read identically on a chart and only one of
+-- list so an empty band still reports as zero rather than disappearing.
+-- A missing row and a zero row read identically on a chart and only one of
 -- them is true (FR-CFG-031, BR-RPT-002).
 CREATE VIEW app.v_tread_distribution WITH (security_invoker = true) AS
 WITH counted AS (
@@ -146,7 +146,7 @@ SELECT s.tenant_id,
 -- FR-ANL-025/026 over a half-open [p_from, p_to) window. A function, not a
 -- view, for the same reason tyre_valuation_asof is: the period is an argument.
 -- BR-RPT-004 fixes the denominator as READINGS, never tyres, and requires the
--- reading and distinct-tyre counts alongside every figure — so they ride on
+-- reading and distinct-tyre counts alongside every figure, so they ride on
 -- every row rather than being a separate call a caller can forget to make.
 -- A reading whose axle class has no configured target cannot be expressed as
 -- a percentage at all; it is counted as unclassified, never as compliant
