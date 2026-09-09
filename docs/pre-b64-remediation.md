@@ -8,7 +8,7 @@ TYRE-213. This page sequences the subset that must land before B6 slice 4
 and is scheduled after B6.4 or by the owner's decision. The Jira ticket is the
 authority on each item; this page only orders them.
 
-Numbered B6.3.5 in `docs/implementation-order.md`. The handoff prompt that
+Numbered B6.3.5 in `docs/delivery-history.md` §B6. The handoff prompt that
 runs it is gitignored (`docs/HANDOFF_pre_b64_remediation.md`).
 
 ## Why these and not the rest

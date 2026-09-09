@@ -520,7 +520,7 @@ func listDepots(s *store.Store) http.HandlerFunc {
 // decodeJSONStrict refuses any key matching none of them — as encoding/json
 // matches, case-insensitively, so no spelling of either gets through — which
 // is what keeps TY008 (000028) unreachable from the API (D5,
-// docs/implementation-order.md §B5).
+// docs/delivery-history.md §B5).
 type patchUnitRequest struct {
 	FleetNumber      *string `json:"fleetNumber"`
 	Registration     *string `json:"registration"`
