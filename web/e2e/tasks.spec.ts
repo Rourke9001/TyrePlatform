@@ -18,13 +18,13 @@ import { actAsUser } from "./admin";
 // submitted_at are instants compared to instants (FR-INS-038's window), not
 // tenant days, so a clock here is outside the 2026-09-03 lesson.
 //
-// Sandbox Fleet, never BAC — see admin.ts (TYRE-80). The unit is created by
-// this run rather than reused from the seed (U14) — playwright.config.ts is
+// Sandbox Fleet, never BAC: see admin.ts (TYRE-80). The unit is created by
+// this run rather than reused from the seed (U14): playwright.config.ts is
 // fullyParallel and fitments.spec.ts disposes sbveh1 mid-suite, so sharing a
 // seeded unit would be an ordering dependency the config does not promise.
 //
 // Serial, and Chromium desktop only gated on the device rather than on
-// browserName — rigs.spec.ts carries why each is needed.
+// browserName. rigs.spec.ts carries why each is needed.
 test.describe.configure({ mode: "serial" });
 
 test.skip(
@@ -46,7 +46,7 @@ const SANDBOX_DRIVER = "40f019ce-192e-92d1-5b15-2eb7b65369df";
 
 // The dev actor headers a raw request has to state itself (admin.ts). ACTOR
 // and postedResponse are rigs.spec.ts's, restated here rather than exported
-// from it — a spec is not a module other specs import.
+// from it. A spec is not a module other specs import.
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 const DRIVER_ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": SANDBOX_DRIVER };
 
@@ -74,7 +74,7 @@ interface AxleConfiguration {
 }
 
 // A fleet's axle configurations are tenant data (FR-VEH-002), so the ids are
-// read rather than assumed — only the codes the Sandbox seed plants are.
+// read rather than assumed. Only the codes the Sandbox seed plants are.
 function configFor(configs: AxleConfiguration[], code: string): string {
   const found = configs.filter((c) => c.code === code);
   expect(found, `no ${code} axle configuration in Sandbox Fleet`).not.toHaveLength(0);
@@ -148,23 +148,23 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
   await expect(taskRow).toContainText("Open");
 
   // FR-INS-048: the driver's own landing view is the one place the task is
-  // reachable from. A fresh context rather than `page` — actAsUser's init
+  // reachable from. A fresh context rather than `page`, actAsUser's init
   // script re-stamps its actor on every navigation, so an overwrite would not
-  // survive the goto — and a hand-made context takes none of the config's
+  // survive the goto, and a hand-made context takes none of the config's
   // `use` options, so baseURL is passed through (admin.spec.ts).
   const driverContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const driverPage = await driverContext.newPage();
   await actAsUser(driverPage, SANDBOX_DRIVER);
   await driverPage.goto("/my");
-  const link = driverPage.getByRole("link", { name: new RegExp(`^${HORSE_FLEET} — due `) });
+  const link = driverPage.getByRole("link", { name: new RegExp(`^${HORSE_FLEET}, due `) });
   await expect(link).toBeVisible();
   // A task scheduled for the tenant's today is due at the last microsecond of
-  // that day, so it is not overdue — the word is the whole signal, never
+  // that day, so it is not overdue. The word is the whole signal, never
   // colour (NFR-USE-009).
   await expect(link).not.toContainText("(overdue)");
 
   // FR-INS-052: the link is what carries the task into the capture, and the
-  // id in the query string is the one the schedule just created — a capture
+  // id in the query string is the one the schedule just created. A capture
   // opened against another task would close the wrong one.
   await link.click();
   await expect(driverPage).toHaveURL(new RegExp(`/capture/${horseId}\\?taskId=${task.id}$`));
@@ -172,7 +172,7 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
 
   // Rule 5: the width of a capture is tenant configuration, so the payload
   // reads it from the context the driver was served rather than assuming
-  // three. A running position, never a spare — FR-CFG-013 gives a spare no
+  // three. A running position, never a spare. FR-CFG-013 gives a spare no
   // pressure target and the reading below carries one.
   const captureContext = (await apiGet(
     driverPage,
@@ -209,7 +209,7 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
   await driverPage.goto("/my");
   // The API the screen reads, not a count of what it is showing: this run's
   // task is gone, and the claim is about that task rather than about the
-  // driver having nothing due — the Sandbox driver is shared, so an earlier
+  // driver having nothing due. The Sandbox driver is shared, so an earlier
   // run's open task would make an empty-state assertion a claim about the
   // tenant instead of about this close.
   const mine = (await apiGet(driverPage, "/api/my/tasks", DRIVER_ACTOR)) as { id: string }[];
@@ -222,7 +222,7 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
     driverPage.getByText("Nothing due.").or(driverPage.getByRole("listitem").first()),
   ).toBeVisible();
   await expect(
-    driverPage.getByRole("link", { name: new RegExp(`^${HORSE_FLEET} — due `) }),
+    driverPage.getByRole("link", { name: new RegExp(`^${HORSE_FLEET}, due `) }),
   ).toHaveCount(0);
   await driverContext.close();
 

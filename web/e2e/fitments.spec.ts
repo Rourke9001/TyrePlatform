@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { actAsUser } from "./admin";
 
-// TYRE-92/93/94's fitment surface, end to end on Sandbox Fleet (never BAC —
+// TYRE-92/93/94's fitment surface, end to end on Sandbox Fleet (never BAC,
 // BAC's rows are the Appendix E/J acceptance fixture, TYRE-80) as the Sandbox
 // controller, who holds ManageAssets and LogRetread and so reaches every
 // write on this path: receive stock, fit a trailer and a horse, rotate,
@@ -12,7 +12,7 @@ import { actAsUser } from "./admin";
 // One continuous test, serial like admin.spec.ts: each step reads what the
 // step before it wrote, and these are writes into one shared database. The
 // run disposes of Sandbox horse sbveh1 along the way, so `make e2e`'s own
-// db-reset before this project runs is load-bearing — no other spec in this
+// db-reset before this project runs is load-bearing. No other spec in this
 // suite references sbveh1.
 test.describe.configure({ mode: "serial" });
 
@@ -28,7 +28,7 @@ const TRAILER = "a8f398e2-2ede-a028-986b-22b86f1d36d5";
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 
 // The register's own read, used where a fact this flow depends on has no cell
-// on any screen — the retread count, and a unit's status once VehicleList
+// on any screen: the retread count, and a unit's status once VehicleList
 // stops showing one.
 function actorGet(page: Page, path: string): Promise<unknown> {
   return page.request.get(path, { headers: ACTOR }).then((res) => {
@@ -130,7 +130,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // CHG-010: which sidewall carries the manufacturer's mark is a fact about
   // the mounting, recorded at the fit. Asserted rather than left alone:
   // PositionPanel's radios start on UNKNOWN (D13), so a fit that never touches
-  // them says nothing about the control — the read-back at the closed leg
+  // them says nothing about the control. The read-back at the closed leg
   // below is what it earns.
   await trailerPanel.getByRole("radio", { name: "Mark inboard" }).check();
   await Promise.all([
@@ -140,8 +140,8 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await expect(
     trailerPanel.getByText(`${stockA} was fitted to ${trailerFirst.code}.`, { exact: true }),
   ).toBeVisible();
-  // app.fit_tyre's three advisories are all silent here — no size is recorded
-  // on received stock, the casing is new, and the dual mate is empty — so a
+  // app.fit_tyre's three advisories are all silent here: no size is recorded
+  // on received stock, the casing is new, and the dual mate is empty. So a
   // warning on this fit would mean a rule fired on absence (FR-FIT-005).
   await expect(page.getByRole("status", { name: "Warnings" })).toHaveCount(0);
   await expect(
@@ -297,7 +297,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   ).toBeVisible();
   await expect(casingA.getByRole("cell", { name: "IN_STOCK", exact: true })).toBeVisible();
   // U1/U2's UI contract: a dispatch is from REMOVED only, and a casing that
-  // is back in stock is neither returned again nor sent anywhere — the row
+  // is back in stock is neither returned again nor sent anywhere. The row
   // offers the one write app.dispose_tyre would accept from this state.
   await expect(casingA.getByRole("radiogroup", { name: "Destination" })).toHaveCount(0);
   await expect(casingA.getByRole("button", { name: "Return to stock" })).toHaveCount(0);
@@ -362,7 +362,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await expect(casingB.getByRole("cell", { name: "AT_RETREADER", exact: true })).toBeVisible();
   await expect(
     casingB.getByRole("cell", {
-      name: "At the retreader — log the return under Retreads",
+      name: "At the retreader, log the return under Retreads",
       exact: true,
     }),
   ).toBeVisible();
@@ -408,8 +408,8 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   ).toBeVisible();
 
   // An accepted casing comes back as stock, not as a fitted tyre. The count
-  // itself has no cell on the register, so BR-FIT-009's cap — the reason a
-  // count is kept at all — is checked against the read the screen renders.
+  // itself has no cell on the register, so BR-FIT-009's cap, the reason a
+  // count is kept at all, is checked against the read the screen renders.
   await page.goto("/fleet/tyres");
   await expect(
     page

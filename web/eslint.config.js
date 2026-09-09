@@ -1,7 +1,7 @@
 // TYRE-49. The type-aware tiers, not the syntactic ones: tsconfig already sets
 // `strict` and CLAUDE.md forbids `any`, and only a rule with the type checker
 // behind it can see an inferred `any` that never appears in the source. That is
-// what `projectService` buys — without it these rules go quiet rather than
+// what `projectService` buys. Without it these rules go quiet rather than
 // fail, and a gate that cannot fail is not a gate.
 //
 // Recommended rather than `strictTypeChecked`, which pairs
@@ -15,13 +15,13 @@ import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier/flat";
 
 // Rule 6's display half, enforced rather than remembered (TYRE-89, TYRE-95).
-// Split into three constants because src/time — the funnel every other file
-// must render through — is exempt from exactly one of them, and a list
+// Split into three constants because src/time, the funnel every other file
+// must render through, is exempt from exactly one of them, and a list
 // written twice would drift.
 //
 // The toLocale* methods are banned by property name alone. Syntax cannot
 // tell a Date receiver from a Number, so `toLocaleString` catches
-// Number.prototype.toLocaleString too — deliberately: a receiver-shape
+// Number.prototype.toLocaleString too, deliberately. A receiver-shape
 // heuristic would let any Date reached through a property or call slip
 // past, and numbers have Intl.NumberFormat, which formats identically
 // (ECMA-402 defines Number's toLocaleString as exactly that call).
@@ -29,28 +29,28 @@ const toLocaleBans = [
   {
     selector: "MemberExpression[property.name='toLocaleDateString']",
     message:
-      "Render dates through formatTenantDate/useTenantDate (web/src/time/tenantTime.ts) — the browser's zone is not the tenant's (rule 6).",
+      "Render dates through formatTenantDate/useTenantDate (web/src/time/tenantTime.ts). The browser's zone is not the tenant's (rule 6).",
   },
   {
     selector: "MemberExpression[property.name='toLocaleTimeString']",
     message:
-      "Render times through web/src/time/tenantTime.ts — the browser's zone is not the tenant's (rule 6).",
+      "Render times through web/src/time/tenantTime.ts. The browser's zone is not the tenant's (rule 6).",
   },
   {
     selector: "MemberExpression[property.name='toLocaleString']",
     message:
-      'Render dates through web/src/time/tenantTime.ts (rule 6). For a number, use Intl.NumberFormat("en-ZA").format(n) — same output, and lint cannot tell the receivers apart.',
+      'Render dates through web/src/time/tenantTime.ts (rule 6). For a number, use Intl.NumberFormat("en-ZA").format(n). It gives the same output, and lint cannot tell the receivers apart.',
   },
 ];
 
 // MemberExpression, not NewExpression: ECMA-402 makes Intl.DateTimeFormat
-// callable without `new`, and either form — or a bare alias of the member —
+// callable without `new`, and either form, or a bare alias of the member,
 // formats in the browser's zone without touching toLocale* at all (rule 6,
 // TYRE-95).
 const intlDateTimeFormatBan = {
   selector: "MemberExpression[object.name='Intl'][property.name='DateTimeFormat']",
   message:
-    "Render dates through formatTenantDate/useTenantDate (web/src/time/tenantTime.ts) — the browser's zone is not the tenant's (rule 6).",
+    "Render dates through formatTenantDate/useTenantDate (web/src/time/tenantTime.ts). The browser's zone is not the tenant's (rule 6).",
 };
 
 // `const { DateTimeFormat } = Intl` (or aliasing Intl itself) reaches the
@@ -60,7 +60,7 @@ const intlDateTimeFormatBan = {
 const intlAliasBan = {
   selector: "VariableDeclarator[init.name='Intl']",
   message:
-    "Do not alias or destructure Intl — it reaches DateTimeFormat around the rule 6 ban. Reach the other Intl formatters through the global; dates go through web/src/time/tenantTime.ts.",
+    "Do not alias or destructure Intl. It reaches DateTimeFormat around the rule 6 ban. Reach the other Intl formatters through the global; dates go through web/src/time/tenantTime.ts.",
 };
 
 export default tseslint.config(
@@ -88,14 +88,14 @@ export default tseslint.config(
       },
     },
     rules: {
-      // The house rule from CLAUDE.md — "if you reach for `any`, the type is
-      // wrong" — with the same weight as a compile error, not a warning.
+      // The house rule from CLAUDE.md: "if you reach for `any`, the type is
+      // wrong", with the same weight as a compile error, not a warning.
       "@typescript-eslint/no-explicit-any": "error",
       "no-restricted-syntax": ["error", ...toLocaleBans, intlDateTimeFormatBan, intlAliasBan],
     },
   },
   // web/src/time/tenantTime.ts is the one legitimate home the date bans
-  // above all point to — the funnel every other file is required to render
+  // above all point to. It is the funnel every other file is required to render
   // through (rule 6, TYRE-89). Only the Intl.DateTimeFormat construction the
   // formatter genuinely needs is exempted; the toLocale* and Intl-alias bans
   // still hold here, so a second file in this directory cannot quietly call
@@ -108,8 +108,8 @@ export default tseslint.config(
   },
   // Config, tooling and e2e files are not part of the app's tsconfig
   // project, so type-aware linting has no program to consult for them. The
-  // e2e specs are still strictly typechecked — tsconfig.e2e.json, run by
-  // `npm run typecheck` — just not type-aware-linted.
+  // e2e specs are still strictly typechecked: tsconfig.e2e.json, run by
+  // `npm run typecheck`. They are just not type-aware-linted.
   {
     files: ["*.{js,ts}", "vite.config.ts", "playwright.config.ts", "e2e/**/*.ts"],
     extends: [tseslint.configs.disableTypeChecked],

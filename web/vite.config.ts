@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 
 // No service worker and no PWA plugin here. ADR-0009 settled the sync design as
 // online-first with a durable submit outbox, so what protects an in-progress
-// inspection is IndexedDB and the outbox's own retry — never a cache and never
+// inspection is IndexedDB and the outbox's own retry, never a cache and never
 // Background Sync, which iOS Safari does not have. An installable manifest
 // would add reach, not durability, and nothing in the capture flow waits on
 // one.

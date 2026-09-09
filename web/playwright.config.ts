@@ -2,15 +2,15 @@ import { defineConfig, devices } from "@playwright/test";
 
 // E2E runs against the DEV server on purpose: identity comes from the dev
 // actor headers (src/api/devTenant.ts), which exist only when
-// import.meta.env.DEV is true — there is no real identity provider yet
+// import.meta.env.DEV is true. There is no real identity provider yet
 // (FR-AUT-001), so a production build has no way to be anyone. The API must
 // already be listening on :8080 with APP_DEV_TENANT_HEADER=1 over a seeded
 // database; `make e2e` checks that before it launches anything.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
-  // A stray test.only would silently shrink the suite to one test in CI —
-  // the same silent-gate failure mode TYRE-49 exists to prevent.
+  // A stray test.only would silently shrink the suite to one test in CI.
+  // That is the same silent-gate failure mode TYRE-49 exists to prevent.
   forbidOnly: !!process.env.CI,
   retries: 0,
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
@@ -22,7 +22,7 @@ export default defineConfig({
     // capture.spec.ts submits, and FR-INS-038's duplicate window is tenant
     // state in one shared database: the same vehicle captured on a second
     // project is refused by the first project's submit. It runs on one project
-    // only, gated here rather than skipped inside the file — a skip still has
+    // only, gated here rather than skipped inside the file. A skip still has
     // Playwright launch a browser and build a context per project to decide it.
     { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /capture\.spec/ },
     // The capture app is judged at phone dimensions or not at all: thumb reach,
@@ -30,7 +30,7 @@ export default defineConfig({
     // Pixel 7 and iPhone 14 bracket the sizes a driver actually carries.
     //
     // admin.spec.ts, tyres.spec.ts, fitments.spec.ts and rotation.spec.ts each
-    // create/dispose rows per run. Rows, not just reads — so they run on one
+    // create/dispose rows per run. Rows, not just reads, so they run on one
     // project only, like capture.spec.ts and for a related reason: a second
     // project repeats the writes rather than the assertions. rotation.spec.ts
     // also drives a manager screen, which is judged at desktop size.

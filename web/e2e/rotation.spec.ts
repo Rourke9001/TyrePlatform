@@ -5,15 +5,15 @@ import { actAsUser } from "./admin";
 // TYRE-101 walked end to end: a casing moves between two units of one open rig
 // in a single rotation, and both units' fitment histories say so. The database
 // owns the rule (000039); what this proves is that the manager screen can
-// actually reach it — the unit column RotateForm grows for a rig member, the
+// actually reach it: the unit column RotateForm grows for a rig member, the
 // target narrowed to the sibling's empty positions, and one odometer per unit
 // that has one.
 //
-// Sandbox Fleet, never BAC — see admin.ts (TYRE-80). The two units, the rig
+// Sandbox Fleet, never BAC: see admin.ts (TYRE-80). The two units, the rig
 // and the tyres are all created by this run rather than reused from the seed
-// (U14) — playwright.config.ts is
-// fullyParallel and fitments.spec.ts disposes a seeded unit mid-suite, so
-// sharing one would be an ordering dependency the config does not promise.
+// (U14): playwright.config.ts is fullyParallel and fitments.spec.ts disposes
+// a seeded unit mid-suite, so sharing one would be an ordering dependency the
+// config does not promise.
 //
 // No step here needs a date the tenant would call future: the rig opens on the
 // tenant's own today (effectiveOn omitted) and every write takes now(). RUN
@@ -32,7 +32,7 @@ const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
 
 // The dev actor headers a raw request has to state itself (admin.ts). These
 // helpers are fitments.spec.ts's and rigs.spec.ts's, restated here rather than
-// exported from either — a spec is not a module other specs import.
+// exported from either. A spec is not a module other specs import.
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 
 function postedResponse(page: Page, path: RegExp) {
@@ -74,7 +74,7 @@ interface Position {
 }
 
 // A fleet's axle configurations are tenant data (FR-VEH-002), so the ids are
-// read rather than assumed — only the codes the Sandbox seed plants are
+// read rather than assumed. Only the codes the Sandbox seed plants are
 // (rigs.spec.ts).
 function configFor(configs: AxleConfiguration[], code: string): string {
   const found = configs.filter((c) => c.code === code);
@@ -178,15 +178,15 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   );
 
   // The rotation itself, through the screen: one casing crosses to the trailer
-  // and the other takes the position it leaves. Names are matched exactly —
-  // a 6x4's codes run past 9, so a non-exact match would resolve to two rows
+  // and the other takes the position it leaves. Names are matched exactly.
+  // A 6x4's codes run past 9, so a non-exact match would resolve to two rows
   // and fail Playwright's strict mode (fitments.spec.ts).
   const rotate = page.getByRole("region", { name: "Rotate" });
   await rotate.getByRole("checkbox", { name: `Rotate ${horseFirst.code}`, exact: true }).check();
   await rotate.getByRole("checkbox", { name: `Rotate ${horseSecond.code}`, exact: true }).check();
 
   // The unit column exists only for a member of an open rig (U15), and the
-  // target list is the destination unit's own empty positions (TYRE-127) — so
+  // target list is the destination unit's own empty positions (TYRE-127), so
   // the occupied trailer position must not be on offer.
   const unitPicker = rotate.getByRole("combobox", { name: `Unit for ${horseFirst.code}` });
   await expect(unitPicker).toBeVisible();
@@ -207,7 +207,7 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   await rotate.getByLabel(`Tread for ${horseFirst.code}`, { exact: true }).fill("15");
   await rotate.getByLabel(`Tread for ${horseSecond.code}`, { exact: true }).fill("15");
   // U20: the reading belongs to the unit, so the field names the unit it is
-  // asked for — and the trailer, having no odometer, is asked for none.
+  // asked for, and the trailer, having no odometer, is asked for none.
   await expect(rotate.getByLabel(`Odometer for ${TRAILER_FLEET}`)).toHaveCount(0);
   await rotate.getByLabel(`Odometer for ${HORSE_FLEET}`).fill("251000");
 
@@ -228,7 +228,7 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   ).toBeVisible();
 
   // The horse's history: two legs closed as a rotation, and the casing that
-  // crossed has no open leg here at all — its open one is the trailer's.
+  // crossed has no open leg here at all. Its open one is the trailer's.
   // Keyed on the Reason cell rather than on the row's text, so a column this
   // assertion is not about cannot satisfy it (fitments.spec.ts).
   const closedByRotation = page
