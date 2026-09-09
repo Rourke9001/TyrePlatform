@@ -2,9 +2,10 @@
 // TYRE-22. Deterministic half of the comment standard (docs/comments.md).
 //
 // Only the mechanically detectable violations live here: history-narration
-// phrasing, review-process residue, untracked TODOs. Judgement calls (why vs
-// what, bloat) belong to the /comment-audit pass — a regex guessing at those
-// would either miss everything or block legitimate comments, and this check
+// phrasing, review-process residue, untracked TODOs, and the prose tells the
+// standard's "Prose" section bans (TYRE-237). Judgement calls (why vs what,
+// bloat) belong to the /comment-audit pass. A regex guessing at those would
+// either miss everything or block legitimate comments, and this check
 // blocks, so precision beats recall throughout.
 //
 // Runs three ways off the same rule set: per-file from the Claude Code edit
@@ -17,6 +18,7 @@ import { argv, exit } from 'node:process';
 import { basename, extname } from 'node:path';
 
 const SLASH = new Set(['.go', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.bicep']);
+const BLOCK_ONLY = new Set(['.css']);
 const HASH = new Set(['.py', '.sh', '.bash', '.yml', '.yaml', '.toml', '.npmrc']);
 const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig']);
 const DASH = new Set(['.sql']);
@@ -30,6 +32,15 @@ function exemptPath(p) {
 
 const ticketOrReqId = /\b[A-Z][A-Z0-9]{1,9}-\d+\b|\bQ\d+\b/;
 
+// Built from code points so this file passes its own check.
+const EM_DASH = String.fromCharCode(0x2014);
+const EN_DASH = String.fromCharCode(0x2013);
+const CURLY = String.fromCharCode(0x2018, 0x2019, 0x201c, 0x201d);
+
+// `scope: 'line'` rules read the whole source line, not just its comment:
+// a string literal is prose the user reads, so the punctuation tells apply
+// there too. The em-dash pattern needs a letter or digit beside the dash so
+// a lone U+2014 used as a display glyph for an absent value stays legal.
 const RULES = [
   {
     name: 'change-narration',
@@ -47,11 +58,35 @@ const RULES = [
     advice: 'needs a ticket or requirement ID on the same line; an untracked TODO is a decision nobody made',
     exempt: (text) => ticketOrReqId.test(text),
   },
+  {
+    name: 'em-dash',
+    scope: 'line',
+    re: new RegExp(`[\\p{L}\\p{N}]\\s*${EM_DASH}|${EM_DASH}\\s*[\\p{L}\\p{N}]`, 'u'),
+    advice: 'em dash in prose; end the sentence or use a comma (docs/comments.md, Prose)',
+  },
+  {
+    name: 'en-dash-as-dash',
+    scope: 'line',
+    re: new RegExp(`\\s${EN_DASH}\\s`),
+    advice: 'spaced en dash used as a dash; end the sentence or use a comma (docs/comments.md, Prose)',
+  },
+  {
+    name: 'curly-quotes',
+    scope: 'line',
+    re: new RegExp(`[${CURLY}]`),
+    advice: 'curly quote; use straight quotes (docs/comments.md, Prose)',
+  },
+  {
+    name: 'filler-vocabulary',
+    re: /\b(delv(e|es|ing)|leverag(e|es|ing)|utili[sz](e|es|ing)|facilitat(e|es|ing)|pivotal|testament|tapestry|showcas(e|es|ing)|in order to|it is (important|worth) (to note|noting)|it should be noted)\b/i,
+    advice: 'filler or inflated word; use the plain one (docs/comments.md, Prose)',
+  },
 ];
 
 function markersFor(path) {
   const ext = extname(path).toLowerCase();
   if (SLASH.has(ext)) return { line: '//', block: true };
+  if (BLOCK_ONLY.has(ext)) return { line: null, block: true };
   if (DASH.has(ext)) return { line: '--', block: true };
   if (HASH.has(ext) || HASH_NAMES.has(basename(path))) return { line: '#', block: false };
   return null;
@@ -60,7 +95,7 @@ function markersFor(path) {
 // Line-oriented on purpose: violations are phrases, so nothing is gained by a
 // real parser, and a parser per language is exactly the maintenance burden a
 // blocking check must not carry. The cost is that a marker inside a string
-// literal reads as a comment — acceptable, the phrase list is narrow enough
+// literal reads as a comment. Acceptable: the phrase list is narrow enough
 // that a string tripping it deserves a second look anyway.
 function commentTextOf(line, markers, state) {
   let text = '';
@@ -81,8 +116,10 @@ function commentTextOf(line, markers, state) {
     text += line.slice(start + 2, end) + ' ';
     line = line.slice(0, start) + line.slice(end + 2);
   }
-  const i = line.indexOf(markers.line);
-  if (i !== -1) text += line.slice(i + markers.line.length);
+  if (markers.line !== null) {
+    const i = line.indexOf(markers.line);
+    if (i !== -1) text += line.slice(i + markers.line.length);
+  }
   return { text, state };
 }
 
@@ -101,11 +138,12 @@ function checkFile(path) {
     const r = commentTextOf(line, markers, state);
     state = r.state;
     const text = r.text.trim();
-    if (!text) return;
     for (const rule of RULES) {
-      const m = rule.re.exec(text);
+      const subject = rule.scope === 'line' ? line : text;
+      if (!subject) continue;
+      const m = rule.re.exec(subject);
       if (!m) continue;
-      if (rule.exempt && rule.exempt(text)) continue;
+      if (rule.exempt && rule.exempt(subject)) continue;
       findings.push({ path, line: idx + 1, rule: rule.name, match: m[0], advice: rule.advice });
     }
   });
@@ -120,7 +158,7 @@ const findings = files.flatMap(checkFile);
 
 if (findings.length) {
   for (const f of findings) {
-    console.error(`${f.path}:${f.line}: [${f.rule}] "${f.match}" — ${f.advice}`);
+    console.error(`${f.path}:${f.line}: [${f.rule}] "${f.match}": ${f.advice}`);
   }
   console.error(`\n${findings.length} comment(s) violate docs/comments.md. Rephrase rather than suppress.`);
   exit(1);
