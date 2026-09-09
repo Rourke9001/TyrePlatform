@@ -6,15 +6,14 @@ import { actAsUser } from "./admin";
 // capture without touching the fixture. The Sandbox controller builds a horse
 // and two trailers-worth of units through the API, sets a rig on the Rigs
 // screen, is refused a second rig naming the same trailer, and the driver
-// assigned to the horse is offered that trailer on the capture start —
+// assigned to the horse is offered that trailer on the capture start,
 // pre-ticked. Ending the rig moves it to Ended rigs and the driver's capture
 // stops offering it.
 //
-// Sandbox Fleet, never BAC — see admin.ts (TYRE-80). The three units are
-// created by this run rather than reused from the seed (U14) —
-// playwright.config.ts is fullyParallel and fitments.spec.ts disposes sbveh1
-// mid-suite, so sharing a seeded unit would be an ordering dependency the
-// config does not promise.
+// Sandbox Fleet, never BAC: see admin.ts (TYRE-80). The three units are
+// created by this run rather than reused from the seed (U14): playwright.config.ts
+// is fullyParallel and fitments.spec.ts disposes sbveh1 mid-suite, so sharing
+// a seeded unit would be an ordering dependency the config does not promise.
 //
 // Serial: every step reads what the step before it wrote, into one shared
 // database.
@@ -48,7 +47,7 @@ const SANDBOX_DRIVER = "40f019ce-192e-92d1-5b15-2eb7b65369df";
 
 // The dev actor headers a raw request has to state itself (admin.ts). ACTOR
 // and posted are fitments.spec.ts's, restated here rather than exported from
-// it — a spec is not a module other specs import.
+// it. A spec is not a module other specs import.
 const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
 
 function postedResponse(page: Page, path: RegExp) {
@@ -84,7 +83,7 @@ interface AxleConfiguration {
 }
 
 // A fleet's axle configurations are tenant data (FR-VEH-002), so the ids are
-// read rather than assumed — only the codes the Sandbox seed plants are.
+// read rather than assumed. Only the codes the Sandbox seed plants are.
 function configFor(configs: AxleConfiguration[], code: string): string {
   const found = configs.filter((c) => c.code === code);
   expect(found, `no ${code} axle configuration in Sandbox Fleet`).not.toHaveLength(0);
@@ -163,8 +162,8 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   // INV-4 twice over. First the client: RigForm narrows the trailer list by
   // open-rig membership, so a trailer already in an open rig is absent from
   // the list under any other motive. The proof is `toHaveCount(0)`'s own
-  // retry — it keeps re-reading the option list until the vehicles query
-  // settles, rather than trusting the state right after the select fires —
+  // retry, it keeps re-reading the option list until the vehicles query
+  // settles, rather than trusting the state right after the select fires,
   // and the same locator found this trailer a few lines above.
   await page.getByLabel("Motive unit", { exact: true }).selectOption({ label: OTHER_FLEET });
   await expect(
@@ -186,8 +185,8 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   );
 
   // FR-INS-062: the driver confirms the rig they were given. A fresh context
-  // rather than `page` — actAsUser's init script re-stamps its actor on every
-  // navigation, so an overwrite would not survive the goto — and a hand-made
+  // rather than `page`, actAsUser's init script re-stamps its actor on every
+  // navigation, so an overwrite would not survive the goto, and a hand-made
   // context takes none of the config's `use` options, so baseURL is passed
   // through (admin.spec.ts).
   const driverContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
@@ -198,7 +197,7 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   const yourRig = driverPage.getByRole("group", { name: "Your rig" });
   await expect(yourRig).toBeVisible();
   // The checkbox takes its accessible name from the label wrapping it, which
-  // carries the descriptor as well as the fleet number — so this matches on
+  // carries the descriptor as well as the fleet number, so this matches on
   // the fleet number as a substring, not exactly.
   await expect(yourRig.getByRole("checkbox", { name: TRAILER_FLEET })).toBeChecked();
   await driverContext.close();

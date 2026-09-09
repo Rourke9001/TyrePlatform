@@ -5,7 +5,7 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 // the moment the fixture's driver or its assignments change.
 //
 // Seed-derived ids and the dev actor headers, both per admin.ts. The headers
-// exist only under import.meta.env.DEV — hence vite dev, never a build.
+// exist only under import.meta.env.DEV, hence vite dev, never a build.
 const DRIVER = "b85aef08-6081-80db-9d4d-dad38ae40545";
 const TENANT = "11111111-1111-1111-1111-111111111111";
 
@@ -29,8 +29,8 @@ export interface AssignedVehicle {
   fleetNumber: string;
 }
 
-// The way into a capture. The fixture seeds no inspection_task rows — which is
-// what smoke.spec.ts's "Nothing due." asserts — so DriverHome renders no link
+// The way into a capture. The fixture seeds no inspection_task rows, which is
+// what smoke.spec.ts's "Nothing due." asserts, so DriverHome renders no link
 // to follow and /my cannot be the entry point. FR-AUT-005 scopes this endpoint
 // to the driver's own units, which makes it both the entry point and a check
 // that the scope predicate still holds.
@@ -48,7 +48,7 @@ export async function assignedVehicle(
   const found = vehicles.find((v) => v.fleetNumber === fleetNumber);
   if (!found) {
     throw new Error(
-      `${fleetNumber} is not assigned to the seeded driver — got ${vehicles
+      `${fleetNumber} is not assigned to the seeded driver: got ${vehicles
         .map((v) => v.fleetNumber)
         .join(", ")}`,
     );

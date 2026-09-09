@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 // Seed constants, not fetched: src/api/devTenant.ts carries the same ids for
-// the same reason — a cross-tenant listing endpoint deliberately does not
+// the same reason: a cross-tenant listing endpoint deliberately does not
 // exist. Seed-derived ids, stable across reseeds (admin.ts).
 const TENANT_BAC = "11111111-1111-1111-1111-111111111111";
 const NOMSA_CONTROLLER = "14fc2c61-398c-3508-084e-d61e615e695e";

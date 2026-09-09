@@ -6,7 +6,7 @@ import { actAsUser } from "./admin";
 
 // TYRE-75's definition of done, walked: a driver's capture reports a trailer
 // uncoupled, and the controller turns that report into a dated rig change on
-// /fleet/rigs — the offered rig closes, a new one opens without the trailer,
+// /fleet/rigs. The offered rig closes, a new one opens without the trailer,
 // and the trailer is free to be coupled elsewhere. The capture is submitted
 // through POST /api/inspections as the driver rather than walked through the
 // screens: the untick lives in capture.spec.ts, which runs on the android
@@ -16,11 +16,11 @@ import { actAsUser } from "./admin";
 // an instant compared to instants, not a tenant day, so a clock here is
 // outside the 2026-09-03 lesson.
 //
-// Sandbox Fleet, never BAC — see admin.ts (TYRE-80). Every unit is created by
+// Sandbox Fleet, never BAC: see admin.ts (TYRE-80). Every unit is created by
 // this run rather than reused from the seed (U14).
 //
 // Serial, and Chromium desktop only gated on the device rather than on
-// browserName — rigs.spec.ts carries why each is needed.
+// browserName. rigs.spec.ts carries why each is needed.
 test.describe.configure({ mode: "serial" });
 
 test.skip(
@@ -74,7 +74,7 @@ interface AxleConfiguration {
 }
 
 // A fleet's axle configurations are tenant data (FR-VEH-002), so the ids are
-// read rather than assumed — only the codes the Sandbox seed plants are.
+// read rather than assumed. Only the codes the Sandbox seed plants are.
 function configFor(configs: AxleConfiguration[], code: string): string {
   const found = configs.filter((c) => c.code === code);
   expect(found, `no ${code} axle configuration in Sandbox Fleet`).not.toHaveLength(0);
@@ -128,7 +128,7 @@ test("a controller applies the difference a driver reported", async ({ page }) =
 
   // Rule 5: the width of a capture is tenant configuration, read from the
   // context the driver was served rather than assumed. A running position,
-  // never a spare — FR-CFG-013 gives a spare no pressure target and the
+  // never a spare. FR-CFG-013 gives a spare no pressure target and the
   // reading below carries one.
   const captureContext = (await apiGet(
     page,
@@ -149,8 +149,8 @@ test("a controller applies the difference a driver reported", async ({ page }) =
       combination_id: rig.id,
       observed_member_vehicle_ids: [horseId, keptId],
       // The rig's own instant, read back from the server. A browser instant
-      // would be accepted too — 000044 bounds the observed instant into
-      // [rig.effective_from, received_at] rather than refusing outside it —
+      // would be accepted too, 000044 bounds the observed instant into
+      // [rig.effective_from, received_at] rather than refusing outside it,
       // but the server's is kept for two reasons: it is one clock fewer in
       // the walk (lesson 2026-09-03), and it makes the outcome deterministic,
       // because the bound then lands exactly on the offered rig's own start
