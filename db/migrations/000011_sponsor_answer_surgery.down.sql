@@ -3,7 +3,7 @@
 -- hidden: casing values NULLed from zero return to 0.00 (the old NOT NULL
 -- demands a value and zero was the old encoding of "unknown");
 -- combination_position_map and combination.configuration_id come back as
--- structures only — `make db-reset` owns re-seeding their rows.
+-- structures only. `make db-reset` owns re-seeding their rows.
 
 DROP FUNCTION app.removal_forecast_within(date, int);
 DROP VIEW app.v_removal_forecast;

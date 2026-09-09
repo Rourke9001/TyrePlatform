@@ -10,8 +10,8 @@
 -- old dates, and judging by current state would delete the valid August
 -- snapshot of a tyre scrapped in September.
 --
--- BR-VAL-008 (errata E1) defines membership by exclusion — any state is in
--- the estate unless it is a disposal — so this tests the disposal set, never
+-- BR-VAL-008 (errata E1) defines membership by exclusion: any state is in
+-- the estate unless it is a disposal, so this tests the disposal set, never
 -- a whitelist. A tyre with no state-transition events falls back to the
 -- current state, which for such a tyre is the only assertion on record.
 --

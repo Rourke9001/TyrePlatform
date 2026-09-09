@@ -6,7 +6,7 @@
 -- FR-AUT-005 makes this predicate the gate on whether a driver can inspect at
 -- all, so "today" must be the tenant's civil date, not UTC's. Pinned to UTC
 -- (000003), an assignment starting today was invisible from 00:00 to 02:00
--- SAST — and a 01:00 pre-trip walk-around is ordinary in a long-haul fleet,
+-- SAST, and a 01:00 pre-trip walk-around is ordinary in a long-haul fleet,
 -- with the failure indistinguishable from "you have no assignment". Day
 -- granularity itself is correct and stays; only the calendar the day is read
 -- from changes.
@@ -21,7 +21,7 @@ $$;
 
 -- The tenant join supplies the calendar. The window is end-date inclusive,
 -- matching vehicle_driver's CHECK. An unset tenant context sees no tenant row
--- under RLS, so the view matches no rows for an unbound session — the
+-- under RLS, so the view matches no rows for an unbound session, the
 -- fail-closed shape FR-TEN-004 requires.
 CREATE OR REPLACE VIEW app.v_current_assignment WITH (security_invoker = true) AS
 SELECT vd.tenant_id,

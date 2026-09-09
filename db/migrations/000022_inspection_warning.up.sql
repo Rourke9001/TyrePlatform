@@ -1,5 +1,5 @@
 -- ============================================================================
---  inspection_warning — the record FR-INS-040 demands
+--  inspection_warning: the record FR-INS-040 demands
 --  Implements: DR-021 (errata E2), FR-INS-040
 -- ============================================================================
 
@@ -43,9 +43,9 @@ REVOKE UPDATE, DELETE ON app.inspection_warning FROM app_rw;
 -- (NFR-PRO-002).
 ALTER TABLE app.reading ADD COLUMN capture_seconds int CHECK (capture_seconds >= 0);
 
--- FR-AUT-005 with FR-INS-053: what a driver may read IN ORDER TO CAPTURE.
+-- FR-AUT-005 with FR-INS-053: what a driver may read TO CAPTURE.
 -- Deliberately not v_driver_vehicle, which is assignment alone and is what
--- /api/my/vehicles answers — widening that would change every caller. The
+-- /api/my/vehicles answers. Widening that would change every caller. The
 -- coupling chain is the justification: a driver responsible for the horse is
 -- responsible for what it is pulling, and cannot inspect a rig they cannot
 -- read.

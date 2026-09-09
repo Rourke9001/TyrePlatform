@@ -7,10 +7,10 @@
 -- ============================================================================
 
 -- FR-CFG-010 / CR-005: the removal threshold is tenant policy with effective
--- dating, resolved at read time — the literal 4 exists only in test fixtures.
+-- dating, resolved at read time. The literal 4 exists only in test fixtures.
 -- Invoker rights on purpose: RLS scopes the lookup to the session tenant
--- (an unset context sees no configuration and no tyres — fails closed,
--- FR-TEN-004). NULL — a tenant with no currently-effective policy row — must
+-- (an unset context sees no configuration and no tyres, so it fails closed,
+-- FR-TEN-004). NULL, a tenant with no currently-effective policy row, must
 -- be guarded wherever this feeds app.tread_value(): GREATEST(0, NULL) is 0,
 -- so an unguarded call silently prices the whole estate at R0.00 tread.
 CREATE FUNCTION app.current_removal_threshold_mm() RETURNS numeric
@@ -25,7 +25,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- The register: every tyre with its location and money. Current tread is
--- DERIVED — the governing value of the most recent non-voided reading — not
+-- DERIVED, the governing value of the most recent non-voided reading, not
 -- read from tyre.last_tread_mm, which nothing maintains. last_tread_mm serves
 -- only as the onboarding-audit value for stock never yet inspected
 -- (FR-TYR-030..034); a tyre with neither is surfaced unvalued rather than
@@ -62,8 +62,8 @@ SELECT t.tenant_id,
                                  thr.removal_threshold_mm,
                                  t.rand_per_mm) END AS tread_value,
        t.casing_value,
-       -- BR-VAL-003: NULL, not casing alone, when the tread side is unknown —
-       -- a per-tyre total that is really half a total misleads
+       -- BR-VAL-003: NULL, not casing alone, when the tread side is unknown.
+       -- A per-tyre total that is really half a total misleads
        CASE WHEN t.valuation_complete
              AND thr.removal_threshold_mm IS NOT NULL
              AND COALESCE(lr.governing_tread_mm, t.last_tread_mm) IS NOT NULL
@@ -94,10 +94,11 @@ SELECT t.tenant_id,
 -- breakdown tyres in the estate but identified apart from fitted
 -- (FR-VAL-012); 'ALL' rows are the rollup. Scrapped and lost tyres are not
 -- estate. Names are safe grouping keys: each is UNIQUE per tenant.
--- Total semantics: tread over valued tyres plus casing over ALL estate tyres
--- — casing is a stored fact even where the tread side is unknown — so the
--- total exceeds the sum of per-tyre totals (NULL for unvalued rows) by
--- exactly the unvalued casing; unvalued_count is the flag that says so.
+-- Total semantics: tread over valued tyres plus casing over ALL estate
+-- tyres, because casing is a stored fact even where the tread side is
+-- unknown. The total therefore exceeds the sum of per-tyre totals (NULL for
+-- unvalued rows) by exactly the unvalued casing; unvalued_count is the flag
+-- that says so.
 CREATE VIEW app.v_estate_valuation WITH (security_invoker = true) AS
 SELECT tenant_id,
        CASE WHEN GROUPING(fleet_number) = 0 THEN 'VEHICLE'

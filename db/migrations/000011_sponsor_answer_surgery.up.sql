@@ -3,11 +3,11 @@
 --  Implements: CFL-001..008, CFL-010, CHG-010..012, CHG-015, CHG-021/022,
 --  CHG-025, CHG-027, CHG-029..031, CHG-036/037, CHG-042/044/045, and the
 --  CHG-110/CHG-115 rebuild of app.tyre_valuation_asof() and every view over
---  it — manifest v1.1 §3, §4.2, §7.2.
+--  it. Manifest v1.1 §3, §4.2, §7.2.
 --
 --  One migration on purpose: the register function, the views over it and the
 --  renamed/dropped columns are interdependent, and PostgreSQL does not protect
---  SQL function bodies from a rename — applied separately, the first reading
+--  SQL function bodies from a rename. Applied separately, the first reading
 --  INSERT after the rename dies inside the snapshot trigger chain. Acceptance
 --  for this file: a reading can be recorded and a valuation computed.
 -- ============================================================================
@@ -35,7 +35,7 @@ DROP VIEW app.v_combination_reading;
 -- BAC brands "licence number + tyre position". When a tyre is scrapped and its
 -- replacement is fitted to the same position on the same unit, the code
 -- REPEATS. DR-002's global unique constraint rejects that valid insert, and
--- working around it by reusing the row merges two tyres' lifetimes — silently
+-- working around it by reusing the row merges two tyres' lifetimes, silently
 -- corrupting every cost-per-km figure derived from it. This is not an edge
 -- case; it recurs on a schedule set by tyre life.
 -- ---------------------------------------------------------------------------
@@ -64,7 +64,7 @@ ALTER TABLE app.tyre ADD COLUMN brand_pending boolean NOT NULL DEFAULT false;
 -- `NOT NULL DEFAULT 0` asserts that every never-retreaded casing is worth
 -- nothing. Roughly half the value of a tyre is its casing, so this silently
 -- depresses fleet asset value with no evidence behind it. A true zero may only
--- originate from a retreader REJECTING a casing — a documented scrap event (Q3).
+-- originate from a retreader REJECTING a casing, a documented scrap event (Q3).
 -- ---------------------------------------------------------------------------
 ALTER TABLE app.tyre ALTER COLUMN casing_value DROP NOT NULL;
 ALTER TABLE app.tyre ALTER COLUMN casing_value DROP DEFAULT;
@@ -92,9 +92,9 @@ ALTER TABLE app.fitment
   ADD COLUMN distance_km     bigint CHECK (distance_km >= 0),
   ADD COLUMN distance_source app.distance_provenance NOT NULL DEFAULT 'UNAVAILABLE';
 
--- Odometer-carried distance is MEASURED; anything else stays UNAVAILABLE until
--- a provenance-aware deriver (hubodometer — OI-31 — or coupling inference,
--- which is INFERRED with unbounded error) writes it.
+-- Odometer-carried distance is MEASURED; anything else stays UNAVAILABLE
+-- until a provenance-aware deriver writes it: a hubodometer (OI-31), or
+-- coupling inference, which is INFERRED with unbounded error.
 UPDATE app.fitment
    SET distance_km = removed_odometer - fitted_odometer,
        distance_source = 'MEASURED'
@@ -105,7 +105,7 @@ ALTER TABLE app.fitment ADD CONSTRAINT odometer_does_not_decrease
   CHECK (removed_odometer IS NULL OR fitted_odometer IS NULL
          OR removed_odometer >= fitted_odometer);
 
--- Removal completeness cannot require an odometer — a trailer has none.
+-- Removal completeness cannot require an odometer, because a trailer has none.
 ALTER TABLE app.fitment DROP CONSTRAINT removal_is_complete;
 ALTER TABLE app.fitment ADD CONSTRAINT removal_is_complete CHECK (
   (removed_at IS NULL AND removal_reason IS NULL)
@@ -135,7 +135,7 @@ ALTER TABLE app.inspection ADD COLUMN tyres_created int NOT NULL DEFAULT 0
 -- The 1..26 numbering is a display projection of the composition on the day;
 -- storing it freezes a mapping that is only correct for one composition, and
 -- trailers move between horses. Configurations describe UNITS, so a
--- combination has no axle configuration of its own — its shape is derived
+-- combination has no axle configuration of its own. Its shape is derived
 -- from its members.
 -- ---------------------------------------------------------------------------
 DROP TABLE app.combination_position_map;
@@ -171,7 +171,7 @@ ALTER TABLE app.reading_measurement DROP COLUMN label;
 -- ---------------------------------------------------------------------------
 -- B7. Evidential status (CFL-008 / CHG-039)
 --
--- "Proposed" implied someone had proposed a configuration. Nobody had — they
+-- "Proposed" implied someone had proposed a configuration. Nobody had. They
 -- were assumed from what is common on South African roads. BAC confirmed it
 -- runs only what its own sheets show (Q23). Zero schema dependents, so the
 -- type swap is clean.
@@ -216,7 +216,7 @@ BEGIN
 END $$;
 
 -- Spares are per unit and VARIABLE in number. The sponsor could not say how
--- many a rig carries, only that "it's never just one" — and there is no South
+-- many a rig carries, only that "it's never just one", and there is no South
 -- African legal requirement to carry a spare at all, so the count is pure
 -- operational practice. The configuration supplies a default; the real number
 -- is whatever inspections find. A unit presenting two spares records two (Q23).
@@ -244,7 +244,7 @@ UPDATE app.tyre SET cost_source = 'INVOICE' WHERE purchase_price IS NOT NULL;
 ALTER TABLE app.tyre ADD COLUMN received_date date;
 UPDATE app.tyre SET received_date = purchase_date WHERE received_date IS NULL;
 
--- CHG-037: SOLD is a disposal carrying proceeds — a real market valuation of
+-- CHG-037: SOLD is a disposal carrying proceeds, a real market valuation of
 -- a used casing (Q19). Money is a typed column, never a jsonb payload number.
 ALTER TABLE app.tyre_event ADD COLUMN proceeds numeric(12,2) CHECK (proceeds >= 0);
 
@@ -290,7 +290,7 @@ SELECT r.id            AS reading_id,
  WHERE i.state <> 'VOIDED';
 
 -- The register as at any date (FR-VAL-020), re-shaped per CHG-115: every tyre
--- is INCLUDED and LABELLED — valuation_basis ACTUAL / ESTIMATED / UNVALUED
+-- is INCLUDED and LABELLED: valuation_basis ACTUAL / ESTIMATED / UNVALUED
 -- from cost provenance, never a silent exclusion, never a zero fill. The
 -- audit fallback (tyre.last_tread_mm) is date-blind: an onboarding value
 -- carries no timestamp, so it stands in at any date (FR-TYR-030..034).
@@ -298,7 +298,7 @@ SELECT r.id            AS reading_id,
 -- upgrades the resolution to the event-sourced casing_valuation chain once
 -- those tables exist. total_value is tread + casing with SQL NULL semantics:
 -- a half-known total is presented as unknown, with each side and its basis
--- alongside — the CHG-062 rule that a blended figure is never unlabelled.
+-- alongside, the CHG-062 rule that a blended figure is never unlabelled.
 CREATE FUNCTION app.tyre_valuation_asof(p_as_at date)
 RETURNS TABLE (tenant_id uuid, tyre_id uuid, display_code text, size_name text,
                brand_name text, pattern_name text, status app.tyre_status,
@@ -339,7 +339,7 @@ LANGUAGE sql STABLE AS $$
          CASE WHEN t.casing_value IS NOT NULL THEN 'AUDIT' ELSE 'UNVALUED' END,
          tv.val + t.casing_value,
          -- FR-VAL-021: value from an old reading, but say so. NULL when no
-         -- reading or no configured staleness policy — unknown, not fresh.
+         -- reading or no configured staleness policy, so unknown, not fresh.
          CASE WHEN lr.submitted_at IS NOT NULL AND st.days IS NOT NULL
               THEN (p_as_at - (lr.submitted_at AT TIME ZONE 'UTC')::date) > st.days END
     FROM app.tyre t
@@ -372,7 +372,7 @@ LANGUAGE sql STABLE AS $$
           ORDER BY i.submitted_at DESC
           LIMIT 1) lr ON true
     -- one place computes the tread side: rate, policy and a depth must all
-    -- exist, whatever the cost provenance — no configured policy means
+    -- exist, whatever the cost provenance. No configured policy means
     -- unvalued, never a silently zero-priced estate (GREATEST(0, NULL) is 0)
     CROSS JOIN LATERAL (
          SELECT CASE WHEN t.rand_per_mm IS NOT NULL AND thr.mm IS NOT NULL
@@ -402,7 +402,7 @@ SELECT tenant_id, tyre_id, display_code, size_name, brand_name, pattern_name,
 -- SOLD joins SCRAPPED and LOST outside the estate: a sold tyre's value has
 -- left the fleet, with proceeds recorded on its disposal event (CHG-037).
 -- Total semantics: tread over valued tyres plus casing over casing-valued
--- tyres — each side sums what is known and the counts say what is not.
+-- tyres. Each side sums what is known and the counts say what is not.
 CREATE VIEW app.v_estate_valuation WITH (security_invoker = true) AS
 SELECT tenant_id,
        CASE WHEN GROUPING(fleet_number) = 0 THEN 'VEHICLE'
@@ -460,7 +460,7 @@ SELECT t.tenant_id,
         LIMIT 1) lr ON true;
 
 -- FR-ANL-023: average governing depth by tenant, depot and vehicle.
--- position_class is the FR-RPT-005 disclosure, not a filter — 'ALL' is the
+-- position_class is the FR-RPT-005 disclosure, not a filter. 'ALL' is the
 -- rollup BR-RPT-001 makes the default for composition reporting.
 CREATE VIEW app.v_tread_summary WITH (security_invoker = true) AS
 SELECT tenant_id,
@@ -481,8 +481,8 @@ SELECT tenant_id,
 
 -- FR-ANL-024. Built on the summary so the denominator of every percentage is
 -- the same population the averages describe, and left-joined off the band
--- list so an empty band still reports as zero rather than disappearing —
--- a missing row and a zero row read identically on a chart and only one of
+-- list so an empty band still reports as zero rather than disappearing.
+-- A missing row and a zero row read identically on a chart and only one of
 -- them is true (FR-CFG-031, BR-RPT-002).
 CREATE VIEW app.v_tread_distribution WITH (security_invoker = true) AS
 WITH counted AS (
@@ -532,9 +532,10 @@ SELECT s.tenant_id,
 -- reading only. rank() leaves genuine ties sharing a rank; callers wanting a
 -- stable print order add display_code, unique among active tyres.
 --
--- Width spread is orientation-AGNOSTIC — max minus min over the grooves is
--- the same set whichever groove is outer — so rows with orientation_known =
--- false stay ranked (CHG-011 excludes them only from DIRECTIONAL diagnosis).
+-- Width spread is orientation-AGNOSTIC, because max minus min over the
+-- grooves is the same set whichever groove is outer, so rows with
+-- orientation_known = false stay ranked (CHG-011 excludes them only from
+-- DIRECTIONAL diagnosis).
 -- The flag rides along so a consumer attributing the spread to a shoulder
 -- knows when it may not.
 CREATE VIEW app.v_irregular_wear_ranking WITH (security_invoker = true) AS
@@ -656,7 +657,7 @@ SELECT d.tenant_id,
 
 -- FR-ANL-004/005 point-projection surface, carried over from 000009 in
 -- display_code shape; 000013 replaces it with the consolidated range forecast
--- (CHG-113) in the same migration that adds the regression rate — the two
+-- (CHG-113) in the same migration that adds the regression rate. The two
 -- forecast families never coexist past that file.
 CREATE VIEW app.v_removal_forecast WITH (security_invoker = true) AS
 SELECT wr.tenant_id,

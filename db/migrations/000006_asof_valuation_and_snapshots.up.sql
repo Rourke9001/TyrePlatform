@@ -2,7 +2,7 @@
 --  As-at valuation and snapshot persistence (TYRE-33)
 --  Implements: FR-VAL-020..022 (UC-04), FR-VAL-021 staleness indication.
 --  app.tyre_valuation_asof() becomes the ONE implementation of the register
---  row shape — v_tyre_valuation is redefined as its today-slice — so the
+--  row shape, with v_tyre_valuation redefined as its today-slice, so the
 --  "when is a tyre valued" guards cannot drift between current and
 --  historical valuation (the drift class TYRE-32's audit caught once).
 -- ============================================================================
@@ -30,7 +30,7 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- The register as at any date (FR-VAL-020): reading, fitment, policy and
--- staleness all resolved at p_as_at. Invoker rights — RLS scopes every
+-- staleness all resolved at p_as_at. Invoker rights, so RLS scopes every
 -- underlying table to the session tenant. The audit fallback
 -- (tyre.last_tread_mm) is date-blind: an onboarding value carries no
 -- timestamp, so it stands in at any date (FR-TYR-030..034).
@@ -77,7 +77,7 @@ LANGUAGE sql STABLE AS $$
               THEN app.tread_value(COALESCE(lr.governing_tread_mm, t.last_tread_mm),
                                    thr.mm, t.rand_per_mm) + t.casing_value END,
          -- FR-VAL-021: value from an old reading, but say so. NULL when no
-         -- reading or no configured staleness policy — unknown, not fresh.
+         -- reading or no configured staleness policy, so unknown, not fresh.
          CASE WHEN lr.submitted_at IS NOT NULL AND st.days IS NOT NULL
               THEN (p_as_at - (lr.submitted_at AT TIME ZONE 'UTC')::date) > st.days END
     FROM app.tyre t
@@ -130,10 +130,10 @@ SELECT tenant_id, tyre_id, branded_number, size_name, brand_name, pattern_name,
 -- governing value lands, dated to its inspection. Skips when the value
 -- equals the tyre's most recent snapshot (no unchanged snapshots); a
 -- late-synced older inspection that would only restate that value is
--- likewise skipped — snapshots are a derivable cache of the readings,
+-- likewise skipped. Snapshots are a derivable cache of the readings,
 -- never the record of fact. Executes inside refresh_governing_tread()'s
 -- definer chain, so the threshold resolves by the row's own tenant_id,
--- not the session GUC — and at the snapshot's own date, not sync time:
+-- not the session GUC, and at the snapshot's own date, not sync time:
 -- offline capture routinely lands an inspection after a policy change, and
 -- pricing it at now() would backdate the later policy onto a day it did not
 -- govern (FR-CFG-010).
@@ -176,7 +176,7 @@ AFTER UPDATE OF governing_tread_mm ON app.reading
 FOR EACH ROW WHEN (OLD.governing_tread_mm IS DISTINCT FROM NEW.governing_tread_mm)
 EXECUTE FUNCTION app.snapshot_on_governing_change();
 
--- FR-VAL-022, month-end half: one snapshot per VALUED tyre — the table's
+-- FR-VAL-022, month-end half: one snapshot per VALUED tyre. The table's
 -- NOT NULL tread_value forces that; an unvalued tyre has no figure worth
 -- freezing. Scheduling is the platform's job (FR-VAL-022 names the cadence);
 -- this is only the idempotent pass it invokes. Invoker rights: it writes

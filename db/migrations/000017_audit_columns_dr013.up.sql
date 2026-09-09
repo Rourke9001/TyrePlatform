@@ -7,26 +7,26 @@
 --  created_by if it lacks them by that exact name; every table where app_rw
 --  still holds UPDATE (i.e. not the append-only set) also gets updated_at,
 --  updated_by and a trigger that stamps them. Tables that already carry
---  created_at/created_by (most of 000012's) are left alone — this migration
+--  created_at/created_by (most of 000012's) are left alone. This migration
 --  adds what is missing, never re-adds or alters what exists.
 --
 --  created_at/created_by are added BARE, then given a DEFAULT in a second
 --  clause. `ADD COLUMN created_at timestamptz DEFAULT now()` would evaluate
 --  now() once and backfill every existing row with the migration's own run
---  time — a fabricated creation time, exactly what NFR-PRO-002 forbids
+--  time, a fabricated creation time, exactly what NFR-PRO-002 forbids
 --  ("absence is absence"). The same applies to created_by's
 --  app.current_actor_id() default. Splitting the steps leaves every existing
 --  row NULL, and every future INSERT that omits the column still gets a
 --  value for free.
 --
---  created_by is a composite FK to app.app_user (tenant_id, created_by) —
+--  created_by is a composite FK to app.app_user (tenant_id, created_by),
 --  the 000004 house pattern (FR-AUT-003a): an FK check runs below RLS, so an
---  id-only reference would let a row cite a user in another tenant — the
+--  id-only reference would let a row cite a user in another tenant, the
 --  TYRE-29 class 000004/000005 close everywhere else (004_tests.sql check 16
 --  sweeps the catalog for exactly this regression). Three tables get NO
 --  foreign key on created_by, for two different reasons. app.tenant and
---  app.jurisdiction_tread_minimum carry no tenant_id of their own — the
---  composite pattern is structurally impossible for them — and a plain
+--  app.jurisdiction_tread_minimum carry no tenant_id of their own, so the
+--  composite pattern is structurally impossible for them, and a plain
 --  REFERENCES app.app_user(id) would reopen the very id-only, RLS-bypassing
 --  reference check 16 exists to catch (app_user IS tenant-scoped even though
 --  the referencing row is not), so the attribution stays an unenforced uuid
@@ -35,15 +35,16 @@
 --  must stay resolvable even when the actor row it names is later altered
 --  or reassigned.
 --
---  updated_at/updated_by are nullable with no default — only app.stamp_updated()
---  (the shared BEFORE UPDATE trigger) ever sets them — and updated_by carries
---  no FK: a platform-context update (a migration, a scheduled job with no
---  bound actor) must still be able to write the row, and the column is
---  attribution, not a relation.
+--  updated_at/updated_by are nullable with no default, and only
+--  app.stamp_updated() (the shared BEFORE UPDATE trigger) ever sets them.
+--  updated_by carries no FK: a platform-context update (a migration, a
+--  scheduled job with no bound actor) must still be able to write the row,
+--  and the column is attribution, not a relation.
 --
 --  Not added to the append-only set (reading, reading_measurement, tyre_event,
---  audit_log — CR-004/DR-011 — plus 000012's casing_valuation, tenant_consent,
---  vehicle_odometer_reading, and read-only app.jurisdiction_tread_minimum):
+--  audit_log under CR-004/DR-011, plus 000012's casing_valuation,
+--  tenant_consent, vehicle_odometer_reading, and read-only
+--  app.jurisdiction_tread_minimum):
 --  app_rw holds no UPDATE there, so a stamping trigger would never fire.
 -- ============================================================================
 
@@ -59,7 +60,7 @@ BEGIN
 END $$;
 
 -- ---------------------------------------------------------------------------
--- app.tenant — no tenant_id (it IS the isolation root). created_by carries
+-- app.tenant has no tenant_id (it IS the isolation root). created_by carries
 -- NO foreign key: app_user is tenant-scoped, so a plain id-only reference
 -- from a row with no tenant_id of its own is exactly the dangling
 -- cross-tenant reference check 16 forbids (see the file header).
@@ -235,7 +236,7 @@ CREATE TRIGGER inspection_stamps_updated BEFORE UPDATE ON app.inspection
 FOR EACH ROW EXECUTE FUNCTION app.stamp_updated();
 
 -- app.reading is append-only (CR-004): created_at/created_by land, but no
--- updated_at/updated_by and no trigger — app_rw holds no UPDATE here to stamp.
+-- updated_at/updated_by and no trigger. app_rw holds no UPDATE here to stamp.
 ALTER TABLE app.reading
   ADD COLUMN created_at timestamptz,
   ALTER COLUMN created_at SET DEFAULT now(),
@@ -363,7 +364,7 @@ CREATE TRIGGER vehicle_tag_map_stamps_updated BEFORE UPDATE ON app.vehicle_tag_m
 FOR EACH ROW EXECUTE FUNCTION app.stamp_updated();
 
 -- app.jurisdiction_tread_minimum carries no tenant_id (public law, identical
--- for every tenant — 000012): no FK on created_by, as app.tenant above.
+-- for every tenant, 000012): no FK on created_by, as app.tenant above.
 -- app_rw holds no write privilege here at all (000012's REVOKE INSERT,
 -- UPDATE, DELETE), so no trigger either.
 ALTER TABLE app.jurisdiction_tread_minimum
@@ -403,7 +404,7 @@ FOR EACH ROW EXECUTE FUNCTION app.stamp_updated();
 -- actor_id's own FK from 000012). created_at/created_by are added anyway,
 -- literally, for the same reason every other table gets them: a structural
 -- sweep for DR-013 checks the column names, not whether an equivalent column
--- exists under a different one. No trigger — no UPDATE grant to stamp.
+-- exists under a different one. No trigger, with no UPDATE grant to stamp.
 ALTER TABLE app.casing_valuation
   ADD COLUMN created_at timestamptz,
   ALTER COLUMN created_at SET DEFAULT now(),
@@ -465,7 +466,7 @@ FOR EACH ROW EXECUTE FUNCTION app.stamp_updated();
 -- app.tenant_consent is append-only (000012 REVOKE UPDATE, DELETE) and
 -- already carries its own event attribution (occurred_at / actor_id, with
 -- actor_id's own FK from 000012). Same literal-name reasoning as
--- casing_valuation above. No trigger — no UPDATE grant to stamp.
+-- casing_valuation above. No trigger, with no UPDATE grant to stamp.
 ALTER TABLE app.tenant_consent
   ADD COLUMN created_at timestamptz,
   ALTER COLUMN created_at SET DEFAULT now(),

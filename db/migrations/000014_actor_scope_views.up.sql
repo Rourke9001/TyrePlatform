@@ -14,7 +14,7 @@ SELECT ud.tenant_id,
  WHERE ud.user_id = app.current_actor_id();
 
 -- FR-AUT-006/008: the units within the acting user's depots. Home depot is
--- the unit's base, not where it happens to be standing — a trailer on the
+-- the unit's base, not where it happens to be standing. A trailer on the
 -- road still belongs to the depot that maintains it.
 CREATE VIEW app.v_depot_vehicle WITH (security_invoker = true) AS
 SELECT v.*
@@ -22,7 +22,7 @@ SELECT v.*
   JOIN app.v_actor_depot d ON d.depot_id = v.home_depot_id;
 
 -- FR-AUT-006: the tyres within the acting user's depots. A tyre is in a depot
--- two ways and the requirement means both — sitting there (in stock, back
+-- two ways and the requirement means both: sitting there (in stock, back
 -- from the retreader, awaiting cost), or fitted to a unit based there.
 -- Scoping on current_depot_id alone would hide every fitted tyre from the
 -- technician who maintains it.
@@ -34,8 +34,8 @@ SELECT DISTINCT t.*
  WHERE t.current_depot_id IN (SELECT depot_id FROM app.v_actor_depot)
     OR v.home_depot_id    IN (SELECT depot_id FROM app.v_actor_depot);
 
--- FR-DSH-012: the acting driver's outstanding work. Overdue is not a state —
--- app.task_state has no such value, deliberately — it is an OPEN task past
+-- FR-DSH-012: the acting driver's outstanding work. Overdue is not a state,
+-- and app.task_state deliberately has no such value. It is an OPEN task past
 -- its due date, computed here so no client ever invents the rule.
 CREATE VIEW app.v_my_inspection_task WITH (security_invoker = true) AS
 SELECT it.*,

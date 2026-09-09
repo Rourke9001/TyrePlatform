@@ -16,8 +16,8 @@
 -- The refusals carry their own SQLSTATEs so app.submit_inspection can contain
 -- a timeline refusal (FR-INS-020: it never blocks the inspection) without
 -- swallowing an FK violation or a serialisation failure on the same INSERT.
---   TY001 — monotonicity: this reading contradicts one already on the timeline
---   TY002 — plausibility: the implied daily distance exceeds the tenant ceiling
+--   TY001 monotonicity: this reading contradicts one already on the timeline
+--   TY002 plausibility: the implied daily distance exceeds the tenant ceiling
 CREATE OR REPLACE FUNCTION app.check_odometer_plausible() RETURNS trigger
 LANGUAGE plpgsql SET search_path = app, pg_temp AS $$
 DECLARE

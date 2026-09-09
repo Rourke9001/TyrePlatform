@@ -2,8 +2,8 @@
 -- point-date forecast returns, and the register's casing side returns to the
 -- onboarding audit column. Reversal limits, stated: the config keys are
 -- rebuilt from the CURRENT policy/target rows (per-key history collapsed to
--- the latest value — the up migration folded that history into the tables),
--- and the reconstructed inflation_bands is the FR-CFG-016 default.
+-- the latest value, because the up migration folded that history into the
+-- tables), and the reconstructed inflation_bands is the FR-CFG-016 default.
 
 -- 4. register casing back to the 000011 (audit-column) body
 CREATE OR REPLACE FUNCTION app.tyre_valuation_asof(p_as_at date)
