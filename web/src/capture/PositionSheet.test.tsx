@@ -95,7 +95,7 @@ const acknowledged: DraftPosition = {
 //
 // The advance is wrapped in act(): it fires PositionSheet's setTimeout
 // callback directly, outside any testing-library API, so nothing else
-// flushes the resulting setState — an unwrapped advance leaves the DOM
+// flushes the resulting setState. An unwrapped advance leaves the DOM
 // showing the pre-timer field and every aria-current read below stale,
 // which would make this helper click Next for every digit regardless of
 // whether the timer actually fired.
@@ -112,7 +112,7 @@ async function enter(user: UserEvent, treads: string[], pressure: string) {
     // A settling digit (4-9 on an empty field) auto-advances on the timer
     // above; a non-settling one (0-3) does not, and only then does the Next
     // key move the sheet on. The field's own aria-current says which case
-    // this was — clicking Next after the timer already advanced would move a
+    // this was. Clicking Next after the timer already advanced would move a
     // second field and strand the one just typed, which the auto-advance
     // guard does not protect against: it only stops the timer's own callback
     // from re-firing on a field a *click* had already left, not the reverse.
@@ -149,7 +149,7 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
   });
 
-  // FR-INS-029a: the driver never sees the words inner, outer or centre — the
+  // FR-INS-029a: the driver never sees the words inner, outer or centre. The
   // prototype's Outer/Centre/Inner labels are not carried over (decision D-A).
   // Swept with the one shared list (test/spoken.ts), which carries CR-010's
   // compliance words with them.
@@ -170,7 +170,7 @@ describe("PositionSheet", () => {
   });
 
   // FR-INS-040: the acknowledgement is recorded, so the driver has to see it
-  // before the position closes — this is the one place the flow deliberately
+  // before the position closes. This is the one place the flow deliberately
   // does not auto-advance.
   it("holds a warned position until the driver acknowledges", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -192,7 +192,7 @@ describe("PositionSheet", () => {
   // rather than an unconditional hold: NFR-USE-001 is the constraint every
   // other decision in this app is subordinate to, and a Done tap that a clean
   // position does not need is paid on 27 of them on a superlink. The pair
-  // pins that the hold is CONDITIONAL — either assertion alone is satisfied by
+  // pins that the hold is CONDITIONAL. Either assertion alone is satisfied by
   // holding always or by never holding at all.
   it("finishes a position with nothing to flag without a further tap", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -201,7 +201,7 @@ describe("PositionSheet", () => {
     await enter(user, ["9", "9", "9"], "800");
 
     // enter() ends 250ms after the last pressure digit, inside the beat that
-    // lets a fourth digit or a correction land — so this is the hold being
+    // lets a fourth digit or a correction land, so this is the hold being
     // real, not the sheet having no opinion.
     expect(onDone).not.toHaveBeenCalled();
     await advance(300);
@@ -244,7 +244,7 @@ describe("PositionSheet", () => {
 
   // NFR-PRO-003: a driver who reopens a position must not be credited with
   // time they did not spend re-entering it. The fresh-position case above is
-  // vacuous here — carried.current is 0 on a fresh mount either way — so this
+  // vacuous here: carried.current is 0 on a fresh mount either way, so this
   // pins the `carried.current +` term on its own: mount already-complete
   // (unwarned, so Done needs no acknowledgement first), advance a known
   // amount, and the total must be the carried seconds plus what elapsed on
@@ -328,7 +328,7 @@ describe("PositionSheet", () => {
 
   // The state at exit, not every warning typed through on the way. A reading
   // the driver corrected before leaving must not leave an unanswered record
-  // behind — that would put a warning on the review screen for a value that no
+  // behind. That would put a warning on the review screen for a value that no
   // longer exists.
   it("does not record a warning the driver corrected before closing", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -363,7 +363,7 @@ describe("PositionSheet", () => {
 
   // The same guard against the tap that actually happens. Reading a value off
   // a field on a phone means tapping it, and a focus tap builds a fresh entry
-  // state holding identical readings — so identity alone cannot tell looking
+  // state holding identical readings, so identity alone cannot tell looking
   // from editing. Both exits are covered here because both write: the
   // incremental save fires on the tap, and close() fires on the way out.
   it("keeps the recorded response when a driver taps a field and changes nothing", async () => {
@@ -429,7 +429,7 @@ describe("PositionSheet", () => {
   // The clock is frozen at the sheet's own openedAt, the way CaptureFlow,
   // CaptureStart and CaptureReview each freeze theirs. FR-INS-035's implied
   // wear rate has elapsed time as its denominator, so a clock read during
-  // render drifts away from the diagram's — and at the boundary the cell bands
+  // render drifts away from the diagram's, and at the boundary the cell bands
   // Check while the sheet raises nothing and records an empty warnings array,
   // which is the display warning and the audit record not.
   it("bands against the clock the sheet opened with, not the clock at entry", async () => {
@@ -437,7 +437,7 @@ describe("PositionSheet", () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn<(p: DraftPosition) => void>();
     // 5mm gone in the 30 days to mount is 5.07mm a month against a cohort of
-    // 0.8 and a multiple of 3 — over the 2.4 trigger. Ninety days later the
+    // 0.8 and a multiple of 3, over the 2.4 trigger. Ninety days later the
     // same 5mm is 1.69 a month, which is under it, so a clock read at entry
     // answers the opposite question from a clock read at open.
     const wearing = {
@@ -468,7 +468,7 @@ describe("PositionSheet", () => {
   });
 
   // A spare has no walk-around number to be named by, and every configuration
-  // in the register carries a spare count — so a rig opens one spare sheet per
+  // in the register carries a spare count, so a rig opens one spare sheet per
   // unit, and only the unit's own identity tells them apart (BR-VEH-003).
   it("names a spare's sheet for the unit that owns it", () => {
     const spare = { ...position, isSpare: true };
@@ -501,7 +501,7 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText(/Pressure/)).toHaveTextContent("800");
   });
 
-  // FR-OFF-005 verbatim: EVERY entry, incrementally — not on completion.
+  // FR-OFF-005 verbatim: EVERY entry, incrementally, not on completion.
   // The flat-battery case happens mid-position, which is exactly the state
   // a per-position save does not cover.
   it("persists on the first digit, not on completion", async () => {
@@ -517,7 +517,7 @@ describe("PositionSheet", () => {
 
   // FR-OFF-005 again: "every entry" means what the driver typed, not the
   // sheet opening. main.tsx renders under StrictMode, which double-invokes
-  // this effect for one commit — an invocation-count guard lets the second
+  // this effect for one commit. An invocation-count guard lets the second
   // firing through and reports an untouched position as an edited one.
   it("does not fire onChange for the untouched position on a StrictMode mount", () => {
     const onChange = vi.fn<(p: DraftPosition) => void>();
@@ -531,8 +531,8 @@ describe("PositionSheet", () => {
 
   // TYRE-148 / NFR-USE-011: the phone call mid-position. A driver back from
   // it with two of three readings entered expects the next digit to fill the
-  // empty box. Seeding field 0 made that digit restart tread 1 — a silent
-  // overwrite of a good reading — or cost two taps to avoid.
+  // empty box. Seeding field 0 made that digit restart tread 1, a silent
+  // overwrite of a good reading, or cost two taps to avoid.
   it("reopens a half-entered position on its first empty field", () => {
     render(
       <PositionSheet
@@ -602,7 +602,7 @@ describe("PositionSheet", () => {
   });
 
   // TYRE-155: one tap, on the spare sheet only. A running position never
-  // shows it — a running wheel with no tyre is a fitment fact, not this.
+  // shows it. A running wheel with no tyre is a fitment fact, not this.
   it("offers 'No spare on this unit' on a spare sheet and nowhere else", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onAbsent = vi.fn();

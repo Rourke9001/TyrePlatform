@@ -13,7 +13,7 @@ import "./capture.css";
 
 // FR-INS-029a and decision D-A: numbered, not named. The driver never sees
 // the words inner or outer, and the three fields sit left to right in the
-// plan view — the same direction the diagram above them reads.
+// plan view, the same direction the diagram above them reads.
 const FIELD_LABEL = (i: number, count: number) => `Tread reading ${i + 1} of ${count}`;
 
 // The beat between the last digit that could still change a field and the sheet
@@ -41,13 +41,13 @@ export function PositionSheet({
   // onto the screen.
   initial?: DraftPosition;
   // FR-OFF-005: "every entry … written incrementally". Fired per keystroke,
-  // not per completed position — the flat-battery case is mid-position.
+  // not per completed position. The flat-battery case is mid-position.
   onChange: (partial: DraftPosition) => void;
   onDone: (position: DraftPosition) => void;
   onClose: () => void;
   // TYRE-155 / FR-INS-066: whether this spare is already marked absent, and
   // the toggle that marks or unmarks it. Both optional and both meaningless
-  // off a spare sheet — a running position with no tyre is a fitment fact for
+  // off a spare sheet. A running position with no tyre is a fitment fact for
   // the register, never this.
   absent?: boolean;
   onAbsent?: (position: CapturePosition, absent: boolean) => void;
@@ -56,7 +56,7 @@ export function PositionSheet({
   const [state, setState] = useState<EntryState>(() => {
     if (!initial) return newEntryState(count);
     // TYRE-148: the field a driver comes back to is the first one they have
-    // not filled — NFR-USE-011's interrupted position — and on a position
+    // not filled, NFR-USE-011's interrupted position, and on a position
     // with nothing left to fill, the first, so a reopen-to-look is unchanged.
     const firstEmpty = initial.treads.findIndex((t) => t === null);
     const field = firstEmpty !== -1 ? firstEmpty : initial.pressureKpa === null ? count : 0;
@@ -64,7 +64,7 @@ export function PositionSheet({
   });
   const [acknowledged, setAcknowledged] = useState(false);
   // NFR-OBS-007. Wall clock from when the sheet opened, plus anything a
-  // previous visit already cost — a driver who backs out and returns is
+  // previous visit already cost. A driver who backs out and returns is
   // measured for both, which is the honest reading of "time per position".
   const [openedAt] = useState(() => Date.now());
   const carried = useRef(initial?.seconds ?? 0);
@@ -94,7 +94,7 @@ export function PositionSheet({
   // Whether anything a driver could change on this sheet actually moved.
   // Object identity is not enough to answer it: applyKey returns a fresh
   // state for a focus tap too (entry.ts), so tapping a field just to read
-  // what is in it looks exactly like an edit — and treating it as one is what
+  // what is in it looks exactly like an edit, and treating it as one is what
   // let a look-and-leave visit overwrite the FR-INS-040 responses a previous,
   // finished visit recorded.
   function edited(from: EntryState): boolean {
@@ -110,7 +110,7 @@ export function PositionSheet({
   // that is load-bearing: the incremental save below fires on every keystroke
   // and wholesale-replaces the draft position (CaptureFlow.handleChange), so
   // an empty default turns an ACKNOWLEDGED or CONFIRMED warning into no
-  // record at all the moment a driver touches the sheet again — a corruption
+  // record at all the moment a driver touches the sheet again, a corruption
   // that then submits into append-only history. A browser killed mid-edit
   // therefore persists the older records beside newer readings; they carry
   // their own enteredValue, so what is stored stays self-describing, which is
@@ -136,14 +136,14 @@ export function PositionSheet({
   // FR-OFF-005, the verbatim requirement: every entry, incrementally. A
   // half-entered position survives a killed browser because it was written
   // as it was typed, not when it was finished. This reads the wall clock, so
-  // it runs after commit rather than inline in press() — press() is called
+  // it runs after commit rather than inline in press(). press() is called
   // from field buttons rendered in a loop, and a render pass must stay a pure
   // function of state, never a source of a value like "now".
   //
   // Guarded by identity against the mount's own state, not by an
   // invocation count: main.tsx renders under StrictMode, which fires this
   // effect twice for the one commit, and a boolean flag would let the second
-  // firing through — reporting an untouched position as an edited one.
+  // firing through, reporting an untouched position as an edited one.
   // Identity survives that because both firings see the same object.
   const initialState = useRef(state);
   useEffect(() => {
@@ -164,7 +164,7 @@ export function PositionSheet({
   // What the hold does when it fires, refreshed on every commit (below, once
   // everything it reaches for is in scope). The callback outlives the render
   // that armed it by a fifth of a second or more, and by then the entry, the
-  // standing warnings and the flow's own draft have all moved on — so it has
+  // standing warnings and the flow's own draft have all moved on, so it has
   // to run this render's closure, not that one's. It is also deliberately not
   // a state updater: off the pressure field it finishes the position, and an
   // updater that called onDone would be invoked twice under StrictMode and
@@ -187,7 +187,7 @@ export function PositionSheet({
   // FR-INS-040 asks what the driver DID about a warning, and walking away
   // without answering is one of the answers the record has to be able to hold.
   // finish() records ACKNOWLEDGED/CONFIRMED; this is the other exit, and it
-  // writes the warnings still standing with a null response — the state at
+  // writes the warnings still standing with a null response, the state at
   // exit, recomputed from the current entry, so a value the driver corrected
   // on the way leaves no unanswered record behind.
   //
@@ -221,7 +221,7 @@ export function PositionSheet({
   function finish() {
     if (!complete) return;
     // FR-INS-040: the warning was displayed and the driver acted on it. One
-    // tap does both — the alert has been on screen since the position
+    // tap does both. The alert has been on screen since the position
     // completed, so "Seen it" records the response and moves on, exactly as
     // the prototype's advance() does.
     if (held) setAcknowledged(true);
@@ -249,14 +249,14 @@ export function PositionSheet({
       // one place FR-INS-040 can be defeated: a sheet that closed itself while
       // the driver was reading a warning would never record what they did
       // about it. So a position with something to tell the driver waits for
-      // the tap that answers it, and a clean one closes itself — that saved
+      // the tap that answers it, and a clean one closes itself, that saved
       // tap is paid on every clean position, against NFR-USE-001a's seven
       // minutes for a 26-position combination.
       //
       // The `!complete` half is wider than the prototype, deliberately: there
       // `advance()` jumps away from a half-entered position, which strands a
       // reading the driver was mid-way through. Nothing on a counted path
-      // reaches it — `finish()` no-ops when incomplete — so it costs no taps
+      // reaches it: `finish()` no-ops when incomplete, so it costs no taps
       // and is kept as the safer answer.
       if (!complete || warnings.length > 0) return;
       finish();
@@ -274,7 +274,7 @@ export function PositionSheet({
       className="cap-sheet"
       // Named the way the diagram cell that opens it is named. A spare carries
       // no walk-around number (rig.displayNumber), so naming it for its unit is
-      // the only thing that tells one unit's spare from another's — and every
+      // the only thing that tells one unit's spare from another's. Every
       // configuration in the register has a spare count, so a rig has one per
       // unit (BR-VEH-003, CaptureDiagram's spare rows).
       aria-label={
@@ -368,7 +368,7 @@ export function PositionSheet({
         // once it is complete. Wiring it straight to finish() strands a
         // 0-3mm tread: those never settle (30 is still under the 35mm
         // ceiling, so another digit is possible), finish() returns early on
-        // an incomplete position, and the driver has no way forward — on
+        // an incomplete position, and the driver has no way forward, on
         // the exact reading the product exists to catch.
         onKey={(k) => (k.type === "next" && complete ? finish() : press(k))}
         granularityMm={ctx.config.treadGranularityMm}

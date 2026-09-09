@@ -79,8 +79,8 @@ describe("CaptureReview", () => {
   // The decision-before-submit moment, so a row that cannot be traced back to
   // a wheel is worse here than anywhere else. Every configuration in the
   // register carries a spare count, so a rig has one spare per unit
-  // (BR-VEH-003) and a spare has no walk-around number to tell them apart —
-  // the unit that owns it is the only thing that does.
+  // (BR-VEH-003) and a spare has no walk-around number to tell them apart.
+  // The unit that owns it is the only thing that does.
   it("names the unit a flagged spare belongs to", () => {
     const contexts = [unit("v1", "BAC039SP"), unit("v2", "LINK6")];
     const positions = {

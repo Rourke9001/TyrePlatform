@@ -36,7 +36,7 @@ describe("the draft buffer", () => {
     expect(reloaded?.clientUuid).toBe(draft.clientUuid);
   });
 
-  // FR-OFF-005: incrementally, per entry — not on a debounce, not at the end.
+  // FR-OFF-005: incrementally, per entry, not on a debounce, not at the end.
   it("persists a position the moment it is entered", async () => {
     await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
     await savePosition({
@@ -93,7 +93,7 @@ describe("the draft buffer", () => {
   });
 
   // The buffer holds ONE inspection (FR-OFF-007 withdrawn v1.4). Starting a
-  // second must not silently bury the first — FR-OFF-014 forbids discarding a
+  // second must not silently bury the first. FR-OFF-014 forbids discarding a
   // buffered inspection under any circumstance, so the caller has to deal with
   // it rather than the store deciding.
   it("refuses to start a second inspection over an unfinished one", async () => {
@@ -105,7 +105,7 @@ describe("the draft buffer", () => {
 
   // The one place the key FORMAT is stated rather than computed. Every other
   // fixture calls cellKey on both sides of its assertion, which holds for
-  // whatever cellKey returns — a mutation back to the bare position id
+  // whatever cellKey returns, a mutation back to the bare position id
   // included. This line is what makes those assertions mean something.
   it("keys a position by its unit AND its position", () => {
     expect(cellKey("v1", "p1")).toBe("v1:p1");
@@ -136,7 +136,7 @@ describe("the draft buffer", () => {
 
     // Written straight to the row, which is the only way to produce the layout:
     // savePosition cannot file under a bare id. Insertion order is the order a
-    // driver would produce it — the unreachable entry first, the one entered
+    // driver would produce it: the unreachable entry first, the one entered
     // afterwards second.
     await db.drafts.put({
       key: "current",
@@ -158,7 +158,7 @@ describe("the draft buffer", () => {
       cellKey("v2", "p1"),
     ]);
     // Last one wins, so the entry made after the unreachable one is the one
-    // that survives — never the other way round.
+    // that survives. Never the other way round.
     expect(reloaded?.positions[cellKey("v1", "p1")].treads).toEqual([13, 13, 14]);
     expect(reloaded?.positions[cellKey("v2", "p1")].treads).toEqual([11, 11, 12]);
   });
@@ -166,8 +166,8 @@ describe("the draft buffer", () => {
   // TYRE-146 / ADR-0009: a draft written before fleetNumber and absentSpares
   // existed reaches mutate's callbacks raw unless mutate normalises it the
   // same way loadDraft does. Without that, savePosition's
-  // draft.absentSpares.filter(...) throws a TypeError on the very next write
-  // — on the device that ADR-0009 promises will hold the in-progress
+  // draft.absentSpares.filter(...) throws a TypeError on the very next write.
+  // On the device that ADR-0009 promises will hold the in-progress
   // inspection durably, that is a driver locked out of saving.
   it("saves onto a draft persisted before fleetNumber and absentSpares existed", async () => {
     const startedAt = "2026-09-06T08:00:00Z";
@@ -222,7 +222,7 @@ describe("the draft buffer", () => {
   // thresholds) must never land on the device. This is the only IndexedDB
   // writer in the product, so it is the only place that rule can be broken,
   // and NFR-PRV-006 requires being able to tell a driver truthfully what is
-  // stored. Asserting the exact key set — not a subset — is what catches a
+  // stored. Asserting the exact key set, not a subset, is what catches a
   // field added to the persisted shape later without anyone deciding to.
   it("persists exactly the in-progress inspection and nothing else", async () => {
     await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
@@ -261,7 +261,7 @@ describe("the draft buffer", () => {
   });
 
   // FR-OFF-014's ban on ever burying an unfinished inspection only works if
-  // the slot is actually freed once one is legitimately done with — otherwise
+  // the slot is actually freed once one is legitimately done with. Otherwise
   // a driver's second inspection of the day is permanently blocked by the
   // "already in progress" guard above.
   it("frees the slot for a new inspection once cleared", async () => {
@@ -280,7 +280,7 @@ describe("the draft buffer", () => {
   });
 
   // TYRE-146 / FR-OFF-014: never SILENTLY discarded. A discard the driver asks
-  // for and confirms is the exit the other-vehicle screen never had — without
+  // for and confirms is the exit the other-vehicle screen never had. Without
   // it a wrong-vehicle Start locks the phone out of capture for good.
   it("starts a second inspection once the first is discarded", async () => {
     await startDraft({
@@ -331,7 +331,7 @@ describe("the draft buffer", () => {
 
   // TYRE-155: a reading AND an absent_spares entry for the same cell is a
   // shape app.submit_inspection refuses outright (TY005, 000041), and the
-  // outbox reads that 422 as permanent — so a stale draft position left
+  // outbox reads that 422 as permanent, so a stale draft position left
   // behind by the mark would lose the whole capture, not just one cell. The
   // tap IS the driver saying there is nothing to read.
   it("discards a spare's draft position when it is marked absent", async () => {
@@ -357,7 +357,7 @@ describe("the draft buffer", () => {
     expect(reloaded?.absentSpares).toEqual([{ vehicleId: "v1", positionId: "s1" }]);
   });
 
-  // TYRE-155: the reverse of the case above — a cell reopened after "No spare
+  // TYRE-155: the reverse of the case above: a cell reopened after "No spare
   // on this unit" and given a reading must clear the absent mark, or the
   // draft holds both and app.submit_inspection refuses the whole capture
   // (TY005, 000041) with a permanent outbox failure.

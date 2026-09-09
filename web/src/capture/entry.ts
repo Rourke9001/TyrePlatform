@@ -1,7 +1,7 @@
 // FR-INS-030 / FR-INS-031: hard ranges, rejected rather than warned. They are
 // physical limits of the instrument, not tenant policy, which is why they are
 // constants here and not configuration (CLAUDE.md rule 5 governs thresholds,
-// and these are not thresholds — the database CHECKs carry the same two
+// and these are not thresholds: the database CHECKs carry the same two
 // numbers).
 const TREAD_CEILING_MM = 35;
 const PRESSURE_CEILING_KPA = 1200;
@@ -50,7 +50,7 @@ const isPressure = (state: EntryState, opts: EntryOptions) => state.field >= opt
 
 // At 0.1mm the last digit typed is the tenth, so the buffer is read as an
 // integer number of tenths. At 1.0 and 0.5 the buffer is whole millimetres and
-// the half arrives on its own key — there is no decimal point on this keypad.
+// the half arrives on its own key. There is no decimal point on this keypad.
 function valueOf(buffer: string, state: EntryState, opts: EntryOptions): number {
   const n = parseInt(buffer, 10);
   if (isPressure(state, opts)) return n;
@@ -102,7 +102,7 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       const ceiling = ceilingFor(state, opts);
       const grown = state.buffer + key.digit;
       // Past the ceiling, restart on the digit just pressed rather than
-      // showing an error for a value that cannot exist — a mis-tap is far
+      // showing an error for a value that cannot exist. A mis-tap is far
       // more likely than an intention to enter 39mm.
       const buffer = valueOf(grown, state, opts) > ceiling ? key.digit : grown;
       const next = write(state, buffer, opts);

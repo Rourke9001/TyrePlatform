@@ -89,7 +89,7 @@ describe("fetchCaptureContext", () => {
 
   // A driver refused a vehicle and a vehicle that does not exist must look
   // identical (ADR-0011), so the client cannot helpfully distinguish them
-  // either — it reports one thing.
+  // either. It reports one thing.
   it("surfaces a refusal without guessing why", async () => {
     vi.stubGlobal(
       "fetch",

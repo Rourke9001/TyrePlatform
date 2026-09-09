@@ -10,7 +10,7 @@ import "./capture.css";
 // takes the delete key's slot (Keypad.tsx). An odometer is whole kilometres, so
 // the ½ key must never appear here whatever a tenant's treadGranularityMm is,
 // and a six-digit field needs delete far more than a two-digit one does. This
-// is the unit of the field being typed, not a tenant threshold — passing the
+// is the unit of the field being typed, not a tenant threshold. Passing the
 // tread granularity through would put a ½ key on a kilometre reading for every
 // tenant configured at 0.5mm.
 const ODOMETER_GRANULARITY_KM = 1.0;
@@ -53,9 +53,9 @@ export function CaptureStart({
   // screen; all this control has to do is stop looking live, because a button
   // that silently does nothing is a worse answer than a refusal (NFR-USE-005).
   storageBlocked: boolean;
-  // Ticked member units, seeded from ALL of motive.combination.members —
-  // which includes the motive unit, so it shows ticked — and narrowed only
-  // by unticking. The motive unit cannot be unticked — it is the
+  // Ticked member units, seeded from ALL of motive.combination.members,
+  // which includes the motive unit, so it shows ticked, and narrowed only
+  // by unticking. The motive unit cannot be unticked. It is the
   // inspection's subject and carries the odometer (FR-INS-064).
   attachedIds: string[];
   onToggleAttached: (vehicleId: string) => void;
@@ -70,7 +70,7 @@ export function CaptureStart({
   const [typed, setTyped] = useState("");
   // FR-INS-020 records CONFIRMED values only, so an untouched projection is
   // absent rather than recorded. This flag is the confirmation, and nothing
-  // sets it but the driver's own tap — a default of true would record a
+  // sets it but the driver's own tap. A default of true would record a
   // number nobody read, which is the fabrication NFR-PRO-003 refuses and the
   // one thing the pre-fill must not be able to do.
   const [accepted, setAccepted] = useState(false);
@@ -83,14 +83,14 @@ export function CaptureStart({
   // Frozen at mount. This screen is open for seconds and nothing on it is
   // time-sensitive at a finer grain than a day, so reading the clock during
   // render would only make the output depend on when React happened to
-  // re-render — FR-INS-033's own denominator included.
+  // re-render. FR-INS-033's own denominator included.
   const [openedAt] = useState(() => Date.now());
 
   // FR-INS-020's three clauses, in one expression. A typed number is the
   // driver correcting the projection; a tapped confirmation is the driver
   // accepting it; anything else is an odometer this inspection does not
   // carry. Every check below reads this rather than what is on screen, so an
-  // unconfirmed projection can gate nothing and block nothing — which is what
+  // unconfirmed projection can gate nothing and block nothing, which is what
   // keeps "pre-filled" and "shall never block a tyre inspection" true at the
   // same time.
   const projected = projectedOdometerKm(motive, new Date(openedAt));
@@ -102,8 +102,8 @@ export function CaptureStart({
   // a provisional number never looks like an entered one (NFR-USE-005).
   const shown = typed !== "" ? typed : projected !== null ? String(projected) : "";
   // FR-INS-020: optional, and a trailer-only inspection has no field at all.
-  // Gate on what the unit IS, not on whether it happens to have a reading —
-  // no vehicle has one until the first inspection writes it, so gating on
+  // Gate on what the unit IS, not on whether it happens to have a reading.
+  // No vehicle has one until the first inspection writes it, so gating on
   // history means the timeline can never be started and FR-INS-032/033
   // never acquire a denominator.
   const wantsOdometer = motive.unitKind !== "TRAILER";
@@ -114,7 +114,7 @@ export function CaptureStart({
     if (held) return;
     onStart({
       odometerKm: wantsOdometer ? value : null,
-      // attachedIds already contains the motive unit — it is a member of
+      // attachedIds already contains the motive unit. It is a member of
       // its own combination and renders ticked-and-disabled. Prepending it
       // again would send a duplicate straight into the FR-INS-063
       // warning's entered_value.
@@ -173,8 +173,7 @@ export function CaptureStart({
             ))}
           </ul>
           <p className="cap-hint">
-            Something else coupled up? Finish this inspection and tell the office — they set the
-            rig.
+            Something else coupled up? Finish this inspection and tell the office. They set the rig.
           </p>
         </fieldset>
       )}
@@ -188,7 +187,7 @@ export function CaptureStart({
           </p>
           <p className="cap-hint">
             {motive.lastOdometerKm === null
-              ? "No reading on record yet — this one starts the count."
+              ? "No reading on record yet. This one starts the count."
               : `Last reading ${Intl.NumberFormat("en-ZA").format(motive.lastOdometerKm)} km`}
             {motive.lastOdometerAt
               ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
@@ -196,7 +195,7 @@ export function CaptureStart({
           </p>
           {/* The confirm half of "confirm or correct". One tap against six
               digits is the trade FR-INS-020 is making, so the control is the
-              cheap path and typing is the fallback — and the label carries the
+              cheap path and typing is the fallback, and the label carries the
               number, because a driver who taps a button reading only "That's
               right" has agreed to something they were not made to read. It
               disappears once the value is the driver's, which is also how the
@@ -209,7 +208,7 @@ export function CaptureStart({
           {value === null && projected !== null && (
             <p className="cap-hint">
               Worked out from that reading and this unit&rsquo;s usual daily distance. Check it
-              against the dash — confirm it, type the real number, or skip it.
+              against the dash. Confirm it, type the real number, or skip it.
             </p>
           )}
           <Keypad
@@ -261,12 +260,12 @@ export function CaptureStart({
       )}
 
       {/* NFR-PRV-006, erratum CS-2. Most drivers are on their own phone, and
-          this sentence has to be true — the storage tests in draft.test.ts keep
+          this sentence has to be true. The storage tests in draft.test.ts keep
           the inspection half true, and the device id it names is the one in
           payload.ts (NFR-OBS-004). */}
       <p className="cap-notice">
         While you are working, this inspection is saved on your phone, along with a random code that
-        identifies the phone to the platform — not you. Nothing else about the fleet is stored here.
+        identifies the phone to the platform, not you. Nothing else about the fleet is stored here.
       </p>
 
       <button

@@ -31,7 +31,7 @@ export function Keypad({
       {/* At 0.5mm granularity the half key takes the delete key's slot: a
           fourth row would push the go key off a small screen, so delete has
           nowhere to live here at that granularity. The driver retypes over a
-          mistake instead — a long-press-to-delete affordance is a candidate
+          mistake instead. A long-press-to-delete affordance is a candidate
           for field trial, not built here without evidence it is needed. */}
       {granularityMm === 0.5 ? (
         <button

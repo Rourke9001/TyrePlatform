@@ -139,7 +139,7 @@ export function CaptureReview({
               an accessible name: CR-010 and OR-LEG-001 govern what a driver
               sees, and the code is not it. A browser test keyed on the friendly
               name above would fail on the next wording change and report a copy
-              edit as a broken agreement check — data-position-id on the diagram
+              edit as a broken agreement check. data-position-id on the diagram
               cells is the same trade for the same reason. */}
           {flagged.map((f) => (
             <li key={f.key} className="cap-flag" data-warning-code={f.code}>
@@ -179,7 +179,7 @@ export function CaptureReview({
         type="button"
         className="cap-primary"
         // 000023 refuses an empty readings array, and the outbox reads that
-        // refusal as permanent (outbox.ts) — so an inspection sent with nothing
+        // refusal as permanent (outbox.ts), so an inspection sent with nothing
         // captured could never drain from the queue.
         disabled={done === 0}
         onClick={() => onSubmit({ comment: comment || null, defectReport: defect || null })}

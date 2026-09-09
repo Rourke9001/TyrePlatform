@@ -79,7 +79,7 @@ const link2 = unit("v-link2", "BAC041SP", [
 
 describe("rigPositions", () => {
   // FR-VEH-034 / BR-VEH-001: 1..n across member units, computed from member
-  // order and each unit's own sequence. Never stored, never transmitted — the
+  // order and each unit's own sequence. Never stored, never transmitted: the
   // payload names (vehicle_id, position_id) and this number is display only.
   it("numbers running positions continuously across member units", () => {
     const rig = rigPositions([horse, link]);
@@ -205,7 +205,7 @@ describe("nextOutstanding", () => {
     expect(nextOutstanding(rig, done, at("v-horse", "h1"))?.position.id).toBe("h2");
   });
 
-  // Forward first, then wrap — in that order. A driver who left a seized wheel
+  // Forward first, then wrap, in that order. A driver who left a seized wheel
   // for later should finish the walk and be brought back to it, not dragged
   // backwards after every position, so a plain "first outstanding" is wrong
   // even though it agrees with this one on the wrap itself.
@@ -230,7 +230,7 @@ describe("nextOutstanding", () => {
   // The defect this exists to prevent. Both links carry position ids l1 and l2
   // because app.position belongs to an axle configuration, so a search that
   // asked "is l1 done?" would find the first link's l1 and skip the second
-  // link's wheels entirely — 8 positions filed nowhere, with nothing on screen
+  // link's wheels entirely: 8 positions filed nowhere, with nothing on screen
   // to say so (BR-VEH-003, draft.cellKey).
   it("asks by cell, so a second unit of the same configuration is not skipped", () => {
     const superlink = rigPositions([link, link2]);

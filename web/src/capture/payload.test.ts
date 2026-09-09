@@ -117,7 +117,7 @@ describe("toSubmitPayload", () => {
 
   // CR-011 / DR-017 / TY006: the client sends measurements, the trigger
   // derives the minimum. Asserting it here would be rejected outright, and
-  // rightly — two implementations of one rule is how they drift.
+  // rightly. Two implementations of one rule is how they drift.
   it("never asserts a governing tread", () => {
     const p = toSubmitPayload(draft, meta);
     const raw = JSON.stringify(p);
@@ -165,7 +165,7 @@ describe("toSubmitPayload", () => {
   });
 
   // A partial inspection must say so. The column defaults to 100, so an
-  // omitted value is not 'unknown' — it is a false claim of completeness.
+  // omitted value is not 'unknown'. It is a false claim of completeness.
   it("reports completeness against every position, not just the ones captured", () => {
     expect(toSubmitPayload(draft, meta).completeness_pct).toBe(50);
   });
@@ -258,8 +258,8 @@ describe("toSubmitPayload", () => {
   // submit, so filtering this out would destroy three good tread readings.
   // A rig's two member units of one axle configuration carry the SAME position
   // ids, so the position alone cannot separate that couple. A stable sort left
-  // to itself settles the tie by insertion order — the order the driver
-  // happened to walk the rig — which is precisely what a deterministic payload
+  // to itself settles the tie by insertion order: the order the driver
+  // happened to walk the rig, which is precisely what a deterministic payload
   // must not depend on.
   it("orders a shared position id the same way whichever unit was walked first", () => {
     const cell = (vehicleId: string): DraftPosition => ({
@@ -332,7 +332,7 @@ describe("toSubmitPayload", () => {
 
   // TYRE-155: submit_inspection refuses TY005 outright when one cell carries
   // both a reading and an absent_spares entry, and the outbox treats that
-  // 422 as permanent — so this must be unreachable from the payload side
+  // 422 as permanent, so this must be unreachable from the payload side
   // too. draft.ts's markSpareAbsent discards the position the same
   // transaction it records the mark in, so a draft that carries an absent
   // spare never has a position for that cell to begin with; this pins the

@@ -53,7 +53,7 @@ export interface CaptureConfig {
 }
 
 // FR-INS-062: the rig a CONTROLLER set, for the driver to confirm before
-// starting. The driver never composes it — managing what is coupled to
+// starting. The driver never composes it. Managing what is coupled to
 // what is fleet configuration, and it is set before the truck leaves.
 export interface CaptureMember {
   vehicleId: string;
@@ -79,16 +79,16 @@ export interface CaptureContext {
   // denominator.
   lastOdometerAt: string | null;
   // FR-INS-020's pre-fill is a projection from the last reading, and this is
-  // the rate it projects at. Null when the timeline cannot support one — a
-  // first inspection, or a unit read twice on the same day — and then there
+  // the rate it projects at. Null when the timeline cannot support one: a
+  // first inspection, or a unit read twice on the same day, and then there
   // is no projection to show (history.projectedOdometerKm).
   averageDailyKm: number | null;
   positions: CapturePosition[];
-  // Null unless this unit heads a current combination — a solo rigid, or a
+  // Null unless this unit heads a current combination: a solo rigid, or a
   // trailer asked for its own context, simply has none.
   combination: CaptureCombination | null;
   config: CaptureConfig;
-  // Keyed "AXLE_CLASS:AXLE_TYPE" — BR-ANL-006 cohorts by position class and
+  // Keyed "AXLE_CLASS:AXLE_TYPE". BR-ANL-006 cohorts by position class and
   // BR-ANL-009 forbids blending axle types. A missing key means no rate is
   // asserted for that cohort, which for a LIFTING axle is the correct answer
   // rather than a gap.
@@ -100,7 +100,7 @@ export function fetchCaptureContext(vehicleId: string): Promise<CaptureContext> 
 }
 
 // staleTime Infinity, gcTime for the tab's life: FR-OFF-002 caches this for
-// the session, and FR-OFF-003 refreshes it on app-open and on demand — never
+// the session, and FR-OFF-003 refreshes it on app-open and on demand. Never
 // on a timer that could fire mid-walk-around and change a threshold under the
 // driver's feet. Tanstack Query holds it in memory; nothing here persists.
 //

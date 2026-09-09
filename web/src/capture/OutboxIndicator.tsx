@@ -17,7 +17,7 @@ const NONE: OutboxEntry[] = [];
 // a stale count for the whole session.
 //
 // dexie-react-hooks packages this same subscription, but its type declarations
-// import y-dexie and yjs — optional peers that would have to be installed and
+// import y-dexie and yjs, optional peers that would have to be installed and
 // carried purely to satisfy a declaration file, and this project checks library
 // declarations on purpose (tsconfig.json sets no skipLibCheck; tsconfig.e2e.json
 // says why that exception exists and why it is one).
@@ -52,7 +52,7 @@ export function OutboxIndicator() {
 
   useEffect(() => {
     // FR-OFF-009: on app-open, and whenever connectivity returns while the
-    // app is open. Never Background Sync — iOS Safari has none and ADR-0009
+    // app is open. Never Background Sync. iOS Safari has none and ADR-0009
     // settled that nothing here depends on it.
     void flushOutbox();
     const onOnline = () => void flushOutbox();
@@ -66,7 +66,7 @@ export function OutboxIndicator() {
   }, []);
 
   if (entries.length === 0) return null;
-  // FR-OFF-013: a permanent refusal is not 'waiting to send' — nothing is
+  // FR-OFF-013: a permanent refusal is not 'waiting to send'. Nothing is
   // going to happen to it without a person, and saying otherwise leaves a
   // driver watching a queue that will never drain.
   const waiting = entries.filter((e) => e.state !== "failed");
@@ -89,12 +89,12 @@ export function OutboxIndicator() {
         )}
         {blocked.map((e) => (
           // ConfirmDiscard renders block content (section/p) once opened, which a
-          // <span> — phrasing content only — cannot legally contain.
+          // <span>, phrasing content only, cannot legally contain.
           <div key={e.clientUuid} className="cap-outbox-line cap-outbox-line--stop">
             {/* TYRE-167 / FR-OFF-013: the recovery action once the office has
                 taken the readings over the phone. Confirmed, never automatic.
                 Named by vehicle so two refused entries get two distinguishable
-                buttons — this one permanently deletes a never-synced
+                buttons: this one permanently deletes a never-synced
                 inspection, and a duplicate accessible name is a mis-click
                 away from deleting the wrong one. */}
             <ConfirmDiscard
@@ -112,12 +112,12 @@ export function OutboxIndicator() {
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
             {/* TYRE-215: the one refusal the driver can fix without the office. */}
             This phone&apos;s clock is ahead, so the office could not accept it yet. It will send
-            later — check the time.
+            later. Check the time.
           </span>
         )}
         {stale.length > 0 && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
-            Waiting over two days — please find signal and sync.
+            Waiting over two days. Please find signal and sync.
           </span>
         )}
       </div>

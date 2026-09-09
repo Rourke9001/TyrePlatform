@@ -101,7 +101,7 @@ const trailer: CaptureContext = {
   combination: null,
   // The SAME position ids as the motive unit, deliberately. app.position rows
   // belong to an axle configuration and not to a vehicle, so two like units on
-  // one rig share every id — the register cannot produce the distinct-id shape,
+  // one rig share every id. The register cannot produce the distinct-id shape,
   // and a fixture that used one would let a collision between units pass
   // unseen while looking like better coverage.
   positions: [
@@ -112,7 +112,7 @@ const trailer: CaptureContext = {
 
 // TYRE-155: one running position plus one spare, so the flow's own advance
 // lands the driver on the spare sheet the moment the running position is
-// done — the "no spare" tap is then the one action left before review.
+// done. The "no spare" tap is then the one action left before review.
 const withSpare: CaptureContext = {
   ...context,
   positions: [
@@ -131,7 +131,7 @@ const withSpare: CaptureContext = {
   ],
 };
 
-// One position, and it is the spare — so a draft on this unit can hold an
+// One position, and it is the spare, so a draft on this unit can hold an
 // absent-spare mark with nothing captured at all, which is exactly the case
 // lostWords has to name rather than read as empty (TYRE-146).
 const spareOnly: CaptureContext = {
@@ -183,7 +183,7 @@ function stubApi(
 }
 
 // Real timers, throughout. CaptureFlow writes to IndexedDB on every keystroke
-// (FR-OFF-005), and Dexie completes its requests on a real setTimeout — faking
+// (FR-OFF-005), and Dexie completes its requests on a real setTimeout. Faking
 // setTimeout deadlocks every write, and faking anything less cannot drive the
 // 200ms settle this helper depends on. So each step waits for the state the
 // settle produces (the next field taking aria-current) instead of for a fixed
@@ -191,7 +191,7 @@ function stubApi(
 //
 // Digits are entered a field at a time and the settle is waited out between
 // them: clicking nine digits straight through lands them all in field 1, where
-// everything past the second overshoots 35mm and restarts the buffer — a green
+// everything past the second overshoots 35mm and restarts the buffer, a green
 // test over corrupt data.
 async function capturePosition(user: UserEvent) {
   await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
@@ -216,7 +216,7 @@ async function capturePosition(user: UserEvent) {
   }
   // A position with nothing to flag finishes itself off the pressure field; a
   // warned one waits for the tap that records the FR-INS-040 response. Either
-  // way the sheet that was open must go — on to the next outstanding position,
+  // way the sheet that was open must go: on to the next outstanding position,
   // or back to the diagram when none are left.
   const answer = screen.queryByRole("button", { name: /seen it ›/i });
   if (answer) await user.click(answer);
@@ -246,7 +246,7 @@ const newUser = () => userEvent.setup();
 
 describe("CaptureFlow", () => {
   // NFR-AVL-002: "Starting a new inspection requires the server." Capture and
-  // submit do not — but a driver must not be able to start against reference
+  // submit do not, but a driver must not be able to start against reference
   // data that never arrived, because every threshold would then be missing
   // and every warning would silently never fire.
   it("refuses to start when the reference data has not loaded", async () => {
@@ -311,7 +311,7 @@ describe("CaptureFlow", () => {
   });
 
   // NFR-USE-011 / FR-OFF-006: the buffer is the source of truth, so a remount
-  // is a reload and finds the work — with its numbers, not just its progress.
+  // is a reload and finds the work, with its numbers, not just its progress.
   // This one stays on the diagram: its one position is complete, so there is
   // no half-entered sheet to return to (the case the next test covers).
   it("resumes an in-progress inspection after a remount", async () => {
@@ -368,7 +368,7 @@ describe("CaptureFlow", () => {
 
   // app.inspection.completeness_pct defaults to 100, so a partial inspection
   // submitted without it is recorded as complete (NFR-PRO-003). The denominator
-  // is every position on every confirmed unit (FR-INS-065) — a rig, not the
+  // is every position on every confirmed unit (FR-INS-065): a rig, not the
   // motive unit, which is what makes 1-of-3 distinguishable from 1-of-1 here.
   // The count the driver reads at review and the figure the server stores come
   // off the same expression, so this asserts both.
@@ -461,7 +461,7 @@ describe("CaptureFlow", () => {
 
   // FR-OFF-014 / NFR-USE-005. IndexedDB throws outright under a private window
   // or an MDM policy blocking site data. The driver then taps a Start button
-  // that can never work, so the screen they are standing on has to say why —
+  // that can never work, so the screen they are standing on has to say why,
   // which requires the alert to sit above the screen switch, not inside one
   // branch of it.
   it("refuses to start when the device cannot store anything, and names a way out", async () => {
@@ -574,7 +574,7 @@ describe("CaptureFlow", () => {
   // The defect this reconciles: a position whose treads are read and whose
   // pressure was never taken is captured, is counted, and is sent (000023
   // accepts a NULL pressure). Banding the cell on the pressure as well drew it
-  // "Not done" — hiding FR-INS-036 on a cell the app had every number for, and
+  // "Not done", hiding FR-INS-036 on a cell the app had every number for, and
   // sending the driver back across the yard for a wheel already done while the
   // header above said it was.
   it("bands a tread-complete position with no pressure, and counts it done", async () => {
@@ -585,7 +585,7 @@ describe("CaptureFlow", () => {
     await user.click(await screen.findByRole("button", { name: /start inspection/i }));
     await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
 
-    // 3mm does not settle the field — another digit still fits under 35mm — so
+    // 3mm does not settle the field, another digit still fits under 35mm, so
     // the go key is what moves it on; 4mm does.
     for (const d of ["3", "3"]) {
       await user.click(screen.getByRole("button", { name: d }));
@@ -624,7 +624,7 @@ describe("CaptureFlow", () => {
   });
 
   // TYRE-146 (Critical): a driver who taps Start on the wrong truck and
-  // captures nothing had no exit — the held screen's only control was
+  // captures nothing had no exit. The held screen's only control was
   // "Go to it", and a submit needs a position. The discard is the exit, and
   // it names what is lost.
   it("lets a driver discard the other vehicle's inspection and start this one", async () => {
@@ -697,7 +697,7 @@ describe("CaptureFlow", () => {
 
   // TYRE-155 end to end on the flow: the spare cell leaves the count, the
   // review reads all done, the payload carries the observation, and the
-  // driver paid one tap — the same one they paid to close the sheet before.
+  // driver paid one tap, the same one they paid to close the sheet before.
   it("reports a unit done when its spare is marked absent, and sends the observation", async () => {
     const user = newUser();
     const api = stubApi(201, [withSpare]);

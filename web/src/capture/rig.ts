@@ -11,7 +11,7 @@ export interface RigPosition {
   // number and read that unit's own configuration.
   context: CaptureContext;
   // FR-VEH-034: computed here, rendered, and discarded. It is never stored and
-  // never transmitted (BR-VEH-003 as amended by E2) — the payload names
+  // never transmitted (BR-VEH-003 as amended by E2): the payload names
   // vehicle_id and position_id. Null for a spare, which is not in the
   // walk-around sequence at all.
   displayNumber: number | null;
@@ -22,15 +22,15 @@ export function rigPositions(contexts: CaptureContext[]): RigPosition[] {
   return contexts.flatMap((context) =>
     [...context.positions]
       // TYRE-155, rule 5: a tenant that has switched spare capture off gets
-      // no spare cell on the walk at all — filtered before the sort so the
+      // no spare cell on the walk at all. Filtered before the sort so the
       // running numbering above never counts a cell nobody will see. Compared
       // against `!== false`, not truthiness: FR-INS-066 is a Must, and an
       // absent key (an old response cached before the field existed) must
       // fail toward capturing the spare, not toward silently dropping it
-      // (ADR-0010 — absence must never be read as a claim).
+      // (ADR-0010: absence must never be read as a claim).
       .filter((p) => (p.isSpare ? context.config.captureSpares !== false : true))
       // BR-VEH-001 numbers positions within a unit from 1, foremost axle
-      // first, then left to right — which is exactly what position.sequence
+      // first, then left to right, which is exactly what position.sequence
       // already encodes. Sorting by it here means the projection depends on
       // the configuration, not on the order the API happened to return.
       .sort((a, b) => a.sequence - b.sequence)
@@ -46,7 +46,7 @@ export function rigPositions(contexts: CaptureContext[]): RigPosition[] {
 // The two rows the diagram draws, in the order it draws them (CaptureDiagram):
 // the running positions in walk-around sequence, then the spares. Split here
 // rather than in each consumer because the flow's next-position jump has to
-// follow the picture the driver is reading — a spare threaded back in at its
+// follow the picture the driver is reading. A spare threaded back in at its
 // own sequence would send them to the boot between two wheels.
 export function splitSpares(positions: RigPosition[]): {
   running: RigPosition[];
@@ -61,7 +61,7 @@ export function splitSpares(positions: RigPosition[]): {
 // The next position a driver should be put in front of once one is finished:
 // the outstanding position AFTER this one, wrapping round to the first
 // outstanding one, and null when none are left. Forward first and then wrap,
-// in that order — a driver who skipped a seized wheel early should finish the
+// in that order. A driver who skipped a seized wheel early should finish the
 // walk and be brought back to it, not dragged backwards after every position.
 //
 // Outstanding is asked by CELL. Two member units of the same axle configuration
@@ -77,7 +77,7 @@ export function nextOutstanding(
   const order = [...running, ...spares];
   const outstanding = (r: RigPosition) => !doneCells.has(r.key);
   // -1 when the cell is not on this rig, which makes the forward search the
-  // whole list — the same answer as the wrap, and the only sensible one.
+  // whole list. The same answer as the wrap, and the only sensible one.
   const from = order.findIndex((r) => r.key === afterCell);
   return order.slice(from + 1).find(outstanding) ?? order.find(outstanding) ?? null;
 }
@@ -94,7 +94,7 @@ export interface UnitCompleteness {
 export function completenessByUnit(
   contexts: CaptureContext[],
   doneCells: ReadonlySet<string>,
-  // TYRE-155: an absent spare is neither done nor outstanding — it leaves the
+  // TYRE-155: an absent spare is neither done nor outstanding. It leaves the
   // denominator, so a unit with no spare can read "all done" (FR-INS-066).
   absentCells: ReadonlySet<string>,
 ): UnitCompleteness[] {

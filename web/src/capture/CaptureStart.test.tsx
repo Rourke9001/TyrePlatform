@@ -6,7 +6,7 @@ import { CaptureStart } from "./CaptureStart";
 import type { CaptureContext } from "./captureContext";
 
 // A unit with a reading on record, a recent date for it and a rate to carry
-// it forward — the three inputs FR-INS-020's pre-fill needs, and the shape the
+// it forward, the three inputs FR-INS-020's pre-fill needs, and the shape the
 // e2e suite cannot reach: the fixture seeds no vehicle_odometer_reading rows,
 // so lastOdometerKm is null throughout and every browser spec meets the empty
 // field instead.
@@ -71,7 +71,7 @@ describe("CaptureStart's odometer", () => {
   });
 
   // FR-INS-020 as written: "pre-filled with a projection from the unit's last
-  // known reading". A projection, not the reading — the number on screen is
+  // known reading". A projection, not the reading. The number on screen is
   // one the unit has plausibly reached, so confirming it cannot record last
   // inspection's value as this one's.
   it("offers a projection from the last reading rather than the reading itself", () => {
@@ -86,7 +86,7 @@ describe("CaptureStart's odometer", () => {
   // The clause the whole shape turns on: "CONFIRMED values are recorded to the
   // vehicle odometer timeline". An untouched pre-fill is not a confirmed
   // value, so a driver who taps Start without looking at the field records no
-  // reading at all — which is NFR-PRO-003's absent value in place of an
+  // reading at all, which is NFR-PRO-003's absent value in place of an
   // invented one, and keeps DR-018's append-only timeline free of a distance
   // nobody observed.
   it("records nothing when the driver never confirms the projection", async () => {
@@ -116,7 +116,7 @@ describe("CaptureStart's odometer", () => {
   });
 
   // FR-INS-020: optional, and never a blocker. An unconfirmed projection is
-  // recorded as absent and the inspection proceeds — the odometer must not be
+  // recorded as absent and the inspection proceeds. The odometer must not be
   // able to stop a driver capturing tyres.
   it("lets the inspection start with the odometer left alone", () => {
     renderStart(vi.fn());
@@ -138,7 +138,7 @@ describe("CaptureStart's odometer", () => {
 
   // A projection needs a rate as well as a reading. Without one there is
   // nothing to project, and the field starts empty rather than falling back to
-  // the last reading — which is the value that must never arrive pre-filled.
+  // the last reading, which is the value that must never arrive pre-filled.
   it("starts empty when the unit has no rate to project at", () => {
     renderStart(vi.fn(), { averageDailyKm: null });
     expect(screen.getByText(/000 000/)).toBeInTheDocument();

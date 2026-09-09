@@ -56,7 +56,7 @@ const context: CaptureContext = {
 
 // Every Severity value is represented, so a test that inspects rendered text
 // cannot pass just because the offending band never appeared. See warnings.ts
-// for the type — "roadworthy" included, since CR-010 governs message text,
+// for the type: "roadworthy" included, since CR-010 governs message text,
 // not this internal band identifier.
 const SEVERITIES: {
   id: string;
@@ -95,7 +95,7 @@ const props = {
 describe("CaptureDiagram", () => {
   // CR-010 / OR-LEG-001: the platform reports the tenant's configured policy
   // and never asserts roadworthiness. "roadworthy" is a legitimate internal
-  // band name (warnings.ts) — this pins that it never reaches a driver,
+  // band name (warnings.ts). This pins that it never reaches a driver,
   // including through an accessible name, where a bare {severity} would put
   // it. The fixture above covers all four Severity values, including
   // "roadworthy" itself, so this cannot pass by omission.
@@ -112,7 +112,7 @@ describe("CaptureDiagram", () => {
     expect(getByLabelText(/Position 4, BAC039SP, Not done/)).toBeTruthy();
   });
 
-  // TYRE-155: an absent cell is settled, not unmeasured — the severity was
+  // TYRE-155: an absent cell is settled, not unmeasured. The severity was
   // computed off nothing entered, so "Not done" would contradict the "done"
   // the header and tally already count it as.
   it("reads 'No spare', not the severity band, on a cell marked absent", () => {
@@ -131,7 +131,7 @@ describe("CaptureDiagram", () => {
 
 // Two units of two axles each, plus a spare. The fixture above puts every
 // position on one vehicleId and one axleNumber, so groupRig only ever builds
-// one axle group — a unit-band emitted per axle rather than per unit renders
+// one axle group. A unit-band emitted per axle rather than per unit renders
 // identically under it. This fixture has four axle groups across two units,
 // which is the minimum shape that tells the two apart. Each unit carries its
 // own context (own fleetNumber) rather than sharing one: groupRig labels a
@@ -143,7 +143,7 @@ describe("CaptureDiagram", () => {
 // which answers with the first match. Real units of one axle configuration do
 // share ids, and under that shape those two assertions would silently be about
 // unit A's cell while reading as though they covered the rendering generally.
-// Nothing is lost by keeping them apart — groupRig keys on (vehicleId,
+// Nothing is lost by keeping them apart. groupRig keys on (vehicleId,
 // axleNumber), so id sharing cannot affect the grouping this block exists for.
 const unitA: CaptureContext = { ...context, vehicleId: "v-horse", fleetNumber: "BAC039SP" };
 const unitB: CaptureContext = { ...context, vehicleId: "v-link", fleetNumber: "BAC040SP" };
@@ -181,7 +181,7 @@ const dedupPositions: RigPosition[] = DEDUP.map((d) => ({
   displayNumber: d.displayNumber,
 }));
 
-// p1 carries a governing reading, everything else does not — the two
+// p1 carries a governing reading, everything else does not. The two
 // outcomes of PositionCell's governing display each get one representative.
 const dedupGoverningOf = (cell: string) => (cell === cellKey(unitA.vehicleId, "p1") ? 9 : null);
 const dedupSeverityOf = (cell: string) =>
@@ -213,7 +213,7 @@ describe("CaptureDiagram with multiple units", () => {
   });
 
   // These do not discriminate the per-axle band bug (see the test above for
-  // that) — they pin the coupling mark and the spares branch instead
+  // that). They pin the coupling mark and the spares branch instead
   // (FR-INS-060/FR-INS-061, the requirements CouplingMark cites).
   it("draws one coupling mark, one axle row per axle group, and the spare row once", () => {
     const { container } = renderDedup(vi.fn());
@@ -251,7 +251,7 @@ describe("CaptureDiagram with multiple units", () => {
 // ("2-axle trailer" for TRAILER_2AXLE) is the same string for both. A band
 // that showed only that label would render "2-AXLE TRAILER" twice with
 // nothing to tell a driver which section belongs to which unit
-// (BR-VEH-003). Only app.vehicle — CaptureContext.fleetNumber — actually
+// (BR-VEH-003). Only app.vehicle, CaptureContext.fleetNumber, actually
 // distinguishes them.
 const link6: CaptureContext = { ...context, vehicleId: "v-link6", fleetNumber: "LINK6" };
 const link12: CaptureContext = { ...context, vehicleId: "v-link12", fleetNumber: "LINK12" };
@@ -311,7 +311,7 @@ describe("CaptureDiagram with two units of the same configuration", () => {
 // spare count, so an ordinary superlink has one spare per unit. Drawn in a
 // single band they are identical S cells, and a driver who enters LINK6's
 // spare into LINK12's cell files the reading against the wrong vehicle_id in
-// an append-only table — nothing refuses it at entry, and nothing in the
+// an append-only table. Nothing refuses it at entry, and nothing in the
 // stored data tells it apart afterwards (BR-VEH-003).
 const sameConfigSpares: RigPosition[] = [link6, link12].map((unit) => ({
   position: position({

@@ -34,9 +34,9 @@ export interface OutboxEntry {
 // requirement gives the number and the test asserts it exactly.
 const MAX_BACKOFF_MS = 30 * 60 * 1000;
 // Transport timing, not tenant policy: rule 5 governs thresholds a fleet
-// operator sets — removal limits, pressure bands, alert multiples — and the
-// capture context carries none that concern retry. FR-OFF-012 fixes the
-// ceiling; this starting delay is an implementation choice beneath it.
+// operator sets, such as removal limits, pressure bands and alert multiples,
+// and the capture context carries none that concern retry. FR-OFF-012 fixes
+// the ceiling; this starting delay is an implementation choice beneath it.
 const BASE_BACKOFF_MS = 5 * 1000;
 // FR-OFF-020: approximately two days, when iOS eviction becomes a real risk.
 const STALE_AFTER_MS = 48 * 3600 * 1000;
@@ -52,13 +52,13 @@ export function backoffMs(attempts: number): number {
 // driver's battery and their airtime (NFR-CST-010) while hiding the fact that
 // somebody has to act. 403 sits here too: an actor who may not capture will
 // not acquire the capability by waiting. 401 deliberately does not: it is an
-// expired session, recovered by signing in, and the queue then drains — that
+// expired session, recovered by signing in, and the queue then drains. That
 // differs in kind from 403, whose actor gains nothing by waiting.
 export function classify(error: unknown): "permanent" | "retryable" {
   if (error instanceof ApiError) {
     // TYRE-215: the future-skew refusal (TY021, 000041) is a 422 that time
-    // cures — the same payload lands once the server clock passes the
-    // stamped instant — so it is the one 422 that retries.
+    // cures: the same payload lands once the server clock passes the
+    // stamped instant, so it is the one 422 that retries.
     if (error.code === "TY021") return "retryable";
     if ([400, 403, 409, 422].includes(error.status)) return "permanent";
     return "retryable";
@@ -75,7 +75,7 @@ export function isStale(entry: { queuedAt: number }, now: number = Date.now()): 
 export async function listOutbox(): Promise<OutboxEntry[]> {
   const entries = await table().toArray();
   // TYRE-167: an entry written before fleetNumber existed has no such column
-  // in its stored row, so Dexie hands it back as undefined, not null — one
+  // in its stored row, so Dexie hands it back as undefined, not null. One
   // normalisation here rather than an `?? null` at every consumer.
   return entries.map((e) => ({ ...e, fleetNumber: e.fleetNumber ?? null }));
 }
@@ -105,7 +105,7 @@ export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
     if (!draft) throw new Error("No inspection in progress.");
 
     // 000023 refuses an empty readings array (TY005 -> 422), which the
-    // classifier reads as permanent — so queueing one would delete a draft
+    // classifier reads as permanent, so queueing one would delete a draft
     // the driver can still finish and strand it in a queue that can never
     // drain. Left as a draft instead: FR-OFF-014, and SRS Appendix H's "no
     // submitted inspection may ever be lost".
@@ -148,7 +148,7 @@ export async function attemptSend(
   await table().update(clientUuid, { state: "sending" });
   try {
     // FR-OFF-011: 201 first time, 200 on replay, and the outbox treats them
-    // identically — the server has the inspection either way, which is the
+    // identically. The server has the inspection either way, which is the
     // only question the queue is asking.
     await apiPost<{ inspectionId: string }>("/api/inspections", entry.payload);
     await table().delete(clientUuid);
@@ -167,7 +167,7 @@ export async function attemptSend(
 }
 
 // FR-OFF-009: on app-open and whenever connectivity returns while the app is
-// open. Never Background Sync — iOS Safari does not have it and ADR-0009
+// open. Never Background Sync. iOS Safari does not have it and ADR-0009
 // settled that this design does not depend on it.
 export async function flushOutbox(opts: { force?: boolean } = {}): Promise<void> {
   for (const entry of await listOutbox()) {
@@ -176,7 +176,7 @@ export async function flushOutbox(opts: { force?: boolean } = {}): Promise<void>
 }
 
 // FR-OFF-012 says retry with backoff "while the app is open", and
-// nextAttemptAt is only ever consulted by attemptSend — so without a
+// nextAttemptAt is only ever consulted by attemptSend, so without a
 // heartbeat an entry that failed with a 500 while online would wait for a
 // reload or a connectivity flap that may never come. The interval is the
 // pulse, the backoff is the schedule; the two together are the requirement.
