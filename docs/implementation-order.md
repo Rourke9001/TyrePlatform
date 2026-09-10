@@ -1,6 +1,6 @@
 # Implementation order
 
-Re-verified **9 Sep 2026** against `develop` @ `db84995` and the board's open
+Re-verified **11 Sep 2026** against `develop` @ `dfab2f1` and the board's open
 sprint.
 
 **Jira is the live authority.** This page exists so a session working in the
@@ -42,21 +42,31 @@ was stale. What remains in the sprint is not code:
 
 The sprint closes on decisions, not pull requests.
 
-## The next batch
+## B7, analytics and dashboard, in progress
 
-Nothing is cut yet. The next batch is planned before it is cut, brainstorm and
-design first as B5 and B6 were, and these are the candidates. Which comes
-first is the owner's call: the dashboard gap decides what the POC can show,
-the deployment gap decides where it can be shown.
+Cut 10 Sep 2026 on the owner's call (analytics before deployment; design
+system first; tokens plus CSS with Radix for the hard controls). Design:
+`docs/superpowers/specs/2026-09-10-b7-analytics-dashboard-design.md`. This is
+the manager dashboard the brief promises and the application does not have:
+at `dfab2f1` no exception surface, no fleet valuation and no value-at-risk
+figure exists anywhere in the API or the web app, and the 19/11/9 agreement
+lives only in suite section 8 (TYRE-183). Four slices, each its own branch,
+PR and review, each planned after the previous merges:
 
-### Analytics and lifecycle
+| Slice | Ticket | State |
+|---|---|---|
+| B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | planned, branch `TYRE-41-exception-view` |
+| B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half) | after B7.1 |
+| B7.3 | design system (ADR-0015) and the dashboard, new tickets under TYRE-7 | after B7.2 |
+| B7.4 | restyle of the ten existing screens; carries TYRE-176, TYRE-182 and the two capture defects | after B7.3 |
 
-**TYRE-41 (re-scoped first), TYRE-38, TYRE-36, then TYRE-52's successors.**
-TYRE-36 only once the register shape is stable, since it reads it. This is the
-manager dashboard the brief promises and the application does not have: no
-exception surface, no fleet valuation and no cost per kilometre exists
-anywhere in the API or the web app. The 19/11/9 agreement lives only in suite
-section 8 (TYRE-183).
+Exception lifecycle, rule administration and notifications are B8, ticketed
+under TYRE-7, not part of B7.
+
+## After B7
+
+The candidates below are not sequenced against each other; deployment is
+independent of the application work and can fill any gap.
 
 ### Deployment
 
