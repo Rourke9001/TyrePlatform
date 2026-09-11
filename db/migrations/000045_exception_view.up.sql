@@ -377,6 +377,8 @@ SELECT f.tenant_id,
        f.position_code, f.position_code_2, f.is_spare,
        f.tyre_id, t.display_code,
        f.inspection_id,
+       -- FR-EXC-015 last seen: the sheet's submitted_at, not the clock, so a
+       -- row is exactly as old as the inspection it was judged on (U18).
        f.observed_at,
        f.measure_mm, f.measure_pct, f.threshold_mm, f.threshold_pct,
        f.detail,

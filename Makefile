@@ -63,11 +63,9 @@ db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
 db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
 	$(PSQL_APP) -v ON_ERROR_STOP=1 < db/tests/004_tests.sql
 
-# The one file that runs as postgres. It stages what app_login cannot (a
-# composite FK removed inside a transaction it rolls back) to watch a
-# definer-chain backstop refuse a row (TYRE-38, B7 spec U12). It proves
-# nothing about RLS and is never a substitute for db-test; CI runs it as its
-# own step after the suite.
+# The one target that runs as postgres. It proves nothing about RLS and is
+# never a substitute for db-test; what it stages and why is the header of
+# db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
 .PHONY: db-test-privileged
 db-test-privileged: ## Negative controls that need a superuser to STAGE (db/tests/005_privileged.sql)
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 < db/tests/005_privileged.sql

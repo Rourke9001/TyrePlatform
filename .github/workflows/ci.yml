@@ -87,10 +87,9 @@ jobs:
             -c "ALTER ROLE app_login PASSWORD 'ci'"
           PGPASSWORD=ci psql "$PGURL" -v ON_ERROR_STOP=1 -f db/tests/004_tests.sql
 
-      # TYRE-38, B7 spec U12. The one file that runs as postgres, because it
-      # stages what app_login cannot (a composite FK removed inside a
-      # transaction it rolls back) to watch a definer-chain backstop fire. It
-      # proves nothing about RLS and is not a substitute for the suite above.
+      # A step of its own, after the suite, because it runs as postgres and so
+      # proves nothing about RLS. What it stages and why is the header of
+      # db/tests/005_privileged.sql (TYRE-38, B7 spec U12).
       - name: Privileged negative controls (as postgres)
         run: |
           psql "postgres://postgres:postgres@localhost:5433/tyre" -v ON_ERROR_STOP=1 -f db/tests/005_privileged.sql

@@ -9077,9 +9077,8 @@ DECLARE t1  constant uuid := '11111111-1111-1111-1111-111111111111';
         pol app.threshold_policy; tgt app.target_pressure; mm numeric; args text;
         ts_g timestamptz; ts_t timestamptz;
 BEGIN
-  -- Pin the tenant rather than inherit an earlier section's session state
-  -- (section 28's rule). Both stores force row level security, so the plant
-  -- below and every resolver read need this tenant bound.
+  -- Self-contained: pin the tenant rather than inherit an earlier section's
+  -- session state (section 28's rule).
   PERFORM set_config('app.tenant_id', t1::text, true);
 
   -- Signatures pinned as identity arguments (section 58a's reasoning): an
@@ -9198,9 +9197,8 @@ DO $$
 DECLARE total int; urgent int; below int; total_open int; urgent_open int; below_open int;
         per text; latest text; leaked int;
 BEGIN
-  -- Pin the tenant rather than inherit an earlier section's session state
-  -- (section 28's rule). Every store planted below forces row level security,
-  -- so an unbound tenant refuses the plant rather than failing the assertion.
+  -- Self-contained: pin the tenant rather than inherit an earlier section's
+  -- session state (section 28's rule).
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
 
   -- Qualified through the alias: the view's urgent column and this block's
@@ -9291,9 +9289,8 @@ DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
         insp constant uuid := md5('t59soloinsp')::uuid;
         n int; total int; subj text;
 BEGIN
-  -- Pin the tenant rather than inherit an earlier section's session state
-  -- (section 28's rule); vehicle, inspection and reading all force row level
-  -- security, so the plants below need it bound.
+  -- Self-contained: pin the tenant rather than inherit an earlier section's
+  -- session state (section 28's rule).
   PERFORM set_config('app.tenant_id', t1::text, true);
 
   -- A solo unit, so the one inspection resolves one unit: a rig inspection
@@ -9329,10 +9326,8 @@ DO $$
 DECLARE r record; running_sum numeric; spare_sum numeric; depot_sum numeric; n int;
         ca int; ce int; cau int; exc020 int; exc_total int;
 BEGIN
-  -- Pin the tenant rather than inherit an earlier section's session state
-  -- (section 28's rule). Every store behind these views forces row level
-  -- security, so an unbound tenant would empty each read and refuse the plant
-  -- below rather than fail the assertion.
+  -- Self-contained: pin the tenant rather than inherit an earlier section's
+  -- session state (section 28's rule).
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
 
   -- INTO STRICT wherever a row is selected from a view: a bare INTO takes the
@@ -9420,17 +9415,14 @@ DO $$
 DECLARE r record; n int; sched int; cov int; st int; horizon int; due int;
         probe text; tz text; d1 date; d2 date; age int;
 BEGIN
-  -- Pin the tenant rather than inherit an earlier section's session state
-  -- (section 28's rule, restated at 59c). Every store read or planted below
-  -- forces row level security, so an unbound tenant would empty each read and
-  -- refuse the schedule plant rather than fail the assertion.
+  -- Self-contained: pin the tenant rather than inherit an earlier section's
+  -- session state (section 28's rule).
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
 
   -- The spare: one row, and "last measured" is the spare's own latest
   -- reading, which the fixture has, rather than app.tyre.last_tread_at, which
-  -- on this tyre is null. INTO STRICT is what pins the single row (59c's
-  -- rule): a bare INTO takes the first of many and sets no flag, so a
-  -- duplicate open fitment would leave the block green.
+  -- on this tyre is null. INTO STRICT pins the single row (59c's rule); a
+  -- duplicate open fitment is what it would catch.
   SELECT * INTO STRICT r FROM app.v_spare_tyre_age;
   IF r.display_code IS DISTINCT FROM '2102BACS' OR r.measured_source IS DISTINCT FROM 'READING'
      OR r.current_tread_mm IS DISTINCT FROM 2.0 OR (r.last_measured_at AT TIME ZONE 'UTC')::date IS DISTINCT FROM DATE '2026-07-23' THEN
@@ -9513,11 +9505,10 @@ BEGIN
   -- today would move with the calendar while the fixture stood still. Of the
   -- 17 tyres the two sheets yield a wear rate for, six fall due within 30
   -- days of 1 Aug 2026, and a dated override of seven moves the count to two.
-  -- What that pins is the resolution, not a wiring: the key reaches a caller
-  -- through app.config_for with the dated-override semantics every key has.
-  -- Nothing in db, api or web reads forecast_horizon_days yet; the FR-DSH-009
-  -- tile and /api/analytics/removal-forecast are B7.2's (spec D7), and the
-  -- seeded default is here so they have one to read.
+  -- What that pins is the resolution, not a wiring: nothing in db, api or web
+  -- reads forecast_horizon_days yet. The FR-DSH-009 tile and
+  -- /api/analytics/removal-forecast are B7.2's (spec D7), and the seeded
+  -- default is here so they have one to read.
   horizon := (app.config_for('11111111-1111-1111-1111-111111111111', 'forecast_horizon_days', now()) #>> '{}')::int;
   IF horizon IS DISTINCT FROM 30 THEN RAISE EXCEPTION 'FAIL 59d: forecast_horizon_days resolved to %', horizon; END IF;
   SELECT count(*) INTO due FROM app.v_removal_forecast
