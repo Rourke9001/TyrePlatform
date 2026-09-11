@@ -191,71 +191,98 @@ BEGIN
   RAISE NOTICE 'PASS  rand_per_mm = purchase_price / usable tread';
 END $$;
 
-\echo '== 8. Appendix J fixture produces exactly the expected exceptions'
+\echo '== 8. Appendix J fixture produces exactly the expected exceptions, through app.v_exception'
 -- Appendix J is the exception set of ONE capture sheet, the 2026-07-23 one.
--- v_combination_reading re-presents every reading of every inspection, which
--- is what a tyre-history view needs, so each query here names the sheet it
--- describes rather than relying on the fixture holding a single capture.
+-- The view resolves each unit's latest non-voided inspection (spec D2), so
+-- no query here names the sheet: section 59 proves the resolution lands on
+-- it. The sheet's 1..26 numbering is a display projection (CFL-006), so the
+-- position rows join v_combination_reading for it; that view carries running
+-- positions only, so the spare's rows are asserted on is_spare.
 DO $$
 DECLARE got text; expected text;
 BEGIN
-  -- FR-EXC-020: governing depth at or below the 4mm removal threshold. The
-  -- projection numbers are COMPUTED from the composition (CFL-006), and for
-  -- the fixture's horse + two links they land on the sheet's own 1..26.
-  SELECT string_agg(combination_position::text, ',' ORDER BY combination_position) INTO got
-    FROM app.v_combination_reading
-   WHERE inspection_id = md5('insp1')::uuid AND governing_tread_mm <= 4;
+  -- FR-EXC-020: governing depth at or below the removal threshold (U2)
+  SELECT string_agg(c.combination_position::text, ',' ORDER BY c.combination_position) INTO got
+    FROM app.v_exception e
+    JOIN app.v_combination_reading c
+      ON c.inspection_id = e.inspection_id AND c.vehicle_id = e.vehicle_id AND c.unit_own_code = e.position_code
+   WHERE e.rule_code = 'FR-EXC-020';
   expected := '7,8,11,12,13,16,18,21,22';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-020: expected [%] got [%]', expected, got; END IF;
   RAISE NOTICE 'PASS  FR-EXC-020 below removal threshold -> %', got;
 
-  -- FR-EXC-035: width-wise spread >= 4mm
-  SELECT string_agg(combination_position::text, ',' ORDER BY combination_position) INTO got
-    FROM app.v_combination_reading
-   WHERE inspection_id = md5('insp1')::uuid AND width_spread_mm >= 4;
+  -- FR-EXC-021: the band above the removal threshold and below the warning
+  -- threshold (U3); Appendix J.2 lists position 14 alone
+  SELECT string_agg(c.combination_position::text, ',' ORDER BY c.combination_position) INTO got
+    FROM app.v_exception e
+    JOIN app.v_combination_reading c
+      ON c.inspection_id = e.inspection_id AND c.vehicle_id = e.vehicle_id AND c.unit_own_code = e.position_code
+   WHERE e.rule_code = 'FR-EXC-021';
+  expected := '14';
+  IF got IS DISTINCT FROM expected THEN
+    RAISE EXCEPTION 'FAIL FR-EXC-021: expected [%] got [%]', expected, got; END IF;
+  RAISE NOTICE 'PASS  FR-EXC-021 approaching threshold -> %', got;
+
+  -- FR-EXC-035: width-wise spread at or above the configured margin, running
+  -- positions through the projection, the spare on its own (U4)
+  SELECT string_agg(c.combination_position::text, ',' ORDER BY c.combination_position) INTO got
+    FROM app.v_exception e
+    JOIN app.v_combination_reading c
+      ON c.inspection_id = e.inspection_id AND c.vehicle_id = e.vehicle_id AND c.unit_own_code = e.position_code
+   WHERE e.rule_code = 'FR-EXC-035';
   expected := '5,6,7,8,18';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-035: expected [%] got [%]', expected, got; END IF;
-  RAISE NOTICE 'PASS  FR-EXC-035 irregular wear -> %', got;
+  SELECT string_agg(e.position_code || '@' || e.measure_mm, ',') INTO got
+    FROM app.v_exception e WHERE e.rule_code = 'FR-EXC-035' AND e.is_spare;
+  IF got IS DISTINCT FROM 'S@4.0' THEN
+    RAISE EXCEPTION 'FAIL FR-EXC-035: spare expected [S@4.0] got [%]', got; END IF;
+  RAISE NOTICE 'PASS  FR-EXC-035 irregular wear -> 5,6,7,8,18 and the spare';
 
   -- FR-EXC-038: spare at or below threshold, raised despite BR-RPT-001
-  SELECT string_agg(position_code || '@' || governing_tread_mm, ',') INTO got
-    FROM app.v_reading_detail
-   WHERE inspection_id = md5('insp1')::uuid AND is_spare AND governing_tread_mm <= 4;
-  IF got IS NULL THEN RAISE EXCEPTION 'FAIL FR-EXC-038: spare exception not raised'; END IF;
+  SELECT string_agg(e.position_code || '@' || e.measure_mm, ',') INTO got
+    FROM app.v_exception e WHERE e.rule_code = 'FR-EXC-038';
+  IF got IS DISTINCT FROM 'S@2.0' THEN
+    RAISE EXCEPTION 'FAIL FR-EXC-038: expected [S@2.0] got [%]', got; END IF;
   RAISE NOTICE 'PASS  FR-EXC-038 spare below threshold -> %', got;
 
-  -- FR-EXC-036: dual-mate mismatch >= 3mm
-  -- present the pair in ascending position order; on a right-side axle end the
-  -- OUTER tyre carries the higher number (BR-VEH-001: inner then outer)
+  -- FR-EXC-036: dual-mate mismatch, presented in ascending position order; on
+  -- a right-side axle end the OUTER tyre carries the higher number (BR-VEH-001)
   SELECT string_agg(least(o.combination_position, i2.combination_position) || '/'
                  || greatest(o.combination_position, i2.combination_position)
-                 || ' = ' || dm.difference_mm || 'mm', ', ') INTO got
-    FROM app.v_dual_mate_difference dm
-    JOIN app.v_combination_reading o  ON o.inspection_id=dm.inspection_id AND o.vehicle_id=dm.vehicle_id
-                                     AND o.unit_own_code=dm.outer_position
-    JOIN app.v_combination_reading i2 ON i2.inspection_id=dm.inspection_id AND i2.vehicle_id=dm.vehicle_id
-                                     AND i2.unit_own_code=dm.inner_position
-   WHERE dm.inspection_id = md5('insp1')::uuid AND dm.difference_mm >= 3;
+                 || ' = ' || e.measure_mm || 'mm', ', ') INTO got
+    FROM app.v_exception e
+    JOIN app.v_combination_reading o  ON o.inspection_id = e.inspection_id AND o.vehicle_id = e.vehicle_id
+                                     AND o.unit_own_code = e.position_code
+    JOIN app.v_combination_reading i2 ON i2.inspection_id = e.inspection_id AND i2.vehicle_id = e.vehicle_id
+                                     AND i2.unit_own_code = e.position_code_2
+   WHERE e.rule_code = 'FR-EXC-036';
   expected := '17/18 = 7.0mm';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-036: expected [%] got [%]', expected, got; END IF;
   RAISE NOTICE 'PASS  FR-EXC-036 dual-mate mismatch -> %', got;
 
-  -- FR-EXC-022: pressure below 80% of target, resolved from target_pressure,
-  -- the one pressure-target source (CHG-112)
-  SELECT string_agg(d.combination_position || ' @ ' || d.pressure_kpa || 'kPa', ',') INTO got
-    FROM app.v_combination_reading d
-    JOIN LATERAL (SELECT tp.target_kpa FROM app.target_pressure tp
-                   WHERE tp.tenant_id = d.tenant_id AND tp.axle_class = d.axle_class
-                   ORDER BY tp.effective_from DESC LIMIT 1) t ON true
-   WHERE d.inspection_id = md5('insp1')::uuid
-     AND d.pressure_kpa::numeric / t.target_kpa < 0.80;
+  -- FR-EXC-022: pressure below the critical band, target resolved by
+  -- app.target_pressure_for, the one pressure-target source (CHG-112, U10)
+  SELECT string_agg(c.combination_position || ' @ ' || (e.detail ->> 'pressure_kpa') || 'kPa', ',') INTO got
+    FROM app.v_exception e
+    JOIN app.v_combination_reading c
+      ON c.inspection_id = e.inspection_id AND c.vehicle_id = e.vehicle_id AND c.unit_own_code = e.position_code
+   WHERE e.rule_code = 'FR-EXC-022';
   expected := '16 @ 200kPa';
   IF got IS DISTINCT FROM expected THEN
     RAISE EXCEPTION 'FAIL FR-EXC-022: expected [%] got [%]', expected, got; END IF;
   RAISE NOTICE 'PASS  FR-EXC-022 dangerously under-inflated -> %', got;
+
+  -- The three POC rules the sheet does not trip, pinned at zero so the
+  -- boundary Appendix J.2 states for FR-EXC-039 ("not raised") is a check
+  SELECT string_agg(rule_code || ':' || n, ',' ORDER BY rule_code) INTO got
+    FROM (SELECT rule_code, count(*) AS n FROM app.v_exception
+           WHERE rule_code IN ('FR-EXC-023', 'FR-EXC-028', 'FR-EXC-039') GROUP BY rule_code) z;
+  IF got IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL FR-EXC-023/028/039: expected none, got [%]', got; END IF;
+  RAISE NOTICE 'PASS  FR-EXC-023, 028 and 039 raise nothing on the sheet';
 END $$;
 
 \echo '== 8b. Views do not leak across tenants (security_invoker)'
@@ -9160,6 +9187,137 @@ BEGIN
     RAISE EXCEPTION 'FAIL 59a: a target effective exactly at p_before was already in force (%)', tgt.target_kpa;
   END IF;
   RAISE NOTICE 'PASS  59a resolvers: tenant-wide baseline, group over axle over blind, exclusive p_before, spare never classified';
+END $$;
+ROLLBACK;
+
+\echo '== 59b. The numbers: 19 exceptions, 11 urgent, 9 running below the removal threshold (TYRE-183, spec D6)'
+BEGIN;
+DO $$
+DECLARE total int; urgent int; below int; total_open int; urgent_open int; below_open int;
+        per text; latest text; leaked int;
+BEGIN
+  -- Pin the tenant rather than inherit an earlier section's session state
+  -- (section 28's rule). Every store planted below forces row level security,
+  -- so an unbound tenant refuses the plant rather than failing the assertion.
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+
+  -- Qualified through the alias: the view's urgent column and this block's
+  -- urgent variable share a name, and plpgsql refuses the bare reference.
+  SELECT count(*), count(*) FILTER (WHERE e.urgent), count(*) FILTER (WHERE e.rule_code = 'FR-EXC-020'),
+         count(*) FILTER (WHERE NOT e.resolved_by_fitment),
+         count(*) FILTER (WHERE e.urgent AND NOT e.resolved_by_fitment),
+         count(*) FILTER (WHERE e.rule_code = 'FR-EXC-020' AND NOT e.resolved_by_fitment)
+    INTO total, urgent, below, total_open, urgent_open, below_open
+    FROM app.v_exception e;
+  IF (total, urgent, below) IS DISTINCT FROM (19, 11, 9) THEN
+    RAISE EXCEPTION 'FAIL 59b: expected 19/11/9, got %/%/%', total, urgent, below; END IF;
+  IF (total_open, urgent_open, below_open) IS DISTINCT FROM (19, 11, 9) THEN
+    RAISE EXCEPTION 'FAIL 59b: open counts %/%/% differ from the unfiltered ones on a fixture with no resolution',
+      total_open, urgent_open, below_open; END IF;
+
+  SELECT string_agg(rule_code || ':' || n, ',' ORDER BY rule_code) INTO per
+    FROM (SELECT rule_code, count(*) AS n FROM app.v_exception GROUP BY rule_code) z;
+  IF per IS DISTINCT FROM
+     'FR-EXC-020:9,FR-EXC-021:1,FR-EXC-022:1,FR-EXC-035:6,FR-EXC-036:1,FR-EXC-038:1' THEN
+    RAISE EXCEPTION 'FAIL 59b: per-rule counts [%]', per; END IF;
+
+  -- insp0 is invisible: every row comes from the July sheet
+  IF EXISTS (SELECT 1 FROM app.v_exception WHERE inspection_id = md5('insp0')::uuid) THEN
+    RAISE EXCEPTION 'FAIL 59b: a row of the June inspection surfaced'; END IF;
+  SELECT string_agg(v.fleet_number || ':' || (l.inspection_id = md5('insp1')::uuid), ',' ORDER BY v.fleet_number) INTO latest
+    FROM app.v_latest_unit_inspection l JOIN app.vehicle v ON v.id = l.vehicle_id;
+  IF latest IS DISTINCT FROM 'HORSE:true,LINK12:true,LINK6:true' THEN
+    RAISE EXCEPTION 'FAIL 59b: latest inspection per unit resolved as [%]', latest; END IF;
+
+  -- The catalogue is read, not decorative: disabling one rule removes its row
+  UPDATE app.exception_rule SET enabled = false
+   WHERE tenant_id = '11111111-1111-1111-1111-111111111111' AND code = 'FR-EXC-021';
+  SELECT count(*), count(*) FILTER (WHERE e.urgent) INTO total, urgent FROM app.v_exception e;
+  IF (total, urgent) IS DISTINCT FROM (18, 11) THEN
+    RAISE EXCEPTION 'FAIL 59b: with FR-EXC-021 disabled expected 18/11, got %/%', total, urgent; END IF;
+  UPDATE app.exception_rule SET enabled = true
+   WHERE tenant_id = '11111111-1111-1111-1111-111111111111' AND code = 'FR-EXC-021';
+
+  -- A later policy row does not re-judge July's sheet (U18): the rule is
+  -- judged at the inspection's instant, the register at today (59d).
+  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, warning_threshold_mm, effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111', 5.0, 5.0, 7.0, now() - interval '1 minute');
+  SELECT count(*) INTO below FROM app.v_exception WHERE rule_code = 'FR-EXC-020';
+  IF below IS DISTINCT FROM 9 THEN
+    RAISE EXCEPTION 'FAIL 59b: a policy effective after the sheet re-judged it (020 = %)', below; END IF;
+  IF EXISTS (SELECT 1 FROM app.v_exception WHERE threshold_mm IS DISTINCT FROM 4.0 AND rule_code IN ('FR-EXC-020', 'FR-EXC-038')) THEN
+    RAISE EXCEPTION 'FAIL 59b: a below-threshold row carries a threshold other than the one in force at the sheet'; END IF;
+
+  -- Second Fleet plants a unit, a tyre and an inspection with one worn
+  -- reading; BAC sees none of it (section 8b sweeps the views; this is the
+  -- row-level control with a row that WOULD be an exception)
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, state)
+  VALUES (md5('t59tyre')::uuid, '22222222-2222-2222-2222-222222222222', 'T59W1', 'IN_STOCK');
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+  VALUES (md5('t59insp')::uuid, '22222222-2222-2222-2222-222222222222', md5('t2veh1')::uuid, md5('driver2')::uuid,
+          md5('t59cli')::uuid, now() - interval '10 minutes', now() - interval '5 minutes', 1000);
+  INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+  SELECT md5('t59rd')::uuid, '22222222-2222-2222-2222-222222222222', md5('t59insp')::uuid, md5('t2veh1')::uuid, pos.id,
+         md5('t59tyre')::uuid, 750
+    FROM app.position pos
+   WHERE pos.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid AND pos.code = '3';
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known, granularity_mm)
+  VALUES ('22222222-2222-2222-2222-222222222222', md5('t59rd')::uuid, 1, 'OUTER', 2.0, true, 1.0),
+         ('22222222-2222-2222-2222-222222222222', md5('t59rd')::uuid, 2, 'CENTRE', 2.0, true, 1.0),
+         ('22222222-2222-2222-2222-222222222222', md5('t59rd')::uuid, 3, 'INNER', 2.0, true, 1.0);
+  SELECT count(*) INTO leaked FROM app.v_exception WHERE rule_code = 'FR-EXC-020' AND vehicle_id = md5('t2veh1')::uuid;
+  IF leaked <> 1 THEN
+    RAISE EXCEPTION 'FAIL 59b: Second Fleet does not see its own worn tyre (%)', leaked; END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT count(*) INTO leaked FROM app.v_exception WHERE vehicle_id = md5('t2veh1')::uuid;
+  IF leaked <> 0 THEN
+    RAISE EXCEPTION 'FAIL 59b: BAC sees % Second Fleet exception row(s)', leaked; END IF;
+  SELECT count(*) INTO total FROM app.v_exception;
+  IF total <> 19 THEN
+    RAISE EXCEPTION 'FAIL 59b: BAC total moved to % after another tenant captured', total; END IF;
+
+  RAISE NOTICE 'PASS  59b 19 exceptions, 11 urgent, 9 running below threshold; per rule as Appendix J.2; catalogue read; judged at the sheet; tenant-bound';
+END $$;
+ROLLBACK;
+
+\echo '== 59e. FR-EXC-039 raises once per inspection, subject the motive unit (spec D3, U13)'
+BEGIN;
+DO $$
+DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
+        solo constant uuid := md5('t59solo')::uuid;
+        insp constant uuid := md5('t59soloinsp')::uuid;
+        n int; total int; subj text;
+BEGIN
+  -- Pin the tenant rather than inherit an earlier section's session state
+  -- (section 28's rule); vehicle, inspection and reading all force row level
+  -- security, so the plants below need it bound.
+  PERFORM set_config('app.tenant_id', t1::text, true);
+
+  -- A solo unit, so the one inspection resolves one unit: a rig inspection
+  -- resolves three in v_latest_unit_inspection and the rule must still raise
+  -- once (spec D3). Six equal pressures and no tread: the anomaly view's
+  -- own predicate (000012), and no TYRE row can fire without a tyre.
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind, status)
+  VALUES (solo, t1, 'T59-SOLO', md5('11111111-1111-1111-1111-111111111111HORSE_6X4')::uuid, 'HORSE', 'ACTIVE');
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+  VALUES (insp, t1, solo, md5('driver1')::uuid, md5('t59solocli')::uuid,
+          now() - interval '10 minutes', now() - interval '5 minutes', 1000);
+  INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, pressure_kpa)
+  SELECT t1, insp, solo, pos.id, 750
+    FROM app.position pos
+   WHERE pos.configuration_id = md5('11111111-1111-1111-1111-111111111111HORSE_6X4')::uuid
+     AND pos.code IN ('1', '2', '3', '4', '5', '6');
+  SELECT count(*), min(subject_type) INTO n, subj FROM app.v_exception WHERE rule_code = 'FR-EXC-039';
+  IF (n, subj) IS DISTINCT FROM (1, 'VEHICLE') THEN
+    RAISE EXCEPTION 'FAIL 59e: % FR-EXC-039 row(s), subject %', n, subj; END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.v_exception
+                  WHERE rule_code = 'FR-EXC-039' AND vehicle_id = solo AND subject_id = solo) THEN
+    RAISE EXCEPTION 'FAIL 59e: the transcription row does not name the solo unit'; END IF;
+  SELECT count(*) INTO total FROM app.v_exception;
+  IF total <> 20 THEN
+    RAISE EXCEPTION 'FAIL 59e: total % after one planted anomaly, expected 20', total; END IF;
+  RAISE NOTICE 'PASS  59e a uniform-pressure inspection raises one FR-EXC-039 row, subject its motive unit';
 END $$;
 ROLLBACK;
 

@@ -163,3 +163,228 @@ LANGUAGE sql STABLE AS $$
    GROUP BY b.tid, bands.ordinal, bands.key,
             t.total_readings, t.total_tyres, t.unclassified
 $$;
+
+-- Part B. The latest non-voided inspection per UNIT (spec D2). Resolved through
+-- reading.vehicle_id, the owning unit (FR-INS-061), never inspection.vehicle_id,
+-- which is the rig's motive unit: a trailer inspected solo after its rig was
+-- inspected resolves to its own later capture and the rig's other members
+-- keep theirs. Ties on submitted_at break on received_at then id, so the
+-- answer is the same whatever order the phones synced in. FR-EXC-001 judges
+-- rules against the submitted inspection; "the exceptions of the most recent
+-- capture" is what TYRE-41 asks for and what the fixture, with two captures
+-- per unit since TYRE-35, would otherwise double count.
+CREATE VIEW app.v_latest_unit_inspection WITH (security_invoker = true) AS
+SELECT DISTINCT ON (r.tenant_id, r.vehicle_id)
+       r.tenant_id, r.vehicle_id, i.id AS inspection_id, i.submitted_at, i.received_at
+  FROM app.reading r
+  JOIN app.inspection i ON i.id = r.inspection_id
+ WHERE i.state <> 'VOIDED'
+ ORDER BY r.tenant_id, r.vehicle_id, i.submitted_at DESC, i.received_at DESC, i.id;
+
+-- The one population every position rule reads. v_reading_detail predates
+-- pressure_temperature (000012) and never carried the tyre's size, so both
+-- are joined here rather than by widening a view five others read.
+CREATE VIEW app.v_latest_reading WITH (security_invoker = true) AS
+SELECT d.*, r.pressure_temperature, t.size_id, v.home_depot_id AS depot_id
+  FROM app.v_reading_detail d
+  JOIN app.v_latest_unit_inspection l
+    ON l.tenant_id = d.tenant_id AND l.vehicle_id = d.vehicle_id AND l.inspection_id = d.inspection_id
+  JOIN app.reading r ON r.id = d.reading_id
+  JOIN app.vehicle v ON v.id = d.vehicle_id
+  LEFT JOIN app.tyre t ON t.id = d.tyre_id;
+
+-- Part C. The rule catalogue and the view (spec D3).
+COMMENT ON COLUMN app.exception_rule.threshold IS
+  'Unused, kept NULL: every threshold lives in app.threshold_policy, app.target_pressure or app.configuration, resolved through app.threshold_policy_for, app.target_pressure_for and app.config_for. A number here would be a second source for the same rule (B7 spec U6). severity and enabled are what this table decides (FR-EXC-004).';
+COMMENT ON COLUMN app.exception.subject_type IS
+  'TYRE (subject_id is the tyre observed at the position), POSITION_PAIR (the outer tyre of a dual end) or VEHICLE (the unit an inspection-level rule names). The vocabulary app.v_exception emits, so rows raised from it carry the same tags (B7 spec U20); AXLE is reserved for FR-EXC-037 when Appendix H.2 stops deferring it.';
+
+-- One implementation of the exception rules, read by every consumer: the
+-- suite pins it (sections 8 and 59), the API relays it (B7.2) and the
+-- dashboard renders it (B7.3). "Three tiers agree" means three readers of
+-- this view, never three copies of these predicates (CLAUDE.md, testing).
+--
+-- Every rule is judged at the inspection's own instant, bound = submitted_at
+-- (U18): FR-EXC-001 evaluates rules against the submitted inspection and
+-- FR-CFG-051 applies a policy change prospectively, the same reason the
+-- snapshot trigger prices at the snapshot's date (000006). The register and
+-- v_tyre_at_risk judge at today; the two agree until a policy changes or a
+-- tyre moves, and every row here carries the threshold it was judged against
+-- so the difference explains itself.
+--
+-- Rule readings (spec U1 to U4, each an Appendix J.2 reading of an SRS
+-- sentence that reads two ways, errata rows prepared):
+--   FR-EXC-020 and 038 fire AT OR BELOW the retread threshold, the removal
+--     point the register floors at (FR-VAL-004, BR-RPT-006; positions 11, 12,
+--     13 and 16 sit exactly on 4.0 and J.2 counts them).
+--   FR-EXC-021 is the band strictly between the retread threshold and the
+--     warning threshold; read as "< threshold + 2" it would also fire on the
+--     nine below it. A NULL warning_threshold_mm disables the rule.
+--   FR-EXC-035 is orientation-agnostic (000011's v_irregular_wear_ranking
+--     says why) and includes the spare, as J.2 does.
+--   FR-EXC-038 is CRITICAL (U1).
+-- A reading with no tyre on record raises no TYRE row (U20): nothing is
+-- there to remove, and the register shows the unknown position (FR-INS-026).
+-- FR-EXC-032 is not a row: it is the casing figure on the 020 and 038 rows,
+-- v_tyre_at_risk (U19). FR-EXC-037 is deferred by Appendix H.2 (U13).
+CREATE VIEW app.v_exception WITH (security_invoker = true) AS
+WITH lr AS (
+  SELECT d.*,
+         (thr.p).retread_threshold_mm,
+         (thr.p).warning_threshold_mm,
+         (tgt.p).target_kpa,
+         (tgt.p).warn_under_pct,
+         (tgt.p).critical_under_pct,
+         CASE WHEN (tgt.p).target_kpa > 0 AND d.pressure_kpa IS NOT NULL
+              THEN d.pressure_kpa * 100.0 / (tgt.p).target_kpa END AS pct,
+         (app.config_for(d.tenant_id, 'width_spread_warn_mm', d.submitted_at) #>> '{}')::numeric AS spread_warn_mm
+    FROM app.v_latest_reading d
+    -- OFFSET 0 is the pullup fence the file header describes: two fields are
+    -- read off (thr.p) and five off (tgt.p).
+    CROSS JOIN LATERAL (
+         SELECT app.threshold_policy_for(d.tenant_id, NULL, NULL, d.submitted_at) AS p
+          OFFSET 0) thr
+    CROSS JOIN LATERAL (
+         SELECT app.target_pressure_for(d.tenant_id, d.size_id, d.axle_class, d.submitted_at) AS p
+          OFFSET 0) tgt
+),
+found AS (
+  -- FR-EXC-020
+  SELECT l.tenant_id, 'FR-EXC-020' AS rule_code, 'TYRE' AS subject_type, l.tyre_id AS subject_id,
+         l.vehicle_id, l.fleet_number, l.unit_label, l.depot_id, l.axle_class,
+         l.position_code, NULL::text AS position_code_2, l.is_spare, l.tyre_id,
+         l.inspection_id, l.submitted_at AS observed_at,
+         l.governing_tread_mm AS measure_mm, NULL::numeric AS measure_pct,
+         l.retread_threshold_mm AS threshold_mm, NULL::numeric AS threshold_pct,
+         jsonb_build_object('measurements', l.measurements, 'pressure_kpa', l.pressure_kpa,
+                            'target_kpa', l.target_kpa, 'pressure_temperature', l.pressure_temperature) AS detail
+    FROM lr l
+   WHERE NOT l.is_spare AND l.tyre_id IS NOT NULL
+     AND l.governing_tread_mm <= l.retread_threshold_mm
+  UNION ALL
+  -- FR-EXC-038
+  SELECT l.tenant_id, 'FR-EXC-038', 'TYRE', l.tyre_id,
+         l.vehicle_id, l.fleet_number, l.unit_label, l.depot_id, l.axle_class,
+         l.position_code, NULL, l.is_spare, l.tyre_id,
+         l.inspection_id, l.submitted_at,
+         l.governing_tread_mm, NULL, l.retread_threshold_mm, NULL,
+         jsonb_build_object('measurements', l.measurements, 'pressure_kpa', l.pressure_kpa,
+                            'target_kpa', l.target_kpa, 'pressure_temperature', l.pressure_temperature)
+    FROM lr l
+   WHERE l.is_spare AND l.tyre_id IS NOT NULL
+     AND l.governing_tread_mm <= l.retread_threshold_mm
+  UNION ALL
+  -- FR-EXC-021
+  SELECT l.tenant_id, 'FR-EXC-021', 'TYRE', l.tyre_id,
+         l.vehicle_id, l.fleet_number, l.unit_label, l.depot_id, l.axle_class,
+         l.position_code, NULL, l.is_spare, l.tyre_id,
+         l.inspection_id, l.submitted_at,
+         l.governing_tread_mm, NULL, l.warning_threshold_mm, NULL,
+         jsonb_build_object('measurements', l.measurements, 'removal_threshold_mm', l.retread_threshold_mm)
+    FROM lr l
+   WHERE NOT l.is_spare AND l.tyre_id IS NOT NULL
+     AND l.governing_tread_mm > l.retread_threshold_mm
+     AND l.governing_tread_mm < l.warning_threshold_mm
+  UNION ALL
+  -- FR-EXC-022
+  SELECT l.tenant_id, 'FR-EXC-022', 'TYRE', l.tyre_id,
+         l.vehicle_id, l.fleet_number, l.unit_label, l.depot_id, l.axle_class,
+         l.position_code, NULL, l.is_spare, l.tyre_id,
+         l.inspection_id, l.submitted_at,
+         NULL, l.pct, NULL, 100 - l.critical_under_pct,
+         jsonb_build_object('pressure_kpa', l.pressure_kpa, 'target_kpa', l.target_kpa,
+                            'pressure_temperature', l.pressure_temperature)
+    FROM lr l
+   WHERE l.tyre_id IS NOT NULL AND l.pct < 100 - l.critical_under_pct
+  UNION ALL
+  -- FR-EXC-023
+  SELECT l.tenant_id, 'FR-EXC-023', 'TYRE', l.tyre_id,
+         l.vehicle_id, l.fleet_number, l.unit_label, l.depot_id, l.axle_class,
+         l.position_code, NULL, l.is_spare, l.tyre_id,
+         l.inspection_id, l.submitted_at,
+         NULL, l.pct, NULL, 100 - l.warn_under_pct,
+         jsonb_build_object('pressure_kpa', l.pressure_kpa, 'target_kpa', l.target_kpa,
+                            'pressure_temperature', l.pressure_temperature)
+    FROM lr l
+   WHERE l.tyre_id IS NOT NULL
+     AND l.pct >= 100 - l.critical_under_pct AND l.pct < 100 - l.warn_under_pct
+  UNION ALL
+  -- FR-EXC-035
+  SELECT l.tenant_id, 'FR-EXC-035', 'TYRE', l.tyre_id,
+         l.vehicle_id, l.fleet_number, l.unit_label, l.depot_id, l.axle_class,
+         l.position_code, NULL, l.is_spare, l.tyre_id,
+         l.inspection_id, l.submitted_at,
+         l.width_spread_mm, NULL, l.spread_warn_mm, NULL,
+         jsonb_build_object('measurements', l.measurements, 'orientation_known', l.orientation_known)
+    FROM lr l
+   WHERE l.tyre_id IS NOT NULL AND l.width_spread_mm >= l.spread_warn_mm
+  UNION ALL
+  -- FR-EXC-028
+  SELECT l.tenant_id, 'FR-EXC-028', 'TYRE', l.tyre_id,
+         l.vehicle_id, l.fleet_number, l.unit_label, l.depot_id, l.axle_class,
+         l.position_code, NULL, l.is_spare, l.tyre_id,
+         l.inspection_id, l.submitted_at,
+         NULL, NULL, NULL, NULL,
+         jsonb_build_object('note', l.note)
+    FROM lr l
+   WHERE l.tyre_id IS NOT NULL AND l.damage_flag
+  UNION ALL
+  -- FR-EXC-036: both tyres of one axle end from ONE inspection, which
+  -- v_dual_mate_difference guarantees by joining on inspection_id; lr scopes
+  -- it to the latest one
+  SELECT o.tenant_id, 'FR-EXC-036', 'POSITION_PAIR', o.tyre_id,
+         o.vehicle_id, o.fleet_number, o.unit_label, o.depot_id, o.axle_class,
+         o.position_code, i2.position_code, false, o.tyre_id,
+         o.inspection_id, o.submitted_at,
+         dm.difference_mm, NULL, cfg.warn_mm, NULL,
+         jsonb_build_object('outer_mm', dm.outer_mm, 'inner_mm', dm.inner_mm, 'tyre_id_2', i2.tyre_id)
+    FROM app.v_dual_mate_difference dm
+    JOIN lr o  ON o.inspection_id = dm.inspection_id AND o.vehicle_id = dm.vehicle_id AND o.position_code = dm.outer_position
+    JOIN lr i2 ON i2.inspection_id = dm.inspection_id AND i2.vehicle_id = dm.vehicle_id AND i2.position_code = dm.inner_position
+    -- fenced for the same reason as lr's resolvers: the margin is read twice
+    CROSS JOIN LATERAL (
+         SELECT (app.config_for(o.tenant_id, 'dual_mate_warn_mm', o.submitted_at) #>> '{}')::numeric AS warn_mm
+          OFFSET 0) cfg
+   WHERE o.tyre_id IS NOT NULL
+     AND dm.difference_mm >= cfg.warn_mm
+  UNION ALL
+  -- FR-EXC-039: an inspection-level rule, subject the MOTIVE unit, joined once
+  -- per inspection (a rig inspection resolves three units in
+  -- v_latest_unit_inspection and must not raise three times)
+  SELECT i.tenant_id, 'FR-EXC-039', 'VEHICLE', i.vehicle_id,
+         i.vehicle_id, v.fleet_number, NULL, v.home_depot_id, NULL,
+         NULL, NULL, false, NULL,
+         i.id, i.submitted_at,
+         NULL, NULL, NULL, NULL,
+         jsonb_build_object('readings_with_pressure', a.readings_with_pressure, 'distinct_values', a.distinct_values)
+    FROM app.v_pressure_uniformity_anomaly a
+    JOIN app.inspection i ON i.id = a.inspection_id
+    JOIN app.v_latest_unit_inspection l
+      ON l.tenant_id = i.tenant_id AND l.vehicle_id = i.vehicle_id AND l.inspection_id = i.id
+    JOIN app.vehicle v ON v.id = i.vehicle_id
+   WHERE a.suspected_transcription
+)
+SELECT f.tenant_id,
+       f.rule_code,
+       er.name AS rule_name,
+       er.severity,
+       (er.severity = 'CRITICAL') AS urgent,
+       f.subject_type, f.subject_id,
+       f.vehicle_id, f.fleet_number, f.unit_label, f.depot_id, f.axle_class,
+       f.position_code, f.position_code_2, f.is_spare,
+       f.tyre_id, t.display_code,
+       f.inspection_id,
+       f.observed_at,
+       f.measure_mm, f.measure_pct, f.threshold_mm, f.threshold_pct,
+       f.detail,
+       -- FR-EXC-010 computed (U14): true when no open fitment holds the row's
+       -- tyre at that position, so a replacement stops the row shouting
+       -- without any write path
+       (f.tyre_id IS NOT NULL AND NOT EXISTS (
+          SELECT 1 FROM app.fitment ft
+          JOIN app.position p ON p.id = ft.position_id
+         WHERE ft.tyre_id = f.tyre_id AND ft.vehicle_id = f.vehicle_id
+           AND ft.removed_at IS NULL AND p.code = f.position_code)) AS resolved_by_fitment
+  FROM found f
+  JOIN app.exception_rule er ON er.tenant_id = f.tenant_id AND er.code = f.rule_code AND er.enabled
+  LEFT JOIN app.tyre t ON t.id = f.tyre_id;

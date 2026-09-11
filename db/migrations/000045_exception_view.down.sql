@@ -2,6 +2,15 @@
 -- why the duplication is the point). Parts run in reverse of the up file:
 -- F, E, D, C, B, then A, so every dependent goes before what it depends on.
 
+-- Part C and B restore. Both column comments were absent before 000045
+-- (col_description returned NULL on each), so IS NULL is the state restored,
+-- not a comment discarded.
+DROP VIEW app.v_exception;
+COMMENT ON COLUMN app.exception.subject_type IS NULL;
+COMMENT ON COLUMN app.exception_rule.threshold IS NULL;
+DROP VIEW app.v_latest_reading;
+DROP VIEW app.v_latest_unit_inspection;
+
 -- Part A restore: the two wrappers come back over their own reads before the
 -- resolvers go, so no wrapper is ever left pointing at a function that is
 -- gone. The catalog will not enforce that order, because a LANGUAGE sql body

@@ -121,6 +121,26 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
         L.append("INSERT INTO app.target_pressure (id,tenant_id,axle_class,target_kpa,warn_under_pct,critical_under_pct,warn_over_pct,critical_over_pct,effective_from)")
         L.append(f"  VALUES (md5('{tid}tgtp-{cls}')::uuid,'{tid}','{cls}',{kpa},10.0,20.0,10.0,20.0,'2024-01-01T00:00:00Z');")
     L.append("")
+    L.append("-- The exception rule catalogue (FR-EXC-004): severity and enabled live")
+    L.append("-- here; every threshold lives in threshold_policy, target_pressure or")
+    L.append("-- configuration, so this table never carries a number (B7 spec U6).")
+    L.append("-- FR-EXC-038 is CRITICAL, not the SRS table's WARNING: it is the only")
+    L.append("-- reading under which Appendix J's 19 exceptions carry 11 urgent, and a")
+    L.append("-- spare at scrap depth fails when it is finally needed (Q21; spec U1,")
+    L.append("-- errata row prepared). FR-EXC-032 has no row on purpose: it is the")
+    L.append("-- money attribute of the 020 and 038 rows, served by v_tyre_at_risk")
+    L.append("-- (spec U19). FR-EXC-037 has none because Appendix H.2 defers it.")
+    for code,name,sev in [('FR-EXC-020','Tread below removal threshold','CRITICAL'),
+                          ('FR-EXC-021','Tread approaching threshold','WARNING'),
+                          ('FR-EXC-022','Pressure dangerously under','CRITICAL'),
+                          ('FR-EXC-023','Pressure under','WARNING'),
+                          ('FR-EXC-028','Damage reported','WARNING'),
+                          ('FR-EXC-035','Irregular wear across the tread','WARNING'),
+                          ('FR-EXC-036','Dual-mate mismatch','WARNING'),
+                          ('FR-EXC-038','Spare below removal threshold','CRITICAL'),
+                          ('FR-EXC-039','Suspected pressure transcription','INFO')]:
+        L.append(f"INSERT INTO app.exception_rule (id,tenant_id,code,name,enabled,severity) VALUES (md5('{tid}excr-{code}')::uuid,'{tid}','{code}',$${name}$$,true,'{sev}');")
+    L.append("")
     for code,name,kind,status,axles in UNITS:
         rows=build(axles)
         L.append(f"INSERT INTO app.axle_configuration (id,tenant_id,code,name,axle_count,evidential_status,default_spare_count)")
