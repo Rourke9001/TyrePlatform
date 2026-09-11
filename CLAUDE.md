@@ -142,10 +142,10 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
   will assert the rendered counts against it (B7.3), once both land. The
   capture app's leg never reads the view and, being online-first, never
   will: it warns per vehicle at entry from its own independent
-  implementation of the same rules (`web/src/capture/warnings.ts`). "Three
-  tiers agree" means each checks the same pinned expectation independently,
-  so a change that moves one without the pinned numbers is what makes a
-  drift visible.
+  implementation of the same thresholds (`web/src/capture/warnings.ts`).
+  "Three tiers agree" means each checks the same pinned expectation
+  independently, so a change that moves one without the others is what
+  makes a drift visible.
 - Go: table-driven tests, `testify/require`. Integration tests hit a real
   Postgres, not a mock.
 - Do not weaken a test to make it pass. If a test is wrong, say so and explain
