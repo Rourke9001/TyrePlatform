@@ -9281,7 +9281,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 59e. FR-EXC-039 raises once per inspection, subject the motive unit (spec D3, U13)'
+\echo '== 59c. FR-EXC-039 raises once per inspection, subject the motive unit (spec D3, U13)'
 BEGIN;
 DO $$
 DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -9309,18 +9309,18 @@ BEGIN
      AND pos.code IN ('1', '2', '3', '4', '5', '6');
   SELECT count(*), min(subject_type) INTO n, subj FROM app.v_exception WHERE rule_code = 'FR-EXC-039';
   IF (n, subj) IS DISTINCT FROM (1, 'VEHICLE') THEN
-    RAISE EXCEPTION 'FAIL 59e: % FR-EXC-039 row(s), subject %', n, subj; END IF;
+    RAISE EXCEPTION 'FAIL 59c: % FR-EXC-039 row(s), subject %', n, subj; END IF;
   IF NOT EXISTS (SELECT 1 FROM app.v_exception
                   WHERE rule_code = 'FR-EXC-039' AND vehicle_id = solo AND subject_id = solo) THEN
-    RAISE EXCEPTION 'FAIL 59e: the transcription row does not name the solo unit'; END IF;
+    RAISE EXCEPTION 'FAIL 59c: the transcription row does not name the solo unit'; END IF;
   SELECT count(*) INTO total FROM app.v_exception;
   IF total <> 20 THEN
-    RAISE EXCEPTION 'FAIL 59e: total % after one planted anomaly, expected 20', total; END IF;
-  RAISE NOTICE 'PASS  59e a uniform-pressure inspection raises one FR-EXC-039 row, subject its motive unit';
+    RAISE EXCEPTION 'FAIL 59c: total % after one planted anomaly, expected 20', total; END IF;
+  RAISE NOTICE 'PASS  59c a uniform-pressure inspection raises one FR-EXC-039 row, subject its motive unit';
 END $$;
 ROLLBACK;
 
-\echo '== 59c. Value at risk: the casing rands on tyres at or below the removal threshold, provenance disclosed (FR-VAL-031, FR-VAL-013, FR-RPT-040; TYRE-193)'
+\echo '== 59d. Value at risk: the casing rands on tyres at or below the removal threshold, provenance disclosed (FR-VAL-031, FR-VAL-013, FR-RPT-040; TYRE-193)'
 BEGIN;
 DO $$
 DECLARE r record; running_sum numeric; spare_sum numeric; depot_sum numeric; n int;
@@ -9335,27 +9335,27 @@ BEGIN
   -- two TENANT rows would leave this block green. The aggregate reads below
   -- return exactly one row by construction and stay bare.
   SELECT * INTO STRICT r FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'RUNNING';
-  IF (r.tyre_count, r.actual_count, r.estimated_count, r.audit_count, r.unvalued_count, r.casing_value_at_risk)
+  IF (r.tyre_count, r.actual_count, r.estimated_or_audit_count, r.audit_count, r.unvalued_count, r.casing_value_at_risk)
      IS DISTINCT FROM (9::bigint, 0::bigint, 9::bigint, 9::bigint, 0::bigint, 16537.50::numeric) THEN
-    RAISE EXCEPTION 'FAIL 59c: RUNNING row is count % actual % estimated % audit % unvalued % rands %',
-      r.tyre_count, r.actual_count, r.estimated_count, r.audit_count, r.unvalued_count, r.casing_value_at_risk;
+    RAISE EXCEPTION 'FAIL 59d: RUNNING row is count % actual % estimated_or_audit % audit % unvalued % rands %',
+      r.tyre_count, r.actual_count, r.estimated_or_audit_count, r.audit_count, r.unvalued_count, r.casing_value_at_risk;
   END IF;
   running_sum := r.casing_value_at_risk;
   SELECT * INTO STRICT r FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'SPARE';
   IF (r.tyre_count, r.casing_value_at_risk) IS DISTINCT FROM (1::bigint, 1837.50::numeric) THEN
-    RAISE EXCEPTION 'FAIL 59c: SPARE row is count % rands %', r.tyre_count, r.casing_value_at_risk;
+    RAISE EXCEPTION 'FAIL 59d: SPARE row is count % rands %', r.tyre_count, r.casing_value_at_risk;
   END IF;
   spare_sum := r.casing_value_at_risk;
   -- DEPOT rows sum to the TENANT row (ADR-0006: a depot actor reads its rows,
   -- a tenant actor the whole)
   SELECT sum(casing_value_at_risk) INTO depot_sum FROM app.v_casing_value_at_risk WHERE level = 'DEPOT' AND position_class = 'RUNNING';
   IF depot_sum IS DISTINCT FROM running_sum THEN
-    RAISE EXCEPTION 'FAIL 59c: DEPOT running rows sum to %, TENANT says %', depot_sum, running_sum;
+    RAISE EXCEPTION 'FAIL 59d: DEPOT running rows sum to %, TENANT says %', depot_sum, running_sum;
   END IF;
   -- The per-tyre list names the nine and the spare, every one an audit-basis casing
   SELECT count(*), count(*) FILTER (WHERE casing_basis = 'AUDIT') INTO n, cau FROM app.v_tyre_at_risk;
   IF (n, cau) IS DISTINCT FROM (10, 10) THEN
-    RAISE EXCEPTION 'FAIL 59c: v_tyre_at_risk has % rows, % on the audit basis', n, cau;
+    RAISE EXCEPTION 'FAIL 59d: v_tyre_at_risk has % rows, % on the audit basis', n, cau;
   END IF;
 
   -- The estate view discloses the casing side's provenance as well as the
@@ -9365,7 +9365,7 @@ BEGIN
   SELECT casing_actual_count, casing_estimated_count, casing_audit_count INTO STRICT ca, ce, cau
     FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
   IF (ca, ce, cau) IS DISTINCT FROM (0, 0, 27) THEN
-    RAISE EXCEPTION 'FAIL 59c: estate casing split actual % estimated % audit %', ca, ce, cau;
+    RAISE EXCEPTION 'FAIL 59d: estate casing split actual % estimated % audit %', ca, ce, cau;
   END IF;
 
   -- An unvalued casing is counted and named, never zero-filled (FR-VAL-013,
@@ -9379,7 +9379,7 @@ BEGIN
   SELECT * INTO STRICT r FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'SPARE';
   IF r.casing_value_at_risk IS NOT NULL
      OR (r.tyre_count, r.unvalued_count) IS DISTINCT FROM (1::bigint, 1::bigint) THEN
-    RAISE EXCEPTION 'FAIL 59c: with the spare casing unvalued the SPARE row is count % unvalued % rands %, expected 1/1/NULL',
+    RAISE EXCEPTION 'FAIL 59d: with the spare casing unvalued the SPARE row is count % unvalued % rands %, expected 1/1/NULL',
       r.tyre_count, r.unvalued_count, r.casing_value_at_risk;
   END IF;
   -- One of nine: the row keeps its count and names the gap, and the figure
@@ -9388,7 +9388,7 @@ BEGIN
   SELECT * INTO STRICT r FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'RUNNING';
   IF (r.tyre_count, r.unvalued_count, r.casing_value_at_risk)
      IS DISTINCT FROM (9::bigint, 1::bigint, 14700.00::numeric) THEN
-    RAISE EXCEPTION 'FAIL 59c: with one running casing unvalued the RUNNING row is count % unvalued % rands %, expected 9/1/14700.00',
+    RAISE EXCEPTION 'FAIL 59d: with one running casing unvalued the RUNNING row is count % unvalued % rands %, expected 9/1/14700.00',
       r.tyre_count, r.unvalued_count, r.casing_value_at_risk;
   END IF;
 
@@ -9402,14 +9402,14 @@ BEGIN
   SELECT tyre_count INTO STRICT n FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'RUNNING';
   SELECT count(*) FILTER (WHERE rule_code = 'FR-EXC-020'), count(*) INTO exc020, exc_total FROM app.v_exception;
   IF (n, exc020, exc_total) IS DISTINCT FROM (10, 9, 19) THEN
-    RAISE EXCEPTION 'FAIL 59c: under a 5.0 policy the running at-risk count is %, FR-EXC-020 is % and the view holds % rows, expected 10/9/19',
+    RAISE EXCEPTION 'FAIL 59d: under a 5.0 policy the running at-risk count is %, FR-EXC-020 is % and the view holds % rows, expected 10/9/19',
       n, exc020, exc_total;
   END IF;
-  RAISE NOTICE 'PASS  59c value at risk R% running, R% spare, audit basis disclosed; an unvalued casing is named, never zero-filled; register at today, rules at the sheet', running_sum, spare_sum;
+  RAISE NOTICE 'PASS  59d value at risk R% running, R% spare, audit basis disclosed; an unvalued casing is named, never zero-filled; register at today, rules at the sheet', running_sum, spare_sum;
 END $$;
 ROLLBACK;
 
-\echo '== 59d. Spares judged on age on the tenant day; unit inspection status; the forecast horizon is configuration (FR-DSH-005/006/009/019, FR-EXC-027; spec D7, U9)'
+\echo '== 59e. Spares judged on age on the tenant day; unit inspection status; the forecast horizon is configuration (FR-DSH-005/006/009/019, FR-EXC-027; spec D7, U9)'
 BEGIN;
 DO $$
 DECLARE r record; n int; sched int; cov int; st int; horizon int; due int;
@@ -9421,16 +9421,16 @@ BEGIN
 
   -- The spare: one row, and "last measured" is the spare's own latest
   -- reading, which the fixture has, rather than app.tyre.last_tread_at, which
-  -- on this tyre is null. INTO STRICT pins the single row (59c's rule); a
+  -- on this tyre is null. INTO STRICT pins the single row (59d's rule); a
   -- duplicate open fitment is what it would catch.
   SELECT * INTO STRICT r FROM app.v_spare_tyre_age;
   IF r.display_code IS DISTINCT FROM '2102BACS' OR r.measured_source IS DISTINCT FROM 'READING'
      OR r.current_tread_mm IS DISTINCT FROM 2.0 OR (r.last_measured_at AT TIME ZONE 'UTC')::date IS DISTINCT FROM DATE '2026-07-23' THEN
-    RAISE EXCEPTION 'FAIL 59d: spare row % source % tread % measured %', r.display_code, r.measured_source, r.current_tread_mm, r.last_measured_at;
+    RAISE EXCEPTION 'FAIL 59e: spare row % source % tread % measured %', r.display_code, r.measured_source, r.current_tread_mm, r.last_measured_at;
   END IF;
   -- age_days is an integer number of tenant days, not timestamp arithmetic
   IF pg_typeof(r.age_days)::text <> 'integer' OR r.age_days < 0 THEN
-    RAISE EXCEPTION 'FAIL 59d: age_days is % (%)', r.age_days, pg_typeof(r.age_days);
+    RAISE EXCEPTION 'FAIL 59e: age_days is % (%)', r.age_days, pg_typeof(r.age_days);
   END IF;
 
   -- U9's headline, and the only reason the status VIEW exists apart from the
@@ -9448,18 +9448,18 @@ BEGIN
     PERFORM set_config('TimeZone', probe, true);
     SELECT age_days INTO STRICT n FROM app.v_spare_tyre_age;
     IF n IS DISTINCT FROM age THEN
-      RAISE EXCEPTION 'FAIL 59d: age_days is % under % and % under the session zone', n, probe, age; END IF;
+      RAISE EXCEPTION 'FAIL 59e: age_days is % under % and % under the session zone', n, probe, age; END IF;
     SELECT count(*) INTO st FROM app.v_unit_inspection_status;
     IF st IS DISTINCT FROM 3 THEN
-      RAISE EXCEPTION 'FAIL 59d: the status view holds % rows under %, expected 3', st, probe; END IF;
+      RAISE EXCEPTION 'FAIL 59e: the status view holds % rows under %, expected 3', st, probe; END IF;
     IF EXISTS (SELECT * FROM app.v_unit_inspection_status
                 EXCEPT SELECT * FROM app.unit_inspection_status((SELECT app.tenant_today(timezone) FROM app.tenant))) THEN
-      RAISE EXCEPTION 'FAIL 59d: under % the status view is not the function at the tenant day', probe; END IF;
+      RAISE EXCEPTION 'FAIL 59e: under % the status view is not the function at the tenant day', probe; END IF;
     IF d1 IS NULL THEN d1 := current_date; ELSE d2 := current_date; END IF;
   END LOOP;
   PERFORM set_config('TimeZone', tz, true);
   IF d1 = d2 THEN
-    RAISE EXCEPTION 'FAIL 59d: both probe zones read the server day as %, so the equalities above proved nothing', d1;
+    RAISE EXCEPTION 'FAIL 59e: both probe zones read the server day as %, so the equalities above proved nothing', d1;
   END IF;
 
   -- Unit inspection status at two dates: nine days after the sheet nothing
@@ -9468,10 +9468,10 @@ BEGIN
   SELECT count(*), count(*) FILTER (WHERE scheduled), count(*) FILTER (WHERE covered), count(*) FILTER (WHERE stale)
     INTO n, sched, cov, st FROM app.unit_inspection_status('2026-08-01');
   IF (n, sched, cov, st) IS DISTINCT FROM (3, 0, 0, 0) THEN
-    RAISE EXCEPTION 'FAIL 59d: at 2026-08-01 units % scheduled % covered % stale %', n, sched, cov, st; END IF;
+    RAISE EXCEPTION 'FAIL 59e: at 2026-08-01 units % scheduled % covered % stale %', n, sched, cov, st; END IF;
   SELECT count(*) FILTER (WHERE stale) INTO st FROM app.unit_inspection_status('2026-09-01');
   IF st IS DISTINCT FROM 3 THEN
-    RAISE EXCEPTION 'FAIL 59d: at 2026-09-01 stale units %, expected 3', st; END IF;
+    RAISE EXCEPTION 'FAIL 59e: at 2026-09-01 stale units %, expected 3', st; END IF;
   -- With a weekly schedule on the horse, coverage becomes computable for that
   -- unit and stays NULL for the other two: false at 2026-08-01, where the
   -- sheet is nine days old, and true at 2026-07-28, where it is five.
@@ -9480,10 +9480,10 @@ BEGIN
   SELECT count(*) FILTER (WHERE scheduled), count(*) FILTER (WHERE covered), count(*) FILTER (WHERE covered IS NULL)
     INTO sched, cov, n FROM app.unit_inspection_status('2026-08-01');
   IF (sched, cov, n) IS DISTINCT FROM (1, 0, 2) THEN
-    RAISE EXCEPTION 'FAIL 59d: with one schedule: scheduled % covered % unscheduled %', sched, cov, n; END IF;
+    RAISE EXCEPTION 'FAIL 59e: with one schedule: scheduled % covered % unscheduled %', sched, cov, n; END IF;
   SELECT count(*) FILTER (WHERE covered) INTO cov FROM app.unit_inspection_status('2026-07-28');
   IF cov IS DISTINCT FROM 1 THEN
-    RAISE EXCEPTION 'FAIL 59d: five days after the sheet the horse reads uncovered'; END IF;
+    RAISE EXCEPTION 'FAIL 59e: five days after the sheet the horse reads uncovered'; END IF;
 
   -- Staleness comes from reading_staleness_days, the FR-VAL-021 key, not from
   -- a constant: the seeded 28 leaves nothing stale nine days after the sheet,
@@ -9496,7 +9496,7 @@ BEGIN
   VALUES ('11111111-1111-1111-1111-111111111111', 'reading_staleness_days', '7'::jsonb, TIMESTAMPTZ '2026-07-01');
   SELECT count(*) FILTER (WHERE stale) INTO st FROM app.unit_inspection_status('2026-08-01');
   IF st IS DISTINCT FROM 3 THEN
-    RAISE EXCEPTION 'FAIL 59d: on a seven day staleness threshold % of three units read stale at 2026-08-01, expected 3', st; END IF;
+    RAISE EXCEPTION 'FAIL 59e: on a seven day staleness threshold % of three units read stale at 2026-08-01, expected 3', st; END IF;
 
   -- FR-DSH-009's horizon is a key, and the count is read off the resolved
   -- value. Judged at a fixed as-at day, as the two status reads above are:
@@ -9510,12 +9510,12 @@ BEGIN
   -- /api/analytics/removal-forecast are B7.2's (spec D7), and the seeded
   -- default is here so they have one to read.
   horizon := (app.config_for('11111111-1111-1111-1111-111111111111', 'forecast_horizon_days', now()) #>> '{}')::int;
-  IF horizon IS DISTINCT FROM 30 THEN RAISE EXCEPTION 'FAIL 59d: forecast_horizon_days resolved to %', horizon; END IF;
+  IF horizon IS DISTINCT FROM 30 THEN RAISE EXCEPTION 'FAIL 59e: forecast_horizon_days resolved to %', horizon; END IF;
   SELECT count(*) INTO due FROM app.v_removal_forecast
    WHERE forecast_status = 'FORECAST' AND NOT is_spare
      AND earliest_removal_date <= DATE '2026-08-01' + horizon;
   IF due IS DISTINCT FROM 6 THEN
-    RAISE EXCEPTION 'FAIL 59d: % tyres forecast within % days of 2026-08-01, expected 6', due, horizon; END IF;
+    RAISE EXCEPTION 'FAIL 59e: % tyres forecast within % days of 2026-08-01, expected 6', due, horizon; END IF;
   -- effective_from a minute back: app.config_for reads effective_from strictly
   -- before p_before, so a row stamped now() is not yet in force.
   INSERT INTO app.configuration (tenant_id, key, value, effective_from)
@@ -9525,8 +9525,8 @@ BEGIN
    WHERE forecast_status = 'FORECAST' AND NOT is_spare
      AND earliest_removal_date <= DATE '2026-08-01' + horizon;
   IF (horizon, due) IS DISTINCT FROM (7, 2) THEN
-    RAISE EXCEPTION 'FAIL 59d: on a shortened horizon of % days the count is %, expected 7/2', horizon, due; END IF;
-  RAISE NOTICE 'PASS  59d spare on the tenant day from its reading; status computable and honest about schedules; the forecast horizon answers to configuration';
+    RAISE EXCEPTION 'FAIL 59e: on a shortened horizon of % days the count is %, expected 7/2', horizon, due; END IF;
+  RAISE NOTICE 'PASS  59e spare on the tenant day from its reading; status computable and honest about schedules; the forecast horizon answers to configuration';
 END $$;
 ROLLBACK;
 
