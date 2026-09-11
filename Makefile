@@ -11,7 +11,8 @@ PG_DB        ?= tyre
 # place it is guaranteed to exist (this repo is developed on Windows without a
 # host psql). Override PSQL_SUPER/PSQL_APP to use a host client instead.
 # The suite MUST run as app_login: superusers bypass RLS (DEPLOYMENT NOTE at
-# the end of db/migrations/000001_init.up.sql).
+# the end of db/migrations/000001_init.up.sql). The single exception is
+# db-test-privileged, below, which stages rather than tests.
 PSQL_SUPER ?= docker exec -i $(PG_CONTAINER) psql -U postgres -d $(PG_DB)
 PSQL_APP   ?= docker exec -i $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
@@ -61,6 +62,15 @@ db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
 .PHONY: db-test
 db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
 	$(PSQL_APP) -v ON_ERROR_STOP=1 < db/tests/004_tests.sql
+
+# The one file that runs as postgres. It stages what app_login cannot (a
+# composite FK removed inside a transaction it rolls back) to watch a
+# definer-chain backstop refuse a row (TYRE-38, B7 spec U12). It proves
+# nothing about RLS and is never a substitute for db-test; CI runs it as its
+# own step after the suite.
+.PHONY: db-test-privileged
+db-test-privileged: ## Negative controls that need a superuser to STAGE (db/tests/005_privileged.sql)
+	$(PSQL_SUPER) -v ON_ERROR_STOP=1 < db/tests/005_privileged.sql
 
 .PHONY: db-shell
 db-shell: ## Interactive psql as the application role
@@ -166,7 +176,7 @@ lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard
 	node scripts/check-comment-style.mjs
 
 .PHONY: test
-test: db-reset db-test api-test web-test ## Every test in the repo
+test: db-reset db-test db-test-privileged api-test web-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.
