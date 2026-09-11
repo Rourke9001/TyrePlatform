@@ -38,9 +38,10 @@ references the result, multiplied again by every CTE it inlines. Over the 53
 readings of the fixture tenant that was 878 resolver evaluations at 35 ms,
 against 4 at 6 ms once fenced, the fence also letting the planner memoize.
 Nothing in the result set differs, so a correctness-only review sees no
-symptom. The first fix judged the fence by field count and missed part F's
-staleness lateral, which reads a single field twice and needs it just the
-same.
+symptom. The header then stated the rule as "more than one field off a
+resolved row", while the file's own part F fences a lateral that reads one
+field twice, so the canonical instruction did not describe the practice
+beside it and a reader copying the header would have dropped that fence.
 
 **The rule:** fence every LATERAL that calls a resolver with `OFFSET 0`, and
 judge the need by whether the resolved row is referenced more than once, not
