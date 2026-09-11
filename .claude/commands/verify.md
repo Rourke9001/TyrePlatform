@@ -16,12 +16,15 @@ Run the full verification and report honestly.
    run is the whole of the database leg, not the whole agreement.
 5. `cd web && npm test -- src/capture/warnings.test.ts`. The capture leg is
    live today: it never reads the view and never will (CLAUDE.md, Testing),
-   so what it shares is the thresholds, not the counts. This file pins their
-   boundaries against the numbers the fixture seeds: the 4.0mm removal point
-   inclusive, the 4mm width spread, and an 800 kPa target banded strictly
-   under and inclusively over, the operators `app.inflation_compliance`
-   (000013) uses. A change in `web/src/capture/warnings.ts` that moves one
-   fails here while the suite stays green.
+   so what it shares is the thresholds, not the counts. This file pins the
+   capture app's comparison operators and boundary values against the
+   database's, using literals declared in the test that currently equal the
+   fixture's seeds rather than values derived from it: the 4.0mm removal
+   point inclusive, the 4mm width spread, and an 800 kPa target banded
+   strictly under and inclusively over, the operators
+   `app.inflation_compliance` (000013) uses. A change in
+   `web/src/capture/warnings.ts` that moves one fails here while the suite
+   stays green.
 6. Confirm every view carries `security_invoker = true`.
 7. Report pass/fail per check. Do not summarise a partial pass as success, and
    do not adjust a test to make it green — if a check fails, the finding is
