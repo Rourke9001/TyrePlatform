@@ -510,3 +510,106 @@ BEGIN
   PERFORM app.reconcile_valuation_snapshots(NEW.tenant_id, snap_date, NEW.tyre_id, 'ON_CHANGE');
   RETURN NULL;
 END $$;
+
+-- Part F. Two dashboard substrates and one correction (spec D7).
+
+-- v_spare_tyre_age restated whole (U9). 000012's version used current_date,
+-- the server's day and not the tenant's (rule 6, CLAUDE.md), and
+-- last_tread_at, the audit column, where the spare's own latest reading is
+-- the measurement a manager means by "last measured". A spare is judged on
+-- age, not wear (Q21, FR-RPT-041), so the depth rides along for display and
+-- never ranks.
+DROP VIEW app.v_spare_tyre_age;
+CREATE VIEW app.v_spare_tyre_age WITH (security_invoker = true) AS
+SELECT t.tenant_id,
+       t.id AS tyre_id,
+       t.display_code,
+       f.vehicle_id,
+       v.fleet_number,
+       p.code AS position_code,
+       t.received_date,
+       (app.tenant_today(tn.timezone) - t.received_date)::int AS age_days,
+       COALESCE(lr.measured_at, t.last_tread_at) AS last_measured_at,
+       CASE WHEN lr.measured_at IS NOT NULL THEN 'READING'
+            WHEN t.last_tread_at IS NOT NULL THEN 'AUDIT' END AS measured_source,
+       (app.tenant_today(tn.timezone)
+        - app.tenant_today(tn.timezone, COALESCE(lr.measured_at, t.last_tread_at)))::int AS days_since_measured,
+       COALESCE(lr.governing_tread_mm, t.last_tread_mm) AS current_tread_mm
+  FROM app.tyre t
+  JOIN app.tenant tn ON tn.id = t.tenant_id
+  JOIN app.fitment f  ON f.tyre_id = t.id AND f.removed_at IS NULL
+  JOIN app.position p ON p.id = f.position_id
+  JOIN app.vehicle v  ON v.id = f.vehicle_id
+  LEFT JOIN LATERAL (
+       SELECT i.submitted_at AS measured_at, r.governing_tread_mm
+         FROM app.reading r
+         JOIN app.inspection i ON i.id = r.inspection_id
+        WHERE r.tyre_id = t.id
+          AND i.state <> 'VOIDED'
+          AND r.governing_tread_mm IS NOT NULL
+        ORDER BY i.submitted_at DESC
+        LIMIT 1) lr ON true
+ WHERE p.is_spare;
+
+-- FR-DSH-005 coverage and FR-DSH-006 / FR-EXC-027 staleness, one row per
+-- active unit. Two different questions on two different keys: coverage is
+-- against the unit's own schedule interval (inspection_schedule, FR-INS-049)
+-- and is NULL where no schedule exists, so an unscheduled fleet reads as
+-- unscheduled and never as covered; stale is against reading_staleness_days,
+-- the FR-VAL-021 key. A unit never inspected is stale wherever a threshold is
+-- configured. A LANGUAGE sql table function with no SET clause, because the
+-- view below is built over it and must inline (000036, section 8d).
+CREATE FUNCTION app.unit_inspection_status(p_as_at date)
+RETURNS TABLE (tenant_id uuid, vehicle_id uuid, fleet_number text, depot_id uuid,
+               last_inspected_at timestamptz, days_since int, interval_days int,
+               scheduled boolean, covered boolean, stale boolean)
+LANGUAGE sql STABLE AS $$
+  SELECT v.tenant_id,
+         v.id,
+         v.fleet_number,
+         v.home_depot_id,
+         li.submitted_at,
+         CASE WHEN li.submitted_at IS NOT NULL
+              THEN (p_as_at - (li.submitted_at AT TIME ZONE 'UTC')::date) END,
+         sch.interval_days,
+         sch.interval_days IS NOT NULL,
+         CASE WHEN sch.interval_days IS NULL THEN NULL
+              ELSE li.submitted_at IS NOT NULL
+                   AND (p_as_at - (li.submitted_at AT TIME ZONE 'UTC')::date) <= sch.interval_days END,
+         CASE WHEN st.days IS NULL THEN NULL
+              ELSE li.submitted_at IS NULL
+                   OR (p_as_at - (li.submitted_at AT TIME ZONE 'UTC')::date) > st.days END
+    FROM app.vehicle v
+    CROSS JOIN LATERAL (SELECT ((p_as_at + 1)::timestamp AT TIME ZONE 'UTC') AS ts) bound
+    LEFT JOIN LATERAL (
+         SELECT i.submitted_at
+           FROM app.reading r
+           JOIN app.inspection i ON i.id = r.inspection_id
+          WHERE r.vehicle_id = v.id
+            AND i.state <> 'VOIDED'
+            AND i.submitted_at < bound.ts
+          ORDER BY i.submitted_at DESC
+          LIMIT 1) li ON true
+    LEFT JOIN LATERAL (
+         SELECT s.interval_days
+           FROM app.inspection_schedule s
+          WHERE s.tenant_id = v.tenant_id
+            AND s.active
+            AND (s.vehicle_id = v.id
+                 OR (s.vehicle_id IS NULL AND s.operating_group_id = v.operating_group_id))
+          ORDER BY (s.vehicle_id IS NOT NULL) DESC, s.created_at DESC
+          LIMIT 1) sch ON true
+    -- OFFSET 0 is the pullup fence the file header describes: the staleness
+    -- threshold is read twice in the stale expression above, so without it
+    -- config_for runs twice per unit.
+    LEFT JOIN LATERAL (
+         SELECT (app.config_for(v.tenant_id, 'reading_staleness_days', bound.ts) #>> '{}')::int AS days
+          OFFSET 0) st ON true
+   WHERE v.status = 'ACTIVE'
+$$;
+
+CREATE VIEW app.v_unit_inspection_status WITH (security_invoker = true) AS
+SELECT s.*
+  FROM app.tenant tn
+  CROSS JOIN LATERAL app.unit_inspection_status(app.tenant_today(tn.timezone)) s
+ WHERE s.tenant_id = tn.id;
