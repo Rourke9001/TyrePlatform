@@ -180,7 +180,8 @@ app.axle_class, p_before timestamptz) RETURNS app.target_pressure`, same shape.
 The precedence is `inflation_compliance`'s `ORDER BY` copied verbatim, which
 ranks size-and-class, then size-only, then class-only, then tenant-wide
 (000013:112-114; `capture.go:219-221` matches it; 000013's prose comment at
-102-103 says the opposite and is corrected in passing):
+102-103 says the opposite and stays as it is, because an applied migration is
+never edited; the correct statement lives on the new function):
 
 ```sql
 SELECT tp.* FROM app.target_pressure tp
@@ -435,7 +436,9 @@ breaks one is visible because the other two still read the same view.
 - `api/CLAUDE.md` "Money over the wire" is corrected: numeric is scanned as
   text into a string and emitted as a JSON string; no decimal library exists
   or is wanted. The code is right and the sentence is stale.
-- 000013's precedence comment at 102-103 is corrected to match its `ORDER BY`.
+- The precedence statement on `app.target_pressure_for` is the one that
+  matches the `ORDER BY`; 000013's comment stays (applied migrations are
+  frozen) and the new function's header says it supersedes that sentence.
 - Every requirement ID this slice implements is cited at the object
   (FR-EXC-020..039 at the view, FR-VAL-031 at the at-risk view, FR-EXC-015 at
   `observed_at`), so the IDs stop returning zero from `rg`.
