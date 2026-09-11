@@ -9418,6 +9418,7 @@ ROLLBACK;
 BEGIN;
 DO $$
 DECLARE r record; n int; sched int; cov int; st int; horizon int; due int;
+        probe text; tz text; d1 date; d2 date; age int;
 BEGIN
   -- Pin the tenant rather than inherit an earlier section's session state
   -- (section 28's rule, restated at 59c). Every store read or planted below
@@ -9438,6 +9439,35 @@ BEGIN
   -- age_days is an integer number of tenant days, not timestamp arithmetic
   IF pg_typeof(r.age_days)::text <> 'integer' OR r.age_days < 0 THEN
     RAISE EXCEPTION 'FAIL 59d: age_days is % (%)', r.age_days, pg_typeof(r.age_days);
+  END IF;
+
+  -- U9's headline, and the only reason the status VIEW exists apart from the
+  -- function the four reads below call with a date: both count on the
+  -- TENANT's day and must not follow the session TimeZone the way
+  -- current_date does (rule 6). Kiritimati (UTC+14) and Niue (UTC-11) are 25
+  -- hours apart, so at every instant at least one of them is on a different
+  -- calendar day from the tenant, which is what stops these equalities being
+  -- vacuous; the control below asserts the two probes really did disagree.
+  -- Reverting either object to current_date leaves the type and sign checks
+  -- above green and fails here.
+  tz  := current_setting('TimeZone');
+  age := r.age_days;
+  FOREACH probe IN ARRAY ARRAY['Pacific/Kiritimati', 'Pacific/Niue'] LOOP
+    PERFORM set_config('TimeZone', probe, true);
+    SELECT age_days INTO STRICT n FROM app.v_spare_tyre_age;
+    IF n IS DISTINCT FROM age THEN
+      RAISE EXCEPTION 'FAIL 59d: age_days is % under % and % under the session zone', n, probe, age; END IF;
+    SELECT count(*) INTO st FROM app.v_unit_inspection_status;
+    IF st IS DISTINCT FROM 3 THEN
+      RAISE EXCEPTION 'FAIL 59d: the status view holds % rows under %, expected 3', st, probe; END IF;
+    IF EXISTS (SELECT * FROM app.v_unit_inspection_status
+                EXCEPT SELECT * FROM app.unit_inspection_status((SELECT app.tenant_today(timezone) FROM app.tenant))) THEN
+      RAISE EXCEPTION 'FAIL 59d: under % the status view is not the function at the tenant day', probe; END IF;
+    IF d1 IS NULL THEN d1 := current_date; ELSE d2 := current_date; END IF;
+  END LOOP;
+  PERFORM set_config('TimeZone', tz, true);
+  IF d1 = d2 THEN
+    RAISE EXCEPTION 'FAIL 59d: both probe zones read the server day as %, so the equalities above proved nothing', d1;
   END IF;
 
   -- Unit inspection status at two dates: nine days after the sheet nothing
@@ -9463,15 +9493,31 @@ BEGIN
   IF cov IS DISTINCT FROM 1 THEN
     RAISE EXCEPTION 'FAIL 59d: five days after the sheet the horse reads uncovered'; END IF;
 
+  -- Staleness comes from reading_staleness_days, the FR-VAL-021 key, not from
+  -- a constant: the seeded 28 leaves nothing stale nine days after the sheet,
+  -- and a tenant that tightens it to seven turns all three units stale on that
+  -- same day. effective_from is dated ahead of the as-at bound rather than a
+  -- minute back, because the function resolves the key at (p_as_at + 1) and
+  -- not at now(): a row stamped now() is not in force on 1 Aug 2026 and would
+  -- move nothing.
+  INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111', 'reading_staleness_days', '7'::jsonb, TIMESTAMPTZ '2026-07-01');
+  SELECT count(*) FILTER (WHERE stale) INTO st FROM app.unit_inspection_status('2026-08-01');
+  IF st IS DISTINCT FROM 3 THEN
+    RAISE EXCEPTION 'FAIL 59d: on a seven day staleness threshold % of three units read stale at 2026-08-01, expected 3', st; END IF;
+
   -- FR-DSH-009's horizon is a key, and the count is read off the resolved
   -- value. Judged at a fixed as-at day, as the two status reads above are:
   -- app.predicted_threshold_range anchors every forecast on the reading that
   -- produced it and never on the clock, so a count taken against the tenant's
   -- today would move with the calendar while the fixture stood still. Of the
   -- 17 tyres the two sheets yield a wear rate for, six fall due within 30
-  -- days of 1 Aug 2026; shortening the tenant's horizon to seven moves the
-  -- count to two, which is what makes this a key rather than a constant
-  -- (rule 5).
+  -- days of 1 Aug 2026, and a dated override of seven moves the count to two.
+  -- What that pins is the resolution, not a wiring: the key reaches a caller
+  -- through app.config_for with the dated-override semantics every key has.
+  -- Nothing in db, api or web reads forecast_horizon_days yet; the FR-DSH-009
+  -- tile and /api/analytics/removal-forecast are B7.2's (spec D7), and the
+  -- seeded default is here so they have one to read.
   horizon := (app.config_for('11111111-1111-1111-1111-111111111111', 'forecast_horizon_days', now()) #>> '{}')::int;
   IF horizon IS DISTINCT FROM 30 THEN RAISE EXCEPTION 'FAIL 59d: forecast_horizon_days resolved to %', horizon; END IF;
   SELECT count(*) INTO due FROM app.v_removal_forecast
