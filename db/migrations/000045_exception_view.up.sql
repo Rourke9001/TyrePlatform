@@ -29,8 +29,10 @@
 -- then memoize across the rows that resolve the same configuration. Measured
 -- over the 53 readings of the fixture tenant: 878 evaluations and 35 ms
 -- without the fence, 4 evaluations behind 49 memoize hits and 6 ms with it
--- (TYRE-41). Any part that reads more than one field off a resolved row
--- carries the fence too.
+-- (TYRE-41). The test is references, not fields: any part that references a
+-- resolved row more than once carries the fence too, whether those references
+-- read several fields or the same one twice. Part F's staleness lateral is
+-- the second kind.
 --
 -- app.removal_threshold_mm_for keeps its signature and becomes a projection
 -- off threshold_policy_for. A body with no FROM clause is inlinable, so the
@@ -208,12 +210,9 @@ COMMENT ON COLUMN app.exception.subject_type IS
 -- (U18): FR-EXC-001 evaluates rules against the submitted inspection and
 -- FR-CFG-051 applies a policy change prospectively, the same reason the
 -- snapshot trigger prices at the snapshot's date (000006). The register and
--- v_tyre_at_risk judge at today, and three things separate the two: a policy
--- change, a tyre moving, and a fitted tyre the register prices off its
--- onboarding figure (tread_source AUDIT) because no reading covers it, which
--- this view cannot judge at all. The first two shift a row between the views;
--- the third is a row only the register ever had. Every row here carries the
--- threshold it was judged against so the difference explains itself.
+-- v_tyre_at_risk judge at today instead; part D below names the three things
+-- that separate the two populations and what a dashboard owes the reader
+-- because of it.
 --
 -- Rule readings (spec U1 to U4, each an Appendix J.2 reading of an SRS
 -- sentence that reads two ways, errata rows prepared):
@@ -230,6 +229,13 @@ COMMENT ON COLUMN app.exception.subject_type IS
 -- there to remove, and the register shows the unknown position (FR-INS-026).
 -- FR-EXC-032 is not a row: it is the casing figure on the 020 and 038 rows,
 -- v_tyre_at_risk (U19). FR-EXC-037 is deferred by Appendix H.2 (U13).
+--
+-- detail is a rule-specific payload, not a common shape: each branch builds
+-- only the keys its own rule explains (020 and 038 the measurements and the
+-- pressure, 021 the measurements and the removal threshold, 022 and 023 the
+-- pressure, 028 the note, 035 the measurements and the orientation, 036 the
+-- two ends, 039 the pressure spread). A consumer reads the keys its
+-- rule_code names and must not assume any one of them is present.
 CREATE VIEW app.v_exception WITH (security_invoker = true) AS
 WITH lr AS (
   SELECT d.*,
@@ -400,9 +406,10 @@ SELECT f.tenant_id,
 -- if they run to destruction. Read from the live register, so judged at
 -- TODAY (U18): "currently below" is the register's word, and this is where
 -- the at-risk count and the FR-EXC-020 count can differ. Three things
--- separate them: a policy change, a removal, and a fitted tyre whose tread
--- the register takes from the onboarding figure (tread_source AUDIT) because
--- no reading covers it. That third one is money here and no exception row
+-- separate them: a policy change, a tyre moving or being removed, and a
+-- fitted tyre whose tread the register takes from the onboarding figure
+-- (tread_source AUDIT) because no reading covers it. The first two shift a
+-- row between the two views; the third is money here and no exception row
 -- there, because this view is register-driven and v_exception is
 -- reading-driven; it is not a disagreement to reconcile but two populations,
 -- and B7.3 must label the two figures as such. Each row of the other view
@@ -434,6 +441,11 @@ SELECT v.tenant_id, v.tyre_id, v.display_code, v.vehicle_id, v.fleet_number,
 -- figure, 000011) is estimated for FR-VAL-013's three labels and disclosed
 -- inside that count so a manager can see how much of the figure rests on the
 -- first stock-take rather than on a retreader.
+-- estimated_or_audit_count spells that nesting out in its own name, because
+-- v_estate_valuation below carries casing_estimated_count for strict
+-- ESTIMATED, disjoint from casing_audit_count. The two views answer different
+-- questions, one figure's exposure against the estate's composition, and a
+-- dashboard reading both must not assume one word means one thing (TYRE-193).
 CREATE VIEW app.v_casing_value_at_risk WITH (security_invoker = true) AS
 SELECT r.tenant_id,
        CASE WHEN GROUPING(r.depot_id) = 0 THEN 'DEPOT' ELSE 'TENANT' END AS level,
@@ -442,7 +454,7 @@ SELECT r.tenant_id,
        CASE WHEN r.is_spare THEN 'SPARE' ELSE 'RUNNING' END AS position_class,
        count(*)                                                        AS tyre_count,
        count(*) FILTER (WHERE r.casing_basis = 'ACTUAL')                AS actual_count,
-       count(*) FILTER (WHERE r.casing_basis IN ('ESTIMATED', 'AUDIT')) AS estimated_count,
+       count(*) FILTER (WHERE r.casing_basis IN ('ESTIMATED', 'AUDIT')) AS estimated_or_audit_count,
        count(*) FILTER (WHERE r.casing_basis = 'AUDIT')                 AS audit_count,
        count(*) FILTER (WHERE r.casing_value IS NULL)                   AS unvalued_count,
        sum(r.casing_value)                                             AS casing_value_at_risk
@@ -561,6 +573,12 @@ SELECT t.tenant_id,
 -- the FR-VAL-021 key. A unit never inspected is stale wherever a threshold is
 -- configured. A LANGUAGE sql table function with no SET clause, because the
 -- view below is built over it and must inline (000036, section 8d).
+--
+-- Every day here is counted on the TENANT's calendar, never UTC's (CLAUDE.md
+-- rule 6, the same reason v_spare_tyre_age above joins app.tenant): p_as_at
+-- is a tenant civil date, so subtracting a UTC date from it mixes two
+-- calendars, and the as-at bound taken in UTC stops short of a west-of-UTC
+-- tenant's own midnight and hides an inspection captured late in its day.
 CREATE FUNCTION app.unit_inspection_status(p_as_at date)
 RETURNS TABLE (tenant_id uuid, vehicle_id uuid, fleet_number text, depot_id uuid,
                last_inspected_at timestamptz, days_since int, interval_days int,
@@ -572,17 +590,18 @@ LANGUAGE sql STABLE AS $$
          v.home_depot_id,
          li.submitted_at,
          CASE WHEN li.submitted_at IS NOT NULL
-              THEN (p_as_at - (li.submitted_at AT TIME ZONE 'UTC')::date) END,
+              THEN (p_as_at - app.tenant_today(tn.timezone, li.submitted_at)) END,
          sch.interval_days,
          sch.interval_days IS NOT NULL,
          CASE WHEN sch.interval_days IS NULL THEN NULL
               ELSE li.submitted_at IS NOT NULL
-                   AND (p_as_at - (li.submitted_at AT TIME ZONE 'UTC')::date) <= sch.interval_days END,
+                   AND (p_as_at - app.tenant_today(tn.timezone, li.submitted_at)) <= sch.interval_days END,
          CASE WHEN st.days IS NULL THEN NULL
               ELSE li.submitted_at IS NULL
-                   OR (p_as_at - (li.submitted_at AT TIME ZONE 'UTC')::date) > st.days END
+                   OR (p_as_at - app.tenant_today(tn.timezone, li.submitted_at)) > st.days END
     FROM app.vehicle v
-    CROSS JOIN LATERAL (SELECT ((p_as_at + 1)::timestamp AT TIME ZONE 'UTC') AS ts) bound
+    JOIN app.tenant tn ON tn.id = v.tenant_id
+    CROSS JOIN LATERAL (SELECT ((p_as_at + 1)::timestamp AT TIME ZONE tn.timezone) AS ts) bound
     LEFT JOIN LATERAL (
          SELECT i.submitted_at
            FROM app.reading r
