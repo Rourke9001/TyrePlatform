@@ -208,9 +208,12 @@ COMMENT ON COLUMN app.exception.subject_type IS
 -- (U18): FR-EXC-001 evaluates rules against the submitted inspection and
 -- FR-CFG-051 applies a policy change prospectively, the same reason the
 -- snapshot trigger prices at the snapshot's date (000006). The register and
--- v_tyre_at_risk judge at today; the two agree until a policy changes or a
--- tyre moves, and every row here carries the threshold it was judged against
--- so the difference explains itself.
+-- v_tyre_at_risk judge at today, and three things separate the two: a policy
+-- change, a tyre moving, and a fitted tyre the register prices off its
+-- onboarding figure (tread_source AUDIT) because no reading covers it, which
+-- this view cannot judge at all. The first two shift a row between the views;
+-- the third is a row only the register ever had. Every row here carries the
+-- threshold it was judged against so the difference explains itself.
 --
 -- Rule readings (spec U1 to U4, each an Appendix J.2 reading of an SRS
 -- sentence that reads two ways, errata rows prepared):
@@ -394,10 +397,16 @@ SELECT f.tenant_id,
 -- value of tyres currently at or below the removal threshold, the money lost
 -- if they run to destruction. Read from the live register, so judged at
 -- TODAY (U18): "currently below" is the register's word, and this is where
--- the at-risk count and the FR-EXC-020 count can differ after a policy
--- change or a removal, each row of the other view saying which threshold it
--- was judged against. Fitted tyres only: an at-risk casing on a shelf is a
--- stock question, not a value-at-risk one.
+-- the at-risk count and the FR-EXC-020 count can differ. Three things
+-- separate them: a policy change, a removal, and a fitted tyre whose tread
+-- the register takes from the onboarding figure (tread_source AUDIT) because
+-- no reading covers it. That third one is money here and no exception row
+-- there, because this view is register-driven and v_exception is
+-- reading-driven; it is not a disagreement to reconcile but two populations,
+-- and B7.3 must label the two figures as such. Each row of the other view
+-- says which threshold it was judged against.
+-- Fitted tyres only: an at-risk casing on a shelf is a stock question, not a
+-- value-at-risk one.
 -- The open fitment is re-joined because the register carries the position
 -- code but not the position row, and is_spare is what U8 splits on.
 -- one_open_fitment_per_tyre (000001, DR-005) makes that join at most one row.
