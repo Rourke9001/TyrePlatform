@@ -9043,8 +9043,10 @@ ROLLBACK;
 \echo '== 59a. threshold_policy_for and target_pressure_for resolve the tenant-wide row, never a spare target (spec D1, U5, U10)'
 BEGIN;
 DO $$
-DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
+DECLARE t1  constant uuid := '11111111-1111-1111-1111-111111111111';
+        grp constant uuid := md5('t59agrp')::uuid;
         pol app.threshold_policy; tgt app.target_pressure; mm numeric; args text;
+        ts_g timestamptz; ts_t timestamptz;
 BEGIN
   -- Pin the tenant rather than inherit an earlier section's session state
   -- (section 28's rule). Both stores force row level security, so the plant
@@ -9075,7 +9077,9 @@ BEGIN
   -- Asking for STEER returns the STEER row (the fit_tyre shape); asking for
   -- DRIVE, which has no row, falls back to the tenant-wide one.
   pol := app.threshold_policy_for(t1, NULL, 'STEER', now());
-  IF pol.axle_class IS DISTINCT FROM 'STEER' OR pol.retreads_permitted THEN
+  -- IS NOT FALSE, not a bare read: an unresolved lookup leaves pol a NULL
+  -- composite, and a bare boolean would let that pass as permitted = false.
+  IF pol.axle_class IS DISTINCT FROM 'STEER' OR pol.retreads_permitted IS NOT FALSE THEN
     RAISE EXCEPTION 'FAIL 59a: STEER did not resolve to its own row';
   END IF;
   pol := app.threshold_policy_for(t1, NULL, 'DRIVE', now());
@@ -9088,13 +9092,52 @@ BEGIN
     RAISE EXCEPTION 'FAIL 59a: removal_threshold_mm_for answered %', mm;
   END IF;
 
+  -- The operating-group tier is the one dimension this migration adds. No
+  -- tenant has a seeded group row and app.fit_tyre implements only the axle
+  -- tier, so nothing else in the suite would notice the group sort key being
+  -- inverted or dropped. Plant one and make it decide.
+  ts_g := now() - interval '1 minute';
+  INSERT INTO app.operating_group (id, tenant_id, name, created_by)
+  VALUES (grp, t1, 'T59A Northern', NULL);
+  INSERT INTO app.threshold_policy (tenant_id, operating_group_id, retread_threshold_mm,
+                                    scrap_threshold_mm, effective_from, created_by)
+  VALUES (t1, grp, 5.0, 4.0, ts_g, NULL);
+  -- A group row carrying no axle class outranks the STEER row and the
+  -- tenant-wide row together: the group key sorts ahead of the axle key.
+  pol := app.threshold_policy_for(t1, grp, 'STEER', now());
+  IF pol.operating_group_id IS DISTINCT FROM grp OR pol.retread_threshold_mm IS DISTINCT FROM 5.0 THEN
+    RAISE EXCEPTION 'FAIL 59a: the group row did not outrank the axle row (group % retread %)',
+      pol.operating_group_id, pol.retread_threshold_mm;
+  END IF;
+  -- A caller naming no group never reaches it, which is what keeps the
+  -- register pricing through the tenant-wide row while a group policy exists.
+  pol := app.threshold_policy_for(t1, NULL, 'STEER', now());
+  IF pol.operating_group_id IS NOT NULL OR pol.retread_threshold_mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL 59a: a group row leaked into a group-blind lookup';
+  END IF;
+  mm := app.removal_threshold_mm_for(t1, now());
+  IF mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL 59a: the wrapper answered % once a group policy existed', mm;
+  END IF;
+  -- p_before is the exclusive upper edge of an as-at day (000036's
+  -- convention), so a row effective exactly at it is not yet in force and
+  -- this falls back to the tenant-wide row. Asserted at the planted instant
+  -- itself: any instant after it passes under both < and <=, and proves
+  -- nothing about which one the resolver spells.
+  pol := app.threshold_policy_for(t1, grp, NULL, ts_g);
+  IF pol.operating_group_id IS NOT NULL OR pol.retread_threshold_mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL 59a: a policy effective exactly at p_before was already in force (group % retread %)',
+      pol.operating_group_id, pol.retread_threshold_mm;
+  END IF;
+
   -- Pressure: class row for a TRAILER; NULL for a spare even once a
   -- tenant-wide row exists (FR-CFG-013 errata E1, U10). The tenant-wide row
   -- is planted first so the spare's NULL is the rule, not the absence of data.
   -- effective_from a minute ago, not the default now(): the resolver reads
   -- effective_from < p_before and both would be transaction_timestamp()
+  ts_t := now() - interval '1 minute';
   INSERT INTO app.target_pressure (tenant_id, target_kpa, effective_from)
-  VALUES (t1, 700, now() - interval '1 minute');
+  VALUES (t1, 700, ts_t);
   tgt := app.target_pressure_for(t1, NULL, 'TRAILER', now());
   IF tgt.target_kpa IS DISTINCT FROM 750 OR tgt.axle_class IS DISTINCT FROM 'TRAILER' THEN
     RAISE EXCEPTION 'FAIL 59a: TRAILER resolved to % (axle %), not its class row', tgt.target_kpa, tgt.axle_class;
@@ -9109,7 +9152,14 @@ BEGIN
   IF tgt.target_kpa IS DISTINCT FROM 700 THEN
     RAISE EXCEPTION 'FAIL 59a: the tenant-wide target row is unreachable (%)', tgt.target_kpa;
   END IF;
-  RAISE NOTICE 'PASS  59a resolvers: tenant-wide baseline, axle fallback, spare never classified';
+  -- The exclusive upper edge holds on the second store too, at the planted
+  -- instant itself; no other row carries a NULL axle class, so a resolved
+  -- target here could only be this one arriving a moment early.
+  tgt := app.target_pressure_for(t1, NULL, NULL, ts_t);
+  IF tgt.target_kpa IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 59a: a target effective exactly at p_before was already in force (%)', tgt.target_kpa;
+  END IF;
+  RAISE NOTICE 'PASS  59a resolvers: tenant-wide baseline, group over axle over blind, exclusive p_before, spare never classified';
 END $$;
 ROLLBACK;
 

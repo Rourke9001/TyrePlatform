@@ -15,9 +15,29 @@
 -- app.configuration has had app.config_for since 000007; threshold_policy and
 -- target_pressure were read by hand at every site, with four different
 -- predicates. These two functions are the one place each store is resolved.
--- Scalar composite results with a LIMIT: the planner calls them per row rather
--- than inlining them, which is what removal_threshold_mm_for has always been.
 -- No SET clause, schema-qualified bodies (000013's shape).
+--
+-- How a caller must read one of these, because getting it wrong costs an
+-- order of magnitude and nothing in the result gives it away. A composite
+-- body with a FROM and a LIMIT cannot be inlined, so one call runs the body
+-- once. What sets the number of CALLS is the caller: the planner pulls up a
+-- LATERAL subquery that has no FROM clause of its own and substitutes its
+-- target list at every site that references the result, so reading six fields
+-- off one (tgt.p) is six evaluations per row, multiplied again by every CTE
+-- the planner inlines. OFFSET 0 in that subquery is the fence. It keeps the
+-- subquery a node of its own, evaluated once per row, which the planner can
+-- then memoize across the rows that resolve the same configuration. Measured
+-- over the 53 readings of the fixture tenant: 878 evaluations and 35 ms
+-- without the fence, 4 evaluations behind 49 memoize hits and 6 ms with it
+-- (TYRE-41). Any part that reads more than one field off a resolved row
+-- carries the fence too.
+--
+-- app.removal_threshold_mm_for keeps its signature and becomes a projection
+-- off threshold_policy_for. A body with no FROM clause is inlinable, so the
+-- planner substitutes it into its callers; those callers (000009, 000011,
+-- 000036) are themselves no-FROM laterals reading a single scalar, so what
+-- they evaluate per row is what they already evaluated and the register does
+-- not move. Sections 17, 18, 20 and 44 are the proof of that.
 
 -- Precedence, narrowest first: an operating-group row over a tenant-wide one,
 -- an axle-class row over a class-blind one, latest effective within each.
@@ -95,8 +115,12 @@ LANGUAGE sql STABLE AS $$
       JOIN app.position pos ON pos.id = r.position_id
       LEFT JOIN app.tyre t ON t.id = r.tyre_id
       CROSS JOIN bound b
+      -- OFFSET 0 is the pullup fence the header describes. Without it the six
+      -- (tgt.p) reads above are substituted back into the plan and the
+      -- resolver runs per reference rather than per reading.
       CROSS JOIN LATERAL (
-           SELECT app.target_pressure_for(r.tenant_id, t.size_id, pos.axle_class, b.ts) AS p) tgt
+           SELECT app.target_pressure_for(r.tenant_id, t.size_id, pos.axle_class, b.ts) AS p
+            OFFSET 0) tgt
      WHERE i.state <> 'VOIDED'
        -- the returned tenant_id is current_tenant_id(), so select by it too:
        -- under RLS the predicate is redundant, but it makes the label true by
