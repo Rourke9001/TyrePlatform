@@ -9034,5 +9034,84 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 59. B7.1: the exception view, the resolvers and value at risk (TYRE-41, TYRE-211, TYRE-183, TYRE-193)'
+-- Section 8 asserts the Appendix J position SETS through app.v_exception;
+-- this section pins the NUMBERS the documents state and the substrate the
+-- dashboard reads. Every block is BEGIN/ROLLBACK and plants under the tenant
+-- it exercises (sections 25 and 58's pattern).
+
+\echo '== 59a. threshold_policy_for and target_pressure_for resolve the tenant-wide row, never a spare target (spec D1, U5, U10)'
+BEGIN;
+DO $$
+DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
+        pol app.threshold_policy; tgt app.target_pressure; mm numeric; args text;
+BEGIN
+  -- Pin the tenant rather than inherit an earlier section's session state
+  -- (section 28's rule). Both stores force row level security, so the plant
+  -- below and every resolver read need this tenant bound.
+  PERFORM set_config('app.tenant_id', t1::text, true);
+
+  -- Signatures pinned as identity arguments (section 58a's reasoning): an
+  -- overload added later would leave a name-only check green.
+  -- regprocedure renders a type relative to the search_path, and the suite
+  -- sets app first at its head, so the enum's expected spelling is
+  -- unqualified.
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO args
+    FROM pg_proc p
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND p.proname IN ('threshold_policy_for', 'target_pressure_for');
+  IF args IS DISTINCT FROM
+     'target_pressure_for(uuid,uuid,axle_class,timestamp with time zone), threshold_policy_for(uuid,uuid,axle_class,timestamp with time zone)' THEN
+    RAISE EXCEPTION 'FAIL 59a: the resolvers read as [%]', COALESCE(args, 'absent');
+  END IF;
+
+  -- The baseline rows carry -infinity, so any instant resolves them (U5).
+  pol := app.threshold_policy_for(t1, NULL, NULL, '2021-10-04T00:00:00Z');
+  IF pol.retread_threshold_mm IS DISTINCT FROM 4.0 OR pol.warning_threshold_mm IS DISTINCT FROM 6.0
+     OR pol.axle_class IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 59a: tenant-wide policy at 2021 resolved to retread % warning % axle %',
+      pol.retread_threshold_mm, pol.warning_threshold_mm, pol.axle_class;
+  END IF;
+  -- Asking for STEER returns the STEER row (the fit_tyre shape); asking for
+  -- DRIVE, which has no row, falls back to the tenant-wide one.
+  pol := app.threshold_policy_for(t1, NULL, 'STEER', now());
+  IF pol.axle_class IS DISTINCT FROM 'STEER' OR pol.retreads_permitted THEN
+    RAISE EXCEPTION 'FAIL 59a: STEER did not resolve to its own row';
+  END IF;
+  pol := app.threshold_policy_for(t1, NULL, 'DRIVE', now());
+  IF pol.axle_class IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 59a: DRIVE resolved to an axle row that does not exist';
+  END IF;
+  -- The wrapper answers what the resolver answers.
+  mm := app.removal_threshold_mm_for(t1, now());
+  IF mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL 59a: removal_threshold_mm_for answered %', mm;
+  END IF;
+
+  -- Pressure: class row for a TRAILER; NULL for a spare even once a
+  -- tenant-wide row exists (FR-CFG-013 errata E1, U10). The tenant-wide row
+  -- is planted first so the spare's NULL is the rule, not the absence of data.
+  -- effective_from a minute ago, not the default now(): the resolver reads
+  -- effective_from < p_before and both would be transaction_timestamp()
+  INSERT INTO app.target_pressure (tenant_id, target_kpa, effective_from)
+  VALUES (t1, 700, now() - interval '1 minute');
+  tgt := app.target_pressure_for(t1, NULL, 'TRAILER', now());
+  IF tgt.target_kpa IS DISTINCT FROM 750 OR tgt.axle_class IS DISTINCT FROM 'TRAILER' THEN
+    RAISE EXCEPTION 'FAIL 59a: TRAILER resolved to % (axle %), not its class row', tgt.target_kpa, tgt.axle_class;
+  END IF;
+  tgt := app.target_pressure_for(t1, NULL, 'SPARE', now());
+  IF tgt.target_kpa IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 59a: a spare resolved a pressure target (%)', tgt.target_kpa;
+  END IF;
+  -- A class-blind lookup passes over every class row and reaches the
+  -- tenant-wide one, which is the fallback a caller with no axle to name gets.
+  tgt := app.target_pressure_for(t1, NULL, NULL, now());
+  IF tgt.target_kpa IS DISTINCT FROM 700 THEN
+    RAISE EXCEPTION 'FAIL 59a: the tenant-wide target row is unreachable (%)', tgt.target_kpa;
+  END IF;
+  RAISE NOTICE 'PASS  59a resolvers: tenant-wide baseline, axle fallback, spare never classified';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
