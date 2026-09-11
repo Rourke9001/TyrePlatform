@@ -55,7 +55,7 @@ PR and review, each planned after the previous merges:
 
 | Slice | Ticket | State |
 |---|---|---|
-| B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | planned, branch `TYRE-41-exception-view` |
+| B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | PR [#55](https://github.com/Rourke9001/TyrePlatform/pull/55) open, awaiting the owner |
 | B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half) | after B7.1 |
 | B7.3 | design system (ADR-0015) and the dashboard, new tickets under TYRE-7 | after B7.2 |
 | B7.4 | restyle of the ten existing screens; carries TYRE-176, TYRE-182 and the two capture defects | after B7.3 |
