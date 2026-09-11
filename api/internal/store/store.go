@@ -29,11 +29,11 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	}
 	// Rule 6: the schema's date predicates (the two effective_from defaults,
 	// receive_tyres's least() clamp) follow the session TimeZone, and a
-	// managed Postgres exposes that as a server
-	// parameter nothing here controls. Pinning it per connection makes the
-	// value a property of this process rather than of whichever server it is
-	// pointed at (TYRE-170). Tenant-day resolution is a separate concern
-	// (app.tenant_today) and is unaffected.
+	// managed Postgres exposes that as a server parameter nothing here
+	// controls. Pinning it per connection makes the value a property of this
+	// process rather than of whichever server it is pointed at (TYRE-170).
+	// Tenant-day resolution is a separate concern (app.tenant_today) and is
+	// unaffected.
 	if cfg.ConnConfig.RuntimeParams == nil {
 		cfg.ConnConfig.RuntimeParams = map[string]string{}
 	}

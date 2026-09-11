@@ -50,8 +50,9 @@ the arithmetic in the whole codebase.
 `app.rand_per_mm()` to all 15 SRS Appendix E valuations; check 8 pins the
 Appendix J fixture's exception positions per rule through `app.v_exception`,
 and check 59 pins the totals: 19 exceptions, 11 urgent, 9 below threshold,
-and the value-at-risk figure to the cent. One view computes them; every
-other tier reads it.
+and the value-at-risk figure to the cent. One view computes them; the API
+relay and the dashboard will read it rather than recompute it, once B7.2 and
+B7.3 land.
 
 ## Spec and seed data that cannot drift
 

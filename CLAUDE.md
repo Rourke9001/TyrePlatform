@@ -135,14 +135,17 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
 
 - Business rules are tested in SQL, against the golden fixture, not mocked.
 - The Appendix J fixture produces exactly **19 exceptions, 11 urgent, 9 running
-  positions below the removal threshold**. One implementation computes them,
-  `app.v_exception` (migration 000045), judged at each unit's latest
+  positions below the removal threshold**. The database computes them through
+  one view, `app.v_exception` (migration 000045), judged at each unit's latest
   inspection; `db/tests/004_tests.sql` §59 pins the numbers and §8 the
-  position sets. "Three tiers agree" means three consumers of that view: the
-  API relays it (B7.2), the dashboard's e2e asserts the rendered counts
-  against it (B7.3), and the capture app warns per vehicle from the same
-  thresholds. A change that moves one consumer and not the others is visible
-  because none carries its own copy of a rule.
+  position sets. The API will relay that view (B7.2) and the dashboard's e2e
+  will assert the rendered counts against it (B7.3), once both land. The
+  capture app's leg never reads the view and, being online-first, never
+  will: it warns per vehicle at entry from its own independent
+  implementation of the same rules (`web/src/capture/warnings.ts`). "Three
+  tiers agree" means each checks the same pinned expectation independently,
+  so a change that moves one without the pinned numbers is what makes a
+  drift visible.
 - Go: table-driven tests, `testify/require`. Integration tests hit a real
   Postgres, not a mock.
 - Do not weaken a test to make it pass. If a test is wrong, say so and explain

@@ -402,12 +402,14 @@ decorative. The policy row is U18 made visible.
 (TYRE-41's DoD): CLAUDE.md's testing section, `.claude/commands/verify.md`,
 `README.md` and `docs/achievements.md`, all of which carry the claim today.
 The database computes the exceptions once, in `app.v_exception`. The API
-relays them (B7.2). The dashboard leg is a Playwright assertion that the
-rendered counts for BAC equal 19, 11 and 9 (B7.3). The capture app's leg is
-unchanged: per-vehicle warnings at entry, asserted against the database for
-one fixture vehicle (the capture spec of 2026-08-25, "Three layers"). "Three
-tiers agree" means three consumers of one implementation, and a change that
-breaks one is visible because the other two still read the same view.
+will relay them (B7.2) and the dashboard leg will be a Playwright assertion
+that the rendered counts for BAC equal 19, 11 and 9 (B7.3), once both land.
+The capture app's leg is unchanged and never reads the view: per-vehicle
+warnings at entry, its own independent implementation of the same rules
+(`web/src/capture/warnings.ts`), asserted against the database for one
+fixture vehicle (the capture spec of 2026-08-25, "Three layers"). "Three
+tiers agree" means each checks the same pinned expectation independently, so
+a change that moves one without the others is what makes a drift visible.
 
 ### D7. Riders carried by B7.1
 

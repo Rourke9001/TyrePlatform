@@ -63,7 +63,7 @@ radius of an authentication bypass. The `CONTAINER_APP_NAME` veto in
 
 ## Money over the wire
 
-Postgres `numeric` is scanned as `text` into a Go `string` and emitted as a
+Money numerics are scanned as `text` into a Go `string` and emitted as a
 JSON **string**. Never a JSON number: most parsers decode that to an IEEE
 double, and the acceptance gate is cent-exactness. `"1218.78"`, not
 `1218.78`. No decimal library exists in `api/` and none is wanted: Go never
