@@ -388,3 +388,88 @@ SELECT f.tenant_id,
   FROM found f
   JOIN app.exception_rule er ON er.tenant_id = f.tenant_id AND er.code = f.rule_code AND er.enabled
   LEFT JOIN app.tyre t ON t.id = f.tyre_id;
+
+-- Part D. Value at risk (spec D4; FR-VAL-031, FR-RPT-040, FR-DSH-017; TYRE-193).
+-- The rand figure the POC is sold on (Appendix H.3 criterion 6): the casing
+-- value of tyres currently at or below the removal threshold, the money lost
+-- if they run to destruction. Read from the live register, so judged at
+-- TODAY (U18): "currently below" is the register's word, and this is where
+-- the at-risk count and the FR-EXC-020 count can differ after a policy
+-- change or a removal, each row of the other view saying which threshold it
+-- was judged against. Fitted tyres only: an at-risk casing on a shelf is a
+-- stock question, not a value-at-risk one.
+-- The open fitment is re-joined because the register carries the position
+-- code but not the position row, and is_spare is what U8 splits on.
+-- one_open_fitment_per_tyre (000001, DR-005) makes that join at most one row.
+CREATE VIEW app.v_tyre_at_risk WITH (security_invoker = true) AS
+SELECT v.tenant_id, v.tyre_id, v.display_code, v.vehicle_id, v.fleet_number,
+       v.depot_id, v.position_code, p.is_spare, v.current_tread_mm,
+       v.removal_threshold_mm, v.tread_source, v.read_at,
+       v.casing_value, v.casing_basis
+  FROM app.v_tyre_valuation v
+  JOIN app.fitment f  ON f.tyre_id = v.tyre_id AND f.removed_at IS NULL
+  JOIN app.position p ON p.id = f.position_id
+ WHERE v.state = 'FITTED'
+   AND v.current_tread_mm IS NOT NULL
+   AND v.removal_threshold_mm IS NOT NULL
+   AND v.current_tread_mm <= v.removal_threshold_mm;
+
+-- Aggregated in v_estate_valuation's shape so a depot actor composes DEPOT
+-- rows and a tenant actor reads the TENANT row (ADR-0006). Running positions
+-- and spares are two rows, never one figure (U8): BR-RPT-001 excludes spares
+-- from tread reporting by default and FR-RPT-005 makes the report say so.
+-- The sum is over valued casings only; unvalued ones are counted and named,
+-- never zero-filled (FR-VAL-013, NFR-PRO-002/003). AUDIT (the onboarding
+-- figure, 000011) is estimated for FR-VAL-013's three labels and disclosed
+-- inside that count so a manager can see how much of the figure rests on the
+-- first stock-take rather than on a retreader.
+CREATE VIEW app.v_casing_value_at_risk WITH (security_invoker = true) AS
+SELECT r.tenant_id,
+       CASE WHEN GROUPING(r.depot_id) = 0 THEN 'DEPOT' ELSE 'TENANT' END AS level,
+       r.depot_id,
+       d.name AS key_name,
+       CASE WHEN r.is_spare THEN 'SPARE' ELSE 'RUNNING' END AS position_class,
+       count(*)                                                        AS tyre_count,
+       count(*) FILTER (WHERE r.casing_basis = 'ACTUAL')                AS actual_count,
+       count(*) FILTER (WHERE r.casing_basis IN ('ESTIMATED', 'AUDIT')) AS estimated_count,
+       count(*) FILTER (WHERE r.casing_basis = 'AUDIT')                 AS audit_count,
+       count(*) FILTER (WHERE r.casing_value IS NULL)                   AS unvalued_count,
+       sum(r.casing_value)                                             AS casing_value_at_risk
+  FROM app.v_tyre_at_risk r
+  LEFT JOIN app.depot d ON d.id = r.depot_id
+ GROUP BY r.tenant_id, r.is_spare, GROUPING SETS ((r.depot_id, d.name), ());
+
+-- v_estate_valuation restated whole with the casing side's provenance split
+-- (FR-DSH-002 asks for it on both sides; FR-VAL-013). Every existing column
+-- keeps its name, order and semantics; sections 17 to 20 pin them.
+-- The three counts are disjoint here, AUDIT beside ESTIMATED rather than
+-- inside it, because this view reports the estate's composition while
+-- v_casing_value_at_risk reports one figure's exposure (TYRE-193).
+DROP VIEW app.v_estate_valuation;
+CREATE VIEW app.v_estate_valuation WITH (security_invoker = true) AS
+SELECT tenant_id,
+       CASE WHEN GROUPING(fleet_number) = 0 THEN 'VEHICLE'
+            WHEN GROUPING(depot_name)   = 0 THEN 'DEPOT'
+            WHEN GROUPING(size_name)    = 0 THEN 'SIZE'
+            WHEN GROUPING(brand_name)   = 0 THEN 'BRAND'
+            WHEN GROUPING(pattern_name) = 0 THEN 'PATTERN'
+            ELSE 'TENANT' END AS level,
+       COALESCE(fleet_number, depot_name, size_name, brand_name, pattern_name) AS key_name,
+       CASE WHEN GROUPING(state) = 1 THEN 'ALL' ELSE state::text END AS location_class,
+       count(*)                                            AS tyre_count,
+       count(*) FILTER (WHERE valuation_basis = 'ACTUAL')    AS actual_count,
+       count(*) FILTER (WHERE valuation_basis = 'ESTIMATED') AS estimated_count,
+       count(*) FILTER (WHERE tread_value IS NULL)           AS unvalued_count,
+       count(*) FILTER (WHERE casing_value IS NULL)          AS casing_unvalued_count,
+       sum(tread_value)                                    AS tread_value,
+       sum(casing_value)                                   AS casing_value,
+       COALESCE(sum(tread_value), 0) + COALESCE(sum(casing_value), 0) AS total_value,
+       count(*) FILTER (WHERE casing_basis = 'ACTUAL')       AS casing_actual_count,
+       count(*) FILTER (WHERE casing_basis = 'ESTIMATED')    AS casing_estimated_count,
+       count(*) FILTER (WHERE casing_basis = 'AUDIT')        AS casing_audit_count
+  FROM app.v_tyre_valuation
+ WHERE state NOT IN ('SCRAPPED', 'LOST', 'SOLD')
+ GROUP BY tenant_id,
+          GROUPING SETS ((fleet_number), (depot_name), (size_name),
+                         (brand_name), (pattern_name), ()),
+          ROLLUP(state);
