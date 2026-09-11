@@ -482,3 +482,31 @@ SELECT tenant_id,
           GROUPING SETS ((fleet_number), (depot_name), (size_name),
                          (brand_name), (pattern_name), ()),
           ROLLUP(state);
+
+-- Part E. The snapshot trigger's same-tenant backstop (TYRE-38).
+-- 000008's body with one check ahead of everything else. The trigger runs
+-- inside refresh_governing_tread's SECURITY DEFINER chain, so RLS never
+-- binds its lookups; the composite FK on (tenant_id, inspection_id) is what
+-- keeps a cross-tenant reference unconstructable, and this check is the
+-- second layer 000004 gives its sibling in the same chain, in 000004's own
+-- words ("any future FK regression would otherwise reopen the silent
+-- cross-tenant write"). Ahead of the NULL-tyre guard on purpose: a reading
+-- with no tyre still names an inspection. db/tests/005_privileged.sql is
+-- where it is seen firing; the app role cannot reach it.
+CREATE OR REPLACE FUNCTION app.snapshot_on_governing_change() RETURNS trigger
+LANGUAGE plpgsql SET search_path = app, pg_temp AS $$
+DECLARE snap_date date; insp_tenant uuid;
+BEGIN
+  SELECT i.tenant_id, (i.submitted_at AT TIME ZONE 'UTC')::date
+    INTO insp_tenant, snap_date
+    FROM app.inspection i WHERE i.id = NEW.inspection_id;
+  IF insp_tenant IS DISTINCT FROM NEW.tenant_id THEN
+    RAISE EXCEPTION 'reading % names an inspection outside its tenant', NEW.id
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
+  IF NEW.tyre_id IS NULL OR NEW.governing_tread_mm IS NULL THEN
+    RETURN NULL;
+  END IF;
+  PERFORM app.reconcile_valuation_snapshots(NEW.tenant_id, snap_date, NEW.tyre_id, 'ON_CHANGE');
+  RETURN NULL;
+END $$;

@@ -2,6 +2,29 @@
 -- why the duplication is the point). Parts run in reverse of the up file:
 -- F, E, D, C, B, then A, so every dependent goes before what it depends on.
 
+-- Part E restore: the snapshot trigger drops its same-tenant backstop and the
+-- composite FK on (tenant_id, inspection_id) is the single layer again
+-- (TYRE-38). CREATE OR REPLACE, not DROP: reading_snapshots_governing_change
+-- keeps pointing at this oid, and dropping the function would take the
+-- trigger with it. The body is the catalog's own rendering of what 000008
+-- left, taken from pg_get_functiondef before this migration ran rather than
+-- retyped, so a down-then-up cycle returns prosrc byte for byte.
+CREATE OR REPLACE FUNCTION app.snapshot_on_governing_change()
+ RETURNS trigger
+ LANGUAGE plpgsql
+ SET search_path TO 'app', 'pg_temp'
+AS $function$
+DECLARE snap_date date;
+BEGIN
+  IF NEW.tyre_id IS NULL OR NEW.governing_tread_mm IS NULL THEN
+    RETURN NULL;
+  END IF;
+  SELECT (i.submitted_at AT TIME ZONE 'UTC')::date INTO snap_date
+    FROM app.inspection i WHERE i.id = NEW.inspection_id;
+  PERFORM app.reconcile_valuation_snapshots(NEW.tenant_id, snap_date, NEW.tyre_id, 'ON_CHANGE');
+  RETURN NULL;
+END $function$;
+
 -- Part D restore: the two at-risk views go, and v_estate_valuation comes back
 -- without the three casing provenance counts. The body below is the catalog's
 -- own rendering of what 000011 left, taken from pg_get_viewdef before this

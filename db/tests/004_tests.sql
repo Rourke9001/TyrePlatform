@@ -2,6 +2,8 @@
 --  Verification suite. Intended to run in CI on every build (NFR-SEC-005).
 --  Run as a NON-SUPERUSER role (app_login). Running it as postgres proves
 --  nothing: superusers bypass RLS.
+--  005_privileged.sql is the one file that runs as postgres, to STAGE what this
+--  role cannot; it is not part of this suite (B7 spec U12).
 --  Any failure raises an exception and aborts with a non-zero exit.
 --  Each check opens with an \echo '== ' banner; grep that prefix for an index.
 -- ============================================================================
