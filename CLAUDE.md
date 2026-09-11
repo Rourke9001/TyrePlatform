@@ -57,6 +57,7 @@ Every command is in the Makefile. Use it rather than remembering flags.
 make db-up          # Postgres 16 in docker, port 5433
 make db-reset       # drop, apply schema, regenerate and load seeds
 make db-test        # the verification suite, as a non-superuser
+make db-test-privileged  # negative controls that need a superuser to stage
 make test           # everything: db, api, web
 make fmt            # gofmt + prettier, in place
 make lint           # gofmt/prettier check, vet, staticcheck, eslint, tsc, comments
@@ -66,6 +67,10 @@ make check          # fmt + lint + test. Run before every commit.
 `make db-test` is the important one. It asserts tenant isolation, append-only
 grants, `security_invoker` on every view, all 15 Appendix E valuations to the
 cent, and the Appendix J exception set. **If it fails, nothing else matters.**
+`make db-test-privileged` is the one file that runs as `postgres`, and `make
+test` and CI both run it after the suite; it is not the suite and proves
+nothing about isolation, for the reason its own header gives
+(`db/tests/005_privileged.sql`).
 
 ## Architecture
 
