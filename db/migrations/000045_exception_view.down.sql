@@ -2,6 +2,43 @@
 -- why the duplication is the point). Parts run in reverse of the up file:
 -- F, E, D, C, B, then A, so every dependent goes before what it depends on.
 
+-- Part D restore: the two at-risk views go, and v_estate_valuation comes back
+-- without the three casing provenance counts. The body below is the catalog's
+-- own rendering of what 000011 left, taken from pg_get_viewdef before this
+-- migration ran rather than retyped, so a down-then-up cycle returns the same
+-- definition byte for byte. No comment was attached to the view or to any of
+-- its columns (obj_description and col_description both returned NULL), so
+-- there is none to restore.
+DROP VIEW app.v_casing_value_at_risk;
+DROP VIEW app.v_tyre_at_risk;
+DROP VIEW app.v_estate_valuation;
+CREATE VIEW app.v_estate_valuation WITH (security_invoker = true) AS
+ SELECT tenant_id,
+        CASE
+            WHEN GROUPING(fleet_number) = 0 THEN 'VEHICLE'::text
+            WHEN GROUPING(depot_name) = 0 THEN 'DEPOT'::text
+            WHEN GROUPING(size_name) = 0 THEN 'SIZE'::text
+            WHEN GROUPING(brand_name) = 0 THEN 'BRAND'::text
+            WHEN GROUPING(pattern_name) = 0 THEN 'PATTERN'::text
+            ELSE 'TENANT'::text
+        END AS level,
+    COALESCE(fleet_number, depot_name, size_name, brand_name, pattern_name) AS key_name,
+        CASE
+            WHEN GROUPING(state) = 1 THEN 'ALL'::text
+            ELSE state::text
+        END AS location_class,
+    count(*) AS tyre_count,
+    count(*) FILTER (WHERE valuation_basis = 'ACTUAL'::text) AS actual_count,
+    count(*) FILTER (WHERE valuation_basis = 'ESTIMATED'::text) AS estimated_count,
+    count(*) FILTER (WHERE tread_value IS NULL) AS unvalued_count,
+    count(*) FILTER (WHERE casing_value IS NULL) AS casing_unvalued_count,
+    sum(tread_value) AS tread_value,
+    sum(casing_value) AS casing_value,
+    COALESCE(sum(tread_value), 0::numeric) + COALESCE(sum(casing_value), 0::numeric) AS total_value
+   FROM app.v_tyre_valuation
+  WHERE state <> ALL (ARRAY['SCRAPPED'::app.tyre_state, 'LOST'::app.tyre_state, 'SOLD'::app.tyre_state])
+  GROUP BY tenant_id, GROUPING SETS ((fleet_number), (depot_name), (size_name), (brand_name), (pattern_name), ()), ROLLUP(state);
+
 -- Part C and B restore. Both column comments were absent before 000045
 -- (col_description returned NULL on each), so IS NULL is the state restored,
 -- not a comment discarded.

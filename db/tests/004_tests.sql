@@ -9321,5 +9321,63 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 59c. Value at risk: the casing rands on tyres at or below the removal threshold, provenance disclosed (FR-VAL-031, FR-VAL-013, FR-RPT-040; TYRE-193)'
+BEGIN;
+DO $$
+DECLARE r record; running_sum numeric; spare_sum numeric; depot_sum numeric; n int;
+        ca int; ce int; cau int;
+BEGIN
+  -- Pin the tenant rather than inherit an earlier section's session state
+  -- (section 28's rule). Every store behind these views forces row level
+  -- security, so an unbound tenant would empty each read and refuse the plant
+  -- below rather than fail the assertion.
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+
+  SELECT * INTO r FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'RUNNING';
+  IF NOT FOUND OR (r.tyre_count, r.actual_count, r.estimated_count, r.audit_count, r.unvalued_count, r.casing_value_at_risk)
+     IS DISTINCT FROM (9::bigint, 0::bigint, 9::bigint, 9::bigint, 0::bigint, 16537.50::numeric) THEN
+    RAISE EXCEPTION 'FAIL 59c: RUNNING row is count % actual % estimated % audit % unvalued % rands %',
+      r.tyre_count, r.actual_count, r.estimated_count, r.audit_count, r.unvalued_count, r.casing_value_at_risk;
+  END IF;
+  running_sum := r.casing_value_at_risk;
+  SELECT * INTO r FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'SPARE';
+  IF NOT FOUND OR (r.tyre_count, r.casing_value_at_risk) IS DISTINCT FROM (1::bigint, 1837.50::numeric) THEN
+    RAISE EXCEPTION 'FAIL 59c: SPARE row is count % rands %', r.tyre_count, r.casing_value_at_risk;
+  END IF;
+  spare_sum := r.casing_value_at_risk;
+  -- DEPOT rows sum to the TENANT row (ADR-0006: a depot actor reads its rows,
+  -- a tenant actor the whole)
+  SELECT sum(casing_value_at_risk) INTO depot_sum FROM app.v_casing_value_at_risk WHERE level = 'DEPOT' AND position_class = 'RUNNING';
+  IF depot_sum IS DISTINCT FROM running_sum THEN
+    RAISE EXCEPTION 'FAIL 59c: DEPOT running rows sum to %, TENANT says %', depot_sum, running_sum;
+  END IF;
+  -- The per-tyre list names the nine and the spare, every one an audit-basis casing
+  SELECT count(*), count(*) FILTER (WHERE casing_basis = 'AUDIT') INTO n, cau FROM app.v_tyre_at_risk;
+  IF (n, cau) IS DISTINCT FROM (10, 10) THEN
+    RAISE EXCEPTION 'FAIL 59c: v_tyre_at_risk has % rows, % on the audit basis', n, cau;
+  END IF;
+
+  -- The register is judged at TODAY (U18): a policy row effective now moves
+  -- sheet position 14 (LINK6 position 4, 5.0mm) into the at-risk list while
+  -- 59b showed the exception rows stayed judged at the sheet
+  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, warning_threshold_mm, effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111', 5.0, 5.0, 7.0, now() - interval '1 minute');
+  SELECT tyre_count INTO n FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'RUNNING';
+  IF n IS DISTINCT FROM 10 THEN
+    RAISE EXCEPTION 'FAIL 59c: after a 5.0 policy the running at-risk count is %, expected 10', n;
+  END IF;
+
+  -- The estate view discloses the casing side's provenance as well as the
+  -- tread side's (FR-DSH-002): every one of the fixture's 27 held casings is
+  -- the onboarding audit figure, none priced by a retreader or a size estimate
+  SELECT casing_actual_count, casing_estimated_count, casing_audit_count INTO ca, ce, cau
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF (ca, ce, cau) IS DISTINCT FROM (0, 0, 27) THEN
+    RAISE EXCEPTION 'FAIL 59c: estate casing split actual % estimated % audit %', ca, ce, cau;
+  END IF;
+  RAISE NOTICE 'PASS  59c value at risk R% running, R% spare, audit basis disclosed; register judged at today', running_sum, spare_sum;
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
