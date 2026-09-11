@@ -108,8 +108,13 @@ as a design first and as code second.
 and the browser are thin, one rule lives in one place. Three consequences:
 
 - **No rule logic outside SQL.** Not in Go ("for speed"), not in TypeScript
-  ("for the chart"). The three-way agreement is restated below as three
-  consumers of one implementation, not three implementations.
+  ("for the chart"). The API relay and the dashboard read `app.v_exception`
+  rather than recomputing it, once they land (§B7.2, §B7.3). The capture
+  app's own entry-time warnings (`web/src/capture/warnings.ts`) are the one
+  deliberate exception: an independent implementation of the same
+  thresholds, judged per reading at entry rather than per inspection at
+  submission, because NFR-USE-001's three-minute budget rules out a round
+  trip per reading.
 - **Views and functions are re-created whole, never patched.**
   `inflation_compliance`, `v_spare_tyre_age`, `v_estate_valuation` and section
   8 are replaced in full in 000045 with their old bodies deleted, in 000036's
@@ -405,11 +410,12 @@ The database computes the exceptions once, in `app.v_exception`. The API
 will relay them (B7.2) and the dashboard leg will be a Playwright assertion
 that the rendered counts for BAC equal 19, 11 and 9 (B7.3), once both land.
 The capture app's leg is unchanged and never reads the view: per-vehicle
-warnings at entry, its own independent implementation of the same rules
-(`web/src/capture/warnings.ts`), asserted against the database for one
-fixture vehicle (the capture spec of 2026-08-25, "Three layers"). "Three
-tiers agree" means each checks the same pinned expectation independently, so
-a change that moves one without the others is what makes a drift visible.
+warnings at entry, its own independent implementation of the same
+thresholds (`web/src/capture/warnings.ts`), asserted against the database
+for one fixture vehicle (the capture spec of 2026-08-25, "Three layers").
+"Three tiers agree" means each checks the same pinned expectation
+independently, so a change that moves one without the others is what makes
+a drift visible.
 
 ### D7. Riders carried by B7.1
 
