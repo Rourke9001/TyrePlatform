@@ -8,6 +8,11 @@ The domain model lives here, not in the API. See `docs/architecture.md` for why.
 Check 0 in the suite asserts this. A run as a superuser bypasses RLS and every
 isolation assertion silently becomes vacuous while still printing PASS.
 
+The one file that runs as `postgres` is `db/tests/005_privileged.sql`
+(`make db-test-privileged`): it stages what `app_login` cannot, a composite
+FK removed inside a transaction it rolls back, to watch a definer-chain
+backstop fire. It is not the suite and proves nothing about isolation.
+
 ## Schema changes are migrations
 
 A change is a new pair `migrations/NNNNNN_name.up.sql` + `.down.sql` (next

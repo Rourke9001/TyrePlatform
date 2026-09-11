@@ -27,9 +27,9 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parsing database url: %w", err)
 	}
-	// Rule 6: the schema's date predicates (v_spare_tyre_age, the two
-	// effective_from defaults, receive_tyres's least() clamp) follow the
-	// session TimeZone, and a managed Postgres exposes that as a server
+	// Rule 6: the schema's date predicates (the two effective_from defaults,
+	// receive_tyres's least() clamp) follow the session TimeZone, and a
+	// managed Postgres exposes that as a server
 	// parameter nothing here controls. Pinning it per connection makes the
 	// value a property of this process rather than of whichever server it is
 	// pointed at (TYRE-170). Tenant-day resolution is a separate concern

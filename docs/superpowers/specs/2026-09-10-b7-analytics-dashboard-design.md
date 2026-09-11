@@ -351,7 +351,7 @@ the same transaction, and Second Fleet seeds no tyre:
    chain.
 4. Trap the guard's own message text ("names an inspection outside its
    tenant"), not the bare SQLSTATE: 42501 is raised by three functions in the
-   chain and a bare code would be vacuous (`docs/lessons.md` 2026-09-01).
+   chain and a bare code would be vacuous (`docs/lessons.md` 2026-09-08).
 5. A second probe drops `reading_tyre_id_fkey` and inserts a BAC reading naming
    the Second Fleet tyre, expecting `reconcile_valuation_snapshots`' own
    message ("is not tenant … to reconcile"), which proves that assert's
