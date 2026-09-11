@@ -577,8 +577,11 @@ SELECT t.tenant_id,
 -- Every day here is counted on the TENANT's calendar, never UTC's (CLAUDE.md
 -- rule 6, the same reason v_spare_tyre_age above joins app.tenant): p_as_at
 -- is a tenant civil date, so subtracting a UTC date from it mixes two
--- calendars, and the as-at bound taken in UTC stops short of a west-of-UTC
--- tenant's own midnight and hides an inspection captured late in its day.
+-- calendars, and an as-at bound taken in UTC drifts by the tenant's offset:
+-- it stops short of a west-of-UTC tenant's own midnight and hides an
+-- inspection captured late in its day, or overshoots an east-of-UTC
+-- tenant's midnight by the same margin and counts one from its next day as
+-- today's.
 CREATE FUNCTION app.unit_inspection_status(p_as_at date)
 RETURNS TABLE (tenant_id uuid, vehicle_id uuid, fleet_number text, depot_id uuid,
                last_inspected_at timestamptz, days_since int, interval_days int,
