@@ -28,6 +28,44 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-11 — PostgreSQL pulls up a no-FROM LATERAL and re-runs the resolver at every reference site (TYRE-41)
+
+**What happened:** `app.v_exception` reads a resolved `threshold_policy` row
+and a resolved `target_pressure` row through `CROSS JOIN LATERAL`. A LATERAL
+subquery with no `FROM` clause of its own is pulled up by the planner, which
+then substitutes the subquery's target-list expression at every site that
+references the result, multiplied again by every CTE it inlines. Over the 53
+readings of the fixture tenant that was 878 resolver evaluations at 35 ms,
+against 4 at 6 ms once fenced, the fence also letting the planner memoize.
+Nothing in the result set differs, so a correctness-only review sees no
+symptom. The first fix judged the fence by field count and missed part F's
+staleness lateral, which reads a single field twice and needs it just the
+same.
+
+**The rule:** fence every LATERAL that calls a resolver with `OFFSET 0`, and
+judge the need by whether the resolved row is referenced more than once, not
+by how many fields come off it. The canonical rationale is the header of
+`db/migrations/000045_exception_view.up.sql`; cite it rather than restating
+the mechanism at each site.
+
+## 2026-09-11 — A `now()`-stamped configuration plant does nothing against an as-at bound (TYRE-41)
+
+**What happened:** a suite block planted `app.configuration` with
+`effective_from = now() - interval '1 minute'` to shift
+`reading_staleness_days`, then asserted against
+`app.unit_inspection_status('2026-08-01')`. Nothing moved. The function
+resolves its keys at the as-at bound, not at `now()`, and `app.config_for`
+takes `effective_from` strictly before that bound, so a row stamped today is
+simply not in force on a historical day. The plant read like a working setup
+and the assertion failed for a reason that had nothing to do with the code
+under test.
+
+**The rule:** when planting `app.configuration` or `app.threshold_policy`
+for a function that resolves at a historical as-at bound, stamp
+`effective_from` before that bound, not a minute back from `now()`. Check
+which instant the function resolves at before choosing the timestamp, and
+say so in the block's comment so the next author does not undo it.
+
 ## 2026-09-09 — A punctuation rule anchored to a neighbouring letter misses the line end (TYRE-237)
 
 **What happened:** the first em-dash rule in `scripts/check-comment-style.mjs`
