@@ -2,10 +2,14 @@
 -- why the duplication is the point). Parts run in reverse of the up file:
 -- F, E, D, C, B, then A, so every dependent goes before what it depends on.
 
--- Part A restore: the two wrappers come back over their own reads, so nothing
--- depends on the resolvers by the time they go. Both bodies are the catalog's
--- own rendering of what 000013 left, taken from pg_get_functiondef rather than
--- retyped, so a down-then-up cycle returns prosrc byte for byte.
+-- Part A restore: the two wrappers come back over their own reads before the
+-- resolvers go, so no wrapper is ever left pointing at a function that is
+-- gone. The catalog will not enforce that order, because a LANGUAGE sql body
+-- stored as text records no dependency on what it calls; the DROPs below
+-- would succeed either way and the breakage would surface at the first call
+-- instead. Both bodies are the catalog's own rendering of what 000013 left,
+-- taken from pg_get_functiondef rather than retyped, so a down-then-up cycle
+-- returns prosrc byte for byte.
 CREATE OR REPLACE FUNCTION app.removal_threshold_mm_for(p_tenant uuid, p_before timestamp with time zone)
  RETURNS numeric
  LANGUAGE sql
