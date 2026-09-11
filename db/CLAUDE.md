@@ -11,7 +11,9 @@ isolation assertion silently becomes vacuous while still printing PASS.
 The one file that runs as `postgres` is `db/tests/005_privileged.sql`
 (`make db-test-privileged`): it stages what `app_login` cannot, a composite
 FK removed inside a transaction it rolls back, to watch a definer-chain
-backstop fire. It is not the suite and proves nothing about isolation.
+backstop fire. It is not the suite and proves nothing about isolation: the
+isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
+(NFR-SEC-005).
 
 ## Schema changes are migrations
 
