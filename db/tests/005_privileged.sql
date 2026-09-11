@@ -31,11 +31,12 @@ DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
         rd constant uuid := md5('p1rd')::uuid;
         msg text; fired boolean := false;
 BEGIN
-  -- Staging. The BAC inspection is created in THIS transaction: 000040's seal
-  -- refuses a reading on any inspection whose created_at is not this
-  -- transaction's timestamp, so a seeded inspection can never be reached
-  -- here. Second Fleet seeds no tyre, and reading_tyre_id_fkey is composite
-  -- on (tenant_id, tyre_id), so one is planted for the reading to name.
+  -- Staging for TYRE-38's backstop, not part of the assertion. The BAC
+  -- inspection is created in THIS transaction: 000040's seal refuses a
+  -- reading on any inspection whose created_at is not this transaction's
+  -- timestamp, so a seeded inspection can never be reached here. Second
+  -- Fleet seeds no tyre, and reading_tyre_id_fkey is composite on
+  -- (tenant_id, tyre_id), so one is planted for the reading to name.
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
   VALUES (insp, t1, md5('veh1')::uuid, md5('driver1')::uuid, md5('p1cli')::uuid,
           now() - interval '10 minutes', now() - interval '5 minutes', 412600);
@@ -90,10 +91,11 @@ DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
         rd constant uuid := md5('p2rd')::uuid;
         msg text; fired boolean := false;
 BEGIN
-  -- The mirror of P1: a BAC reading naming a Second Fleet tyre. The
-  -- inspection check passes (same tenant); the tyre check inside
-  -- reconcile_valuation_snapshots (000029) is the one reached, on the branch
-  -- section 20 cannot exercise because RLS is bound there.
+  -- The mirror of P1, staging TYRE-38's second backstop: a BAC reading
+  -- naming a Second Fleet tyre. The inspection check passes (same tenant);
+  -- the tyre check inside reconcile_valuation_snapshots (000029) is the one
+  -- reached, on the branch section 20 cannot exercise because RLS is bound
+  -- there.
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
   VALUES (insp, t1, md5('veh1')::uuid, md5('driver1')::uuid, md5('p2cli')::uuid,
           now() - interval '10 minutes', now() - interval '5 minutes', 412600);
