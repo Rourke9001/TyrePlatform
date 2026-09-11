@@ -86,6 +86,10 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 ('duplicate_inspection_min_hours', 4),    # FR-INS-038's window, read by app.submit_inspection
                 ('submitted_at_future_skew_minutes', 5),  # TYRE-166: how far ahead of the server clock a device may stamp a submit
                 ('wear_rate_alert_multiple', 3),          # FR-INS-035, served to the device in the capture context
+                # FR-DSH-009's "within 30 days" is tenant configuration, never
+                # a constant (rule 5); the dashboard tile and
+                # /api/analytics/removal-forecast default to it (B7 spec D7).
+                ('forecast_horizon_days', 30),
                 ('tread_capture_granularity_mm', 1.0)]:
         L.append(f"INSERT INTO app.configuration (tenant_id,key,value,effective_from) VALUES ('{tid}','{k}','{json.dumps(v)}'::jsonb,'2024-01-01T00:00:00Z');")
     L.append("")

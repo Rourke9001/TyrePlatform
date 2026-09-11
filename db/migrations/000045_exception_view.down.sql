@@ -2,6 +2,30 @@
 -- why the duplication is the point). Parts run in reverse of the up file:
 -- F, E, D, C, B, then A, so every dependent goes before what it depends on.
 
+-- Part F restore: the unit inspection status pair goes, and v_spare_tyre_age
+-- comes back on the server day and on the audit column. The body below is the
+-- catalog's own rendering of what 000012 left, taken from pg_get_viewdef
+-- before this migration ran rather than retyped, so a down-then-up cycle
+-- returns the same definition byte for byte. No comment was attached to the
+-- view or to any of its columns (obj_description and col_description both
+-- returned NULL), so there is none to restore.
+DROP VIEW app.v_unit_inspection_status;
+DROP FUNCTION app.unit_inspection_status(date);
+DROP VIEW app.v_spare_tyre_age;
+CREATE VIEW app.v_spare_tyre_age WITH (security_invoker = true) AS
+ SELECT t.tenant_id,
+    t.id AS tyre_id,
+    t.display_code,
+    f.vehicle_id,
+    t.received_date,
+    CURRENT_DATE - t.received_date AS age_days,
+    t.last_tread_at,
+    CURRENT_DATE - t.last_tread_at::date AS days_since_measured
+   FROM app.tyre t
+     JOIN app.fitment f ON f.tyre_id = t.id AND f.removed_at IS NULL
+     JOIN app."position" p ON p.id = f.position_id
+  WHERE p.is_spare;
+
 -- Part E restore: the snapshot trigger drops its same-tenant backstop and the
 -- composite FK on (tenant_id, inspection_id) is the single layer again
 -- (TYRE-38). CREATE OR REPLACE, not DROP: reading_snapshots_governing_change
