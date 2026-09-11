@@ -418,6 +418,11 @@ exactly one seeded inspection, wrong the first time a driver submits a second.
 It lands with this phase, behind TYRE-66. It sits under epic TYRE-5, so the
 dependency is cross-epic and wants re-scoping before pickup.
 
+*Landed 11 Sep 2026 as B7.1 (migration 000045, `app.v_latest_unit_inspection`
+and `app.v_exception`; `docs/superpowers/specs/2026-09-10-b7-analytics-dashboard-design.md`
+D2). The fixture has carried two inspections per unit since TYRE-35, so the
+scoping was never invisible in the suite; the sentence above predates that.*
+
 TYRE-38 (the snapshot trigger's same-tenant backstop) is write-adjacent but
 not required here.
 

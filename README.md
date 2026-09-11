@@ -16,11 +16,12 @@ make db-test      # the verification suite — start here
 
 `make db-test` should end with `ALL CHECKS PASSED`. It asserts tenant
 isolation, append-only grants, `security_invoker` on every view, all fifteen
-reference valuations to the cent, and the golden fixture's exception positions
-— the sets behind **19 exceptions, 11 urgent, 9 running positions below the
-removal threshold**, which check 8 pins for five rules
-(FR-EXC-020/035/038/036/022) today. The capture app and the dashboard have no
-exception computation yet (TYRE-41, TYRE-7).
+reference valuations to the cent, and the golden fixture's exceptions through
+`app.v_exception`: **19 exceptions, 11 urgent, 9 running positions below the
+removal threshold** (check 59), with the position sets per rule in check 8.
+`make db-test-privileged` then runs one file as `postgres` to watch a
+definer-chain backstop refuse a cross-tenant row it has to stage itself; it
+is not the suite and proves nothing about RLS.
 
 If it passes as `postgres` rather than `app_login`, it has proved nothing —
 superusers bypass row-level security. Check 0 inside the suite catches this.
