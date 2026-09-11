@@ -305,8 +305,10 @@ SELECT v.tenant_id, v.tyre_id, v.display_code, v.vehicle_id, v.fleet_number,
 `app.v_casing_value_at_risk` aggregates it in `v_estate_valuation`'s shape:
 `level` TENANT or DEPOT with `key_name`, crossed with `position_class`
 RUNNING or SPARE (U8), via GROUPING SETS: `tyre_count`, `actual_count` (basis
-ACTUAL, a retreader's figure), `estimated_count` (basis ESTIMATED or AUDIT,
-with `audit_count` disclosed inside it), `unvalued_count`, and
+ACTUAL, a retreader's figure), `estimated_or_audit_count` (basis ESTIMATED or
+AUDIT, with `audit_count` disclosed inside it, and named for the nesting so it
+cannot be read as `v_estate_valuation`'s strict `casing_estimated_count`),
+`unvalued_count`, and
 `casing_value_at_risk = sum(casing_value)` over the valued rows only, never
 zero-filled (FR-VAL-013, FR-VAL-031, NFR-PRO-002/003). The tread side of these
 tyres is R0.00 by FR-VAL-004 and is not restated. This view is judged at today
@@ -397,7 +399,7 @@ names it.
 | a planted later `threshold_policy` row at 5.0, effective now (U18) | `v_exception` 020 stays 9 (judged at July's 4.0); `v_tyre_at_risk` RUNNING becomes 10 (position 14 at 5.0 joins) |
 | `v_casing_value_at_risk` | TENANT / RUNNING 9 / R16,537.50, TENANT / SPARE 1 / R1,837.50, DEPOT rows equal |
 | disabling FR-EXC-021 on BAC's rule row inside the transaction | total 18, urgent 11 |
-| `v_removal_forecast` within the seeded horizon (D7) | 0 |
+| `v_removal_forecast` FORECAST and not spare, within the seeded horizon of 1 Aug 2026 (D7) | 6, and 2 under a dated seven day override |
 | `app.unit_inspection_status` (D7) at 2026-08-01 and 2026-09-01 | 3 unscheduled, coverage NULL; stale 0 then 3 |
 
 The disable row is the rule-catalogue proof: `enabled` is read, not
@@ -439,9 +441,15 @@ a drift visible.
   FR-DSH-009 count is `v_removal_forecast` rows with `forecast_status =
   'FORECAST'` (which also excludes NO_THRESHOLD_POLICY and NO_MEASURABLE_WEAR),
   `NOT is_spare`, and
-  `earliest_removal_date` within the horizon of the tenant's today; on the
-  fixture that is 0, and the already-below tyres are FR-DSH-004's, not this
-  tile's.
+  `earliest_removal_date` within the horizon of the tenant's today, and the
+  already-below tyres are FR-DSH-004's, not this tile's. The suite pins the
+  count at a fixed 1 August 2026 rather than at the tenant's today, because
+  `app.predicted_threshold_range` (000013) anchors every forecast on the date
+  of the reading that produced it and never on the clock: a today-anchored
+  count therefore drifts while the fixture stands still. Judged at 1 August
+  2026 the seeded thirty day horizon holds **6** tyres and a dated seven day
+  override holds **2**; the same predicate read at the tenant's today
+  returned 8 on 11 September 2026, which is why the assertion is dated.
 - `api/CLAUDE.md` "Money over the wire" is corrected: numeric is scanned as
   text into a string and emitted as a JSON string; no decimal library exists
   or is wanted. The code is right and the sentence is stale.
