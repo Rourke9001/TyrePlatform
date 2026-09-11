@@ -428,8 +428,9 @@ breaks one is visible because the other two still read the same view.
   numbers.
 - **The forecast horizon becomes configuration** (rule 5): key
   `forecast_horizon_days`, seeded 30, read through `app.config_for`. The
-  FR-DSH-009 count is `v_removal_forecast` rows with `basis` other than
-  `AT_OR_BELOW_THRESHOLD` and `INSUFFICIENT_DATA`, `NOT is_spare`, and
+  FR-DSH-009 count is `v_removal_forecast` rows with `forecast_status =
+  'FORECAST'` (which also excludes NO_THRESHOLD_POLICY and NO_MEASURABLE_WEAR),
+  `NOT is_spare`, and
   `earliest_removal_date` within the horizon of the tenant's today; on the
   fixture that is 0, and the already-below tyres are FR-DSH-004's, not this
   tile's.
