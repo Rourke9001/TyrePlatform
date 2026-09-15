@@ -51,13 +51,14 @@ B7.1 gave the database its half: `app.v_exception`, the threshold and pressure
 resolvers, the two value-at-risk views, and suite section 59 pinning 19 / 11 / 9
 as numbers. Nothing above the database consumes any of it, so no exception
 endpoint, no fleet valuation and no value-at-risk figure exists in the API or
-the web app. Four slices, each its own branch, PR and review, each planned
-after the previous merges:
+the web app. Four slices and one substrate slice between the first two, each
+its own branch, PR and review, each planned after the previous merges:
 
 | Slice | Ticket | State |
 |---|---|---|
 | B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | **merged** 15 Sep 2026, PR [#55](https://github.com/Rourke9001/TyrePlatform/pull/55), migration 000045 |
-| B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half); TYRE-211's write sites. Read TYRE-247 first: it carries the index the dashboard substrate needs, and the rule B7.1 leaves behind, that `v_casing_value_at_risk` nests AUDIT inside its estimated-or-audit count while `v_estate_valuation` keeps the two disjoint, so one payload must not carry both | **next** |
+| B7.1.5 | TYRE-252 first (migration 000046: the measurement-ordinal check becomes statement-level; found at planning, spec S0), then TYRE-247, the dashboard substrate: a volume tenant in Sandbox Fleet (60 units, fortnightly, 24 months, `make db-volume`), the dashboard read path measured on it, and migration 000047 for the index if the plan warrants one (spec B7.1.5, U21, U22, U26) | **next**: TYRE-252 on `TYRE-252-ordinal-trigger`, then TYRE-247 on `TYRE-247-dashboard-substrate` (cut 15 Sep 2026) |
+| B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half). No migration (U21). The rule B7.1 leaves behind, that `v_casing_value_at_risk` nests AUDIT inside its estimated-or-audit count while `v_estate_valuation` keeps the two disjoint, so one payload must not carry both (U27). TYRE-211's write sites and TYRE-142 are one DB-only PR after B7.2, not part of it (U23, U24) | after B7.1.5 |
 | B7.3 | design system (ADR-0015) and the dashboard, new tickets under TYRE-7 | after B7.2 |
 | B7.4 | TYRE-240, the restyle of the ten existing screens; carries TYRE-176, TYRE-182 and the two capture defects TYRE-241 and TYRE-242 | after B7.3 |
 

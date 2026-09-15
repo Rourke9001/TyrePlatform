@@ -9530,5 +9530,131 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 60. Measurement ordinals are checked per statement, scoped to the readings the statement touched (TYRE-252, DR-016)'
+-- 000001 declared the guard as a deferred per-row constraint trigger whose
+-- body joined every reading to every measurement the caller could see, so a
+-- submit paid a full-history scan per measurement (TYRE-252). 000046 makes
+-- it a statement trigger over a transition table. The refusals it keeps are
+-- proven here against a planted inspection, as BAC, inside each block's own
+-- BEGIN/ROLLBACK (sections 25 and 59 use the same pattern); the cost it
+-- removes is measured against the volume tenant (TYRE-247), not here.
+--
+-- Losing the deferral is safe because no caller depends on it.
+-- app.submit_inspection (000041) generates the ordinal as a loop counter
+-- rather than reading it from the payload, so its measurements arrive one
+-- per statement as 1, 2, 3 and each statement leaves the reading contiguous.
+-- 60b holds that shape.
+
+\echo '== 60a. a gapped multi-row insert and an out-of-order single row are both refused, in the words 000001 used'
+BEGIN;
+DO $$
+DECLARE t1   constant uuid := '11111111-1111-1111-1111-111111111111';
+        insp uuid := md5('t252-insp')::uuid;
+        rd   uuid := md5('t252-rd')::uuid;
+        ok   boolean;
+        msg  text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t1::text, true);
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,combination_id,user_id,client_uuid,started_at,submitted_at,odometer,device_id,app_version,duration_seconds)
+  VALUES (insp, t1, md5('veh1')::uuid, md5('comb1')::uuid, md5('driver1')::uuid, md5('t252-cli')::uuid,
+          '2026-09-10T05:38:00Z', '2026-09-10T05:45:00Z', 420000, 'suite', '0.0.0-suite', 60);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  SELECT rd, t1, insp, md5('veh1')::uuid, pos.id, NULL, 800
+    FROM app.position pos JOIN app.vehicle v ON v.configuration_id = pos.configuration_id
+   WHERE v.id = md5('veh1')::uuid AND pos.code = '1';
+
+  -- (a) ordinals 1 and 3 in one statement: a gap the statement closes over.
+  ok := false;
+  BEGIN
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm)
+    VALUES (t1, rd, 1, 'OUTER', 10.0, false, 1.0), (t1, rd, 3, 'INNER', 10.0, false, 1.0);
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'reading % has non-contiguous measurement ordinals (n=2, lo=1, hi=3)' THEN
+      RAISE EXCEPTION 'FAIL 60a: gapped insert refused with the wrong message: %', msg;
+    END IF;
+    ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 60a: a gapped multi-row insert (1, 3) was accepted'; END IF;
+
+  -- (b) ordinal 2 alone, before 1: the set does not start at 1.
+  ok := false;
+  BEGIN
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm)
+    VALUES (t1, rd, 2, 'CENTRE', 10.0, false, 1.0);
+  EXCEPTION WHEN raise_exception THEN
+    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    IF msg NOT LIKE 'reading % has non-contiguous measurement ordinals (n=1, lo=2, hi=2)' THEN
+      RAISE EXCEPTION 'FAIL 60a: out-of-order insert refused with the wrong message: %', msg;
+    END IF;
+    ok := true;
+  END;
+  IF NOT ok THEN RAISE EXCEPTION 'FAIL 60a: ordinal 2 inserted before 1 was accepted'; END IF;
+  RAISE NOTICE 'PASS  60a a gapped multi-row insert and an out-of-order single row are refused in 000001''s words';
+END $$;
+ROLLBACK;
+
+\echo '== 60b. a whole position in one statement passes, and so do three single-row statements in order (the submit_inspection shape)'
+BEGIN;
+DO $$
+DECLARE t1   constant uuid := '11111111-1111-1111-1111-111111111111';
+        insp uuid := md5('t252-insp2')::uuid;
+        rd1  uuid := md5('t252-rd1')::uuid;
+        rd2  uuid := md5('t252-rd2')::uuid;
+        n    int;
+        g    numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', t1::text, true);
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,combination_id,user_id,client_uuid,started_at,submitted_at,odometer,device_id,app_version,duration_seconds)
+  VALUES (insp, t1, md5('veh1')::uuid, md5('comb1')::uuid, md5('driver1')::uuid, md5('t252-cli2')::uuid,
+          '2026-09-10T05:38:00Z', '2026-09-10T05:45:00Z', 420000, 'suite', '0.0.0-suite', 60);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  SELECT rd1, t1, insp, md5('veh1')::uuid, pos.id, NULL, 800
+    FROM app.position pos JOIN app.vehicle v ON v.configuration_id = pos.configuration_id
+   WHERE v.id = md5('veh1')::uuid AND pos.code = '1';
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  SELECT rd2, t1, insp, md5('veh1')::uuid, pos.id, NULL, 800
+    FROM app.position pos JOIN app.vehicle v ON v.configuration_id = pos.configuration_id
+   WHERE v.id = md5('veh1')::uuid AND pos.code = '2';
+
+  -- the fixture's shape: a whole position in one statement
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm)
+  VALUES (t1, rd1, 1, 'OUTER', 10.0, false, 1.0), (t1, rd1, 2, 'CENTRE', 9.0, false, 1.0), (t1, rd1, 3, 'INNER', 10.0, false, 1.0);
+  -- app.submit_inspection's shape (000041): one row per statement, in order
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm)
+  VALUES (t1, rd2, 1, 'OUTER', 12.0, false, 1.0);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm)
+  VALUES (t1, rd2, 2, 'CENTRE', 11.0, false, 1.0);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm)
+  VALUES (t1, rd2, 3, 'INNER', 12.0, false, 1.0);
+  SELECT count(*) INTO n FROM app.reading_measurement WHERE reading_id IN (rd1, rd2);
+  IF n <> 6 THEN RAISE EXCEPTION 'FAIL 60b: expected 6 measurements across the two readings, found %', n; END IF;
+  SELECT governing_tread_mm INTO g FROM app.reading WHERE id = rd2;
+  IF g <> 11.0 THEN RAISE EXCEPTION 'FAIL 60b: governing depth on the single-row path is %, expected 11.0', g; END IF;
+  RAISE NOTICE 'PASS  60b a whole position in one statement and three ordered single-row statements both pass, governing MIN intact';
+END $$;
+ROLLBACK;
+
+\echo '== 60c. the catalogue holds statement-level ordinal triggers and nothing deferrable'
+BEGIN;
+DO $$
+DECLARE n int; d int;
+BEGIN
+  SELECT count(*) INTO n FROM pg_trigger tg
+    JOIN pg_class c ON c.oid = tg.tgrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
+   WHERE ns.nspname = 'app' AND c.relname = 'reading_measurement'
+     AND tg.tgname LIKE 'reading_measurement_ordinals_%'
+     AND NOT tg.tgisinternal
+     AND (tg.tgtype & 1) = 0;              -- bit 0 set means FOR EACH ROW; clear means FOR EACH STATEMENT
+  SELECT count(*) INTO d FROM pg_trigger tg
+    JOIN pg_class c ON c.oid = tg.tgrelid JOIN pg_namespace ns ON ns.oid = c.relnamespace
+   WHERE ns.nspname = 'app' AND c.relname = 'reading_measurement' AND tg.tgdeferrable;
+  IF n <> 3 OR d <> 0 THEN
+    RAISE EXCEPTION 'FAIL 60c: expected three statement-level ordinal triggers and no deferrable trigger on reading_measurement, found % and %', n, d;
+  END IF;
+  RAISE NOTICE 'PASS  60c three statement-level ordinal triggers, none deferrable';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
