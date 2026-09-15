@@ -139,6 +139,12 @@ into. Read the output for the `make: *** … Error` line, or run the gate
 unpiped and let its own status stand. Treat any agent that reports "exit 0"
 for a command containing a pipe as having reported nothing about that gate.
 
+**Recurred 2026-09-15**, in a session with this entry already in context:
+`make check 2>&1 | tail -40` reported exit 0 while docker was down and `fmt`
+had failed. Written down was not enough, so `.claude/hooks/gate-not-piped.sh`
+now refuses the command at PreToolUse (TYRE-250). `set -o pipefail` or an
+explicit `${PIPESTATUS[0]}` read is the way through it.
+
 ## 2026-09-05 — A Python comparison of two identical files reports a moved Appendix E pin (TYRE-101)
 
 **What happened:** a script comparing the suite's pin sections between
