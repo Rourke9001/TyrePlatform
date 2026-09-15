@@ -554,9 +554,21 @@ updates the reading's governing depth per measurement and
 `reading_snapshots_governing_change` (000006) reconciles a valuation
 snapshot on each change, so ninety thousand rows may cost minutes. The plan
 records the load time. Over two minutes is a finding about the write path at
-volume and gets its own ticket; the one optimisation the generator may take
+volume and goes on TYRE-252; the one optimisation the generator may take
 is to emit each reading's lowest measurement first, which is load order, not
 data, and leaves the governing MIN and every row identical.
+
+One trigger is not measured but bypassed, and the reason is a finding in its
+own right. `reading_measurement_ordinals_contiguous` (000001) is a deferred
+constraint trigger declared `FOR EACH ROW` whose body scans every reading
+and measurement it can see: queued once per row and fired at commit, ninety
+thousand rows is ninety thousand full scans, and a driver's submit over a
+two-year history pays the same scan per measurement. That is TYRE-252, raised
+at planning. The load disables that one trigger for its own transaction and
+runs the trigger's own predicate once, over the rows it wrote, before
+`COMMIT`, so contiguity is still asserted, not trusted. Every other trigger
+fires: the governing depth, the snapshots and the seal are what a real
+submit would have written.
 
 ### S3. The measurement
 
