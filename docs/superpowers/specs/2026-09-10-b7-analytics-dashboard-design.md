@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10 · **Batch:** B7 (`docs/implementation-order.md` §B7) ·
 **Tickets:** TYRE-41, TYRE-211 (resolver half), TYRE-183, TYRE-193, TYRE-38,
-TYRE-247, TYRE-36, and new tickets under TYRE-7 for the design system, the dashboard and
+TYRE-252, TYRE-247, TYRE-36, and new tickets under TYRE-7 for the design system, the dashboard and
 the restyle · **Riders:** TYRE-176, TYRE-182, the two capture defects raised by
 this spec · **Authority:** SRS v1.4 §4.10 (FR-VAL-010..013, 020..022, 031),
 §4.11 (FR-ANL-023..028, 044, 045), §4.12.2 (FR-RPT-040, 041), §4.13 and §4.13.1
@@ -38,7 +38,7 @@ B7 closes that gap, in four slices and one substrate slice between the first two
 | Slice | Tickets | One sentence |
 |---|---|---|
 | **B7.1** | TYRE-41, TYRE-211 (resolver), TYRE-183, TYRE-193 (view), TYRE-38 rides | One exception view scoped to each unit's latest inspection, two resolvers, one value-at-risk view, and the suite pins 19, 11 and 9 as numbers through them. |
-| **B7.1.5** | TYRE-247 | A volume tenant in Sandbox Fleet, the dashboard read path measured on it, and the index the measurement warrants, so B7.2 carries no migration (U21). |
+| **B7.1.5** | TYRE-252, then TYRE-247 | TYRE-252 first: the measurement-ordinal trigger becomes statement-level (000046). Then a volume tenant in Sandbox Fleet, the dashboard read path measured on it, and the index the measurement warrants (000047), so B7.2 carries no migration (U21). |
 | **B7.2** | TYRE-36, TYRE-193 (endpoint) | Tenant-scoped, depot-scoped read endpoints that relay those views, money as exact decimal strings, cent-exact integration tests. |
 | **B7.3** | new: ADR-0015 and the dashboard, under TYRE-7 | The design system on tokens, plain CSS and Radix primitives, and the manager landing page led by value at risk. |
 | **B7.4** | new: the restyle, under TYRE-7; carries TYRE-176, TYRE-182 and the two capture defects | Every existing fleet and admin screen moves onto the design system; the capture sheet gets defect fixes only. |
@@ -102,7 +102,7 @@ as a design first and as code second.
 | **U18** | **Exception rules are judged at the inspection's `submitted_at`; the register and the value-at-risk hero are judged at today.** The two agree on the fixture and diverge after a policy change or a removal, and the dashboard names which figure comes from which (§B7.3). | FR-EXC-001 evaluates rules against the submitted inspection at receipt, and FR-CFG-051 applies a policy change prospectively; the snapshot trigger prices at the snapshot's date for the same reason. FR-VAL-031 and FR-DSH-004 say "currently", which is the register. Every exception row carries the threshold it was judged against, so it explains itself. Section 59 pins both behaviours with a planted later policy row. | One `bound` expression. |
 | **U19** | **FR-EXC-032 is not a rule row; it is the money attribute of the 020 and 038 rows**, served by `v_tyre_at_risk`. Consequence: it cannot be disabled separately from 020 under FR-EXC-004. TYRE-193's "the FR-EXC-032 rule row" is read as "the rule's figure exists", not as a tenth row. | A row that duplicates 020's subject and predicate with a rand column would be one open exception per subject twice (FR-EXC-006). | One seeded row. |
 | **U20** | **`v_exception`'s subject vocabulary is the table's: TYRE, POSITION_PAIR, VEHICLE**, and a reading with no tyre on record raises no row. 000045 replaces `app.exception.subject_type`'s comment so B8 inherits one vocabulary. | Two vocabularies for one concept is the second-implementation smell. A position with nothing recorded on it has nothing to remove; it surfaces on the register as an unknown position (FR-INS-026), not here. | One CASE. |
-| **U21** | **TYRE-247 is its own DB-only slice, B7.1.5, ahead of B7.2, and B7.2 carries no migration.** Migration 000046 belongs to B7.1.5 if the measurement warrants an index; a maintained latest-per-unit relation is a write path and gets its own ticket and an ADR first. | TYRE-247's definition of done is measure-first on representative data, Sandbox Fleet deliberately carries no readings, and no volume generator exists, so the measurement cannot happen inside a read batch without first building one; and the auditors' scope for B7.2 stays read-only. Owner, 15 Sep 2026. | One extra PR. |
+| **U21** | **TYRE-247 is its own DB-only slice, B7.1.5, ahead of B7.2, and B7.2 carries no migration.** Migration 000047 belongs to B7.1.5 if the measurement warrants an index (000046 is TYRE-252's, which lands first); a maintained latest-per-unit relation is a write path and gets its own ticket and an ADR first. | TYRE-247's definition of done is measure-first on representative data, Sandbox Fleet deliberately carries no readings, and no volume generator exists, so the measurement cannot happen inside a read batch without first building one; and the auditors' scope for B7.2 stays read-only. Owner, 15 Sep 2026. | One extra PR. |
 | **U22** | **Representative volume is 60 units, inspected fortnightly, 24 months of history, in Sandbox Fleet only**, from a committed `db/seeds/gen_seed_volume.py` behind an opt-in `make db-volume` that `make db-reset` never runs. Measured on the docker laptop first, again on Azure once TYRE-79 lands. | BAC's rows are the acceptance fixture and must not move; a generator that is committed and deterministic can be re-run for every later measurement instead of re-derived. Owner, 15 Sep 2026. | A seed file and a make target. |
 | **U23** | **TYRE-211's three write sites do not ride B7.2.** The remainder and TYRE-142 are one DB-only PR after B7.2. The B7.2 row in `docs/implementation-order.md` is corrected. | B7.2 stays read-only; the three functions were re-created whole in B6.3; the two tickets share the Appendix E/J pin-run gate and the append-only auditor's scope. Owner, 15 Sep 2026. | A docs row and sequencing. |
 | **U24** | **`p_before` stays exclusive; the callers that mean "in force now" share one inclusive sibling body.** Only `current_removal_threshold_mm` (000006) and `v_removal_forecast` (000013) pass `now()`; the write sites already read `<= now()` inline. | The day-edge callers (`tyre_valuation_asof`, `v_exception` at `submitted_at`) are right as they are; the smaller change is at the two callers, not the resolver. Owner, 15 Sep 2026; taken with U23. | Conditional on U23. |
@@ -147,7 +147,10 @@ B7.1 → B7.1.5 → B7.2 → B7.3 → B7.4, each planned after the previous merg
   pilot data and expensive after.
 - **B7.1.5 between them** because TYRE-247's index or relation is a
   migration, and B7.2 is a read-only batch that carries none (U21); the
-  measurement it needs cannot run on the 53-reading fixture.
+  measurement it needs cannot run on the 53-reading fixture. TYRE-252 goes
+  first inside B7.1.5, as its own PR, so the volume load bypasses nothing
+  and the submit path the measurement sees is the real one (owner, 15 Sep
+  2026).
 - **B7.2 before B7.3** because the dashboard's numbers arrive through the API
   and the mockups are reviewed against real responses, not fixtures.
 - **B7.3 before B7.4** because the design system is built once, on the one
@@ -492,10 +495,42 @@ has exactly one seeded inspection" is stale and gains a one-line pointer here.
 ## B7.1.5, the dashboard substrate (TYRE-247), designed to executable detail
 
 Planned 15 Sep 2026 after B7.1 merged, on the owner's answers U21, U22, U26
-and U27. One branch, `TYRE-247-dashboard-substrate`, one PR, DB-only. Its
-job is to measure the dashboard's read path on a tenant of representative
-size and to fix what the measurement shows, so that B7.2 relays views whose
-first-call cost is known rather than guessed.
+and U27. Two PRs, both DB-only, in order: **TYRE-252** (S0 below) on branch
+`TYRE-252-ordinal-trigger`, then **TYRE-247** on
+`TYRE-247-dashboard-substrate`, rebased onto develop once the first has
+merged. The slice's job is to measure the dashboard's read path on a tenant
+of representative size and to fix what the measurement shows, so that B7.2
+relays views whose first-call cost is known rather than guessed.
+
+### S0. TYRE-252 first: the measurement-ordinal check becomes statement-level
+
+`reading_measurement_ordinals_contiguous` (000001) is a deferred constraint
+trigger declared `FOR EACH ROW` whose body scans every reading and
+measurement it can see: queued once per row and fired at commit, ninety
+thousand rows is ninety thousand full scans, and a driver's submit over a
+two-year history pays the same scan per measurement. Found at planning,
+raised as TYRE-252, and fixed **before** the volume load exists so the load
+bypasses nothing and the write path the measurement sees is the real one
+(owner, 15 Sep 2026).
+
+Migration `000046_measurement_ordinals_by_statement` drops the constraint
+trigger and re-creates `app.check_measurement_ordinals()` as the body of
+three `AFTER ... FOR EACH STATEMENT` triggers with transition tables
+(`REFERENCING NEW TABLE AS new_rows` on INSERT, `OLD TABLE AS old_rows` on
+DELETE, both on UPDATE), scoped to the readings the statement touched. The
+message and SQLSTATE (P0001) do not change; the check runs at statement end,
+which is what 000001's own comment already claimed. `app.submit_inspection`
+(000041) inserts one measurement per statement in ordinal order and passes
+at every step, as the suite proves. UPDATE and DELETE stay revoked from the
+app role (check 4), so the INSERT path is the one that matters. Suite
+section **60** plants an inspection and a reading as BAC inside
+`BEGIN ... ROLLBACK` and proves: a gapped multi-row insert (ordinals 1 and 3)
+is refused; a single-row insert of ordinal 2 before 1 is refused; a whole
+position in one statement passes; three single-row statements in order
+pass; and the catalogue holds no deferrable trigger on `reading_measurement`.
+The `append-only-auditor` reviews it (a trigger on an append-only table) and
+the `rls-auditor` has nothing to say. The down file restores the 000001
+function body and constraint trigger verbatim.
 
 ### S1. The volume generator
 
@@ -558,17 +593,11 @@ volume and goes on TYRE-252; the one optimisation the generator may take
 is to emit each reading's lowest measurement first, which is load order, not
 data, and leaves the governing MIN and every row identical.
 
-One trigger is not measured but bypassed, and the reason is a finding in its
-own right. `reading_measurement_ordinals_contiguous` (000001) is a deferred
-constraint trigger declared `FOR EACH ROW` whose body scans every reading
-and measurement it can see: queued once per row and fired at commit, ninety
-thousand rows is ninety thousand full scans, and a driver's submit over a
-two-year history pays the same scan per measurement. That is TYRE-252, raised
-at planning. The load disables that one trigger for its own transaction and
-runs the trigger's own predicate once, over the rows it wrote, before
-`COMMIT`, so contiguity is still asserted, not trusted. Every other trigger
-fires: the governing depth, the snapshots and the seal are what a real
-submit would have written.
+No trigger is bypassed. TYRE-252 (S0) lands before this file can be loaded,
+so every trigger on the path fires, the governing depth, the snapshots, the
+seal and the statement-level ordinal check, and the rows are what a real
+submit would have written. The load time `make db-volume` prints is the
+measured cost of that path at volume.
 
 ### S3. The measurement
 
@@ -593,7 +622,7 @@ Index first. If the plan shows the full-history sort TYRE-247 predicts on
 `app.reading` (which carries `reading_by_tyre (tenant_id, tyre_id)` and the
 unique constraints only, while `app.inspection` already has
 `inspection_by_vehicle (tenant_id, vehicle_id, submitted_at DESC)`),
-migration `000046_reading_by_vehicle` adds
+migration `000047_reading_by_vehicle` adds
 
 ```sql
 CREATE INDEX reading_by_vehicle ON app.reading (tenant_id, vehicle_id, inspection_id);
@@ -611,9 +640,10 @@ cut and the ticket records the plan that says so.
 
 ### S5. Tests, docs and the proof
 
-- Suite **section 60** pins the index by name and column list through
+- Suite **section 61** pins the index by name and column list through
   `pg_indexes` (section 34's pattern), so a later migration cannot drop it
-  silently; the section is written only if the index is. `make db-test`
+  silently; the section is written only if the index is. Section 60 is
+  TYRE-252's (S0). `make db-test`
   stays green on the pinned fixture with or without the volume loaded.
 - The `rls-auditor` runs on the migration as convention requires; an index
   adds no read path, so it should have nothing to say. The
