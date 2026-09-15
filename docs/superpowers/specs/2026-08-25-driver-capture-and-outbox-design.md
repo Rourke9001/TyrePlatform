@@ -412,7 +412,7 @@ reconnect, correct positions in the database.
 
 ## Dependency this phase creates
 
-*Landed 11 Sep 2026 as B7.1 (migration 000045, `app.v_latest_unit_inspection`
+*Landed 15 Sep 2026 as B7.1 (migration 000045, `app.v_latest_unit_inspection`
 and `app.v_exception`; `docs/superpowers/specs/2026-09-10-b7-analytics-dashboard-design.md`
 D2). The fixture has carried two inspections per unit since TYRE-35, so the
 scoping was never invisible in the suite; the sentence below predates that.*

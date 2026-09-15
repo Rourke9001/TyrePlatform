@@ -1,6 +1,6 @@
 # Implementation order
 
-Re-verified **11 Sep 2026** against `develop` @ `dfab2f1` and the board's open
+Re-verified **15 Sep 2026** against `develop` @ `08c6d2b` and the board's open
 sprint.
 
 **Jira is the live authority.** This page exists so a session working in the
@@ -10,9 +10,9 @@ disagree, the board wins, and the disagreement is a bug in this page.
 Re-verify before trusting anything below; the method is at the end.
 
 A batch here is a sequencing claim, not a scope claim. Each ticket's own
-definition of done governs what gets built. Batches B1 to B6 have all merged.
-Their records, and the rationale each one left for the batch after it, are in
-`docs/delivery-history.md`; a citation written as
+definition of done governs what gets built. Batches B1 to B6 have all merged,
+and B7.1 with them. Their records, and the rationale each one left for the
+batch after it, are in `docs/delivery-history.md`; a citation written as
 `docs/implementation-order.md §B5` resolves to the same-named section there.
 
 ## Two ordering rules
@@ -31,9 +31,8 @@ or CI clock (`docs/lessons.md`, 2026-09-03).
 ## The open sprint
 
 The board's open sprint is "B6 — Rig-setup surface", 3 to 17 Sep 2026. Seven
-of its nine issues are Done. TYRE-124 was the seventh, transitioned on 9 Sep:
-its correction had been in migration 000037 since PR #43 and only the ticket
-was stale. What remains in the sprint is not code:
+of its nine issues are Done. What remains in it is not code, and the sprint
+ends on 17 Sep with both items still owner decisions:
 
 | Key | State | What remains |
 |---|---|---|
@@ -47,21 +46,24 @@ The sprint closes on decisions, not pull requests.
 Cut 10 Sep 2026 on the owner's call (analytics before deployment; design
 system first; tokens plus CSS with Radix for the hard controls). Design:
 `docs/superpowers/specs/2026-09-10-b7-analytics-dashboard-design.md`. This is
-the manager dashboard the brief promises and the application does not have:
-at `dfab2f1` no exception surface, no fleet valuation and no value-at-risk
-figure exists anywhere in the API or the web app, and the 19/11/9 agreement
-lives only in suite section 8 (TYRE-183). Four slices, each its own branch,
-PR and review, each planned after the previous merges:
+the manager dashboard the brief promises and the application does not have.
+B7.1 gave the database its half: `app.v_exception`, the threshold and pressure
+resolvers, the two value-at-risk views, and suite section 59 pinning 19 / 11 / 9
+as numbers. Nothing above the database consumes any of it, so no exception
+endpoint, no fleet valuation and no value-at-risk figure exists in the API or
+the web app. Four slices, each its own branch, PR and review, each planned
+after the previous merges:
 
 | Slice | Ticket | State |
 |---|---|---|
-| B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | PR [#55](https://github.com/Rourke9001/TyrePlatform/pull/55) open, awaiting the owner |
-| B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half) | after B7.1 |
+| B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | **merged** 15 Sep 2026, PR [#55](https://github.com/Rourke9001/TyrePlatform/pull/55), migration 000045 |
+| B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half); TYRE-211's write sites. Read TYRE-247 first: it carries the index the dashboard substrate needs, and the rule B7.1 leaves behind, that `v_casing_value_at_risk` nests AUDIT inside its estimated-or-audit count while `v_estate_valuation` keeps the two disjoint, so one payload must not carry both | **next** |
 | B7.3 | design system (ADR-0015) and the dashboard, new tickets under TYRE-7 | after B7.2 |
-| B7.4 | restyle of the ten existing screens; carries TYRE-176, TYRE-182 and the two capture defects | after B7.3 |
+| B7.4 | TYRE-240, the restyle of the ten existing screens; carries TYRE-176, TYRE-182 and the two capture defects TYRE-241 and TYRE-242 | after B7.3 |
 
 Exception lifecycle, rule administration and notifications are B8, ticketed
-under TYRE-7, not part of B7.
+as TYRE-243 under TYRE-7, not part of B7. The view B7.1 built is the rule
+source B8 inherits.
 
 ## After B7
 
@@ -99,6 +101,10 @@ work.
 - The review-sweep residue (the `[Sweep]` tickets under TYRE-143) and B6.4's
   follow-ups **TYRE-229 to TYRE-236** (under TYRE-55) are on the board; none is
   Critical.
+- B7.1's own residue is **TYRE-244 to TYRE-249**: the UTC day where the tenant
+  day belongs in the register and unit inspection status, the exception suite's
+  unpinned boundaries, the branches the fixture cannot reach, and seed
+  housekeeping. TYRE-247 is the one B7.2 has to read before it starts.
 
 ## Blocked on people, not code
 

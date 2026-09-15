@@ -141,6 +141,10 @@ B7.1 → B7.2 → B7.3 → B7.4, each planned after the previous merges.
 
 ## B7.1, the exception view and the pins (TYRE-41, TYRE-211, TYRE-183, TYRE-193, TYRE-38), designed to executable detail
 
+*Landed 15 Sep 2026, PR #55, migration 000045. TYRE-41, TYRE-183 and TYRE-38
+are Done; TYRE-193 and TYRE-211 keep their remaining halves for B7.2, which
+starts from TYRE-247.*
+
 Migration `000045_exception_view`. Suite section 59, section 8 re-written in
 place, and the new privileged file. No new SQLSTATE the app role can meet: the
 one new `RAISE` (D5) is reachable only with a composite FK removed.
