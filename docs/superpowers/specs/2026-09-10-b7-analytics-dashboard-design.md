@@ -529,8 +529,17 @@ is refused; a single-row insert of ordinal 2 before 1 is refused; a whole
 position in one statement passes; three single-row statements in order
 pass; and the catalogue holds no deferrable trigger on `reading_measurement`.
 The `append-only-auditor` reviews it (a trigger on an append-only table) and
-the `rls-auditor` has nothing to say. The down file restores the 000001
-function body and constraint trigger verbatim.
+the `rls-auditor` has nothing to say. The down file restores 000001's
+function body and constraint trigger, restating 000043's pinned
+`search_path`: `CREATE OR REPLACE` assigns every property the command omits,
+so a copy taken verbatim from 000001, which predates the pin, would revert
+it and fail check 8d.
+
+One case changes rather than only getting cheaper, in the stricter
+direction: 000001 accepted ordinal 2 and then ordinal 1 as two separate
+statements, because a check deferred to commit saw only the finished set,
+and 000046 refuses that order. No writer does it, and the 000046 header
+carries the rationale.
 
 ### S1. The volume generator
 
