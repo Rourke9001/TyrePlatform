@@ -116,6 +116,14 @@ acceptance gate rests on there being exactly one implementation.
 can fail the build, and `make lint` runs the same set as CI in the same
 order. If a gate cannot run, fix the gate — do not let it pass silently.
 
+Two hooks in `.claude/hooks/` refuse the edit or command rather than warn
+after it, because both rules had already been written down and neither held
+(TYRE-250). `gate-not-piped.sh` blocks a gate piped into anything, since the
+status you read back is the pipe's; `set -o pipefail` is the way through.
+`migration-immutable.sh` blocks an edit to a migration already on
+`origin/develop` — a migration on a feature branch stays editable, an applied
+one is replaced by a new pair.
+
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.
 Comment *why*, never *what*. `// increment i` is noise. Never narrate a
