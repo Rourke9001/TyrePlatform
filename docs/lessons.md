@@ -1157,3 +1157,24 @@ refusal's message text for the table under test —
 `insufficient_privilege`, because the audit chain answers with the same
 SQLSTATE from a different table.
 
+## 2026-09-15 — A down file that copies a function "verbatim" from 000001 reverts every later ALTER FUNCTION (TYRE-252)
+
+**What happened:** TYRE-252's plan told the down file to restore
+`app.check_measurement_ordinals()` from `000001_init.up.sql` verbatim. 000001
+predates 000043, which had pinned `search_path = app, pg_temp` on that exact
+function with `ALTER FUNCTION`. `CREATE OR REPLACE FUNCTION` assigns every
+property the command does not carry, so the verbatim copy would have dropped
+the pin. Proved directly: replacing without a `SET` clause takes `proconfig`
+from `{"search_path=app, pg_temp"}` to `NULL`. It would not have been caught
+by the branch's own gate, because the suite runs at the migrated-up state and
+section 8d only sweeps what is installed there.
+
+**The rule:** a down file restores **the state the up migration found**, which
+is the initial definition plus every `ALTER` since, not the text of the
+migration that first created the object. Before writing one, grep the whole
+migration chain for the object's name and fold in what you find. Prove it by
+catalogue at the down state, not by a suite run: execute `migrate down 1` and
+read back the property the later migration set (`proconfig`, `prosecdef`,
+grants), because the suite cannot run there and a green gate at the up state
+says nothing about it.
+
