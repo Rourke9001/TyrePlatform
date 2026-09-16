@@ -64,6 +64,11 @@ db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
 # years of readings into Sandbox Fleet for the dashboard read-path
 # measurement (TYRE-247, B7 spec B7.1.5). Loaded as the superuser like the
 # seeds; BAC and Second Fleet rows never change.
+#
+# It holds one transaction for the whole load, minutes not seconds, so a
+# db-reset started in another shell blocks the entire database and then
+# destroys the load when it unblocks. Run nothing else against the database
+# until it returns (docs/lessons.md, 2026-09-16).
 .PHONY: db-volume
 db-volume: db-up ## Load the Sandbox Fleet volume tenant (TYRE-247); db-reset restores the pinned state
 	cd db/seeds && $(PYTHON) gen_seed_volume.py
