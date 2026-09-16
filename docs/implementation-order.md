@@ -1,6 +1,6 @@
 # Implementation order
 
-Re-verified **16 Sep 2026** against `develop` @ `626532e` and the board's open
+Re-verified **16 Sep 2026** against `develop` @ `680b010` and the board's open
 sprint.
 
 **Jira is the live authority.** This page exists so a session working in the
@@ -102,13 +102,11 @@ work.
   day belongs in the register and unit inspection status, the exception suite's
   unpinned boundaries, the branches the fixture cannot reach, and seed
   housekeeping. TYRE-247 is the one B7.2 has to read before it starts.
-- TYRE-252's residue is **TYRE-253** and **TYRE-254**, both under TYRE-9.
-  TYRE-253 puts the DELETE and UPDATE ordinal triggers in
-  `005_privileged.sql`, since the app role reaches neither and the suite
-  therefore proves only the INSERT one. TYRE-254 is a decision rather than
-  code: 000046 scopes the check to the statement, so the global sweep 000001
-  did by accident is gone, and whether pilot import validates for a
-  pre-existing gap is answered at import planning.
+- TYRE-252's residue is **TYRE-253**, under TYRE-9: the DELETE and UPDATE
+  ordinal triggers belong in `005_privileged.sql`, since the app role reaches
+  neither and the suite therefore proves only the INSERT one. **TYRE-254** asked
+  whether an import may bypass the ordinal check and is closed. It may not, and
+  it never needs to; the rule it left behind is in `db/CLAUDE.md`.
 - **TYRE-255**, under TYRE-10, widens `gate-not-piped.sh` to know that `gh pr
   checks` is a gate too. TYRE-250's hook names `make`, `npm` and `go test`, so
   a piped `gh` call still reports the pipe's status.
