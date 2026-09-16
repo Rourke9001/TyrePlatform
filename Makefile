@@ -72,7 +72,9 @@ db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
 .PHONY: db-volume
 db-volume: db-up ## Load the Sandbox Fleet volume tenant (TYRE-247); db-reset restores the pinned state
 	cd db/seeds && $(PYTHON) gen_seed_volume.py
-	@start=$$(date +%s); \
+	@# set -e, not bare semicolons: a failed load followed by a successful
+	@# echo exits 0 and make reports a load that never happened.
+	@set -e; start=$$(date +%s); \
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/006_seed_volume.sql; \
 	echo "volume loaded in $$(( $$(date +%s) - start ))s; the database is now off the pinned state, make db-reset restores it"
 	@# autoanalyze is asynchronous, so a measurement run straight after the
