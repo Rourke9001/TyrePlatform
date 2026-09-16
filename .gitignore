@@ -24,6 +24,9 @@ db/seeds/002_seed_configurations.sql
 db/seeds/003_seed_fixture.sql
 db/seeds/006_seed_volume.sql
 
+# The generators import seed_policy.py, so running one leaves bytecode behind.
+__pycache__/
+
 node_modules/
 dist/
 
