@@ -28,6 +28,48 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-16 — `gate-not-piped.sh` does not know `gh` is a gate, so the piped-gate trap walks back in (TYRE-252)
+
+**What happened:** `gh pr checks 58 --watch --interval 20 --fail-fast | tail -20`
+was run to decide whether PR #58 could be merged. It ended with
+`Post "https://api.github.com/graphql": ... connection was aborted`, a last
+table still showing `Browser smoke` as `pending`, and a reported exit of 0 —
+which was read as "the watch finished and every check passed". The 0 was
+`tail`'s. A pipeline reports its last stage, so gh's own status never survived
+the pipe; `(exit 3) | tail -1; echo $?` prints `0`, and `set -o pipefail` makes
+the same line print `3`. TYRE-250's hook exists to refuse exactly this, but its
+pattern matches `make`, `npm` and `go test`, so a `gh` invocation is not a gate
+as far as the hook is concerned and the command was allowed.
+
+**The rule:** a gate is anything whose exit code you are about to believe, not
+the four commands the hook can spell. `gh pr checks`, `gh run watch` and
+`gh run view` are gates; never pipe one. Redirect to a file and read the file,
+or put `set -o pipefail` first. Then, whatever the watch reported, re-read
+plain `gh pr checks <n>` before merging: every row must carry a terminal
+state, and a row still saying `pending` means the watch died rather than
+finished.
+
+## 2026-09-15 — A down file that copies a function "verbatim" from 000001 reverts every later ALTER FUNCTION (TYRE-252)
+
+**What happened:** TYRE-252's plan told the down file to restore
+`app.check_measurement_ordinals()` from `000001_init.up.sql` verbatim. 000001
+predates 000043, which had pinned `search_path = app, pg_temp` on that exact
+function with `ALTER FUNCTION`. `CREATE OR REPLACE FUNCTION` assigns every
+property the command does not carry, so the verbatim copy would have dropped
+the pin. Proved directly: replacing without a `SET` clause takes `proconfig`
+from `{"search_path=app, pg_temp"}` to `NULL`. It would not have been caught
+by the branch's own gate, because the suite runs at the migrated-up state and
+section 8d only sweeps what is installed there.
+
+**The rule:** a down file restores **the state the up migration found**, which
+is the initial definition plus every `ALTER` since, not the text of the
+migration that first created the object. Before writing one, grep the whole
+migration chain for the object's name and fold in what you find. Prove it by
+catalogue at the down state, not by a suite run: execute `migrate down 1` and
+read back the property the later migration set (`proconfig`, `prosecdef`,
+grants), because the suite cannot run there and a green gate at the up state
+says nothing about it.
+
 ## 2026-09-11 — PostgreSQL pulls up a no-FROM LATERAL and re-runs the resolver at every reference site (TYRE-41)
 
 **What happened:** `app.v_exception` reads a resolved `threshold_policy` row
@@ -1156,25 +1198,3 @@ refusal's message text for the table under test —
 `… for table "composition_observation"` — never the bare
 `insufficient_privilege`, because the audit chain answers with the same
 SQLSTATE from a different table.
-
-## 2026-09-15 — A down file that copies a function "verbatim" from 000001 reverts every later ALTER FUNCTION (TYRE-252)
-
-**What happened:** TYRE-252's plan told the down file to restore
-`app.check_measurement_ordinals()` from `000001_init.up.sql` verbatim. 000001
-predates 000043, which had pinned `search_path = app, pg_temp` on that exact
-function with `ALTER FUNCTION`. `CREATE OR REPLACE FUNCTION` assigns every
-property the command does not carry, so the verbatim copy would have dropped
-the pin. Proved directly: replacing without a `SET` clause takes `proconfig`
-from `{"search_path=app, pg_temp"}` to `NULL`. It would not have been caught
-by the branch's own gate, because the suite runs at the migrated-up state and
-section 8d only sweeps what is installed there.
-
-**The rule:** a down file restores **the state the up migration found**, which
-is the initial definition plus every `ALTER` since, not the text of the
-migration that first created the object. Before writing one, grep the whole
-migration chain for the object's name and fold in what you find. Prove it by
-catalogue at the down state, not by a suite run: execute `migrate down 1` and
-read back the property the later migration set (`proconfig`, `prosecdef`,
-grants), because the suite cannot run there and a green gate at the up state
-says nothing about it.
-

@@ -1,6 +1,6 @@
 # Implementation order
 
-Re-verified **15 Sep 2026** against `develop` @ `08c6d2b` and the board's open
+Re-verified **16 Sep 2026** against `develop` @ `626532e` and the board's open
 sprint.
 
 **Jira is the live authority.** This page exists so a session working in the
@@ -30,16 +30,12 @@ or CI clock (`docs/lessons.md`, 2026-09-03).
 
 ## The open sprint
 
-The board's open sprint is "B6 — Rig-setup surface", 3 to 17 Sep 2026. Seven
-of its nine issues are Done. What remains in it is not code, and the sprint
-ends on 17 Sep with both items still owner decisions:
-
-| Key | State | What remains |
-|---|---|---|
-| TYRE-125 | owner decision | Which `tread_source` label a fit-, removal- or retread-written tread carries: a third label such as `FITMENT`, or record that `AUDIT` is the umbrella for "not an inspection reading". Suite 44b pins today's behaviour; nothing to build until answered |
-| TYRE-128 | owner questions | The register of PR #41's close-out. The eight decisions were answered 3 Sep; items 7 and 8 and the small fixes landed on B6.1 to B6.3. Still open: whether decision 7 (enums are cast-authoritative) reaches `unitKinds` and `tenantRoles`; `cost_source` after a retread re-rate (spec D3 is silent); INFERRED distance provenance has no front-end exercise until OI-31 coupling records exist. Close it once those are answered or split out |
-
-The sprint closes on decisions, not pull requests.
+The board's open sprint is "B6 — Rig-setup surface", 3 to 17 Sep 2026, and
+**all nine of its issues are Done**. The two that were owner decisions rather
+than code, TYRE-125 (`tread_source` for a fit-, removal- or retread-written
+tread) and TYRE-128 (the register of PR #41's close-out), were both answered
+and closed on 15 Sep. Nothing in the sprint is open, so it can be closed on
+the board whenever the owner next looks at it; B7's slices are not in it.
 
 ## B7, analytics and dashboard, in progress
 
@@ -57,7 +53,7 @@ its own branch, PR and review, each planned after the previous merges:
 | Slice | Ticket | State |
 |---|---|---|
 | B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | **merged** 15 Sep 2026, PR [#55](https://github.com/Rourke9001/TyrePlatform/pull/55), migration 000045 |
-| B7.1.5 | TYRE-252 first (migration 000046: the measurement-ordinal check becomes statement-level; found at planning, spec S0), then TYRE-247, the dashboard substrate: a volume tenant in Sandbox Fleet (60 units, fortnightly, 24 months, `make db-volume`), the dashboard read path measured on it, and migration 000047 for the index if the plan warrants one (spec B7.1.5, U21, U22, U26) | **next**: TYRE-252 on `TYRE-252-ordinal-trigger`, then TYRE-247 on `TYRE-247-dashboard-substrate` (cut 15 Sep 2026) |
+| B7.1.5 | TYRE-252 first (migration 000046: the measurement-ordinal check becomes statement-level; found at planning, spec S0), then TYRE-247, the dashboard substrate: a volume tenant in Sandbox Fleet (60 units, fortnightly, 24 months, `make db-volume`), the dashboard read path measured on it, and migration 000047 for the index if the plan warrants one (spec B7.1.5, U21, U22, U26) | **half merged**: TYRE-252 landed 16 Sep 2026, PR [#58](https://github.com/Rourke9001/TyrePlatform/pull/58), migration 000046, suite section 60. **next**: TYRE-247 on `TYRE-247-dashboard-substrate`, which rebases onto `develop` first |
 | B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half). No migration (U21). The rule B7.1 leaves behind, that `v_casing_value_at_risk` nests AUDIT inside its estimated-or-audit count while `v_estate_valuation` keeps the two disjoint, so one payload must not carry both (U27). TYRE-211's write sites and TYRE-142 are one DB-only PR after B7.2, not part of it (U23, U24) | after B7.1.5 |
 | B7.3 | design system (ADR-0015) and the dashboard, new tickets under TYRE-7 | after B7.2 |
 | B7.4 | TYRE-240, the restyle of the ten existing screens; carries TYRE-176, TYRE-182 and the two capture defects TYRE-241 and TYRE-242 | after B7.3 |
@@ -106,6 +102,16 @@ work.
   day belongs in the register and unit inspection status, the exception suite's
   unpinned boundaries, the branches the fixture cannot reach, and seed
   housekeeping. TYRE-247 is the one B7.2 has to read before it starts.
+- TYRE-252's residue is **TYRE-253** and **TYRE-254**, both under TYRE-9.
+  TYRE-253 puts the DELETE and UPDATE ordinal triggers in
+  `005_privileged.sql`, since the app role reaches neither and the suite
+  therefore proves only the INSERT one. TYRE-254 is a decision rather than
+  code: 000046 scopes the check to the statement, so the global sweep 000001
+  did by accident is gone, and whether pilot import validates for a
+  pre-existing gap is answered at import planning.
+- **TYRE-255**, under TYRE-10, widens `gate-not-piped.sh` to know that `gh pr
+  checks` is a gate too. TYRE-250's hook names `make`, `npm` and `go test`, so
+  a piped `gh` call still reports the pipe's status.
 
 ## Blocked on people, not code
 
