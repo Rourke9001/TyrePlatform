@@ -44,7 +44,7 @@ jobs:
         with: { python-version: '3.12' }
 
       - name: Regenerate seeds
-        run: cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py
+        run: cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && python3 gen_seed_volume.py
 
       # The generators are deterministic and are the single source of truth for
       # the axle configuration library. If regenerating produces a different
@@ -52,9 +52,9 @@ jobs:
       # changing, which is exactly the drift Appendix I exists to prevent.
       - name: Seeds are deterministic
         run: |
-          sha_a=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql)
-          cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
-          sha_b=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql)
+          sha_a=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql)
+          cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && python3 gen_seed_volume.py && cd ../..
+          sha_b=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql)
           [ "$sha_a" = "$sha_b" ] || { echo "::error::seed generation is not deterministic"; exit 1; }
 
       # Same image `make db-migrate` uses locally, so a migration that works

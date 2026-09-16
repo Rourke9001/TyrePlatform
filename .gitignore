@@ -22,6 +22,7 @@ docs/prototypes/
 # 184KB of near-identical INSERTs helps nobody.
 db/seeds/002_seed_configurations.sql
 db/seeds/003_seed_fixture.sql
+db/seeds/006_seed_volume.sql
 
 node_modules/
 dist/
