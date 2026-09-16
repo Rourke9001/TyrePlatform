@@ -59,6 +59,30 @@ db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/003_seed_fixture.sql
 	@echo "migrations and seeds applied"
 
+# Opt-in, never part of db-reset, db-test, test or check: the suite is
+# defined on the pinned fixture, and this load puts sixty units and two
+# years of readings into Sandbox Fleet for the dashboard read-path
+# measurement (TYRE-247, B7 spec B7.1.5). Loaded as the superuser like the
+# seeds; BAC and Second Fleet rows never change.
+.PHONY: db-volume
+db-volume: db-up ## Load the Sandbox Fleet volume tenant (TYRE-247); db-reset restores the pinned state
+	cd db/seeds && $(PYTHON) gen_seed_volume.py
+	@start=$$(date +%s); \
+	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/006_seed_volume.sql; \
+	echo "volume loaded in $$(( $$(date +%s) - start ))s; the database is now off the pinned state, make db-reset restores it"
+	@# autoanalyze is asynchronous, so a measurement run straight after the
+	@# load can plan on pre-load statistics. ANALYZE makes the plan db-explain
+	@# prints a function of the data, not of how long autovacuum happened to
+	@# have been awake.
+	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -qc "ANALYZE;"
+
+# Runs as app_login, not postgres: the plan must carry the RLS predicate the
+# API's connection will carry. Run it cold (container just restarted) and
+# again warm; the 500 ms budget applies to the warm run (B7 spec U26).
+.PHONY: db-explain
+db-explain: ## EXPLAIN (ANALYZE, BUFFERS) the dashboard read path over the volume tenant (TYRE-247)
+	$(PSQL_APP) -v ON_ERROR_STOP=1 < db/perf/dashboard.sql
+
 .PHONY: db-test
 db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
 	$(PSQL_APP) -v ON_ERROR_STOP=1 < db/tests/004_tests.sql
