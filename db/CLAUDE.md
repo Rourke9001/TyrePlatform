@@ -75,6 +75,23 @@ a new capture.
 Careful: a blanket `GRANT ALL ON ALL TABLES IN SCHEMA app TO app_rw` in a later
 migration silently undoes those revokes. Check 4 catches it.
 
+## Loading readings from outside
+
+Never load `reading_measurement` with triggers disabled.
+`session_replication_role = replica`, which is what `pg_restore
+--disable-triggers` and most bulk loaders use, switches off every trigger on
+the table rather than the one being avoided. `reading_measurement_governs`
+goes with it, so `reading.governing_tread_mm` is left NULL and the valuation
+and exception views see nothing (TYRE-254).
+
+Nothing forces that choice. Ordinary `INSERT` and ordinary `COPY` both satisfy
+the ordinal check, and it constrains numbering rather than completeness: one
+measurement is a valid set, so is two. Number ordinals densely from 1 in
+capture order, put the anatomy in `position`, and set `orientation_known =
+false` where the outer/centre/inner convention did not apply (CHG-011). A
+history that cannot be numbered 1..n is a question about what the data means,
+to answer before the load.
+
 ## Seeds
 
 `gen_seed_configurations.py` and `gen_seed_fixture.py` are the **single source
