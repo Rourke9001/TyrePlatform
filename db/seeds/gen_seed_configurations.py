@@ -1,4 +1,5 @@
 import json
+from seed_policy import RETREAD_THRESHOLD_MM, SCRAP_THRESHOLD_MM, WARNING_THRESHOLD_MM, TARGET_KPA
 
 # CHG-070..073: the configuration library describes UNITS, not combinations
 # (CFL-008, ADR-0007). A rig is a dated composition of units; its numbering is
@@ -104,13 +105,13 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
     L.append("-- the baseline FR-CFG-051 applies prospectively from, not a retroactive")
     L.append("-- change under it. Every deliberate change thereafter is a new dated row.")
     L.append("INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,scrap_threshold_mm,warning_threshold_mm,effective_from)")
-    L.append(f"  VALUES (md5('{tid}thrpol-default')::uuid,'{tid}',4.0,4.0,6.0,'-infinity');")
+    L.append(f"  VALUES (md5('{tid}thrpol-default')::uuid,'{tid}',{RETREAD_THRESHOLD_MM},{SCRAP_THRESHOLD_MM},{WARNING_THRESHOLD_MM},'-infinity');")
     L.append("-- CHG-038: retreads are not fitted to steer axles. Fleet practice, not a")
     L.append("-- legal claim (CHG-107 tracks the sign-off question). A seeded row, so the")
     L.append("-- rule is data the resolver can reach, not a comment. Part of the same")
     L.append("-- baseline as the default row, so it carries the same sentinel.")
     L.append("INSERT INTO app.threshold_policy (id,tenant_id,axle_class,retread_threshold_mm,scrap_threshold_mm,warning_threshold_mm,retreads_permitted,effective_from)")
-    L.append(f"  VALUES (md5('{tid}thrpol-steer')::uuid,'{tid}','STEER',4.0,4.0,6.0,false,'-infinity');")
+    L.append(f"  VALUES (md5('{tid}thrpol-steer')::uuid,'{tid}','STEER',{RETREAD_THRESHOLD_MM},{SCRAP_THRESHOLD_MM},{WARNING_THRESHOLD_MM},false,'-infinity');")
     L.append("")
     L.append("-- CHG-112/CHG-034: target_pressure is the one pressure-target source; no")
     L.append("-- target_pressure_kpa / inflation_bands / pressure_deviation_margin_pct")
@@ -121,7 +122,7 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
     L.append("-- a spare it is a running road-contact position, and without a target its")
     L.append("-- readings would be unclassifiable and FR-INS-031a's capture-time warning")
     L.append("-- silently disabled, latent until the first tag-axle trailer, then live.")
-    for cls,kpa in [('STEER',800),('DRIVE',750),('TRAILER',750),('TAG',750)]:
+    for cls,kpa in TARGET_KPA.items():
         L.append("INSERT INTO app.target_pressure (id,tenant_id,axle_class,target_kpa,warn_under_pct,critical_under_pct,warn_over_pct,critical_over_pct,effective_from)")
         L.append(f"  VALUES (md5('{tid}tgtp-{cls}')::uuid,'{tid}','{cls}',{kpa},10.0,20.0,10.0,20.0,'2024-01-01T00:00:00Z');")
     L.append("")
