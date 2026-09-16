@@ -1,12 +1,10 @@
 -- 000046: the measurement-ordinal check runs once per statement, over the
 -- readings the statement touched (TYRE-252, DR-016).
 --
--- 000001 declared reading_measurement_ordinals_contiguous as a DEFERRABLE
--- INITIALLY DEFERRED constraint trigger FOR EACH ROW whose body joined every
--- reading to every measurement the caller could see. Queued once per row
--- and fired at commit, a superlink submit (108 measurements) ran 108 full
--- scans of the tenant's reading history, and a bulk load was quadratic.
--- Its own comment promised "checked at statement end"; this is that check.
+-- The guard this replaces was deferred and per row, and its body was scoped
+-- to no reading at all, so a superlink submit (108 measurements) ran 108
+-- full scans of the tenant's history and a bulk load was quadratic. Its own
+-- comment promised "checked at statement end"; this is that check.
 --
 -- Transition tables are not allowed on constraint triggers, so the deferral
 -- goes. Nothing needs it. app.submit_inspection (000041) generates the
@@ -92,10 +90,9 @@ AFTER DELETE ON app.reading_measurement
 REFERENCING OLD TABLE AS old_rows
 FOR EACH STATEMENT EXECUTE FUNCTION app.check_measurement_ordinals();
 
--- An UPDATE that moves a row between readings must leave both contiguous;
--- new_rows carries the target reading, old_rows the source. The app role
--- cannot UPDATE or DELETE this table (append-only, 000001 check 4), so these
--- two are parity with 000001 for the superuser path, not a production route.
+-- The app role cannot UPDATE or DELETE this table (append-only, 000001
+-- check 4), so this trigger and the DELETE one above it are parity with
+-- 000001 for the superuser path, not a production route.
 CREATE TRIGGER reading_measurement_ordinals_update
 AFTER UPDATE ON app.reading_measurement
 REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows

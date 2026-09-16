@@ -519,14 +519,19 @@ three `AFTER ... FOR EACH STATEMENT` triggers with transition tables
 (`REFERENCING NEW TABLE AS new_rows` on INSERT, `OLD TABLE AS old_rows` on
 DELETE, both on UPDATE), scoped to the readings the statement touched. The
 message and SQLSTATE (P0001) do not change; the check runs at statement end,
-which is what 000001's own comment already claimed. `app.submit_inspection`
-(000041) inserts one measurement per statement in ordinal order and passes
-at every step, as the suite proves. UPDATE and DELETE stay revoked from the
-app role (check 4), so the INSERT path is the one that matters. Suite
-section **60** plants an inspection and a reading as BAC inside
-`BEGIN ... ROLLBACK` and proves: a gapped multi-row insert (ordinals 1 and 3)
-is refused; a single-row insert of ordinal 2 before 1 is refused; a whole
-position in one statement passes; three single-row statements in order
+which is what 000001's own comment already claimed. Losing the deferral is
+safe because `app.submit_inspection` (000041) **generates** the ordinal as a
+loop counter rather than reading it from the payload, so its measurements
+arrive one per statement as 1, 2, 3 and every statement leaves the reading
+contiguous from 1. This was the only deferrable object in the schema, so the
+`SET CONSTRAINTS ALL IMMEDIATE` in `submit_inspection` becomes a no-op; that
+statement and the comment above it explaining the deferral are frozen in
+000041, and the 000046 header is where they are answered. UPDATE and DELETE
+stay revoked from the app role (check 4), so the INSERT path is the one that
+matters. Suite section **60** plants an inspection and a reading as BAC
+inside `BEGIN ... ROLLBACK` and proves: a gapped multi-row insert (ordinals 1
+and 3) is refused; a single-row insert of ordinal 2 before 1 is refused; a
+whole position in one statement passes; three single-row statements in order
 pass; and the catalogue holds no deferrable trigger on `reading_measurement`.
 The `append-only-auditor` reviews it (a trigger on an append-only table) and
 the `rls-auditor` has nothing to say. The down file restores 000001's
@@ -535,11 +540,13 @@ function body and constraint trigger, restating 000043's pinned
 so a copy taken verbatim from 000001, which predates the pin, would revert
 it and fail check 8d.
 
-One case changes rather than only getting cheaper, in the stricter
-direction: 000001 accepted ordinal 2 and then ordinal 1 as two separate
-statements, because a check deferred to commit saw only the finished set,
-and 000046 refuses that order. No writer does it, and the 000046 header
-carries the rationale.
+One case gets stricter rather than only cheaper: 000001 accepted ordinal 2
+and then ordinal 1 as two separate statements, because a check deferred to
+commit saw only the finished set, and 000046 refuses that order. No writer
+does it, since submit_inspection counts upward and the seed fixture emits one
+statement per reading carrying 1, 2, 3, but a writer that cannot order its
+ordinals must build the set in a single statement. The 000046 header carries
+that rationale.
 
 ### S1. The volume generator
 

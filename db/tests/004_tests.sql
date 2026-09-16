@@ -9531,19 +9531,12 @@ END $$;
 ROLLBACK;
 
 \echo '== 60. Measurement ordinals are checked per statement, scoped to the readings the statement touched (TYRE-252, DR-016)'
--- 000001 declared the guard as a deferred per-row constraint trigger whose
--- body joined every reading to every measurement the caller could see, so a
--- submit paid a full-history scan per measurement (TYRE-252). 000046 makes
--- it a statement trigger over a transition table. The refusals it keeps are
--- proven here against a planted inspection, as BAC, inside each block's own
--- BEGIN/ROLLBACK (sections 25 and 59 use the same pattern); the cost it
--- removes is measured against the volume tenant (TYRE-247), not here.
---
--- Losing the deferral is safe because no caller depends on it.
--- app.submit_inspection (000041) generates the ordinal as a loop counter
--- rather than reading it from the payload, so its measurements arrive one
--- per statement as 1, 2, 3 and each statement leaves the reading contiguous.
--- 60b holds that shape.
+-- 000046's header holds the rationale. What is proven here is that the
+-- refusals survived the move to a statement trigger, against a planted
+-- inspection, as BAC, inside each block's own BEGIN/ROLLBACK (sections 25
+-- and 59 use the same pattern). The cost it removes is measured against the
+-- volume tenant (TYRE-247), not here. 60b holds the two shapes that must
+-- keep passing: the fixture's, and the one app.submit_inspection writes.
 
 \echo '== 60a. a gapped multi-row insert and an out-of-order single row are both refused, in the words 000001 used'
 BEGIN;
