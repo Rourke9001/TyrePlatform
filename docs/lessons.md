@@ -45,9 +45,11 @@ as far as the hook is concerned and the command was allowed.
 the four commands the hook can spell. `gh pr checks`, `gh run watch` and
 `gh run view` are gates; never pipe one. Redirect to a file and read the file,
 or put `set -o pipefail` first. Then, whatever the watch reported, re-read
-plain `gh pr checks <n>` before merging: every row must carry a terminal
-state, and a row still saying `pending` means the watch died rather than
-finished.
+plain `gh pr checks <n>` before merging and require every row to carry a
+terminal state. A row still saying `pending` means only that the watch stopped
+before that check finished, which `--fail-fast`, a dropped connection and an
+interrupted terminal all produce; the reason does not matter, because in every
+one of them the run was never seen through.
 
 ## 2026-09-15 — A down file that copies a function "verbatim" from 000001 reverts every later ALTER FUNCTION (TYRE-252)
 
