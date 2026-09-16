@@ -1200,3 +1200,41 @@ refusal's message text for the table under test —
 `… for table "composition_observation"` — never the bare
 `insufficient_privilege`, because the audit chain answers with the same
 SQLSTATE from a different table.
+
+## 2026-09-16 — A measurement shares the database with whatever else you started (TYRE-247)
+
+**What happened:** the dashboard read-path measurement was taken three
+times before it was taken correctly. The first run appeared to show
+`app.v_exception` failing to finish in ten minutes, and the obvious
+diagnosis, stale statistics after a bulk load, was wrong: comparing the two
+plans showed the `lr` CTE costed identically to the cent before and after
+`ANALYZE`, so the plan had not changed at all. What differed was that a
+backgrounded `make db-explain` was still running and a cancelled query had
+let its warm pass start early, so two passes were competing. Run alone, the
+same statement took 4.9 seconds.
+
+The second attempt repeated it from the other side. Two auditor agents were
+dispatched while `make db-volume` was loading. One of them ran `make
+db-reset`, which queued a `DROP SCHEMA app CASCADE` behind the load's
+transaction and left `public.schema_migrations` dirty at version 1 when it
+was cancelled, because the target feeds two statements to psql without
+`ON_ERROR_STOP`. Every read figure from that window was contaminated.
+
+That run's load time was 977 seconds against the 328 the file had taken
+before, and attributing the gap to the contention was the third wrong
+diagnosis in the same session. Re-run alone, with nothing else on the box,
+the same load took 923 seconds. The variable was migration 000047: an index
+on `app.reading` is maintained once per `reading_measurement_governs`
+update, so 90,480 of them, and it costs this load roughly three times its
+duration. Contention was real and cost about 50 seconds of it.
+
+**The rule:** nothing else touches the database while `make db-volume` or
+`make db-explain` is in flight, including a suite run, a second measurement
+pass and any subagent. Dispatch auditors before the load or after the
+measurement, never during, and check `ListAgents` before starting a run.
+`db-volume` holds one transaction for its whole load, so a concurrent
+`db-reset` blocks the entire database and then destroys the load when it
+unblocks. When a timing looks pathological, the first question is what else
+was running, not what the planner did: confirm by re-running alone before
+diagnosing, because a plan that is identical cost-for-cost was not the
+thing that changed.

@@ -5,6 +5,19 @@
 -- decision rests on a plan, not on the 53-reading fixture (spec S3, U26).
 -- Dates are the volume tenant's anchor (gen_seed_volume.py), so the
 -- window statements read the same rows on any day this is run.
+--
+-- Three of these figures are floors, not measurements. The generator writes
+-- inspections directly rather than through app.submit_inspection, so the
+-- volume tenant carries no tyre_event rows (not even for its 345 removals),
+-- no inspection_warning, no composition_observation and no inspection_task.
+-- The overdue-task count and the pending-composition-report count therefore
+-- plan on empty relations and return in microseconds, which says nothing
+-- about their cost on a tenant that has them. TYRE-258 carries the gap.
+--
+-- Nothing else may touch the database while this runs. A concurrent
+-- db-reset queues a DROP SCHEMA behind the load's transaction, blocks the
+-- whole database, and destroys the load when it unblocks; a concurrent
+-- suite run inflates every figure here (docs/lessons.md, 2026-09-16).
 \set ON_ERROR_STOP on
 \timing on
 SET search_path = app, public;
