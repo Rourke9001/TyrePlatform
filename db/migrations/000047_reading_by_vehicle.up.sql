@@ -1,0 +1,37 @@
+-- 000047: the dashboard substrate index (TYRE-247, B7 spec B7.1.5 S4).
+--
+-- app.reading carried reading_by_tyre (tenant_id, tyre_id) and its unique
+-- constraints, nothing leading on the owning unit, while every
+-- latest-per-unit read the dashboard makes walks readings by vehicle:
+-- v_latest_unit_inspection's DISTINCT ON (tenant_id, vehicle_id) and
+-- unit_inspection_status's per-unit lateral (000045). inspection_id is the
+-- third column so the join to app.inspection is served from the index entry.
+--
+-- What the measurement showed, on the Sandbox volume tenant (`make
+-- db-volume`, 30,160 readings) through `make db-explain`: the DISTINCT ON
+-- reaches the latest reading per unit by sorting every reading in the
+-- tenant, 30,160 rows quicksorted in 2.6MB, rather than by descending an
+-- index. That sort is what this index removes.
+--
+-- It is not what makes the dashboard slow. Measured over the same tenant,
+-- the composed warm read went from 110,984ms without this index to 98,907ms
+-- with it, an eleventh of the cost and still 198 times U26's 500ms budget.
+-- The dominant costs are nested loops the planner chooses because the RLS
+-- tenant predicate is current_setting(), which it cannot fold, so its row
+-- estimates collapse to 1 on tables holding thousands. TYRE-256 carries
+-- that finding and the reshaping it needs; this index is not a fix for it.
+--
+-- It is not free on the write path, which the B7.1.5 spec assumed it would
+-- be. app.reading is updated once per measurement by
+-- reading_measurement_governs (000001), so an index on it is maintained
+-- 90,480 times over the volume load, and that load went from 328 seconds
+-- without this index to 923 with it. Do not read a per-submit cost off that
+-- figure: a superlink submit is 108 measurements against a small table, not
+-- 90,480 against a growing one, and the bulk case carries page splits and
+-- dead tuples the submit case does not. What it does mean is that the next
+-- index proposed on app.reading is a write-path decision as much as a read
+-- one, and TYRE-257 is where the load's cost is tracked.
+--
+-- Plain CREATE INDEX, not CONCURRENTLY: golang-migrate runs a file inside a
+-- transaction and CONCURRENTLY cannot, and at POC scale the table is small.
+CREATE INDEX reading_by_vehicle ON app.reading (tenant_id, vehicle_id, inspection_id);

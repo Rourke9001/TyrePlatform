@@ -9649,5 +9649,28 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 61. B7.1.5: the dashboard substrate index exists as declared (TYRE-247)'
+-- Asserted through the catalog, section 34's pattern: an index has no
+-- behaviour the suite can watch fail on the 53-reading fixture, and the
+-- harm it prevents (a full-history sort under v_latest_unit_inspection and
+-- unit_inspection_status at volume) is measured by `make db-explain`, not
+-- here. What this pins is that a later migration cannot drop or narrow it
+-- silently; TYRE-95's lesson is that a renamed or dropped catalog object
+-- orphans everything that assumed it.
+BEGIN;
+DO $$
+DECLARE n int;
+BEGIN
+  SELECT count(*) INTO n FROM pg_indexes
+   WHERE schemaname = 'app' AND tablename = 'reading'
+     AND indexname = 'reading_by_vehicle'
+     AND indexdef ILIKE '%(tenant_id, vehicle_id, inspection_id)%';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 61: expected reading_by_vehicle ON app.reading (tenant_id, vehicle_id, inspection_id), found %', n;
+  END IF;
+  RAISE NOTICE 'PASS  61 reading_by_vehicle exists on (tenant_id, vehicle_id, inspection_id)';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
