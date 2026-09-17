@@ -578,8 +578,13 @@ Fleet, whose rows are the acceptance fixture and the isolation control.
   every run and on every day it is run. Each inspection is on the horse with
   the rig's `combination_id`, submitted by the Sandbox driver, and its
   readings are tagged to the member unit that owns the position
-  (FR-INS-061), three measurements per reading with `orientation_known =
-  false` and granularity 1.0, as the fixture does.
+  (FR-INS-061), three measurements per reading at granularity 1.0, as the
+  fixture does. `orientation_known` follows the capture date rather than the
+  fixture: `false` before CHG-010 (22 Aug 2026), which is the fixture's case
+  because its 2021-style sheet stated no convention, and `true` from it. Only
+  the last fortnight falls after the convention, and that is the capture every
+  latest-per-unit read resolves to, so this tenant exercises the directional
+  wear path that a wholly pre-convention fixture cannot.
 - **Wear that varies.** A seeded `random.Random(247)` draws a starting tread
   and a per-fortnight wear rate per position, drive axles faster than steer
   and trailer axles between; pressures sit on the axle-class target with a

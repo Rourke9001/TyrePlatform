@@ -98,8 +98,8 @@ to answer before the load.
 of truth** for the axle configuration library — SRS Appendix I was produced
 from the same model, so the spec and the seed data cannot drift. Change the
 generator, never the generated SQL. The output is gitignored and CI asserts it
-is deterministic. `seed_policy.py` holds the policy literals both generators
-read.
+is deterministic. `seed_policy.py` holds the policy literals all three
+generators read.
 
 `gen_seed_volume.py` is the third generator and the odd one out: it writes
 Sandbox Fleet's volume tenant for the dashboard read-path measurement

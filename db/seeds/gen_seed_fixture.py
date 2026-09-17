@@ -56,6 +56,7 @@ BRANDING={
  "33333333-3333-3333-3333-333333333333":  {"displayName":"Sandbox Fleet","primaryColor":"#1F7A5A","logoUrl":None},
 }
 import json
+from seed_policy import RETREAD_THRESHOLD_MM
 for btid,bval in BRANDING.items():
     L.append(f"INSERT INTO app.configuration (tenant_id,key,value) VALUES ('{btid}','branding','{json.dumps(bval)}'::jsonb);")
 L.append("")
@@ -163,7 +164,7 @@ allpos=[(p,member(p)) for p in sorted(R)]+[('S',(3,'S'))]
 for p,(mseq,own) in allpos:
     tid=f"tyre{p}"
     L.append(f"INSERT INTO app.tyre (id,tenant_id,display_code,size_id,brand_id,pattern_id,status,purchase_date,received_date,purchase_price,cost_source,new_tread_mm,rand_per_mm,casing_value,state)")
-    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01','2024-03-01',4319.91,'INVOICE',25.0,app.rand_per_mm(4319.91,25.0,4.0),1837.50,'FITTED');")
+    L.append(f"  VALUES (md5('{tid}')::uuid,'{T}','2102BAC{p}',md5('sz1')::uuid,md5('br1')::uuid,md5('pt1')::uuid,'NEW','2024-03-01','2024-03-01',4319.91,'INVOICE',25.0,app.rand_per_mm(4319.91,25.0,{RETREAD_THRESHOLD_MM}),1837.50,'FITTED');")
 L.append("")
 L.append("-- Fitments: each tyre on its own unit's own position code (BR-VEH-003).")
 L.append("-- Trailers have no odometer (CFL-003): their fitments carry NULL and the")
