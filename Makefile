@@ -53,7 +53,10 @@ db-migrate: db-up ## Apply pending migrations (golang-migrate, versioned in sche
 
 .PHONY: db-reset
 db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
-	echo "DROP SCHEMA IF EXISTS app CASCADE; DROP TABLE IF EXISTS public.schema_migrations;" | $(PSQL_SUPER) -q
+	@# ON_ERROR_STOP because these are two statements on one connection: without
+	@# it a cancelled DROP SCHEMA still runs the DROP TABLE, and the next
+	@# `migrate up` re-creates schema_migrations dirty at version 1.
+	echo "DROP SCHEMA IF EXISTS app CASCADE; DROP TABLE IF EXISTS public.schema_migrations;" | $(PSQL_SUPER) -v ON_ERROR_STOP=1 -q
 	$(MIGRATE) up
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/002_seed_configurations.sql
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/003_seed_fixture.sql

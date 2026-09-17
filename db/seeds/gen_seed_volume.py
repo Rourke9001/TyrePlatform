@@ -27,6 +27,14 @@ END = dt.date(2026, 9, 1)
 NEW_TREAD_MM = 25.0
 KM_PER_FORTNIGHT = 2500
 POSITIONS = ['OUTER', 'CENTRE', 'INNER']
+# CHG-010, 22 Aug 2026, is the date outer/centre/inner became the stated
+# convention. This estate's history runs back 24 months, so a capture is
+# orientation_known only from that date (CHG-011): the anatomy is written to
+# position either way, and an earlier row counts toward min and average tread
+# while staying out of directional wear diagnosis. The final fortnight is the
+# only one after it, and it is the capture every latest-per-unit read
+# resolves to, so the directional path has rows where the dashboard looks.
+CONVENTION_FROM = dt.date(2026, 8, 22)
 # Own position codes per unit type, with the axle class the library gives
 # them (gen_seed_configurations.build): HORSE_6X4 is steer 1 and 2, drive 3
 # to 10; TRAILER_2AXLE is trailer 1 to 8; 'S' is the default spare (CHG-031).
@@ -37,7 +45,8 @@ TRAILER = [(str(i), 'TRAILER') for i in range(1, 9)] + [('S', 'SPARE')]
 # above, so a tenant whose policy moves gets an estate that moves with it.
 WEAR = {'STEER': (0.15, 0.30), 'DRIVE': (0.25, 0.50), 'TRAILER': (0.20, 0.40), 'SPARE': (0.0, 0.02)}
 # Groove offsets above the governing depth (outer, centre, inner). The 4mm
-# entry crosses width_spread_warn_mm so FR-EXC-035 has rows to find.
+# entry crosses width_spread_warn_mm so FR-EXC-035 has rows to find. Every
+# tuple holds a zero, so the governing depth stays the MIN (CR-011).
 OFFSETS = [(0, 0, 0), (1, 0, 0), (0, 0, 1), (1, 1, 0), (2, 0, 0), (0, 0, 2), (4, 0, 0)]
 OFFSET_WEIGHTS = [40, 15, 15, 10, 8, 8, 4]
 UNDER_INFLATED_SHARE = 0.04
@@ -115,7 +124,12 @@ for k, d in enumerate(dates):
                 if k > 0:
                     s['mm'] = max(0.0, s['mm'] - s['rate'])
                 gov = round(s['mm'])
-                mm = [gov + o for o in s['offs']]
+                # The offset opens only as the tyre wears: a groove is never
+                # deeper than the tyre was new, so on a freshly fitted tyre it
+                # clips to nothing and reaches its full width once the tyre has
+                # worn that far. Nothing in the schema catches the alternative,
+                # since tread_mm's CHECK is 0 to 35 (000001, DR-007).
+                mm = [min(gov + o, NEW_TREAD_MM) for o in s['offs']]
                 target = TARGET_KPA.get(cls, TARGET_KPA['TRAILER'])
                 if rng.random() < UNDER_INFLATED_SHARE:
                     kpa = int(target * (1 - rng.uniform(0.12, 0.25)))
@@ -204,10 +218,11 @@ for r, k, d, horse_odo, rows in inspections:
     L.append("    FROM (VALUES " + ",".join(vals) + ") AS x(id,vehicle_id,code,tyre_id,kpa)")
     L.append("    JOIN sbvol_pos p ON p.vehicle_id = x.vehicle_id AND p.code = x.code;")
     mvals = []
+    known = 'true' if d >= CONVENTION_FROM else 'false'
     for ukey, code, tyre, kpa, mm in rows:
         rd = f"md5('sbvol-rd{r}-{k}-{ukey}-{code}')::uuid"
         for i in sorted(range(3), key=lambda i: (mm[i], i)):
-            mvals.append(f"('{T3}',{rd},{i+1},'{POSITIONS[i]}',{n1(mm[i])},false,1.0)")
+            mvals.append(f"('{T3}',{rd},{i+1},'{POSITIONS[i]}',{n1(mm[i])},{known},1.0)")
     L.append("INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known,granularity_mm) VALUES")
     L.append("  " + ",\n  ".join(mvals) + ";")
 L.append("")

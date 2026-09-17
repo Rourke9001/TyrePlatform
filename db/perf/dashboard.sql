@@ -22,6 +22,22 @@
 \timing on
 SET search_path = app, public;
 SET app.tenant_id = '33333333-3333-3333-3333-333333333333';
+
+-- Refuse to measure an unloaded tenant. `make db-reset` leaves Sandbox Fleet
+-- with no readings at all, and so does a db-reset that destroyed a load
+-- (docs/lessons.md, 2026-09-16); over an empty tenant every statement below
+-- plans in microseconds and prints as comfortably inside U26's 500ms budget.
+-- The count runs under the same RLS predicate as the plans, so it sees this
+-- tenant's rows only. The volume load writes 30,160.
+DO $$
+DECLARE n bigint;
+BEGIN
+  SELECT count(*) INTO n FROM app.reading;
+  IF n < 10000 THEN
+    RAISE EXCEPTION 'this tenant holds % readings, which is not the volume tenant. Run `make db-volume` first', n;
+  END IF;
+END $$;
+
 BEGIN;
 
 \echo '== casing value at risk'

@@ -15,7 +15,7 @@
 --
 -- It is not what makes the dashboard slow. Measured over the same tenant,
 -- the composed warm read went from 110,984ms without this index to 98,907ms
--- with it, an eleventh of the cost and still 198 times U26's 500ms budget.
+-- with it, a ninth of the cost and still 198 times U26's 500ms budget.
 -- The dominant costs are nested loops the planner chooses because the RLS
 -- tenant predicate is current_setting(), which it cannot fold, so its row
 -- estimates collapse to 1 on tables holding thousands. TYRE-256 carries

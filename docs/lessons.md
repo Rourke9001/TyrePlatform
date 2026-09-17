@@ -1217,8 +1217,9 @@ The second attempt repeated it from the other side. Two auditor agents were
 dispatched while `make db-volume` was loading. One of them ran `make
 db-reset`, which queued a `DROP SCHEMA app CASCADE` behind the load's
 transaction and left `public.schema_migrations` dirty at version 1 when it
-was cancelled, because the target feeds two statements to psql without
-`ON_ERROR_STOP`. Every read figure from that window was contaminated.
+was cancelled, because the target fed two statements to psql without
+`ON_ERROR_STOP` (it carries it from TYRE-247 on, so only the rule below
+survives the fix). Every read figure from that window was contaminated.
 
 That run's load time was 977 seconds against the 328 the file had taken
 before, and attributing the gap to the contention was the third wrong
