@@ -21,16 +21,22 @@
 -- estimates collapse to 1 on tables holding thousands. TYRE-256 carries
 -- that finding and the reshaping it needs; this index is not a fix for it.
 --
--- It is not free on the write path, which the B7.1.5 spec assumed it would
--- be. app.reading is updated once per measurement by
--- reading_measurement_governs (000001), so an index on it is maintained
--- 90,480 times over the volume load, and that load went from 328 seconds
--- without this index to 923 with it. Do not read a per-submit cost off that
--- figure: a superlink submit is 108 measurements against a small table, not
--- 90,480 against a growing one, and the bulk case carries page splits and
--- dead tuples the submit case does not. What it does mean is that the next
--- index proposed on app.reading is a write-path decision as much as a read
--- one, and TYRE-257 is where the load's cost is tracked.
+-- It is not free on the load path either, though not for the reason first
+-- assumed. app.reading is updated once per measurement by
+-- reading_measurement_governs (000001), and the volume load went from 328
+-- seconds without this index to 923 with it; the index being maintained
+-- per update is not what moved. Only the non-HOT third of those updates
+-- write an index entry, and that cost does not register. What registered
+-- (TYRE-257, measured with pg_stat_statements) is the foreign-key check
+-- reading_measurement -> reading: it is planned once per session, a bulk
+-- load plans it at the top of one transaction against an empty, unanalysed
+-- table, and on those statistics the cached generic plan walks this index
+-- on tenant_id alone instead of probing the unique (tenant_id, id) key,
+-- for every one of the 90,480 checks. That is a stale-statistics artefact
+-- of a single-transaction load, not a property of the index; TYRE-257
+-- carries the interleaved ANALYZE that removes it. Do not read a per-submit
+-- cost off any load figure: a submit plans against real statistics, and
+-- the same file took 524 seconds alone on the same box the next day.
 --
 -- Plain CREATE INDEX, not CONCURRENTLY: golang-migrate runs a file inside a
 -- transaction and CONCURRENTLY cannot, and at POC scale the table is small.

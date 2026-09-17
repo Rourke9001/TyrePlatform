@@ -1224,10 +1224,12 @@ survives the fix). Every read figure from that window was contaminated.
 That run's load time was 977 seconds against the 328 the file had taken
 before, and attributing the gap to the contention was the third wrong
 diagnosis in the same session. Re-run alone, with nothing else on the box,
-the same load took 923 seconds. The variable was migration 000047: an index
-on `app.reading` is maintained once per `reading_measurement_governs`
-update, so 90,480 of them, and it costs this load roughly three times its
-duration. Contention was real and cost about 50 seconds of it.
+the same load took 923 seconds. Contention was real and cost about 50
+seconds of it. The rest was first attributed to migration 000047's index
+being maintained once per `reading_measurement_governs` update; the entry
+below, a day later, measured it and found the cause was the foreign-key
+check's cached plan choosing that index on stale statistics, and that the
+same file takes 524 seconds on a different day of the same box.
 
 **The rule:** nothing else touches the database while `make db-volume` or
 `make db-explain` is in flight, including a suite run, a second measurement
@@ -1239,3 +1241,36 @@ unblocks. When a timing looks pathological, the first question is what else
 was running, not what the planner did: confirm by re-running alone before
 diagnosing, because a plan that is identical cost-for-cost was not the
 thing that changed.
+
+## 2026-09-17 — A load figure is attributed by pg_stat_statements, never by the last migration that landed (TYRE-257)
+
+**What happened:** the volume load's 328 to 923 second delta had been
+attributed, in migration 000047's header and in the entry above, to the
+new index being maintained once per governing update. One instrumented run
+(`ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'`,
+`pg_stat_statements.track = all` so statements nested in plpgsql triggers
+are counted, `track_functions = all`, `log_min_duration_statement = 0`,
+container restarted, all reset afterwards) attributed every second of the
+load in one pass, and the story was wrong twice over. The largest term was
+`refresh_governing_tread`'s MIN() subquery seq-scanning the whole
+measurement table per row, because the function is SECURITY DEFINER and its
+query carries no tenant column (TYRE-259, a production defect). The delta
+itself was the foreign-key check `reading_measurement -> reading`: the RI
+machinery plans it once per session, the load plans it at the top of one
+transaction against an empty, never-analysed table, and on those statistics
+the cached generic plan walks the new index on `tenant_id` alone instead of
+probing the unique key, for all 90,480 checks. On an analysed table the same
+check plans on the primary key. Index maintenance did not register. The
+same file also took 524 seconds alone on the same box a day after it took
+923, so a single figure is not a baseline either.
+
+**The rule:** before attributing a load or a query to a schema change,
+switch on `pg_stat_statements` with `track = all` and `track_functions =
+all`, reset the counters, run once, and read the nested statement totals
+and `pg_stat_user_tables` / `pg_stat_user_indexes`; that one run costs
+less than one wrong diagnosis. Inside a single-transaction bulk load, every
+plan the trigger chain and the RI checks cache is built against the
+statistics the table had when the transaction began, so interleave
+`ANALYZE` of the growing tables in the file (legal inside a transaction)
+before blaming an index. And a delta is only a delta between two runs
+taken back to back on the same box.
