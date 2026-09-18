@@ -2,16 +2,10 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { actAsDriver, assignedVehicle, HEADERS } from "./driver";
 
-// FR-INS-038's duplicate window is tenant state in one shared database, so
-// these cannot run in parallel: the second submit of a vehicle is refused by
-// design, whichever worker gets there first. The refusal spec depends on the
-// first spec having submitted HORSE, and serial mode makes that dependency
-// explicit rather than accidental. Thumb reach and target size are the
-// project-dependent half and live in reach.spec.ts; the submit contract is not.
-//
-// The same window makes this file one-shot per seed: a second run inside the
-// configured hours is refused at the first spec, which is why `make e2e`
-// reseeds before it starts.
+// FR-INS-038's duplicate window is tenant state in one shared database: a
+// second submit of the same vehicle is refused regardless of worker, so this
+// file is serial and one-shot per seed. Thumb reach and target size are
+// project-dependent and live in reach.spec.ts; the submit contract is not.
 test.describe.configure({ mode: "serial" });
 
 // The 23/07 sheet's own first-position readings, so what lands in the database
@@ -27,17 +21,14 @@ test.beforeEach(async ({ page }) => {
   await actAsDriver(page);
 });
 
-// Solo capture: untick every trailer the controller has coupled to this unit,
-// so the specs that submit consume one unit's window rather than three.
-// Unticking is FR-INS-063's observation and the server records it, which these
-// specs also, incidentally, exercise.
+// Solo capture: untick every coupled trailer so the submit specs consume one
+// unit's window, not three. Unticking is FR-INS-063's observation, recorded
+// by the server.
 async function startInspection(page: Page, vehicleId: string, rig: "solo" | "whole" = "solo") {
   await page.goto(`/capture/${vehicleId}`);
   const start = page.getByRole("button", { name: /start inspection/i });
-  // NFR-AVL-002: the start screen renders only once the served context has
-  // arrived, and the rig's checkboxes arrive with it. Counting them before then
-  // finds none and starts the WHOLE rig: three windows consumed instead of
-  // one, with nothing on screen to say so.
+  // NFR-AVL-002: the rig's checkboxes arrive with the served context. Counting
+  // them before that resolves finds none and starts the WHOLE rig silently.
   await expect(start).toBeVisible();
   if (rig === "solo") {
     // getByRole's own disabled option, not filter({ hasNot }). hasNot matches
@@ -51,11 +42,9 @@ async function startInspection(page: Page, vehicleId: string, rig: "solo" | "who
   await start.click();
 }
 
-// A field advances itself 200ms after a digit no further digit could change
-// (PositionSheet's hold); a field whose value can still grow never advances at
-// all and needs the go key. Wait past the hold before deciding which case this
-// is. A go press aimed at a field that has already advanced lands on the NEXT
-// one and silently skips a reading.
+// A field auto-advances 200ms after a digit that cannot grow further; one
+// still growing needs the go key. A go press that lands after auto-advance
+// skips the next reading silently.
 async function advanceTo(page: Page, next: Locator) {
   try {
     await expect(next).toHaveAttribute("aria-current", "true", { timeout: 500 });
@@ -65,10 +54,9 @@ async function advanceTo(page: Page, next: Locator) {
   }
 }
 
-// Typing straight through would pile every digit into field 1, where each one
-// past the second overshoots the 35mm ceiling and restarts the buffer, a green
-// run over corrupt data. Each field is entered and then confirmed live before
-// the next one starts.
+// Typing straight through piles every digit into field 1: past the second
+// digit it overshoots the 35mm ceiling and restarts the buffer, a green run
+// over corrupt data. Each field is confirmed live before the next starts.
 async function enterField(page: Page, digits: string[], next: Locator) {
   for (const d of digits) {
     await page.getByRole("button", { name: d, exact: true }).click();
@@ -76,19 +64,16 @@ async function enterField(page: Page, digits: string[], next: Locator) {
   await advanceTo(page, next);
 }
 
-// The sheet for whichever position is open, named for that position, or, for
-// a spare, for the unit that owns it, since a spare carries no walk-around
-// number and a rig has one spare per unit. Waiting on it by name is how a spec
-// tells "the next position opened itself" from "nothing happened", which is
-// what the per-position advance turns on.
+// The sheet for whichever position is open, named for that position (or, for
+// a spare with no walk-around number, for the unit that owns it). Waiting on
+// it by name distinguishes "the next position opened itself" from "nothing
+// happened".
 const openSheet = (page: Page, named: string) => page.getByRole("region", { name: named });
 
-// Enter the position already open. The sheet finishes a position with nothing
-// to flag off the pressure field and opens the next outstanding one; a warned
-// position waits for the tap that records the FR-INS-040 response. So a whole
-// vehicle costs one tap to open the walk and one more per warned position.
-// That is the interaction driver_capture_prototype.html defines, and the arithmetic
-// NFR-USE-001a's seven minutes rests on.
+// Enters the open position. A clean position closes itself off the pressure
+// field; a warned one waits for the tap that records the FR-INS-040 response.
+// That tap-per-warning is the arithmetic NFR-USE-001a's seven minutes rests
+// on.
 async function capturePosition(page: Page, treads: string[][] = TREADS) {
   const named = await page
     .getByRole("region", { name: /^Position \d|^Spare, / })
@@ -101,11 +86,9 @@ async function capturePosition(page: Page, treads: string[][] = TREADS) {
   for (const d of PRESSURE) {
     await page.getByRole("button", { name: d, exact: true }).click();
   }
-  // Two outcomes, whichever the flow reaches first: a clean position closes
-  // itself once the hold expires, and a warned one puts "Seen it ›" on the go
-  // key and waits. Polling for either is what keeps this off a render race in
-  // both directions. A fixed wait long enough for the hold would be paid on
-  // every warned position, and the seeded sheet warns on most of them.
+  // Poll for either outcome (closed, or "Seen it" appearing) to avoid a render
+  // race; a fixed wait long enough for the hold would be paid on every warned
+  // position.
   const sheet = openSheet(page, named);
   const answer = page.getByRole("button", { name: /seen it ›/i });
   await expect
@@ -126,13 +109,9 @@ async function captureAll(page: Page, first: string[][] = TREADS): Promise<numbe
   return total;
 }
 
-// CaptureDone is the only region in the flow that pairs a live role with a
-// heading. Scoping on <main> alone is not enough: the shell's OutboxIndicator
-// renders role=status above <main>, and inside it CaptureFlow's storage-fault
-// banner, its two load-failure branches and every standing position warning all
-// render bare role=alert. A storage fault coinciding with a refusal would then
-// resolve two elements, and strict mode would report that as though the product
-// had two errors rather than the spec two matches.
+// Scoped to a heading, not just role, because OutboxIndicator and other
+// banners also render role=status/alert under <main>; without the filter two
+// elements can match and strict mode blames the product, not the spec.
 const done = (page: Page) =>
   page
     .locator("main")
@@ -162,13 +141,10 @@ test("a driver captures a whole vehicle, sees it confirmed, and agrees with the 
   const horse = await assignedVehicle(request, "HORSE");
   await startInspection(page, horse.id);
 
-  // Decision D-C: the capture app's leg of the three-way agreement is one
-  // vehicle at the moment of entry. The fleet-wide 19/11/9 leg is the
-  // dashboard's; do not assert it here.
-  //
-  // Capture the FIRST position below the threshold and the rest above it.
-  // Capturing everything at 13/13/14 against a 4mm threshold makes both sides
-  // of the comparison zero, and 0 === 0 pins nothing at all.
+  // D-C: this test is the capture leg of the three-way agreement (one vehicle
+  // at entry); the fleet-wide 19/11/9 leg is the dashboard's, not asserted
+  // here. Capture the FIRST position below threshold and the rest above it:
+  // all-below-or-all-above would make 0 === 0 pin nothing.
   const total = await captureAll(page, [["3"], ["3"], ["4"]]);
 
   await page.getByRole("button", { name: /review and submit/i }).click();
@@ -229,9 +205,8 @@ test("an inspection survives a browser restart mid-capture", async ({ page, requ
   await capturePosition(page);
   await capturePosition(page);
 
-  // FR-OFF-006 / NFR-USE-011: the flat-battery case, and the one a driver will
-  // never forgive. A reload is a restart as far as the buffer is concerned.
-  // The store is the source of truth, not React state.
+  // FR-OFF-006 / NFR-USE-011: a reload is a restart as far as the buffer is
+  // concerned. The store is the source of truth, not React state.
   await page.reload();
 
   await expect(page.getByText(/3 of/i)).toBeVisible();
@@ -246,15 +221,11 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
   context,
   request,
 }) => {
-  // FR-INS-060/061 and BR-VEH-003, which is the one that breaks silently. The
-  // driver sees a continuous 1..n across the horse and both trailers; what is
-  // SENT is (vehicle_id, position_id) per unit, and the rig number appears
-  // nowhere. If the projection ever leaked into the payload, every trailer's
-  // tyres would be filed against the horse.
-  // Twenty-nine cells at roughly a second of browser round trips each. The
-  // default 30s is a budget for a test; this one walks a whole superlink, and
-  // NFR-USE-001a's seven minutes is the figure that governs a driver, not
-  // this.
+  // FR-INS-060/061, BR-VEH-003: the driver sees a continuous 1..n across the
+  // rig, but what is SENT is (vehicle_id, position_id) per unit; a leaked
+  // projection would file every trailer's tyres against the horse.
+  // Extended timeout: 29 cells of round trips exceeds the default 30s budget.
+  // NFR-USE-001a's seven minutes governs a driver, not this test.
   test.setTimeout(180_000);
 
   const horse = await assignedVehicle(request, "HORSE");
@@ -266,15 +237,13 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
   expect(combination?.members).toHaveLength(3);
 
   const total = await captureAll(page);
-  // The arithmetic the whole three-minute constraint rests on, pinned exactly
-  // (lane 6 F14, TYRE-173): a horse plus two links is 26 running positions
-  // and one seeded spare per unit, 29 cells. A configuration change that
-  // halved the walk must fail here, not pass a ">20".
+  // Pinned exactly (TYRE-173): a horse plus two links is 26 running positions
+  // and one spare per unit, 29 cells. A halved configuration must fail here,
+  // not pass a ">20".
   expect(total).toBe(29);
 
-  // FR-VEH-034: continuous across member units, computed for the screen. Count
-  // the RUNNING positions, not every cell. Spares carry no rig number and are
-  // drawn separately, so total includes one per unit and there is no
+  // FR-VEH-034: count RUNNING positions only. Spares carry no rig number and
+  // are drawn separately, so total includes one per unit and there is no
   // "Position 29".
   const running = await page.getByRole("button", { name: /^Position \d+,/ }).count();
   expect(running).toBe(26);
@@ -283,10 +252,9 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
     page.getByRole("button", { name: new RegExp(`^Position ${running},`) }),
   ).toBeVisible();
 
-  // Stop at the outbox, and cut the network to make that literally true. The
-  // alternative, letting the submit go and reading the payload off a refusal,
-  // would make what this spec can assert depend on which windows the specs
-  // before it happened to consume.
+  // Cut the network to stop at the outbox rather than letting the submit go
+  // through: reading the payload off a refusal would depend on which windows
+  // earlier specs happened to consume.
   await context.setOffline(true);
   await submit(page);
   // The queue is written inside queueDraft's transaction; reading IndexedDB
@@ -313,9 +281,7 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
   }
 
   // BR-VEH-003 as amended by E2: never stored AND never transmitted. The regex
-  // names the two shapes a leak would take and nothing legitimate in the
-  // payload contains either, so it can fail, but only for those two names,
-  // which is why the wire contract is pinned key by key as well.
+  // catches the two leak shapes; the wire contract is pinned key by key too.
   expect(JSON.stringify(payload)).not.toMatch(/rig_position|"sequence"/);
   expect(Object.keys(payload.readings[0]).sort()).toEqual([
     "damage_flag",
@@ -333,10 +299,9 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
 });
 
 test("a second inspection inside the window is refused permanently", async ({ page, request }) => {
-  // Depends on the first spec having submitted the horse, which serial mode
-  // guarantees. FR-INS-038 is about the VEHICLE and a wall-clock window, not
-  // about this browser. A replayed client_uuid is not a second inspection,
-  // which is the distinction the whole outbox turns on.
+  // Depends on the first spec having submitted the horse (serial mode).
+  // FR-INS-038 is about the VEHICLE and a wall-clock window, not this
+  // browser; a replayed client_uuid is not a second inspection.
   const horse = await assignedVehicle(request, "HORSE");
   await startInspection(page, horse.id);
   await captureAll(page);
@@ -346,8 +311,7 @@ test("a second inspection inside the window is refused permanently", async ({ pa
   await expect(failed(page)).toContainText(/already inspected/i);
   await expect(failed(page)).toContainText(/saved/i);
 
-  // The outbox must NOT be retrying it. A permanent refusal is not "waiting to
-  // send", and a phone hammering it helps nobody.
+  // The outbox must NOT retry: a permanent refusal is not "waiting to send".
   await expect(page.getByText(/waiting to send/i)).toBeHidden();
   // The shell says the same thing outside the flow, so a driver who has walked
   // away still sees it. Scoped to role=status because the refusal screen

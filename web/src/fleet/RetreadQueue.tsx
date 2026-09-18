@@ -15,10 +15,8 @@ import { retreadJobsKey, tyresKey } from "./unit/queryKeys";
 import { useFormMutation } from "./useFormMutation";
 import "./fleet.css";
 
-// app.log_retread_return reaches TY012 (no such job), TY014 (an input this
-// surface does not accept: a missing casingAccepted, a returnedOn earlier
-// than the dispatch) and TY015 (BR-FIT-009's cap, on the accepted branch's
-// re-rating), rendered verbatim (NFR-USE-005).
+// app.log_retread_return reaches TY012 (no such job), TY014 (a rejected
+// input) and TY015 (BR-FIT-009's cap), rendered verbatim (NFR-USE-005).
 const RETURN_WORDING = {
   speakable: ["TY012", "TY014", "TY015"],
   forbidden: "You do not have permission to log a retread return.",
@@ -28,13 +26,10 @@ const RETURN_WORDING = {
 const INCOMPLETE_RETURN =
   "An outcome, a report reference and a returned-on date are all required before a return can be logged.";
 
-// An absent optional is an omitted key, never "": app.log_retread_return takes
-// these as numeric, and the cast rejects an empty or all-space string as 22P02.
-// A refusal with no code this screen can speak, so it would surface as the
-// generic fallback rather than as anything about the field. The `required`
-// attributes stop a genuinely empty submit; whitespace satisfies them, which
-// is the case this closes. DispatchForm.tsx omits its own optional the same
-// way.
+// An absent optional is an omitted key, never "": the numeric cast rejects
+// an empty/all-space string as 22P02, a code this screen cannot speak.
+// required stops a genuinely empty submit; whitespace still satisfies it,
+// which this closes.
 function omitIfBlank(value: string): string | undefined {
   const trimmed = value.trim();
   return trimmed === "" ? undefined : trimmed;
@@ -42,19 +37,10 @@ function omitIfBlank(value: string): string | undefined {
 
 type Outcome = "accepted" | "rejected";
 
-// A per-job return form. Kept out of RetreadQueue's own JSX rather than
-// inlined in the map: each row owns its own field state, and a return that
-// clears on success must not disturb the row beside it.
-//
-// newPatternId is not offered here, and is unlikely to be soon: no
-// pattern-list read exists yet, and a raw uuid text box is not a usable
-// control for a driver or a controller. app.log_retread_return already
-// accepts the field, so a follow-up ticket raises the picker rather than
-// this slice inventing one.
-//
-// onSuccess names nothing further: a successful return closes the job and this
-// row leaves the list on the refetch, so the confirmation lives at the screen
-// (see closedCode in RetreadQueue below, NFR-USE-010).
+// A per-job return form, kept out of the map: each row owns its own field
+// state, and a cleared-on-success form must not disturb the row beside it.
+// newPatternId is not offered: no pattern-list read exists yet, so a raw
+// uuid box would not be usable.
 function RetreadReturnRow({
   job,
   tenantKey,
@@ -225,13 +211,9 @@ function RetreadReturnRow({
 export function RetreadQueue() {
   const tenantKey = getDevTenantId() ?? "default";
   const asDate = useTenantDate();
-  // The last job this screen closed, held here rather than in the row that
-  // closed it: a successful return invalidates retreadJobsKey, the row's
-  // own job leaves the refetched list, and RetreadReturnRow unmounts with
-  // it. A line left inside that row would show for one round-trip and
-  // vanish (NFR-USE-010). Cleared as soon as any row's onStart fires: the
-  // message names one specific job, and stays accurate only until an
-  // operator's attention visibly moves to another return.
+  // The last job this screen closed, held at screen level: RetreadReturnRow
+  // unmounts on its own success, so a confirmation left in the row would
+  // vanish on the very refetch that should show it (NFR-USE-010).
   const [closedCode, setClosedCode] = useState<string | null>(null);
 
   const jobs = useQuery({ queryKey: retreadJobsKey(tenantKey), queryFn: fetchRetreadJobs });

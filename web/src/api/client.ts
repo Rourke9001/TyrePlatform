@@ -3,12 +3,9 @@
 
 import { getDevActorId, getDevTenantId } from "./devTenant";
 
-// The status is the outbox's decision (FR-OFF-012 vs FR-OFF-013); the code is
-// the reason, which is what decides the sentence a driver reads. A 409 alone
-// cannot separate FR-INS-038's duplicate window from any other conflict
-// (ADR-0012). The message is the envelope's own text when present (the server's
-// words for rendering a screen refusal); otherwise a diagnostic to absorb an
-// error path that failed while reporting an error (ADR-0013).
+// status is the outbox's decision (FR-OFF-012 vs FR-OFF-013); code is the
+// refusal reason a 409 alone cannot carry (FR-INS-038, ADR-0012); message is
+// the envelope's text, or a diagnostic when absent (ADR-0013).
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -20,13 +17,9 @@ export class ApiError extends Error {
   }
 }
 
-// The refusal envelope, or nothing (ADR-0012). A proxy, a gateway or a
-// browser-generated failure carries none, so an unreadable body yields nulls
-// rather than a throw: an error path that fails while reporting a failure
-// loses the inspection the outbox is holding.
-//
-// Both fields come from one parse because a Response body can only be read
-// once.
+// An unreadable body yields nulls, not a throw (ADR-0012): failing to parse
+// a refusal must not lose the inspection the outbox is holding. Both fields
+// come from one parse; a Response body reads once.
 async function refusal(res: Response): Promise<{ code: string | null; message: string | null }> {
   const none = { code: null, message: null };
   try {
@@ -41,10 +34,8 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
   }
 }
 
-// The one implementation of identity attribution, refusal shaping and 204
-// handling: apiGet, apiPost and apiPatch differ only in HTTP method and
-// whether a body exists, so every verb below delegates here rather than
-// carrying its own copy of headers/refusal/204 to drift from the others'.
+// One implementation of identity attribution, refusal shaping and 204
+// handling; apiGet/Post/Patch delegate here so they cannot drift apart.
 async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
@@ -79,10 +70,9 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
   return send<T>("POST", path, body);
 }
 
-// PATCH is the unit's descriptive edit (D5): the fields a plain UPDATE owns
-// because no SQL rule governs them, distinct from the POSTs on this surface
-// that call into a function precisely because one does (ADR-0013 decision
-// 1). The distinction is server-side; this function only carries the verb.
+// PATCH carries the unit's descriptive fields, ones no SQL rule governs
+// (D5); POSTs on this surface call a function because one does (ADR-0013
+// decision 1). The distinction is server-side.
 export function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return send<T>("PATCH", path, body);
 }

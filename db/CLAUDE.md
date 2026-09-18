@@ -19,8 +19,12 @@ isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
 
 A change is a new pair `migrations/NNNNNN_name.up.sql` + `.down.sql` (next
 number in sequence, golang-migrate). Never edit a migration that is already
-on `main` — it has run somewhere and will not run again. Migrations never
-DROP what they did not create; `make db-reset` owns destruction.
+on `develop` — it has run somewhere and will not run again, and a hook
+refuses the edit (TYRE-250). Migrations never DROP what they did not
+create; `make db-reset` owns destruction.
+
+Numbering spans directories because it is load order: migrations, then
+`seeds/002` and `003`, then the suite `tests/004`.
 
 ## Adding a table
 
@@ -50,6 +54,17 @@ Not optional. A view without it executes with its **owner's** privileges, so
 RLS is evaluated as the migration role and the view returns every tenant's rows
 to any caller. Check 8b fails the build if you forget, which is the only reason
 this is merely a footgun rather than a breach.
+
+## Adding a function
+
+Invoker rights, always; the one definer is `app.refresh_governing_tread`
+(000004), and a new definer needs a review and a suite section before it
+lands (check 8c). Every plpgsql routine pins `SET search_path = app,
+pg_temp`, because plpgsql resolves unqualified names when it runs and
+would otherwise follow the caller's path (TYRE-181). A `LANGUAGE sql` table
+function that a view is built over carries no pin: the planner inlines
+those and a SET clause blocks the inlining (000036). Check 8d holds both
+halves. Cite this section from a migration; do not restate it.
 
 ## Money
 

@@ -34,14 +34,11 @@ type axleConfigurationJSON struct {
 	AxleCount int    `json:"axleCount"`
 }
 
-// listAxleConfigurations serves the library a unit is created against
-// (FR-CFG-001..007). Gated on ManageAssets rather than ViewFleet: the list is
-// only useful to someone who may create a unit with it, and D8 puts that on
-// ManageAssets.
-//
-// Authoring a configuration is not here and must not arrive here. D8 reserves
-// it for ManageTemplates, ORG_ADMIN alone (TYRE-84), because a wrong template
-// silently corrupts every position on every unit that uses it.
+// listAxleConfigurations serves the create-unit library (FR-CFG-001..007),
+// gated on ManageAssets rather than ViewFleet. Authoring a configuration is
+// not here: D8 reserves it for ManageTemplates, ORG_ADMIN alone (TYRE-84),
+// because a wrong template silently corrupts every position on every unit
+// that uses it.
 func listAxleConfigurations(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -134,18 +131,11 @@ func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
 	return true
 }
 
-// decodeJSONStrict is decodeJSON for a body whose unknown keys are a refusal
-// rather than something to ignore. "Unknown" is whatever encoding/json failed
-// to match, and it matches a key to a json tag case-insensitively, so
-// "DESCRIPTION" is a known key and only a name no tag spells at all is
-// refused. The unit PATCH is the one caller, and refusing an unknown key
-// here, before a transaction opens, is what keeps TY008 unreachable from the
-// API (units.go's patchUnitRequest).
-//
-// The decoder's own error text is never forwarded, because ADR-0012 keeps a
-// message a library or Postgres wrote off the wire. The key it names is the
-// caller's own input, bounded by maxWriteBytes, and a refusal that withholds
-// it leaves a form with nothing to point at.
+// decodeJSONStrict refuses an unknown key (case-insensitive match against a
+// json tag) before a transaction opens. The unit PATCH is the one caller,
+// and refusing here is what keeps TY008 unreachable from the API (units.go's
+// patchUnitRequest). The decoder's own error text is never forwarded
+// (ADR-0012); the key it names is bounded, caller-supplied input.
 func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBytes))
 	if err != nil {
@@ -169,18 +159,12 @@ func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
 	}
-	// Two bodies Decode accepts and json.Unmarshal does not, and this decoder
-	// must not be the laxer of the pair: a literal null, which fills the
-	// target with nothing at all and would read as an edit naming no field,
-	// and anything after the first value, which Decode simply stops before.
-	//
-	// The second is asked as "does another Decode reach io.EOF", not as
-	// dec.More(): More() reports whether another *element* follows within an
-	// array or object, so a closing delimiter answers false and a body ending
-	// `}}` or `}]` reads as finished. A second Decode instead takes whatever
-	// remains as a value in its own right, so a stray delimiter is a syntax
-	// error and a second object is a value. Only a body that truly ended
-	// gives io.EOF.
+	// A literal null and a value after the first are both refused: Decode
+	// alone accepts either and this decoder must not be laxer than
+	// json.Unmarshal (TYRE-72). Confirmed by asking for a second Decode's
+	// io.EOF, not dec.More(), which reports whether another *element*
+	// follows within an array or object and so answers false on a body that
+	// merely ends `}}` or `}]`.
 	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
 		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
 		return false
@@ -210,15 +194,10 @@ func unknownJSONField(err error) (string, bool) {
 	return name, true
 }
 
-// typeErrorField names the field whose value was of a type this request
-// cannot read. The decoder's own text is never forwarded, because ADR-0012
-// keeps a message a library wrote off the wire. The field name is safe to
-// send, and a refusal that withholds it leaves a form with nothing to point
-// at: the reasoning decodeJSONStrict already applies to an unknown key.
-//
-// No length bound is needed here, unlike there: encoding/json builds this
-// path out of the json tag names of this package's own types, never out of a
-// key the caller sent.
+// typeErrorField names the field whose value had the wrong type. The
+// decoder's own text is never forwarded (ADR-0012); the field name is safe
+// because encoding/json builds this path from this package's own json tags,
+// never caller text, so no length bound is needed here.
 func typeErrorField(err error) (string, bool) {
 	var typeErr *json.UnmarshalTypeError
 	if !errors.As(err, &typeErr) || typeErr.Field == "" {
@@ -524,17 +503,12 @@ func createUser(s *store.Store) http.HandlerFunc {
 				return err
 			}
 
-			// Classify the collision before inserting, because the unique
-			// index spans inactive rows and Postgres cannot say which kind it
-			// caught. RLS scopes this lookup, so another tenant's address is
-			// simply not here: a plain create proceeds, and a reactivate is
-			// refused, the honest answers for this tenant, and identical
-			// whether the address lives elsewhere or nowhere.
-			//
-			// lower() on both sides matches 000027's index, 000026's one
-			// email comparison rule in the schema, not two. The stored
-			// address keeps the case the admin typed; only comparison folds,
-			// here and in the reactivate UPDATE below.
+			// Classify the collision before inserting: the unique index spans
+			// inactive rows and Postgres cannot say which kind it caught. RLS
+			// already scopes the lookup to this tenant. lower() on both sides
+			// matches 000027's index and 000026's one comparison rule (the
+			// stored address keeps the admin's casing; only comparison
+			// folds).
 			var existingActive bool
 			lookup := tx.QueryRow(ctx,
 				`SELECT active FROM app.app_user WHERE lower(email) = lower($1)`,
@@ -546,16 +520,13 @@ func createUser(s *store.Store) http.HandlerFunc {
 			case lookup == nil && !ins.reactivate:
 				return refusalError{refusal{http.StatusConflict, codeEmailInactive, msgEmailInactive}}
 			case lookup == nil:
-				// A rehire is the same person: updating in place keeps the id
-				// their inspections are attributed through (FR-VEH-008).
-				// UPDATE is granted on app_user and only DELETE was revoked
-				// (000002, 000018), because a person is not an event.
-				//
-				// staff_number: an absent field means "not supplied",
-				// because the reactivate form never pre-fills it and
-				// FR-AUT-022's identifier must survive a rehire that omits
-				// it. An explicitly blank one means "clear it". The clear
-				// flag carries the difference COALESCE alone cannot see.
+				// A rehire is the same person: updating in place keeps the
+				// id their inspections are attributed through (FR-VEH-008).
+				// UPDATE is granted and only DELETE was revoked (000002,
+				// 000018), because a person is not an event. staff_number:
+				// absent keeps a rehire's number (FR-AUT-022 survives an
+				// omitting form); explicitly blank clears it, a distinction
+				// COALESCE alone cannot see.
 				status = http.StatusOK
 				err := tx.QueryRow(ctx,
 					`UPDATE app.app_user
@@ -639,17 +610,11 @@ type assignmentJSON struct {
 // parse is a defect waiting for a tenant in another timezone (rule 6).
 const isoDate = "2006-01-02"
 
-// assignDriver opens a driver-to-unit assignment (FR-VEH-007). It is what
-// app.v_capture_vehicle reads, so it is the step between a created driver and
-// a capture they can reach.
-//
-// The assignee's role is deliberately unchecked: no constraint says an
-// assignment names a DRIVER, and asserting it here would put a rule in Go that
-// the schema does not hold (ADR-0013). Every assignable role already holds
-// CaptureInspection, so the gap grants nothing.
-//
-// to_date is left NULL, an open assignment. Closing one is a different
-// action and does not belong on a create.
+// assignDriver opens a driver-to-unit assignment (FR-VEH-007), the step
+// v_capture_vehicle reads. The assignee's role is unchecked: no constraint
+// says an assignment names a DRIVER, and every assignable role already holds
+// CaptureInspection, so asserting it here would add a Go-side rule the
+// schema does not hold (ADR-0013).
 func assignDriver(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

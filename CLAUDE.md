@@ -128,8 +128,11 @@ one is replaced by a new pair.
 `docs/comments.md` is the full standard; these are the operative rules.
 Comment *why*, never *what*. `// increment i` is noise. Never narrate a
 change or compare to the old code — git holds the history. One rationale
-lives in one place; other files cite it. `TODO` needs a ticket ID on the
-same line. Comments and user-facing strings follow `/unslop`: no em dashes,
+lives in one place; other files cite it. **One constraint per comment, in
+a few lines, with its ID.** Measurements, rejected alternatives and
+cross-file storytelling go to `docs/lessons.md`, the ADR or the spec, and
+the comment cites the path. A header that needs a page is a doc not yet
+written (TYRE-260). `TODO` needs a ticket ID on the same line. Comments and user-facing strings follow `/unslop`: no em dashes,
 straight quotes, plain words (the `Prose` section of `docs/comments.md`).
 A hook, `make lint` and CI all run `scripts/check-comment-style.mjs`; run
 `/comment-audit` when closing out a branch. The comments worth writing here

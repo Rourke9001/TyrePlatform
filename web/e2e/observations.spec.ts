@@ -4,17 +4,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { actAsUser } from "./admin";
 
-// TYRE-75's definition of done, walked: a driver's capture reports a trailer
-// uncoupled, and the controller turns that report into a dated rig change on
-// /fleet/rigs. The offered rig closes, a new one opens without the trailer,
-// and the trailer is free to be coupled elsewhere. The capture is submitted
-// through POST /api/inspections as the driver rather than walked through the
-// screens: the untick lives in capture.spec.ts, which runs on the android
-// project alone with file-private helpers, and a copy of it here would be a
-// second walk to keep true (tasks.spec.ts's precedent). started_at is the
-// server's own instant for the rig, read back from the create; submitted_at is
-// an instant compared to instants, not a tenant day, so a clock here is
-// outside the 2026-09-03 lesson.
+// TYRE-75's DoD (Jira). Submitted via POST /api/inspections, not walked
+// through capture screens, to avoid a second walk (capture.spec.ts owns
+// that; tasks.spec.ts precedent).
 //
 // Sandbox Fleet, never BAC: see admin.ts (TYRE-80). Every unit is created by
 // this run rather than reused from the seed (U14).
@@ -126,10 +118,9 @@ test("a controller applies the difference a driver reported", async ({ page }) =
     towed: [{ vehicleId: keptId }, { vehicleId: droppedId }],
   })) as { id: string; effectiveFrom: string };
 
-  // Rule 5: the width of a capture is tenant configuration, read from the
-  // context the driver was served rather than assumed. A running position,
-  // never a spare. FR-CFG-013 gives a spare no pressure target and the
-  // reading below carries one.
+  // Rule 5: capture width is tenant configuration, read from the served
+  // context. A running position, never a spare: FR-CFG-013 gives a spare no
+  // pressure target, and this reading carries one.
   const captureContext = (await apiGet(
     page,
     `/api/capture/vehicles/${horseId}`,
@@ -148,15 +139,10 @@ test("a controller applies the difference a driver reported", async ({ page }) =
       vehicle_id: horseId,
       combination_id: rig.id,
       observed_member_vehicle_ids: [horseId, keptId],
-      // The rig's own instant, read back from the server. A browser instant
-      // would be accepted too, 000044 bounds the observed instant into
-      // [rig.effective_from, received_at] rather than refusing outside it,
-      // but the server's is kept for two reasons: it is one clock fewer in
-      // the walk (lesson 2026-09-03), and it makes the outcome deterministic,
-      // because the bound then lands exactly on the offered rig's own start
-      // whatever this machine's clock reads. app.submit_inspection makes no
-      // comparison between started_at and submitted_at (000041, checked
-      // 8 Sep 2026), so the two clocks are never compared.
+      // The rig's own instant, not a browser one: one clock fewer (lesson
+      // 2026-09-03) and deterministic, since 000044 bounds the observed
+      // instant into [effective_from, received_at]. app.submit_inspection
+      // never compares started_at to submitted_at (000041).
       started_at: rig.effectiveFrom,
       submitted_at: new Date().toISOString(),
       duration_seconds: 120,

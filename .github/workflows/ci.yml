@@ -32,13 +32,9 @@ jobs:
           --health-cmd "pg_isready -U postgres"
           --health-interval 2s --health-timeout 3s --health-retries 20
     steps:
-      # Actions are pinned to commit SHAs, not tags. A tag is a movable
-      # pointer: whoever can push to the action's repository can repoint v7 at
-      # new code that runs inside our job. This repo already refuses npm
-      # packages younger than 14 days (web/.npmrc). An action is the same
-      # threat model with more privilege, because it executes rather than just
-      # ships bytes. Renovate bumps these SHAs; the trailing comment is the
-      # human-readable version it keys off (TYRE-50).
+      # Actions are pinned to commit SHAs, not tags (TYRE-50): a tag is a
+      # movable pointer another party can repoint at new code. Renovate bumps
+      # these SHAs; the trailing comment is the human-readable version.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.12' }
@@ -46,10 +42,9 @@ jobs:
       - name: Regenerate seeds
         run: cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && python3 gen_seed_volume.py
 
-      # The generators are deterministic and are the single source of truth for
-      # the axle configuration library. If regenerating produces a different
-      # byte stream from the last run, the library changed without the SRS
-      # changing, which is exactly the drift Appendix I exists to prevent.
+      # The generators are the single source of truth for the axle
+      # configuration library; a byte-stream difference on regeneration is
+      # the drift Appendix I exists to prevent.
       - name: Seeds are deterministic
         run: |
           sha_a=$(sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql)
@@ -75,10 +70,8 @@ jobs:
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/002_seed_configurations.sql
           psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
 
-      # NFR-SEC-005. This is the gate that matters. It runs as app_login, NOT
-      # as postgres. Superusers bypass RLS (DEPLOYMENT NOTE at the end of
-      # db/migrations/000001_init.up.sql). Check 0 inside the suite asserts
-      # this and aborts if it is not true.
+      # NFR-SEC-005: runs as app_login, not postgres, which would bypass RLS
+      # (db/CLAUDE.md). Check 0 in the suite asserts this.
       - name: Verification suite (as non-superuser)
         env:
           PGURL: postgres://app_login@localhost:5433/tyre
@@ -157,21 +150,16 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with: { node-version: '22', cache: npm, cache-dependency-path: web/package-lock.json }
 
-      # TYRE-21. node 22 bundles npm 10.9.9, which predates `min-release-age`
-      # (npm 11.10.0). npm silently ignores config keys it does not know, so on
-      # the bundled npm web/.npmrc would enforce nothing and no one would be
-      # told. Pinned rather than @latest: this is a supply-chain ticket, and
-      # 12.0.2 satisfies the same 14-day rule it exists to enforce.
+      # TYRE-21: node 22 bundles npm 10.9.9, which predates min-release-age
+      # (11.10.0) and would silently enforce nothing. Pinned, not @latest,
+      # since this is itself a supply-chain concern.
       - name: Pin npm
         run: npm i -g npm@12.0.2
 
-      # The guard, not a formality. The failure mode is silent: an npm that does
-      # not understand min-release-age installs anyway, with no warning.
-      #
-      # Both halves are needed. `npm config get` echoes back any key present in
-      # .npmrc whether or not npm understands it. npm 9.8.0 reports 14 just as
-      # happily as npm 12 does, so the value alone proves only that the file
-      # was read. The version comparison is what proves the gate is enforced.
+      # Both checks are needed: `npm config get` echoes any key present in
+      # .npmrc whether or not npm understands it, so the value alone proves
+      # only that the file was read; the version comparison proves the gate
+      # is enforced (TYRE-21).
       - name: Release-age gate is active
         run: |
           cd web
@@ -182,12 +170,9 @@ jobs:
             || { echo "::error::npm $have ignores min-release-age; need >= $need"; exit 1; }
           echo "min-release-age=$age enforced by npm $have"
 
-      # TYRE-21. The gate above proves npm *would* enforce the window on the
-      # next resolution; this proves the lockfile actually in the tree does,
-      # which is a different claim. The full rationale lives at the top of
-      # scripts/check-release-age.mjs, one canonical copy. Runs before
-      # install so a poisoned lockfile is rejected before any of it is
-      # fetched.
+      # TYRE-21: the gate above proves npm would enforce the window; this
+      # proves the lockfile in the tree does, a different claim (full
+      # rationale in scripts/check-release-age.mjs). Runs before install.
       - name: Locked packages are old enough
         run: node scripts/check-release-age.mjs
 
@@ -208,12 +193,10 @@ jobs:
   e2e:
     name: Browser smoke
     runs-on: ubuntu-latest
-    # The one job that runs the real stack end to end: seeded Postgres, the
-    # API with the dev header resolver, vite's dev server, and headless
-    # Chromium and WebKit at desktop and phone viewports. jsdom cannot
-    # exercise real rendering, the role landing or a 44px tap target, and the
-    # deploy workflow gates on this workflow's conclusion, so a broken
-    # login-to-fleet path cannot ship (TYRE-65).
+    # The one job that runs the real stack end to end (seeded Postgres, the
+    # API, vite dev server, headless Chromium and WebKit): jsdom cannot
+    # exercise real rendering, and the deploy workflow gates on this job's
+    # conclusion (TYRE-65).
     services:
       postgres:
         image: postgres:16-alpine

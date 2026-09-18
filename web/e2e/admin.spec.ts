@@ -2,12 +2,8 @@ import { expect, test } from "@playwright/test";
 
 import { actAsOrgAdmin, actAsUser } from "./admin";
 
-// TYRE-81's definition of done, as one path: an org admin builds a unit and a
-// driver from nothing, assigns them, and that driver reaches a capture for
-// the unit just built.
-//
-// Serial, and unique per run: these are writes into a shared database, and a
-// fleet number or email reused across runs is refused by design (DR-003, D10).
+// TYRE-81's DoD (Jira). Serial: fleet number/email reused across runs is
+// refused by design (DR-003, D10).
 test.describe.configure({ mode: "serial" });
 
 const RUN = Date.now().toString().slice(-6);
@@ -51,12 +47,9 @@ test("an org admin can build a tenant from nothing", async ({ page, browser }) =
   await page.getByRole("button", { name: /assign/i }).click();
   await expect(page.getByText(new RegExp(`assigned to ${FLEET}`, "i"))).toBeVisible();
 
-  // The DoD's last clause: the assignment above is what lets this driver
-  // reach a capture at all (FR-AUT-005, app.v_capture_vehicle). A fresh
-  // context rather than `page`: actAsOrgAdmin's init script re-stamps the
-  // org admin on every navigation, so a localStorage overwrite would not
-  // survive the goto. A context made by hand takes none of the config's
-  // `use` options, so baseURL is passed through explicitly.
+  // The DoD's last clause (FR-AUT-005, app.v_capture_vehicle). Fresh context,
+  // not `page`: actAsOrgAdmin re-stamps on every navigation (admin.ts
+  // actAs); baseURL passed since a hand-made context skips config `use`.
   const driverContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const driverPage = await driverContext.newPage();
   await actAsUser(driverPage, userId);

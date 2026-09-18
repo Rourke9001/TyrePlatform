@@ -1,13 +1,6 @@
-/* The control and surface patterns more than one screen needs, in one place
-   so they cannot drift apart. Loaded beside base.css (ThemeProvider) rather
-   than from a feature's own stylesheet: a screen must never reach into
-   another feature's file for a class, so a pattern more than one screen
-   needs lives here.
-
-   Custom properties only, per web/CLAUDE.md. capture.css is deliberately not
-   a client. The capture surface answers to the three-minute constraint and
-   sizes its own controls against gloves and sunlight, so it is allowed to
-   disagree with everything here. */
+/* Control/surface patterns more than one screen needs, in one place, loaded
+   beside base.css. capture.css is deliberately not a client: it answers to
+   the three-minute constraint and gloves/sunlight sizing instead. */
 
 /* The heading a management screen opens with. Margin is the caller's: a
    heading in a flex bar wants none, one above a form wants rhythm below it. */

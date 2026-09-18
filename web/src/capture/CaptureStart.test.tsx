@@ -5,16 +5,9 @@ import userEvent from "@testing-library/user-event";
 import { CaptureStart } from "./CaptureStart";
 import type { CaptureContext } from "./captureContext";
 
-// A unit with a reading on record, a recent date for it and a rate to carry
-// it forward, the three inputs FR-INS-020's pre-fill needs, and the shape the
-// e2e suite cannot reach: the fixture seeds no vehicle_odometer_reading rows,
-// so lastOdometerKm is null throughout and every browser spec meets the empty
-// field instead.
-//
-// Eight days at 500 km a day projects 412 180 to 416 180, which is why the
-// clock below is frozen: a projection read off the wall clock would move every
-// day and the expected value here would be a second implementation of the
-// arithmetic under test.
+// FR-INS-020's three pre-fill inputs; frozen clock because 8 days at
+// 500km/day projects 412180 to 416180, and a wall-clock read would move
+// the expected value under the test.
 const motive: CaptureContext = {
   vehicleId: "v1",
   fleetNumber: "BAC039SP",
@@ -70,10 +63,9 @@ describe("CaptureStart's odometer", () => {
     vi.useRealTimers();
   });
 
-  // FR-INS-020 as written: "pre-filled with a projection from the unit's last
-  // known reading". A projection, not the reading. The number on screen is
-  // one the unit has plausibly reached, so confirming it cannot record last
-  // inspection's value as this one's.
+  // FR-INS-020 verbatim: pre-filled with a projection, not the last
+  // reading. Confirming it cannot record last inspection's value as this
+  // one's.
   it("offers a projection from the last reading rather than the reading itself", () => {
     renderStart(vi.fn());
     // Scoped to the readout: the confirm control names the same number, and
@@ -83,12 +75,10 @@ describe("CaptureStart's odometer", () => {
     expect(screen.getByText(/412 180 km/)).toBeInTheDocument();
   });
 
-  // The clause the whole shape turns on: "CONFIRMED values are recorded to the
-  // vehicle odometer timeline". An untouched pre-fill is not a confirmed
-  // value, so a driver who taps Start without looking at the field records no
-  // reading at all, which is NFR-PRO-003's absent value in place of an
-  // invented one, and keeps DR-018's append-only timeline free of a distance
-  // nobody observed.
+  // "CONFIRMED values are recorded to the odometer timeline": an untouched
+  // pre-fill is not confirmed, so an unconfirmed tap records no reading at
+  // all (NFR-PRO-003), keeping DR-018's append-only timeline free of an
+  // unobserved distance.
   it("records nothing when the driver never confirms the projection", async () => {
     const onStart = vi.fn<Init>();
     renderStart(onStart);
@@ -100,10 +90,9 @@ describe("CaptureStart's odometer", () => {
     expect(onStart.mock.calls[0][0].odometerKm).toBeNull();
   });
 
-  // The other half: one tap, and the projection becomes the driver's own
-  // reading. "Confirming beats typing six digits" is the sponsor's trade
-  // (Q6), and it is only sound because the tap is on a control that names the
-  // number it is confirming.
+  // One tap becomes the driver's own reading; "confirming beats typing six
+  // digits" is the sponsor's trade (Q6), sound only because the tap names
+  // the number it confirms.
   it("records the projection once the driver confirms it", async () => {
     const onStart = vi.fn<Init>();
     renderStart(onStart);

@@ -107,7 +107,7 @@ describe("setting a unit's status", () => {
     expect(await screen.findByText("The status was changed.")).toBeTruthy();
   });
 
-  // TY016 names the unit and counts its open fitments. A generic sentence
+  // TY016 names the unit and counts its open fitments; a generic sentence
   // would drop both, leaving an operator with nothing to act on
   // (NFR-USE-005).
   it("shows the open-fitment refusal in the server's own words", async () => {

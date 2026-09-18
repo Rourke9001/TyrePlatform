@@ -2,11 +2,9 @@ import { expect, test } from "@playwright/test";
 
 import { actAsDriver, assignedVehicle } from "./driver";
 
-// Unlike capture.spec.ts this runs on every project, which is what the mobile
-// viewports exist for: a target that clears 44px on a desktop viewport says
-// nothing about a gloved thumb on a phone. Nothing here submits or writes
-// anything server-side, starting an inspection writes only to the browser's
-// own storage, so it is safe in parallel and must stay that way.
+// Runs on every project, unlike capture.spec.ts: a target clearing 44px on
+// desktop says nothing about a gloved thumb on a phone. Nothing here writes
+// server-side, so it stays safe in parallel.
 test.beforeEach(async ({ page }) => {
   await actAsDriver(page);
 });

@@ -11,16 +11,11 @@ import "./capture.css";
 // getSnapshot returns a fresh object each time.
 const NONE: OutboxEntry[] = [];
 
-// Dexie's own liveQuery, subscribed through useSyncExternalStore. Not a
-// one-shot read: queueDraft and attemptSend run inside CaptureFlow with
-// nothing connecting them to this component, so a mount-time read would show
-// a stale count for the whole session.
-//
-// dexie-react-hooks packages this same subscription, but its type declarations
-// import y-dexie and yjs, optional peers that would have to be installed and
-// carried purely to satisfy a declaration file, and this project checks library
-// declarations on purpose (tsconfig.json sets no skipLibCheck; tsconfig.e2e.json
-// says why that exception exists and why it is one).
+// Dexie's own liveQuery via useSyncExternalStore, not a one-shot read:
+// nothing else connects queueDraft/attemptSend to this component.
+// dexie-react-hooks is not used because its types pull in optional peers
+// (y-dexie, yjs) this project's tsconfig checks for real (tsconfig.e2e.json
+// says why).
 function useOutbox(): OutboxEntry[] {
   const held = useRef<OutboxEntry[]>(NONE);
   const subscribe = useCallback((changed: () => void) => {
@@ -91,12 +86,10 @@ export function OutboxIndicator() {
           // ConfirmDiscard renders block content (section/p) once opened, which a
           // <span>, phrasing content only, cannot legally contain.
           <div key={e.clientUuid} className="cap-outbox-line cap-outbox-line--stop">
-            {/* TYRE-167 / FR-OFF-013: the recovery action once the office has
-                taken the readings over the phone. Confirmed, never automatic.
-                Named by vehicle so two refused entries get two distinguishable
-                buttons: this one permanently deletes a never-synced
-                inspection, and a duplicate accessible name is a mis-click
-                away from deleting the wrong one. */}
+            {/* TYRE-167/FR-OFF-013: the recovery action once the office has
+                taken the readings by phone, confirmed, never automatic.
+                Named by vehicle so two failed entries get two
+                distinguishable delete buttons. */}
             <ConfirmDiscard
               trigger={
                 e.fleetNumber ? `The office has ${e.fleetNumber}` : "The office has this one"

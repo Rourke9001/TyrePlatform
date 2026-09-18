@@ -97,6 +97,96 @@ fails closed the same way: an identity naming no visible, active
 indistinguishable from an ordinary refusal (ADR-0011). **The system fails
 closed.**
 
+## The refusal vocabulary (ADR-0012)
+
+`httpapi.refusalForPgError` sorts every SQLSTATE `submitInspection` can see
+into three groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
+SQL where a rule is evaluated, forwarded verbatim because the message is
+ours), the standard integrity violations (`23502`, `23503`, `23514`,
+`22P02`, `22023`, `22007`, `22008`, canned as 422 so a client mistake never
+reads as a 500 the outbox retries forever, ADR-0009), and everything else
+(defaults to 500, the honest answer for an invariant breach). A blanket
+`23503` is safe across every write path because the message is canned: a
+foreign-key violation means the request named something that does not
+exist, and 422 with no schema object in it is the honest answer wherever it
+is raised. `TY001`/`TY002` (DR-020 odometer plausibility) never reach the
+map: both are trapped inside `app.submit_inspection`'s own exception block
+and turned into an `app.inspection_warning` row. `TY010` (no tenant/actor
+bound) is also absent, because that is a genuine invariant breach, not a
+client mistake.
+
+The TY code ledger, migration by migration:
+
+| TY code | Migration | What it refuses |
+| --- | --- | --- |
+| TY003 | 000023 | a duplicate submit inside the tenant's configured window (FR-INS-038) |
+| TY004 | 000023 | a reading naming a position outside its vehicle's configuration |
+| TY005 | 000023 | a payload shape `app.submit_inspection` can name directly (missing/empty arrays, out-of-range values) |
+| TY006 | 000023 | a reading whose position expects a different measurement |
+| TY007 | 000023 | an unrecognised or cross-tenant `vehicle_id` |
+| TY008 | 000024 (widened 000028) | a configuration or unit-kind change on a unit with history; no route can reach it, so no `submitStatus` entry exists |
+| TY009 | 000025 | `fitment_odometer_matches_unit_kind`, on every fitment write |
+| TY011-013 | 000031 | the tyre lifecycle's refusals |
+| TY014 | 000032 | a fitment write refused |
+| TY015 | 000033 | the retread cap |
+| TY016 | 000035 | a unit status transition refused |
+| TY017 | 000037 | a rig write refused |
+| TY018 | 000038 | an inspection task refused |
+| TY019 | 000040 | an inspection write refused, including the void's own refusals |
+| TY020 | 000040 | a reading offered to a sealed inspection; no route can reach it, so no entry exists |
+| TY021 | 000041 | the future-skew refusal |
+| TY022 | 000044 | a composition observation refused |
+
+`httpapi.unitSource` is the one place a fleet handler chooses its relation
+for a unit, by `auth.Actor.Scope` and never by role name (ADR-0006). Every
+caller composes it: the unit read, its PATCH and status write, its
+fitment/driver/task lists, the four unit-path writes (`fitTyre`,
+`rotateTyres`, `assignDriver`, `scheduleInspectionTask`), and the two
+composition-report writes (`observations.go`), which reach the unit through
+the report's inspection (FR-AUT-008, TYRE-162, TYRE-226).
+
+`patchUnit`'s UPDATE always runs, even naming no column, because it is
+doing two further jobs beyond the edit itself. It is the existence check,
+where RLS is what makes "no such unit" and "another tenant's unit" the same
+404 (ADR-0011), and its row lock is what serialises two concurrent tag
+replacements on one unit, which a bare SELECT in its place would not. A
+tags-only edit therefore still touches the vehicle row, and writes no audit
+entry for it: `app.audit_row_change` returns early when an UPDATE leaves
+the row identical, so nothing is logged that claims a column moved when
+none did. The tag map rows it does change are not audited, because
+`vehicle_audited` is on `app.vehicle` alone (000035). The UPDATE's scope
+predicate is `unitSource`'s (FR-AUT-008); the read-back is through
+`app.vehicle` deliberately, because the write was authorised against the
+row as it stood, so the editor reads back what they wrote.
+
+## Rate limiting (NFR-SEC-007)
+
+`ratelimit.clientAddress` resolves the per-address counter's key by reading
+the `trustedProxyHops`-th trusted hop's own observation out of
+`X-Forwarded-For`, never `RemoteAddr` directly. Each trusted L7 hop in front
+of the process appends the address of the peer it received the request
+from, so the Nth trusted hop's own observation sits N entries from the
+right of the full forwarded chain, never at a fixed position a caller can
+predict and prepend forged entries in front of. The chain is flattened
+across every `X-Forwarded-For` header line, not read from the first line
+alone: RFC 7230 treats repeated header lines as equivalent to one
+comma-joined line, so a conformant hop may append its observation as a
+separate line rather than extend the caller's.
+
+Today's topology is one hop: Azure Container Apps' own ingress terminates
+every connection and forwards over its internal hop, so `RemoteAddr` is
+always the ingress's own address, never the caller's. Keying the counter on
+`RemoteAddr` there would collapse every client into one bucket, turning the
+limiter meant to stop a hostile client into a way for one to lock out every
+driver. `infra/main.bicep`'s `TRUSTED_PROXY_HOPS` defaults to 1 for exactly
+this hop; adding a second hop in front of it (a CDN, WAF or gateway) moves
+the trusted observation one entry further from the right, which is what
+raising the option tracks. If the flattened chain has fewer entries than
+`trustedProxyHops`, the header does not match the topology the process was
+told to expect, and `clientAddress` falls back to `RemoteAddr` rather than
+trust anything closer to the caller than the Nth hop would be; the same
+fallback covers a header absent or blank (local/dev, `httptest`).
+
 ## Capture and the network
 
 The hypothesis the POC exists to test is that a driver captures a full vehicle
@@ -118,6 +208,24 @@ is the one in-progress inspection.
   no-op and an uncertain network is safe.
 - Photos queue separately from readings. A slow photo upload must never hold up
   a completed inspection.
+
+`submitInspection` re-applies FR-AUT-005's narrowing on the write path: the
+read composes `app.v_capture_vehicle`, and without the same check on the
+write a driver could submit against any unit in the tenant, wider than the
+read ever exposed. A superlink payload legitimately carries readings
+against several `vehicle_id`s in one submit: the motive unit plus each
+coupled trailer, so a completed sheet is 108 numeric entries, not 52 (the
+one constraint everything in `CLAUDE.md` is subordinate to). Checking only
+the top-level `vehicle_id` would let a driver assigned to unit A embed a
+reading against unrelated unit B in the same tenant: `TY004` in
+`app.submit_inspection` only confirms a position belongs to its own
+vehicle's configuration, never that the actor may write to that vehicle.
+So every `vehicle_id` referenced anywhere in the payload must resolve
+through `v_capture_vehicle`: the top-level one plus every
+`readings[].vehicle_id`, read straight from the raw JSON rather than a
+second Go-side model. The `COALESCE` around the `readings` key guards a
+missing or non-array value so a malformed payload still gets a refusal in
+Go rather than a raw Postgres error.
 
 ## Environments
 

@@ -68,11 +68,7 @@ describe("the retread queue", () => {
     expect(screen.queryByLabelText(/casing value for pos1/i)).not.toBeInTheDocument();
   });
 
-  // ReceiveTyre.test.tsx's own technique: a real click on "Log return" never
-  // reaches this handler while reportReference/returnedOn's `required`
-  // attributes are unmet, because jsdom's constraint validation intercepts
-  // it first. fireEvent.submit dispatches the "submit" event directly,
-  // proving the guard independently of those attributes.
+  // jsdom/fireEvent.submit test technique: see the fireEvent.submit comment in ReceiveTyre.test.tsx.
   it("shows a local refusal, not a silent no-op, when required fields are missing", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, [job({ id: "j1" })]));
     const user = userEvent.setup();
@@ -88,10 +84,9 @@ describe("the retread queue", () => {
     expect(vi.mocked(fetch).mock.calls).toHaveLength(1);
   });
 
-  // 2026-08-26 lesson: literal inputs, unrounded, exactly as typed. The
-  // database rounds. `open=true` excludes a closed job, so the refetch
-  // after a success returns the server's real answer, an empty list, and
-  // every post-write refetch below mocks that, not the job still open.
+  // 2026-08-26 lesson: literal inputs, unrounded, exactly as typed; the
+  // database rounds. open=true excludes a closed job, so every post-write
+  // refetch mocks the empty list.
   it("posts the accepted body with money as strings", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(respond(200, [job({ id: "j1" })]))
@@ -111,10 +106,9 @@ describe("the retread queue", () => {
     await user.type(screen.getByLabelText(/casing value for pos1/i), "800");
     await user.click(screen.getByRole("button", { name: /log return/i }));
 
-    // A success invalidates retreadJobsKey, and this screen's own query is
-    // an active observer, so a third refetch call can land before this
-    // check runs. Asserted by position (call 1 is the return write), not
-    // by a total the refetch would otherwise race.
+    // A success invalidates retreadJobsKey, and this screen's own active
+    // query can land a third refetch before this check runs, so asserted
+    // by call position, not total.
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.length).toBeGreaterThanOrEqual(2));
     expect(requestedUrl(vi.mocked(fetch).mock.calls[1][0])).toBe("/api/retread-jobs/j1/return");
     expect(sentBody(1)).toStrictEqual({
@@ -127,12 +121,7 @@ describe("the retread queue", () => {
     });
   });
 
-  // Whitespace satisfies `required`, so jsdom's constraint validation lets a
-  // space-only cost through and it reaches the wire, where the numeric cast
-  // in app.log_retread_return rejects it as 22P02, a code this screen cannot
-  // speak, so the operator gets the generic fallback instead of anything
-  // about the field. The client omits the key rather than refusing locally:
-  // the field is genuinely optional on the accepted branch's own contract.
+  // Omitted-optional-field pattern: see omitIfBlank in RetreadQueue.tsx.
   it("omits a money field typed as whitespace rather than sending an empty string", async () => {
     vi.mocked(fetch)
       .mockResolvedValueOnce(respond(200, [job({ id: "j1" })]))

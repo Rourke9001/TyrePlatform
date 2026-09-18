@@ -2,29 +2,14 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { actAsUser } from "./admin";
 
-// TYRE-72's definition of done, walked: a new tenant reaches a working rig
-// capture without touching the fixture. The Sandbox controller builds a horse
-// and two trailers-worth of units through the API, sets a rig on the Rigs
-// screen, is refused a second rig naming the same trailer, and the driver
-// assigned to the horse is offered that trailer on the capture start,
-// pre-ticked. Ending the rig moves it to Ended rigs and the driver's capture
-// stops offering it.
-//
-// Sandbox Fleet, never BAC: see admin.ts (TYRE-80). The three units are
-// created by this run rather than reused from the seed (U14): playwright.config.ts
-// is fullyParallel and fitments.spec.ts disposes sbveh1 mid-suite, so sharing
-// a seeded unit would be an ordering dependency the config does not promise.
-//
-// Serial: every step reads what the step before it wrote, into one shared
-// database.
+// TYRE-72's DoD (Jira). Sandbox Fleet, never BAC (TYRE-80); units created
+// fresh (U14) since fitments.spec.ts disposes sbveh1 mid-suite. Serial.
 test.describe.configure({ mode: "serial" });
 
-// Chromium desktop only, and gated on the device rather than on browserName:
-// the android project is devices["Pixel 7"], whose defaultBrowserType is
-// "chromium" too, so a browserName test alone would let this whole run of
-// writes repeat there. The config keeps a writing spec on one project with a
-// per-project testIgnore (playwright.config.ts); this file cannot edit that,
-// so it states the same intent from the inside.
+// Chromium desktop only, gated on device not browserName: android's Pixel 7
+// also reports chromium as its browser, so a browserName check alone would
+// repeat this whole run of writes there. The config's testIgnore is the real
+// gate; this restates the same intent from inside the file.
 test.skip(
   ({ browserName, isMobile }) => browserName !== "chromium" || isMobile,
   "a writing spec runs on one project; this is the fleet screen, judged at desktop size",
@@ -138,10 +123,8 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   await page.getByLabel("Trailer", { exact: true }).selectOption({ label: TRAILER_FLEET });
   await page.getByRole("button", { name: "Add", exact: true }).click();
   await page.getByLabel(`Descriptor for ${TRAILER_FLEET}`).fill(DESCRIPTOR);
-  // The date input is left as it mounts. A browser's "today" is the viewer's
-  // calendar day, not the fleet's (rule 6, lessons 2026-09-03): omitting
-  // effectiveOn is what makes app.tenant_day_instant resolve it in the
-  // tenant's own zone.
+  // Left as it mounts: browser "today" is not the tenant's (rule 6,
+  // docs/lessons.md 2026-09-03).
   await expect(page.getByLabel("Effective from", { exact: true })).toHaveValue("");
   await Promise.all([
     posted(page, /^\/api\/combinations$/),
@@ -159,12 +142,10 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
     `${HORSE_FLEET} › ${TRAILER_FLEET} (${DESCRIPTOR})`,
   );
 
-  // INV-4 twice over. First the client: RigForm narrows the trailer list by
-  // open-rig membership, so a trailer already in an open rig is absent from
-  // the list under any other motive. The proof is `toHaveCount(0)`'s own
-  // retry, it keeps re-reading the option list until the vehicles query
-  // settles, rather than trusting the state right after the select fires,
-  // and the same locator found this trailer a few lines above.
+  // INV-4, client side: RigForm narrows the trailer list by open-rig
+  // membership. toHaveCount(0)'s own retry re-reads the option list until the
+  // vehicles query settles, rather than trusting the state right after select
+  // fires.
   await page.getByLabel("Motive unit", { exact: true }).selectOption({ label: OTHER_FLEET });
   await expect(
     page.getByLabel("Trailer", { exact: true }).getByRole("option", { name: TRAILER_FLEET }),
@@ -184,11 +165,8 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
     `${TRAILER_FLEET} is in the rig headed by ${HORSE_FLEET}; end that rig first`,
   );
 
-  // FR-INS-062: the driver confirms the rig they were given. A fresh context
-  // rather than `page`, actAsUser's init script re-stamps its actor on every
-  // navigation, so an overwrite would not survive the goto, and a hand-made
-  // context takes none of the config's `use` options, so baseURL is passed
-  // through (admin.spec.ts).
+  // FR-INS-062. Fresh context, not `page`: actAsUser re-stamps on every
+  // navigation (admin.ts actAs).
   const driverContext = await browser.newContext({ baseURL: test.info().project.use.baseURL });
   const driverPage = await driverContext.newPage();
   await actAsUser(driverPage, SANDBOX_DRIVER);

@@ -81,18 +81,10 @@ func listObservations(s *store.Store) http.HandlerFunc {
 				          FROM app.combination_member cm
 				          JOIN app.vehicle v ON v.id = cm.vehicle_id
 				         WHERE cm.combination_id = c.id),
-				       -- LEFT JOIN, as app.apply_composition_observation reads the
-				       -- same array: an id that names no visible unit is shown as
-				       -- its id, never dropped, so the card and the refusal agree.
-				       --
-				       -- Both sets below are NULL-safe on an element the register
-				       -- cannot name: the observed array can carry a NULL id (see
-				       -- app.apply_composition_observation, 000044). FILTER drops
-				       -- it from the display set and NOT EXISTS keeps the removed
-				       -- set from collapsing to NULL. Rendered rather than
-				       -- skipped: a warning is never updated or deleted, and a row
-				       -- this list withholds is a report no controller can reach
-				       -- to dismiss (TYRE-75).
+				       -- LEFT JOIN, matching app.apply_composition_observation's
+				       -- own array read: an id naming no visible unit is shown,
+				       -- never dropped, so the card and the refusal agree. Both
+				       -- derived sets are NULL-safe on that case (000044).
 				       (SELECT coalesce(array_agg(coalesce(v.fleet_number, o.id) ORDER BY coalesce(v.fleet_number, o.id))
 				                        FILTER (WHERE o.id IS NOT NULL), '{}')
 				          FROM jsonb_array_elements_text(w.entered_value::jsonb) o(id)
@@ -152,21 +144,13 @@ func listObservations(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// reachableObservation is FR-AUT-008's narrowing for the two writes. A rig is
-// homed where its horse is, so the report is reachable when the inspection's
-// motive unit is (ledger ruling, 7 Sep 2026). A ScopeTenant actor skips it and
-// meets the function's own TY012, so the controller's contract is unchanged.
-// The vehicle row is locked because the resolution runs in a separate
-// statement: a concurrent PATCH moving the unit to another depot waits on this
-// lock, and one that committed first is what the check sees, so the scope the
-// write was authorised against is the scope it lands in (setUnitStatus's
-// reasoning, units.go).
-//
-// FOR UPDATE here, where fitTyre's pre-check takes FOR SHARE: this is the first
-// lock the request takes, and app.create_combination_at then locks every member
-// of the resulting rig FOR UPDATE in id order (000044:121), the motive among
-// them. A shared lock first and an exclusive one after is an upgrade, and two
-// applies on one rig would deadlock on it (40P01).
+// reachableObservation is FR-AUT-008's narrowing: a rig is homed where its
+// horse is (ledger ruling, 7 Sep 2026). Depot scope reasoning is
+// fitments.go's fitTyre. FOR UPDATE here, not FOR SHARE: this is the first
+// lock the request takes, and app.create_combination_at then locks every rig
+// member FOR UPDATE in id order (000044), the motive among them, so a
+// shared-then-exclusive escalation on one rig is the only order that avoids
+// 40P01.
 func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {
 	if a.Scope() == auth.ScopeTenant {
 		return nil

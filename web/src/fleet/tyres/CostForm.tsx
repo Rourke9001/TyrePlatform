@@ -13,17 +13,11 @@ const COST_WORDING = {
   fallback: "The cost could not be recorded. Try again, or call support if it keeps happening.",
 };
 
-// FR-TYR-041's costing step, the discharge for the awaiting-cost backlog
-// CFL-002 names. Rendered only on a row where awaitingCost is true (the
-// caller's job, not this component's): D5's own TY013 rationale: "a
-// correction later is a decision this surface does not take" means an
-// already-costed row must never offer a second submission, not even a
-// disabled one. Every rule about a re-costed or negative price is
-// app.set_tyre_cost's alone (ADR-0013 decision 5).
-//
-// onSuccess names nothing further: costing a tyre clears its awaiting-cost
-// flag and the cell holding this form becomes a dash on the refetch, so the
-// confirmation lives at the register (ActedOn in TyreList.tsx, NFR-USE-010).
+// FR-TYR-041's costing step, discharging CFL-002's backlog. Rendered only
+// where awaitingCost is true; D5/TY013: an already-costed row must never
+// offer a second submission, not even disabled. Every re-cost/negative-price
+// rule is app.set_tyre_cost's (ADR-0013 decision 5). The confirmation lives
+// at the register (ActedOn, TyreList.tsx, NFR-USE-010).
 export function CostForm({
   tyre,
   tenantKey,

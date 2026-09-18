@@ -19,10 +19,9 @@ const END_WORDING = {
   fallback: "The rig could not be ended. Retry.",
 };
 
-// D5's train: the motive first, then each trailer in walk order, its
-// descriptor in parentheses immediately after its fleet number. The text
-// content is pinned (e2e rigs.spec.ts). The quieter weight on the towed
-// units is styling only, never a change to the text itself.
+// D5's train: motive first, then each trailer in walk order with its
+// descriptor in parentheses. Text content is pinned (e2e rigs.spec.ts);
+// the quieter weight on towed units is styling only.
 function TrainCell({ rig }: { rig: Rig }) {
   const towed = rig.members.filter((m) => m.sequence > 1).sort((a, b) => a.sequence - b.sequence);
   return (

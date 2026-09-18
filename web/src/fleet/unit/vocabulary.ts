@@ -1,12 +1,10 @@
-// The unit screen's shared wording. Enum values are the database's and the
-// labels are not: a screen says "mark outboard", app.mount_orientation says
-// MARK_OUTBOARD, and neither should have to become the other. Its own module
-// for the reason queryKeys.ts is one.
+// The unit screen's shared wording: enum values are the database's,
+// labels are not. Its own module for the reason queryKeys.ts is one
+// (react-refresh).
 
-// app.mount_orientation's third member, named because a fit form has to
-// default to something and D13 says that default is the unasserted one. It is
-// declared here and spelled once, so a screen cannot come to hold a value the
-// radios below do not offer (TYRE-128).
+// app.mount_orientation's third member, named because D13 says the fit
+// form's default is the unasserted one; declared once so a screen cannot
+// come to hold a value the radios do not offer (TYRE-128).
 export const ORIENTATION_UNKNOWN = "UNKNOWN";
 
 // CHG-010 (OI-28's answer): outer/centre/inner are relative to the vehicle

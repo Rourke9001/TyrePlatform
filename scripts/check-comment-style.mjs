@@ -1,16 +1,9 @@
 #!/usr/bin/env node
-// TYRE-22. Deterministic half of the comment standard (docs/comments.md).
-//
-// Only the mechanically detectable violations live here: history-narration
-// phrasing, review-process residue, untracked TODOs, and the prose tells the
-// standard's "Prose" section bans (TYRE-237). Judgement calls (why vs what,
-// bloat) belong to the /comment-audit pass. A regex guessing at those would
-// either miss everything or block legitimate comments, and this check
-// blocks, so precision beats recall throughout.
-//
-// Runs three ways off the same rule set: per-file from the Claude Code edit
-// hook (pass file paths as args), across all tracked files from `make lint`
-// and CI (no args). One implementation so the hook and CI cannot disagree.
+// TYRE-22. Deterministic half of the comment standard (docs/comments.md):
+// history-narration, review residue, untracked TODOs, and the Prose bans
+// (TYRE-237). Judgement calls go to /comment-audit; precision beats recall
+// since this check blocks. Runs off one rule set from the hook, make lint
+// and CI, so none of the three can disagree.
 
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';

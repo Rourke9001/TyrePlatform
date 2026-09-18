@@ -203,27 +203,15 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
-			// Depot scope for the write (FR-AUT-008, TYRE-162/TYRE-226): a
+			// Depot scope for the write (FR-AUT-008, TYRE-162/226): a
 			// ScopeTenant actor skips it and meets the function's own TY012
-			// for an invisible id, so the controller's contract is unchanged.
-			// The check locks the vehicle row because the write runs in a
-			// separate statement: a concurrent PATCH moving the unit to
-			// another depot waits on this lock, and one that committed first
-			// is what the check sees, so the scope the write was authorised
-			// against is the scope it lands in.
-			//
-			// FOR SHARE is the mode, here and in the three pre-checks that
-			// cite this one. None of the four writes the vehicle row, and a
-			// shared lock still conflicts with the exclusive one a PATCH takes
-			// to move the unit, so the race above stays closed. Exclusive here
-			// would invert the order the functions themselves lock in.
-			// app.fit_tyre takes the tyre FOR UPDATE and only then the unit
-			// FOR SHARE (000039:88, :112), and app.rotate_tyres takes every
-			// in-scope unit FOR SHARE in id order (000039:446, :513), so two
-			// callers addressing one rig from opposite ends would each hold
-			// what the other waits for (40P01). reachableObservation
-			// (observations.go) is the one pre-check that keeps FOR UPDATE,
-			// and carries why.
+			// for an invisible id. The check locks the vehicle row because
+			// the write runs in a separate statement, so the scope
+			// authorised is the scope it lands in. FOR SHARE, not FOR
+			// UPDATE: app.fit_tyre takes the tyre FOR UPDATE and only then
+			// the unit FOR SHARE (000039), and app.rotate_tyres takes every
+			// in-scope unit FOR SHARE in id order, so an exclusive lock here
+			// would invert that order and risk 40P01.
 			if a.Scope() != auth.ScopeTenant {
 				var locked uuid.UUID
 				err := tx.QueryRow(ctx,

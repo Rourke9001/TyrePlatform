@@ -10,15 +10,10 @@ import "fake-indexeddb/auto";
 // sees, not internal state.
 import "@testing-library/jest-dom/vitest";
 
-// @testing-library/react's asyncWrapper drains microtasks after every
-// userEvent/waitFor call through a real setTimeout(resolve, 0), advancing a
-// fake clock to fire it immediately if it detects one, but its detection
-// (@testing-library/react/dist/pure.js) only checks for a `jest` global.
-// Vitest has none, so under vi.useFakeTimers() that advance is silently
-// skipped and the very first userEvent call after enabling fake timers hangs
-// forever: the promise it awaits has nothing left to resolve it. Satisfying
-// the detection is the fix, not widening which timers are faked. The
-// pending call is real regardless of toFake, and only this shim reaches it.
+// @testing-library/react's asyncWrapper only advances a fake clock if it
+// detects a `jest` global; vitest has none, so under vi.useFakeTimers() the
+// first userEvent call hangs forever. This shim satisfies that detection;
+// widening which timers are faked would not fix it.
 interface JestShim {
   advanceTimersByTime: (ms: number) => void;
 }

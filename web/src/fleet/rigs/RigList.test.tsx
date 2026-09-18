@@ -56,10 +56,8 @@ describe("the rigs list", () => {
     vi.unstubAllGlobals();
   });
 
-  // D5: the motive is a link to its unit, and the composition renders in
-  // walk order with each descriptor in parentheses. The pinned
-  // text ("HORSE-1 › LINK-A (front) › LINK-B") is what the e2e also asserts
-  // on, so the render must produce it byte for byte, wrapper spans aside.
+  // D5: the pinned composition text ("HORSE-1 › LINK-A (front) › LINK-B")
+  // is what the e2e also asserts, so it must render byte for byte.
   it("links the motive to its unit and reads the composition in walk order", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, [rig({ id: "r1" })]));
     renderList();
@@ -129,9 +127,8 @@ describe("the rigs list", () => {
       expect.objectContaining({ method: "POST" }),
     );
     await screen.findByRole("heading", { name: "Ended rigs" });
-    // en-ZA's short month for September is "Sept", not "Sep" (Aug/Jul stay
-    // three letters elsewhere in this file, which is why only this one
-    // assertion needs the longer form).
+    // en-ZA's short month for September is "Sept", not "Sep" (unlike
+    // Aug/Jul elsewhere in this file).
     expect(await screen.findByText(/03 Sept 2026/)).toBeInTheDocument();
     expect(await screen.findByRole("status")).toHaveTextContent("Rig ended for HORSE-1.");
     // The refetched list carries only the now-ended rig, so Open rigs falls

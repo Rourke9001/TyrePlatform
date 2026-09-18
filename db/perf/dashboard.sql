@@ -1,34 +1,25 @@
--- The read path GET /api/dashboard will take (B7 spec B7.2 route table),
--- one statement per relation, run as app_login bound to Sandbox Fleet so
--- RLS is in the plan exactly as it will be in production. Not a test: the
--- suite is db/tests; this is what `make db-explain` prints so TYRE-247's
--- decision rests on a plan, not on the 53-reading fixture (spec S3, U26).
--- Dates are the volume tenant's anchor (gen_seed_volume.py), so the
--- window statements read the same rows on any day this is run.
+-- GET /api/dashboard's read path (B7 spec B7.2), run as app_login bound to
+-- Sandbox Fleet so RLS is in the plan (spec S3, U26). Not a test: db-explain
+-- prints this for TYRE-247; dates anchor to gen_seed_volume.py so the window
+-- reads the same rows on any day.
 --
--- Three of these figures are floors, not measurements. The generator writes
--- inspections directly rather than through app.submit_inspection, so the
--- volume tenant carries no tyre_event rows (not even for its 345 removals),
--- no inspection_warning, no composition_observation and no inspection_task.
--- The overdue-task count and the pending-composition-report count therefore
--- plan on empty relations and return in microseconds, which says nothing
--- about their cost on a tenant that has them. TYRE-258 carries the gap.
+-- Three figures here are floors, not measurements: the generator writes
+-- inspections directly, so the volume tenant has no tyre_event,
+-- inspection_warning, composition_observation or inspection_task rows.
+-- The overdue-task and pending-composition-report counts plan on empty
+-- relations and say nothing about cost on a tenant that has them
+-- (accepted risk, TYRE-258).
 --
--- Nothing else may touch the database while this runs. A concurrent
--- db-reset queues a DROP SCHEMA behind the load's transaction, blocks the
--- whole database, and destroys the load when it unblocks; a concurrent
--- suite run inflates every figure here (docs/lessons.md, 2026-09-16).
+-- Nothing else may touch the database while this runs (docs/lessons.md, 2026-09-16).
 \set ON_ERROR_STOP on
 \timing on
 SET search_path = app, public;
 SET app.tenant_id = '33333333-3333-3333-3333-333333333333';
 
--- Refuse to measure an unloaded tenant. `make db-reset` leaves Sandbox Fleet
--- with no readings at all, and so does a db-reset that destroyed a load
--- (docs/lessons.md, 2026-09-16); over an empty tenant every statement below
--- plans in microseconds and prints as comfortably inside U26's 500ms budget.
--- The count runs under the same RLS predicate as the plans, so it sees this
--- tenant's rows only. The volume load writes 30,160.
+-- Refuse to measure an unloaded tenant: an empty Sandbox Fleet plans every
+-- statement in microseconds and would print as comfortably inside U26's
+-- budget (docs/lessons.md, 2026-09-16). The count runs under the same RLS
+-- predicate as the plans below.
 DO $$
 DECLARE n bigint;
 BEGIN

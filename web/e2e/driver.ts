@@ -1,11 +1,9 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
-// Shared by capture.spec.ts and reach.spec.ts rather than copied into each:
-// these are seed-derived ids and one entry path, and a second copy would drift
-// the moment the fixture's driver or its assignments change.
-//
-// Seed-derived ids and the dev actor headers, both per admin.ts. The headers
-// exist only under import.meta.env.DEV, hence vite dev, never a build.
+// Shared by capture.spec.ts and reach.spec.ts, not copied into each: a second
+// copy would drift from the fixture's driver and its assignments.
+// Seed-derived ids and dev actor headers, per admin.ts; the headers exist
+// only under import.meta.env.DEV, hence vite dev, never a build.
 const DRIVER = "b85aef08-6081-80db-9d4d-dad38ae40545";
 const TENANT = "11111111-1111-1111-1111-111111111111";
 
@@ -29,11 +27,9 @@ export interface AssignedVehicle {
   fleetNumber: string;
 }
 
-// The way into a capture. The fixture seeds no inspection_task rows, which is
-// what smoke.spec.ts's "Nothing due." asserts, so DriverHome renders no link
-// to follow and /my cannot be the entry point. FR-AUT-005 scopes this endpoint
-// to the driver's own units, which makes it both the entry point and a check
-// that the scope predicate still holds.
+// The only way into a capture: the fixture seeds no inspection_task rows, so
+// /my has no link to follow. FR-AUT-005 scopes this endpoint to the driver's
+// own units.
 //
 // Selected by fleet number, never by index: the endpoint is ORDER BY
 // fleet_number, so one added unit would silently repoint every spec and with it

@@ -3,10 +3,9 @@ import { useQuery } from "@tanstack/react-query";
 import { apiGet } from "../api/client";
 import { getDevTenantId } from "../api/devTenant";
 
-// Wire shape of GET /api/capture/vehicles/{id} (api/internal/httpapi/capture.go).
-// Every field here exists because FR-OFF-001 takes connectivity away after
-// this call returns: a warning whose input is missing is a warning that
-// silently never fires.
+// Wire shape of GET /api/capture/vehicles/{id}. Every field exists because
+// FR-OFF-001 takes connectivity away after this call returns: a missing
+// input is a warning that silently never fires.
 export interface CapturePosition {
   id: string;
   vehicleId: string;
@@ -78,20 +77,18 @@ export interface CaptureContext {
   // FR-INS-033 divides by the gap since this date; the value alone has no
   // denominator.
   lastOdometerAt: string | null;
-  // FR-INS-020's pre-fill is a projection from the last reading, and this is
-  // the rate it projects at. Null when the timeline cannot support one: a
-  // first inspection, or a unit read twice on the same day, and then there
-  // is no projection to show (history.projectedOdometerKm).
+  // FR-INS-020's pre-fill projects from the last reading at this rate. Null
+  // when the timeline cannot support one (a first inspection, or two
+  // readings the same day); see history.projectedOdometerKm.
   averageDailyKm: number | null;
   positions: CapturePosition[];
   // Null unless this unit heads a current combination: a solo rigid, or a
   // trailer asked for its own context, simply has none.
   combination: CaptureCombination | null;
   config: CaptureConfig;
-  // Keyed "AXLE_CLASS:AXLE_TYPE". BR-ANL-006 cohorts by position class and
-  // BR-ANL-009 forbids blending axle types. A missing key means no rate is
-  // asserted for that cohort, which for a LIFTING axle is the correct answer
-  // rather than a gap.
+  // Keyed "AXLE_CLASS:AXLE_TYPE" (BR-ANL-006 cohorts by class, BR-ANL-009
+  // forbids blending types). A missing key means no rate is asserted, which
+  // for a LIFTING axle is correct, not a gap.
   cohortWearRateMmPerMonth: Record<string, number>;
 }
 
@@ -100,14 +97,10 @@ export function fetchCaptureContext(vehicleId: string): Promise<CaptureContext> 
 }
 
 // staleTime Infinity, gcTime for the tab's life: FR-OFF-002 caches this for
-// the session, and FR-OFF-003 refreshes it on app-open and on demand. Never
-// on a timer that could fire mid-walk-around and change a threshold under the
-// driver's feet. Tanstack Query holds it in memory; nothing here persists.
-//
-// The options are a function rather than inlined in the hook because a rig is
-// fetched as a set (useQueries, one call per confirmed member unit) while a
-// solo unit is fetched as one. Both must produce the same queryKey or the
-// motive unit is fetched twice over a depot connection.
+// the session, refreshed by FR-OFF-003 on app-open/demand, never a timer
+// that could change a threshold mid-walk-around. Options are a function,
+// not inlined, because a rig (useQueries) and a solo unit must produce the
+// same queryKey or the motive unit fetches twice.
 export function captureContextQuery(vehicleId: string) {
   return {
     queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId],

@@ -10,9 +10,8 @@ export function testQueryClient(): QueryClient {
   return new QueryClient({ defaultOptions: { queries: { retry: false } } });
 }
 
-// The one construction site for a test actor. When the server adds a field
-// to Me, tsc fails here and nowhere else. A search cannot find every
-// literal a test file builds (docs/lessons.md, 31 Aug 2026).
+// The one construction site for a test actor: when Me gains a field, tsc
+// fails here, not silently in every test file (docs/lessons.md, 31 Aug 2026).
 export function me(overrides: Partial<Me> = {}): Me {
   return {
     userId: "u0",
@@ -45,9 +44,8 @@ export function sentBody(call: number): unknown {
 }
 
 // The unit surface's construction sites, for the reason me() is one: a
-// screen's test builds a Unit, a position and a history row across half a
-// dozen files, and a field the server adds must fail tsc in one place rather
-// than pass silently in each of them (docs/lessons.md, 31 Aug 2026).
+// field the server adds must fail tsc in one place, not pass silently in
+// half a dozen (docs/lessons.md, 31 Aug 2026).
 export function openFitment(overrides: Partial<OpenFitment> = {}): OpenFitment {
   return {
     fitmentId: "f1",
@@ -123,10 +121,9 @@ export function fitmentRow(
   };
 }
 
-// sentBody's narrowing for the other half of a call. fetch takes
-// RequestInfo | URL, and String() on a Request or a URL object yields text a
-// path assertion would match by accident, so the shape is checked rather
-// than coerced (docs/lessons.md, 31 Aug 2026).
+// fetch takes RequestInfo | URL; String() on a Request/URL yields text a
+// path assertion could match by accident, so the shape is checked, not
+// coerced (docs/lessons.md, 31 Aug 2026).
 export function requestedUrl(input: RequestInfo | URL): string {
   if (typeof input !== "string") {
     throw new Error("fetch was called with something other than a path string");

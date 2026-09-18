@@ -52,11 +52,9 @@ function ProbeForm({ mutate }: { mutate: (vars: { value: string }) => Promise<{ 
   );
 }
 
-// Reads the query client's own record of an invalidated key, rather than
-// asserting on a spy on invalidateQueries: the probe cares that the cache
-// entry is marked stale, which is the observable effect a form actually
-// depends on. Parameterised over the key so the invalidation test can prove
-// every key in the list is invalidated, not just the first.
+// Reads the query client's own record of an invalidated key rather than
+// spying on invalidateQueries, since the observable effect a form depends
+// on is the cache entry being marked stale.
 function InvalidationProbe({ testId, queryKey }: { testId: string; queryKey: string }) {
   const queryClient = useQueryClient();
   const [, forceRender] = useState(0);
@@ -81,10 +79,9 @@ function renderProbe(mutate: (vars: { value: string }) => Promise<{ id: string }
   );
 }
 
-// TVars/TResult = void: the shape the 204 writes have (removeFitment,
-// setUnitStatus, logRetreadReturn, returnTyreToStock). An endpoint whose only
-// observable outcome is isSuccess, since `result` stays permanently null for
-// them.
+// TVars/TResult = void: the shape of every 204 write (removeFitment,
+// setUnitStatus, logRetreadReturn, returnTyreToStock), where result stays
+// permanently null.
 function VoidProbeForm({ mutate }: { mutate: (vars: { value: string }) => Promise<void> }) {
   const m = useFormMutation<{ value: string }, void>({
     mutate,
@@ -160,22 +157,12 @@ describe("useFormMutation", () => {
     expect(alert).toHaveTextContent(/could not be saved/i);
   });
 
-  // TanStack does not dedupe: without useFormMutation's own guard, a second
-  // submit reaching the handler while the first is still in flight would
-  // fire a second write. The button's disabled attribute already stops a
-  // real second click, so this bypasses it, using fireEvent.submit on the
-  // form itself, the way a stray Enter-key resubmission or a second
-  // form.requestSubmit() would, to prove the hook's guard, not the DOM, is
-  // what holds a fitment or rotation write to one event (rule 3).
-  //
-  // The assertion sits after the awaited findByText, not right after the
-  // second fireEvent.submit: TanStack's own execute() yields at its
-  // onMutate await before ever reaching mutationFn, so a synchronous read
-  // immediately after fireEvent.submit reads 1 whether or not the guard
-  // exists. It is checking a call that has not had a chance to happen yet,
-  // guarded or not. Only once every microtask this test's own `promise`
-  // resolution can trigger has drained, which findByText's wait forces,
-  // would an unguarded second execute() have reached the spy.
+  // TanStack does not dedupe; without the hook's guard a second submit in
+  // flight would fire a second write. fireEvent.submit bypasses the
+  // button's disabled state to prove the hook's guard, not the DOM, holds
+  // a write to one event (rule 3). The assertion sits after the awaited
+  // findByText because execute() yields at its onMutate await before
+  // reaching mutationFn.
   it("fires one request for two submits inside one pending window", async () => {
     const { promise, resolve } = deferred<{ id: string }>();
     const mutate = vi.fn(() => promise);

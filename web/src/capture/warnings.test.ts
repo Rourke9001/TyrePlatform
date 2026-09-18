@@ -142,11 +142,9 @@ describe("positionWarnings", () => {
     expect(w).toEqual([]);
   });
 
-  // A position whose treads are read and whose pressure was never taken is a
-  // designed case: 000023 accepts a NULL pressure and payload.ts sends the
-  // reading, and the tread bands are final the moment the last reading is in.
-  // Gating them on a pressure would hide FR-INS-036 on a position that may
-  // never get one, on the diagram as well as here.
+  // A designed case: treads read, pressure never taken (000023 allows NULL).
+  // Tread bands are final the moment the last reading is in; gating them on
+  // a pressure would hide FR-INS-036 on a position that may never get one.
   it("raises the tread warning as soon as the treads are read, with no pressure", () => {
     const w = positionWarnings({ treads: [3, 4, 4], pressureKpa: null }, steer, config);
     expect(codes(w)).toEqual(["FR-INS-036"]);
@@ -166,11 +164,9 @@ describe("positionWarnings", () => {
     expect(w.find((x) => x.code === "FR-INS-036")?.enteredValue).toBe("4");
   });
 
-  // Pressure boundary tests: target 800, warnUnderPct 10, criticalUnderPct 20,
-  // warnOverPct 10, criticalOverPct 20. Boundaries are 720/640 under, 880/960
-  // over. The operators (< vs >=) create asymmetry that must be pinned: the
-  // database bands with strict inequality on the under side to match this.
-  // (db/migrations/000013: `pct < 100 - critical_under_pct` not <=)
+  // Pressure boundaries (target 800, warn/critical 10/20% under and over):
+  // 720/640 under, 880/960 over. The strict-under/inclusive-over asymmetry
+  // must be pinned to match the database (000013: pct < 100 - critical_under_pct).
   it("at exactly -20% critical under (640 kPa) stays in warn band", () => {
     const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 640 }, steer, config);
     expect(codes(w)).toContain("FR-INS-037");

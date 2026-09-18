@@ -65,6 +65,28 @@ becomes wrong in one place.
 The same applies within a comment: say the load-bearing thing and stop. A
 comment nobody finishes reading protects nobody.
 
+**The ceiling.** A comment states one constraint and the ID that owns it, in
+a few lines. Three things never go in a comment, because each has a home
+with better tooling:
+
+- **Measurements and evidence** (timings, evaluation counts, what a run
+  showed). Home: `docs/lessons.md` or the ticket. The comment keeps the
+  conclusion ("OFFSET 0 fences this subquery; without it the planner
+  evaluates the resolver per reference, TYRE-41") and nothing of the
+  experiment.
+- **Alternatives considered and rejected.** Home: the ADR. The comment
+  states the constraint the chosen code satisfies; the road not taken is
+  the ADR's job.
+- **Cross-file storytelling** ("000013's shape", "as 000036's header
+  says", which file copied which). Home: `docs/architecture.md` or the
+  spec in `docs/superpowers/specs/`. A comment cites a doc path or an ID,
+  never another file's prose.
+
+A file header that needs more than a short paragraph is a doc that has
+not been written yet. Write the doc, and leave a one-line pointer. When
+`/comment-audit` finds a comment over the ceiling, the fix is a move, not
+a trim to just under it (TYRE-260).
+
 ### 4. Process residue
 
 "As discussed", "per the review", "addressing feedback" — the review is not

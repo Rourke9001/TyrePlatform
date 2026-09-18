@@ -6,25 +6,18 @@ import type { RecordedWarning } from "./draft";
 import { Keypad } from "./Keypad";
 import "./capture.css";
 
-// The keypad reads a granularity for exactly one decision: at 0.5 the ½ key
-// takes the delete key's slot (Keypad.tsx). An odometer is whole kilometres, so
-// the ½ key must never appear here whatever a tenant's treadGranularityMm is,
-// and a six-digit field needs delete far more than a two-digit one does. This
-// is the unit of the field being typed, not a tenant threshold. Passing the
-// tread granularity through would put a ½ key on a kilometre reading for every
-// tenant configured at 0.5mm.
+// The keypad's granularity is the field's own unit (whole km), never the
+// tenant's tread granularity: at 0.5mm that would put a half key on a
+// kilometre reading.
 const ODOMETER_GRANULARITY_KM = 1.0;
 
-// Seven digits covers 9 999 999 km, well past the life of any unit in the
-// fleet. An eighth is a mis-tap, and accepting it would break the readout a
-// driver checks their place against for a value FR-INS-033 has to argue about
-// afterwards.
+// Seven digits covers 9,999,999km, past any unit's life; an eighth is a
+// mis-tap that would break the readout FR-INS-033 argues from.
 const ODOMETER_MAX_DIGITS = 7;
 
-// The served unit kinds, in the words a driver uses for them. An unknown kind
-// falls back to the server's own token rather than to a guess: the vocabulary
-// is the server's (captureContext.ts) and a client that cannot represent a new
-// one should degrade, not mislabel.
+// Served unit kinds in driver words. An unknown kind falls back to the
+// server's own token, not a guess: the vocabulary is the server's
+// (captureContext.ts).
 const UNIT_WORD: Record<string, string> = {
   HORSE: "Horse",
   TRAILER: "Trailer",
@@ -48,15 +41,12 @@ export function CaptureStart({
   // The unit the driver navigated to. FR-INS-064: only the motive unit's
   // odometer is recorded, and distance is never apportioned to a towed one.
   motive: CaptureContext;
-  // The device will not let the app write, so there is nowhere to put an
-  // inspection. CaptureFlow carries the reason and the retry above this
-  // screen; all this control has to do is stop looking live, because a button
-  // that silently does nothing is a worse answer than a refusal (NFR-USE-005).
+  // The device blocks writes entirely: nowhere to put an inspection.
+  // CaptureFlow carries the reason and retry above; this control just stops
+  // looking live (NFR-USE-005).
   storageBlocked: boolean;
-  // Ticked member units, seeded from ALL of motive.combination.members,
-  // which includes the motive unit, so it shows ticked, and narrowed only
-  // by unticking. The motive unit cannot be unticked. It is the
-  // inspection's subject and carries the odometer (FR-INS-064).
+  // Ticked members seeded from ALL of motive.combination.members (motive
+  // included, disabled), narrowed only by unticking.
   attachedIds: string[];
   onToggleAttached: (vehicleId: string) => void;
   onStart: (init: {
@@ -68,31 +58,22 @@ export function CaptureStart({
   // What the driver typed. Empty means they typed nothing, which is not the
   // same as an empty field: the screen may still be showing a projection.
   const [typed, setTyped] = useState("");
-  // FR-INS-020 records CONFIRMED values only, so an untouched projection is
-  // absent rather than recorded. This flag is the confirmation, and nothing
-  // sets it but the driver's own tap. A default of true would record a
-  // number nobody read, which is the fabrication NFR-PRO-003 refuses and the
-  // one thing the pre-fill must not be able to do.
+  // FR-INS-020 records CONFIRMED values only; this flag is the confirmation,
+  // set only by the driver's tap. Defaulting true would record a number
+  // nobody read (NFR-PRO-003).
   const [accepted, setAccepted] = useState(false);
-  // FR-INS-033 says warn and REQUIRE confirmation. Defaulting the box to
-  // checked satisfies the control without the driver ever acting on it,
-  // which is the same as not having the control. Separate from `accepted`
-  // above: one confirms WHAT the reading is, the other confirms that an
-  // implausible jump is real.
+  // FR-INS-033: warn and REQUIRE confirmation. A pre-checked box satisfies
+  // the control without the driver acting on it. Separate from accepted:
+  // one confirms WHAT, the other confirms an implausible jump is real.
   const [plausible, setPlausible] = useState(false);
-  // Frozen at mount. This screen is open for seconds and nothing on it is
-  // time-sensitive at a finer grain than a day, so reading the clock during
-  // render would only make the output depend on when React happened to
-  // re-render. FR-INS-033's own denominator included.
+  // Frozen at mount: this screen is open seconds and nothing on it is
+  // finer than day granularity, so the clock must not depend on when React
+  // re-renders (FR-INS-033's denominator included).
   const [openedAt] = useState(() => Date.now());
 
-  // FR-INS-020's three clauses, in one expression. A typed number is the
-  // driver correcting the projection; a tapped confirmation is the driver
-  // accepting it; anything else is an odometer this inspection does not
-  // carry. Every check below reads this rather than what is on screen, so an
-  // unconfirmed projection can gate nothing and block nothing, which is what
-  // keeps "pre-filled" and "shall never block a tyre inspection" true at the
-  // same time.
+  // FR-INS-020's three clauses in one expression: typed is a correction,
+  // tapped is acceptance, else the odometer is absent. Every check reads
+  // this, so an unconfirmed projection gates and blocks nothing.
   const projected = projectedOdometerKm(motive, new Date(openedAt));
   const value = typed !== "" ? parseInt(typed, 10) : accepted ? projected : null;
   const rejection = odometerRejection(value, motive);
@@ -101,11 +82,9 @@ export function CaptureStart({
   // for confirmation, else nothing. Dimmed until it is the recorded value, so
   // a provisional number never looks like an entered one (NFR-USE-005).
   const shown = typed !== "" ? typed : projected !== null ? String(projected) : "";
-  // FR-INS-020: optional, and a trailer-only inspection has no field at all.
-  // Gate on what the unit IS, not on whether it happens to have a reading.
-  // No vehicle has one until the first inspection writes it, so gating on
-  // history means the timeline can never be started and FR-INS-032/033
-  // never acquire a denominator.
+  // FR-INS-020: optional, gated on what the unit IS, not on history. No
+  // vehicle has a reading until the first inspection, so gating on history
+  // would leave the timeline unstartable.
   const wantsOdometer = motive.unitKind !== "TRAILER";
   const held = warnings.length > 0 && !plausible;
 
@@ -114,15 +93,14 @@ export function CaptureStart({
     if (held) return;
     onStart({
       odometerKm: wantsOdometer ? value : null,
-      // attachedIds already contains the motive unit. It is a member of
-      // its own combination and renders ticked-and-disabled. Prepending it
-      // again would send a duplicate straight into the FR-INS-063
-      // warning's entered_value.
+      // attachedIds already contains the disabled, ticked motive unit;
+      // prepending it again would send a duplicate into FR-INS-063's
+      // entered_value.
       observedMemberVehicleIds: attachedIds,
-      // FR-INS-033's confirmation governs the capture flow; DR-020 governs
-      // the timeline. A confirmed implausible value still submits with the
-      // inspection and is preserved on the warning record rather than written
-      // to an append-only timeline that would keep it forever (DR-018).
+      // FR-INS-033's confirmation governs capture; DR-020 governs the
+      // timeline. A confirmed implausible value submits and is preserved
+      // on the warning record, not written to the append-only timeline
+      // (DR-018).
       warnings: warnings.map((w) => ({
         code: w.code,
         enteredValue: w.enteredValue,
@@ -141,16 +119,10 @@ export function CaptureStart({
         <p className="cap-screen-sub">{motive.positions.length} positions on this unit</p>
       </header>
 
-      {/* FR-INS-062: the driver CONFIRMS the rig, they do not compose it.
-          What is coupled to what is fleet configuration a CONTROLLER sets
-          before the trip (ManageAssignments); the driver's job here is to
-          say whether that is what is actually in front of them. Pre-ticked
-          from the served composition, which is the requirement's
-          "defaulting to the last recorded composition".
-
-          Unticking is FR-INS-063's observation, not an edit: it travels as
-          observed_member_vehicle_ids and the server records the difference
-          for a controller to reconcile. Nothing here writes fleet state. */}
+      {/* FR-INS-062: the driver confirms the rig, never composes it;
+          unticking is FR-INS-063's observation, travelling as
+          observed_member_vehicle_ids for a controller to reconcile.
+          Nothing here writes fleet state. */}
       {motive.combination && (
         <fieldset className="cap-card">
           <legend className="cap-eyebrow">Your rig</legend>
@@ -193,13 +165,9 @@ export function CaptureStart({
               ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
               : ""}
           </p>
-          {/* The confirm half of "confirm or correct". One tap against six
-              digits is the trade FR-INS-020 is making, so the control is the
-              cheap path and typing is the fallback, and the label carries the
-              number, because a driver who taps a button reading only "That's
-              right" has agreed to something they were not made to read. It
-              disappears once the value is the driver's, which is also how the
-              screen says the number counts. */}
+          {/* The confirm half of "confirm or correct" (FR-INS-020): one tap,
+              the label carries the number so agreement is informed.
+              Disappears once the value is the driver's. */}
           {value === null && projected !== null && (
             <button type="button" className="cap-secondary" onClick={() => setAccepted(true)}>
               Confirm {grouped(String(projected))} km
@@ -259,10 +227,9 @@ export function CaptureStart({
         </fieldset>
       )}
 
-      {/* NFR-PRV-006, erratum CS-2. Most drivers are on their own phone, and
-          this sentence has to be true. The storage tests in draft.test.ts keep
-          the inspection half true, and the device id it names is the one in
-          payload.ts (NFR-OBS-004). */}
+      {/* NFR-PRV-006, erratum CS-2: most drivers use their own phone.
+          draft.test.ts keeps the inspection half true; the device id is
+          payload.ts's (NFR-OBS-004). */}
       <p className="cap-notice">
         While you are working, this inspection is saved on your phone, along with a random code that
         identifies the phone to the platform, not you. Nothing else about the fleet is stored here.

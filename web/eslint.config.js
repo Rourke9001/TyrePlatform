@@ -1,12 +1,11 @@
-// TYRE-49. The type-aware tiers, not the syntactic ones: tsconfig already sets
-// `strict` and CLAUDE.md forbids `any`, and only a rule with the type checker
-// behind it can see an inferred `any` that never appears in the source. That is
-// what `projectService` buys. Without it these rules go quiet rather than
-// fail, and a gate that cannot fail is not a gate.
+// TYRE-49: the type-aware tiers, not the syntactic ones. Only a rule with the
+// type checker behind it (projectService) can see an inferred `any` that
+// never appears in the source; without it these rules go quiet rather than
+// fail.
 //
-// Recommended rather than `strictTypeChecked`, which pairs
-// `no-non-null-assertion` with `non-nullable-type-assertion-style`: one forbids
-// `!`, the other demands it, and code cannot satisfy both.
+// Recommended rather than strictTypeChecked, which pairs
+// no-non-null-assertion with non-nullable-type-assertion-style: one forbids
+// `!`, the other demands it.
 import js from "@eslint/js";
 import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
@@ -14,17 +13,13 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier/flat";
 
-// Rule 6's display half, enforced rather than remembered (TYRE-89, TYRE-95).
-// Split into three constants because src/time, the funnel every other file
-// must render through, is exempt from exactly one of them, and a list
-// written twice would drift.
+// Rule 6's display half, enforced not remembered (TYRE-89, TYRE-95). Split
+// into three constants because src/time is exempt from exactly one of them.
 //
-// The toLocale* methods are banned by property name alone. Syntax cannot
-// tell a Date receiver from a Number, so `toLocaleString` catches
-// Number.prototype.toLocaleString too, deliberately. A receiver-shape
-// heuristic would let any Date reached through a property or call slip
-// past, and numbers have Intl.NumberFormat, which formats identically
-// (ECMA-402 defines Number's toLocaleString as exactly that call).
+// toLocale* is banned by property name alone: syntax cannot tell a Date
+// receiver from a Number, so toLocaleString deliberately also catches
+// Number.prototype.toLocaleString, which formats identically to
+// Intl.NumberFormat (ECMA-402).
 const toLocaleBans = [
   {
     selector: "MemberExpression[property.name='toLocaleDateString']",
@@ -44,9 +39,8 @@ const toLocaleBans = [
 ];
 
 // MemberExpression, not NewExpression: ECMA-402 makes Intl.DateTimeFormat
-// callable without `new`, and either form, or a bare alias of the member,
-// formats in the browser's zone without touching toLocale* at all (rule 6,
-// TYRE-95).
+// callable without `new`, and either form formats in the browser's zone
+// without touching toLocale* at all (rule 6, TYRE-95).
 const intlDateTimeFormatBan = {
   selector: "MemberExpression[object.name='Intl'][property.name='DateTimeFormat']",
   message:
@@ -94,22 +88,20 @@ export default tseslint.config(
       "no-restricted-syntax": ["error", ...toLocaleBans, intlDateTimeFormatBan, intlAliasBan],
     },
   },
-  // web/src/time/tenantTime.ts is the one legitimate home the date bans
-  // above all point to. It is the funnel every other file is required to render
-  // through (rule 6, TYRE-89). Only the Intl.DateTimeFormat construction the
-  // formatter genuinely needs is exempted; the toLocale* and Intl-alias bans
-  // still hold here, so a second file in this directory cannot quietly call
-  // toLocaleDateString() (TYRE-95).
+  // web/src/time/tenantTime.ts is the one legitimate home the bans above
+  // point to (rule 6, TYRE-89). Only the Intl.DateTimeFormat construction it
+  // needs is exempted; toLocale* and the Intl-alias ban still hold here
+  // (TYRE-95).
   {
     files: ["src/time/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": ["error", ...toLocaleBans, intlAliasBan],
     },
   },
-  // Config, tooling and e2e files are not part of the app's tsconfig
-  // project, so type-aware linting has no program to consult for them. The
-  // e2e specs are still strictly typechecked: tsconfig.e2e.json, run by
-  // `npm run typecheck`. They are just not type-aware-linted.
+  // Config, tooling and e2e files sit outside the app's tsconfig project, so
+  // type-aware linting has no program for them. They are still strictly
+  // typechecked via tsconfig.e2e.json (npm run typecheck); just not
+  // type-aware-linted.
   {
     files: ["*.{js,ts}", "vite.config.ts", "playwright.config.ts", "e2e/**/*.ts"],
     extends: [tseslint.configs.disableTypeChecked],

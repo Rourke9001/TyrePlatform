@@ -26,11 +26,10 @@ function multiMatchNote(count: number, code: string): string {
   return `${subject} carried code ${code} on that date. Resolve by eye, the system never guesses.`;
 }
 
-// The last write this screen's rows made, held here rather than inside the
-// row that made it: every one of them moves the tyre off the state or the
-// flag that offered the control, the refetch swaps that cell for a different
-// one, and a line left inside the old cell would show for one round-trip and
-// vanish before anyone could read it (NFR-USE-010).
+// The last write this screen's rows made, held here not in the row: every
+// write moves the tyre off the state that offered the control, and a
+// confirmation left in the swapped-away cell would show for one
+// round-trip and vanish (NFR-USE-010).
 type ActedOn =
   | { kind: "dispatch"; code: string; destination: Destination }
   | { kind: "return"; code: string }
@@ -53,13 +52,9 @@ function actedMessage(acted: ActedOn): string {
   }
 }
 
-// Row actions by tyre.state (TYRE-92/93 D7, U1/U2): which write a row
-// offers is a fact about where the casing currently sits, not a flag this
-// screen invents. Every transition rule enforced past this point belongs to
-// the write it fronts (app.dispatch_tyre, app.return_tyre_to_stock,
-// app.dispose_tyre). This only decides which form the state makes
-// reachable. onActed carries a row's success up to the screen-level
-// confirmation (see ActedOn above).
+// Row actions by tyre.state (TYRE-92/93, D7, U1/U2): which write a row
+// offers is a fact about where the casing sits, not a flag this screen
+// invents. Every transition rule belongs to the write it fronts.
 function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => void) {
   if (isDisposed(t.state)) return "—";
   switch (t.state) {
@@ -94,10 +89,9 @@ function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => voi
         </div>
       );
     case "AT_BREAKDOWN_SUPPLIER":
-      // No disposal reaches this state directly: app.dispose_tyre (000031)
-      // refuses SCRAPPED and LOST alike unless the tyre is IN_STOCK or
-      // REMOVED. The path today is return to stock, then dispose from
-      // IN_STOCK. This offers only the write that actually succeeds.
+      // No disposal reaches AT_BREAKDOWN_SUPPLIER directly (app.dispose_tyre,
+      // 000031); the path is return to stock, then dispose from IN_STOCK.
+      // This offers only the write that actually succeeds.
       return (
         <ReturnToStockButton
           tyre={t}
@@ -280,12 +274,10 @@ export function TyreList() {
                 {canSeeMoney && <td>{t.purchasePrice ? `R ${t.purchasePrice}` : "—"}</td>}
                 {canSeeMoney && <td>{t.randPerMm ? `R ${t.randPerMm}` : "—"}</td>}
                 {canSeeMoney && <td>{t.casingValue ? `R ${t.casingValue}` : "—"}</td>}
-                {/* No active-only filter exists on this register (TYRE-91):
-                    a disposed row stays visible, and a state's own form's
-                    refusal for it (a *_tyre invalid-transition message)
-                    reads as advice for a tyre that is not reachable from
-                    here. rowActions hides every form once the state is
-                    terminal, matching the Set-cost column's dash pattern. */}
+                {/* No active-only filter on this register (TYRE-91): a
+                    disposed row stays visible, so rowActions hides every
+                    form once the state is terminal, matching the Set-cost
+                    column's dash. */}
                 <td>{rowActions(t, tenantKey, setActed)}</td>
               </tr>
             ))}

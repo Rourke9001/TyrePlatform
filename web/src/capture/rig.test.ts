@@ -68,10 +68,9 @@ const link = unit("v-link", "BAC040SP", [
   position({ id: "l1", sequence: 1, axleClass: "TRAILER" }),
 ]);
 
-// The second link of a superlink, on the SAME axle configuration as the first,
-// so it carries the very same position ids. app.position belongs to a
-// configuration and not to a vehicle, which makes this the ordinary shape of a
-// three-unit rig rather than a contrived one.
+// The second link of a superlink shares position ids with the first, since
+// app.position belongs to a configuration, not a vehicle (BR-VEH-003):
+// the ordinary shape of a three-unit rig, not a contrived one.
 const link2 = unit("v-link2", "BAC041SP", [
   position({ id: "l1", sequence: 1, axleClass: "TRAILER" }),
   position({ id: "l2", sequence: 2, axleClass: "TRAILER" }),
@@ -96,7 +95,7 @@ describe("rigPositions", () => {
     expect(running.map((r) => r.displayNumber)).toEqual([1, 2, 3, 4]);
     // The sharp end of FR-VEH-034: the same position carries a different
     // number under a different composition, which is why it is computed at
-    // render and never stored.
+    // render, never stored.
     const inOneOrder = rigPositions([horse, link]).find((r) => r.position.id === "l1");
     const inTheOther = rigPositions([link, horse]).find((r) => r.position.id === "l1");
     expect(inOneOrder?.displayNumber).toBe(3);
@@ -127,13 +126,9 @@ describe("rigPositions", () => {
 });
 
 describe("completenessByUnit", () => {
-  // FR-INS-065: per member unit as well as for the rig. A driver who has
-  // finished the horse and not the trailer needs to be told which, not a
-  // single "18 of 26 done" that hides where the gap is.
-  // Two units sharing every position id: keyed by id alone one unit's readings
-  // count for the other's, the rig submits fewer readings than the driver
-  // entered, and nothing on screen says so (BR-VEH-003, and app.reading's
-  // (inspection_id, position_id, vehicle_id) unique key).
+  // FR-INS-065: per-unit as well as rig-wide, so a driver knows which unit
+  // is short. Two units sharing every position id would otherwise let
+  // one's readings count for the other's (BR-VEH-003).
   it("tells two units of the same configuration apart", () => {
     const rig = rigPositions([link, link2]);
     expect(new Set(rig.map((r) => r.key)).size).toBe(rig.length);
@@ -216,10 +211,9 @@ describe("nextOutstanding", () => {
     expect(nextOutstanding(rig, all, at("v-horse", "hs"))?.position.id).toBe("h1");
   });
 
-  // The spare sits last, where the diagram draws it, not at its own sequence
-  // inside the unit that owns it. rigPositions puts the horse's spare BEFORE
-  // the link's wheels, so an order taken from it unchanged would send the
-  // driver to the boot between two units.
+  // The spare sits last, where the diagram draws it, not at its own
+  // sequence inside its unit: rigPositions puts the horse's spare before
+  // the link's wheels.
   it("leaves the spares until after every running position", () => {
     const done = new Set([at("v-horse", "h1"), at("v-horse", "h2")]);
     expect(nextOutstanding(rig, done, at("v-horse", "h2"))?.position.id).toBe("l1");
@@ -227,11 +221,10 @@ describe("nextOutstanding", () => {
     expect(nextOutstanding(rig, running, at("v-link", "l2"))?.key).toBe(at("v-horse", "hs"));
   });
 
-  // The defect this exists to prevent. Both links carry position ids l1 and l2
-  // because app.position belongs to an axle configuration, so a search that
-  // asked "is l1 done?" would find the first link's l1 and skip the second
-  // link's wheels entirely: 8 positions filed nowhere, with nothing on screen
-  // to say so (BR-VEH-003, draft.cellKey).
+  // The defect this prevents: both links carry ids l1/l2 (app.position
+  // belongs to a configuration, not a vehicle), so asking "is l1 done?"
+  // would find the first link's l1 and skip the second link's wheels
+  // entirely (BR-VEH-003, draft.cellKey).
   it("asks by cell, so a second unit of the same configuration is not skipped", () => {
     const superlink = rigPositions([link, link2]);
     const done = new Set([at("v-link", "l1"), at("v-link", "l2")]);

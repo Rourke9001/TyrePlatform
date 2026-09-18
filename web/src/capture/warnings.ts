@@ -1,13 +1,8 @@
 import type { CaptureConfig, CapturePosition } from "./captureContext";
 
-// The code IS the requirement id: it travels in the submit payload to
-// app.inspection_warning (DR-021) and is what a controller reads months later
-// when asking why a driver was stopped. A private enum here would need a
-// mapping table nobody maintains.
-// FR-INS-032 is deliberately absent: it is a rejection, not a warning
-// (history.ts's odometerRejection returns a sentence, never a Warning), so it
-// never travels to app.inspection_warning and a member here would promise a
-// record nothing writes.
+// The code IS the requirement id, travelling to app.inspection_warning
+// (DR-021) for a controller to read later. FR-INS-032 is deliberately
+// absent: it is a rejection, never a warning, so it never travels here.
 export type WarningCode =
   | "FR-INS-031a"
   | "FR-INS-033"
@@ -37,20 +32,16 @@ export interface PositionEntry {
 
 export type Severity = "roadworthy" | "caution" | "below-removal" | "unmeasured";
 
-// The one definition of done. Every surface that counts, bands or submits a
-// position reads it: the payload filters on it (payload.ts), the tallies count
-// it, and the diagram bands on it. Pressure is deliberately not part of it.
-// 000023 accepts a NULL pressure by design, so a position with its treads read
-// and no pressure is captured and is sent, and calling it unmeasured would hide
-// a tread band the app already holds every number for.
+// The one definition of "done": every surface that counts, bands or submits
+// reads it. Pressure is deliberately excluded, since 000023 accepts a NULL
+// pressure and calling such a position unmeasured would hide a tread band
+// the app already holds.
 export function treadsRead(treads: (number | null)[]): boolean {
   return treads.length > 0 && treads.every((t) => t !== null);
 }
 
-// Every field on the sheet answered, which only the sheet itself needs:
-// FR-INS-040 holds the driver on a warning once there is nothing left to type,
-// and a pressure band cannot be asserted from a reading never taken. Kept
-// apart from treadsRead so the difference is a decision rather than a drift.
+// Every field on the sheet answered; only the sheet needs this. Kept apart
+// from treadsRead so the difference is a decision, not a drift.
 export function isComplete(entry: PositionEntry, treadReadingCount: number): boolean {
   return (
     entry.treads.length === treadReadingCount &&
@@ -78,13 +69,10 @@ export function positionWarnings(
   position: CapturePosition,
   config: CaptureConfig,
 ): Warning[] {
-  // Warning on a half-entered position would fire on the first digit of a
-  // number that is about to become fine, which trains drivers to dismiss
-  // warnings without reading them. Gated on the treads, not on the whole
-  // sheet: once all of them are in, the tread bands are final, and holding
-  // FR-INS-036 back until a pressure is typed hides it on a position where the
-  // driver may never take one. The pressure block below keeps its own guard,
-  // so a missing reading is still never banded.
+  // Gated on treads, not the whole sheet: warning on a half-entered
+  // position trains drivers to dismiss warnings, and holding FR-INS-036
+  // back until pressure is typed would hide it on a position that may
+  // never get one.
   if (entry.treads.length !== config.treadReadingCount || !treadsRead(entry.treads)) return [];
 
   const out: Warning[] = [];
@@ -126,14 +114,10 @@ export function positionWarnings(
     const warnUnder = position.warnUnderPct ?? Infinity;
     const warnOver = position.warnOverPct ?? Infinity;
 
-    // At most one pressure warning. FR-INS-031a's confirmation supersedes
-    // FR-INS-037's band: both are true beyond the critical tolerance, and two
-    // rows about one number costs seconds the three-minute budget has not got.
-    // Strict on the under side, inclusive on the over side. Not a style
-    // choice: app.inflation_compliance (000013) bands with
-    // `pct < 100 - critical_under_pct`, so at exactly -20% the database says
-    // WARN and an inclusive client here would say CONFIRM. Same drift the
-    // FR-INS-036/041 boundaries are pinned against.
+    // At most one pressure warning: FR-INS-031a supersedes FR-INS-037's
+    // band rather than stacking. Strict under, inclusive over, matching
+    // app.inflation_compliance's `pct < 100 - critical_under_pct` (000013),
+    // the same drift FR-INS-036/041 are pinned against.
     if (pct < -criticalUnder || pct >= criticalOver) {
       out.push({
         code: "FR-INS-031a",
@@ -154,13 +138,10 @@ export function positionWarnings(
   return out;
 }
 
-// Colour is never the only encoding (NFR-USE-009). This names the state and
-// the component pairs it with a text badge. The names are the fixed band names
-// in theme/tokens.ts; the millimetres that reach them are tenant configuration.
-//
-// `measured` asks whether the treads have been read, not whether every field on
-// the sheet is filled. "unmeasured" is the absence of a measurement, and a
-// position carrying three readings has one whether or not a pressure was taken.
+// Colour is never the only encoding (NFR-USE-009); names pair with a text
+// badge. `measured` asks whether treads were read, not whether the sheet is
+// fully filled, since a position with three readings has one whether or
+// not pressure was taken.
 export function severityFor(warnings: Warning[], measured: boolean): Severity {
   if (!measured) return "unmeasured";
   if (warnings.some((w) => w.code === "FR-INS-036")) return "below-removal";

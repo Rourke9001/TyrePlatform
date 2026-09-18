@@ -50,9 +50,8 @@ describe("reported differences", () => {
     const { client } = renderSection();
 
     // The settle signal is the query cache's own status, not "fetch was
-    // called": that fires before the mock's Promise chain has resolved, and
-    // the pending state renders nothing too, so it would pass whether or not
-    // the empty-list branch is the one that ran.
+    // called": that fires before the mock's Promise resolves, so it would
+    // pass whether or not the empty-list branch ran.
     await waitFor(() =>
       expect(client.getQueryState(observationsKey("default"))?.status).toBe("success"),
     );

@@ -17,10 +17,8 @@ import { UnitTaskList } from "./UnitTaskList";
 import { rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import "../fleet.css";
 
-// D7's unit screen: the plan view of what the unit carries, the panel for
-// whichever position is picked, and the writes a controller holds. ViewFleet
-// is enough to read it; every form inside is ManageAssets' except the
-// inspection schedule, which is ManageAssignments' (spec U2). A reader is
+// D7's unit screen: ViewFleet reads it; every form inside is ManageAssets'
+// except the inspection schedule (ManageAssignments, U2). A reader is
 // shown the unit rather than controls that would refuse them (D8, ADR-0011).
 export function UnitDetail({ unitId }: { unitId: string }) {
   const canManage = useCan("ManageAssets");

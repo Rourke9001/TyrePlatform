@@ -134,11 +134,9 @@ describe("scheduling an inspection", () => {
     expect(await screen.findByLabelText(/^due$/i)).toHaveValue("");
   });
 
-  // rule 6: the browser never supplies "today". With the clock pinned to a
-  // day nothing else names, that day must appear neither on the screen nor
-  // in the body. An omitted dueOn is what makes the server resolve the
-  // tenant's own day. Only Date is faked: faking the timers would hang
-  // userEvent and TanStack's own scheduling.
+  // rule 6: the browser never supplies "today"; an omitted dueOn is what
+  // makes the server resolve the tenant's own day. Only Date is faked,
+  // since faking timers would hang userEvent/TanStack.
   it("takes its today from nowhere, not from the browser clock", async () => {
     vi.useFakeTimers({ now: new Date("2027-03-14"), toFake: ["Date"] });
     try {

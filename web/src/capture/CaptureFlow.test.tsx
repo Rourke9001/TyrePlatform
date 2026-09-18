@@ -182,17 +182,10 @@ function stubApi(
   return api;
 }
 
-// Real timers, throughout. CaptureFlow writes to IndexedDB on every keystroke
-// (FR-OFF-005), and Dexie completes its requests on a real setTimeout. Faking
-// setTimeout deadlocks every write, and faking anything less cannot drive the
-// 200ms settle this helper depends on. So each step waits for the state the
-// settle produces (the next field taking aria-current) instead of for a fixed
-// number of ticks. See docs/lessons.md, "Fake timers deadlock IndexedDB".
-//
-// Digits are entered a field at a time and the settle is waited out between
-// them: clicking nine digits straight through lands them all in field 1, where
-// everything past the second overshoots 35mm and restarts the buffer, a green
-// test over corrupt data.
+// Real timers throughout: CaptureFlow writes to IndexedDB on every keystroke
+// (FR-OFF-005) and Dexie completes on a real setTimeout, so fake timers
+// deadlock every write (docs/lessons.md, "Fake timers deadlock IndexedDB").
+// Each step waits for the settle's own effect (aria-current), not a tick count.
 async function capturePosition(user: UserEvent) {
   await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
 
@@ -214,10 +207,9 @@ async function capturePosition(user: UserEvent) {
   for (const d of ["8", "0", "0"]) {
     await user.click(screen.getByRole("button", { name: d }));
   }
-  // A position with nothing to flag finishes itself off the pressure field; a
-  // warned one waits for the tap that records the FR-INS-040 response. Either
-  // way the sheet that was open must go: on to the next outstanding position,
-  // or back to the diagram when none are left.
+  // A position with nothing to flag finishes off the pressure field; a
+  // warned one waits for the FR-INS-040 response tap. Either way the open
+  // sheet must go: next outstanding, or back to the diagram.
   const answer = screen.queryByRole("button", { name: /seen it ›/i });
   if (answer) await user.click(answer);
   await waitFor(() =>
@@ -245,10 +237,9 @@ afterEach(async () => {
 const newUser = () => userEvent.setup();
 
 describe("CaptureFlow", () => {
-  // NFR-AVL-002: "Starting a new inspection requires the server." Capture and
-  // submit do not, but a driver must not be able to start against reference
-  // data that never arrived, because every threshold would then be missing
-  // and every warning would silently never fire.
+  // NFR-AVL-002: starting requires the server. A driver must not start
+  // against reference data that never arrived, or every threshold is
+  // missing and every warning silently never fires.
   it("refuses to start when the reference data has not loaded", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
     renderFlow();
@@ -291,9 +282,8 @@ describe("CaptureFlow", () => {
   });
 
   // FR-INS-038's window is the one refusal a driver resolves by naming that
-  // vehicle to the office. Any other conflict is a different conversation, and
-  // naming the wrong one sends them to argue about an inspection that never
-  // happened (NFR-USE-005).
+  // vehicle to the office; naming the wrong one sends them to argue about an
+  // inspection that never happened (NFR-USE-005).
   it("does not blame the duplicate window for an unrelated conflict", async () => {
     const user = newUser();
     stubApi(409, [context], "conflict");
@@ -310,10 +300,9 @@ describe("CaptureFlow", () => {
     expect(await db.table("outbox").count()).toBe(1);
   });
 
-  // NFR-USE-011 / FR-OFF-006: the buffer is the source of truth, so a remount
-  // is a reload and finds the work, with its numbers, not just its progress.
-  // This one stays on the diagram: its one position is complete, so there is
-  // no half-entered sheet to return to (the case the next test covers).
+  // NFR-USE-011/FR-OFF-006: a remount is a reload and finds the work with
+  // its numbers, not just its progress. This one stays on the diagram since
+  // its one position is already complete.
   it("resumes an in-progress inspection after a remount", async () => {
     const user = newUser();
     stubApi();
@@ -347,10 +336,9 @@ describe("CaptureFlow", () => {
     expect(screen.getByLabelText(/Tread reading 2 of 3/)).toHaveAttribute("aria-current", "true");
   });
 
-  // The diagram's active mark is the driver's place-keeper across a 27-position
-  // walk-around. Marking every cell satisfies "the open one is marked" just as
-  // well as marking one, so the assertion is on the whole set, not on the cell
-  // that was opened.
+  // The diagram's active mark is the driver's place-keeper. Marking every
+  // cell satisfies "the open one is marked" as well as marking one, so the
+  // assertion is on the whole set.
   it("marks the open position on the diagram and no other", async () => {
     const user = newUser();
     stubApi(201, [twoPositions]);
@@ -366,12 +354,10 @@ describe("CaptureFlow", () => {
     ).toEqual(["p1"]);
   });
 
-  // app.inspection.completeness_pct defaults to 100, so a partial inspection
-  // submitted without it is recorded as complete (NFR-PRO-003). The denominator
-  // is every position on every confirmed unit (FR-INS-065): a rig, not the
-  // motive unit, which is what makes 1-of-3 distinguishable from 1-of-1 here.
-  // The count the driver reads at review and the figure the server stores come
-  // off the same expression, so this asserts both.
+  // app.inspection.completeness_pct defaults to 100 (NFR-PRO-003), so a
+  // submit without it is recorded complete. The denominator is every
+  // position on every confirmed unit (FR-INS-065), a rig not the motive
+  // unit alone.
   it("counts every unit on the rig in the completeness it reports", async () => {
     const user = newUser();
     const api = stubApi(201, [rigMotive, trailer]);
@@ -404,15 +390,10 @@ describe("CaptureFlow", () => {
     expect(body.observed_member_vehicle_ids).toEqual(["v1", "v2"]);
   });
 
-  // NFR-USE-001a. Finishing a position opens the next outstanding one, so the
-  // driver pays one tap to open the first wheel of the walk and none after
-  // that; returning them to the diagram to hunt for the next cell costs a tap
-  // and a re-orientation on each of a superlink's 27.
-  //
-  // The rig fixture is the sharp case: both units carry position ids p1 and
-  // p2, because app.position belongs to an axle configuration and not to a
-  // vehicle. A "next outstanding" that asked by id would find p1 done and step
-  // over the trailer's first wheel (BR-VEH-003, draft.cellKey).
+  // NFR-USE-001a: finishing a position opens the next outstanding one so the
+  // driver pays one tap per walk, not one plus a re-orientation. Both rig
+  // units carry ids p1/p2 (BR-VEH-003, draft.cellKey), so "next outstanding"
+  // must ask by cell.
   it("opens the next outstanding position on the next unit rather than stepping over it", async () => {
     const user = newUser();
     stubApi(201, [rigMotive, trailer]);
@@ -426,10 +407,9 @@ describe("CaptureFlow", () => {
     expect(screen.getByLabelText("Pressure")).toHaveTextContent("–");
   });
 
-  // Swept at every stage of the journey, not once at the end: by the time the
-  // review screen renders, start and capture have unmounted and the done
-  // screen has not been reached, so a single sweep guards one screen out of
-  // four and reads like it guards all of them.
+  // Swept at every stage, not once at the end: start and capture unmount
+  // before review renders, so a single end-of-test sweep would look like it
+  // guarded all four screens while guarding one.
   it("never says legal, roadworthy, statutory or minimum to a driver, on any screen", async () => {
     const user = newUser();
     stubApi(201);
@@ -459,11 +439,9 @@ describe("CaptureFlow", () => {
     expectNothingForbiddenSpoken(container, /inspection sent/);
   });
 
-  // FR-OFF-014 / NFR-USE-005. IndexedDB throws outright under a private window
-  // or an MDM policy blocking site data. The driver then taps a Start button
-  // that can never work, so the screen they are standing on has to say why,
-  // which requires the alert to sit above the screen switch, not inside one
-  // branch of it.
+  // FR-OFF-014/NFR-USE-005: IndexedDB can throw outright (private window,
+  // MDM policy). The driver's Start button can never work, so the alert must
+  // sit above the screen switch, not inside one branch.
   it("refuses to start when the device cannot store anything, and names a way out", async () => {
     stubApi(201);
     vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
@@ -498,10 +476,9 @@ describe("CaptureFlow", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  // The half that proves the retry re-attempts rather than just clearing the
-  // message: a retry that only hid the banner would leave a driver on a screen
-  // with an enabled Start button and no warning, which is where this round
-  // started.
+  // Proves the retry re-attempts rather than clearing the message: a retry
+  // that only hid the banner would leave an enabled Start with no warning,
+  // exactly where this round started.
   it("says so again when a retry finds the device still refusing", async () => {
     const user = newUser();
     stubApi(201);
@@ -529,11 +506,9 @@ describe("CaptureFlow", () => {
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
   });
 
-  // The storage alert is hoisted above the screen switch (CaptureFlow's
-  // return, below) while the context-fetch failure renders inside it, so a
-  // locked-down phone with no signal shows both retries at once. Two
-  // controls that read the same leave a driver guessing which tap does
-  // what, so this asserts the names differ, not just that two buttons exist.
+  // The storage alert (hoisted) and the context-fetch failure (inside the
+  // switch) can both render at once; asserts the two retry names differ,
+  // not just that two buttons exist.
   it("names each retry by what it retries when storage and the context fetch both fail", async () => {
     stubApi(201, []); // nothing served: every GET 404s, so motive.isError becomes true
     vi.spyOn(db.drafts, "get").mockRejectedValue(new Error("storage blocked"));
@@ -571,12 +546,9 @@ describe("CaptureFlow", () => {
     expect(screen.getByRole("button", { name: /submit inspection/i })).toBeEnabled();
   });
 
-  // The defect this reconciles: a position whose treads are read and whose
-  // pressure was never taken is captured, is counted, and is sent (000023
-  // accepts a NULL pressure). Banding the cell on the pressure as well drew it
-  // "Not done", hiding FR-INS-036 on a cell the app had every number for, and
-  // sending the driver back across the yard for a wheel already done while the
-  // header above said it was.
+  // The defect: a position with treads read and no pressure was banded
+  // "Not done" (000023 accepts NULL pressure), hiding FR-INS-036 on a cell
+  // the app had every number for.
   it("bands a tread-complete position with no pressure, and counts it done", async () => {
     const user = newUser();
     stubApi(201);
@@ -623,10 +595,9 @@ describe("CaptureFlow", () => {
     expect(entry.payload.readings[0].treads).toEqual([13, 13, 14]);
   });
 
-  // TYRE-146 (Critical): a driver who taps Start on the wrong truck and
-  // captures nothing had no exit. The held screen's only control was
-  // "Go to it", and a submit needs a position. The discard is the exit, and
-  // it names what is lost.
+  // TYRE-146 (Critical): a driver who Starts the wrong truck and captures
+  // nothing had no exit. The discard is that exit, and it names what is
+  // lost.
   it("lets a driver discard the other vehicle's inspection and start this one", async () => {
     const user = newUser();
     stubApi();
@@ -674,9 +645,8 @@ describe("CaptureFlow", () => {
   });
 
   // TYRE-146: a draft whose only observation is "No spare on this unit" had
-  // zero captured positions, so the old wording read it as empty right before
-  // clearDraft discarded the mark along with it. The consequence has to name
-  // the mark in the driver's own words for the control that made it.
+  // zero captured positions, so the old wording read it as empty right
+  // before clearDraft discarded the mark too.
   it("names a lost absent-spare mark when the draft has no captured positions", async () => {
     const user = newUser();
     stubApi(201, [spareOnly]);

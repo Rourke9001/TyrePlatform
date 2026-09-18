@@ -74,10 +74,9 @@ describe("a unit's fitment history", () => {
     expect(within(rowFor("TY004")).getByText("Fitted")).toBeTruthy();
   });
 
-  // 22:00Z is already the next day in Africa/Johannesburg (UTC+2). An instant
-  // in the middle of the UTC day would read the same in both zones, so a
-  // component formatting in UTC would pass the assertion without honouring
-  // rule 6 at all.
+  // 22:00Z is already the next day in Africa/Johannesburg; a component
+  // formatting in UTC would pass this assertion without honouring rule 6
+  // at all.
   it("renders dates in the tenant's calendar, not in UTC", () => {
     const lateEvening = "2026-08-01T22:00:00Z";
     renderHistory([fitmentRow({ fitmentId: "f5", displayCode: "TY005", fittedAt: lateEvening })]);
