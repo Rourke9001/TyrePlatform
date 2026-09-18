@@ -4,6 +4,12 @@ import type { QueryKey } from "@tanstack/react-query";
 // a non-component export beside a component, and every form here
 // invalidates keys it does not own the query for.
 
+// admin/AddUnit.tsx's library read; kept here since that screen already
+// imports vehiclesKey from this module (TYRE-260).
+export function axleConfigurationsKey(tenantId: string): QueryKey {
+  return ["axle-configurations", tenantId];
+}
+
 export function unitKey(unitId: string): QueryKey {
   return ["unit", unitId];
 }

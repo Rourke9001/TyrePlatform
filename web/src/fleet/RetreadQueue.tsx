@@ -3,7 +3,6 @@ import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 
 import { getDevTenantId } from "../api/devTenant";
-import { refusalMessage } from "../api/refusal";
 import {
   fetchRetreadJobs,
   logRetreadReturn,
@@ -11,6 +10,7 @@ import {
   type RetreadReturn,
 } from "../api/retreads";
 import { useTenantDate } from "../time/tenantTime";
+import { RefusalAlert } from "./RefusalAlert";
 import { retreadJobsKey, tyresKey } from "./unit/queryKeys";
 import { useFormMutation } from "./useFormMutation";
 import "./fleet.css";
@@ -196,10 +196,8 @@ function RetreadReturnRow({
           </button>
         </form>
 
-        {refused !== "" && <p role="alert">{refused}</p>}
-        {logReturn.error !== null && (
-          <p role="alert">{refusalMessage(logReturn.error, RETURN_WORDING)}</p>
-        )}
+        <RefusalAlert message={refused} />
+        <RefusalAlert error={logReturn.error} wording={RETURN_WORDING} />
       </td>
     </tr>
   );

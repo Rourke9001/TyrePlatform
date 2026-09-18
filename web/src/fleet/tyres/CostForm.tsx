@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 
-import { refusalMessage } from "../../api/refusal";
 import { COST_SOURCES, setTyreCost, type CostSource, type Tyre } from "../../api/tyres";
+import { RefusalAlert } from "../RefusalAlert";
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
@@ -78,7 +78,7 @@ export function CostForm({
         {cost.isPending ? "Saving…" : "Set cost"}
       </button>
 
-      {cost.error !== null && <p role="alert">{refusalMessage(cost.error, COST_WORDING)}</p>}
+      <RefusalAlert error={cost.error} wording={COST_WORDING} />
     </form>
   );
 }

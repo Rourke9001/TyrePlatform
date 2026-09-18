@@ -2,9 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useRef, useState } from "react";
 
 import { getDevTenantId } from "../../api/devTenant";
-import { refusalMessage } from "../../api/refusal";
 import { fetchTyres } from "../../api/tyres";
 import { fitTyre, type NewFitment, type Unit, type UnitPosition } from "../../api/units";
+import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
 import { byNaturalCode } from "./naturalOrder";
@@ -188,7 +188,7 @@ export function FitForm({
         {fit.isPending ? "Fitting…" : "Fit tyre"}
       </button>
 
-      {fit.error !== null && <p role="alert">{refusalMessage(fit.error, FIT_WORDING)}</p>}
+      <RefusalAlert error={fit.error} wording={FIT_WORDING} />
     </form>
   );
 }

@@ -1,8 +1,8 @@
 import { type FormEvent, useRef, useState } from "react";
 
 import { getDevTenantId } from "../../api/devTenant";
-import { refusalMessage } from "../../api/refusal";
 import { removeFitment, type Removal, type Unit, type UnitPosition } from "../../api/units";
+import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
 import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
@@ -146,7 +146,7 @@ export function RemoveForm({
         {remove.isPending ? "Removing…" : "Remove tyre"}
       </button>
 
-      {remove.error !== null && <p role="alert">{refusalMessage(remove.error, REMOVE_WORDING)}</p>}
+      <RefusalAlert error={remove.error} wording={REMOVE_WORDING} />
     </form>
   );
 }

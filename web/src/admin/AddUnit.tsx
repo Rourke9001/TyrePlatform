@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { createUnit, fetchAxleConfigurations, type CreatedUnit, type UnitKind } from "../api/admin";
 import { refusalMessage } from "../api/refusal";
 import { getDevTenantId } from "../api/devTenant";
+import { axleConfigurationsKey } from "../fleet/unit/queryKeys";
 import "./admin.css";
 
 // The kinds a unit can be, in the order a fleet thinks of them. The values are
@@ -28,7 +29,7 @@ const CREATE_WORDING = {
 export function AddUnit() {
   const tenantKey = getDevTenantId() ?? "default";
   const configs = useQuery({
-    queryKey: ["axle-configurations", tenantKey],
+    queryKey: axleConfigurationsKey(tenantKey),
     queryFn: fetchAxleConfigurations,
   });
 

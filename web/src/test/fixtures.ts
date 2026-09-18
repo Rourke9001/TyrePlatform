@@ -1,6 +1,10 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { render, type RenderResult } from "@testing-library/react";
+import { createElement, type ReactElement } from "react";
+import { MemoryRouter } from "react-router";
 import { vi } from "vitest";
 
+import { ActorContext } from "../auth/actorContext";
 import type { Me } from "../auth/me";
 import type { FitmentHistoryRow, OpenFitment, Unit, UnitPosition } from "../api/units";
 
@@ -23,6 +27,24 @@ export function me(overrides: Partial<Me> = {}): Me {
     displayCodePolicy: "FREE",
     ...overrides,
   };
+}
+
+// The shared shape behind the per-screen render helpers this replaces:
+// ActorContext + QueryClientProvider, with a Router only when the component
+// under test needs one (TYRE-260 dedup).
+export function renderWithActor(
+  ui: ReactElement,
+  options: { capabilities?: string[]; withRouter?: boolean; initialEntries?: string[] } = {},
+): RenderResult {
+  const { capabilities = [], withRouter = false, initialEntries } = options;
+  const content = withRouter ? createElement(MemoryRouter, { initialEntries }, ui) : ui;
+  return render(
+    createElement(
+      ActorContext.Provider,
+      { value: { actor: me({ capabilities }), settled: true } },
+      createElement(QueryClientProvider, { client: testQueryClient() }, content),
+    ),
+  );
 }
 
 export function respond(status: number, body: unknown): Response {
