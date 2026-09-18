@@ -10,10 +10,10 @@ import { type Page } from "@playwright/test";
 const ORG_ADMIN = "96b10943-acb4-c3d7-e8cd-3e1fb52e067e";
 const TENANT = "33333333-3333-3333-3333-333333333333";
 
-// Shared by actAsOrgAdmin and actAsUser: addInitScript reapplies its callback
-// on every navigation, so switching actor mid-test needs a fresh page, not a
-// second call on the existing one.
-async function actAs(page: Page, userId: string, tenantId: string): Promise<void> {
+// Shared by actAsOrgAdmin, actAsUser, driver.ts and smoke.spec.ts:
+// addInitScript reapplies its callback on every navigation, so switching
+// actor mid-test needs a fresh page, not a second call on the existing one.
+export async function actAs(page: Page, userId: string, tenantId: string): Promise<void> {
   await page.addInitScript(
     ([user, tenant]) => {
       window.localStorage.setItem("tyre.dev.user-id", user);

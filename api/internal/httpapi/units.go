@@ -530,55 +530,6 @@ type patchUnitArgs struct {
 	tags                                                             *[]string
 }
 
-// optionalIDOrClear reads a nullable id with the three states above. A value
-// that is neither absent nor empty must parse as a uuid here rather than
-// reach the ::uuid cast as a 22P02 naming no field at all (ADR-0013
-// decision 5).
-func optionalIDOrClear(field string, raw *string) (*string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*raw)
-	if trimmed == "" {
-		return &trimmed, nil
-	}
-	if _, err := uuidField(field, trimmed); err != nil {
-		return nil, err
-	}
-	return &trimmed, nil
-}
-
-// cleanTags bounds the count, trims, refuses a blank name and drops repeats
-// while keeping the caller's order. De-duplication is case-sensitive because
-// the constraint it stands in front of is: app.vehicle_tag's UNIQUE
-// (tenant_id, name) holds "Reefer" and "REEFER" as two names, so folding case
-// here would quietly merge two labels a fleet deliberately keeps apart.
-func cleanTags(in []string) ([]string, error) {
-	// Counted before the de-duplication, not after: what is bounded is the
-	// request, and fifty repeats of one name is the same work to read as fifty
-	// distinct ones.
-	if len(in) > maxTagsPerPatch {
-		return nil, invalid("tags", fmt.Sprintf("may name at most %d names in one edit", maxTagsPerPatch))
-	}
-	out := make([]string, 0, len(in))
-	seen := make(map[string]bool, len(in))
-	for _, raw := range in {
-		name := strings.TrimSpace(raw)
-		if name == "" {
-			return nil, invalid("tags", "may not contain a blank name")
-		}
-		if len(name) > maxTextLen {
-			return nil, invalid("tags", "contains a name that is too long")
-		}
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
-		out = append(out, name)
-	}
-	return out, nil
-}
-
 func (b patchUnitRequest) validate() (patchUnitArgs, error) {
 	var a patchUnitArgs
 
@@ -822,4 +773,164 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}
+}
+
+type vehicleJSON struct {
+	ID           string  `json:"id"`
+	FleetNumber  string  `json:"fleetNumber"`
+	Registration *string `json:"registration"`
+}
+
+// fleetUnitJSON is the management list's row: the shared three fields plus
+// the two the Rigs form filters on (unit kind, status). The driver's list
+// keeps vehicleJSON, because its source view projects neither and a driver
+// picking a unit to inspect needs neither.
+type fleetUnitJSON struct {
+	vehicleJSON
+	UnitKind *string `json:"unitKind"`
+	Status   string  `json:"status"`
+}
+
+// unitSource is the one place a fleet handler chooses its relation for a
+// unit, by auth.Actor.Scope and never by role name (ADR-0006):
+// app.v_depot_vehicle is the default, app.vehicle the ScopeTenant exception.
+// A role added later without a scope entry lands on the narrow default
+// (FR-AUT-006, FR-AUT-007, FR-AUT-008, TYRE-162, TYRE-226). See
+// docs/architecture.md for the full list of callers.
+func unitSource(a auth.Actor) string {
+	if a.Scope() == auth.ScopeTenant {
+		return `app.vehicle`
+	}
+	return `app.v_depot_vehicle`
+}
+
+// listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
+// and is refused here rather than filtered. FR-AUT-005 is about what they
+// may ask for, not only about what comes back. Their route is /api/my/vehicles.
+//
+// The source relation is unitSource's choice.
+func listVehicles(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		// Initialised, not nil. See listAxleConfigurations (admin.go).
+		units := []fleetUnitJSON{}
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ViewFleet); err != nil {
+				return err
+			}
+			source := unitSource(a)
+			rows, err := tx.Query(ctx,
+				`SELECT id, fleet_number, registration, unit_kind::text, status::text
+				   FROM `+source+` ORDER BY fleet_number`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var u fleetUnitJSON
+				if err := rows.Scan(&u.ID, &u.FleetNumber, &u.Registration, &u.UnitKind, &u.Status); err != nil {
+					return err
+				}
+				units = append(units, u)
+			}
+			return rows.Err()
+		})
+		if !ok {
+			return
+		}
+		writeJSON(ctx, w, units)
+	}
+}
+
+// listMyVehicles is the driver's own list, through the single predicate that
+// defines "currently assigned to me" (FR-AUT-005, app.v_driver_vehicle).
+// A driver assigned nothing gets an empty list: asking is legitimate, and the
+// answer is legitimately nothing.
+func listMyVehicles(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		vehicles := []vehicleJSON{}
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.CaptureInspection); err != nil {
+				return err
+			}
+			var err error
+			vehicles, err = scanVehicles(ctx, tx,
+				`SELECT DISTINCT vehicle_id, fleet_number, registration
+				   FROM app.v_driver_vehicle ORDER BY fleet_number`)
+			return err
+		})
+		if !ok {
+			return
+		}
+		writeJSON(ctx, w, vehicles)
+	}
+}
+
+type taskJSON struct {
+	ID          string `json:"id"`
+	VehicleID   string `json:"vehicleId"`
+	FleetNumber string `json:"fleetNumber"`
+	DueAt       string `json:"dueAt"`
+	State       string `json:"state"`
+	Overdue     bool   `json:"overdue"`
+}
+
+// listMyTasks is the driver's outstanding work (FR-DSH-012). Overdue is
+// computed in the view, not here: it is an OPEN task past its due date and
+// never a state the client may infer for itself.
+func listMyTasks(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		tasks := []taskJSON{}
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.CaptureInspection); err != nil {
+				return err
+			}
+			// The scope view must stay the driving relation: app.vehicle is
+			// reached only through v_my_inspection_task's already-narrowed
+			// rows, never joined the other way round (ADR-0006).
+			rows, err := tx.Query(ctx,
+				`SELECT t.id, t.vehicle_id, v.fleet_number, t.due_at, t.state::text, t.overdue
+				   FROM app.v_my_inspection_task t
+				   JOIN app.vehicle v ON v.id = t.vehicle_id
+				  ORDER BY t.due_at`)
+			if err != nil {
+				return err
+			}
+			defer rows.Close()
+			for rows.Next() {
+				var t taskJSON
+				var due time.Time
+				if err := rows.Scan(&t.ID, &t.VehicleID, &t.FleetNumber, &due, &t.State, &t.Overdue); err != nil {
+					return err
+				}
+				t.DueAt = due.UTC().Format(time.RFC3339)
+				tasks = append(tasks, t)
+			}
+			return rows.Err()
+		})
+		if !ok {
+			return
+		}
+		writeJSON(ctx, w, tasks)
+	}
+}
+
+func scanVehicles(ctx context.Context, tx pgx.Tx, query string) ([]vehicleJSON, error) {
+	rows, err := tx.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	vehicles := []vehicleJSON{}
+	for rows.Next() {
+		var v vehicleJSON
+		if err := rows.Scan(&v.ID, &v.FleetNumber, &v.Registration); err != nil {
+			return nil, err
+		}
+		vehicles = append(vehicles, v)
+	}
+	return vehicles, rows.Err()
 }

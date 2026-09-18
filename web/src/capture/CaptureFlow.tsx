@@ -1,41 +1,22 @@
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
-import { useQueries } from "@tanstack/react-query";
+import { useState } from "react";
 
 import { CaptureDiagram } from "./CaptureDiagram";
 import { CaptureDone } from "./CaptureDone";
 import { CaptureReview } from "./CaptureReview";
 import { CaptureStart } from "./CaptureStart";
 import { ConfirmDiscard } from "./ConfirmDiscard";
-import type { CaptureContext, CapturePosition } from "./captureContext";
-import { captureContextQuery, useCaptureContext } from "./captureContext";
-import type { Draft, DraftPosition, RecordedWarning } from "./draft";
-import {
-  cellKey,
-  clearDraft,
-  loadDraft,
-  markSpareAbsent,
-  saveHeader,
-  savePosition,
-  startDraft,
-  unmarkSpareAbsent,
-} from "./draft";
-import { historyWarnings } from "./history";
+import type { RecordedWarning } from "./draft";
+import { saveHeader } from "./draft";
+import { useCaptureContext } from "./captureContext";
 import { attemptSend, listOutbox, queueDraft } from "./outbox";
-import { absentCells, appVersion, capturedCells, deviceId, halfEnteredCell } from "./payload";
+import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
-import { completenessByUnit, nextOutstanding, rigPositions } from "./rig";
-import type { Severity } from "./warnings";
-import { governingTread, positionWarnings, severityFor, treadsRead } from "./warnings";
+import { deriveProgress } from "./rig";
+import { useDraftLifecycle } from "./useDraftLifecycle";
+import { useEntryHandlers } from "./useEntryHandlers";
+import { useRigComposition } from "./useRigComposition";
 import "./capture.css";
-
-type Screen = "start" | "capture" | "review" | "done";
-
-// "unavailable": a device that will not let the app write at all (private
-// window, MDM), caught before any inspection exists. "degraded": a write
-// failed with an inspection already in hand. NFR-USE-005: the two must stay
-// distinct on the wire.
-type StorageFault = "unavailable" | "degraded";
 
 interface Outcome {
   state: "sent" | "queued" | "failed";
@@ -45,121 +26,42 @@ interface Outcome {
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
   const motive = useCaptureContext(vehicleId);
 
-  // React state mirrors the draft for rendering; the draft in IndexedDB is the
-  // truth (FR-OFF-005/006). Every mutation writes there first and updates this
-  // to match, never the other way round. A reload has to find the work.
-  const [draft, setDraft] = useState<Draft | null>(null);
-  const [resumed, setResumed] = useState(false);
-  const [held, setHeld] = useState<Draft | null>(null);
-  const [screen, setScreen] = useState<Screen>("start");
-  const [attachedIds, setAttachedIds] = useState<string[] | null>(null);
   // A cell, not a position id: two member units of the same axle
   // configuration share every position id, so an id alone opens the wrong
-  // unit's sheet on a rig (draft.cellKey).
+  // unit's sheet on a rig (draft.cellKey). Owned here, not by any one
+  // hook below, since the draft's resume and the entry handlers both
+  // write it.
   const [activeKey, setActiveKey] = useState<string | null>(null);
+  // FR-INS-062: which member units are confirmed attached. Owned here, not
+  // by useRigComposition, since the draft's resume and discard also write
+  // it.
+  const [attachedIds, setAttachedIds] = useState<string[] | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [storageFault, setStorageFault] = useState<StorageFault | null>(null);
-  // Bumped by the retry to re-run the draft load (FR-OFF-013): a recovery
-  // action is only real if something re-attempts.
-  const [storageAttempt, setStorageAttempt] = useState(0);
   // Frozen at mount, same reason as CaptureStart: severityOf runs once per
   // cell per render, and a wear-rate comparison must not move with a
   // re-render.
   const [openedAt] = useState(() => Date.now());
 
-  // FR-OFF-006 / NFR-USE-011: a remount is a reload, such as a killed browser,
-  // a phone call, or a driver returning after lunch, and it has to find the work.
-  useEffect(() => {
-    let dropped = false;
-    void loadDraft().then(
-      (existing) => {
-        if (dropped) return;
-        if (existing?.vehicleId === vehicleId) {
-          setDraft(existing);
-          setAttachedIds(
-            existing.observedMemberVehicleIds.length > 0
-              ? existing.observedMemberVehicleIds
-              : [vehicleId],
-          );
-          setScreen("capture");
-          // TYRE-148: back into the sheet the driver was typing in, if any.
-          setActiveKey(halfEnteredCell(existing));
-        } else if (existing) {
-          // FR-OFF-014: one draft per device, and it is never silently
-          // discarded. Only a person can decide the other one is finished.
-          setHeld(existing);
-        }
-        setResumed(true);
-      },
-      () => {
-        if (dropped) return;
-        setStorageFault("unavailable");
-        setResumed(true);
-      },
-    );
-    return () => {
-      dropped = true;
-    };
-  }, [vehicleId, storageAttempt]);
+  const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
+  const { draft, setDraft, resumed, held, screen, setScreen, storageFault } = lifecycle;
 
-  // FR-INS-062's default: seeded with EVERY member id, motive included (its
-  // checkbox is disabled), or the driver's own truck renders as not-here.
-  // Derived, not written back by an effect: it waits for the draft load,
-  // which may narrow it.
-  const seededIds = motive.data
-    ? (motive.data.combination?.members.map((m) => m.vehicleId) ?? [motive.data.vehicleId])
-    : null;
-  const confirmedIds = attachedIds ?? (resumed ? seededIds : null);
+  const rigComp = useRigComposition(motive.data, vehicleId, resumed, attachedIds, setAttachedIds);
+  const { confirmedIds, contexts, membersFailed, toggleAttached } = rigComp;
 
-  // One GET per confirmed unit, all of them at start while the driver still
-  // has signal (FR-OFF-001). Each unit keeps its own configuration and its own
-  // thresholds; only the walk-around numbering is projected across the rig.
-  const memberIds = memberOrder(motive.data, confirmedIds, vehicleId);
-  const memberQueries = useQueries({ queries: memberIds.map(captureContextQuery) });
-  const loaded = memberQueries
-    .map((q) => q.data)
-    .filter((c): c is CaptureContext => c !== undefined);
-  const contexts = loaded.length === memberIds.length && memberIds.length > 0 ? loaded : null;
-  const membersFailed = memberQueries.some((q) => q.isError);
-
-  const rig = contexts ? rigPositions(contexts) : [];
-  const byCell = new Map(rig.map((r) => [r.key, r]));
-  const doneCells = draft ? capturedCells(draft) : new Set<string>();
-  // TYRE-155: an absent spare is settled without being a reading. Off the
-  // denominator (rig.ts) and off the outstanding walk (nextOutstanding calls
-  // below), the same way a captured cell is off both.
-  const absent = draft ? absentCells(draft) : new Set<string>();
-  const units = contexts ? completenessByUnit(contexts, doneCells, absent) : [];
-  const doneCount = units.reduce((n, u) => n + u.done, 0);
-  // The one denominator, both the on-screen total and completeness_pct's
-  // divisor. The two numerators (doneCount, payload's) are computed apart
-  // but agree only because both answer to warnings.treadsRead.
-  const totalPositions = units.reduce((n, u) => n + u.total, 0);
+  const progress = deriveProgress(contexts, draft, openedAt);
+  const { doneCells, absent, units, doneCount, totalPositions, severityOf, governingOf } = progress;
   const motiveCtx = contexts?.find((c) => c.vehicleId === vehicleId) ?? contexts?.[0];
-  const active = activeKey === null ? undefined : byCell.get(activeKey);
+  const active = activeKey === null ? undefined : progress.byCell.get(activeKey);
 
-  // Recomputed from the readings, not read off draft.positions[].warnings,
-  // since those are written only when a position finishes. Banded on
-  // treadsRead: requiring pressure too would hide FR-INS-036 on a
-  // tread-complete cell.
-  function severityOf(cell: string): Severity {
-    const saved = draft?.positions[cell];
-    const r = byCell.get(cell);
-    if (!saved || !r) return "unmeasured";
-    const entry = { treads: saved.treads, pressureKpa: saved.pressureKpa };
-    return severityFor(
-      [
-        ...positionWarnings(entry, r.position, r.context.config),
-        ...historyWarnings(entry, r.position, r.context, new Date(openedAt)),
-      ],
-      treadsRead(saved.treads),
-    );
-  }
-
-  function governingOf(cell: string): number | null {
-    return governingTread(draft?.positions[cell]?.treads ?? []);
-  }
+  const { handleChange, handleDone, handleAbsent } = useEntryHandlers({
+    setDraft,
+    setActiveKey,
+    setStorageFault: lifecycle.setStorageFault,
+    rig: progress.rig,
+    doneCells,
+    absent,
+  });
 
   function handleStart(init: {
     odometerKm: number | null;
@@ -169,56 +71,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     const ctx = motive.data;
     if (!ctx) return;
     setAttachedIds(init.observedMemberVehicleIds);
-    void (async () => {
-      try {
-        await startDraft({
-          vehicleId,
-          taskId,
-          // Rule 6: stored UTC. The tenant's timezone is applied on the way
-          // out, not on the way in.
-          startedAt: new Date().toISOString(),
-          fleetNumber: ctx.fleetNumber,
-          combinationId: ctx.combination?.id ?? null,
-          observedMemberVehicleIds: init.observedMemberVehicleIds,
-        });
-        await saveHeader({ odometerKm: init.odometerKm, warnings: init.warnings });
-        setDraft((await loadDraft()) ?? null);
-        setScreen("capture");
-      } catch {
-        // No draft was written, so there is nothing to keep open and nothing
-        // to send: this is the same standing refusal as a device that would
-        // not let the app read one.
-        setStorageFault("unavailable");
-      }
-    })();
-  }
-
-  function retryStorage() {
-    setStorageFault(null);
-    setResumed(false);
-    setStorageAttempt((n) => n + 1);
-  }
-
-  // TYRE-146: the only way out of a wrong-vehicle Start. Everything the
-  // driver typed for that vehicle goes with it, which is why ConfirmDiscard
-  // is told the number, and the device is then free to start this one.
-  function discardHeld() {
-    void clearDraft().then(
-      () => setHeld(null),
-      () => setStorageFault("degraded"),
-    );
-  }
-
-  function discardCurrent() {
-    void clearDraft().then(
-      () => {
-        setDraft(null);
-        setActiveKey(null);
-        setAttachedIds(null);
-        setScreen("start");
-      },
-      () => setStorageFault("degraded"),
-    );
+    void lifecycle.startDraftAndAdvance(ctx, init);
   }
 
   // TYRE-146: markSpareAbsent is an observation, not a reading, and
@@ -231,56 +84,6 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     const parts = [captured, spares].filter(Boolean);
     return `${parts.join(" and ")} will be lost.`;
   };
-
-  // FR-OFF-005: written per keystroke, plus once more for auto-advance,
-  // with an identical payload, so nothing may depend on the write count.
-  function handleChange(position: DraftPosition) {
-    setDraft((d) =>
-      d
-        ? {
-            ...d,
-            positions: {
-              ...d.positions,
-              [cellKey(position.vehicleId, position.positionId)]: position,
-            },
-          }
-        : d,
-    );
-    void savePosition(position).catch(() => setStorageFault("degraded"));
-  }
-
-  function handleDone(position: DraftPosition) {
-    handleChange(position);
-    // Finishing a position opens the next outstanding one directly (against
-    // NFR-USE-001a's budget). doneCells still lacks the just-finished cell
-    // this render (setDraft has not committed), so it's added here to stop
-    // the flow reopening a closed sheet.
-    const finished = cellKey(position.vehicleId, position.positionId);
-    const outstanding = new Set([...doneCells, ...absent]).add(finished);
-    setActiveKey(nextOutstanding(rig, outstanding, finished)?.key ?? null);
-  }
-
-  // TYRE-155 / FR-INS-066: the one action on a spare sheet, recorded as an
-  // observation rather than left as a gap the review screen cannot explain.
-  // Marking one advances the same way finishing a reading does: the cell is
-  // settled, so the walk moves on to whatever is still outstanding; taking a
-  // mark back does not, since the driver is staying on this sheet to enter it.
-  function handleAbsent(position: CapturePosition, isAbsent: boolean) {
-    const cell = cellKey(position.vehicleId, position.id);
-    void (
-      isAbsent
-        ? markSpareAbsent(position.vehicleId, position.id)
-        : unmarkSpareAbsent(position.vehicleId, position.id)
-    )
-      .then(async () => {
-        setDraft((await loadDraft()) ?? null);
-        if (isAbsent) {
-          const settled = new Set([...doneCells, ...absent]).add(cell);
-          setActiveKey(nextOutstanding(rig, settled, cell)?.key ?? null);
-        }
-      })
-      .catch(() => setStorageFault("degraded"));
-  }
 
   function handleSubmit(patch: { comment: string | null; defectReport: string | null }) {
     if (submitting || !draft || !motiveCtx) return;
@@ -315,17 +118,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       } catch {
         // An inspection is in hand and still on screen, so this is recoverable
         // in a way the pre-start case is not.
-        setStorageFault("degraded");
+        lifecycle.setStorageFault("degraded");
         setSubmitting(false);
       }
     })();
-  }
-
-  function toggleAttached(id: string) {
-    setAttachedIds((ids) => {
-      const current = ids ?? seededIds ?? [vehicleId];
-      return current.includes(id) ? current.filter((x) => x !== id) : [...current, id];
-    });
   }
 
   let body: ReactNode;
@@ -348,7 +144,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           question={`Discard the inspection of ${heldName}?`}
           consequence={lostWords(capturedCells(held).size, absentCells(held).size)}
           confirm="Discard"
-          onConfirm={discardHeld}
+          onConfirm={lifecycle.discardHeld}
         />
       </section>
     );
@@ -427,7 +223,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         </header>
 
         <CaptureDiagram
-          positions={rig}
+          positions={progress.rig}
           severityOf={severityOf}
           governingOf={governingOf}
           onOpen={setActiveKey}
@@ -446,7 +242,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           question={`Discard the inspection of ${motiveCtx?.fleetNumber ?? draft.fleetNumber ?? "this vehicle"}?`}
           consequence={lostWords(doneCount, absent.size)}
           confirm="Discard"
-          onConfirm={discardCurrent}
+          onConfirm={lifecycle.discardCurrent}
         />
 
         {/* Laid over the diagram rather than replacing it: the active cell is
@@ -488,7 +284,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           {storageFault === "unavailable" && (
             // Named for what it retries. See the motive.isError branch above
             // for why both retries need distinct labels.
-            <button type="button" className="cap-secondary" onClick={retryStorage}>
+            <button type="button" className="cap-secondary" onClick={lifecycle.retryStorage}>
               Recheck storage
             </button>
           )}
@@ -497,22 +293,4 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       {body}
     </>
   );
-}
-
-// Walk order, which is the combination's own sequence. The projection has to
-// follow the physical rig, not the order a checkbox happened to be ticked in
-// (FR-VEH-034). A unit with no combination is its own single member.
-function memberOrder(
-  motive: CaptureContext | undefined,
-  attachedIds: string[] | null,
-  vehicleId: string,
-): string[] {
-  if (attachedIds === null) return [];
-  const members = motive?.combination?.members;
-  if (!members) return [vehicleId];
-  const ordered = [...members]
-    .sort((a, b) => a.sequence - b.sequence)
-    .map((m) => m.vehicleId)
-    .filter((id) => attachedIds.includes(id));
-  return ordered.length > 0 ? ordered : [vehicleId];
 }

@@ -1,6 +1,17 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 import { actAsUser } from "./admin";
+import {
+  apiGet,
+  apiPost,
+  configFor,
+  createUnit,
+  posted,
+  ACTOR,
+  CONTROLLER,
+  SANDBOX_DRIVER,
+  type AxleConfiguration,
+} from "./sandbox";
 
 // TYRE-72's DoD (Jira). Sandbox Fleet, never BAC (TYRE-80); units created
 // fresh (U14) since fitments.spec.ts disposes sbveh1 mid-suite. Serial.
@@ -22,72 +33,6 @@ const HORSE_FLEET = `R6H-${RUN}`;
 const TRAILER_FLEET = `R6T-${RUN}`;
 const OTHER_FLEET = `R6X-${RUN}`;
 const DESCRIPTOR = "front";
-
-// Seed-derived ids, per admin.ts: md5('sbcontroller1') holds ViewFleet,
-// ManageAssets and ManageAssignments, and md5('sbdriver1') is the Sandbox
-// driver whose reach into a capture the last two steps read.
-const TENANT = "33333333-3333-3333-3333-333333333333";
-const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
-const SANDBOX_DRIVER = "40f019ce-192e-92d1-5b15-2eb7b65369df";
-
-// The dev actor headers a raw request has to state itself (admin.ts). ACTOR
-// and posted are fitments.spec.ts's, restated here rather than exported from
-// it. A spec is not a module other specs import.
-const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
-
-function postedResponse(page: Page, path: RegExp) {
-  return page.waitForResponse(
-    (res) => path.test(new URL(res.url()).pathname) && res.request().method() === "POST",
-  );
-}
-
-// Without the res.ok() check a step chained under this promise could pass on
-// a 422 refusal as readily as on a real write (fitments.spec.ts).
-function posted(page: Page, path: RegExp): Promise<unknown> {
-  return postedResponse(page, path).then((res) => {
-    expect(res.ok()).toBeTruthy();
-    return res;
-  });
-}
-
-async function apiGet(page: Page, path: string): Promise<unknown> {
-  const res = await page.request.get(path, { headers: ACTOR });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return res.json();
-}
-
-async function apiPost(page: Page, path: string, data: unknown): Promise<unknown> {
-  const res = await page.request.post(path, { headers: ACTOR, data });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return res.json();
-}
-
-interface AxleConfiguration {
-  id: string;
-  code: string;
-}
-
-// A fleet's axle configurations are tenant data (FR-VEH-002), so the ids are
-// read rather than assumed. Only the codes the Sandbox seed plants are.
-function configFor(configs: AxleConfiguration[], code: string): string {
-  const found = configs.filter((c) => c.code === code);
-  expect(found, `no ${code} axle configuration in Sandbox Fleet`).not.toHaveLength(0);
-  return found[0].id;
-}
-
-async function createUnit(
-  page: Page,
-  fleetNumber: string,
-  unitKind: string,
-  configurationId: string,
-): Promise<string> {
-  const created = (await apiPost(page, "/api/vehicles", {
-    fleetNumber,
-    unitKind,
-    configurationId,
-  })) as { id: string };
-  return created.id;
-}
 
 test.beforeEach(async ({ page }) => {
   await actAsUser(page, CONTROLLER);

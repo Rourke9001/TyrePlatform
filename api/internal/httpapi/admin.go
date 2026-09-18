@@ -7,17 +7,12 @@
 package httpapi
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -74,165 +69,6 @@ func listAxleConfigurations(s *store.Store) http.HandlerFunc {
 		}
 		writeJSON(ctx, w, configs)
 	}
-}
-
-// maxWriteBytes caps every write body: a create, a PATCH, a fitment write.
-// It is a transport limit, not a policy one: the largest of these requests is
-// a handful of short strings.
-const maxWriteBytes = 16 << 10
-
-// maxTextLen caps every free-text field on a create. A transport limit for the
-// same reason. The columns are unbounded text, and the database is not the
-// place to discover that a client sent a megabyte of description. text()
-// counts it in runes (TYRE-72 D7); the other sites that check it count bytes.
-const maxTextLen = 200
-
-// maxTagsPerPatch caps how many tags one edit may name. A transport limit like
-// the two above, not a rule about fleets: how a tenant labels its units is its
-// own business (rule 5), and nothing in the schema bounds the set. What is
-// bounded here is the work one request may ask for. A tag replacement is a
-// delete and an insert per name inside the row lock patchUnit holds.
-const maxTagsPerPatch = 50
-
-// invalidError is a request that is malformed as a request: a missing field,
-// an unparseable id, a value outside an enum. It is answered 422 with this
-// message forwarded verbatim. That is safe because the message is ours:
-// written here, naming the request field and never a schema object
-// (ADR-0013). A message Postgres wrote is canned, and that distinction is the
-// whole of ADR-0012.
-type invalidError struct {
-	field, why string
-}
-
-func (e invalidError) Error() string { return e.field + " " + e.why }
-
-func invalid(field, why string) error {
-	return invalidError{field: field, why: why}
-}
-
-// decodeJSON answers the refusal itself when a body cannot be read. Validation
-// runs before any transaction opens (ADR-0013): a malformed request has no
-// business reaching the database, and opening a transaction to reject one is
-// work a caller can ask for freely.
-func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBytes))
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "body too large or unreadable")
-		return false
-	}
-	if err := json.Unmarshal(raw, into); err != nil {
-		if field, named := typeErrorField(err); named {
-			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, field+" is the wrong type")
-			return false
-		}
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	return true
-}
-
-// decodeJSONStrict refuses an unknown key (case-insensitive match against a
-// json tag) before a transaction opens. The unit PATCH is the one caller,
-// and refusing here is what keeps TY008 unreachable from the API (units.go's
-// patchUnitRequest). The decoder's own error text is never forwarded
-// (ADR-0012); the key it names is bounded, caller-supplied input.
-func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBytes))
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "body too large or unreadable")
-		return false
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(into); err != nil {
-		if field, found := unknownJSONField(err); found {
-			// A byte clip, not text()'s rune bound: the key is caller text,
-			// and maxWriteBytes alone would let a refusal message carry
-			// kilobytes of it back out.
-			if len(field) > maxTextLen {
-				field = strings.ToValidUTF8(field[:maxTextLen], "")
-			}
-			writeError(r.Context(), w, http.StatusUnprocessableEntity, codeInvalidSubmission,
-				field+" is not a field of this request")
-			return false
-		}
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	// A literal null and a value after the first are both refused: Decode
-	// alone accepts either and this decoder must not be laxer than
-	// json.Unmarshal (TYRE-72). Confirmed by asking for a second Decode's
-	// io.EOF, not dec.More(), which reports whether another *element*
-	// follows within an array or object and so answers false on a body that
-	// merely ends `}}` or `}]`.
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	return true
-}
-
-// unknownFieldPrefix is encoding/json's own wording. The error it comes from
-// is an untyped errors.errorString, so the key has to be recovered from the
-// text; should that wording ever change, the caller degrades to the generic
-// malformed-json refusal rather than to a confidently wrong field name.
-const unknownFieldPrefix = `json: unknown field `
-
-func unknownJSONField(err error) (string, bool) {
-	msg := err.Error()
-	if !strings.HasPrefix(msg, unknownFieldPrefix) {
-		return "", false
-	}
-	name, unquoteErr := strconv.Unquote(strings.TrimPrefix(msg, unknownFieldPrefix))
-	if unquoteErr != nil {
-		return "", false
-	}
-	return name, true
-}
-
-// typeErrorField names the field whose value had the wrong type. The
-// decoder's own text is never forwarded (ADR-0012); the field name is safe
-// because encoding/json builds this path from this package's own json tags,
-// never caller text, so no length bound is needed here.
-func typeErrorField(err error) (string, bool) {
-	var typeErr *json.UnmarshalTypeError
-	if !errors.As(err, &typeErr) || typeErr.Field == "" {
-		return "", false
-	}
-	return typeErr.Field, true
-}
-
-// refuseInvalid answers a validation failure and reports whether it did, so a
-// handler reads as a straight line of guard clauses.
-func refuseInvalid(w http.ResponseWriter, r *http.Request, err error) bool {
-	if err == nil {
-		return false
-	}
-	writeError(r.Context(), w, http.StatusUnprocessableEntity, codeInvalidSubmission, err.Error())
-	return true
-}
-
-// text trims and length-checks an optional free-text field, answering nil for
-// an absent or blank one so the column holds NULL rather than an empty string.
-// maxTextLen bounds runes, not bytes: a multibyte description (the rig
-// descriptor, TYRE-72) is text a controller typed, not wire size to police.
-// maxWriteBytes already does that (TYRE-72 D7).
-func text(field string, in *string) (*string, error) {
-	if in == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*in)
-	if trimmed == "" {
-		return nil, nil
-	}
-	if utf8.RuneCountInString(trimmed) > maxTextLen {
-		return nil, invalid(field, "is too long")
-	}
-	return &trimmed, nil
 }
 
 type createVehicleRequest struct {
@@ -605,10 +441,6 @@ type assignmentJSON struct {
 	UserID    string `json:"userId"`
 	FromDate  string `json:"fromDate"`
 }
-
-// isoDate is the only date format the API accepts or emits. A locale-sensitive
-// parse is a defect waiting for a tenant in another timezone (rule 6).
-const isoDate = "2006-01-02"
 
 // assignDriver opens a driver-to-unit assignment (FR-VEH-007), the step
 // v_capture_vehicle reads. The assignee's role is unchecked: no constraint
