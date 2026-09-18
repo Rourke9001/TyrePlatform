@@ -2,22 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { actAsUser } from "./admin";
 
-// TYRE-101 walked end to end: a casing moves between two units of one open rig
-// in a single rotation, and both units' fitment histories say so. The database
-// owns the rule (000039); what this proves is that the manager screen can
-// actually reach it: the unit column RotateForm grows for a rig member, the
-// target narrowed to the sibling's empty positions, and one odometer per unit
-// that has one.
-//
-// Sandbox Fleet, never BAC: see admin.ts (TYRE-80). The two units, the rig
-// and the tyres are all created by this run rather than reused from the seed
-// (U14): playwright.config.ts is fullyParallel and fitments.spec.ts disposes
-// a seeded unit mid-suite, so sharing one would be an ordering dependency the
-// config does not promise.
-//
-// No step here needs a date the tenant would call future: the rig opens on the
-// tenant's own today (effectiveOn omitted) and every write takes now(). RUN
-// below is a fleet-number suffix and never reaches a tenant-day comparison.
+// TYRE-101 (Jira). Sandbox Fleet, never BAC (TYRE-80); units, rig and
+// tyres created fresh (U14), not reused (fitments.spec.ts disposes seeded
+// units mid-suite).
 
 // Unique per run: DR-003 refuses a reused fleet number, so a second run
 // without a reseed still gets two fresh units (admin.spec.ts's idiom).
@@ -123,9 +110,8 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
     configFor(configs, "TRAILER_2AXLE"),
   );
 
-  // Effective-from omitted so app.tenant_day_instant opens the rig on the
-  // tenant's own today: a browser-computed day is a day out for anyone not
-  // sitting in the tenant's zone (rule 6).
+  // effectiveOn omitted so app.tenant_day_instant resolves it in the
+  // tenant's own zone, not the browser's (rule 6, docs/lessons.md 2026-09-03).
   await apiPost(page, "/api/combinations", {
     motiveVehicleId: horseId,
     towed: [{ vehicleId: trailerId }],
@@ -143,10 +129,10 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
   const [horseFirst, horseSecond] = horsePositions;
   const [trailerOccupied, trailerTarget] = trailerPositions;
 
-  // FR-FIT-002: the horse records an odometer and the trailer does not, and
-  // 000025's trigger refuses either write that disagrees with its unit. The
-  // orientation on the travelling casing is asserted rather than left unknown
-  // so the move below has a mounting fact to carry (CHG-010).
+  // FR-FIT-002: 000025's trigger refuses an odometer write that disagrees
+  // with the unit (horse records one, trailer does not). Orientation is
+  // asserted, not left unknown, so the move below has a mounting fact to
+  // carry (CHG-010).
   await apiPost(page, `/api/vehicles/${horseId}/fitments`, {
     tyreId: travelling.id,
     positionId: horseFirst.id,
@@ -177,10 +163,9 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
     "/fleet/rigs",
   );
 
-  // The rotation itself, through the screen: one casing crosses to the trailer
-  // and the other takes the position it leaves. Names are matched exactly.
-  // A 6x4's codes run past 9, so a non-exact match would resolve to two rows
-  // and fail Playwright's strict mode (fitments.spec.ts).
+  // One casing crosses to the trailer, the other takes the position it
+  // leaves. Names matched exactly: a 6x4's codes run past 9, so a non-exact
+  // match resolves two rows and fails strict mode (fitments.spec.ts).
   const rotate = page.getByRole("region", { name: "Rotate" });
   await rotate.getByRole("checkbox", { name: `Rotate ${horseFirst.code}`, exact: true }).check();
   await rotate.getByRole("checkbox", { name: `Rotate ${horseSecond.code}`, exact: true }).check();
@@ -227,10 +212,9 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
     page.getByRole("button", { name: `Position ${horseSecond.code}: empty`, exact: true }),
   ).toBeVisible();
 
-  // The horse's history: two legs closed as a rotation, and the casing that
-  // crossed has no open leg here at all. Its open one is the trailer's.
-  // Keyed on the Reason cell rather than on the row's text, so a column this
-  // assertion is not about cannot satisfy it (fitments.spec.ts).
+  // Two legs closed as a rotation; the crossed casing has no open leg here,
+  // only on the trailer. Keyed on the Reason cell, not row text
+  // (fitments.spec.ts).
   const closedByRotation = page
     .getByRole("row")
     .filter({ has: page.getByRole("cell", { name: "rotation", exact: true }) });

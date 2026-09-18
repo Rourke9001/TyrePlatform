@@ -7,12 +7,10 @@ PG_CONTAINER ?= tyre-pg
 PG_PORT      ?= 5433
 PG_DB        ?= tyre
 
-# psql runs inside the container: the database is the only machine-independent
-# place it is guaranteed to exist (this repo is developed on Windows without a
-# host psql). Override PSQL_SUPER/PSQL_APP to use a host client instead.
-# The suite MUST run as app_login: superusers bypass RLS (DEPLOYMENT NOTE at
-# the end of db/migrations/000001_init.up.sql). The single exception is
-# db-test-privileged, below, which stages rather than tests.
+# psql runs inside the container (no host psql on Windows); override
+# PSQL_SUPER/PSQL_APP for a host client. The suite MUST run as app_login:
+# superusers bypass RLS (000001_init.up.sql DEPLOYMENT NOTE). The one
+# exception is db-test-privileged, which stages rather than tests.
 PSQL_SUPER ?= docker exec -i $(PG_CONTAINER) psql -U postgres -d $(PG_DB)
 PSQL_APP   ?= docker exec -i $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
@@ -62,16 +60,11 @@ db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/003_seed_fixture.sql
 	@echo "migrations and seeds applied"
 
-# Opt-in, never part of db-reset, db-test, test or check: the suite is
-# defined on the pinned fixture, and this load puts sixty units and two
-# years of readings into Sandbox Fleet for the dashboard read-path
-# measurement (TYRE-247, B7 spec B7.1.5). Loaded as the superuser like the
-# seeds; BAC and Second Fleet rows never change.
-#
-# It holds one transaction for the whole load, minutes not seconds, so a
-# db-reset started in another shell blocks the entire database and then
-# destroys the load when it unblocks. Run nothing else against the database
-# until it returns (docs/lessons.md, 2026-09-16).
+# Opt-in, never part of db-reset, db-test, test or check: the suite stays
+# defined on the pinned fixture. Loads Sandbox Fleet for the dashboard
+# read-path measurement (TYRE-247, B7 spec B7.1.5); BAC and Second Fleet
+# rows never change. One transaction for the whole load, so run nothing
+# else against the database until it returns (docs/lessons.md, 2026-09-16).
 .PHONY: db-volume
 db-volume: db-up ## Load the Sandbox Fleet volume tenant (TYRE-247); db-reset restores the pinned state
 	cd db/seeds && $(PYTHON) gen_seed_volume.py
@@ -110,11 +103,9 @@ db-shell: ## Interactive psql as the application role
 
 ## ---------------------------------------------------------------- api / web
 
-# Go runs in docker: this repo is developed on Windows without a host Go
-# toolchain. The container joins the compose network so the integration tests
-# can reach tyre-pg; the module cache volume makes repeat runs fast. The
-# app_login password is local-only (CI sets its own; staging's lives in
-# Key Vault).
+# Go runs in docker (no host toolchain on Windows), joined to the compose
+# network so integration tests reach tyre-pg. app_login's password here is
+# local-only; CI sets its own and staging's lives in Key Vault.
 GO_IMAGE ?= golang:1.24-alpine
 GO_RUN   = MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$(CURDIR)/api:/app" -w /app -v tyre-gomodcache:/go/pkg/mod
@@ -144,25 +135,13 @@ api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 web-test: ## Frontend tests
 	cd web && npm test
 
-# Deliberately NOT in `make test`. The smoke specs need a live stack, API on
-# :8080 (`make api-run` in another terminal, APP_DEV_TENANT_HEADER=1 in .env)
-# over a seeded database (`make db-reset`), and `make check` must stay
-# runnable without one. CI runs this as its own job with the stack it builds
-# itself, so the gate is still real on every PR (TYRE-65).
-#
-# The reseed is mandatory, not advice: the capture specs submit, and
-# FR-INS-038 refuses a second inspection of the same unit inside the tenant's
-# configured window, so a second run against the same seed fails at the first
-# spec, for a reason the failure itself does not explain. CI is safe either way
-# (it builds the stack per job), and a running API survives the schema drop.
-# It is a recipe line rather than a prerequisite so the reachability check
-# runs FIRST: every prerequisite is built before any recipe line, so as a
-# prerequisite it would drop and reseed the database and only then report
-# that the API, the thing actually missing, is not up.
-#
-# webkit as well as chromium: the ios project is iPhone 14, which is WebKit, and
-# a project that cannot launch is a gate that cannot run. The android project is
-# Chromium emulation and needs no extra download.
+# Not in `make test`: needs a live stack (make api-run, make db-reset) and
+# CI runs it as its own job (TYRE-65). Reseed is mandatory: FR-INS-038
+# refuses a second inspection of the same unit in the configured window, so
+# a stale seed fails the first spec for an unrelated reason. db-reset is a
+# recipe line, not a prerequisite, so the API reachability check runs first.
+# webkit as well as chromium: the ios project is iPhone 14 (WebKit); android
+# is Chromium emulation, no extra download.
 .PHONY: e2e
 e2e: ## Browser smoke tests (reseeds first; needs `make api-run` running)
 	@curl -s -o /dev/null http://localhost:8080/api/me \
@@ -185,20 +164,12 @@ fmt: ## Format everything
 	$(GO_RUN) $(GO_IMAGE) gofmt -w .
 	cd web && npm run format
 
-# Every line here must be able to fail the target. A gate that swallows its
-# own exit code reports success it did not earn, and the docs then promise a
-# check that never ran (TYRE-49).
-#
-# This is deliberately the same set CI runs, in the same order, so a green
-# `make lint` means a green CI lint, the reason to run it before committing.
-# `fmt` writes; `lint` only reads, which is why both formatters appear here in
-# check mode: `make check` runs fmt first, so locally they are always clean,
-# and on CI they are the drift detector.
-#
-# staticcheck comes from the `tool` directive in api/go.mod, so it is pinned
-# and checksummed like any other dependency. v0.6.1 is the last release that
-# builds under go 1.24; a Renovate bump past it will fail until the toolchain
-# moves, and moving the toolchain is the fix, not unpinning the linter.
+# Every line must be able to fail the target (TYRE-49): a gate that
+# swallows its exit code reports success it did not earn. Same set and
+# order as CI, so a green make lint means a green CI lint. staticcheck is
+# pinned via api/go.mod's tool directive; v0.6.1 is the last release under
+# go 1.24, so a Renovate bump past it needs the toolchain moved first, not
+# the linter unpinned.
 .PHONY: lint
 lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'

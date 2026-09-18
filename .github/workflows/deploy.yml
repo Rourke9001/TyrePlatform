@@ -1,11 +1,10 @@
-# Releases staging from main (ADR-0004: main only advances by fast-forwarding
-# a vetted develop commit, so arriving here IS a release). Staging is
-# production for the BAC pilot (ADR-0005).
+# Releases staging from main (ADR-0004: main only fast-forwards a vetted
+# develop commit, so arriving here IS a release). Staging is production for
+# the BAC pilot (ADR-0005).
 #
-# Auth is OIDC federated credentials on the user-assigned managed identity
-# id-tyre-deploy-staging. No long-lived Azure secret exists in this repo.
-# The identity holds AcrPush on the registry and Contributor on the resource
-# group only.
+# Auth is OIDC federated credentials on id-tyre-deploy-staging; no
+# long-lived Azure secret exists in this repo. Holds AcrPush on the
+# registry and Contributor on the resource group only.
 name: Deploy staging
 
 # CI finishing on main is the trigger, not the push. Triggering on the push

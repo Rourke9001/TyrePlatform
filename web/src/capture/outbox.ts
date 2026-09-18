@@ -13,30 +13,26 @@ export interface OutboxEntry {
   attempts: number;
   nextAttemptAt: number;
   lastStatus: number | null;
-  // The refusal's reason (ADR-0012). The status alone cannot separate
-  // FR-INS-038's duplicate window from any other conflict, and the two send a
-  // driver to different conversations. Null where the refusal carried no
-  // envelope, and on entries queued before this field existed.
+  // The refusal's reason (ADR-0012); the status alone cannot separate
+  // FR-INS-038's duplicate window from any other conflict. Null where the
+  // refusal carried no envelope, or predates this field.
   lastCode: string | null;
-  // Diagnostics only, never rendered. A mapped SQLSTATE 422 can carry a raw
-  // constraint name (reading_tyre_id_fkey is reachable: 000023 inserts
-  // tyre_id with no pre-check), which no driver can act on. FR-OFF-013 asks
-  // for a supported recovery action, not the server's reason.
+  // Diagnostics only, never rendered: a mapped SQLSTATE 422 can carry a raw
+  // constraint name no driver can act on (FR-OFF-013 wants a supported
+  // recovery action, not the server's reason).
   lastError: string | null;
-  // TYRE-167: the entry outlives the draft (queueDraft clears it), and the
-  // only thing a driver can recognise a refused inspection by is the vehicle
-  // on its cab, not a UUID buried in the payload. Null on an entry queued
-  // before this field existed, and when the draft itself carried none.
+  // TYRE-167: the entry outlives the draft (queueDraft clears it), so the
+  // vehicle on the cab, not a buried UUID, is what a driver recognises a
+  // refused inspection by.
   fleetNumber: string | null;
 }
 
 // FR-OFF-012's ceiling. Thirty minutes, not "about half an hour": the
 // requirement gives the number and the test asserts it exactly.
 const MAX_BACKOFF_MS = 30 * 60 * 1000;
-// Transport timing, not tenant policy: rule 5 governs thresholds a fleet
-// operator sets, such as removal limits, pressure bands and alert multiples,
-// and the capture context carries none that concern retry. FR-OFF-012 fixes
-// the ceiling; this starting delay is an implementation choice beneath it.
+// Transport timing, not tenant policy (rule 5): the capture context carries
+// no retry thresholds. FR-OFF-012 fixes the ceiling; this starting delay is
+// beneath it.
 const BASE_BACKOFF_MS = 5 * 1000;
 // FR-OFF-020: approximately two days, when iOS eviction becomes a real risk.
 const STALE_AFTER_MS = 48 * 3600 * 1000;
@@ -47,13 +43,10 @@ export function backoffMs(attempts: number): number {
   return Math.min(BASE_BACKOFF_MS * 2 ** attempts, MAX_BACKOFF_MS);
 }
 
-// The distinction the whole outbox turns on. A permanent refusal will read the
-// same in thirty minutes and in thirty hours, so retrying it burns the
-// driver's battery and their airtime (NFR-CST-010) while hiding the fact that
-// somebody has to act. 403 sits here too: an actor who may not capture will
-// not acquire the capability by waiting. 401 deliberately does not: it is an
-// expired session, recovered by signing in, and the queue then drains. That
-// differs in kind from 403, whose actor gains nothing by waiting.
+// A permanent refusal reads the same in 30 minutes or 30 hours, so retrying
+// burns battery/airtime (NFR-CST-010) while hiding that a person must act.
+// 403 sits here (no capability gained by waiting); 401 does not (an
+// expired session, recovered by signing in, drains the queue).
 export function classify(error: unknown): "permanent" | "retryable" {
   if (error instanceof ApiError) {
     // TYRE-215: the future-skew refusal (TY021, 000041) is a 422 that time
@@ -80,10 +73,9 @@ export async function listOutbox(): Promise<OutboxEntry[]> {
   return entries.map((e) => ({ ...e, fleetNumber: e.fleetNumber ?? null }));
 }
 
-// TYRE-167 / FR-OFF-013: the recovery action for a refusal that can never
-// succeed is a person saying the office has it. Only a FAILED entry may go:
-// queued and sending are the driver's work in flight, and FR-OFF-014 forbids
-// dropping those under any circumstance. The caller confirms (ConfirmDiscard).
+// TYRE-167/FR-OFF-013: only a FAILED entry may go; queued and sending are
+// the driver's work in flight, which FR-OFF-014 forbids dropping. The
+// caller confirms (ConfirmDiscard).
 export async function discardEntry(clientUuid: string): Promise<void> {
   await db.transaction("rw", table(), async () => {
     const entry = await table().get(clientUuid);
@@ -97,18 +89,16 @@ export async function discardEntry(clientUuid: string): Promise<void> {
   });
 }
 
-// One transaction. Between removing the draft and inserting the queue entry
-// there must be no moment where a crash loses the inspection (FR-OFF-014).
+// One transaction: no moment between removing the draft and inserting the
+// queue entry where a crash loses the inspection (FR-OFF-014).
 export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
   return db.transaction("rw", db.drafts, table(), async () => {
     const draft = await loadDraft();
     if (!draft) throw new Error("No inspection in progress.");
 
-    // 000023 refuses an empty readings array (TY005 -> 422), which the
-    // classifier reads as permanent, so queueing one would delete a draft
-    // the driver can still finish and strand it in a queue that can never
-    // drain. Left as a draft instead: FR-OFF-014, and SRS Appendix H's "no
-    // submitted inspection may ever be lost".
+    // 000023 refuses an empty readings array (TY005 -> 422, permanent), so
+    // queueing one would strand a finishable draft; left as a draft
+    // instead (FR-OFF-014, SRS Appendix H).
     const payload = toSubmitPayload(draft, meta);
     if (payload.readings.length === 0) {
       throw new Error("No completed positions to submit.");
@@ -127,10 +117,9 @@ export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
       fleetNumber: draft.fleetNumber ?? null,
     };
     await table().put(entry);
-    // Through the module that owns the key, not a second copy of the string.
-    // A draft this fails to delete is one the driver is handed back after it
-    // has already been queued, and the next startDraft then refuses for good
-    // (FR-OFF-014's "already in progress").
+    // Through the module that owns the key, not a second copy of the string:
+    // a draft this fails to delete leaves the next startDraft refusing for
+    // good (FR-OFF-014's "already in progress").
     await clearDraft();
     return entry;
   });
@@ -175,11 +164,9 @@ export async function flushOutbox(opts: { force?: boolean } = {}): Promise<void>
   }
 }
 
-// FR-OFF-012 says retry with backoff "while the app is open", and
+// FR-OFF-012's retry-with-backoff needs a pulse while the app is open;
 // nextAttemptAt is only ever consulted by attemptSend, so without a
-// heartbeat an entry that failed with a 500 while online would wait for a
-// reload or a connectivity flap that may never come. The interval is the
-// pulse, the backoff is the schedule; the two together are the requirement.
+// heartbeat a failed entry waits for a reload that may never come.
 export function startOutboxHeartbeat(
   // FR-OFF-012 requires that retries happen on a heartbeat while the app is
   // open, not any particular cadence. The interval is a parameter with a

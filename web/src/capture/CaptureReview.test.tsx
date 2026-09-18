@@ -33,9 +33,9 @@ function spare(vehicleId: string): CapturePosition {
   };
 }
 
-// Two links of one superlink: the ordinary rig, and the one where a bare
-// "Spare" is ambiguous. They share the position id because app.position rows
-// belong to an axle configuration rather than to a vehicle (draft.cellKey).
+// Two links of one superlink share the position id (app.position belongs
+// to an axle configuration, not a vehicle), so a bare "Spare" is ambiguous
+// (draft.cellKey).
 function unit(vehicleId: string, fleetNumber: string): CaptureContext {
   return {
     vehicleId,
@@ -76,11 +76,9 @@ function flaggedSpare(vehicleId: string): DraftPosition {
 }
 
 describe("CaptureReview", () => {
-  // The decision-before-submit moment, so a row that cannot be traced back to
-  // a wheel is worse here than anywhere else. Every configuration in the
-  // register carries a spare count, so a rig has one spare per unit
-  // (BR-VEH-003) and a spare has no walk-around number to tell them apart.
-  // The unit that owns it is the only thing that does.
+  // Every configuration carries a spare count, so a rig has one spare per
+  // unit (BR-VEH-003); a spare has no walk-around number, so the owning
+  // unit is the only thing that tells them apart.
   it("names the unit a flagged spare belongs to", () => {
     const contexts = [unit("v1", "BAC039SP"), unit("v2", "LINK6")];
     const positions = {

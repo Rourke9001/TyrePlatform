@@ -19,11 +19,9 @@ function NotFound() {
   return <p>Not found.</p>;
 }
 
-// FR-DSH-001 / FR-DSH-012: the landing view follows the role. A driver has no
-// fleet view to land on, and sending them to one they would be refused is a
-// worse first impression than sending them to their work. Nothing is rendered
-// until the actor resolves: a capability check reads false before GET /api/me
-// answers, and this redirect is one-shot. It cannot revise itself later.
+// FR-DSH-001/FR-DSH-012: a driver has no fleet view to land on, and the redirect is
+// one-shot since a capability check reads false before GET /api/me answers
+// and cannot revise itself later.
 function Landing() {
   const settled = useActorSettled();
   const canViewFleet = useCan("ViewFleet");
@@ -49,27 +47,18 @@ function CaptureRoute() {
   return <CaptureFlow vehicleId={vehicleId} taskId={params.get("taskId")} />;
 }
 
-// D7's unit screen is a ViewFleet read reached by following a link from the
-// unit list, so it refuses out loud rather than hiding: it is a destination
-// someone navigated to, and AdminRoute below holds that rule. /fleet and
-// /fleet/fitments stay hidden, per D7. A param segment never matches empty,
-// so this guard covers UnitDetail's non-empty-id contract, not a reachable
-// URL, CaptureRoute's shape, for the same reason.
+// D7's unit screen refuses out loud (a destination someone navigated to),
+// unlike /fleet and /fleet/fitments, which stay hidden per D7.
 export function UnitRoute() {
   const { unitId } = useParams();
   if (!unitId) return <NotFound />;
   return <UnitDetail unitId={unitId} />;
 }
 
-// A destination someone navigated to says why it is refused; a menu item just
-// disappears. RequireCapability is the second, so these routes are the first.
-//
-// capability accepts a bare string or an array so a caller with one
-// capability need not wrap it, but useCanAny needs the fixed-arity array
-// form, rules-of-hooks forbids calling useCan conditionally per shape at
-// this call site, so this normalises before the one hook call. See
-// useCanAny's doc comment (auth/actorContext.ts) for why a route needs an
-// any-of gate at all (D9, ADR-0011).
+// A destination someone navigated to says why it is refused; a menu item
+// just disappears (RequireCapability). capability accepts a bare string or
+// array; rules-of-hooks forbids branching per shape at the call site, so
+// this normalises before the one hook call (D9, ADR-0011).
 function AdminRoute({
   capability,
   children,

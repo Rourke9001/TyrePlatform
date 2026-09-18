@@ -95,23 +95,12 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 	return j
 }
 
-// listTyres is the register read (FR-TYR-040..042). Gated on ManageAssets,
-// like the other asset reads (admin.go's listAxleConfigurations). The
-// register is only useful to someone who may act on what it shows.
-//
-// code+on together resolve through app.tyre_for_code (FR-TYR-042): a display
-// code is reissued after a tyre leaves the estate, so "which tyre carried
-// this code" is only answerable for a specific date, never the code alone.
-// awaitingCost narrows to app.v_tyre_awaiting_cost, the CFL-002 backlog of
-// tyres received with no purchase price recorded and not yet disposed; the
-// per-row flag on every other request reads the same view, so a disposed,
-// never-costed tyre never claims to be awaiting cost in the unfiltered list.
-//
-// Depot scope is deliberately not applied here, unlike listVehicles:
-// v_depot_tyre (migration 000014) exists and is intentionally unused by this
-// endpoint, which answers tenant-wide regardless of actor scope.
-// Widening or narrowing this read is TYRE-76's open scope question to
-// answer, not this slice's. See design D6. Do not "fix" this in passing.
+// listTyres is the register read (FR-TYR-040..042), gated on ManageAssets.
+// code+on resolve through app.tyre_for_code (a display code is reissued
+// after a tyre leaves the estate). awaitingCost narrows to
+// app.v_tyre_awaiting_cost (CFL-002). Depot scope is deliberately unapplied,
+// unlike listVehicles: widening or narrowing this read is TYRE-76's open
+// question, not this slice's (D6). Do not "fix" this in passing.
 func listTyres(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

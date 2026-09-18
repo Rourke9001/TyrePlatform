@@ -2,10 +2,9 @@ import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { PositionEntry, Warning } from "./warnings";
 import { governingTread } from "./warnings";
 
-// The same figure app.wear_rate_mm_per_month uses to convert days to months.
-// It is a unit conversion, not a threshold, which is why it is a constant here
-// and not tenant configuration, but it must match the database exactly or the
-// client and the server disagree about what a month is.
+// The same figure app.wear_rate_mm_per_month uses to convert days to
+// months: a unit conversion, not a threshold, but it must match the
+// database exactly.
 const DAYS_PER_MONTH = 30.44;
 
 const daysBetween = (from: Date, to: Date) => (to.getTime() - from.getTime()) / 86_400_000;
@@ -56,19 +55,11 @@ export function historyWarnings(
   return out;
 }
 
-// FR-INS-020's pre-fill, verbatim: "pre-filled with a projection from the
-// unit's last known reading for the driver to confirm or correct". A
-// projection, never the raw last reading. That distinction is the whole
-// safety of the pre-fill. Confirming a number the unit has plausibly reached
-// beats typing six digits in the sun (sponsor Q6), and it cannot manufacture
-// the zero-distance interval a raw last reading would: FR-INS-032 compares
-// `>=` and accepts an equal value, and an unchanged reading gives FR-INS-033
-// nothing to warn about.
-//
-// Null is the honest answer wherever an input is missing. A projection from
-// nothing is not a projection, and NFR-PRO-003 prefers an absent value to an
-// invented one. The caller decides what an unconfirmed projection means; this
-// only says what the number would be.
+// FR-INS-020's pre-fill, verbatim: a projection, never the raw last
+// reading, which cannot manufacture a zero-distance interval FR-INS-032/033
+// would misread. Confirming beats typing six digits (sponsor Q6). Null
+// wherever an input is missing (NFR-PRO-003 prefers absence to invention);
+// the caller decides what an unconfirmed projection means.
 export function projectedOdometerKm(ctx: CaptureContext, now: Date): number | null {
   if (ctx.lastOdometerKm === null || ctx.lastOdometerAt === null) return null;
   if (ctx.averageDailyKm === null) return null;
@@ -86,10 +77,9 @@ export function odometerRejection(odometerKm: number | null, ctx: CaptureContext
   return `Lower than the last recorded ${Intl.NumberFormat("en-ZA").format(ctx.lastOdometerKm)} km.`;
 }
 
-// FR-INS-033. The confirmation governs the capture flow only: DR-020 governs
-// the timeline, so a confirmed implausible value still submits with the
-// inspection and is preserved on the warning record rather than written to the
-// odometer. The timeline is append-only (DR-018) and would keep it forever.
+// FR-INS-033's confirmation governs capture only; DR-020 governs the
+// append-only timeline (DR-018), so a confirmed implausible value submits
+// but is preserved on the warning record, not written to the odometer.
 export function odometerWarnings(
   odometerKm: number | null,
   ctx: CaptureContext,

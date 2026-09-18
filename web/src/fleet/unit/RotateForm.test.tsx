@@ -81,10 +81,9 @@ function rig(overrides: Partial<Rig> = {}): Rig {
   };
 }
 
-// Routed by URL rather than by call order: the form issues the rig read, a
-// read per sibling and the rotation POST, and every one of those may be
-// re-issued by an invalidation. A single mockResolvedValue hands the same
-// Response to all of them, and its body can only be read once.
+// Routed by URL, not call order: the form issues a rig read, a per-sibling
+// read and the rotation POST, any of which may be re-issued by an
+// invalidation, and a Response body can only be read once.
 interface Wiring {
   rigs?: Rig[];
   units?: Unit[];
@@ -169,10 +168,7 @@ function selectValue(name: string): string {
   return element.value;
 }
 
-// fireEvent.submit, not a click: requestSubmit runs constraint validation
-// first, so a click on the button never reaches the form's own guard while a
-// required odometer field is empty. The guard is the layer that survives a
-// browser that skips validation, and its sentence is what proves it ran.
+// jsdom/fireEvent.submit test technique: see the fireEvent.submit comment in ReceiveTyre.test.tsx.
 function submitPastValidation() {
   const form = screen.getByRole("button", { name: "Rotate" }).closest("form");
   if (form === null) {
@@ -296,11 +292,9 @@ describe("rotating tyres across the units of a rig", () => {
     expect(selectValue("Target for POS1")).toBe("");
   });
 
-  // A position is offerable because some other picked row is leaving it, so
-  // unchecking that row takes it back out of every picker while the select
-  // that named it still holds the id. The body is built from the same answer
-  // the picker gives, so the id is refused here rather than posted onto a
-  // position its tyre never left.
+  // A position is offerable because another picked row is leaving it; the
+  // body is built from the same answer the picker gives, so the id is
+  // refused here rather than posted onto a position its tyre never left.
   it("refuses a target that has stopped being offerable since it was picked", async () => {
     const user = userEvent.setup();
     renderForm({
@@ -493,9 +487,8 @@ describe("rotating tyres across the units of a rig", () => {
   });
 
   // FR-FIT-002: 000025's trigger refuses the whole write for a missing
-  // reading, so the blank is refused here rather than round-tripped. The
-  // required attribute is the first layer and this guard the second. The
-  // submit below is dispatched past constraint validation to reach it.
+  // reading, so the blank is refused here, past constraint validation, as
+  // the guard's second layer.
   it("refuses a blank odometer on a unit that has one", async () => {
     const user = userEvent.setup();
     renderForm({ hasOdometer: true });
@@ -576,10 +569,10 @@ describe("rotating tyres across the units of a rig", () => {
     });
   });
 
-  // Every move closes a fitment row, and 000025's trigger refuses a closure
-  // on a unit that has an odometer without the reading (FR-FIT-002). A rotation
-  // sent from a stale unit read gets that refusal, and a general sentence
-  // would leave the controller retrying the same thing (ADR-0012).
+  // Every move closes a fitment row, and 000025's trigger refuses a
+  // closure without the reading (FR-FIT-002); a stale unit read gets that
+  // refusal, and a general sentence would leave the controller retrying
+  // the same thing (ADR-0012).
   it("speaks TY009 rather than the general sentence", async () => {
     const message = "fitment odometer is required for a unit that has one";
     wireFetch({ rotation: () => respond(422, { code: "TY009", message }) });

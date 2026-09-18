@@ -304,13 +304,9 @@ describe("the tyre register", () => {
     expect(screen.getByRole("button", { name: /set cost/i })).toBeInTheDocument();
   });
 
-  // The server-side handler for POST /api/tyres/{id}/cost requires only
-  // ManageAssets, not ViewValuation (api/internal/httpapi/tyres.go). The
-  // cost control must render for every actor who reaches this route the
-  // same way DisposeForm already does, never behind an invented
-  // ViewValuation gate. Every other awaiting-cost test above renders with
-  // the default (ViewValuation included), so this is the one case that
-  // would catch a regression re-adding that gate to CostForm specifically.
+  // POST /api/tyres/{id}/cost requires only ManageAssets, not ViewValuation;
+  // the cost control must render for that actor the same way DisposeForm
+  // already does, never behind an invented ViewValuation gate.
   it("offers the cost form to an actor without ViewValuation, same as DisposeForm", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
@@ -443,10 +439,9 @@ describe("the tyre register", () => {
   });
 
   // ReceiveTyre (/fleet/tyres/new) is otherwise reachable by URL alone; the
-  // register is its one discoverable entry point. Every actor who can render
-  // this screen already holds ManageAssets (AdminRoute in routes.tsx), so the
-  // link needs no capability check of its own. renderScreen's default
-  // capabilities cover that gate the same way the route does.
+  // register is its one discoverable entry point. Every actor here already
+  // holds ManageAssets (AdminRoute), so the link needs no capability check
+  // of its own.
   it("links to the receive-tyres screen", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, { tyres: [] }));
     renderScreen();
@@ -523,11 +518,9 @@ describe("the tyre register", () => {
     expect(screen.queryByRole("combobox", { name: /disposal for pos1/i })).not.toBeInTheDocument();
   });
 
-  // A dispatch's own invalidation swaps this row's cell (REMOVED's controls
-  // for AT_RETREADER's text) on the very refetch that would carry a
-  // row-level confirmation away with it. Proven here by mocking that
-  // refetch with the server's real post-dispatch answer, not the tyre left
-  // standing at REMOVED.
+  // A dispatch's invalidation swaps this row's cell on the same refetch
+  // that would carry a row-level confirmation away with it; proven by
+  // mocking the server's real post-dispatch answer.
   it("shows the confirmation and swaps the row once a dispatch's refetch reports the new state", async () => {
     let dispatched = false;
     vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
@@ -612,9 +605,8 @@ describe("the tyre register", () => {
   });
 
   // A disposal is the third write whose own cell cannot hold its
-  // confirmation: rowActions replaces the whole Actions cell with a dash once
-  // the state is terminal, so the form that succeeded is gone by the time the
-  // refetch lands.
+  // confirmation: rowActions replaces the whole Actions cell with a dash
+  // once terminal, so the form that succeeded is gone by the refetch.
   it("shows the confirmation and swaps the row once a disposal's refetch reports the terminal state", async () => {
     let disposed = false;
     vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {

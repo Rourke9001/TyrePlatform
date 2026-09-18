@@ -1,10 +1,8 @@
 import "./capture.css";
 
-// A plain anchor, not a router Link. This is the one navigation in the capture
-// app where a full reload is the right thing: the draft is gone, the outbox
-// wants a flush on app-open (FR-OFF-009), and the task list the driver is
-// returning to has just changed on the server. It also keeps this screen
-// renderable without a Router above it.
+// A plain anchor, not a router Link: the draft is gone, the outbox wants a
+// flush on app-open (FR-OFF-009), and the task list has just changed
+// server-side. Also keeps this screen renderable without a Router above it.
 function BackToWork() {
   return (
     <a className="cap-secondary" href="/my">
@@ -52,11 +50,10 @@ export function CaptureDone({
       </section>
     );
   }
-  // FR-OFF-013: a supported recovery action, in plain language (NFR-USE-005).
-  // TY003 is FR-INS-038's window and the one refusal a driver can resolve by
-  // naming the vehicle to the office. Every other refusal is a different
-  // conversation, so it gets the honest general answer rather than a specific
-  // wrong one.
+  // FR-OFF-013's recovery action, in plain language (NFR-USE-005). TY003 is
+  // FR-INS-038's window, the one refusal a driver resolves by naming the
+  // vehicle to the office; every other refusal gets the honest general
+  // answer.
   return (
     <section className="cap-screen cap-done" role="alert">
       <p className="cap-done-mark cap-done-mark--stop" aria-hidden="true">

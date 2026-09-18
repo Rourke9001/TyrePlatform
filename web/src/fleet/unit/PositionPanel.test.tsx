@@ -105,10 +105,8 @@ describe("a position panel", () => {
     expect(within(picker).queryByRole("option", { name: "TY008" })).toBeNull();
   });
 
-  // A trailer has no odometer, so neither form may ask for one. Both halves:
-  // a panel that never rendered the field would pass the absence assertion
-  // on its own (docs/lessons.md, 26 Aug 2026). Required, not optional: the
-  // write is refused as TY009 without it (FR-FIT-002).
+  // A trailer has no odometer field on either form; and where required,
+  // the write is refused as TY009 without it (FR-FIT-002).
   it("asks for an odometer on a unit that has one and never on a unit that does not", async () => {
     stubFetch();
     const { unmount } = renderPanel(unitPosition({ id: "p1" }), { hasOdometer: true });
@@ -178,10 +176,8 @@ describe("a position panel", () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
-  // The removal's own half of the blank-reading guard (TYRE-128): readOdometer
-  // reads a blank as "no value" rather than as a bad one, so without this
-  // check the closing UPDATE would go out with no reading and come back as the
-  // TY009 000025's trigger raises (FR-FIT-002).
+  // The removal's own half of the blank-reading guard (TYRE-128): without
+  // it a blank reading round-trips to the TY009 000025's trigger raises.
   it("refuses a removal with a blank odometer on a unit that has one, without sending it", async () => {
     stubFetch();
     const user = userEvent.setup();
@@ -246,10 +242,8 @@ describe("a position panel", () => {
     expect(sentBody(1)).toMatchObject({ mountOrientation: "UNKNOWN" });
   });
 
-  // Odometer is asked for but not guarded like the tread is: readOdometer
-  // reads a blank as "no value", so without this check a blank field on a
-  // unit that requires the reading would pass silently and round-trip to a
-  // TY009 the server has to speak instead.
+  // Odometer is not guarded like tread is: without this check a blank
+  // field round-trips to a TY009 the server has to speak instead.
   it("refuses a fit with a blank odometer on a unit that has one, without sending it", async () => {
     stubFetch();
     const user = userEvent.setup();
@@ -367,10 +361,10 @@ describe("a position panel", () => {
     expect(sentBody(last)).toEqual({ reason: "Sidewall damage", treadMm: "4.5" });
   });
 
-  // The panel holds both mutations so a fit's warnings survive the swap to the
-  // remove form. Neither mutation forgets its success, so the confirmation has
-  // to name the write that was actually last: two sentences about one tyre,
-  // one of them false, is worse than none (NFR-USE-010).
+  // The panel holds both mutations so a fit's warnings survive the swap to
+  // the remove form; the confirmation names whichever write was actually
+  // last, since two sentences about one tyre (one false) is worse than
+  // none (NFR-USE-010).
   it("replaces the fit's confirmation with the removal's rather than showing both", async () => {
     stubFetch({
       fitmentId: "f4",
@@ -416,10 +410,9 @@ describe("a position panel", () => {
     expect(screen.queryAllByRole("status", { name: "Warnings" })).toHaveLength(0);
   });
 
-  // Nothing on this screen reads the fleet-wide fitments list, so the only
-  // thing that can mark it stale is this write's own invalidation list: an
-  // entry left valid is served to /fleet/fitments for as long as gcTime
-  // holds it, showing a position this fit has just occupied as empty.
+  // Nothing on this screen reads the fleet-wide fitments list, so only
+  // this write's own invalidation can mark it stale, or a stale entry
+  // shows the position as empty for as long as gcTime holds it.
   it("invalidates the fleet-wide fitments list its fit makes stale", async () => {
     stubFetch();
     const user = userEvent.setup();
@@ -455,9 +448,8 @@ describe("a position panel", () => {
   });
 
   // The removal's closing UPDATE answers to 000025's trigger as the fit's
-  // INSERT does, so a unit read that says "no odometer" while the server says
-  // otherwise refuses here too. Without TY009 in REMOVE_WORDING the sentence
-  // is the general one, which does not say what to do next (ADR-0012).
+  // INSERT does, so a unit read saying "no odometer" while the server
+  // disagrees must refuse here too (TY009 in REMOVE_WORDING, ADR-0012).
   it("speaks TY009 on a removal, not the general sentence", async () => {
     const message = "fitment odometer is required for a unit that has one";
     vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {

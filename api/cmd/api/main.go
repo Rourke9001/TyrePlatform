@@ -33,16 +33,11 @@ func devHeaderEnabled(lookup func(string) (string, bool)) bool {
 	return v == "1"
 }
 
-// trustedProxyHops parses TRUSTED_PROXY_HOPS (infra/main.bicep documents the
-// operational default) for NFR-SEC-007's per-source-address rate limit
-// (httpapi.WithTrustedProxyHops). getenv-injected like devHeaderEnabled
-// above, so parsing is unit-testable without touching the process
-// environment. Absent is the documented default of 1 and is not a deploy
-// mistake. Every environment that has not added an L7 hop in front of the
-// ingress leaves this unset. Present but not a positive integer IS a
-// mistake worth failing loudly for: silently falling back to 1 on a typo
-// would collapse the per-address limit into one bucket shared by every
-// client on the internet with nothing in the logs to explain why.
+// trustedProxyHops parses TRUSTED_PROXY_HOPS for NFR-SEC-007's per-source
+// rate limit (httpapi.WithTrustedProxyHops). Absent defaults to 1
+// (infra/main.bicep's documented default); present but not a positive
+// integer fails loudly rather than silently collapsing every client into
+// one bucket.
 func trustedProxyHops(getenv func(string) string) (int, error) {
 	raw := getenv("TRUSTED_PROXY_HOPS")
 	if raw == "" {

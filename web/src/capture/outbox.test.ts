@@ -23,10 +23,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-  // Belt-and-braces against the heartbeat test: fake timers left active by a
-  // failure before its own vi.useRealTimers() would otherwise hang db.open()
-  // in every beforeEach that follows, misattributing the break to whatever
-  // test happens to run next.
+  // Belt-and-braces: fake timers left active by a prior failure would
+  // otherwise hang db.open() in every following beforeEach, misattributing
+  // the break.
   vi.useRealTimers();
 });
 
@@ -256,16 +255,10 @@ describe("the outbox", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     const stop = startOutboxHeartbeat(1000);
     await vi.advanceTimersByTimeAsync(backoffMs(1) + 2000);
-    // The heartbeat's flushOutbox is fire-and-forget, and fake-indexeddb
-    // completes a request on a real (unfaked) timer tick, so the fake clock
-    // advance above does not itself wait for it to finish. Landing the
-    // retry takes several real ticks (a Dexie read, the fetch, a Dexie
-    // write). One tick is enough to cover that on an idle machine and not
-    // under a loaded full-suite run, so the wait has to bound itself on the
-    // condition rather than a fixed tick count: vi.waitFor polls on its own
-    // real (unfaked) timer regardless of the fake clock installed above,
-    // giving those real ticks room to land until the retry shows up or the
-    // poll's own timeout is reached.
+    // The heartbeat's flushOutbox is fire-and-forget on a real (unfaked)
+    // timer tick, so the fake clock advance does not wait for it. vi.waitFor
+    // polls its own real timer regardless of the fake clock installed,
+    // giving the real ticks room to land.
     await vi.waitFor(() => {
       if (fetchMock.mock.calls.length <= 1) throw new Error("heartbeat retry has not landed yet");
     });
@@ -288,10 +281,9 @@ describe("the outbox", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  // 000023 refuses an empty readings array (TY005 -> 422), which the
-  // classifier reads as permanent, so queueing one would strand a draft the
-  // driver can still finish in a queue that can never drain (FR-OFF-014,
-  // SRS Appendix H).
+  // 000023 refuses an empty readings array (TY005 -> 422, permanent), so
+  // queueing one would strand a finishable draft in a queue that can never
+  // drain (FR-OFF-014, SRS Appendix H).
   it("refuses to queue an inspection with nothing completed, and keeps the draft", async () => {
     await startDraft({
       vehicleId: "v-horse",

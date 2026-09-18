@@ -88,22 +88,11 @@ func listRetreadJobs(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// retreadReturnRequest is app.log_retread_return's body (D3). The three
-// money-and-tread figures are *string: money is numeric in SQL and a string
-// on the wire, never a JSON number and never parsed in Go (rule 2), and the
-// pointer is what carries "the retreader gave no figure" to a function whose
-// accepted branch names each missing one separately.
-//
-// CasingAccepted is *bool rather than bool deliberately. A missing key
-// decodes into a bare bool as false, and false here means the retreader
-// rejected the casing, which SCRAPS it and writes a zero valuation against
-// an append-only event log, so the default must not be silently reachable.
-// Absence is refused in Go beside the other two required fields: whether a
-// key is present is the request's shape, not a rule about tyres (ADR-0013
-// decision 5), and a form gets one error vocabulary rather than one field
-// answering invalid_submission and its neighbour TY014.
-// app.log_retread_return's own TY014 stays the backstop for every caller
-// that is not this handler.
+// retreadReturnRequest is app.log_retread_return's body (D3). Money and
+// tread figures are *string (rule 2). CasingAccepted is *bool, not bool: a
+// missing key would decode to false, which SCRAPS the casing and writes a
+// zero valuation, so absence is refused explicitly rather than silently
+// defaulted (ADR-0013 decision 5).
 type retreadReturnRequest struct {
 	ReturnedOn      string  `json:"returnedOn"`
 	CasingAccepted  *bool   `json:"casingAccepted"`

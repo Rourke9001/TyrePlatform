@@ -2,18 +2,9 @@ import { expect, test, type Page } from "@playwright/test";
 
 import { actAsUser } from "./admin";
 
-// TYRE-92/93/94's fitment surface, end to end on Sandbox Fleet (never BAC,
-// BAC's rows are the Appendix E/J acceptance fixture, TYRE-80) as the Sandbox
-// controller, who holds ManageAssets and LogRetread and so reaches every
-// write on this path: receive stock, fit a trailer and a horse, rotate,
-// remove, dispatch a casing to the retreader, log its return, then park and
-// dispose the unit.
-//
-// One continuous test, serial like admin.spec.ts: each step reads what the
-// step before it wrote, and these are writes into one shared database. The
-// run disposes of Sandbox horse sbveh1 along the way, so `make e2e`'s own
-// db-reset before this project runs is load-bearing. No other spec in this
-// suite references sbveh1.
+// TYRE-92/93/94's fitment surface (Jira), on Sandbox Fleet, never BAC
+// (TYRE-80). Serial: disposes Sandbox horse sbveh1, so make e2e's db-reset
+// first is load-bearing; no other spec references sbveh1.
 test.describe.configure({ mode: "serial" });
 
 // Seed-derived ids, per admin.ts: md5('sbcontroller1'), md5('sbveh1') (fleet
@@ -52,10 +43,9 @@ function posted(page: Page, path: RegExp): Promise<unknown> {
   });
 }
 
-// For the calls this suite expects to come back refused (the future-dated
-// dispatch and INV-2's still-fitted check): posted()'s res.ok() assertion
-// would fail them before the refusal's own text is ever read, and asserting
-// the refusal here keeps a step that unexpectedly succeeds from passing.
+// For calls expected to be refused (future-dated dispatch, INV-2's
+// still-fitted check): posted()'s res.ok() would fail before the refusal text
+// is read, so asserting the refusal here catches an unexpected success too.
 function postedRefusal(page: Page, path: RegExp): Promise<unknown> {
   return postedResponse(page, path).then((res) => {
     expect(res.ok()).toBeFalsy();
@@ -67,11 +57,9 @@ function panel(page: Page, positionCode: string) {
   return page.getByRole("region", { name: `Position ${positionCode}` });
 }
 
-// UnitPlan draws the mounted positions inside their axle groups and the
-// spares in a group of their own, so an axle group's buttons are exactly the
-// non-spare ones. The codes are read rather than assumed: a fleet's axle
-// configurations are tenant data (FR-VEH-002), and the two units here answer
-// to different ones.
+// UnitPlan groups mounted positions by axle and spares separately, so an axle
+// group's buttons are exactly the non-spare ones. Codes are read, not
+// assumed: axle configurations are tenant data (FR-VEH-002).
 async function mountedPositions(page: Page): Promise<{ id: string; code: string }[]> {
   const buttons = page
     .getByRole("group", { name: "Unit plan view" })
@@ -127,11 +115,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
 
   await trailerPanel.getByRole("combobox", { name: "Tyre" }).selectOption({ label: stockA });
   await trailerPanel.getByLabel("Tread (mm)").fill("14");
-  // CHG-010: which sidewall carries the manufacturer's mark is a fact about
-  // the mounting, recorded at the fit. Asserted rather than left alone:
-  // PositionPanel's radios start on UNKNOWN (D13), so a fit that never touches
-  // them says nothing about the control. The read-back at the closed leg
-  // below is what it earns.
+  // CHG-010: which sidewall carries the mark is recorded at the fit.
+  // PositionPanel's radios start on UNKNOWN (D13), so this is asserted rather
+  // than left untouched; the read-back at the closed leg below is what earns
+  // it.
   await trailerPanel.getByRole("radio", { name: "Mark inboard" }).check();
   await Promise.all([
     posted(page, new RegExp(`^/api/vehicles/${TRAILER}/fitments$`)),
@@ -173,19 +160,16 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
       posted(page, new RegExp(`^/api/vehicles/${HORSE}/fitments$`)),
       horsePanel.getByRole("button", { name: "Fit tyre" }).click(),
     ]);
-    // Proof the fit landed, position by position: the plan names each
-    // position's occupant, and RotateForm below builds its rows from the same
-    // read, so both fitments have to be visible here before a rotation can
-    // pick them up.
+    // Proof the fit landed: RotateForm below builds its rows from the same
+    // occupant read, so both fitments must be visible here first.
     await expect(
       page.getByRole("button", { name: `Position ${position.code}: ${code}`, exact: true }),
     ).toBeVisible();
   }
 
-  // D13, read off the open legs: an orientation nobody asserted is recorded as
-  // UNKNOWN and rendered as such, never as the mounting the other leg claims.
-  // Keyed on the Removed cell, so an open leg is told from a closed one by the
-  // column that distinguishes them.
+  // D13: an orientation nobody asserted is recorded and rendered as UNKNOWN,
+  // never the mounting the other leg claims. Keyed on the Removed cell, which
+  // is what distinguishes an open leg from a closed one.
   const stillFitted = page
     .getByRole("row")
     .filter({ has: page.getByRole("cell", { name: "Still fitted", exact: true }) });
@@ -198,14 +182,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     stillFitted.filter({ hasText: stockC }).getByRole("cell", { name: "Unknown", exact: true }),
   ).toBeVisible();
 
-  // FR-FIT-010: one set of moves, applied whole. Targets are named by
-  // position id rather than by code, which is what the select carries.
-  //
-  // Every name here is matched exactly: the horse's codes run to 10, so a
-  // non-exact "Rotate 1" would resolve to positions 1 and 10 together and
-  // fail Playwright's strict mode outright, never quietly act on the wrong
-  // row. Position 10 carries nothing in this flow, so exact is a guard
-  // against a fixture that grows, not a fix for a failure seen here.
+  // FR-FIT-010: one set of moves, applied whole; targets are named by
+  // position id. Every name is matched exactly: the horse's codes run to 10,
+  // so a non-exact "Rotate 1" would resolve two positions and fail strict
+  // mode rather than silently act on the wrong row.
   const rotate = page.getByRole("region", { name: "Rotate" });
   await rotate.getByRole("checkbox", { name: `Rotate ${horseFirst.code}`, exact: true }).check();
   await rotate.getByRole("checkbox", { name: `Rotate ${horseSecond.code}`, exact: true }).check();
@@ -233,12 +213,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     page.getByRole("button", { name: `Position ${horseSecond.code}: ${stockB}`, exact: true }),
   ).toBeVisible();
 
-  // CR-012: the closed legs carry a distance and where it came from, together
-  // in one cell. 900 km is 251000 less the 250100 both were fitted at, and it
-  // is measured because the horse records an odometer.
-  // Keyed on the Reason cell, not on the row's text: "rotation" appearing
-  // anywhere in a row would be satisfied by a column this assertion is not
-  // about.
+  // CR-012: the closed legs carry distance and its source in one cell; 900 km
+  // is 251000 less the 250100 fit odometer, measured because the horse
+  // records one. Keyed on the Reason cell, not row text, so an unrelated
+  // "rotation" mention cannot satisfy it.
   const rotated = page
     .getByRole("row")
     .filter({ has: page.getByRole("cell", { name: "rotation", exact: true }) });
@@ -247,10 +225,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     await expect(rotated.filter({ hasText: code })).toContainText("900 km (Measured)");
   }
 
-  // The mounting travels with the casing, not with the position: a rotation
-  // carries the closing fitment's orientation onto the row it opens, so each
-  // casing reads the same on both sides of the move and the two casings still
-  // differ from each other (CHG-010, TYRE-128).
+  // The mounting travels with the casing, not the position: a rotation
+  // carries the closing fitment's orientation onto the row it opens
+  // (CHG-010, TYRE-128).
   for (const [code, orientation] of [
     [stockB, "Mark outboard"],
     [stockC, "Unknown"],
@@ -334,12 +311,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
     .getByRole("combobox", { name: `Depot for ${stockB}` })
     .selectOption({ label: "Sandbox Retreaders" });
 
-  // 000033's own future-date guard, rendered verbatim (ADR-0012): a sentOn
-  // ahead of the tenant's own today is refused as TY014, never silently
-  // clamped. A fixed far-future date, not the browser's tomorrow: the guard
-  // compares against app.tenant_today (Africa/Johannesburg), which is already
-  // tomorrow's date for the last two UTC hours of every day, so a UTC-derived
-  // "tomorrow" would be accepted as today in that window.
+  // 000033's future-date guard, rendered verbatim (ADR-0012): sentOn ahead of
+  // the tenant's today is refused as TY014, never clamped. A fixed far-future
+  // date, not the browser's tomorrow: app.tenant_today (Africa/Johannesburg)
+  // is already tomorrow for the last two UTC hours of each day.
   await casingB.getByLabel("Sent on").fill("2999-01-01");
   await Promise.all([
     postedRefusal(page, /^\/api\/tyres\/[^/]+\/dispatch$/),
@@ -370,11 +345,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await page.goto("/fleet/tyres/retreads");
   const job = page.getByRole("row").filter({ hasText: stockB });
   await expect(job.getByRole("cell", { name: "Sandbox Retreaders", exact: true })).toBeVisible();
-  // A casing dispatched today has been out zero days, read from the column
-  // its own header names rather than from whichever cell happens to hold a
-  // "0". The queue's first column is the display code as a row header, which
-  // getByRole("cell") does not return, so the header list runs one ahead of
-  // the cells beside it; a column added anywhere still resolves correctly.
+  // The display-code column is a row header, which getByRole("cell") skips,
+  // so the header list runs one index ahead of the cells; look up "Days out"
+  // by name rather than by position, so an added column still resolves.
   const columns = await page.getByRole("columnheader").allTextContents();
   const daysOut = columns.indexOf("Days out");
   expect(daysOut).toBeGreaterThan(0);

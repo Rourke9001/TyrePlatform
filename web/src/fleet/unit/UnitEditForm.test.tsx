@@ -123,10 +123,9 @@ describe("editing a unit's description", () => {
     expect(screen.queryByText("The unit was saved.")).toBeNull();
   });
 
-  // The saved value is what the next edit is measured against. Diffed against
-  // the mount value for ever, a field could be edited once per sitting and no
-  // more: typing back what was there a minute ago would read as no change
-  // while the server holds something else.
+  // The saved value is what the next edit is measured against: diffed
+  // against the mount value forever, typing back what was there a minute
+  // ago would read as no change while the server holds something else.
   it("sends a field edited back to what it held before the last save", async () => {
     const user = userEvent.setup();
     renderForm();
@@ -190,10 +189,9 @@ describe("editing a unit's description", () => {
     expect(sentBody(1)).toEqual({ tags: ["Reefer", "Long haul"] });
   });
 
-  // The unit read refetches under this form, on a window focus, or on any
-  // write's invalidation, and the fields keep what they were seeded with. A
-  // diff against the newer prop would send every untouched field back to the
-  // value it held at mount, silently reverting whoever made the change.
+  // The unit read refetches on focus or any write's invalidation while the
+  // fields keep what they were seeded with; a diff against the newer prop
+  // would silently revert whoever made the change.
   it("never sends a field it was not edited in, even after the read moved on", async () => {
     const user = userEvent.setup();
     const client = testQueryClient();

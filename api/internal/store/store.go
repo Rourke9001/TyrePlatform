@@ -61,18 +61,10 @@ func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
 }
 
-// InTenantTx runs fn inside a transaction with app.tenant_id bound for RLS.
-//
-// set_config(..., is_local => true) is the parameterisable form of SET LOCAL:
-// the binding dies with the transaction, so a pooled connection cannot carry
-// one tenant's context into the next request. SET LOCAL itself cannot take a
-// bind parameter, and string-interpolating the tenant id is exactly the kind
-// of shortcut rule 1 exists to forbid.
-//
-// Unlike InActorTx, no isolation level is pinned here: nothing routes through
-// this today, so no handler's refusal shape leans on one. A future
-// read-then-write here whose behaviour differs under REPEATABLE READ must
-// carry the same pin, for the reasons InActorTx states.
+// InTenantTx runs fn with app.tenant_id bound for RLS via set_config(...,
+// true), the parameterisable SET LOCAL: the binding dies with the
+// transaction so a pooled connection cannot carry one tenant's context into
+// the next request (rule 1).
 func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -105,14 +97,10 @@ var ErrNoSuchActor = errors.New("actor not found or inactive")
 // is what makes deactivation bite on the next request rather than at token
 // expiry (ADR-0011, NFR-SEC-006).
 func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn func(pgx.Tx, auth.Actor) error) error {
-	// READ COMMITTED is pinned, not assumed: createUser's reactivate race is
-	// a 409 only because the losing UPDATE re-evaluates its WHERE against the
-	// winner's committed row and matches nothing. Under REPEATABLE READ the
-	// same interleaving raises 40001, which submitStatus does not map, so a
-	// form would see a 500. default_transaction_isolation is a server
-	// parameter a DBA can flip with no test failing; a guarantee handlers
-	// lean on is stated here, the way append-only is enforced by revoked
-	// grants rather than convention (TYRE-95).
+	// READ COMMITTED is pinned: submitStatus maps createUser's reactivate
+	// race to a 409 only because the loser's UPDATE re-evaluates its WHERE
+	// against the winner's committed row. Under REPEATABLE READ the same
+	// interleaving raises 40001, which submitStatus does not map (TYRE-95).
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("beginning actor transaction: %w", err)

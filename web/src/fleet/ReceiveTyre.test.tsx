@@ -62,16 +62,11 @@ describe("receiving tyres into the fleet", () => {
     expect(screen.queryByLabelText(/quantity/i)).not.toBeInTheDocument();
   });
 
-  // ReceiveTyre.tsx's own guard (`if (isFree && displayCode.trim() === "")
-  // return;`), proven independently of the `required` attribute. Two
-  // non-obvious things: a real click on the submit button never even reaches
-  // React's onSubmit here, because jsdom's constraint validation intercepts
-  // it first. fireEvent.submit dispatches the "submit" event directly,
-  // skipping that interception. And useMutation's mutate() does not call
-  // fetch synchronously, so asserting "not called" right after firing the
-  // event passes whether or not the guard exists; the setTimeout flush lets
-  // a wrongly-removed guard's fetch call actually land before the assertion
-  // runs.
+  // ReceiveTyre.tsx's own guard, proven independently of `required`: a real
+  // click never reaches onSubmit because jsdom's constraint validation
+  // intercepts it first; fireEvent.submit dispatches directly. The
+  // setTimeout flush also lets a wrongly-removed guard's fetch actually
+  // land before the assertion runs.
   it("never calls the API for an empty code under FREE, guarding independently of the required attribute", async () => {
     const { container } = renderScreen("FREE");
 
@@ -99,11 +94,9 @@ describe("receiving tyres into the fleet", () => {
     expect(screen.queryByText(/awaiting-cost queue/i)).not.toBeInTheDocument();
   });
 
-  // The whole point of web/CLAUDE.md's money-stays-a-string rule:
-  // Number("10.50") stringifies back as "10.5", silently dropping the
-  // trailing zero. Asserting the exact string (never re-derived with
-  // Number/parseFloat in this test either) is the only check that would
-  // actually fail if the component coerced.
+  // The whole point of the money-stays-a-string rule: Number("10.50")
+  // stringifies back as "10.5", silently dropping the trailing zero.
+  // Asserted as an exact string, never re-derived with Number/parseFloat.
   it("never coerces the price to a number: the exact string, trailing zero included, reaches receiveTyres", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(201, { tyres: [{ id: "t1", displayCode: "TYRE1" }] }),
@@ -138,11 +131,9 @@ describe("receiving tyres into the fleet", () => {
       costSource: "PRICE_LIST_ESTIMATE",
     });
 
-    // No price this time round the form was just cleared by the success it
-    // just had, so costSource must not survive as a stray field. The code
-    // field must have cleared too: userEvent.type appends to whatever is
-    // already there, so a dropped setDisplayCode("") in onSuccess would send
-    // "TYRE1TYRE2" here and nothing else in this test would catch it.
+    // userEvent.type appends to whatever is already there, so a dropped
+    // setDisplayCode("") in onSuccess would send "TYRE1TYRE2" and nothing
+    // else here would catch it.
     await userEvent.type(screen.getByLabelText(/display code/i), "TYRE2");
     await submit();
     await screen.findByRole("status");
@@ -152,10 +143,9 @@ describe("receiving tyres into the fleet", () => {
     expect(sentBody(1)).not.toHaveProperty("purchasePrice");
   });
 
-  // NFR-USE-010: success must be shown explicitly, never inferred from the
-  // absence of an error. A bulk GENERATED receive mints more than one
-  // code, every one of which the operator now has to go and mark a sidewall
-  // with.
+  // NFR-USE-010: success is shown explicitly. A bulk GENERATED receive
+  // mints more than one code, each of which the operator still has to go
+  // mark a sidewall with.
   it("shows every issued display code explicitly and clears the form on success", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(201, {

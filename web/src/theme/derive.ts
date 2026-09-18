@@ -1,7 +1,6 @@
-// Derives a full brand theme from the one colour a tenant picks (TYRE-27).
-// The tenant controls hue; the system owns legibility: on-primary text and,
-// where needed, the primary's own tone are computed so WCAG 2.1 AA contrast
-// (NFR-USE-007) holds for any input a non-technical admin can enter.
+// Derives a full brand theme from the tenant's one colour (TYRE-27): the
+// tenant controls hue, the system computes on-primary text and, where
+// needed, tone so WCAG 2.1 AA (NFR-USE-007) holds for any input.
 
 import { palette } from "./tokens";
 
@@ -55,10 +54,9 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
 
-// A palette token is ours, not a tenant's, so an unparseable one is a typo in
-// tokens.ts rather than bad input. Failing at import names the offender;
-// asserting the type away would let `undefined` reach a contrast calculation
-// and quietly derive a theme from NaN (TYRE-27, TYRE-49).
+// A palette token is ours, not a tenant's; an unparseable one fails at
+// import rather than letting undefined reach a contrast calculation and
+// derive a theme from NaN (TYRE-27, TYRE-49).
 function requireHex(token: string): Rgb {
   const rgb = parseHex(token);
   if (!rgb) {

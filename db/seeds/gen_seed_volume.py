@@ -185,11 +185,9 @@ for t in tyres:
     L.append(f"INSERT INTO app.tyre (id,tenant_id,display_code,size_id,brand_id,pattern_id,status,purchase_date,received_date,purchase_price,cost_source,new_tread_mm,rand_per_mm,casing_value,state)")
     L.append(f"  VALUES (md5('{t['key']}')::uuid,'{T3}','{t['key'].upper()}',md5('sbvol-sz1')::uuid,md5('sbvol-br1')::uuid,md5('sbvol-pt1')::uuid,'NEW','{t['purchased']}','{t['purchased']}',{t['price']},'INVOICE',{n1(NEW_TREAD_MM)},app.rand_per_mm({t['price']},{n1(NEW_TREAD_MM)},{n1(RETREAD_THRESHOLD_MM)}),{t['casing']},'{state_}');")
 L.append("")
-L.append("-- A replaced tyre's fitment is inserted closed (removed_at, removed tread,")
-L.append("-- reason from the tenant's removal_reasons list; removed_odometer on a")
-L.append("-- horse), and its tyre row above already carries REMOVED: the load holds")
-L.append("-- no UPDATE at all. fitment_written_once (000032) bounds the UPDATE path;")
-L.append("-- a row written whole never takes it.")
+L.append("-- A replaced tyre's fitment is inserted already closed (removed_at, tread,")
+L.append("-- reason, odometer on a horse): fitment_written_once (000032) bounds the")
+L.append("-- UPDATE path, and a row written whole never takes it.")
 for f in fitments:
     tkey = f['tyre']['key']
     fitted_at = ts(f['fitted'], f['fitted_hh'], 0)

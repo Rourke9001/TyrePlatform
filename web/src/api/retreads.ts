@@ -1,9 +1,8 @@
 import { apiGet, apiPost } from "./client";
 
-// Wire shapes of the retread queue (api/internal/httpapi/retreads.go,
-// TYRE-93). Dispatching a casing to the retreader is what opens a job, and
-// it lives on tyres.ts's dispatchTyre because a dispatch names a casing, not
-// a job that does not exist yet (retreads.go's own comment).
+// Wire shapes of the retread queue (TYRE-93). Dispatch opens the job and
+// lives in tyres.ts's dispatchTyre: a dispatch names a casing, not a job
+// that does not exist yet (retreads.go).
 
 // retreadJobJSON: one row of GET /api/retread-jobs?open=true. daysOut is
 // computed against the tenant's own civil today (rule 6), never a browser

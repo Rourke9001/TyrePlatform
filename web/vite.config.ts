@@ -1,12 +1,10 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-// No service worker and no PWA plugin here. ADR-0009 settled the sync design as
-// online-first with a durable submit outbox, so what protects an in-progress
-// inspection is IndexedDB and the outbox's own retry, never a cache and never
-// Background Sync, which iOS Safari does not have. An installable manifest
-// would add reach, not durability, and nothing in the capture flow waits on
-// one.
+// No service worker or PWA plugin: ADR-0009 protects an in-progress
+// inspection with IndexedDB and the outbox's own retry, never a cache or
+// Background Sync, which iOS Safari lacks. An installable manifest would add
+// reach, not durability.
 export default defineConfig({
   plugins: [react()],
   // Stamped from package.json so a deployed bundle traces back to a release

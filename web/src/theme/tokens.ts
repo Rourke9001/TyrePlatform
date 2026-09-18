@@ -1,9 +1,6 @@
-// The design system's single source of colour and type (TYRE-27). Components
-// consume these only through the CSS custom properties below. A hex or font
-// literal anywhere else in web/src is a bug.
-//
-// "Yard signage" direction: sunlight-first light UI (NFR-USE-003), highway
-// signage type, the tenant's brand confined to chrome.
+// The design system's single source of colour and type (TYRE-27), consumed
+// only through the CSS custom properties below. "Yard signage" direction:
+// sunlight-first (NFR-USE-003), brand confined to chrome.
 
 import type { BrandTheme } from "./derive";
 
@@ -18,11 +15,10 @@ export const palette = {
   brand: "#14586e",
 } as const;
 
-// Tread band status colours are FIXED and keyed to band NAMES. Tenant
-// branding themes the chrome, never the safety language. The mm thresholds
-// that put a reading in a band are tenant configuration (rule 5) and never
-// appear in this codebase. Colour is never the only encoding (NFR-USE-009):
-// components pair these with a label or shape.
+// Tread band colours are FIXED and keyed to band NAMES, never themed by
+// tenant branding; the mm thresholds that assign a band are tenant
+// configuration (rule 5) and never appear here. Colour is never the only
+// encoding (NFR-USE-009).
 export const statusColor = {
   roadworthy: "#2e7d46",
   caution: "#e89b0c",

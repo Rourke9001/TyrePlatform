@@ -7,20 +7,17 @@ import { useFormMutation } from "../useFormMutation";
 import { unitKey, vehiclesKey } from "./queryKeys";
 import { UNIT_STATUSES } from "./vocabulary";
 
-// TY016 is the disposal of a unit that still carries tyres, and it names the
-// unit and counts them. That sentence is the whole value of the refusal, so
-// it is spoken verbatim rather than replaced by a general one (NFR-USE-005,
-// ADR-0012).
+// TY016 names the unit and counts its open fitments; that sentence is the
+// whole value of the refusal, spoken verbatim (NFR-USE-005, ADR-0012).
 const STATUS_WORDING = {
   speakable: ["TY012", "TY016"],
   forbidden: "You do not have permission to change this unit's status.",
   fallback: "The status could not be changed. Try again, or call support if it keeps happening.",
 };
 
-// FR-VEH-005/006. Which transitions are legal is app.set_vehicle_status'
+// FR-VEH-005/006: which transitions are legal is app.set_vehicle_status'
 // rule, so this offers all six and lets the refusal explain (ADR-0013
-// decision 5): DISPOSED is terminal, and a disposal needs an empty unit and
-// a stated reason.
+// decision 5).
 export function UnitStatusForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const [status, setStatus] = useState(unit.status);

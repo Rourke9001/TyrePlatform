@@ -5,15 +5,14 @@ import "./capture.css";
 
 interface Props {
   positions: RigPosition[];
-  // Addressed by RigPosition.key, never by position id: two member units of
-  // the same axle configuration share every position id, so an id alone cannot
-  // name a wheel on a rig (draft.cellKey).
+  // Position ids repeat across same-config units on a rig: cellKey in
+  // draft.ts (BR-VEH-003).
   severityOf: (cell: string) => Severity;
   governingOf: (cell: string) => number | null;
   onOpen: (cell: string) => void;
   activeKey: string | null;
-  // TYRE-155: a spare the driver has already marked absent draws as settled
-  // rather than "Not done", so the diagram agrees with the tally above it.
+  // TYRE-155: an absent spare is a settled observation, not a reading; see
+  // markSpareAbsent in draft.ts.
   absentCells: ReadonlySet<string>;
 }
 
@@ -24,12 +23,9 @@ interface AxleGroup {
 
 interface UnitGroup {
   vehicleId: string;
-  // The unit's own identity (app.vehicle, via CaptureContext.fleetNumber),
-  // never the configuration label alone: app.position belongs to an axle
-  // CONFIGURATION, not a vehicle, so two member units built from the same
-  // configuration (an ordinary superlink's two trailers) carry the identical
-  // unitLabel. Leading with fleetNumber is what BR-VEH-003 needs. A driver
-  // tells units apart by what is painted on them, not by list order.
+  // Leads with the unit's own identity (CaptureContext.fleetNumber), never
+  // the configuration label alone: two units built from the same
+  // configuration carry the identical unitLabel (BR-VEH-003).
   fleetNumber: string;
   // The configuration's own label ("2-axle trailer"), kept as a secondary
   // fact: it tells the driver what layout to expect, but two same-model
@@ -38,17 +34,10 @@ interface UnitGroup {
   axles: AxleGroup[];
 }
 
-// One pass, grouped by the unit that owns each position and then by axle
-// within it. The axle key is vehicleId:axleNumber, not axleNumber alone: on
-// a rig the horse's axle 1 and the trailer's axle 1 are different axles that
-// would otherwise collapse into one row. Building groups with find() rather
-// than assuming contiguous runs keeps this correct however `cells`
-// arrives, the same defensiveness rigPositions applies by sorting on
-// sequence rather than trusting API order.
-//
-// Run over the running positions and over the spares separately, because the
-// two are drawn as separate rows: a spare carries no axle number, so its
-// units come back with one group apiece.
+// Grouped by owning unit then by axle within it; the key is
+// vehicleId:axleNumber, not axleNumber alone, or a rig's two axle-1s
+// collapse into one row. Running positions and spares are grouped
+// separately since they draw as separate rows.
 function groupRig(cells: RigPosition[]): UnitGroup[] {
   const units: UnitGroup[] = [];
   for (const r of cells) {
@@ -91,10 +80,9 @@ export function CaptureDiagram({
     <div className="cap-diagram">
       {units.map((unit, i) => (
         <div key={unit.vehicleId} className="cap-unit">
-          {/* FR-INS-060/FR-INS-061: a driver walks one coupled rig built from
-              independent units. The mark shows the coupling itself, once
-              between units, rather than repeating a unit's own label on
-              every axle it owns. */}
+          {/* FR-INS-060/FR-INS-061: shows the coupling itself, once between
+              units, rather than repeating a unit's own label on every axle
+              it owns. */}
           {i > 0 && <CouplingMark />}
           <p className="cap-unitband">
             <span className="cap-unitband-id">{unit.fleetNumber}</span>
@@ -118,13 +106,10 @@ export function CaptureDiagram({
           ))}
         </div>
       ))}
-      {/* A row per unit, for the same reason the running bands carry a fleet
-          number: every axle configuration in the register has a spare count,
-          so an ordinary superlink draws one S cell per unit. Under a single
-          band they are identical, and a driver who enters one link's spare
-          into the other's cell files the reading against the wrong vehicle_id
-          in an append-only table. Nothing refuses it at entry, and nothing in
-          the stored data tells it apart afterwards (BR-VEH-003). */}
+      {/* A row per unit: every configuration carries a spare count, so a
+          rig draws one S cell per unit. Under one shared band they are
+          identical, and nothing on entry or after tells them apart
+          (BR-VEH-003). */}
       {groupRig(spares).map((unit) => {
         const cells = unit.axles.flatMap((axle) => axle.positions);
         return (

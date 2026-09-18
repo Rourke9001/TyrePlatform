@@ -1,13 +1,10 @@
-// Staging environment for the TyrePlatform POC. Per ADR-0005, staging IS
-// production for the BAC pilot; a prod environment is stamped from this same
-// template when the first external tenant signs.
+// Staging environment for the TyrePlatform POC (ADR-0005: staging IS
+// production for the BAC pilot; prod is stamped from this same template).
 //
-// Deployed at resource-group scope into rg-tyre-staging. Deliberately outside
-// Bicep: the resource group (this template's own scope), the budget (guards
-// the subscription, not one environment), the registry and Log Analytics
-// workspace (state that must survive an environment teardown), and the deploy
-// identity id-tyre-deploy-staging with its role assignments. It is the
-// credential that runs this template, so the template cannot own it.
+// Deployed at resource-group scope into rg-tyre-staging. Outside Bicep: the
+// resource group itself, the budget, the registry, Log Analytics, and the
+// deploy identity id-tyre-deploy-staging, since it is the credential that
+// runs this template and cannot own itself.
 //
 // ACCEPTED TRADE: id-tyre-deploy-staging's Contributor scope on
 // rg-tyre-staging is therefore live-Azure only, not visible or reviewable
@@ -94,10 +91,8 @@ resource photosContainer 'Microsoft.Storage/storageAccounts/blobServices/contain
 
 // -------------------------------------------------------------- key vault --
 
-// ACCEPTED TRADE (POC, no VNet exists): no publicNetworkAccess or
-// networkAcls is set, so this vault answers on its public endpoint.
-// enableRbacAuthorization above is the actual boundary. Revisit before the
-// first commercial contract, per NFR-SEC-014; tracked as TYRE-61.
+// ACCEPTED TRADE, same as storage above (no VNet, TYRE-61, NFR-SEC-014):
+// enableRbacAuthorization is this vault's compensating control.
 resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: 'kv-tyre-${env}'
   location: location
@@ -111,12 +106,10 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-// Secrets Officer, not Administrator: the deploying human only needs to
-// write secrets post-deploy (see the database-url secret set command
-// below), not manage the vault's own access policies. This assignment does
-// not remove the Key Vault Administrator role already granted to this
-// principal on the live vault; that removal is a manual Azure step
-// (TYRE-63).
+// Secrets Officer, not Administrator: the deploying human only writes
+// secrets post-deploy, not the vault's own access policies. Does not
+// remove the Key Vault Administrator role already granted on the live
+// vault; that removal is a manual step (TYRE-63).
 resource kvSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(kv.id, deployerObjectId, roleKeyVaultSecretsOfficer)
   scope: kv
@@ -182,10 +175,9 @@ resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   }
 }
 
-// ACCEPTED TRADE (until a VNet exists): 0.0.0.0 admits any Azure-hosted
-// client, not just ours. Consumption Container Apps have no stable egress
-// IP without VNet integration, which is deliberate POC scope-out. RLS and
-// password auth are the actual boundary; revisit at first external tenant.
+// ACCEPTED TRADE, same as storage/KV above (no VNet, TYRE-61): Consumption
+// Container Apps have no stable egress IP without VNet integration, so RLS
+// and password auth are the actual boundary here too.
 resource pgAllowAzure 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2024-08-01' = {
   parent: pg
   name: 'AllowAzureServices'
@@ -250,9 +242,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         }
       ]
       secrets: [
-        // Resolved from Key Vault by the API's managed identity, so the
-        // app_login credential never exists in this repo, CI, or the app's
-        // configuration, only in kv-tyre-staging. The secret must exist
+        // Resolved from Key Vault by the API's managed identity: app_login
+        // never exists in this repo, CI or the app config. Must exist
         // before this template deploys or revision activation fails:
         //   az keyvault secret set --vault-name kv-tyre-staging \
         //     --name database-url --value 'postgres://app_login:...'
@@ -271,16 +262,11 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
           resources: { cpu: json('0.25'), memory: '0.5Gi' }
           env: [
             { name: 'DATABASE_URL', secretRef: 'database-url' }
-            // NFR-SEC-007's per-source-address rate limit reads the caller's
-            // address this many entries from the right of X-Forwarded-For,
-            // trusting that many hops to have appended their own observation
-            // rather than relayed the caller's claim untouched. '1' matches
-            // the ingress above being the only hop between the caller and
-            // this container. Putting any additional L7 hop in front of it,
-            // whether Front Door, Application Gateway, a CDN or a WAF,
-            // moves the trustworthy entry further from the right; leaving
-            // this stale after doing so collapses the address limit into one
-            // bucket shared by every client on the internet.
+            // NFR-SEC-007's rate limit reads the caller's address this many
+            // entries from the right of X-Forwarded-For. '1' matches the
+            // ingress above being the only hop; adding any L7 hop in front
+            // (Front Door, App Gateway, CDN, WAF) and leaving this stale
+            // collapses the limit into one bucket shared by every client.
             { name: 'TRUSTED_PROXY_HOPS', value: '1' }
           ]
         }

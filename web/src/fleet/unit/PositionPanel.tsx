@@ -20,13 +20,10 @@ import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { MOUNT_ORIENTATIONS, ORIENTATION_UNKNOWN, orientationLabel } from "./vocabulary";
 
-// A fit and a removal refuse for different reasons and must say so. Only the
-// codes each endpoint can actually raise are listed: app.fit_tyre reaches
-// TY009 (FR-FIT-002: a unit that has an odometer needs the reading), TY012,
-// TY014 and the two occupancy conflicts, and app.remove_tyre reaches TY009 and
-// neither occupancy code. 000025's fitment_odometer_matches_unit_kind fires
-// BEFORE INSERT OR UPDATE, so the removal's own closing UPDATE answers to it
-// as the fit's INSERT does.
+// A fit and a removal refuse for different reasons: app.fit_tyre reaches
+// TY009/TY012/TY014 plus two occupancy conflicts, app.remove_tyre reaches
+// TY009 alone. 000025's trigger fires BEFORE INSERT OR UPDATE, so the
+// removal's closing UPDATE answers to it too.
 const FIT_WORDING = {
   speakable: ["TY009", "TY012", "TY014", "position_occupied", "tyre_already_fitted"],
   forbidden: "You do not have permission to fit a tyre.",
@@ -47,12 +44,10 @@ function belowFittedOdometer(fitted: number): string {
   return `The odometer cannot be below ${fitted}, the reading this tyre was fitted at.`;
 }
 
-// The selected position: what it carries, and the one write it admits: a
-// fit when it is empty, a removal when it is not (D7). Both mutations are
-// held here rather than in two child forms because a successful fit turns
-// this position into an occupied one: a child holding the result would
-// unmount on the invalidated read and take its warnings with it, exactly
-// when there is something to read.
+// The selected position admits one write, a fit when empty or a removal
+// when not (D7). Both mutations live here, not in child forms, because a
+// successful fit turns this position occupied and a child would unmount,
+// taking its warnings with it.
 export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPosition }) {
   const canManage = useCan("ManageAssets");
   const tenantKey = getDevTenantId() ?? "default";
@@ -60,26 +55,19 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
 
   const [tyreId, setTyreId] = useState("");
   const [fitTread, setFitTread] = useState("");
-  // D13: an unasserted orientation is recorded as UNKNOWN, never guessed.
-  // mountOrientation is a required field on the wire (fitTyreRequest.validate,
-  // fitments.go) so whatever this holds at submit is written to an immutable
-  // row (rule 3), and a default of MARK_OUTBOARD would record a positive
-  // mounting fact nobody asserted.
+  // D13: an unasserted orientation is recorded UNKNOWN, never guessed.
+  // mountOrientation is required on the wire and written to an immutable
+  // row (rule 3), so defaulting to MARK_OUTBOARD would record a fact
+  // nobody asserted.
   const [orientation, setOrientation] = useState<string>(ORIENTATION_UNKNOWN);
   const [fitOdometer, setFitOdometer] = useState("");
   const [reason, setReason] = useState("");
   const [removeTread, setRemoveTread] = useState("");
   const [removeOdometer, setRemoveOdometer] = useState("");
-  // Which write was made last, what it named, and which fitment it acted on.
-  // The first two are needed because the fields clear on success and the read
-  // behind them has moved on, so a confirmation could not otherwise name what
-  // it confirmed (NFR-USE-010), and because both mutations keep their
-  // isSuccess for the life of the panel. A fit followed by a removal would
-  // otherwise leave the fit's sentence standing beside the removal's. The
-  // fitment id is what keeps the sentence honest afterwards: a rotation
-  // elsewhere on the unit can put a different tyre in this position, and
-  // "TY007 was fitted to POS1" is then a claim about a position holding
-  // something else.
+  // Which write was made last, what it named, and which fitment it acted
+  // on: needed because fields clear on success and both mutations keep
+  // isSuccess for the panel's life (NFR-USE-010). The fitment id keeps
+  // the sentence honest after a later rotation changes the occupant.
   const [acted, setActed] = useState<{
     kind: "fit" | "remove";
     code: string;
@@ -90,13 +78,10 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
   // the next attempt went nowhere.
   const [refused, setRefused] = useState("");
 
-  // The removal form's own fields, reset during render rather than in an
-  // effect (react-hooks/set-state-in-effect). An extra commit is not needed
-  // to derive this state from a prop. A background refetch (window focus, or
-  // any write's invalidation) can swap the occupant of this position out from
-  // under a half-typed removal, and readings typed for the old fitment must
-  // never close a different one (the fitment closed is read off
-  // `position.fitment` at submit, not carried in state).
+  // The removal form's own fields, reset during render (not an effect): a
+  // background refetch can swap the occupant out from under a half-typed
+  // removal, and readings typed for the old fitment must never close a
+  // different one.
   const currentFitmentId = position.fitment?.fitmentId ?? null;
   const [seenFitmentId, setSeenFitmentId] = useState(currentFitmentId);
   if (seenFitmentId !== currentFitmentId) {
@@ -107,11 +92,9 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
     setRefused("");
   }
 
-  // GET /api/tyres takes no state parameter (fetchTyres' own options are code,
-  // on and awaitingCost), so the register is read whole and narrowed to stock
-  // below. The key segment says "register" because that is what is cached; a
-  // segment naming a filter the request never sent would be a claim the next
-  // reader has to disprove.
+  // GET /api/tyres takes no state parameter, so the register is read whole
+  // and narrowed to stock below; the key segment names what is actually
+  // cached.
   const stock = useQuery({
     queryKey: [...tyresKey(tenantKey), "register"],
     queryFn: () => fetchTyres(),

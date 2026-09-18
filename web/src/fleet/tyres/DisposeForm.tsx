@@ -5,10 +5,9 @@ import { disposalsFor, disposeTyre, type Disposal, type Tyre } from "../../api/t
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
-// DisposeForm and CostForm refuse for different reasons and must say so:
-// app.dispose_tyre raises TY012 and app.set_tyre_cost raises TY013, and
-// neither can raise the other's. One shared sentence for both is how the
-// cost form came to tell an operator their tyre "could not be disposed of".
+// DisposeForm and CostForm refuse for different reasons (TY012 vs TY013)
+// and must say so, or the cost form ends up telling an operator their tyre
+// "could not be disposed of."
 const DISPOSE_WORDING = {
   speakable: ["TY012"],
   forbidden: "You do not have permission to dispose of a tyre.",
@@ -17,16 +16,10 @@ const DISPOSE_WORDING = {
 
 const BLANK_PROCEEDS = "Proceeds are required before a sale can be recorded.";
 
-// Every rule about which transitions are legal, and about reason/proceeds, is
-// app.dispose_tyre's alone (ADR-0013 decision 5). This only shapes the
-// request and shows the field the chosen disposal actually needs. Which
-// disposals the state even makes offerable is disposalsFor's (api/tyres.ts),
-// which holds the rationale for narrowing the menu at all.
-//
-// onSuccess names nothing further: a disposal moves the tyre to a terminal
-// state and rowActions replaces this whole cell with a dash on the refetch, so
-// the confirmation lives at the register (ActedOn in TyreList.tsx,
-// NFR-USE-010).
+// Every legality/reason-proceeds rule is app.dispose_tyre's alone
+// (ADR-0013 decision 5); disposalsFor (api/tyres.ts) already narrows the
+// offered menu. The confirmation lives at the register (ActedOn,
+// TyreList.tsx, NFR-USE-010).
 export function DisposeForm({
   tyre,
   tenantKey,
@@ -60,13 +53,9 @@ export function DisposeForm({
   function submit(e: FormEvent) {
     e.preventDefault();
     if (disposal === "") return;
-    // Whitespace satisfies `required`, so jsdom's (and a real browser's)
-    // constraint validation lets a space-only proceeds through and it would
-    // reach app.dispose_tyre's numeric cast, which rejects it as 22P02, a
-    // code this screen cannot speak. Refused here, before the wire, the same
-    // way omitIfBlank does for a genuinely optional field (RetreadQueue.tsx);
-    // proceeds is not optional on a sale, so the refusal is local rather than
-    // an omitted key.
+    // Omitted-optional-field pattern (omitIfBlank in RetreadQueue.tsx), but proceeds
+    // is not optional on a sale, so this refuses locally rather than
+    // omitting a key.
     if (disposal === "SOLD" && proceeds.trim() === "") {
       setRefused(BLANK_PROCEEDS);
       return;

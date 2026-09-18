@@ -8,10 +8,9 @@ import type { OutboxEntry, OutboxState } from "./outbox";
 import { OutboxIndicator } from "./OutboxIndicator";
 import type { SubmitPayload } from "./payload";
 
-// nextAttemptAt is deliberately in the future on every queued fixture: this
-// component calls flushOutbox() on mount (FR-OFF-009), and an entry that is due
-// would be sent, deleted and never counted. A failed entry is skipped by
-// attemptSend without the guard.
+// nextAttemptAt is always in the future on a queued fixture: this component
+// flushes on mount (FR-OFF-009), and a due entry would be sent and never
+// counted.
 function entry(
   clientUuid: string,
   state: OutboxState,
@@ -58,10 +57,9 @@ describe("OutboxIndicator", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
-  // The one assertion the hand-rolled useSyncExternalStore exists for. The
-  // entry is written AFTER mount, with nothing telling this component about
-  // it. A mount-time read would show an empty queue for the rest of the
-  // session, which is precisely how a driver ends up watching nothing.
+  // The one assertion the hand-rolled useSyncExternalStore exists for: the
+  // entry is written after mount, and a mount-time-only read would show an
+  // empty queue for the rest of the session.
   it("counts an inspection queued after it mounted", async () => {
     render(<OutboxIndicator />);
     expect(screen.queryByRole("status")).toBeNull();
@@ -81,10 +79,8 @@ describe("OutboxIndicator", () => {
     await vi.waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 
-  // NFR-USE-009: the count is in words, so the words have to be right. The
-  // noun and the verb both inflect, and a plural verb on a singular noun is
-  // the kind of thing that quietly costs a pilot its credibility.
-  // Driver-facing copy is part of the product, not decoration.
+  // NFR-USE-009: the count is in words, so the grammar has to be right;
+  // driver-facing copy is part of the product, not decoration.
   it("agrees with itself about number in both directions", async () => {
     await outbox().put(entry("u1", "failed"));
     render(<OutboxIndicator />);
@@ -125,9 +121,8 @@ describe("OutboxIndicator", () => {
 
     await screen.findByText(/needs the office/);
     // The sweep runs while the new strings are on screen: once the drop
-    // completes the indicator un-mounts entirely (the same collapse the
-    // "drops the count again" test above pins), so there is nothing left in
-    // `container` for a post-drop sweep to find.
+    // completes the indicator unmounts entirely, so nothing is left in
+    // container for a post-drop sweep.
     expectNothingForbiddenSpoken(container, /office/i);
     await user.click(screen.getByRole("button", { name: /the office has this one/i }));
     expect(screen.getByRole("group", { name: /remove this inspection/i })).toHaveTextContent(

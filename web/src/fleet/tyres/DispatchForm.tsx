@@ -7,38 +7,28 @@ import { fetchDepots } from "../../api/units";
 import { depotsKey, retreadJobsKey, tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
-// app.dispatch_tyre reaches TY012 (no such tyre, or its own REMOVED-only
-// state guard), TY014 (the depot: none, the wrong type, or inactive; or a
-// sentOn in the future, 000033's depot/date branches) and TY015 (BR-FIT-009's
-// retread cap), rendered verbatim since TY015's own sentence: "a purchase,
-// not a retread candidate" is the whole content of the refusal
-// (NFR-USE-005).
+// app.dispatch_tyre reaches TY012, TY014 (depot/date branches) and TY015
+// (BR-FIT-009's retread cap), rendered verbatim since TY015's own sentence
+// is the whole content of the refusal (NFR-USE-005).
 const DISPATCH_WORDING = {
   speakable: ["TY012", "TY014", "TY015"],
   forbidden: "You do not have permission to dispatch a tyre.",
   fallback: "The tyre could not be dispatched. Try again, or call support if it keeps happening.",
 };
 
-// app.dispatch_tyre's own destination-to-depot-type mapping (000033): a
-// depot picker must offer only depots the write will accept, not every
-// depot in the fleet. Accepts the unpicked "" so the query below needs no
-// cast to call it. The query itself never runs against that branch
-// (`enabled: destination !== ""`).
+// app.dispatch_tyre's own destination-to-depot-type mapping (000033): only
+// offer depots the write will accept. Accepts "" so the query below needs
+// no cast; it never runs against that branch.
 function depotTypeFor(destination: Destination | ""): string {
   if (destination === "AT_RETREADER") return "RETREADER";
   if (destination === "AT_BREAKDOWN_SUPPLIER") return "BREAKDOWN_SUPPLIER";
   return "";
 }
 
-// FR-FIT-011/012: a REMOVED casing leaves the workshop for the retreader or
-// the breakdown supplier. Which destinations a depot's type may receive,
-// the BR-FIT-009 retread cap and which state a casing must be in to go are
-// all app.dispatch_tyre's alone, forwarded verbatim (ADR-0013 decision 5).
-//
-// onSuccess names the destination a caller dispatched to: a successful
-// dispatch moves the tyre off REMOVED and this form's own row unmounts on the
-// refetch, so the confirmation lives at the register (ActedOn in TyreList.tsx,
-// NFR-USE-010).
+// FR-FIT-011/012: a REMOVED casing leaves for the retreader or breakdown
+// supplier; which destinations/states are valid is app.dispatch_tyre's
+// alone (ADR-0013 decision 5). The confirmation lives at the register
+// (ActedOn, TyreList.tsx, NFR-USE-010).
 export function DispatchForm({
   tyre,
   tenantKey,

@@ -137,19 +137,13 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 	var vehID, configID uuid.UUID
 	var homeDepotID, operatingGroupID *uuid.UUID
 
-	// hasHistory is exactly TY008's own predicate (000028's
-	// reject_configuration_change_with_history): any fitment, inspection or
-	// reading row is history the trigger would refuse to move the unit's
-	// configuration or kind out from under (D4). Keep the two agreeing.
-	// A unit the screen shows as "has history" must be one the trigger
-	// would also refuse.
-	//
-	// hasOdometer below is the same tension: it is the exact negation of
-	// app.require_odometer_where_unit_has_one's own exemption (000025's
-	// fitment_odometer_matches_unit_kind exempts a NULL kind and a TRAILER).
-	// One predicate stated in two languages. Should either move without the
-	// other, the fit form hides the odometer field for a unit whose write
-	// TY009 then refuses, or asks for one no rule wants.
+	// hasHistory mirrors TY008's own predicate (000028's
+	// reject_configuration_change_with_history) so a unit the screen shows
+	// as "has history" is exactly one the trigger would refuse to
+	// reconfigure (D4). hasOdometer is the negation of
+	// app.require_odometer_where_unit_has_one's exemption (000025): a NULL
+	// kind or TRAILER, the same exemption TY009 refuses against otherwise.
+	// Both pairs must move together.
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.description, v.body_type, v.unit_descriptor,
 		       v.unit_kind::text, v.status::text, v.configuration_id, ac.name,
@@ -508,19 +502,12 @@ func listDepots(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// patchUnitRequest is the descriptive edit (D5). Every field is a pointer
-// because absence is this request's own vocabulary: a key the caller did not
-// send leaves its column exactly as it stands, which is what lets a form
-// submit only what someone actually changed. The two nullable ids also take
-// "" to clear, the one intent a bare pointer cannot express; the five text
-// columns have no clear at all. A unit's description is edited through this
-// surface, never emptied.
-//
-// configuration_id and unit_kind are deliberately not fields here, and
-// decodeJSONStrict refuses any key matching none of them, as encoding/json
-// matches, case-insensitively, so no spelling of either gets through. That
-// is what keeps TY008 (000028) unreachable from the API (D5,
-// docs/delivery-history.md §B5).
+// patchUnitRequest is the descriptive edit (D5). Every field is a pointer:
+// absence means "leave the column alone", which is what lets a form submit
+// only what changed. The two nullable ids also take "" to clear.
+// configuration_id and unit_kind are deliberately not fields here;
+// decodeJSONStrict refuses any spelling of either, which is what keeps TY008
+// unreachable from the API (D5).
 type patchUnitRequest struct {
 	FleetNumber      *string `json:"fleetNumber"`
 	Registration     *string `json:"registration"`
@@ -639,28 +626,13 @@ func (b patchUnitRequest) validate() (patchUnitArgs, error) {
 	return a, nil
 }
 
-// patchUnit is FR-VEH-041's descriptive edit (D5, ADR-0013 decision 1): one
-// parameterised UPDATE, because no rule governs these columns. Fleet-number
-// uniqueness is a constraint that already states itself (23505 →
-// conflictCodes), and the two rules that do govern a unit are reached through
-// neither this body nor this statement: its configuration and kind once it
-// has history (TY008), and its status (FR-VEH-005).
-//
-// The UPDATE runs even when the body names no column, because it is doing two
-// further jobs. It is the existence check, where RLS is what makes "no such
-// unit" and "another tenant's unit" the same 404 (ADR-0011), and its row lock
-// is what serialises two concurrent tag replacements on one unit, which a bare
-// SELECT in its place would not. A tags-only edit therefore still touches the
-// vehicle row, and writes no audit entry for it: app.audit_row_change returns
-// early when an UPDATE leaves the row identical, so nothing is logged that
-// claims a column moved when none did. The tag map rows it does change are
-// not audited, because vehicle_audited is on app.vehicle alone (000035).
-//
-// The UPDATE's scope predicate is unitSource's (FR-AUT-008); the read-back is
-// through app.vehicle deliberately, because the write was authorised against
-// the row as it stood, so the editor reads back what they wrote. A
-// depot-scoped editor cannot move a unit out of their own depots at all: the
-// home depot is a tenant-scope act (TYRE-222 rule 1, below).
+// patchUnit is FR-VEH-041's descriptive edit (D5, ADR-0013 decision 1): a
+// plain UPDATE, because no rule governs these columns. The UPDATE always
+// runs, even naming no column, because it doubles as the existence check
+// (RLS makes "no such unit" and "another tenant's" the same 404, ADR-0011)
+// and its row lock serialises a concurrent tag replacement. See
+// docs/architecture.md's unit-write section for the audit-log interaction
+// and the scope-vs-read-back asymmetry.
 func patchUnit(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -682,13 +654,10 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
-			// TYRE-222 rule 1 (owner, 7 Sep 2026): moving a unit between
-			// depots, or out of one, which "" means, is a tenant-scope act.
-			// Composed rather than raised through require(): the actor holds
-			// ManageAssets and the refusal is about this one field, so
-			// msgForbidden's fixed sentence would say the wrong thing.
-			// Presence, not value: body.HomeDepotID is nil only when the
-			// PATCH did not mention the field at all (decodeJSONStrict).
+			// TYRE-222 rule 1: moving a unit between depots is a tenant-scope
+			// act. Composed rather than raised through require(), since
+			// msgForbidden's fixed sentence would name the wrong thing
+			// (admin.go's createVehicle carries the full reasoning).
 			if a.Scope() != auth.ScopeTenant && body.HomeDepotID != nil {
 				return refusalError{refusal{
 					status:  http.StatusForbidden,
@@ -745,17 +714,12 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// replaceUnitTags is U6's replace-all, in the caller's own transaction so no
-// other session ever sees the unit briefly untagged. It is the one write on
-// this surface that deletes a row, and the named exception to ADR-0013
-// decision 7: a map row is a unit's current label rather than a record of
-// anything that happened, which is why 000035 restores DELETE for
-// app.vehicle_tag_map alone. A tag NAME is shared across units, and one
-// unit's edit must never delete the name the rest of the fleet still carries.
-//
-// tenant_id is app.current_tenant_id() and never the request's (ADR-0013
-// decision 2). The DO UPDATE is not a change: it is what makes RETURNING
-// answer with the existing row's id instead of nothing at all.
+// replaceUnitTags is U6's replace-all, in the caller's transaction so no
+// session sees the unit briefly untagged. It is ADR-0013 decision 7's named
+// exception: a tag map row is a unit's current label, not a record of
+// anything that happened, so 000035 restores DELETE for it alone. A tag NAME
+// is shared across units; one unit's edit must never delete a name the rest
+// of the fleet still carries.
 func replaceUnitTags(ctx context.Context, tx pgx.Tx, vehicleID uuid.UUID, tags []string) error {
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM app.vehicle_tag_map WHERE vehicle_id = $1`, vehicleID); err != nil {
@@ -787,18 +751,11 @@ type setUnitStatusRequest struct {
 	Reason *string `json:"reason"`
 }
 
-// setUnitStatus is FR-VEH-005/FR-VEH-006's write. Status is deliberately not
-// a column the PATCH above updates, because rules govern the move: DISPOSED
-// is terminal, a disposal needs an empty unit (INV-2) and a stated reason,
-// and a no-op is refused so the audit log carries no row claiming a change
-// that did not happen. A bare UPDATE walks past every one of them, so the
-// whole transition is app.set_vehicle_status's (000035).
-//
-// Depot scope for a non-ScopeTenant actor is the write's own check (FR-AUT-008,
-// TYRE-162); beyond that, this handler narrows nothing but the shape: an
-// unrecognised status reaches the enum cast as 22P02, which submitStatus
-// already answers 422, so this handler keeps no second copy of
-// app.vehicle_status to drift from it.
+// setUnitStatus is FR-VEH-005/FR-VEH-006's write. Status is not a PATCH
+// column because rules govern the move: DISPOSED is terminal, a disposal
+// needs an empty unit (INV-2) and a stated reason, and a no-op must write no
+// audit row claiming a change that did not happen. All of that is
+// app.set_vehicle_status's (000035).
 func setUnitStatus(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -828,14 +785,10 @@ func setUnitStatus(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
 			}
-			// Depot scope for the write (FR-AUT-008, TYRE-162): a ScopeTenant
-			// actor skips it and meets app.set_vehicle_status's own TY012 for
-			// an invisible id, so the controller's contract is unchanged. The
-			// check locks the vehicle row (FOR UPDATE) because the transition
-			// runs in a separate statement inside app.set_vehicle_status: a
-			// concurrent PATCH moving the unit to another depot waits on this
-			// lock, and one that committed first is what the check sees, so the
-			// scope the write was authorised against is the scope it lands in.
+			// Depot scope for the write (FR-AUT-008, TYRE-162); fitments.go's
+			// fitTyre carries why it locks. FOR UPDATE here, not FOR SHARE,
+			// because the transition runs inside app.set_vehicle_status as
+			// its own statement.
 			if a.Scope() != auth.ScopeTenant {
 				var locked uuid.UUID
 				err := tx.QueryRow(ctx,

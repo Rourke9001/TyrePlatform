@@ -17,13 +17,10 @@ const NOTHING_CHANGED = "Nothing has changed, so nothing was saved.";
 const BLANK_KEPT =
   "A blank field is left unchanged: registration, description, body type and unit descriptor are edited here, never emptied.";
 
-// The five text columns each hold three states server-side and this form can
-// reach only two of them: a blank is read as absence, not as a clear, so a
-// blanked field is deliberately not sent and the form says so rather than
-// reporting a save the server declined to make. The two nullable ids are the
-// opposite: "" is how they are cleared, which is why the depot picker's None
-// option sends one. See patchUnit's comment in api/units.ts for the wire
-// contract this follows (D5, FR-VEH-041).
+// The five text columns hold three states server-side, and this form
+// reaches two: a blank is absence, not a clear (patchUnit, api/units.ts),
+// so a blanked field is not sent. The two nullable ids are the opposite:
+// "" clears them.
 function changedText(current: string, loaded: string | null): string | undefined {
   const trimmed = current.trim();
   if (trimmed === "" || trimmed === (loaded ?? "")) return undefined;
@@ -34,11 +31,9 @@ function sameTags(a: string[], b: string[]): boolean {
   return a.length === b.length && a.every((tag, i) => tag === b[i]);
 }
 
-// The snapshot after a save: what was sent, folded into what was loaded. The
-// response's own unit is deliberately not taken whole. It also carries the
-// fields this form did not send, and a change someone else made to one of
-// those would enter the snapshot without ever reaching the screen, which is
-// the revert the snapshot exists to prevent.
+// The snapshot after a save is what was sent, folded into what was loaded,
+// deliberately not the response's whole unit: a field this form did not
+// send could enter the snapshot without ever reaching the screen.
 function withSaved(loaded: Unit, sent: UnitPatch): Unit {
   const next = { ...loaded };
   if (sent.fleetNumber !== undefined) next.fleetNumber = sent.fleetNumber;
@@ -62,14 +57,10 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
   const depots = useQuery({ queryKey: depotsKey(tenantKey), queryFn: () => fetchDepots() });
 
-  // What the fields were last known to hold server-side, which the prop stops
-  // saying the moment the unit read refetches, on a window focus, or on any
-  // write's invalidation. The diff below has to be against what the person
-  // editing was shown: measured against a refetch carrying someone else's
-  // change, an untouched field reads as an edit back to the old value and the
-  // PATCH reverts them (FR-VEH-041, D5). It advances on each save, or a field
-  // could not be edited twice in one sitting. Typing back what was saved a
-  // moment ago would match the mount value and be dropped as no change.
+  // What the fields were last known to hold server-side, until the unit
+  // read refetches; the diff must be against what the person editing was
+  // shown, or a refetch carrying someone else's change reverts them on
+  // save (FR-VEH-041, D5).
   const seed = useRef(unit);
   const sentPatch = useRef<UnitPatch | null>(null);
 
@@ -123,10 +114,9 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
       [unitDescriptor, loaded.unitDescriptor],
     ].some(([current, was]) => (current ?? "").trim() === "" && (was ?? "") !== "");
 
-    // fleet_number is NOT NULL (000001), so a blank one is asking for
-    // something the column cannot hold rather than for no change. The input is
-    // `required` and patchUnit's validate() owns the rule either way
-    // (ADR-0013 decision 5), so an empty one is simply not a change to send.
+    // fleet_number is NOT NULL (000001), so a blank is a request the column
+    // cannot hold, not "no change"; `required` and patchUnit's validate()
+    // (ADR-0013 decision 5) both own the rule.
     const trimmedFleet = fleetNumber.trim();
     if (trimmedFleet !== "" && trimmedFleet !== loaded.fleetNumber) {
       body.fleetNumber = trimmedFleet;

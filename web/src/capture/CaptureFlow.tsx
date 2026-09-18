@@ -31,16 +31,10 @@ import "./capture.css";
 
 type Screen = "start" | "capture" | "review" | "done";
 
-// Two different failures wearing one word. "unavailable" is a device that will
-// not let the app write at all, such as a private window or an MDM policy,
-// caught before there is any inspection: nothing can be captured, and it does not
-// clear by waiting, because a browser mode is not a transient condition.
-// "degraded" is a write that failed with an inspection already in hand: the
-// readings are on screen and the submit path may still work.
-//
-// NFR-USE-005: the two must stay distinct on the wire to the driver. Telling
-// someone with no draft to keep an inspection open names a thing that does not
-// exist, which is worse than saying nothing.
+// "unavailable": a device that will not let the app write at all (private
+// window, MDM), caught before any inspection exists. "degraded": a write
+// failed with an inspection already in hand. NFR-USE-005: the two must stay
+// distinct on the wire.
 type StorageFault = "unavailable" | "degraded";
 
 interface Outcome {
@@ -66,15 +60,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [storageFault, setStorageFault] = useState<StorageFault | null>(null);
-  // Bumped by the retry below to re-run the draft load. FR-OFF-013 asks for a
-  // supported recovery action, and for a browser mode the action is a person
-  // changing something and trying again, which is only an offer if something
-  // actually re-attempts.
+  // Bumped by the retry to re-run the draft load (FR-OFF-013): a recovery
+  // action is only real if something re-attempts.
   const [storageAttempt, setStorageAttempt] = useState(0);
-  // Frozen at mount, for the same reason CaptureStart freezes its own: the
-  // diagram asks severityOf once per cell on every render, and a wear-rate
-  // comparison must not depend on when React happened to re-render. Day
-  // granularity, so an inspection's lifetime cannot move it.
+  // Frozen at mount, same reason as CaptureStart: severityOf runs once per
+  // cell per render, and a wear-rate comparison must not move with a
+  // re-render.
   const [openedAt] = useState(() => Date.now());
 
   // FR-OFF-006 / NFR-USE-011: a remount is a reload, such as a killed browser,
@@ -112,18 +103,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     };
   }, [vehicleId, storageAttempt]);
 
-  // FR-INS-062's "defaulting to the last recorded composition": the rig a
-  // CONTROLLER set, pre-ticked for the driver to confirm. Seeded with EVERY
-  // member id. The motive unit is a member of its own combination and its
-  // checkbox is disabled, so seeding only the trailers renders the driver's
-  // own truck as not-here and unfixable.
-  //
-  // Derived rather than seeded into state by an effect: the default is a pure
-  // function of the served composition, and writing it back would make the
-  // first render's value a render of its own. It waits for the draft load,
-  // which may narrow it to what a resumed inspection actually observed.
-  // Fetching a member the draft has already dropped costs a request on a depot
-  // connection.
+  // FR-INS-062's default: seeded with EVERY member id, motive included (its
+  // checkbox is disabled), or the driver's own truck renders as not-here.
+  // Derived, not written back by an effect: it waits for the draft load,
+  // which may narrow it.
   const seededIds = motive.data
     ? (motive.data.combination?.members.map((m) => m.vehicleId) ?? [motive.data.vehicleId])
     : null;
@@ -149,26 +132,17 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const absent = draft ? absentCells(draft) : new Set<string>();
   const units = contexts ? completenessByUnit(contexts, doneCells, absent) : [];
   const doneCount = units.reduce((n, u) => n + u.done, 0);
-  // The one denominator: this figure is both the total on screen and the
-  // divisor that rides to the server as completeness_pct (payload.ts). The two
-  // numerators are computed apart: doneCount from these tallies, the payload's
-  // from the readings it carries, and agree only because both answer to
-  // warnings.treadsRead. Let the denominator split in two as well and the
-  // driver reads "10 of 10 done" off an inspection recorded as 83% complete.
+  // The one denominator, both the on-screen total and completeness_pct's
+  // divisor. The two numerators (doneCount, payload's) are computed apart
+  // but agree only because both answer to warnings.treadsRead.
   const totalPositions = units.reduce((n, u) => n + u.total, 0);
   const motiveCtx = contexts?.find((c) => c.vehicleId === vehicleId) ?? contexts?.[0];
   const active = activeKey === null ? undefined : byCell.get(activeKey);
 
-  // Recomputed from the readings rather than read off draft.positions[].
-  // warnings: those are written only when a position is finished, so a
-  // position saved mid-entry (FR-OFF-005 writes on the first digit) carries an
-  // empty list and would draw on the diagram as though it had nothing to flag.
-  //
-  // Banded on treadsRead, the same predicate the header count, the tallies and
-  // the payload use. Requiring a pressure here as well would draw a
-  // tread-complete position with no pressure as "Not done" while the header
-  // above it counted the same position as done, and would hide FR-INS-036 on a
-  // cell the app has every number it needs to raise.
+  // Recomputed from the readings, not read off draft.positions[].warnings,
+  // since those are written only when a position finishes. Banded on
+  // treadsRead: requiring pressure too would hide FR-INS-036 on a
+  // tread-complete cell.
   function severityOf(cell: string): Severity {
     const saved = draft?.positions[cell];
     const r = byCell.get(cell);
@@ -247,10 +221,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     );
   }
 
-  // TYRE-146: "No spare on this unit" (markSpareAbsent) is an observation, not
-  // a reading, and clearDraft discards it with everything else. A draft
-  // holding only that mark is not empty, so the count speaks for itself, in
-  // the driver's own words for the control that made it.
+  // TYRE-146: markSpareAbsent is an observation, not a reading, and
+  // clearDraft discards it too. A draft holding only that mark is not
+  // empty.
   const lostWords = (n: number, a: number) => {
     if (n === 0 && a === 0) return "No positions captured yet.";
     const captured = n > 0 ? `${n} captured position${n === 1 ? "" : "s"}` : "";
@@ -259,10 +232,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     return `${parts.join(" and ")} will be lost.`;
   };
 
-  // FR-OFF-005: written as it is typed, not when the position is finished.
-  // PositionSheet fires this once per keystroke and once more for the
-  // auto-advance's own field change, with an identical payload, a redundant
-  // rewrite of the same row, which is why nothing may depend on the count.
+  // FR-OFF-005: written per keystroke, plus once more for auto-advance,
+  // with an identical payload, so nothing may depend on the write count.
   function handleChange(position: DraftPosition) {
     setDraft((d) =>
       d
@@ -280,15 +251,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
 
   function handleDone(position: DraftPosition) {
     handleChange(position);
-    // Finishing a position opens the next outstanding one rather than
-    // returning the driver to the diagram to find it themselves. That second
-    // tap, plus re-reading the picture to work out where they had got to, is
-    // paid once per position, 27 times on a superlink, against
-    // NFR-USE-001a's seven minutes.
-    //
-    // doneCells comes off `draft`, which this render still sees without the
-    // position just finished: setDraft has not committed. Adding the finished
-    // cell here is what stops the flow reopening the sheet it has closed.
+    // Finishing a position opens the next outstanding one directly (against
+    // NFR-USE-001a's budget). doneCells still lacks the just-finished cell
+    // this render (setDraft has not committed), so it's added here to stop
+    // the flow reopening a closed sheet.
     const finished = cellKey(position.vehicleId, position.positionId);
     const outstanding = new Set([...doneCells, ...absent]).add(finished);
     setActiveKey(nextOutstanding(rig, outstanding, finished)?.key ?? null);
@@ -387,14 +353,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
       </section>
     );
   } else if (motive.isError || !motive.data) {
-    // NFR-AVL-002: starting requires the server. Capture and submit do not, but
-    // a driver must not start against reference data that never arrived. Every
-    // threshold would be missing and every warning would silently never fire.
-    //
-    // The storage-unavailable alert below is hoisted above this screen
-    // switch, so its own retry button can be on screen at the same time as
-    // this one. Each names its own action so a driver is never choosing
-    // between two controls that read the same for two different recoveries.
+    // NFR-AVL-002: starting requires the server; every threshold and
+    // warning depends on data that must have arrived. The storage-unavailable
+    // alert is hoisted so its retry can sit beside this screen's own, each
+    // naming its own action.
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
@@ -511,14 +473,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     );
   }
 
-  // Above every branch, not inside one: the fault is set from each screen's
-  // own handler, and the driver can be on any screen when it fires. Nested in
-  // one branch, a Start button that throws and a submit that fails while
-  // review re-renders are both silent.
-  //
-  // "degraded" stays non-blocking. The readings are on screen and still
-  // submittable the moment storage comes back, so replacing the screen would
-  // take away the only copy of the driver's work.
+  // Above every branch, not inside one: the driver can be on any screen when
+  // a fault fires. "degraded" stays non-blocking, since the readings are
+  // still on screen and submittable.
   return (
     <>
       {storageFault !== null && (

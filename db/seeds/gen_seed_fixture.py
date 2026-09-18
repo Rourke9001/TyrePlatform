@@ -149,11 +149,8 @@ L.append("INSERT INTO app.combination (id,tenant_id,motive_vehicle_id) VALUES (m
 for seq,(fleet,reg,cfg,kind,label) in UNIT.items():
     L.append(f"INSERT INTO app.combination_member (tenant_id,combination_id,vehicle_id,sequence,descriptor) VALUES ('{T}',md5('comb1')::uuid,md5('veh{seq}')::uuid,{seq},$${label}$$);")
 L.append("")
-L.append("-- Tyres. rand_per_mm follows BR-VAL-002 from an R4,319.91 purchase over 25mm")
-L.append("-- new tread and a 4mm removal threshold => R205.7100/mm exactly, matching the")
-L.append("-- SRS Appendix E derivation check (4319.91 / 21). The seed states the three")
-L.append("-- inputs and lets app.rand_per_mm derive the rate: the fixture must not carry")
-L.append("-- a second copy of the acceptance arithmetic's answer (rule 2).")
+L.append("-- rand_per_mm derivation (BR-VAL-002) matches SRS Appendix E (seed_policy.py);")
+L.append("-- the seed states inputs only, never the answer (rule 2).")
 L.append("-- display_code keeps the sheet's branded strings verbatim: codes are opaque")
 L.append("-- display data, not keys (CHG-021, ADR-0008), and the historical sheet is the")
 L.append("-- fixture's source of truth. cost_source INVOICE: these prices are the SRS")

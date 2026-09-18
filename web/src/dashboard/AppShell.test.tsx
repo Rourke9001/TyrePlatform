@@ -41,12 +41,9 @@ afterEach(() => {
 });
 
 describe("the shell's main nav", () => {
-  // NAV_ITEMS' paths nest, so NavLink's default prefix match marks every
-  // ancestor current too: /fleet/tyres/retreads would read as Units, Tyres and
-  // Retreads all at once, and "you are here" naming three places tells a
-  // reader nothing (NFR-USE-005). The deepest path in the registry is the case
-  // that catches it, an actor holding all three capabilities so all three
-  // links render and a prefix match has something to over-claim.
+  // NAV_ITEMS nest, so NavLink's prefix match marks every ancestor current
+  // too; the deepest path an actor with all capabilities can reach is what
+  // over-claims if the guard is missing (NFR-USE-005).
   it("marks exactly one link current on the deepest nested path", () => {
     renderShellAt("/fleet/tyres/retreads", ["ViewFleet", "ManageAssets", "LogRetread"]);
 

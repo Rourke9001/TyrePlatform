@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# golang-migrate records a version as applied and never re-runs it, so editing a
-# migration that is already on develop changes what new databases build while
-# every existing one keeps the old definition. The two diverge silently, and the
-# Appendix E pins are cent-exact against the old one.
+# Editing an applied migration diverges new databases from existing ones
+# silently; Appendix E's pins are cent-exact against the old definition
+# (TYRE-250).
 #
-# The line is origin/develop, not HEAD: a migration authored on a feature branch
-# has not been applied anywhere that matters and stays editable until it merges.
+# The line is origin/develop, not HEAD: a migration on a feature branch
+# stays editable until it merges.
 set -uo pipefail
 file=$(jq -r '.tool_input.file_path // empty' 2>/dev/null) || exit 0
 [[ -z "$file" ]] && exit 0

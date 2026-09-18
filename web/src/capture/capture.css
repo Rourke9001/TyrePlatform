@@ -1,8 +1,6 @@
-/* Driver capture screens (TYRE-69). The capture app's one stylesheet. A new
-   capture component adds its own section below rather than a second file, so
-   cascade order for shared classes never depends on which file loaded last.
-   Every colour and font here is a custom property from theme/tokens.ts; a hex
-   or font literal in this file is a bug. */
+/* Driver capture screens (TYRE-69), one stylesheet so cascade order for
+   shared classes never depends on load order. Colour/font: theme/tokens.ts
+   custom properties only; a literal here is a bug. */
 
 /* ------------------------------------------------------------ rig diagram */
 
@@ -30,10 +28,8 @@
   letter-spacing: var(--tracking-eyebrow);
 }
 
-/* The unit's own identity leads and stands out in full ink; the
-   configuration label after it inherits .cap-unitband's muted styling
-   unchanged. See CaptureDiagram.tsx's UnitGroup comment for why the two may
-   never collapse into one string. */
+/* Identity leads in full ink; the configuration label after it stays muted.
+   See CaptureDiagram.tsx's UnitGroup comment (BR-VEH-003). */
 .cap-unitband-id {
   font-weight: 700;
   color: var(--ink);
@@ -116,10 +112,9 @@
   background: var(--surface-sunken);
 }
 
-/* "You have this one open", layered on top of severity via box-shadow rather
-   than the border colour severity already owns, and a different property
-   from base.css's global :focus-visible outline so the two never fight over
-   the same ring. */
+/* "You have this one open": box-shadow, not border colour (severity owns
+   that) or base.css's global :focus-visible outline, so the two rings
+   never fight over the same property. */
 .cap-pos.is-active {
   box-shadow: 0 0 0 3px var(--primary);
 }
@@ -221,10 +216,9 @@
   background: var(--surface-sunken);
 }
 
-/* TYRE-147: the plan-view glyph and its one-line hint, sitting above the
-   fields they explain. The sheet hides the diagram, so this is the only
-   place the frame the server maps entry order by (FR-INS-029a) reaches the
-   driver at all. */
+/* TYRE-147: the plan-view glyph and hint, above the fields they explain.
+   The sheet hides the diagram, so this is the only place the entry-order
+   frame (FR-INS-029a) reaches the driver. */
 .cap-frame {
   display: grid;
   grid-template-columns: auto 1fr;
@@ -239,10 +233,9 @@
   color: var(--ink);
 }
 
-/* The four tap targets for this position, three tread fields plus pressure,
-   left to right, the same order and grammar (index numeral, mono value,
-   condensed unit) as a diagram cell (.cap-pos), so the sheet reads as that
-   one cell zoomed in rather than as a new picture the driver has to learn. */
+/* The four tap targets (three tread fields, pressure), same order and
+   grammar as a diagram cell (.cap-pos), so the sheet reads as that cell
+   zoomed in. */
 .cap-fields {
   position: relative;
   display: grid;
@@ -286,11 +279,9 @@
   -webkit-tap-highlight-color: transparent;
 }
 
-/* "This is the field the keypad is about to fill." The ring matches
-   .cap-pos.is-active's shape so a driver who has seen the diagram already
-   knows what it means; the border thickening on top of it is a second, purely
-   structural cue that survives a printed-in-black-and-white screenshot
-   (NFR-USE-009: colour is never the only signal). */
+/* "This is the field the keypad is about to fill." Ring shape matches
+   .cap-pos.is-active; the border thickening is a second, non-colour cue
+   that survives a black-and-white screenshot (NFR-USE-009). */
 .cap-fld.is-on {
   border-width: 3px;
   border-color: var(--primary);
@@ -337,10 +328,9 @@
   padding: 0 var(--space-3) var(--space-2);
 }
 
-/* A left accent bar carries the severity so it is legible in the sun and
-   survives greyscale: the colour is reinforced by, never the only source of,
-   which band a warning belongs to. The message text itself always names the
-   fleet's policy in words (warnings.ts), never a colour alone. */
+/* A left accent bar carries severity, legible in sun and greyscale: colour
+   reinforces, never solely carries, the band (NFR-USE-009). The message
+   text always names the policy in words (warnings.ts). */
 .cap-alert {
   margin: 0;
   padding: var(--space-2) var(--space-3);
@@ -424,10 +414,9 @@
   background: var(--primary-pressed);
 }
 
-/* FR-INS-040: held open on a warning. The label text is what actually says
-   so ("Seen it ›", NFR-USE-009 again); this tone is the reinforcing signal,
-   not the only one, and caution rather than the below-removal red because
-   the keypad only ever knows default/warn, not which band triggered it. */
+/* FR-INS-040: held open on a warning. The label text says so ("Seen it",
+   NFR-USE-009); this tone only reinforces, staying caution not
+   removal-red since the keypad only knows default/warn. */
 .cap-key--warn {
   border-color: var(--status-caution);
   background: var(--status-caution);
@@ -711,11 +700,9 @@
   background: var(--surface-sunken);
 }
 
-/* Hoisted above the screen switch, so it reaches all four screens rather than
-   the one it happens to be nested in. Full-width and at the top: it is the
-   only thing on any capture screen that outranks the driver's own work. A
-   column because the standing-refusal variant carries its own retry. The
-   recovery action belongs with the sentence explaining why it is needed. */
+/* Hoisted above the screen switch so it reaches all four screens, not just
+   the one nested in. Full width, top: nothing outranks it. Column layout
+   because the standing-refusal variant carries its own retry. */
 .cap-storage {
   display: flex;
   flex-direction: column;
@@ -938,11 +925,9 @@
   gap: 2px;
 }
 
-/* NFR-USE-009: the count is the message. There is no badge to read a colour
-   off, because in direct sun there is no colour to read. TYRE-167: grid, not
-   inline flow, because a per-entry line's ConfirmDiscard swaps its trigger
-   button for a block-level confirmation section once pressed, and an inline
-   span cannot lay that out below the line without becoming a container. */
+/* NFR-USE-009: the count is the message, no colour badge to read in sun.
+   TYRE-167: grid, not inline, since ConfirmDiscard swaps to a block-level
+   section on press, which inline flow cannot lay out below the line. */
 .cap-outbox-line {
   display: grid;
   gap: var(--space-2);

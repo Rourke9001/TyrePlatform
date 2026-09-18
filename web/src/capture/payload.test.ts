@@ -42,10 +42,8 @@ function draftWith(
 
 const meta = {
   submittedAt: "2026-08-25T06:14:40Z",
-  // Not 1.0: that is also the value a hardcoded literal in the builder would
-  // produce, so a passthrough and a constant would be indistinguishable. 0.5
-  // is a legal granularity (000023_submit_inspection.up.sql accepts 1.0, 0.5
-  // and 0.1) that only a real passthrough can produce.
+  // Not 1.0: that value is also what a hardcoded literal would produce. 0.5
+  // is a legal granularity only a real passthrough can carry.
   granularityMm: 0.5,
   deviceId: "device-1",
   appVersion: "0.0.0",
@@ -195,11 +193,10 @@ describe("toSubmitPayload", () => {
     expect(toSubmitPayload(trailerOnly, meta).odometer_km).toBeNull();
   });
 
-  // Positions are a keyed object in the draft so an entry overwrites cleanly;
-  // the payload is an array, and its order must not depend on object key
-  // iteration. NFR-USE-012 asks for natural order everywhere it is visible.
-  // FR-OFF-005 persists per keystroke, so the draft legitimately holds
-  // half-entered positions. They are not readings.
+  // Positions are a keyed object in the draft (so an entry overwrites cleanly);
+  // the payload is an array whose order must not depend on key iteration
+  // (NFR-USE-012). FR-OFF-005 persists per keystroke, so the draft
+  // legitimately holds half-entered positions that are not readings.
   it("omits a position that was started and not finished", () => {
     const partial: Draft = {
       ...draft,
@@ -254,13 +251,9 @@ describe("toSubmitPayload", () => {
     expect(toSubmitPayload(walked, meta).readings.map((r) => r.position_id)).toEqual(["p1", "p2"]);
   });
 
-  // 000023 accepts a NULL pressure deliberately. The draft is cleared on
-  // submit, so filtering this out would destroy three good tread readings.
-  // A rig's two member units of one axle configuration carry the SAME position
-  // ids, so the position alone cannot separate that couple. A stable sort left
-  // to itself settles the tie by insertion order: the order the driver
-  // happened to walk the rig, which is precisely what a deterministic payload
-  // must not depend on.
+  // A rig's two member units of one axle configuration carry the same
+  // position ids, so a stable sort left alone settles the tie by walk
+  // order, which the payload must not depend on.
   it("orders a shared position id the same way whichever unit was walked first", () => {
     const cell = (vehicleId: string): DraftPosition => ({
       positionId: "p1",
@@ -315,10 +308,9 @@ describe("toSubmitPayload", () => {
     expect(p.completeness_pct).toBe(75);
   });
 
-  // The server records the observation (000041); a key the server ignored
-  // would be the silent drop the design spec forbids, so the payload carries
-  // exactly what submit_inspection reads, and the absent cell comes off the
-  // denominator here the same way it does on screen.
+  // The server records the observation (000041); a key it ignored would
+  // be the silent drop the design forbids, so the absent cell comes off
+  // the denominator here too.
   it("carries absent spares by unit and position and takes them off the denominator", () => {
     const d = {
       ...draftWith([{ positionId: "p1", vehicleId: "v1", treads: [12, 13, 14], pressureKpa: 800 }]),
@@ -330,13 +322,10 @@ describe("toSubmitPayload", () => {
     expect(absentCells(d)).toEqual(new Set(["v1:s1"]));
   });
 
-  // TYRE-155: submit_inspection refuses TY005 outright when one cell carries
-  // both a reading and an absent_spares entry, and the outbox treats that
-  // 422 as permanent, so this must be unreachable from the payload side
-  // too. draft.ts's markSpareAbsent discards the position the same
-  // transaction it records the mark in, so a draft that carries an absent
-  // spare never has a position for that cell to begin with; this pins the
-  // payload the flow actually sends reflects that, not a filter here.
+  // TYRE-155: submit_inspection refuses TY005 outright on a cell with both
+  // a reading and an absent_spares entry; markSpareAbsent discards the
+  // position in the same transaction, so this pins that the payload
+  // reflects that structurally.
   it("carries no reading for a cell the draft records as an absent spare", () => {
     const d = {
       ...draftWith([{ positionId: "p1", vehicleId: "v1", treads: [12, 13, 14], pressureKpa: 800 }]),

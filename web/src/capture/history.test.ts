@@ -105,19 +105,12 @@ describe("historyWarnings", () => {
     expect(codes(w)).not.toContain("FR-INS-035");
   });
 
-  // Boundary test: FR-INS-035 at exactly the multiple.
-  // previousGoverningMm: 12, cohort 0.8, wearRateAlertMultiple: 3, so trigger = 2.4.
-  // Governing of 9.6mm over exactly one month (30.44 days) gives implied rate of exactly 2.4.
-  // Exactly one month means previousReadingAt is exactly 30.44 days before NOW.
-  // previousReadingAt is "2026-07-26T06:00:00Z", NOW is "2026-08-25T06:00:00Z"
-  // That's 30 days. We need to adjust previousReadingAt to be exactly 30.44 days before NOW.
+  // Boundary: FR-INS-035 at exactly the multiple (trigger 2.4mm/month);
+  // previousReadingAt is set to exactly 30.44 days before NOW.
   it("does not warn when the implied wear rate exactly equals the trigger", () => {
-    // Calculate: need to go back exactly DAYS_PER_MONTH from NOW
-    // DAYS_PER_MONTH = 30.44 days
     const exactlyOneMonthAgo = new Date(NOW.getTime() - 30.44 * 86_400_000);
     const adjustedPosition = { ...position, previousReadingAt: exactlyOneMonthAgo.toISOString() };
 
-    // 12 - 9.6 = 2.4, which is exactly the trigger (0.8 * 3 = 2.4)
     const w = historyWarnings(
       { treads: [9.6, 9.6, 9.6], pressureKpa: 800 },
       adjustedPosition,
@@ -130,11 +123,9 @@ describe("historyWarnings", () => {
   // Boundary test: FR-INS-035 boundary-1.
   // One mm less than the exact multiple should trigger the warning.
   it("warns when the implied wear rate is one mm above the trigger", () => {
-    // Calculate: need to go back exactly DAYS_PER_MONTH from NOW
     const exactlyOneMonthAgo = new Date(NOW.getTime() - 30.44 * 86_400_000);
     const adjustedPosition = { ...position, previousReadingAt: exactlyOneMonthAgo.toISOString() };
 
-    // 12 - 9.5 = 2.5, which exceeds the trigger (0.8 * 3 = 2.4)
     const w = historyWarnings(
       { treads: [9.5, 9.5, 9.5], pressureKpa: 800 },
       adjustedPosition,
@@ -175,14 +166,12 @@ describe("historyWarnings", () => {
     expect(codes(w)).not.toContain("FR-INS-035");
   });
 
-  // Guard: negative elapsed time (previousReadingAt after now, clock skew on device).
-  // The months > 0 guard is what suppresses the warning. A tread increase over
-  // negative time produces a positive rate (two negatives): (12 - 14) / -0.0329 ≈ +60.88.
-  // Without the guard, this would exceed the 2.4 trigger and warn. With the guard, it does not.
+  // Guard: negative elapsed time (clock skew). Without months > 0, a tread
+  // increase over negative time gives a positive rate via double negation
+  // and would wrongly warn.
   it("does not compute a wear rate when the previous reading is in the future", () => {
     const futureTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000); // one day in the future
     const skewedPosition = { ...position, previousReadingAt: futureTime.toISOString() };
-    // Treads deeper than previousGoverningMm (14 > 12) produce a positive implied rate over negative time
     const w = historyWarnings({ treads: [14, 14, 15], pressureKpa: 800 }, skewedPosition, ctx, NOW);
     expect(codes(w)).not.toContain("FR-INS-035");
   });
@@ -230,12 +219,8 @@ describe("odometerWarnings", () => {
     expect(w[0].enteredValue).toBe("512180");
   });
 
-  // Boundary test: FR-INS-033 at exactly the ceiling.
-  // A perDay landing exactly on odometerMaxDailyKm → expect no warning.
-  // lastOdometerKm: 412180, lastOdometerAt: 2026-08-19T06:00:00Z (6 days before NOW)
-  // odometerMaxDailyKm: 1600
-  // 6 days * 1600 km/day = 9600 km of headroom
-  // So exactly 412180 + 9600 = 421780 km should not warn.
+  // Boundary: FR-INS-033 exactly at the ceiling (6 days * 1600km/day = 9600km
+  // headroom); lastOdometerKm + 9600 should not warn.
   it("does not warn when daily distance exactly equals the configured ceiling", () => {
     const exactDailyDistanceKm = ctx.lastOdometerKm! + 6 * ctx.config.odometerMaxDailyKm;
     const w = odometerWarnings(exactDailyDistanceKm, ctx, NOW);
@@ -263,14 +248,12 @@ describe("odometerWarnings", () => {
     expect(codes(w)).not.toContain("FR-INS-033");
   });
 
-  // Guard: negative elapsed time (lastOdometerAt after now, clock skew on device).
-  // The days <= 0 guard is what suppresses the warning. An odometer decrease over
-  // negative time produces a positive distance (two negatives): (400000 - 412180) / -1 = +12,180.
-  // Without the guard, this would exceed the 1,600 ceiling and warn. With the guard, it does not.
+  // Guard: negative elapsed time (clock skew). Without days <= 0, an
+  // odometer decrease over negative time gives a positive perDay via
+  // double negation and would wrongly warn.
   it("does not compute daily distance when the last odometer is in the future", () => {
     const futureTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000); // one day in the future
     const skewedCtx = { ...ctx, lastOdometerAt: futureTime.toISOString() };
-    // Odometer below lastOdometerKm (400,000 < 412,180) produces a positive perDay over negative time
     const w = odometerWarnings(400000, skewedCtx, NOW);
     expect(codes(w)).not.toContain("FR-INS-033");
   });

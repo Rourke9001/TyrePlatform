@@ -178,36 +178,13 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 	return id, ok
 }
 
-// The submit function raises its refusals with SQLSTATEs in a private class so
-// the transport can tell a client mistake from a server fault. The 409 is
-// load-bearing beyond politeness: the outbox retries a 5xx with backoff and
-// surfaces FR-OFF-013's recovery action on a 409, so conflating the two would
-// have a phone hammer a refusal that will never change.
-//
-// TY001/TY002 (DR-020 odometer plausibility) are deliberately absent: both
-// are trapped inside app.submit_inspection's own exception block and turned
-// into an app.inspection_warning row, so they never escape as an error for
-// this map to see. TY010 (no tenant/actor bound) is also deliberately
-// absent. That is a genuine invariant breach, not a client mistake, so the
-// default 500 is the honest answer.
-//
-// The integrity classes below the private ones are the backstop to that rule
-// rather than a second vocabulary. app.submit_inspection guards the shapes it
-// can name and refuses them as TY005, but it cannot pre-empt every constraint
-// the payload reaches. An unknown tyre_id or combination_id arrives as a
-// foreign-key violation, and a value that will not parse as its column's type
-// never reaches a guard at all, because the function's own DECLARE casts it.
-// Each of those means "this body is wrong" and can only ever mean that: the
-// identical payload fails identically on every retry. Left unmapped they are
-// 500s, and a 500 is the one answer ADR-0009's outbox cannot survive.
-//
-// A blanket 23503 is safe across every write path because the message is
-// canned (ADR-0012): a foreign-key violation means the request named
-// something that does not exist, and 422 with no schema object in it is the
-// honest answer wherever it is raised. A refusal a client must branch on
-// earns a code of its own instead: raised as a TY in SQL where a rule is
-// being evaluated, or translated from the constraint that detects it where
-// the schema already states the rule (ADR-0013).
+// submitInspection's SQLSTATEs sort into three groups: TY-prefixed (ADR-0012's
+// own vocabulary, never canned), the standard integrity violations below
+// (canned as 422/409 so a client mistake never reads as a 500 the outbox
+// retries forever, ADR-0009), and everything else (defaults to 500, the
+// honest answer for an invariant breach). TY001/TY002 (DR-020 odometer
+// plausibility) and TY010 never reach here by construction; see
+// docs/architecture.md's refusal-vocabulary section for the full account.
 
 // The refusal vocabulary (ADR-0012). A code names the reason, never the layer
 // that found it, which is why codeVehicleNotVisible is TY007's own: the Go
@@ -269,26 +246,15 @@ var submitStatus = map[string]int{
 	"TY004": http.StatusUnprocessableEntity,
 	"TY005": http.StatusUnprocessableEntity,
 	"TY006": http.StatusUnprocessableEntity,
-	// TY007: an unrecognised or cross-tenant vehicle_id. Migration 000023's
-	// own comment on this SQLSTATE explains why it exists. Without an entry
-	// here, the alternative is the composite FK violation (23503) reaching
-	// this map unmapped and surfacing as a 500, which tells the outbox to
-	// retry forever a submit that will never succeed. Reachable in practice
-	// by a ScopeTenant actor (CONTROLLER/ORG_ADMIN), who skips the Go-side
-	// v_capture_vehicle check above.
+	// TY007: an unrecognised or cross-tenant vehicle_id (migration 000023).
+	// Reachable in practice only by a ScopeTenant actor, who skips the
+	// Go-side v_capture_vehicle check.
 	"TY007": http.StatusUnprocessableEntity,
 
-	// TY011/TY012/TY013 are the tyre lifecycle's refusals (000031). TY009 is
-	// fitment_odometer_matches_unit_kind's, and that trigger is BEFORE INSERT
-	// OR UPDATE, so all four fitment writes reach it: app.fit_tyre's fit,
-	// app.remove_tyre's closure, and both of app.rotate_tyres', the rows it
-	// closes and the rows it opens (TYRE-92).
-	// TY014 is a fitment write refused, TY015 is the retread cap, TY016 is a
-	// unit status transition refused (000032-000035), TY017 is a rig write
-	// refused (000037), and TY018 is an inspection task refused (000038).
-	// TY019 is an inspection write refused, the void's own refusals among
-	// them (000040); TY020 is a reading offered to a sealed inspection and
-	// has no entry, because no route can reach it, as with TY008.
+	// TY009/011-019: fitment (TYRE-92), tyre-lifecycle, unit-status, rig and
+	// task refusals. TY020 and TY008 have no entry; no route can reach
+	// either. See docs/architecture.md's refusal-vocabulary table for the
+	// migration each one came from.
 	"TY009": http.StatusUnprocessableEntity,
 	"TY011": http.StatusUnprocessableEntity,
 	"TY012": http.StatusUnprocessableEntity,
@@ -348,18 +314,12 @@ type refusal struct {
 	message string
 }
 
-// The conflicts a client acts on differently from any other conflict, keyed by
-// the constraint that detects them (ADR-0013). The rule is the constraint's:
-// DR-003 for a fleet number, D10 for an email, B1's exclusion for an
-// assignment. This map only names the refusal for a caller. The name is
-// translated, never forwarded, so ADR-0012 holds; an unrecognised constraint
-// keeps the generic conflict, which is the safe direction.
-//
-// These names are consulted only on the race the pre-insert classification
-// misses, so no integration test reaches them in anger.
-// TestConflictCodesNameLiveSchemaObjects asserts every key here names a live
-// constraint or index, which is the guarantee the suite actually provides
-// (TYRE-95).
+// The conflicts a client acts on differently, keyed by the constraint that
+// detects them (ADR-0013): DR-003 (fleet number), D10 (email), B1's
+// exclusion (assignment). Translated, never forwarded (ADR-0012); an
+// unrecognised constraint keeps the generic conflict.
+// TestConflictCodesNameLiveSchemaObjects asserts every key names a live
+// constraint (TYRE-95).
 var conflictCodes = map[string]string{
 	"vehicle_tenant_id_fleet_number_key": codeFleetNumberTaken,
 	"app_user_tenant_email_key":          codeEmailTaken,
@@ -400,16 +360,11 @@ var conflictMessages = map[string]string{
 	codeObservationResolved: msgObservationResolved,
 }
 
-// Forwarding is decided by the TY class rather than by a list of safe codes.
-// A message in that class is ours: app.submit_inspection writes it, it names
-// no table or constraint, and it interpolates values a Go constant could not
-// state: TY003's window is tenant configuration (rule 5, FR-INS-038). Every
-// other message is Postgres's and can name a constraint and a table
-// (reading_tyre_id_fkey), so it is canned. A SQLSTATE added to submitStatus
-// without a case below is canned by default, which is the safe direction.
-//
-// No standard Postgres SQLSTATE class begins with T, so the class is ours
-// alone and the prefix cannot collide.
+// Forwarding is decided by the TY class, not a list of safe codes: a TY
+// message is ours (app.submit_inspection wrote it, names no schema object).
+// Everything else is Postgres's, can name a constraint or table, and is
+// canned by default (the safe direction). No standard SQLSTATE class begins
+// with T.
 func refusalForPgError(err error) (refusal, bool) {
 	var pgErr *pgconn.PgError
 	if !errors.As(err, &pgErr) {
@@ -486,15 +441,10 @@ type refusalError struct{ refusal }
 
 func (e refusalError) Error() string { return e.code + ": " + e.message }
 
-// errVehicleNotVisible is the write path's FR-AUT-005 narrowing, answered as
-// 422 and not 403. The status and the wording are TY007's, deliberately.
-// A ScopeTenant actor skips the Go-side check and meets the same condition at
-// app.submit_inspection's TY007 guard, which answers 422 "vehicle not
-// visible"; a driver refused here with 403 would tell the two roles different
-// things about the same vehicle, which is the distinction ADR-0011 exists to
-// deny. 422 says nothing about whether the vehicle exists elsewhere, so
-// indistinguishability is preserved either way, and it is the status the
-// capture design's refusal table already names for this row.
+// errVehicleNotVisible is FR-AUT-005's write-path narrowing, answered 422
+// (TY007's own status), not 403: a ScopeTenant actor meets the identical
+// condition at app.submit_inspection's TY007 guard, and the two roles must
+// learn the same thing about the same vehicle (ADR-0011).
 var errVehicleNotVisible = errors.New("vehicle not visible")
 
 // require refuses unless the actor's role carries the capability. Handlers
@@ -646,17 +596,11 @@ type fleetUnitJSON struct {
 }
 
 // unitSource is the one place a fleet handler chooses its relation for a
-// unit, by auth.Actor.Scope and never by role name (ADR-0006): the
-// depot-narrowed app.v_depot_vehicle is the default, and app.vehicle, the
-// whole tenant, is the exception earned only by ScopeTenant. A role added
-// later without a scope entry lands on the narrow default rather than
-// silently reading everything (FR-AUT-006/007/008). The unit read, its
-// PATCH and status write, its fitment, driver and task lists, the four
-// unit-path writes, and the two composition-report writes
-// (observations.go), which reach the unit through the report's inspection,
-// all compose this (FR-AUT-008, TYRE-162, owner 6 Sep 2026; TYRE-226). The
-// four unit-path writes are fitTyre, rotateTyres, assignDriver and
-// scheduleInspectionTask.
+// unit, by auth.Actor.Scope and never by role name (ADR-0006):
+// app.v_depot_vehicle is the default, app.vehicle the ScopeTenant exception.
+// A role added later without a scope entry lands on the narrow default
+// (FR-AUT-006, FR-AUT-007, FR-AUT-008, TYRE-162, TYRE-226). See
+// docs/architecture.md for the full list of callers.
 func unitSource(a auth.Actor) string {
 	if a.Scope() == auth.ScopeTenant {
 		return `app.vehicle`

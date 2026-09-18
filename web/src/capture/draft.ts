@@ -2,29 +2,21 @@ import Dexie, { type EntityTable } from "dexie";
 
 import type { WarningCode } from "./warnings";
 
-// FR-INS-040 / DR-021: the code, the value that provoked it and what the
-// driver did about it. The response is what the paper trail turns on months
-// later, so it is captured here rather than reconstructed at submit.
-//
-// Null when the driver left the position without answering. Closing the sheet
-// is not acknowledging. app.inspection_warning.response is nullable with no
-// CHECK for exactly this case (000022_inspection_warning), so absence is
-// recorded as absence; a "DISMISSED" or "UNANSWERED" value invented here would
-// be a fiction the column was deliberately shaped to avoid.
+// FR-INS-040/DR-021: the code, value and response. Null when the driver
+// left without answering; app.inspection_warning.response is nullable with
+// no CHECK precisely so absence is recorded as absence
+// (000022_inspection_warning).
 export interface RecordedWarning {
   code: WarningCode;
   enteredValue: string | null;
   response: "ACKNOWLEDGED" | "CONFIRMED" | null;
 }
 
-// A position row belongs to an axle CONFIGURATION, not to a vehicle
-// (app.position.configuration_id), so two units of the same configuration
-// share every position id. The two links of a superlink are the ordinary
-// case. The identity of a reading is therefore the pair, which is exactly what
-// app.reading's (inspection_id, position_id, vehicle_id) unique key states and
-// what BR-VEH-003 means by attributing every reading to the unit that owns the
-// position. Anything on the device keyed by position id alone silently
-// collapses two units into one and sends one of them nowhere.
+// A position row belongs to an axle CONFIGURATION, not a vehicle, so two
+// units of one configuration share every position id (the two links of a
+// superlink, the ordinary case). The reading's identity is therefore the
+// pair, matching app.reading's (inspection_id, position_id, vehicle_id) key
+// (BR-VEH-003).
 export function cellKey(vehicleId: string, positionId: string): string {
   return `${vehicleId}:${positionId}`;
 }
@@ -70,10 +62,8 @@ export interface Draft {
   // the identity.
   positions: Record<string, DraftPosition>;
   warnings: RecordedWarning[];
-  // TYRE-155 / FR-INS-066: spares the driver said the unit does not carry.
-  // Self-describing (unit and position), for the same reason DraftPosition
-  // is: a draft read back under a different key shape still says what it
-  // means. Empty on a draft written before the field existed.
+  // TYRE-155/FR-INS-066: spares the driver said this unit does not carry;
+  // see markSpareAbsent below.
   absentSpares: { vehicleId: string; positionId: string }[];
 }
 
@@ -93,32 +83,23 @@ database.version(1).stores({ drafts: "key", outbox: "clientUuid, state" });
 
 export const db = database;
 
-// Nothing versions the shape of the persisted draft: it is one JSON blob in one
-// row, so a change to cellKey or to DraftPosition meets a row written under a
-// different shape with no schema to refuse it and no error to raise. That
-// failure is silent and expensive: a key the reader cannot match reads back as
-// an untouched vehicle under a header counting it done, and a position entered
-// again lands beside the unreachable entry instead of replacing it, so the
-// submit carries the same wheel twice.
-//
-// Rebuilding from the values removes the dependency on the keys altogether:
-// DraftPosition names its own unit and its own position, so every entry is
-// self-describing whatever it happens to be filed under. Last one wins on a
-// collision, which is the right answer. Object.values keeps insertion order,
-// so an entry written under a superseded key is overwritten by the one written
-// after it.
+// The persisted draft is one unversioned JSON blob, so a shape change meets
+// an older row with no schema to refuse it, silently: an unreachable key
+// reads as an untouched vehicle and a re-entered position lands beside it
+// instead of replacing it. Rebuilt from the values instead: DraftPosition
+// names its own unit and position, so every entry is self-describing
+// whatever it is filed under, and Object.values' insertion order makes the
+// newer write win a collision.
 function byCell(positions: Record<string, DraftPosition>): Record<string, DraftPosition> {
   const out: Record<string, DraftPosition> = {};
   for (const p of Object.values(positions)) out[cellKey(p.vehicleId, p.positionId)] = p;
   return out;
 }
 
-// The row is one JSON blob under no schema (see byCell above), so a draft
-// written before a field existed comes back without it. Every reader and
-// every mutate callback goes through here: a callback that runs .filter or
-// .some on a missing absentSpares throws, and the in-progress draft is the
-// one thing ADR-0009 promises to hold durably, so a stored row older than
-// its fields must never block the next write.
+// One JSON blob under no schema: a draft written before a field existed
+// comes back without it, and a callback that filters/some's a missing
+// absentSpares throws. The one durable in-progress draft (ADR-0009) must
+// never be blocked by that.
 function normalise(draft: Draft): Draft {
   return {
     ...draft,
@@ -185,9 +166,8 @@ export async function savePosition(position: DraftPosition): Promise<void> {
       ...draft.positions,
       [cellKey(position.vehicleId, position.positionId)]: position,
     },
-    // Mirror of markSpareAbsent's discard, in the other direction: a reading
-    // IS the driver saying the spare is here (TYRE-155), so a cell reopened
-    // after "No spare on this unit" must drop its absent mark, not carry both.
+    // TYRE-155: a reading reverses markSpareAbsent's mark; canonical
+    // rationale below.
     absentSpares: draft.absentSpares.filter(
       (s) => !(s.vehicleId === position.vehicleId && s.positionId === position.positionId),
     ),
@@ -205,24 +185,18 @@ export async function saveHeader(patch: {
   await mutate((draft) => ({ ...draft, ...patch }));
 }
 
-// TYRE-155 / FR-INS-066: "No spare on this unit" is one tap on the spare
-// sheet, recorded as an observation rather than left for the driver to guess
-// at from an empty cell. Idempotent on the mark, the way savePosition
-// overwriting the same cell is: a driver who taps twice from a stale render
-// must not double the row app.submit_inspection would otherwise reject as
-// re-reading the same reading (000041, TY005 in reverse).
+// TYRE-155/FR-INS-066: one tap on the spare sheet, recorded as an
+// observation. Idempotent on the mark: a stale double-tap must not double
+// the row app.submit_inspection would otherwise reject as a repeat reading
+// (000041, TY005 in reverse).
 export async function markSpareAbsent(vehicleId: string, positionId: string): Promise<void> {
   const cell = cellKey(vehicleId, positionId);
   await mutate((draft) => ({
     ...draft,
-    // The tap IS the driver saying there is nothing to read: a reading and an
-    // absent_spares entry for the same cell is a shape app.submit_inspection
-    // refuses outright (TY005, 000041), and the outbox treats a 422 as
-    // permanent, so a stale draft position here would lose the whole
-    // capture rather than one cell. Discarding it in the same mutate as the
-    // mark is what makes that combination unreachable rather than merely
-    // filtered out downstream, which would be the silent drop the design
-    // spec forbids.
+    // TY005/000041: a reading and an absent_spares entry on the same cell
+    // is refused outright, and the outbox treats that 422 as permanent.
+    // Discarded in the same mutate as the mark so the combination is
+    // unreachable, not merely filtered downstream.
     positions: Object.fromEntries(Object.entries(draft.positions).filter(([key]) => key !== cell)),
     absentSpares: draft.absentSpares.some(
       (s) => s.vehicleId === vehicleId && s.positionId === positionId,
@@ -232,9 +206,8 @@ export async function markSpareAbsent(vehicleId: string, positionId: string): Pr
   }));
 }
 
-// TYRE-155: the reading markSpareAbsent discarded is not restored here. The
-// driver re-enters it. Restoring a value from before the tap would be the
-// app guessing at a reading the driver said was absent.
+// TYRE-155: unmarking does not restore the discarded reading; canonical
+// rationale at markSpareAbsent above.
 export async function unmarkSpareAbsent(vehicleId: string, positionId: string): Promise<void> {
   await mutate((draft) => ({
     ...draft,

@@ -23,8 +23,8 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
 }
 
 // A deferred whose executor assigns the resolver, released before the test
-// ends (docs/lessons.md, 31 Aug 2026). Holds the depot read in flight long
-// enough to assert the pending option, without a fake timer.
+// ends (docs/lessons.md, 31 Aug 2026), holds the depot read in flight to
+// assert the pending option without a fake timer.
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((res) => {
@@ -99,10 +99,9 @@ describe("dispatching a tyre", () => {
     ).toBeTruthy();
   });
 
-  // Regression for the radio's onChange dropping setDepotId(""): a depot
-  // chosen for Retreader is not necessarily a valid Breakdown supplier depot
-  // (app.dispatch_tyre's own type check would refuse it as TY014), so the
-  // switch must clear the selection, not carry a now-stale depot forward.
+  // A depot chosen for Retreader is not necessarily valid for Breakdown
+  // supplier, so switching destination must clear the selection, not carry
+  // a stale depot forward (app.dispatch_tyre's TY014).
   it("clears the picked depot when the destination is switched", async () => {
     const user = userEvent.setup();
     renderForm();
@@ -117,11 +116,9 @@ describe("dispatching a tyre", () => {
     await within(depotSelect).findByRole("option", { name: "Roadside Rescue" });
     expect(within(depotSelect).queryByRole("option", { name: "Retread Co" })).toBeNull();
     expect(depotSelect).toHaveValue("");
-    // A controlled select whose value matches no option renders the first
-    // non-disabled one instead. "" reads the same whether depotId actually
-    // cleared or is stale at "r1". The submit button's own disabled check
-    // does not share that ambiguity: a stale depotId leaves it enabled and
-    // would dispatch to the wrong depot.
+    // A controlled select with a value matching no option renders the first
+    // non-disabled one, so "" reads the same whether depotId cleared or is
+    // stale; the submit button's own disabled check has no such ambiguity.
     expect(screen.getByRole("button", { name: /^dispatch$/i })).toBeDisabled();
   });
 
