@@ -24,67 +24,6 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// uuidField is the body-field counterpart of pathID: an id that does not
-// parse is refused before a transaction opens, naming the field, rather than
-// reaching a uuid parameter as a raw string and coming back as Postgres's
-// 22P02 with no field in it (ADR-0013 decision 5).
-func uuidField(field, raw string) (uuid.UUID, error) {
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		return uuid.Nil, invalid(field, "must be a uuid")
-	}
-	return id, nil
-}
-
-// requiredText refuses an absent value, never a badly shaped one. A tread is
-// carried as a string end to end and cast ::numeric in SQL, where the range
-// rule lives; an empty string would reach that cast as a 22P02 whose canned
-// message names no field at all, which is a shape problem this side owns.
-func requiredText(field, raw string) (string, error) {
-	trimmed := strings.TrimSpace(raw)
-	if trimmed == "" {
-		return "", invalid(field, "is required")
-	}
-	return trimmed, nil
-}
-
-// instantField parses an optional instant before any transaction opens, the
-// way listTyres and assignDriver already parse their dates. A string that
-// will not parse would otherwise reach $n::timestamptz raw, and Postgres's
-// 22007/22008 would then be the refusal, canned as invalid_submission,
-// which names no field; the check here is what names one. The parsed value
-// is what gets bound, not the text it came from: pgx encodes a time.Time as
-// a timestamptz itself, so the instant the function acts on is exactly the
-// one validated here.
-func instantField(field string, raw *string) (*time.Time, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	at, err := time.Parse(time.RFC3339, *raw)
-	if err != nil {
-		return nil, invalid(field, "must be an RFC 3339 instant")
-	}
-	return &at, nil
-}
-
-// dateField is instantField for a civil date rather than an instant, and it
-// answers the validated TEXT rather than a time.Time: a dispatch and a
-// retread return carry a date the tenant's own zone resolves to an instant
-// (000033, 000034), so the text is bound to $n::date and the resolution
-// stays in SQL. listTyres validates its on the same way. Why the check is
-// on this side at all is instantField's note. A nil raw stays nil so the
-// function's own default applies rather than a Go clock's idea of today.
-func dateField(field string, raw *string) (*string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*raw)
-	if _, err := time.Parse(isoDate, trimmed); err != nil {
-		return nil, invalid(field, "must be a date as YYYY-MM-DD")
-	}
-	return &trimmed, nil
-}
-
 // fitTyreRequest is app.fit_tyre's body. Odometer is *int64 so a unit with
 // none sends nothing rather than a zero reading (000025 exempts a trailer),
 // and OccurredAt is *string so an absent instant reaches the function's own

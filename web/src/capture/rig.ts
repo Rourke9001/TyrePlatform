@@ -1,5 +1,10 @@
 import type { CaptureContext, CapturePosition } from "./captureContext";
+import type { Draft } from "./draft";
 import { cellKey } from "./draft";
+import { historyWarnings } from "./history";
+import { absentCells, capturedCells } from "./payload";
+import type { Severity } from "./warnings";
+import { governingTread, positionWarnings, severityFor, treadsRead } from "./warnings";
 
 export interface RigPosition {
   position: CapturePosition;
@@ -98,4 +103,71 @@ export function completenessByUnit(
       total: cells.length,
     };
   });
+}
+
+export interface Progress {
+  rig: RigPosition[];
+  byCell: Map<string, RigPosition>;
+  doneCells: Set<string>;
+  absent: Set<string>;
+  units: UnitCompleteness[];
+  doneCount: number;
+  totalPositions: number;
+  severityOf: (cell: string) => Severity;
+  governingOf: (cell: string) => number | null;
+}
+
+// FR-INS-065: the one denominator, both the on-screen total and
+// completeness_pct's divisor (payload.ts). The two numerators (doneCount,
+// payload's) are computed apart but agree only because both answer to
+// warnings.treadsRead.
+export function deriveProgress(
+  contexts: CaptureContext[] | null,
+  draft: Draft | null,
+  openedAt: number,
+): Progress {
+  const rig = contexts ? rigPositions(contexts) : [];
+  const byCell = new Map(rig.map((r) => [r.key, r]));
+  const doneCells = draft ? capturedCells(draft) : new Set<string>();
+  // TYRE-155: an absent spare is settled without being a reading. Off the
+  // denominator (completenessByUnit) and off the outstanding walk
+  // (nextOutstanding), the same way a captured cell is off both.
+  const absent = draft ? absentCells(draft) : new Set<string>();
+  const units = contexts ? completenessByUnit(contexts, doneCells, absent) : [];
+  const doneCount = units.reduce((n, u) => n + u.done, 0);
+  const totalPositions = units.reduce((n, u) => n + u.total, 0);
+
+  // Recomputed from the readings, not read off draft.positions[].warnings,
+  // since those are written only when a position finishes. Banded on
+  // treadsRead: requiring pressure too would hide FR-INS-036 on a
+  // tread-complete cell.
+  function severityOf(cell: string): Severity {
+    const saved = draft?.positions[cell];
+    const r = byCell.get(cell);
+    if (!saved || !r) return "unmeasured";
+    const entry = { treads: saved.treads, pressureKpa: saved.pressureKpa };
+    return severityFor(
+      [
+        ...positionWarnings(entry, r.position, r.context.config),
+        ...historyWarnings(entry, r.position, r.context, new Date(openedAt)),
+      ],
+      treadsRead(saved.treads),
+    );
+  }
+
+  function governingOf(cell: string): number | null {
+    return governingTread(draft?.positions[cell]?.treads ?? []);
+  }
+
+  return {
+    rig,
+    byCell,
+    doneCells,
+    absent,
+    units,
+    doneCount,
+    totalPositions,
+    severityOf,
+    governingOf,
+  };
 }

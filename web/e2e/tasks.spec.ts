@@ -1,8 +1,19 @@
-import { randomUUID } from "node:crypto";
-
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
 import { actAsUser } from "./admin";
+import {
+  apiGet,
+  apiPost,
+  configFor,
+  createUnit,
+  postedResponse,
+  submitMinimalInspection,
+  CONTROLLER,
+  DRIVER_ACTOR,
+  SANDBOX_DRIVER,
+  type AxleConfiguration,
+  type CaptureContext,
+} from "./sandbox";
 
 // TYRE-90's DoD (Jira). Submitted via POST /api/inspections; the screen
 // walk lives in capture.spec.ts (avoids a second one to keep true).
@@ -25,69 +36,6 @@ test.skip(
 // without a reseed still gets a fresh unit (admin.spec.ts's idiom).
 const RUN = Date.now().toString().slice(-6);
 const HORSE_FLEET = `T6H-${RUN}`;
-
-// Seed-derived ids, per admin.ts: md5('sbcontroller1') holds ViewFleet,
-// ManageAssets and ManageAssignments, and md5('sbdriver1') is the Sandbox
-// driver this run schedules and then submits as.
-const TENANT = "33333333-3333-3333-3333-333333333333";
-const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
-const SANDBOX_DRIVER = "40f019ce-192e-92d1-5b15-2eb7b65369df";
-
-// The dev actor headers a raw request has to state itself (admin.ts). ACTOR
-// and postedResponse are rigs.spec.ts's, restated here rather than exported
-// from it. A spec is not a module other specs import.
-const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
-const DRIVER_ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": SANDBOX_DRIVER };
-
-function postedResponse(page: Page, path: RegExp) {
-  return page.waitForResponse(
-    (res) => path.test(new URL(res.url()).pathname) && res.request().method() === "POST",
-  );
-}
-
-async function apiGet(page: Page, path: string, headers = ACTOR): Promise<unknown> {
-  const res = await page.request.get(path, { headers });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return res.json();
-}
-
-async function apiPost(page: Page, path: string, data: unknown): Promise<unknown> {
-  const res = await page.request.post(path, { headers: ACTOR, data });
-  expect(res.ok(), await res.text()).toBeTruthy();
-  return res.json();
-}
-
-interface AxleConfiguration {
-  id: string;
-  code: string;
-}
-
-// A fleet's axle configurations are tenant data (FR-VEH-002), so the ids are
-// read rather than assumed. Only the codes the Sandbox seed plants are.
-function configFor(configs: AxleConfiguration[], code: string): string {
-  const found = configs.filter((c) => c.code === code);
-  expect(found, `no ${code} axle configuration in Sandbox Fleet`).not.toHaveLength(0);
-  return found[0].id;
-}
-
-async function createUnit(
-  page: Page,
-  fleetNumber: string,
-  unitKind: string,
-  configurationId: string,
-): Promise<string> {
-  const created = (await apiPost(page, "/api/vehicles", {
-    fleetNumber,
-    unitKind,
-    configurationId,
-  })) as { id: string };
-  return created.id;
-}
-
-interface CaptureContext {
-  positions: { id: string; isSpare: boolean }[];
-  config: { treadReadingCount: number };
-}
 
 test.beforeEach(async ({ page }) => {
   await actAsUser(page, CONTROLLER);
@@ -165,25 +113,11 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
   const treadCount = captureContext.config.treadReadingCount;
   expect(typeof treadCount, "the tenant's configured tread_reading_count").toBe("number");
 
-  const submitted = await driverPage.request.post("/api/inspections", {
-    headers: DRIVER_ACTOR,
-    data: {
-      client_uuid: randomUUID(),
-      vehicle_id: horseId,
-      task_id: task.id,
-      started_at: new Date(Date.now() - 120_000).toISOString(),
-      submitted_at: new Date().toISOString(),
-      duration_seconds: 120,
-      readings: [
-        {
-          vehicle_id: horseId,
-          position_id: running[0].id,
-          tyre_id: null,
-          pressure_kpa: 800,
-          treads: Array.from({ length: treadCount }, (_, i) => 8 + i * 0.2),
-        },
-      ],
-    },
+  const submitted = await submitMinimalInspection(driverPage, DRIVER_ACTOR, {
+    vehicleId: horseId,
+    positionId: running[0].id,
+    treadCount,
+    task_id: task.id,
   });
   expect(submitted.status(), await submitted.text()).toBe(201);
 

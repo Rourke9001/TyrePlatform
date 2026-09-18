@@ -1,5 +1,7 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
+import { actAs } from "./admin";
+
 // Shared by capture.spec.ts and reach.spec.ts, not copied into each: a second
 // copy would drift from the fixture's driver and its assignments.
 // Seed-derived ids and dev actor headers, per admin.ts; the headers exist
@@ -9,17 +11,8 @@ const TENANT = "11111111-1111-1111-1111-111111111111";
 
 export const HEADERS = { "X-Tenant-ID": TENANT, "X-User-ID": DRIVER };
 
-// The dev actor switcher reads these keys before anything renders, so seeding
-// localStorage ahead of the first script is a real login as far as the app can
-// tell.
 export async function actAsDriver(page: Page): Promise<void> {
-  await page.addInitScript(
-    ([user, tenant]) => {
-      window.localStorage.setItem("tyre.dev.user-id", user);
-      window.localStorage.setItem("tyre.dev.tenant-id", tenant);
-    },
-    [DRIVER, TENANT],
-  );
+  await actAs(page, DRIVER, TENANT);
 }
 
 export interface AssignedVehicle {

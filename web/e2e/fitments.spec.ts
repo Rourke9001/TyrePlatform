@@ -1,57 +1,18 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { actAsUser } from "./admin";
+import { apiGet, posted, postedRefusal, CONTROLLER } from "./sandbox";
 
 // TYRE-92/93/94's fitment surface (Jira), on Sandbox Fleet, never BAC
 // (TYRE-80). Serial: disposes Sandbox horse sbveh1, so make e2e's db-reset
 // first is load-bearing; no other spec references sbveh1.
 test.describe.configure({ mode: "serial" });
 
-// Seed-derived ids, per admin.ts: md5('sbcontroller1'), md5('sbveh1') (fleet
-// HORSE, SBX001GP, a 6x4 truck tractor that records an odometer) and
-// md5('sbveh2') (fleet LINK6, SBX002GP, a 2-axle trailer that does not).
-const TENANT = "33333333-3333-3333-3333-333333333333";
-const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
+// Seed-derived ids, per admin.ts: md5('sbveh1') (fleet HORSE, SBX001GP, a 6x4
+// truck tractor that records an odometer) and md5('sbveh2') (fleet LINK6,
+// SBX002GP, a 2-axle trailer that does not).
 const HORSE = "e66c342e-9472-65ce-752d-78b4035c4ec0";
 const TRAILER = "a8f398e2-2ede-a028-986b-22b86f1d36d5";
-
-// The dev actor headers a raw request has to state itself (admin.ts).
-const ACTOR = { "X-Tenant-ID": TENANT, "X-User-ID": CONTROLLER };
-
-// The register's own read, used where a fact this flow depends on has no cell
-// on any screen: the retread count, and a unit's status once VehicleList
-// stops showing one.
-function actorGet(page: Page, path: string): Promise<unknown> {
-  return page.request.get(path, { headers: ACTOR }).then((res) => {
-    expect(res.ok()).toBeTruthy();
-    return res.json();
-  });
-}
-
-function postedResponse(page: Page, path: RegExp) {
-  return page.waitForResponse(
-    (res) => path.test(new URL(res.url()).pathname) && res.request().method() === "POST",
-  );
-}
-
-function posted(page: Page, path: RegExp): Promise<unknown> {
-  return postedResponse(page, path).then((res) => {
-    // actorGet's own check: without it, a step chained under this promise
-    // could pass on a 422 refusal as readily as on a real write.
-    expect(res.ok()).toBeTruthy();
-    return res;
-  });
-}
-
-// For calls expected to be refused (future-dated dispatch, INV-2's
-// still-fitted check): posted()'s res.ok() would fail before the refusal text
-// is read, so asserting the refusal here catches an unexpected success too.
-function postedRefusal(page: Page, path: RegExp): Promise<unknown> {
-  return postedResponse(page, path).then((res) => {
-    expect(res.ok()).toBeFalsy();
-    return res;
-  });
-}
 
 function panel(page: Page, positionCode: string) {
   return page.getByRole("region", { name: `Position ${positionCode}` });
@@ -359,7 +320,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // The returned-on date comes from the job the dispatch opened, which the
   // API carries as the tenant's own civil date: a date typed from this
   // process's clock would be a day out whenever the two disagree (rule 6).
-  const openJobs = (await actorGet(page, "/api/retread-jobs?open=true")) as {
+  const openJobs = (await apiGet(page, "/api/retread-jobs?open=true")) as {
     displayCode: string;
     sentAt: string;
   }[];
@@ -390,7 +351,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
       .filter({ hasText: stockB })
       .getByRole("cell", { name: "IN_STOCK", exact: true }),
   ).toBeVisible();
-  const register = (await actorGet(page, "/api/tyres")) as {
+  const register = (await apiGet(page, "/api/tyres")) as {
     tyres: { displayCode: string; retreadCount: number }[];
   };
   expect(register.tyres.find((t) => t.displayCode === stockB)?.retreadCount).toBe(1);
@@ -409,7 +370,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // The select's value is the form's own state, seeded once from the unit and
   // never re-read, so the confirmation and the unit read are what can say the
   // status actually moved.
-  expect((await actorGet(page, `/api/vehicles/${HORSE}`)) as { status: string }).toMatchObject({
+  expect((await apiGet(page, `/api/vehicles/${HORSE}`)) as { status: string }).toMatchObject({
     status: "PARKED",
   });
 
@@ -451,7 +412,7 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await expect(statusForm.getByRole("alert")).toHaveCount(0);
   // VehicleList renders no status, so the disposal is confirmed against the
   // unit read rather than against a cell that does not exist.
-  expect((await actorGet(page, `/api/vehicles/${HORSE}`)) as { status: string }).toMatchObject({
+  expect((await apiGet(page, `/api/vehicles/${HORSE}`)) as { status: string }).toMatchObject({
     status: "DISPOSED",
   });
 });
