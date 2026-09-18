@@ -12,6 +12,7 @@ import type { Unit, UnitPosition } from "../../api/units";
 import {
   me,
   openFitment,
+  renderWithActor,
   requestedUrl,
   respond,
   sentBody,
@@ -53,13 +54,7 @@ function renderPanel(
   capabilities: string[] = ["ManageAssets", "ViewFleet"],
 ) {
   const u = unit({ ...overrides, positions: [position] });
-  return render(
-    <ActorContext.Provider value={{ actor: me({ capabilities }), settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        <PositionPanel unit={u} position={position} />
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<PositionPanel unit={u} position={position} />, { capabilities });
 }
 
 // Every request the panel makes, answered by path: the tyre read and the

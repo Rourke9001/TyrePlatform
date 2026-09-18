@@ -1,13 +1,11 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { RigForm } from "./RigForm";
-import { ActorContext } from "../../auth/actorContext";
 import type { Rig } from "../../api/combinations";
 import type { Vehicle } from "../../api/vehicles";
-import { me, respond, sentBody, testQueryClient } from "../../test/fixtures";
+import { renderWithActor, respond, sentBody } from "../../test/fixtures";
 
 function vehicle(overrides: Partial<Vehicle> & { id: string; fleetNumber: string }): Vehicle {
   return {
@@ -32,15 +30,7 @@ function rig(overrides: Partial<Rig> & { id: string }): Rig {
 }
 
 function renderForm() {
-  return render(
-    <ActorContext.Provider
-      value={{ actor: me({ capabilities: ["ViewFleet", "ManageAssignments"] }), settled: true }}
-    >
-      <QueryClientProvider client={testQueryClient()}>
-        <RigForm />
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<RigForm />, { capabilities: ["ViewFleet", "ManageAssignments"] });
 }
 
 // The two reads RigForm makes on mount, in the order it issues them

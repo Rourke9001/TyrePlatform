@@ -1,11 +1,10 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { DispatchForm } from "./DispatchForm";
 import type { Tyre } from "../../api/tyres";
-import { requestedUrl, respond, sentBody, testQueryClient } from "../../test/fixtures";
+import { renderWithActor, requestedUrl, respond, sentBody } from "../../test/fixtures";
 
 function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
   return {
@@ -52,11 +51,7 @@ function dispatchCallIndex(): number {
 }
 
 function renderForm(t: Tyre = tyre({ id: "t1" }), onSuccess?: (destination: string) => void) {
-  return render(
-    <QueryClientProvider client={testQueryClient()}>
-      <DispatchForm tyre={t} tenantKey="tenant-a" onSuccess={onSuccess} />
-    </QueryClientProvider>,
-  );
+  return renderWithActor(<DispatchForm tyre={t} tenantKey="tenant-a" onSuccess={onSuccess} />);
 }
 
 describe("dispatching a tyre", () => {

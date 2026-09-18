@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { FitWarning, Unit, UnitPosition } from "../../api/units";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
+import { RefusalAlert } from "../RefusalAlert";
 import { FitForm } from "./FitForm";
 import { orientationLabel } from "./vocabulary";
 import { RemoveForm } from "./RemoveForm";
@@ -118,7 +119,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
         </ul>
       )}
 
-      {refused !== "" && <p role="alert">{refused}</p>}
+      <RefusalAlert message={refused} />
     </section>
   );
 }

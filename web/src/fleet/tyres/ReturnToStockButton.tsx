@@ -1,5 +1,5 @@
-import { refusalMessage } from "../../api/refusal";
 import { returnTyreToStock, type Tyre } from "../../api/tyres";
+import { RefusalAlert } from "../RefusalAlert";
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
@@ -42,7 +42,7 @@ export function ReturnToStockButton({
         {ret.isPending ? "Returning…" : "Return to stock"}
       </button>
 
-      {ret.error !== null && <p role="alert">{refusalMessage(ret.error, RETURN_WORDING)}</p>}
+      <RefusalAlert error={ret.error} wording={RETURN_WORDING} />
     </>
   );
 }

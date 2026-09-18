@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 
-import { refusalMessage } from "../../api/refusal";
 import { DESTINATIONS, dispatchTyre, type Destination, type Tyre } from "../../api/tyres";
 import { fetchDepots } from "../../api/units";
+import { RefusalAlert } from "../RefusalAlert";
 import { depotsKey, retreadJobsKey, tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
@@ -138,9 +138,7 @@ export function DispatchForm({
         {dispatch.isPending ? "Dispatching…" : "Dispatch"}
       </button>
 
-      {dispatch.error !== null && (
-        <p role="alert">{refusalMessage(dispatch.error, DISPATCH_WORDING)}</p>
-      )}
+      <RefusalAlert error={dispatch.error} wording={DISPATCH_WORDING} />
     </form>
   );
 }

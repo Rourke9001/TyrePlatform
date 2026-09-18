@@ -1,27 +1,15 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { TyreList } from "./TyreList";
-import { ActorContext } from "../../auth/actorContext";
 import type { Tyre } from "../../api/tyres";
-import { me, requestedUrl, respond, sentBody, testQueryClient } from "../../test/fixtures";
+import { renderWithActor, requestedUrl, respond, sentBody } from "../../test/fixtures";
 
+// TyreList links to ReceiveTyre (/fleet/tyres/new); react-router's Link
+// throws outside a Router, hence withRouter.
 function renderScreen(capabilities: string[] = ["ManageAssets", "ViewValuation"]) {
-  const actor = me({ displayName: "Controller", capabilities });
-  return render(
-    <ActorContext.Provider value={{ actor, settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        {/* TyreList links to ReceiveTyre (/fleet/tyres/new); react-router's
-            Link throws outside a Router. */}
-        <MemoryRouter>
-          <TyreList />
-        </MemoryRouter>
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<TyreList />, { capabilities, withRouter: true });
 }
 
 function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {

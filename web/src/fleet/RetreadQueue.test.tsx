@@ -1,13 +1,10 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { RetreadQueue } from "./RetreadQueue";
-import { ActorContext } from "../auth/actorContext";
 import type { RetreadJob } from "../api/retreads";
-import { me, requestedUrl, respond, sentBody, testQueryClient } from "../test/fixtures";
+import { renderWithActor, requestedUrl, respond, sentBody } from "../test/fixtures";
 
 function job(overrides: Partial<RetreadJob> & { id: string }): RetreadJob {
   return {
@@ -21,15 +18,7 @@ function job(overrides: Partial<RetreadJob> & { id: string }): RetreadJob {
 }
 
 function renderScreen() {
-  return render(
-    <ActorContext.Provider value={{ actor: me({ capabilities: ["LogRetread"] }), settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        <MemoryRouter>
-          <RetreadQueue />
-        </MemoryRouter>
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<RetreadQueue />, { capabilities: ["LogRetread"], withRouter: true });
 }
 
 describe("the retread queue", () => {

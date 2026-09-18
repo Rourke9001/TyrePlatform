@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from "react";
 
-import { refusalMessage } from "../../api/refusal";
 import { disposalsFor, disposeTyre, type Disposal, type Tyre } from "../../api/tyres";
+import { RefusalAlert } from "../RefusalAlert";
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
 
@@ -110,10 +110,8 @@ export function DisposeForm({
         {dispose.isPending ? "Disposing…" : "Dispose"}
       </button>
 
-      {refused !== "" && <p role="alert">{refused}</p>}
-      {dispose.error !== null && (
-        <p role="alert">{refusalMessage(dispose.error, DISPOSE_WORDING)}</p>
-      )}
+      <RefusalAlert message={refused} />
+      <RefusalAlert error={dispose.error} wording={DISPOSE_WORDING} />
     </form>
   );
 }

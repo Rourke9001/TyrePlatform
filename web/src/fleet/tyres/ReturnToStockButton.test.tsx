@@ -1,11 +1,10 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { ReturnToStockButton } from "./ReturnToStockButton";
 import type { Tyre } from "../../api/tyres";
-import { requestedUrl, respond, sentBody, testQueryClient } from "../../test/fixtures";
+import { renderWithActor, requestedUrl, respond, sentBody } from "../../test/fixtures";
 
 function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
   return {
@@ -23,10 +22,8 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
 }
 
 function renderButton(t: Tyre = tyre({ id: "t1" }), onSuccess?: () => void) {
-  return render(
-    <QueryClientProvider client={testQueryClient()}>
-      <ReturnToStockButton tyre={t} tenantKey="tenant-a" onSuccess={onSuccess} />
-    </QueryClientProvider>,
+  return renderWithActor(
+    <ReturnToStockButton tyre={t} tenantKey="tenant-a" onSuccess={onSuccess} />,
   );
 }
 
