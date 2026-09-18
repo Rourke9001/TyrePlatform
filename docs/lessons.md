@@ -1274,3 +1274,22 @@ statistics the table had when the transaction began, so interleave
 `ANALYZE` of the growing tables in the file (legal inside a transaction)
 before blaming an index. And a delta is only a delta between two runs
 taken back to back on the same box.
+
+## 2026-09-18 — An audit's drafted replacement comment drops requirement IDs (TYRE-260)
+
+**What happened:** the repo-wide comment trim ran as read-only audits that
+drafted replacement text per block, then executors that applied it. Every
+executor, across all six slices, found drafts that had dropped a requirement
+or ticket ID the original carried: about fifteen cases, from `NFR-USE-005`
+in a dashboard test to `TYRE-80` in an e2e header to `BR-VAL-002` in a seed
+generator's emitted comment. The drafts read well and passed the style
+checker; the ID was simply gone, and shorthand such as `FR-INS-030a/030b`
+had also stopped matching the second ID's token. The audits had been told
+to preserve IDs and believed they had.
+
+**The rule:** never accept a comment edit, hand-written or delegated, without
+a per-file diff of the ID set against `HEAD` (the regex is in
+`docs/comments.md`'s ID list plus `TY[0-9]{3}` and bare `D`/`U`/`Q`
+numbers). Run it after the edit and before the gate, per file, because a
+package-level union hides a loss that moved between files. A shorthand
+range is two IDs written out in full.
