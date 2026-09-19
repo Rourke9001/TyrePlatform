@@ -435,9 +435,13 @@ type inflationComplianceJSON struct {
 	Bands       []inflationBandJSON `json:"bands"`
 }
 
-func loadInflationCompliance(ctx context.Context, tx pgx.Tx, a auth.Actor, from, to *string) (inflationComplianceJSON, error) {
+func loadInflationCompliance(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUID, from, to *string) (inflationComplianceJSON, error) {
 	out := inflationComplianceJSON{Bands: []inflationBandJSON{}}
-	if a.Scope() != auth.ScopeTenant {
+	// A depot-narrowed request is refused the same way a depot-scoped actor
+	// is: the function counts the tenant's readings, so answering one under
+	// a body whose scope says DEPOT would state a tenant figure as a depot's
+	// (NFR-PRO-002).
+	if depot != nil || a.Scope() != auth.ScopeTenant {
 		reason := "TENANT_ONLY"
 		out.Unavailable = &reason
 		return out, nil
@@ -510,7 +514,7 @@ func inflationCompliance(s *store.Store) http.HandlerFunc {
 				return err
 			}
 			body.Scope, body.JudgedAt = scopeFor(a, nil), "PERIOD"
-			body.inflationComplianceJSON, err = loadInflationCompliance(ctx, tx, a, from, to)
+			body.inflationComplianceJSON, err = loadInflationCompliance(ctx, tx, a, nil, from, to)
 			return err
 		})
 		if !ok {
