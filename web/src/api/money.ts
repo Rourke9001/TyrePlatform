@@ -8,10 +8,14 @@ export type Money = string & { readonly __money: "rand" };
 // A total is a SQL column, never a client sum (U31). Formatting is all the
 // client does to money, and this does it without reading the value as a
 // number: the string is split at the point and the integer part grouped.
+//
+// A short scale is padded and a long one is shown whole. Rounding is a money
+// rule with exactly one implementation, in SQL (rule 2), and dropping a third
+// decimal here would hide a server scale nobody then fixes.
 export function formatRand(m: Money): string {
   const [whole, cents = "00"] = m.split(".");
   const negative = whole.startsWith("-");
   const digits = negative ? whole.slice(1) : whole;
   const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
-  return `${negative ? "-" : ""}R${grouped}.${cents.padEnd(2, "0").slice(0, 2)}`;
+  return `${negative ? "-" : ""}R${grouped}.${cents.padEnd(2, "0")}`;
 }

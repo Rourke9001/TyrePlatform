@@ -13,9 +13,11 @@ const FLOAT = /\bfloat(32|64)\b/;
 
 // Comments and string literals are blanked before matching, so a rationale,
 // an error message or a column name in an SQL literal may say both words
-// without failing the build. Line-oriented, not a Go parser: it handles
-// block comments, interpreted strings and multi-line raw strings, which is
-// every shape the tree actually contains.
+// without failing the build. Line-oriented, not a Go parser: a closed raw
+// string is removed whole, so the only backtick left for the opener scan is
+// an unclosed one. Almost every money field carries a struct tag, which is a
+// closed raw string, so that distinction decides whether the line after it
+// is scanned at all (TYRE-36).
 function strip(source) {
   let raw = false;
   return source
@@ -30,7 +32,7 @@ function strip(source) {
         raw = false;
         line = line.slice(close + 1);
       }
-      line = line.replace(/`[^`]*`/g, '``').replace(/"(?:[^"\\]|\\.)*"/g, '""');
+      line = line.replace(/`[^`]*`/g, "''").replace(/"(?:[^"\\]|\\.)*"/g, '""');
       const open = line.indexOf('`');
       if (open !== -1) {
         raw = true;
@@ -56,13 +58,25 @@ const args = process.argv.slice(2);
 // --self-test lints a known-bad sample so the gate proves it can fail on
 // every run (TYRE-49's rule).
 if (args.includes('--self-test')) {
-  const control = 'type row struct {\n\tpurchasePrice *float64\n}\n';
-  if (scan('(self-test)', control) !== 1) {
-    console.error('money gate self-test: the control did not fire');
+  // Three shapes, because a money field is rarely the bare declaration: it
+  // carries a JSON tag, and it follows another tagged field or a one-line
+  // SQL literal. Each of those is a closed raw string, the shape a
+  // line-oriented scanner can lose the next line to.
+  const control = [
+    'type row struct {',
+    '\tpurchasePrice *float64',
+    '\tTyreCount int64 `json:"tyreCount"`',
+    '\tCasingValue *float64 `json:"casingValue"`',
+    '}',
+    'const q = `SELECT now()`',
+    'var treadValue float64',
+  ].join('\n');
+  if (scan('(self-test)', control) !== 3) {
+    console.error('money gate self-test: the control did not fire on all three shapes');
     process.exit(1);
   }
   // The negative control: a gate that fails valid code gets switched off, so
-  // the three shapes that name both words harmlessly are proven silent.
+  // the four shapes that name both words harmlessly are proven silent.
   const quiet = [
     '// purchasePrice is never a float64 (rule 2)',
     '/* purchasePrice float64 */',

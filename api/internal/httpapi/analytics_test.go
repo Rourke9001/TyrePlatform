@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
 	"tyreplatform/api/internal/auth"
@@ -107,6 +109,113 @@ func TestTreadDistributionRelaysTheViewAndSumsDepots(t *testing.T) {
 	rec = get(t, h, "/api/analytics/tread-distribution?level=DEPOT", f.Tenant.String(), controller.String())
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Len(t, body.Bands, 10)
+}
+
+// app.tread_band_list closes each band at the next one's lower bound, so the
+// bands leave one gap and it is below the lowest: a tyre worn under it is in
+// the population the view divides by and in no band. The summed reading has
+// to divide by that population too, or a share of the banded tyres is
+// reported as a share of the fleet (FR-ANL-024).
+func TestTreadDistributionDividesByThePopulationNotTheBands(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	// Bands from 4 mm up, so the fixture's two 3.0 mm tyres are unbanded,
+	// and one 5.0 mm tyre in depot A is the only banded one.
+	f := plantDepotFixture(t, ctx, admin, "bands-gap")
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+		 VALUES ($1, 'tread_bands', '[[4,7],[7,null]]'::jsonb, now() - interval '300 days')`, f.Tenant)
+	require.NoError(t, err)
+	plantBandedTyre(t, ctx, admin, f)
+	controller := plantUser(t, ctx, admin, f.Tenant, auth.RoleController)
+	technician := plantUser(t, ctx, admin, f.Tenant, auth.RoleTechnician)
+	assignDepot(t, ctx, admin, f.Tenant, technician, f.DepotA)
+
+	var body struct {
+		Bands []bandRow `json:"bands"`
+	}
+	rec := get(t, h, "/api/analytics/tread-distribution", f.Tenant.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, int64(1), body.Bands[0].TyreCount)
+	require.Equal(t, 33.33, body.Bands[0].PctOfGroup)
+
+	// One group, so every figure the API returns is the view's own.
+	rows, err := admin.Query(ctx, `
+		SELECT pct_of_group::float8
+		  FROM app.v_tread_distribution
+		 WHERE tenant_id = $1 AND level = 'TENANT' AND position_class = 'ALL'
+		 ORDER BY band_ordinal`, f.Tenant)
+	require.NoError(t, err)
+	defer rows.Close()
+	var want []float64
+	for rows.Next() {
+		var pct float64
+		require.NoError(t, rows.Scan(&pct))
+		want = append(want, pct)
+	}
+	require.NoError(t, rows.Err())
+	require.Len(t, body.Bands, len(want))
+	for i, band := range body.Bands {
+		require.Equal(t, want[i], band.PctOfGroup, "band %d", i)
+	}
+
+	// The depot actor sums its own DEPOT rows, and depot A holds two tyres
+	// of which one is banded.
+	rec = get(t, h, "/api/analytics/tread-distribution", f.Tenant.String(), technician.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, int64(1), body.Bands[0].TyreCount)
+	require.Equal(t, 50.0, body.Bands[0].PctOfGroup)
+}
+
+// plantBandedTyre fits a 5.0 mm tyre on a new unit in the fixture's depot A.
+func plantBandedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, f depotFixture) {
+	t.Helper()
+	suffix := uuid.NewString()[:8]
+	var configID, posID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT v.configuration_id, p.id
+		   FROM app.vehicle v JOIN app.position p ON p.configuration_id = v.configuration_id
+		  WHERE v.id = $1`, f.VehicleA).Scan(&configID, &posID))
+
+	var vehicleID, tyreID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind, home_depot_id)
+		 VALUES ($1, $2, $3, 'HORSE'::app.unit_kind, $4) RETURNING id`,
+		f.Tenant, "GAP-"+suffix, configID, f.DepotA).Scan(&vehicleID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre (tenant_id, display_code, purchase_price, cost_source, new_tread_mm, rand_per_mm, casing_value, state)
+		 VALUES ($1, $2, 1000.00, 'INVOICE'::app.cost_source, 14.0, 100.0000, 100.00, 'FITTED') RETURNING id`,
+		f.Tenant, "GAP-TYRE-"+suffix).Scan(&tyreID))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+		 VALUES ($1, $2, $3, $4, now() - interval '90 days', 0)`,
+		f.Tenant, tyreID, vehicleID, posID)
+	require.NoError(t, err)
+
+	driver := plantUser(t, ctx, admin, f.Tenant, auth.RoleDriver)
+	tx, err := admin.Begin(ctx)
+	require.NoError(t, err)
+	var inspID, readingID uuid.UUID
+	require.NoError(t, tx.QueryRow(ctx,
+		`INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+		 VALUES ($1, $2, $3, $4, now() - interval '30 days', now() - interval '30 days', 50000) RETURNING id`,
+		f.Tenant, vehicleID, driver, uuid.New()).Scan(&inspID))
+	require.NoError(t, tx.QueryRow(ctx,
+		`INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+		 VALUES ($1, $2, $3, $4, $5, 800) RETURNING id`,
+		f.Tenant, inspID, vehicleID, posID, tyreID).Scan(&readingID))
+	_, err = tx.Exec(ctx,
+		`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm)
+		 VALUES ($1, $2, 1, 'OUTER'::app.tread_position, 5.0),
+		        ($1, $2, 2, 'CENTRE'::app.tread_position, 5.1),
+		        ($1, $2, 3, 'INNER'::app.tread_position, 5.2)`,
+		f.Tenant, readingID)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
 }
 
 // The ranking at or over the configured 4 mm spread, the spare disclosed

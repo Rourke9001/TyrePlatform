@@ -39,9 +39,9 @@ type valueAtRiskJSON struct {
 }
 
 // loadValueAtRisk sums the aggregate view's rows the actor may read
-// (aggregateScope): one TENANT row, one DEPOT row, or a ScopeDepot actor's
-// set of DEPOT rows, each per position class. Summing several is the
-// composition U25 asks for, done where the numbers are, not in Go.
+// (aggregateScope, which states why summing them composes): one TENANT row,
+// one DEPOT row, or a ScopeDepot actor's set of DEPOT rows, each per
+// position class.
 func loadValueAtRisk(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUID, moneyVisible bool) (valueAtRiskJSON, error) {
 	out := valueAtRiskJSON{JudgedAt: "TODAY"}
 	rows, err := tx.Query(ctx, `

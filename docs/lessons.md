@@ -1311,3 +1311,23 @@ a per-file diff of the ID set against `HEAD` (the regex is in
 numbers). Run it after the edit and before the gate, per file, because a
 package-level union hides a loss that moved between files. A shorthand
 range is two IDs written out in full.
+
+## 2026-09-19 — A review finding's premise is not evidence, and a self-test proves only the shapes its control carries (TYRE-36)
+
+**What happened:** a review of the analytics API reported that the API
+renormalised the tread distribution because the seeded `tread_bands`
+`[[0,4],[5,7],...]` leave gaps, and named a 4.5 mm tyre as the case.
+The first regression test was written on that sentence and passed before
+the fix, because `app.tread_band_list` takes `upper_exclusive_mm` from
+`lead(lower)`, not from the pair's second element: the seeded bands
+partition [0, infinity) and 4.5 mm lands in band 1. The defect was real
+for another reason (nothing pins the lowest band to zero), so the fix
+stood and only the test was wrong. The same review found the money gate
+blind to a tagged struct field, a shape its own `--self-test` control did
+not contain, so the gate had reported green over it on every run.
+
+**The rule:** before writing the regression test, reproduce the finding's
+premise against the source or the running database, not against the review
+text; a test that passes before the fix is the premise failing, not the
+fix being unnecessary. And a gate's control carries the shape its real
+input has, tags and all, or the run proves only that the control fires.

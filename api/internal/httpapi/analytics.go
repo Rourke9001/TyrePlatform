@@ -19,10 +19,12 @@ import (
 // kilometres and days are float64 or ints, the house types for a
 // measurement (capture.go); money does not appear on these routes.
 
-// treadBandJSON is one band of app.v_tread_distribution. For a summed
-// reading (a ScopeDepot actor's set of depots) pctOfGroup is recomputed in
-// the same statement from the summed counts with the view's own formula,
-// which is composition, not a second rule; for one row it is the row's.
+// treadBandJSON is one band of app.v_tread_distribution. A summed reading (a
+// ScopeDepot actor's set of depots) divides by app.v_tread_summary, the same
+// population the view divides by (FR-ANL-024, 000011). A tenant's lowest
+// band need not start at zero, so a tyre worn under it counts toward the
+// group and toward no band, and summing the band counts would report a
+// share of the banded tyres as a share of the fleet.
 type treadBandJSON struct {
 	KeyName          *string  `json:"keyName"`
 	BandOrdinal      int      `json:"bandOrdinal"`
@@ -48,8 +50,13 @@ func loadTreadDistribution(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *
 		sql = `
 		SELECT NULL::text, v.band_ordinal, v.band_label, v.lower_mm::float8, v.upper_exclusive_mm::float8,
 		       sum(v.tyre_count)::bigint,
-		       round(sum(v.tyre_count) * 100.0 / NULLIF(sum(sum(v.tyre_count)) OVER (), 0), 2)::float8
+		       round(sum(v.tyre_count) * 100.0 / NULLIF(sum(s.tyre_count), 0), 2)::float8
 		  FROM app.v_tread_distribution v
+		  JOIN app.v_tread_summary s
+		    ON s.tenant_id = v.tenant_id
+		   AND s.level = v.level
+		   AND s.key_name IS NOT DISTINCT FROM v.key_name
+		   AND s.position_class = v.position_class
 		 WHERE v.position_class = $2` + aggregateScope(a, depotByName) + `
 		 GROUP BY v.band_ordinal, v.band_label, v.lower_mm, v.upper_exclusive_mm
 		 ORDER BY v.band_ordinal`

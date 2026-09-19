@@ -33,6 +33,7 @@ tester.run("money-stays-string", moneyStaysString, {
     { code: `${brand} const copy: string = m;` },
     { code: `${brand} Number(s); parseFloat(s); parseInt(s, 10); q * 2; -q;` },
     { code: `${brand} const label2 = "R" + m + " in total";` },
+    { code: `${brand} const same = m === s; const other = m !== s;` },
   ],
   invalid: [
     { code: `${brand} Number(m);`, errors: [{ messageId: "money" }] },
@@ -51,5 +52,13 @@ tester.run("money-stays-string", moneyStaysString, {
     // Money + number reads as arithmetic and is concatenation.
     { code: `${brand} m + q;`, errors: [{ messageId: "money" }] },
     { code: `${brand} q + m;`, errors: [{ messageId: "money" }] },
+    // Ordering text ranks "999.00" above "1000.00", so a threshold test and
+    // a largest-first comparator are both refused.
+    { code: `${brand} m > s;`, errors: [{ messageId: "order" }] },
+    { code: `${brand} s <= m;`, errors: [{ messageId: "order" }] },
+    {
+      code: `${brand} declare const rows: { value: Money }[]; rows.sort((a, b) => (a.value < b.value ? 1 : -1));`,
+      errors: [{ messageId: "order" }],
+    },
   ],
 });
