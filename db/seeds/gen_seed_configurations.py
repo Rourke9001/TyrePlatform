@@ -91,6 +91,10 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 # a constant (rule 5); the dashboard tile and
                 # /api/analytics/removal-forecast default to it (B7 spec D7).
                 ('forecast_horizon_days', 30),
+                # FR-DSH-007's inflation compliance period is tenant
+                # configuration too (rule 5; B7 spec U28): a tenant with no
+                # row reads "not configured", never a Go default.
+                ('inflation_compliance_window_days', 30),
                 ('tread_capture_granularity_mm', 1.0)]:
         L.append(f"INSERT INTO app.configuration (tenant_id,key,value,effective_from) VALUES ('{tid}','{k}','{json.dumps(v)}'::jsonb,'2024-01-01T00:00:00Z');")
     L.append("")

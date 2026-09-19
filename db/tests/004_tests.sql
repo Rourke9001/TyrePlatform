@@ -9420,5 +9420,28 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 62. B7.2: inflation_compliance_window_days resolves to the seeded default (TYRE-36, U28)'
+-- What this pins is the resolution, not a wiring: GET /api/dashboard and
+-- /api/analytics/inflation-compliance answer "not configured" when the key
+-- is absent (rule 5), so a seed edit that drops one tenant's row would show
+-- that tenant a blank rather than fail. The suite runs as app_login, so each
+-- tenant is set in turn to reach all three.
+BEGIN;
+DO $$
+DECLARE tid uuid; got int;
+BEGIN
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111'::uuid,
+                             '22222222-2222-2222-2222-222222222222'::uuid,
+                             '33333333-3333-3333-3333-333333333333'::uuid] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    got := (app.config_for(tid, 'inflation_compliance_window_days', now()) #>> '{}')::int;
+    IF got IS DISTINCT FROM 30 THEN
+      RAISE EXCEPTION 'FAIL 62: inflation_compliance_window_days is % for %', got, tid;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  62 inflation_compliance_window_days resolves to 30 on every seeded tenant';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
