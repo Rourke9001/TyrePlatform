@@ -159,3 +159,145 @@ func valueAtRisk(s *store.Store) http.HandlerFunc {
 		writeJSON(ctx, w, body)
 	}
 }
+
+// estateRowJSON is one row of the estate aggregation in
+// app.v_estate_valuation's own names (U27): estimatedCount is the tread
+// basis, and the three casing partitions are disjoint, unlike the at-risk
+// view's nested count. Money is null when the sum is NULL (every member
+// unvalued) or when hidden; moneyVisible on the body says which (U36).
+type estateRowJSON struct {
+	Level                string  `json:"level"`
+	KeyName              *string `json:"keyName"`
+	LocationClass        string  `json:"locationClass"`
+	TyreCount            int64   `json:"tyreCount"`
+	ActualCount          int64   `json:"actualCount"`
+	EstimatedCount       int64   `json:"estimatedCount"`
+	UnvaluedCount        int64   `json:"unvaluedCount"`
+	CasingUnvaluedCount  int64   `json:"casingUnvaluedCount"`
+	CasingActualCount    int64   `json:"casingActualCount"`
+	CasingEstimatedCount int64   `json:"casingEstimatedCount"`
+	CasingAuditCount     int64   `json:"casingAuditCount"`
+	TreadValue           *string `json:"treadValue"`
+	CasingValue          *string `json:"casingValue"`
+	TotalValue           *string `json:"totalValue"`
+}
+
+// estateLevels are app.v_estate_valuation's, in the view's order.
+var estateLevels = []string{"TENANT", "VEHICLE", "DEPOT", "SIZE", "BRAND", "PATTERN"}
+
+// estateKey is the register column each level groups by; TENANT groups by
+// nothing. The names are app.tyre_valuation_asof's output columns.
+var estateKey = map[string]string{
+	"VEHICLE": "fleet_number", "DEPOT": "depot_name", "SIZE": "size_name",
+	"BRAND": "brand_name", "PATTERN": "pattern_name",
+}
+
+// loadEstate aggregates app.tyre_valuation_asof at one date with the same
+// SELECT list and ROLLUP app.v_estate_valuation uses (000045), scoped by
+// depot_id before grouping. This is the one aggregation written in a
+// handler (U30, U35): the view keys its DEPOT rows by name and aggregates
+// SIZE, BRAND and PATTERN across the tenant, so a depot actor's estate
+// cannot be read through it, and an as-at date cannot be passed to it.
+// TestEstateAtTodayMatchesTheViewForEveryLevel pins this copy to the view.
+func loadEstate(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUID, level string, asAt *string, moneyVisible bool) ([]estateRowJSON, error) {
+	key, groupBy := "NULL::text", "ROLLUP(state)"
+	if col, keyed := estateKey[level]; keyed {
+		key, groupBy = col, col+", ROLLUP(state)"
+	}
+	own := ""
+	if a.Scope() != auth.ScopeTenant {
+		own = ` AND t.depot_id IN (SELECT depot_id FROM app.v_actor_depot)`
+	}
+	rows, err := tx.Query(ctx, `
+		WITH src AS (
+		  SELECT * FROM app.tyre_valuation_asof(COALESCE($2::date, (now() AT TIME ZONE 'UTC')::date)) t
+		   WHERE t.state NOT IN ('SCRAPPED', 'LOST', 'SOLD')
+		     AND ($1::uuid IS NULL OR t.depot_id = $1)`+own+`
+		)
+		SELECT $3::text,
+		       `+key+` AS key_name,
+		       CASE WHEN GROUPING(state) = 1 THEN 'ALL' ELSE state::text END AS location_class,
+		       count(*)::bigint,
+		       count(*) FILTER (WHERE valuation_basis = 'ACTUAL')::bigint,
+		       count(*) FILTER (WHERE valuation_basis = 'ESTIMATED')::bigint,
+		       count(*) FILTER (WHERE tread_value IS NULL)::bigint,
+		       count(*) FILTER (WHERE casing_value IS NULL)::bigint,
+		       count(*) FILTER (WHERE casing_basis = 'ACTUAL')::bigint,
+		       count(*) FILTER (WHERE casing_basis = 'ESTIMATED')::bigint,
+		       count(*) FILTER (WHERE casing_basis = 'AUDIT')::bigint,
+		       sum(tread_value)::text,
+		       sum(casing_value)::text,
+		       (COALESCE(sum(tread_value), 0) + COALESCE(sum(casing_value), 0))::text
+		  FROM src
+		 GROUP BY `+groupBy+`
+		 ORDER BY key_name NULLS FIRST, location_class`, depot, asAt, level)
+	if err != nil {
+		return nil, fmt.Errorf("aggregating the estate: %w", err)
+	}
+	defer rows.Close()
+	out := []estateRowJSON{}
+	for rows.Next() {
+		var e estateRowJSON
+		if err := rows.Scan(&e.Level, &e.KeyName, &e.LocationClass, &e.TyreCount, &e.ActualCount, &e.EstimatedCount,
+			&e.UnvaluedCount, &e.CasingUnvaluedCount, &e.CasingActualCount, &e.CasingEstimatedCount, &e.CasingAuditCount,
+			&e.TreadValue, &e.CasingValue, &e.TotalValue); err != nil {
+			return nil, fmt.Errorf("scanning estate row: %w", err)
+		}
+		if !moneyVisible {
+			e.TreadValue, e.CasingValue, e.TotalValue = nil, nil, nil
+		}
+		out = append(out, e)
+	}
+	return out, rows.Err()
+}
+
+// GET /api/valuation/estate?level=&asAt=&depot=: the estate at one date, at
+// one level. asAt is echoed as the date the SQL resolved, so the client
+// never guesses which day "today" was.
+func estateValuation(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		q := r.URL.Query()
+		level, err := oneOfParam(q, "level", estateLevels...)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		if level == nil {
+			level = &estateLevels[0]
+		}
+		asAt, err := dateParam(q, "asAt")
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		depot, err := uuidParam(q, "depot")
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		var body struct {
+			Scope    scopeJSON       `json:"scope"`
+			AsAt     string          `json:"asAt"`
+			JudgedAt string          `json:"judgedAt"`
+			Rows     []estateRowJSON `json:"rows"`
+		}
+		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ViewValuation); err != nil {
+				return err
+			}
+			body.Scope = scopeFor(a, depot)
+			if err := tx.QueryRow(ctx,
+				`SELECT COALESCE($1::date, (now() AT TIME ZONE 'UTC')::date)::text`, asAt).Scan(&body.AsAt); err != nil {
+				return fmt.Errorf("resolving the as-at date: %w", err)
+			}
+			body.JudgedAt = "TODAY"
+			if asAt != nil {
+				body.JudgedAt = "AS_AT"
+			}
+			body.Rows, err = loadEstate(ctx, tx, a, depot, *level, asAt, true)
+			return err
+		})
+		if !ok {
+			return
+		}
+		writeJSON(ctx, w, body)
+	}
+}
