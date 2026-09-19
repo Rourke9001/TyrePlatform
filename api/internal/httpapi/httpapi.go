@@ -85,6 +85,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		// B7.2, the analytics read API (TYRE-36): read-only relays of the
 		// B7.1 views. Nothing here computes a figure.
 		r.Get("/exceptions", listExceptions(s))
+		r.Get("/valuation/at-risk", valueAtRisk(s))
 
 		r.Post("/tyres", receiveTyres(s))
 		r.Post("/tyres/{tyreID}/cost", setTyreCost(s))
