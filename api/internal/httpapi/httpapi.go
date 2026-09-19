@@ -87,6 +87,12 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Get("/exceptions", listExceptions(s))
 		r.Get("/valuation/at-risk", valueAtRisk(s))
 		r.Get("/valuation/estate", estateValuation(s))
+		r.Get("/analytics/tread-distribution", treadDistribution(s))
+		r.Get("/analytics/irregular-wear", irregularWear(s))
+		r.Get("/analytics/inflation-compliance", inflationCompliance(s))
+		r.Get("/analytics/wear-rate", wearRate(s))
+		r.Get("/analytics/removal-forecast", removalForecast(s))
+		r.Get("/spares", listSpares(s))
 
 		r.Post("/tyres", receiveTyres(s))
 		r.Post("/tyres/{tyreID}/cost", setTyreCost(s))

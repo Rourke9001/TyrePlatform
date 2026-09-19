@@ -76,3 +76,21 @@ func scopeFor(a auth.Actor, depot *uuid.UUID) scopeJSON {
 		return scopeJSON{Level: "DEPOTS", DepotCount: len(a.DepotIDs)}
 	}
 }
+
+// depotRowsScope lists an aggregate view's DEPOT rows, one per depot, for a
+// level=DEPOT read: every depot for a ScopeTenant actor, the actor's own for
+// ScopeDepot, and ?depot= narrows either to one. aggregateScope is the summed
+// reading; this is the itemised one.
+func depotRowsScope(a auth.Actor, k depotKey) string {
+	col, own, named := "v.depot_id", "(SELECT depot_id FROM app.v_actor_depot)", "$1::uuid"
+	if k == depotByName {
+		col = "v.key_name"
+		own = "(SELECT d.name FROM app.depot d JOIN app.v_actor_depot ad ON ad.depot_id = d.id)"
+		named = "(SELECT name FROM app.depot WHERE id = $1)"
+	}
+	sql := ` AND v.level = 'DEPOT' AND ($1::uuid IS NULL OR ` + col + ` = ` + named + `)`
+	if a.Scope() != auth.ScopeTenant {
+		sql += ` AND ` + col + ` IN ` + own
+	}
+	return sql
+}
