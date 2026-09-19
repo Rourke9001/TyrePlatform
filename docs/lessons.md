@@ -28,6 +28,24 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-19 — A control query on the admin connection reads a tenant-scoped function as empty, and passes (TYRE-36)
+
+**What happened:** B7.2's inflation compliance test compared the endpoint's
+band total against a control query run on the `admin` (postgres) connection:
+`SELECT sum(reading_count) FROM app.inflation_compliance(...)`. The function
+filters on `current_setting('app.tenant_id')`, which the admin connection
+never sets, so the control returned 0 while the endpoint correctly returned
+26. The test only failed because the endpoint was right. Had both been
+broken it would have compared 0 to 0 and passed. The estate and exception
+controls in the same file are safe for a different reason: they read views
+with an explicit `WHERE tenant_id = $1`, and postgres bypasses RLS.
+
+**The rule:** a control that reads a tenant-scoped function binds
+`app.tenant_id` itself, in its own transaction (`set_config(..., true)`,
+rolled back), and asserts the control is non-zero before comparing it to
+what the endpoint returned. A control whose expected value could be the
+empty answer is not a control.
+
 ## 2026-09-16 — `gate-not-piped.sh` does not know `gh` is a gate, so the piped-gate trap walks back in (TYRE-252)
 
 **What happened:** `gh pr checks 58 --watch --interval 20 --fail-fast | tail -20`
