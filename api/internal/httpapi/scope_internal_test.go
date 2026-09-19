@@ -19,8 +19,7 @@ func TestUnitScopeChoosesTheRelationByScopeNotRole(t *testing.T) {
 	technician := auth.Actor{Role: auth.RoleTechnician}
 	req.Contains(t, unitScope(controller, "e.vehicle_id"), "FROM app.vehicle sv")
 	req.Contains(t, unitScope(technician, "e.vehicle_id"), "FROM app.v_depot_vehicle sv")
-	// The depot filter is always $1 so every caller binds it first and a
-	// forgotten placeholder fails at query time rather than widening a read.
+	// Pins the always-$1 depot filter unitScope's doc comment states.
 	req.Contains(t, unitScope(technician, "e.vehicle_id"), "$1::uuid IS NULL OR")
 }
 

@@ -17,4 +17,7 @@ describe("formatRand", () => {
     expect(formatRand(rand("500"))).toBe("R500.00");
     expect(formatRand(rand("-1234.5"))).toBe("-R1,234.50");
   });
+  it("shows a scale the server sent rather than dropping a digit", () => {
+    expect(formatRand(rand("1234.567"))).toBe("R1,234.567");
+  });
 });

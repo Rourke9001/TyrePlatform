@@ -11,6 +11,11 @@
 const CONVERTERS = new Set(["Number", "parseFloat", "parseInt"]);
 const ARITHMETIC = new Set(["-", "*", "/", "%", "**"]);
 const COMPOUND = new Set(["-=", "*=", "/=", "%=", "**="]);
+// A relational operator compares two strings character by character, so
+// "999.00" ranks above "1000.00" and a largest-first list is silently wrong.
+// Ranking money is a SQL ORDER BY, where the total already comes from (U31).
+// Equality is left out: === on two decimal strings is exact.
+const COMPARISON = new Set(["<", ">", "<=", ">="]);
 
 function isMoney(type) {
   if (type.isUnion()) {
@@ -34,12 +39,15 @@ export const moneyStaysString = {
   meta: {
     type: "problem",
     docs: {
-      description: "money is the server's decimal string; never convert it or do arithmetic on it",
+      description:
+        "money is the server's decimal string; never convert it, do arithmetic on it, or order by it",
     },
     schema: [],
     messages: {
       money:
         "{{what}} on a Money value. Money stays the server's decimal string (rule 2): format it with formatRand, and a total is a SQL column, never a client sum.",
+      order:
+        "{{what}} on a Money value compares text, so R999.00 ranks above R1000.00. Rank money in SQL and relay the order the server sent (rule 2).",
     },
   },
   defaultOptions: [],
@@ -56,7 +64,8 @@ export const moneyStaysString = {
     const typeOf = (node) => checker.getTypeAtLocation(services.esTreeNodeToTSNodeMap.get(node));
     const money = (node) => isMoney(typeOf(node));
     const numeric = (node) => isNumeric(typeOf(node));
-    const refuse = (node, what) => context.report({ node, messageId: "money", data: { what } });
+    const report = (node, messageId, what) => context.report({ node, messageId, data: { what } });
+    const refuse = (node, what) => report(node, "money", what);
     return {
       CallExpression(node) {
         // globalThis.Number(m) reaches the same converter as Number(m), so
@@ -96,6 +105,10 @@ export const moneyStaysString = {
             (money(node.right) && (money(node.left) || numeric(node.left))));
         if (arithmetic || added) {
           refuse(node, `operator ${node.operator}`);
+          return;
+        }
+        if (COMPARISON.has(node.operator) && (money(node.left) || money(node.right))) {
+          report(node, "order", `operator ${node.operator}`);
         }
       },
       AssignmentExpression(node) {
