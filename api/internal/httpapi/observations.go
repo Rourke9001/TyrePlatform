@@ -55,6 +55,17 @@ type observationNoteRequest struct {
 	Note *string `json:"note"`
 }
 
+// pendingObservationWhere is the one definition of a pending composition
+// report (FR-INS-063); the dashboard's FR-EXC-029 tile counts the same rows.
+// SERVER is not decoration: a client-written row is a claim, and the check
+// also guards the casts on entered_value, whose text would raise 22P02 and
+// empty the list for the whole tenant (TYRE-75). The kind check that holds
+// the reason is app.apply_composition_observation's (000044).
+const pendingObservationWhere = `w.warning_code = 'FR-INS-063'
+   AND w.source = 'SERVER'
+   AND i.state <> 'VOIDED'
+   AND NOT EXISTS (SELECT 1 FROM app.composition_observation o WHERE o.warning_id = w.id)`
+
 // listObservations is D5's "Reported differences": every FR-INS-063 warning
 // on a capture that still stands, whose motive unit this actor can see, that
 // nobody has resolved. Newest capture first, so a controller works the fresh
@@ -102,17 +113,7 @@ func listObservations(s *store.Store) http.HandlerFunc {
 				  JOIN app.combination c ON c.id = i.combination_id
 				  JOIN app.vehicle mv    ON mv.id = c.motive_vehicle_id
 				  JOIN app.app_user u    ON u.id = i.user_id
-				 WHERE w.warning_code = 'FR-INS-063'
-				   -- The code alone does not make a report:
-				   -- app.apply_composition_observation's kind check holds the
-				   -- reason (000044). It also guards the casts above, which
-				   -- read an array the server wrote. A client's text raises
-				   -- 22P02 there and empties this list for every controller in
-				   -- the tenant (TYRE-75).
-				   AND w.source = 'SERVER'
-				   AND i.state <> 'VOIDED'
-				   AND NOT EXISTS (SELECT 1 FROM app.composition_observation o
-				                    WHERE o.warning_id = w.id)
+				 WHERE `+pendingObservationWhere+`
 				   -- The motive, not i.vehicle_id: nothing binds the unit a
 				   -- capture was addressed to to its rig's horse, and the rig
 				   -- is homed where the horse is (reachableObservation).

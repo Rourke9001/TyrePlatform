@@ -2,6 +2,7 @@ package httpapi_test
 
 import (
 	"context"
+	"crypto/md5"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -40,9 +41,10 @@ func testStore(t *testing.T, ctx context.Context) (*store.Store, *pgx.Conn) {
 	return s, admin
 }
 
-// plantTenant creates a throwaway tenant via the admin connection. Tests
-// plant their own data because the CI Go job runs against a migrated but
-// unseeded database; depending on seed rows would pass locally and fail there.
+// plantTenant creates a throwaway tenant via the admin connection. A test
+// plants what it needs so it cannot be perturbed by the fixture; the
+// fixture-pinned analytics tests are the deliberate exception and say so
+// through requireSeed (TYRE-36).
 func plantTenant(t *testing.T, ctx context.Context, admin *pgx.Conn, label string) (uuid.UUID, string) {
 	t.Helper()
 	suffix := uuid.NewString()[:8]
@@ -955,4 +957,189 @@ func TestMeCarriesTheTenantDisplayCodePolicy(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "GENERATED", body.DisplayCodePolicy)
+}
+
+// bacTenant is the acceptance fixture (CLAUDE.md, "Not an audit"): the
+// analytics tests read it for the figures the suite pins and never write
+// into it. Anything a test needs to plant goes in a throwaway tenant.
+const bacTenant = "11111111-1111-1111-1111-111111111111"
+
+// seedID reproduces the seed generators' md5('<key>')::uuid, so a test names
+// a fixture row by the key gen_seed_fixture.py wrote rather than by a hex
+// literal nobody can check.
+func seedID(key string) uuid.UUID {
+	sum := md5.Sum([]byte(key))
+	id, err := uuid.FromBytes(sum[:])
+	if err != nil {
+		panic(err)
+	}
+	return id
+}
+
+// requireSeed fails, never skips, when the fixture is absent: a pinned
+// figure that skips is a gate that cannot fail (TYRE-36).
+func requireSeed(t *testing.T, ctx context.Context, admin *pgx.Conn) {
+	t.Helper()
+	var n int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.tenant WHERE id = $1`, bacTenant).Scan(&n))
+	if n != 1 {
+		t.Fatalf("seed fixture not loaded (run make db-reset): the pinned analytics figures live in BAC")
+	}
+}
+
+// depotFixture is the two-depot control the depot-scope tests need (spec
+// U25, U33): two depots, one unit in each with one running tyre at 3.0 mm
+// against a 4.0 mm threshold, so every analytics relation yields one row per
+// depot and a depot-scoped actor's figure is visibly half the tenant's.
+// Casing values differ (100.00 and 200.00) so a sum across depots is a
+// number no single depot produces.
+type depotFixture struct {
+	Tenant, DepotA, DepotB, VehicleA, VehicleB, TyreA, TyreB uuid.UUID
+}
+
+func plantDepotFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, label string) depotFixture {
+	t.Helper()
+	tenantID, _ := plantTenant(t, ctx, admin, label)
+	suffix := uuid.NewString()[:8]
+	f := depotFixture{Tenant: tenantID}
+
+	for _, d := range []struct {
+		id   *uuid.UUID
+		name string
+	}{{&f.DepotA, "Depot A " + suffix}, {&f.DepotB, "Depot B " + suffix}} {
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.depot (tenant_id, name) VALUES ($1, $2) RETURNING id`,
+			tenantID, d.name).Scan(d.id))
+	}
+
+	var configID, pos uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.axle_configuration (tenant_id, code, name, axle_count)
+		 VALUES ($1, $2, 'depot test rig', 1) RETURNING id`,
+		tenantID, "DEPOTTEST-"+suffix).Scan(&configID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.position
+		   (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+		 VALUES ($1, $2, '1', 1, 1, 'STEER'::app.axle_class, 'LEFT'::app.side, 'SINGLE'::app.fitment_slot, false)
+		 RETURNING id`,
+		tenantID, configID).Scan(&pos))
+
+	// Backdated a year so every resolver's strict "effective_from < at"
+	// holds at the planted inspections' submitted_at as well as at now().
+	// The catalogue row is what makes v_exception emit anything (000045
+	// joins app.exception_rule AND enabled).
+	for _, sql := range []string{
+		`INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, warning_threshold_mm, effective_from)
+		 VALUES ($1, 4.0, 4.0, 6.0, now() - interval '400 days')`,
+		`INSERT INTO app.target_pressure (tenant_id, axle_class, target_kpa, effective_from)
+		 VALUES ($1, 'STEER'::app.axle_class, 800, now() - interval '400 days')`,
+		`INSERT INTO app.exception_rule (tenant_id, code, name, enabled, severity)
+		 VALUES ($1, 'FR-EXC-020', 'Tread below removal threshold', true, 'CRITICAL'::app.severity)`,
+	} {
+		_, err := admin.Exec(ctx, sql, tenantID)
+		require.NoError(t, err)
+	}
+	for _, cfg := range []struct{ key, value string }{
+		{"tread_bands", `[[0,4],[5,7],[8,10],[11,13],[14,null]]`},
+		{"forecast_horizon_days", "30"},
+		{"inflation_compliance_window_days", "30"},
+		{"width_spread_warn_mm", "4"},
+		{"dual_mate_warn_mm", "3"},
+		{"axle_divergence_warn_mm", "3"},
+		{"reading_staleness_days", "28"},
+		{"wear_rate_min_distance_km", "1000"},
+	} {
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+			 VALUES ($1, $2, $3::jsonb, now() - interval '400 days')`,
+			tenantID, cfg.key, cfg.value)
+		require.NoError(t, err)
+	}
+
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	for _, u := range []struct {
+		depot   uuid.UUID
+		vehicle *uuid.UUID
+		tyre    *uuid.UUID
+		fleet   string
+		casing  string
+	}{
+		{f.DepotA, &f.VehicleA, &f.TyreA, "DEPOT-A-" + suffix, "100.00"},
+		{f.DepotB, &f.VehicleB, &f.TyreB, "DEPOT-B-" + suffix, "200.00"},
+	} {
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind, home_depot_id)
+			 VALUES ($1, $2, $3, 'HORSE'::app.unit_kind, $4) RETURNING id`,
+			tenantID, u.fleet, configID, u.depot).Scan(u.vehicle))
+		// INVOICE cost so the tread value is ACTUAL; the casing value on the
+		// tyre itself resolves as AUDIT (000036), the basis BAC's own tyres
+		// carry, so the at-risk counts land in estimated_or_audit_count.
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.tyre (tenant_id, display_code, purchase_price, cost_source, new_tread_mm, rand_per_mm, casing_value, state)
+			 VALUES ($1, $2, 1000.00, 'INVOICE'::app.cost_source, 14.0, 100.0000, $3::numeric, 'FITTED') RETURNING id`,
+			tenantID, "DEPOT-TYRE-"+u.fleet, u.casing).Scan(u.tyre))
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer)
+			 VALUES ($1, $2, $3, $4, now() - interval '90 days', 0)`,
+			tenantID, *u.tyre, *u.vehicle, pos)
+		require.NoError(t, err)
+
+		// One transaction per inspection: reading_sealed (000040, TY020)
+		// refuses a reading whose inspection committed earlier. Three
+		// measurements in one statement, ordinals 1..3 (000046 judges the
+		// set per statement). 3.0 mm governs, below the 4.0 mm threshold.
+		tx, err := admin.Begin(ctx)
+		require.NoError(t, err)
+		var inspID, readingID uuid.UUID
+		require.NoError(t, tx.QueryRow(ctx,
+			`INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+			 VALUES ($1, $2, $3, $4, now() - interval '30 days', now() - interval '30 days', 50000) RETURNING id`,
+			tenantID, *u.vehicle, driver, uuid.New()).Scan(&inspID))
+		require.NoError(t, tx.QueryRow(ctx,
+			`INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+			 VALUES ($1, $2, $3, $4, $5, 800) RETURNING id`,
+			tenantID, inspID, *u.vehicle, pos, *u.tyre).Scan(&readingID))
+		_, err = tx.Exec(ctx,
+			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm)
+			 VALUES ($1, $2, 1, 'OUTER'::app.tread_position, 3.0),
+			        ($1, $2, 2, 'CENTRE'::app.tread_position, 3.5),
+			        ($1, $2, 3, 'INNER'::app.tread_position, 4.0)`,
+			tenantID, readingID)
+		require.NoError(t, err)
+		require.NoError(t, tx.Commit(ctx))
+	}
+	return f
+}
+
+// assignDepot gives userID FR-AUT-006's depot scope: app.v_actor_depot reads
+// app.user_depot, so a depot-scoped role with no row here sees nothing.
+func assignDepot(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, userID, depotID uuid.UUID) {
+	t.Helper()
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.user_depot (tenant_id, user_id, depot_id) VALUES ($1, $2, $3)`,
+		tenantID, userID, depotID)
+	require.NoError(t, err)
+}
+
+// The fixture must produce exactly what the depot-scope tests count on;
+// proven through the views the endpoints relay, as postgres, filtered by
+// tenant, so a planter drift is found here rather than read as an endpoint
+// bug.
+func TestPlantDepotFixtureYieldsOneRowPerDepot(t *testing.T) {
+	ctx := context.Background()
+	_, admin := testStore(t, ctx)
+	f := plantDepotFixture(t, ctx, admin, "depot-fixture")
+
+	var exceptions, atRisk int
+	var atRiskValue string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.v_exception WHERE tenant_id = $1 AND rule_code = 'FR-EXC-020'`, f.Tenant).Scan(&exceptions))
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*), sum(casing_value)::text FROM app.v_tyre_at_risk WHERE tenant_id = $1`, f.Tenant).Scan(&atRisk, &atRiskValue))
+	require.Equal(t, 2, exceptions)
+	require.Equal(t, 2, atRisk)
+	require.Equal(t, "300.00", atRiskValue)
+
+	require.Equal(t, "14fc2c61-398c-3508-084e-d61e615e695e", seedID("controller1").String())
 }

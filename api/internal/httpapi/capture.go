@@ -177,10 +177,13 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	}
 
 	// One row per position, carrying everything the phone needs to identify
-	// the tyre (FR-INS-026) and to evaluate FR-INS-034/037/031a with no
-	// signal. Target resolution is most-specific-wins: a row naming both
-	// size and axle class beats one naming only the class. That is the
-	// order app.inflation_compliance already resolves in; keep them agreeing.
+	// the tyre (FR-INS-026) and to evaluate FR-INS-034, FR-INS-037 and
+	// FR-INS-031a with no signal. The target is app.target_pressure_for's
+	// answer (000045, spec U10), the one resolution app.inflation_compliance
+	// and v_exception also read, so the phone and the dashboard cannot
+	// disagree about a target. OFFSET 0 fences the LATERAL: five fields come
+	// from one resolved row, and without it the planner re-evaluates the
+	// resolver per reference (000045 header).
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.axle_type::text,
 		       p.side::text, p.axle_number, p.is_spare, p.unit_label, f.tyre_id, t.display_code,
@@ -204,18 +207,10 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		        WHERE r.position_id = p.id AND r.vehicle_id = v.id AND i.state <> 'VOIDED'
 		        ORDER BY i.submitted_at DESC LIMIT 1) prev ON true
 		  LEFT JOIN LATERAL (
-		       SELECT tp.target_kpa, tp.warn_under_pct, tp.critical_under_pct,
-		              tp.warn_over_pct, tp.critical_over_pct
-		         FROM app.target_pressure tp
-		        WHERE tp.tenant_id = v.tenant_id
-		          AND tp.effective_from <= now()
-		          AND p.axle_class <> 'SPARE'
-		          AND (tp.axle_class IS NULL OR tp.axle_class = p.axle_class)
-		          AND (tp.size_id   IS NULL OR tp.size_id   = t.size_id)
-		        ORDER BY (tp.size_id IS NOT NULL) DESC,
-		                 (tp.axle_class IS NOT NULL) DESC,
-		                 tp.effective_from DESC
-		        LIMIT 1) tgt ON true
+		       SELECT tgt.target_kpa, tgt.warn_under_pct, tgt.critical_under_pct,
+		              tgt.warn_over_pct, tgt.critical_over_pct
+		         FROM app.target_pressure_for(v.tenant_id, t.size_id, p.axle_class, now()) tgt
+		       OFFSET 0) tgt ON true
 		 WHERE v.id = $1
 		 ORDER BY p.sequence`, vehicleID)
 	if err != nil {
