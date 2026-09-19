@@ -77,3 +77,11 @@ func TestQueryParamsRefuseWhatTheyCannotBind(t *testing.T) {
 	req.True(t, boolParam(q, "flag"))
 	req.False(t, boolParam(q, "missing"))
 }
+
+func TestDepotRowsScopeListsOnlyReachableDepots(t *testing.T) {
+	controller := auth.Actor{Role: auth.RoleController}
+	technician := auth.Actor{Role: auth.RoleTechnician}
+	req.Contains(t, depotRowsScope(controller, depotByName), "v.level = 'DEPOT'")
+	req.NotContains(t, depotRowsScope(controller, depotByName), "v_actor_depot")
+	req.Contains(t, depotRowsScope(technician, depotByName), "v.key_name IN (SELECT d.name FROM app.depot d JOIN app.v_actor_depot ad ON ad.depot_id = d.id)")
+}
