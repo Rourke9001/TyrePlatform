@@ -102,8 +102,10 @@ jobs:
     runs-on: ubuntu-latest
     # The store and httpapi tests are integration tests against RLS itself.
     # A mocked database cannot fail a policy, so this job carries the same
-    # migrated Postgres the database job uses. Seeds are not needed: the tests
-    # plant their own tenants.
+    # migrated Postgres the database job uses. Seeded, since B7.2 (TYRE-36):
+    # the analytics tests pin the API against the same Appendix E and J
+    # figures the suite pins, which live in the BAC fixture. Everything else
+    # the tests need they still plant in throwaway tenants.
     services:
       postgres:
         image: postgres:16-alpine
@@ -121,15 +123,18 @@ jobs:
         with:
           go-version: '1.24'
           cache-dependency-path: api/go.sum
-      - name: Run migrations
+      - name: Migrate and seed
         run: |
+          cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
           docker run --rm --network host \
             -v "$PWD/db/migrations:/migrations:ro" \
             migrate/migrate:v4.19.1 \
             -path=/migrations \
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
-          psql "postgres://postgres:postgres@localhost:5433/tyre" -q \
-            -c "ALTER ROLE app_login PASSWORD 'ci'"
+          PGURL="postgres://postgres:postgres@localhost:5433/tyre"
+          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/002_seed_configurations.sql
+          psql "$PGURL" -v ON_ERROR_STOP=1 -q -f db/seeds/003_seed_fixture.sql
+          psql "$PGURL" -q -c "ALTER ROLE app_login PASSWORD 'ci'"
       - name: Build, vet, staticcheck, test
         env:
           TEST_DATABASE_URL: postgres://app_login:ci@localhost:5433/tyre?sslmode=disable
