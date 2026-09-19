@@ -77,7 +77,7 @@ func TestTreadDistributionRelaysTheViewAndSumsDepots(t *testing.T) {
 	rows, err := admin.Query(ctx, `
 		SELECT band_ordinal, band_label, lower_mm::float8, upper_exclusive_mm::float8, tyre_count, pct_of_group::float8
 		  FROM app.v_tread_distribution
-		 WHERE tenant_id = $1 AND level = 'TENANT' AND position_class = 'RUNNING'
+		 WHERE tenant_id = $1 AND level = 'TENANT' AND position_class = 'ALL'
 		 ORDER BY band_ordinal`, bacTenant)
 	require.NoError(t, err)
 	defer rows.Close()
@@ -277,6 +277,16 @@ func TestInflationComplianceWindowAndScope(t *testing.T) {
 	require.NotNil(t, body.From)
 	require.NotNil(t, body.To)
 	require.Len(t, body.Bands, 5)
+
+	// Narrowing to a depot is refused the same way a depot-scoped actor is,
+	// so this route and the dashboard's tile answer alike (U32).
+	f2 := plantDepotFixture(t, ctx, admin, "inflation-depot-filter")
+	owner := plantUser(t, ctx, admin, f2.Tenant, auth.RoleController)
+	rec = get(t, h, "/api/analytics/inflation-compliance?depot="+f2.DepotA.String(), f2.Tenant.String(), owner.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "TENANT_ONLY", *body.Unavailable)
+	require.Empty(t, body.Bands)
 
 	// One bound without the other is a client mistake.
 	rec = get(t, h, "/api/analytics/inflation-compliance?from=2026-07-01", bacTenant, nomsa)

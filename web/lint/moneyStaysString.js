@@ -19,6 +19,17 @@ function isMoney(type) {
   return type.getProperty("__money") !== undefined;
 }
 
+// ts.TypeFlags.NumberLike, spelled as the bits so the rule needs no
+// typescript import of its own.
+const NUMBER_LIKE = 8 | 32 | 256;
+
+function isNumeric(type) {
+  if (type.isUnion()) {
+    return type.types.some(isNumeric);
+  }
+  return (type.flags & NUMBER_LIKE) !== 0;
+}
+
 export const moneyStaysString = {
   meta: {
     type: "problem",
@@ -42,18 +53,31 @@ export const moneyStaysString = {
       );
     }
     const checker = services.program.getTypeChecker();
-    const money = (node) =>
-      isMoney(checker.getTypeAtLocation(services.esTreeNodeToTSNodeMap.get(node)));
+    const typeOf = (node) => checker.getTypeAtLocation(services.esTreeNodeToTSNodeMap.get(node));
+    const money = (node) => isMoney(typeOf(node));
+    const numeric = (node) => isNumeric(typeOf(node));
     const refuse = (node, what) => context.report({ node, messageId: "money", data: { what } });
     return {
       CallExpression(node) {
+        // globalThis.Number(m) reaches the same converter as Number(m), so
+        // the callee is matched through a member access too, or a rename
+        // walks around the rule.
+        const callee = node.callee;
+        const name =
+          callee.type === "Identifier"
+            ? callee.name
+            : callee.type === "MemberExpression" &&
+                !callee.computed &&
+                callee.property.type === "Identifier"
+              ? callee.property.name
+              : null;
         if (
-          node.callee.type === "Identifier" &&
-          CONVERTERS.has(node.callee.name) &&
+          name !== null &&
+          CONVERTERS.has(name) &&
           node.arguments.length > 0 &&
           money(node.arguments[0])
         ) {
-          refuse(node, `${node.callee.name}()`);
+          refuse(node, `${name}()`);
         }
       },
       UnaryExpression(node) {
@@ -63,8 +87,14 @@ export const moneyStaysString = {
       },
       BinaryExpression(node) {
         const arithmetic = ARITHMETIC.has(node.operator) && (money(node.left) || money(node.right));
-        const concatenated = node.operator === "+" && money(node.left) && money(node.right);
-        if (arithmetic || concatenated) {
+        // `+` is the one operator a label legitimately uses ("R" + m), so it
+        // is refused only where the other side is money or a number: both
+        // read as arithmetic and neither is, since JavaScript concatenates.
+        const added =
+          node.operator === "+" &&
+          ((money(node.left) && (money(node.right) || numeric(node.right))) ||
+            (money(node.right) && (money(node.left) || numeric(node.left))));
+        if (arithmetic || added) {
           refuse(node, `operator ${node.operator}`);
         }
       },

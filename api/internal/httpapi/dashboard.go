@@ -212,7 +212,7 @@ func loadDashboard(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUI
 		return err
 	}
 
-	if out.TreadDistribution, err = loadTreadDistribution(ctx, tx, a, depot, "TENANT", "RUNNING"); err != nil {
+	if out.TreadDistribution, err = loadTreadDistribution(ctx, tx, a, depot, "TENANT", defaultPositionClass); err != nil {
 		return err
 	}
 
