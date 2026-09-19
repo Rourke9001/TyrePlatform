@@ -208,7 +208,7 @@ func loadDashboard(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUI
 		return fmt.Errorf("counting pending composition reports: %w", err)
 	}
 
-	if out.InflationCompliance, err = loadInflationCompliance(ctx, tx, a, from, to); err != nil {
+	if out.InflationCompliance, err = loadInflationCompliance(ctx, tx, a, depot, from, to); err != nil {
 		return err
 	}
 

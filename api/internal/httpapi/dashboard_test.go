@@ -222,4 +222,9 @@ func TestDashboardDepotActorsSeeTheirDepotsAndNoMoneyWithoutViewValuation(t *tes
 	require.Equal(t, "DEPOT", one.Scope["level"])
 	require.Equal(t, ptr("200.00"), one.ValueAtRisk.Running.CasingValueAtRisk)
 	require.Equal(t, int64(1), one.Exceptions.Open)
+	// The inflation function has no depot dimension, so a body whose scope
+	// says DEPOT must not carry the tenant's figure beside depot figures
+	// (U32, NFR-PRO-002).
+	require.Equal(t, "TENANT_ONLY", *one.InflationCompliance.Unavailable)
+	require.Empty(t, one.InflationCompliance.Bands)
 }
