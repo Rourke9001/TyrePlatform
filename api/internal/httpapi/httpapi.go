@@ -93,6 +93,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Get("/analytics/wear-rate", wearRate(s))
 		r.Get("/analytics/removal-forecast", removalForecast(s))
 		r.Get("/spares", listSpares(s))
+		r.Get("/dashboard", dashboard(s))
 
 		r.Post("/tyres", receiveTyres(s))
 		r.Post("/tyres/{tyreID}/cost", setTyreCost(s))
