@@ -6,8 +6,12 @@ import { moneyStaysString } from "./moneyStaysString.js";
 
 RuleTester.afterAll = afterAll;
 RuleTester.describe = describe;
-RuleTester.it = it;
-RuleTester.itOnly = it.only;
+// The first case builds a TypeScript program, which exceeds vitest's 5s
+// default when the whole suite runs in parallel even though the case itself
+// takes milliseconds.
+const caseTimeoutMs = 30_000;
+RuleTester.it = (name, fn) => it(name, fn, caseTimeoutMs);
+RuleTester.itOnly = (name, fn) => it.only(name, fn, caseTimeoutMs);
 
 // The same brand web/src/api/money.ts declares, inlined so each case is one
 // self-contained program; the rule finds it by the property name.
@@ -41,5 +45,11 @@ tester.run("money-stays-string", moneyStaysString, {
     { code: `${brand} q * m;`, errors: [{ messageId: "money" }] },
     { code: `${brand} if (maybe) { maybe / 2; }`, errors: [{ messageId: "money" }] },
     { code: `${brand} acc -= s;`, errors: [{ messageId: "money" }] },
+    // A member-access converter is the same converter.
+    { code: `${brand} globalThis.Number(m);`, errors: [{ messageId: "money" }] },
+    { code: `${brand} globalThis.parseFloat(m);`, errors: [{ messageId: "money" }] },
+    // Money + number reads as arithmetic and is concatenation.
+    { code: `${brand} m + q;`, errors: [{ messageId: "money" }] },
+    { code: `${brand} q + m;`, errors: [{ messageId: "money" }] },
   ],
 });

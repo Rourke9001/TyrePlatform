@@ -36,6 +36,11 @@ type treadBandJSON struct {
 var treadLevels = []string{"TENANT", "DEPOT", "VEHICLE"}
 var positionClasses = []string{"RUNNING", "SPARE", "ALL"}
 
+// Named apart from the allow-list order: ALL is the rollup BR-RPT-001 makes
+// the default for composition reporting, and RUNNING and SPARE are the
+// FR-RPT-005 disclosure beside it (000007).
+const defaultPositionClass = "ALL"
+
 func loadTreadDistribution(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUID, level, class string) ([]treadBandJSON, error) {
 	var sql string
 	switch level {
@@ -103,7 +108,8 @@ func treadDistribution(s *store.Store) http.HandlerFunc {
 			level = &treadLevels[0]
 		}
 		if class == nil {
-			class = &positionClasses[0]
+			c := defaultPositionClass
+			class = &c
 		}
 		var body struct {
 			Scope         scopeJSON       `json:"scope"`
@@ -491,6 +497,10 @@ func inflationCompliance(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		q := r.URL.Query()
+		depot, err := uuidParam(q, "depot")
+		if refuseInvalid(w, r, err) {
+			return
+		}
 		from, err := dateParam(q, "from")
 		if refuseInvalid(w, r, err) {
 			return
@@ -513,8 +523,8 @@ func inflationCompliance(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
-			body.Scope, body.JudgedAt = scopeFor(a, nil), "PERIOD"
-			body.inflationComplianceJSON, err = loadInflationCompliance(ctx, tx, a, nil, from, to)
+			body.Scope, body.JudgedAt = scopeFor(a, depot), "PERIOD"
+			body.inflationComplianceJSON, err = loadInflationCompliance(ctx, tx, a, depot, from, to)
 			return err
 		})
 		if !ok {

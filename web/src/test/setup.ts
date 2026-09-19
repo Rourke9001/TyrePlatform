@@ -1,5 +1,11 @@
 import { afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+// findBy* polls until this ceiling, so raising it changes nothing about what
+// passes, only how long a loaded box may take to get there. The default
+// second is not enough when `make check` runs these beside the Go container
+// and the database.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom has no IndexedDB, so the durable-buffer tests would otherwise assert
 // against a store that silently does not exist, which is the one failure mode
