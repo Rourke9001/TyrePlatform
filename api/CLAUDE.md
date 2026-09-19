@@ -69,6 +69,27 @@ double, and the acceptance gate is cent-exactness. `"1218.78"`, not
 `1218.78`. No decimal library exists in `api/` and none is wanted: Go never
 does arithmetic on money; `tyres.go` is the shape to copy.
 
+## Analytics reads
+
+The B7.2 routes (`exceptions.go`, `valuation.go`, `analytics.go`,
+`dashboard.go`) relay the database's views and never compute a figure:
+every count, sum and percentage is a SQL column, and where an actor's
+depots must be summed it is `sum()` in the same statement (spec U25). Two
+helpers in `scope.go` compose scope the way `unitSource` does: `unitScope`
+for anything keyed by vehicle, `aggregateScope` for the TENANT/DEPOT
+aggregate views, with `depotRowsScope` for the itemised DEPOT reading. All
+three take the optional `?depot=` as `$1`, always, so a caller cannot
+forget it.
+
+Each response says which clock its rows are judged on (`judgedAt`: the
+sheet's `submitted_at` for exceptions, today for the register, the tenant's
+calendar for spares and unit status) and whether money is shown
+(`moneyVisible`). Aggregate money is `null` both when hidden and when every
+member is unvalued; `moneyVisible` and `unvaluedCount` tell the two apart
+(spec U36). The one aggregation written in Go's SQL is the estate as-at
+`GROUP BY` in `loadEstate`, and a test pins it to `app.v_estate_valuation`
+at today so the copy cannot drift.
+
 ## Conventions
 
 - `context.Context` first parameter, always.
