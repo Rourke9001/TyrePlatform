@@ -12,6 +12,12 @@ import reactHooks from "eslint-plugin-react-hooks";
 import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 import prettier from "eslint-config-prettier/flat";
+import { moneyStaysString } from "./lint/moneyStaysString.js";
+
+// House rules that need the type checker. Declared once so the typed block
+// registers them and the untyped block can turn them off by name: a rule
+// name a block's plugins do not know is a config error, not a silent skip.
+const house = { rules: { "money-stays-string": moneyStaysString } };
 
 // Rule 6's display half, enforced not remembered (TYRE-89, TYRE-95). Split
 // into three constants because src/time is exempt from exactly one of them.
@@ -81,11 +87,14 @@ export default tseslint.config(
         tsconfigRootDir: import.meta.dirname,
       },
     },
+    plugins: { house },
     rules: {
       // The house rule from CLAUDE.md: "if you reach for `any`, the type is
       // wrong", with the same weight as a compile error, not a warning.
       "@typescript-eslint/no-explicit-any": "error",
       "no-restricted-syntax": ["error", ...toLocaleBans, intlDateTimeFormatBan, intlAliasBan],
+      // Rule 2's web half (spec U31): see web/lint/moneyStaysString.js.
+      "house/money-stays-string": "error",
     },
   },
   // web/src/time/tenantTime.ts is the one legitimate home the bans above
@@ -103,8 +112,18 @@ export default tseslint.config(
   // typechecked via tsconfig.e2e.json (npm run typecheck); just not
   // type-aware-linted.
   {
-    files: ["*.{js,ts}", "vite.config.ts", "playwright.config.ts", "e2e/**/*.ts"],
+    files: [
+      "*.{js,ts}",
+      "vite.config.ts",
+      "playwright.config.ts",
+      "e2e/**/*.ts",
+      "lint/**/*.{js,ts}",
+    ],
     extends: [tseslint.configs.disableTypeChecked],
     languageOptions: { globals: globals.node },
+    // Flat config resolves a rule's plugin per block, so a block naming
+    // house/... without declaring house is a config error, not a skip.
+    plugins: { house },
+    rules: { "house/money-stays-string": "off" },
   },
 );

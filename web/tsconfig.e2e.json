@@ -12,5 +12,6 @@
     // library cross-checking is skipped; our files stay strict.
     "skipLibCheck": true
   },
-  "include": ["e2e", "playwright.config.ts"]
+  // The lint rule's test is a node program too, so it is checked here.
+  "include": ["e2e", "lint", "playwright.config.ts"]
 }
