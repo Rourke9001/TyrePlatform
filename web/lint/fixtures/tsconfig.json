@@ -1,0 +1,14 @@
+{
+  // Deliberately empty: typescript-eslint's RuleTester lints every case as
+  // file.ts through allowDefaultProject, and a file found in both the
+  // default project and this one is a fatal parsing error.
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "types": []
+  },
+  "include": []
+}

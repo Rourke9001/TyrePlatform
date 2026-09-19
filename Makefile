@@ -170,13 +170,19 @@ fmt: ## Format everything
 # pinned via api/go.mod's tool directive; v0.6.1 is the last release under
 # go 1.24, so a Renovate bump past it needs the toolchain moved first, not
 # the linter unpinned.
+#
+# The money gate runs its self-test first so a run that finds nothing has
+# proven it could have (rule 2, TYRE-36). Its web half is an ESLint rule and
+# rides `npm run lint` above.
 .PHONY: lint
-lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard
+lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
 	$(GO_RUN) $(GO_IMAGE) go vet ./...
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck ./...
 	cd web && npm run format:check && npm run lint && npm run typecheck
 	node scripts/check-comment-style.mjs
+	node scripts/check-money-types.mjs --self-test
+	node scripts/check-money-types.mjs
 
 .PHONY: test
 test: db-reset db-test db-test-privileged api-test web-test ## Every test in the repo
