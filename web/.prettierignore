@@ -13,3 +13,8 @@ playwright-report
 # Prose is hand-wrapped for reading, and .editorconfig deliberately keeps
 # trailing whitespace in markdown. Prettier would undo both (TYRE-49).
 *.md
+
+# Written by `check-capture-bundle.mjs --record`; nobody hand-writes its
+# layout. Without this a routine ratchet leaves `make lint` red on a JSON
+# file no person wrote (TYRE-238).
+bundle-budget.json
