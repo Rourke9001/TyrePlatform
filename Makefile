@@ -179,7 +179,7 @@ fmt: ## Format everything
 # proven it could have (rule 2, TYRE-36). Its web half is an ESLint rule and
 # rides `npm run lint` above.
 .PHONY: lint
-lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths
+lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths, bundle
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
 	$(GO_RUN) $(GO_IMAGE) go vet ./...
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck ./...
