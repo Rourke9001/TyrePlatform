@@ -135,6 +135,10 @@ api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 web-test: ## Frontend tests
 	cd web && npm test
 
+.PHONY: web-bundle
+web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015)
+	cd web && npm run build && npm run bundle:check
+
 # Not in `make test`: needs a live stack (make api-run, make db-reset) and
 # CI runs it as its own job (TYRE-65). Reseed is mandatory: FR-INS-038
 # refuses a second inspection of the same unit in the configured window, so
@@ -183,6 +187,7 @@ lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard, money pa
 	node scripts/check-comment-style.mjs
 	node scripts/check-money-types.mjs --self-test
 	node scripts/check-money-types.mjs
+	$(MAKE) web-bundle
 
 .PHONY: test
 test: db-reset db-test db-test-privileged api-test web-test ## Every test in the repo

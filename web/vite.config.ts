@@ -20,6 +20,9 @@ export default defineConfig({
       "/api": "http://localhost:8080",
     },
   },
+  // The bundle gate reads which chunks the entry statically imports; nothing
+  // else needs the manifest (TYRE-238, ADR-0015).
+  build: { manifest: true },
   test: {
     // Components could not be rendered in a test before this: Vitest defaults
     // to the node environment, which has no document.

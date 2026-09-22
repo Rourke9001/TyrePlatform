@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "bundle:check": "node ../scripts/check-capture-bundle.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "e2e": "playwright test",
