@@ -90,6 +90,16 @@
   color: var(--ink-muted);
 }
 
+/* controls.css sets .page-title at the title size for the screens B7.4 has
+   not restyled; a page's own header leads at the display size. */
+.page-header .page-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-display);
+  font-weight: 700;
+  line-height: 1.15;
+}
+
 .page-lede {
   margin: var(--space-1) 0 0;
   color: var(--ink-muted);
@@ -219,6 +229,7 @@
   font-size: var(--text-small);
   font-weight: 600;
   color: var(--ink);
+  white-space: nowrap;
 }
 
 .severity-badge[data-severity="CRITICAL"] {
@@ -290,6 +301,7 @@
 }
 
 .stat-link {
+  align-self: flex-start;
   margin-top: var(--space-2);
   font-size: var(--text-small);
   font-weight: 600;
@@ -393,7 +405,9 @@
 .data-table {
   width: 100%;
   border-collapse: collapse;
+  font-family: var(--font-ui);
   font-size: var(--text-body);
+  color: var(--ink);
 }
 
 .data-table th {
@@ -486,8 +500,11 @@
   color: var(--ink-muted);
 }
 
+/* No min-width: 0 here, unlike the dt: a nowrap figure such as "4.0 mm of
+   4.0 mm" (.cell-right) keeps its width and the term beside it wraps, where
+   a shrinking dd would let the figure run past the card's edge. Words in a
+   dd still wrap down to their longest one. */
 .data-card-field dd {
-  min-width: 0;
   margin: 0;
   text-align: right;
 }
@@ -529,10 +546,13 @@
   position: relative;
 }
 
+/* Visible overflow so a focused band's outline is not cut off where its
+   slot meets the plot's edge: the first and last column, and every row. */
 .band-chart-svg {
   width: 100%;
   height: auto;
   display: block;
+  overflow: visible;
 }
 
 /* Hairline, solid, one step off the surface (dataviz, gridlines). */
@@ -742,9 +762,11 @@
 
 /* -------------------------------------------------------- filter bar */
 
+/* Top-aligned, not bottom: a field with a hint or an error below its
+   control would otherwise sit a line higher than one without. */
 .filter-bar {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
@@ -753,9 +775,30 @@
 
 .filter-bar-controls {
   display: flex;
-  align-items: flex-end;
+  align-items: flex-start;
   gap: var(--space-3);
   flex-wrap: wrap;
+}
+
+/* The refresh sits on the controls' own line, not on their labels' line, so
+   the row reads as one band of inputs with one button at its end. */
+.filter-bar > .btn {
+  margin-top: calc(var(--text-small) * 1.5 + var(--space-1));
+}
+
+/* ------------------------------------------------------------- phone */
+
+/* 640 is breakpoint.phone in tokens.ts; @media cannot read a custom
+   property. Below it the refresh wraps to a line of its own, and a panel
+   gives its content back some of the width. */
+@media (max-width: 640px) {
+  .filter-bar > .btn {
+    margin-top: 0;
+  }
+
+  .panel {
+    padding: var(--space-4);
+  }
 }
 
 /* ----------------------------------------------------------- gallery */
