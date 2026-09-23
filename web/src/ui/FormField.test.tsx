@@ -29,4 +29,14 @@ describe("FormField", () => {
     expect(input).toHaveAccessibleDescription("Set by the page");
     expect(input).not.toHaveAttribute("aria-invalid");
   });
+
+  it("merges a control's own aria-describedby with the hint id, not overwrites it", () => {
+    render(
+      <FormField id="unit" label="Unit" hint="Enter a whole number">
+        <input id="unit" aria-describedby="unit-note" />
+      </FormField>,
+    );
+    const input = screen.getByLabelText("Unit");
+    expect(input).toHaveAttribute("aria-describedby", "unit-note unit-hint");
+  });
 });
