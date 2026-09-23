@@ -285,6 +285,14 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 			return
 		}
 		body.ReceivedDate = receivedDate
+		// TYRE-180 F3: the column is unbounded text and every screen renders
+		// it, so the same transport cap every free-text field on a write
+		// carries (maxTextLen) applies here too, matching logRetreadReturn's
+		// reportReference guard (retreads.go).
+		if body.DisplayCode != nil && len(*body.DisplayCode) > maxTextLen {
+			refuseInvalid(w, r, invalid("displayCode", "is too long"))
+			return
+		}
 
 		raw, err := json.Marshal(body.payload())
 		if err != nil {

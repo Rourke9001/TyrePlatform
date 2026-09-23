@@ -66,6 +66,8 @@ type createdVehicleBody struct {
 	ID           string  `json:"id"`
 	FleetNumber  string  `json:"fleetNumber"`
 	Registration *string `json:"registration"`
+	UnitKind     *string `json:"unitKind"`
+	Status       string  `json:"status"`
 }
 
 type refusalBody struct {
@@ -104,6 +106,12 @@ func TestCreateVehicle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	require.Equal(t, "NEW-1", created.FleetNumber)
 	require.NotEmpty(t, created.ID)
+	// TYRE-180 F4b: the create answers the same projection GET /api/vehicles
+	// does (fleetUnitJSON), not the narrower shape it used to, so a caller
+	// holding the response has what the list would show without a refetch.
+	require.NotNil(t, created.UnitKind)
+	require.Equal(t, "HORSE", *created.UnitKind)
+	require.Equal(t, "ACTIVE", created.Status)
 
 	// DR-013: created_by is stamped from the bound actor, without the handler
 	// naming it. app.current_actor_id() is the column's default.
