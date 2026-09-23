@@ -97,29 +97,24 @@ database in one place, and Go only names the refusal for a client.
    ADR-0012 rather than amending it — the envelope, the `TY`-class rule and
    the integrity-class collapse are untouched.
 
-   | Constraint | Wire code | Status | Landed |
-   | --- | --- | --- | --- |
-   | `vehicle_tenant_id_fleet_number_key` | `fleet_number_taken` | 409 | this ADR (B4) |
-   | `app_user_tenant_email_key` | `email_taken` | 409 | this ADR (B4) |
-   | `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 | this ADR (B4) |
-   | `one_active_staff_number_per_tenant` | `staff_number_taken` | 409 | B4.5 |
-   | `one_active_display_code_per_tenant` | `display_code_taken` | 409 | B5 slice 1 |
-   | `one_open_fitment_per_position` | `position_occupied` | 409 | B5 slice 2 |
-   | `one_open_fitment_per_tyre` | `tyre_already_fitted` | 409 | B5 slice 2 |
-   | `composition_observation_once` | `observation_resolved` | 409 | B6.4 (migration 000044) |
+   | Constraint | Wire code | Status |
+   | --- | --- | --- |
+   | `vehicle_tenant_id_fleet_number_key` | `fleet_number_taken` | 409 |
+   | `app_user_tenant_email_key` | `email_taken` | 409 |
+   | `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 |
 
-   *(Amended, TYRE-165: the table above lists all eight rows the live
-   `conflictCodes` map carries, not only the three this decision started
-   with. The map in `api/internal/httpapi/refusal.go` is the source of
-   truth; `TestConflictCodesNameLiveSchemaObjects` guards it against the
-   schema, not against this table, so a future row still needs a matching
-   edit here.)*
+   *(Amended 2026-09-23 (TYRE-165) — see the amendment in Consequences below:
+   the map has grown to eight rows.)*
 
    `23P01` is new to the map: nothing before this ADR's surfaces could raise
    it, since `vehicle_driver_no_overlap` is reachable only once an
    assignment endpoint exists. Migration 000027 replaced the original
    `UNIQUE (tenant_id, email)` constraint with the case-folded unique index
-   `app_user_tenant_email_key`; the table names the live object.
+   `app_user_tenant_email_key`; the table names the live object, and the
+   "Constraint" column holds a partial unique index's name wherever the
+   rule is scoped rather than a plain table constraint's, since Postgres
+   raises the same `23505` from either and `pgErr.ConstraintName` names
+   both alike.
 
    Two consequences of this decision are stated here rather than left to be
    discovered:
@@ -243,6 +238,31 @@ retained data, 84 months then pseudonymised, so nothing gates it); a write
 surface needs an update or a delete, which is the point decision 7 stops
 covering; or a client needs to retry a write idempotently, which decision 10
 assumes never happens because a human is always present at an admin form.
+
+**Amended 2026-09-23 (TYRE-165):** decision 3's table named three
+constraints at B4. The live `conflictCodes` map
+(`api/internal/httpapi/refusal.go`) has grown to eight, five without a
+matching edit here: `one_active_staff_number_per_tenant` (B4.5),
+`one_active_display_code_per_tenant` (B5 slice 1),
+`one_open_fitment_per_position` and `one_open_fitment_per_tyre` (B5 slice
+2), and `composition_observation_once` (B6.4, migration 000044). The full
+table, current as of this amendment:
+
+| Constraint | Wire code | Status | Landed |
+| --- | --- | --- | --- |
+| `vehicle_tenant_id_fleet_number_key` | `fleet_number_taken` | 409 | this ADR (B4) |
+| `app_user_tenant_email_key` | `email_taken` | 409 | this ADR (B4) |
+| `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 | this ADR (B4) |
+| `one_active_staff_number_per_tenant` | `staff_number_taken` | 409 | B4.5 |
+| `one_active_display_code_per_tenant` | `display_code_taken` | 409 | B5 slice 1 |
+| `one_open_fitment_per_position` | `position_occupied` | 409 | B5 slice 2 |
+| `one_open_fitment_per_tyre` | `tyre_already_fitted` | 409 | B5 slice 2 |
+| `composition_observation_once` | `observation_resolved` | 409 | B6.4 (migration 000044) |
+
+The map in `api/internal/httpapi/refusal.go` is the source of truth;
+`TestConflictCodesNameLiveSchemaObjects` guards it against the schema, not
+against either table above, so a future row still needs a matching edit
+here.
 
 ## Constraints on later work
 
