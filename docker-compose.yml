@@ -3,7 +3,7 @@
 # security_invoker behaviour must be identical between local and deployed.
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
     container_name: tyre-pg
     environment:
       POSTGRES_USER: postgres
@@ -23,7 +23,7 @@ services:
   # `make db-migrate` / `make db-reset`. Same image family CI uses, so a
   # migration that works locally works in the pipeline.
   migrate:
-    image: migrate/migrate:v4.19.1
+    image: migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4
     profiles: ["tools"]
     volumes:
       - ./db/migrations:/migrations:ro
