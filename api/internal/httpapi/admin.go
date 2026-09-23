@@ -160,7 +160,10 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		var created vehicleJSON
+		// ADR-0013 decision 9: a create answers the list's own projection so a
+		// caller holds what it just wrote without a second round trip
+		// (TYRE-180 F4b). Both added fields are known at insert time.
+		var created fleetUnitJSON
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
@@ -200,10 +203,10 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 				   (tenant_id, fleet_number, registration, description,
 				    configuration_id, unit_kind, home_depot_id)
 				 VALUES (app.current_tenant_id(), $1, $2, $3, $4, $5::app.unit_kind, $6)
-				 RETURNING id, fleet_number, registration`,
+				 RETURNING id, fleet_number, registration, unit_kind::text, status::text`,
 				ins.fleetNumber, ins.registration, ins.description,
 				ins.configurationID, ins.unitKind, ins.homeDepotID).
-				Scan(&id, &created.FleetNumber, &created.Registration)
+				Scan(&id, &created.FleetNumber, &created.Registration, &created.UnitKind, &created.Status)
 			if err != nil {
 				return fmt.Errorf("creating vehicle: %w", err)
 			}
