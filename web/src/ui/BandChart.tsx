@@ -80,14 +80,14 @@ function percent(part: number, whole: number): string {
   return `${(part / whole) * 100}%`;
 }
 
-type FocusBand = (index: number | null) => void;
+type BandIndexHandler = (index: number | null) => void;
 
 interface BandMarkProps {
   band: BandDatum;
   index: number;
   hit: { x: number; y: number; width: number; height: number };
-  onFocusBand: FocusBand;
-  onHoverBand: FocusBand;
+  onFocusBand: BandIndexHandler;
+  onHoverBand: BandIndexHandler;
   children: ReactNode;
 }
 
@@ -124,8 +124,8 @@ interface FormProps {
   bands: BandDatum[];
   max: number;
   label: string;
-  onFocusBand: FocusBand;
-  onHoverBand: FocusBand;
+  onFocusBand: BandIndexHandler;
+  onHoverBand: BandIndexHandler;
 }
 
 function BandColumns({ bands, max, label, onFocusBand, onHoverBand }: FormProps) {
