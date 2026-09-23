@@ -1,0 +1,275 @@
+{
+  "_comment": "The refusal-code registry (ADR-0012, TYRE-153, TYRE-212, TYRE-191 F2). Every wire code writeError can emit, and every TY code app schema functions raise (whether or not it reaches the wire), lives here once. Three tests hold this file to account: TestRefusalCodesRegistryCoversGoWireVocabulary (api, this package) and TestEveryTYCodeRaisedInSchemaIsRegistered (api, this package, needs TEST_ADMIN_DATABASE_URL) check it from the Go and database sides; web/src/api/refusal.test.ts checks it from the TypeScript side. A code missing here fails at least one of the three. httpStatus is null for a TY code no route can reach (ADR-0012's TY008/TY010/TY020 reasoning, and TY001/TY002 which are trapped inside app.submit_inspection's own exception block and never escape as an error). raisedBy names the live function(s); a wrapper that only calls another function (app.create_combination calling app.create_combination_at) is not listed, only the function whose body contains the RAISE.",
+  "unauthorized": {
+    "source": "go",
+    "httpStatus": 401,
+    "meaning": "the request does not identify a user"
+  },
+  "forbidden": {
+    "source": "go",
+    "httpStatus": 403,
+    "meaning": "the actor is known but the role lacks the capability the route requires, or names a user this tenant cannot resolve"
+  },
+  "bad_request": {
+    "source": "go",
+    "httpStatus": 400,
+    "meaning": "a path parameter does not even parse; a malformed request, not an invalid submission"
+  },
+  "malformed_json": {
+    "source": "go",
+    "httpStatus": 400,
+    "meaning": "the request body is not valid JSON"
+  },
+  "not_found": {
+    "source": "go",
+    "httpStatus": 404,
+    "meaning": "no such endpoint (chi's default handler, routed through the envelope)"
+  },
+  "method_not_allowed": {
+    "source": "go",
+    "httpStatus": 405,
+    "meaning": "that method is not allowed on this endpoint (chi's default handler, routed through the envelope)"
+  },
+  "rate_limited": {
+    "source": "go",
+    "httpStatus": 429,
+    "meaning": "NFR-SEC-007's per-account or per-address submit rate exceeded"
+  },
+  "internal": {
+    "source": "go",
+    "httpStatus": 500,
+    "meaning": "an unhandled internal error, or the rate limiter reached with no bound identity (TY010's transport-level counterpart)"
+  },
+  "invalid_submission": {
+    "source": "go",
+    "httpStatus": 422,
+    "meaning": "a Postgres integrity class (23502, 23503, 23514, 22P02, 22023, 22007 or 22008) canned so no constraint or table name reaches the wire"
+  },
+  "conflict": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "a unique or exclusion violation (23505, 23P01) whose constraint is not one of the named rows below, or the generic fallback for one that is not recognised"
+  },
+  "fleet_number_taken": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "vehicle_tenant_id_fleet_number_key: a unit with that fleet number already exists (DR-003)"
+  },
+  "email_taken": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "app_user_tenant_email_key: a user with that email address already exists in this tenant (D10)"
+  },
+  "email_inactive": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "a user with this email address was deactivated; reactivate them instead of adding a new one"
+  },
+  "nothing_to_reactivate": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "no deactivated user holds that email address any more"
+  },
+  "assignment_overlaps": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "vehicle_driver_no_overlap: that driver already holds an overlapping assignment to this unit (B1's exclusion constraint)"
+  },
+  "staff_number_taken": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "one_active_staff_number_per_tenant: another active user already has that staff number"
+  },
+  "display_code_taken": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "one_active_display_code_per_tenant: an active tyre already carries that display code (FR-TYR-004, DR-002)"
+  },
+  "position_occupied": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "one_open_fitment_per_position: that position already carries a tyre (FR-FIT-004)"
+  },
+  "tyre_already_fitted": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "one_open_fitment_per_tyre: that tyre is already fitted elsewhere (D14)"
+  },
+  "observation_resolved": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "composition_observation_once: someone has already applied or dismissed that report"
+  },
+  "TY001": {
+    "source": "db",
+    "httpStatus": null,
+    "meaning": "odometer went backwards for this vehicle against a reading already on the timeline (monotonicity, DR-020, BR-INS-002)",
+    "note": "trapped inside app.submit_inspection's own exception block and turned into an app.inspection_warning row; never escapes as an error (FR-INS-020)",
+    "raisedBy": ["app.check_odometer_plausible"]
+  },
+  "TY002": {
+    "source": "db",
+    "httpStatus": null,
+    "meaning": "the implied daily distance between two odometer readings exceeds the tenant's configured ceiling (DR-020)",
+    "note": "trapped and warned the same way as TY001",
+    "raisedBy": ["app.check_odometer_plausible"]
+  },
+  "TY003": {
+    "source": "db",
+    "httpStatus": 409,
+    "meaning": "a unit in this submit was already inspected within the tenant's configured window (FR-INS-038)",
+    "raisedBy": ["app.submit_inspection"]
+  },
+  "TY004": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a payload names a position not on the vehicle's configuration",
+    "raisedBy": ["app.submit_inspection"]
+  },
+  "TY005": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "any of submit_inspection's own payload-shape validations; the busiest code",
+    "raisedBy": ["app.submit_inspection"]
+  },
+  "TY006": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a payload asserts the derived governing_tread_mm field itself instead of leaving it to be computed",
+    "raisedBy": ["app.submit_inspection"]
+  },
+  "TY007": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "vehicle not visible: an unrecognised or cross-tenant vehicle_id. Also the Go-side scope check's own code, so a ScopeTenant actor and a driver learn the same thing about the same vehicle (ADR-0011)",
+    "raisedBy": ["app.submit_inspection"]
+  },
+  "TY008": {
+    "source": "db",
+    "httpStatus": null,
+    "meaning": "a vehicle.configuration_id change is refused because fitment, inspection or reading history already exists (D11(ii), FR-VEH-016, INV-4)",
+    "note": "no HTTP path updates app.vehicle.configuration_id; the unit PATCH decoder refuses the field before a transaction ever opens, a database backstop against a path the API deliberately never offers (ADR-0012, amended 2026-09-03)",
+    "raisedBy": ["app.reject_configuration_change_with_history"]
+  },
+  "TY009": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a fitment write omits fitted_odometer for a unit kind that has one (FR-FIT-002 as corrected, CHG-027)",
+    "raisedBy": ["app.require_odometer_where_unit_has_one"]
+  },
+  "TY010": {
+    "source": "db",
+    "httpStatus": null,
+    "meaning": "app.submit_inspection called with no tenant or actor bound",
+    "note": "an invariant breach, not a client mistake, so the default 500 is the honest answer",
+    "raisedBy": ["app.submit_inspection"]
+  },
+  "TY011": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a display-code policy refusal on receiving a tyre (D12)",
+    "raisedBy": ["app.receive_tyres"]
+  },
+  "TY012": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "an invalid lifecycle transition, or a row this tenant cannot see. One message covers both so a missing row and another tenant's row stay indistinguishable under RLS",
+    "raisedBy": [
+      "app.apply_composition_observation",
+      "app.create_combination_at",
+      "app.create_inspection_task",
+      "app.dismiss_composition_observation",
+      "app.dispatch_tyre",
+      "app.dispose_tyre",
+      "app.end_combination_at",
+      "app.fit_tyre",
+      "app.fitment_instant_ok",
+      "app.log_retread_return",
+      "app.receive_tyres",
+      "app.remove_tyre",
+      "app.return_tyre_to_stock",
+      "app.rotate_tyres",
+      "app.set_tyre_cost",
+      "app.set_vehicle_status",
+      "app.void_inspection"
+    ]
+  },
+  "TY013": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a cost entry refused: already recorded, or not a non-negative amount",
+    "raisedBy": ["app.set_tyre_cost"]
+  },
+  "TY014": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a fitment write refused: a closed row is frozen entire, and an open row's removal columns may only move together (rule 3, FR-FIT-014/015, CR-004)",
+    "raisedBy": [
+      "app.dispatch_tyre",
+      "app.fit_tyre",
+      "app.fitment_instant_ok",
+      "app.fitment_is_written_once",
+      "app.log_retread_return",
+      "app.remove_tyre",
+      "app.return_tyre_to_stock",
+      "app.rotate_tyres"
+    ]
+  },
+  "TY015": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "the casing is at its retread cap (BR-FIT-009)",
+    "raisedBy": ["app.dispatch_tyre", "app.log_retread_return"]
+  },
+  "TY016": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a unit status transition the rules do not allow (FR-VEH-005/006/041)",
+    "raisedBy": ["app.set_vehicle_status"]
+  },
+  "TY017": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a rig write refused: created or ended outside the one allowed shape (TYRE-72)",
+    "raisedBy": [
+      "app.combination_is_written_once",
+      "app.combination_member_in_order",
+      "app.create_combination_at",
+      "app.end_combination_at"
+    ]
+  },
+  "TY018": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "an inspection task refused (TYRE-90)",
+    "raisedBy": ["app.create_inspection_task"]
+  },
+  "TY019": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "an inspection write refused; the void endpoint's own refusal is among them (history is written once, TYRE-144/145)",
+    "raisedBy": ["app.inspection_is_written_once", "app.void_inspection"]
+  },
+  "TY020": {
+    "source": "db",
+    "httpStatus": null,
+    "meaning": "a reading or measurement offered to an inspection sealed in an earlier transaction",
+    "note": "no route inserts a reading outside app.submit_inspection's own transaction, so an entry would carry no test able to fail (ADR-0012, amended 2026-09-06)",
+    "raisedBy": ["app.inspection_is_sealed"]
+  },
+  "TY021": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "submitted_at is more than the configured skew ahead of the server clock; check the device time and resubmit (TYRE-215)",
+    "raisedBy": ["app.submit_inspection"]
+  },
+  "TY022": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a composition observation refused: already resolved, stale, on a voided capture, or naming a composition the register cannot be moved to (TYRE-75)",
+    "raisedBy": [
+      "app.apply_composition_observation",
+      "app.dismiss_composition_observation"
+    ]
+  }
+}
