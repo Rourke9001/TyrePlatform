@@ -88,9 +88,11 @@ the next copy edit.
   natural order, not lexicographic (NFR-USE-012) — `POS2` before `POS10`.
 - Colours and type live in `src/theme/tokens.ts` only, consumed through CSS
   custom properties (TYRE-27). A hex or font literal in a component is a bug.
-  Tread band colours are fixed and keyed to band *names*; the mm thresholds
-  that assign a band are tenant configuration and never reach this codebase
-  (rule 5). Fonts are self-hosted @fontsource — no CDN: the capture app must
+  The capture app's per-reading status colours are fixed and keyed to state
+  *names*; the dashboard's tread bands take a one-hue ramp keyed to band
+  *ordinal* (`treadBandRamp`, `treadBandStep`), since the band count is
+  tenant configuration; the mm thresholds that assign either are tenant
+  configuration and never reach this codebase (rule 5). Fonts are self-hosted @fontsource — no CDN: the capture app must
   render on a flaky depot connection, and a font fetch is a third-party
   dependency the driver's flow must never wait on (ADR-0009).
 - Tenant branding (display name, primary colour, nullable logo) is tenant
@@ -98,3 +100,41 @@ the next copy edit.
   by `GET /api/org/branding` and applied by `src/theme/ThemeProvider.tsx`,
   which derives hover/pressed shades and a contrast-safe on-primary from the
   one colour a tenant picks (TYRE-26/27).
+
+## The design system (ADR-0015)
+
+The design skills advise, `tokens.ts` and ADR-0015 decide; the accepted mockups
+are fixed.
+
+`src/ui/` is the component set: PageHeader, StatTile, SeverityBadge,
+ProvenanceSplit, DataTable, Panel, EmptyState, FormField, Button, Select and
+Dialog (Radix), FilterBar, BandChart. `/dev/design` renders all of them
+with example values under `vite dev` and is where a change is looked at
+before it is reviewed. Rules that are not visible in the code:
+
+- Every wire code becomes words in `src/ui/vocabulary.ts` and nowhere
+  else: severity, `judgedAt`, `unavailable`, tread source, band range. A
+  band is labelled from its bounds, never from `bandLabel` (TYRE-270).
+- Select and Dialog import Radix, so a screen that uses them loads behind
+  `React.lazy` in `routes.tsx`. The capture route's JavaScript is gated:
+  `npm run bundle:check` (also in `make lint` and CI) fails when the entry
+  chunk's static closure exceeds `bundle-budget.json`. The budget only
+  ratchets down; a rise needs `--record` and a reason in the PR.
+- The word "roadworthy" appears in no label, legend or aria text; the
+  platform reports the tenant's configured thresholds (CLAUDE.md).
+- Money is `Money | null` and rendered by `formatRand`; `null` reads as
+  "Hidden" or "Not valued" with the unvalued count beside it, never as 0.
+- The dev tenant and actor switchers live in the collapsed dev bar after
+  the content (`src/shell/DevBar.tsx`), never in the header (TYRE-242).
+- Below `breakpoint.phone` (640px, `src/theme/tokens.ts`) `DataTable` renders
+  one card per row and `BandChart` renders one row per band, chosen by
+  `usePhone()` (`src/ui/useMediaQuery.ts`), not by CSS: a table set to
+  `display: block` loses its semantics for a screen reader, and an SVG column
+  chart cannot be turned by CSS (TYRE-238 comment 12938). A CSS rule that
+  switches at the same width writes 640px and cites the constant.
+- A measurement always shows one decimal with a point (`formatMm`, "4.0 mm");
+  millimetres never go through `Intl`'s en-ZA format, whose decimal separator
+  is a comma.
+- Inflation band identifiers become words in `vocabulary.ts`
+  (`inflationBandLabel`, TYRE-271), relative to the tenant's configured target
+  pressure.
