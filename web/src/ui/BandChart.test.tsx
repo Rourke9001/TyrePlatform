@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -38,6 +38,15 @@ describe("BandChart", () => {
     expect(chart.querySelector("[data-form='rows']")).toBeNull();
   });
 
+  // Colour reaches the SVG only through the --band-N custom properties
+  // (TYRE-238 review); a hex written to the fill attribute is a bug.
+  it("paints each bar through a --band-N custom property, never a hex", () => {
+    render(<BandChart title="Tread depth across running positions" bands={bands} />);
+    const bars = document.querySelectorAll<SVGPathElement>(".band-chart-svg path");
+    expect(bars[0].style.fill).toBe("var(--band-1)");
+    expect(bars[bars.length - 1].style.fill).toBe("var(--band-5)");
+  });
+
   it("offers the same numbers as a table", async () => {
     render(<BandChart title="Tread depth across running positions" bands={bands} />);
     await userEvent.click(screen.getByText("Show as table"));
@@ -56,6 +65,37 @@ describe("BandChart", () => {
     await user.hover(bar);
     expect(screen.getByRole("tooltip")).toHaveTextContent("4 tyres");
     await user.unhover(bar);
+    expect(screen.queryByRole("tooltip")).toBeNull();
+  });
+
+  // A keyboard user tabs to a band (focus), the pointer then crosses a
+  // different band and leaves the chart: the focused band's tooltip must
+  // come back, not stay stuck on null. fireEvent drives focus/blur directly
+  // because jsdom does not reliably tab-focus an SVG group.
+  it("keeps a focused band's tooltip after the pointer crosses and leaves another band", async () => {
+    const user = userEvent.setup();
+    render(<BandChart title="Tread depth across running positions" bands={bands} />);
+    const band2 = screen.getByRole("img", { name: "5 to under 8 mm: 4 tyres, 15%" });
+    const band4 = screen.getByRole("img", { name: "11 to under 14 mm: 5 tyres, 19%" });
+
+    fireEvent.focus(band2);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("4 tyres");
+
+    await user.hover(band4);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("5 tyres");
+
+    await user.unhover(band4);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("4 tyres");
+  });
+
+  it("clears the tooltip on blur when no band is hovered", () => {
+    render(<BandChart title="Tread depth across running positions" bands={bands} />);
+    const band1 = screen.getByRole("img", { name: "0 to under 5 mm: 10 tyres, 37%" });
+
+    fireEvent.focus(band1);
+    expect(screen.getByRole("tooltip")).toHaveTextContent("10 tyres");
+
+    fireEvent.blur(band1);
     expect(screen.queryByRole("tooltip")).toBeNull();
   });
 

@@ -61,13 +61,18 @@ export type ProvenanceKey = keyof typeof provenanceColor;
 // falling with depth, keyed by band ordinal and never by band name (U46).
 // The light end clears 2:1 on the surface and each step is darker than the
 // last; tokens.test.ts pins both. Five steps, not "one per band": the
-// tenant configures the band count (rule 5), treadBandStep spreads them.
+// tenant configures the band count (rule 5), and up to five bands get a
+// distinct step; above five, adjacent bands share one (seven bands land on
+// 1, 2, 2, 3, 4, 4, 5). TYRE-275 owns spreading those out further.
 export const treadBandRamp = ["#8fbccb", "#5fa0b6", "#3a819a", "#1f6a83", "#0f4457"] as const;
 
-export function treadBandStep(ordinal: number, bandCount: number): string {
+// Returns the 1-based ramp step (1 to 5), not a hex: colour reaches a
+// component only through the `--band-N` custom properties cssVars emits
+// below, never a literal (TYRE-238 review).
+export function treadBandStep(ordinal: number, bandCount: number): number {
   const last = treadBandRamp.length - 1;
   const index = Math.round(((ordinal - 1) * last) / Math.max(bandCount - 1, 1));
-  return treadBandRamp[Math.min(Math.max(index, 0), last)];
+  return Math.min(Math.max(index, 0), last) + 1;
 }
 
 // Self-hosted stacks; fonts.ts imports them and holds the rule-7 rationale.
