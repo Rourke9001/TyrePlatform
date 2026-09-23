@@ -28,6 +28,30 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-23 — A focusable SVG chart mark takes focus on mousedown, so a focus-driven tooltip sticks after a click (TYRE-238)
+
+**What happened:** the PR #70 fix gave BandChart separate hover and focus
+state so a keyboard user's tooltip survives the pointer leaving. A
+`<g tabIndex={0}>` also takes focus when clicked, so a mouse user's tooltip
+then stayed on the clicked bar after they moved away. jsdom does not focus
+on mousedown, so every test passed; the whole-branch review found it.
+
+**The rule:** when a chart mark's tooltip follows focus, suppress pointer
+focus with `onMouseDown={(e) => e.preventDefault()}` on the focusable mark,
+and test that mechanism (`createEvent.mouseDown`, assert `defaultPrevented`),
+since jsdom cannot show the stuck tooltip.
+
+## 2026-09-23 — A review finding about a library's behaviour was written from memory and was wrong for the installed version (TYRE-238)
+
+**What happened:** the PR #70 review said `@radix-ui/react-select` throws on
+an Item with `value=""`. The installed 2.3.7 has no such guard; it treats
+`""` as no selection and shows the placeholder. The fix was still right,
+but the finding claimed the app would blank when it would only mislabel.
+
+**The rule:** before a finding states what a dependency does, grep its
+installed `dist` under `web/node_modules` (or run it) and cite the line.
+Severity follows the behaviour you saw, not the behaviour you remember.
+
 ## 2026-09-23 — A dev-only route written as `{x && <Route/>}` survives the production build and fails the capture budget (TYRE-238)
 
 **What happened:** the gallery's `{Gallery && <Route/>}` emitted no chunk, yet
