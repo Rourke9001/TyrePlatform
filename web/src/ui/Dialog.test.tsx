@@ -26,6 +26,17 @@ describe("Dialog", () => {
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
+  it("has no accessible description when given none", () => {
+    render(
+      <Dialog open onOpenChange={() => undefined} title="Dispose tyre">
+        <p>body</p>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
+    expect(dialog).not.toHaveAttribute("aria-describedby");
+    expect(dialog).toHaveAccessibleDescription("");
+  });
+
   it("returns focus to the control that opened it", async () => {
     const user = userEvent.setup();
     function Harness() {

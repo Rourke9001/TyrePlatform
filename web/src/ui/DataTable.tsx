@@ -45,57 +45,76 @@ export function DataTable<T>({
   cardHeadingLevel = 3,
 }: DataTableProps<T>) {
   const phone = usePhone();
+  // NVDA and JAWS do not announce aria-busy, so the load is said in a status
+  // line (WCAG 4.1.3). It is the first child in every form, so one live
+  // region outlasts the switch from loading to rows or to empty.
+  const status = (
+    <p role="status" className="visually-hidden">
+      {loading ? `Loading ${caption}` : ""}
+    </p>
+  );
   if (!loading && rows.length === 0) {
-    return <>{empty}</>;
+    return (
+      <>
+        {status}
+        {empty}
+      </>
+    );
   }
   if (phone) {
     return (
-      <DataCards
-        caption={caption}
-        columns={columns}
-        rows={rows}
-        rowKey={rowKey}
-        loading={loading}
-        headingLevel={cardHeadingLevel}
-      />
+      <>
+        {status}
+        <DataCards
+          caption={caption}
+          columns={columns}
+          rows={rows}
+          rowKey={rowKey}
+          loading={loading}
+          headingLevel={cardHeadingLevel}
+        />
+      </>
     );
   }
   return (
-    <div className="data-table-wrap">
-      <table className="data-table" aria-busy={loading || undefined}>
-        <caption className="visually-hidden">{caption}</caption>
-        <thead>
-          <tr>
-            {columns.map((c) => (
-              <th key={c.key} scope="col" className={cellClass(c)}>
-                {c.header}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {loading
-            ? SKELETON_ROWS.map((i) => (
-                <tr key={i} className="data-table-skeleton">
-                  {columns.map((c) => (
-                    <td key={c.key} className={cellClass(c)}>
-                      <span className="skeleton-block" />
-                    </td>
-                  ))}
-                </tr>
-              ))
-            : rows.map((row) => (
-                <tr key={rowKey(row)}>
-                  {columns.map((c) => (
-                    <td key={c.key} className={cellClass(c)}>
-                      {c.cell(row)}
-                    </td>
-                  ))}
-                </tr>
+    <>
+      {status}
+      <div className="data-table-wrap">
+        <table className="data-table" aria-busy={loading || undefined}>
+          <caption className="visually-hidden">{caption}</caption>
+          <thead>
+            <tr>
+              {columns.map((c) => (
+                <th key={c.key} scope="col" className={cellClass(c)}>
+                  {c.header}
+                </th>
               ))}
-        </tbody>
-      </table>
-    </div>
+            </tr>
+          </thead>
+          <tbody>
+            {loading
+              ? SKELETON_ROWS.map((i) => (
+                  <tr key={i} className="data-table-skeleton">
+                    {columns.map((c) => (
+                      <td key={c.key} className={cellClass(c)}>
+                        <span className="skeleton-block" />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              : rows.map((row) => (
+                  <tr key={rowKey(row)}>
+                    {columns.map((c) => (
+                      <td key={c.key} className={cellClass(c)}>
+                        {c.cell(row)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+          </tbody>
+        </table>
+      </div>
+    </>
   );
 }
 

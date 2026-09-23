@@ -14,13 +14,13 @@ export function FormField({ id, label, hint, error, children }: FormFieldProps) 
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
   const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
+  // Only the keys this field sets, so a child's own aria-describedby or
+  // aria-invalid survives a field with no hint or error.
+  const aria: { "aria-describedby"?: string; "aria-invalid"?: boolean } = {};
+  if (describedBy) aria["aria-describedby"] = describedBy;
+  if (error) aria["aria-invalid"] = true;
   const control = Children.map(children, (child) =>
-    isValidElement<{ "aria-describedby"?: string; "aria-invalid"?: boolean }>(child)
-      ? cloneElement(child, {
-          "aria-describedby": describedBy,
-          "aria-invalid": error ? true : undefined,
-        })
-      : child,
+    isValidElement<typeof aria>(child) ? cloneElement(child, aria) : child,
   );
   return (
     <div className={`field${error ? " field-invalid" : ""}`}>

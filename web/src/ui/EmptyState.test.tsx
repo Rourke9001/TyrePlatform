@@ -14,4 +14,12 @@ describe("EmptyState", () => {
     expect(screen.getByText("No spare position carries a tyre.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Units" })).toBeInTheDocument();
   });
+
+  it("takes the heading level from the caller", () => {
+    render(<EmptyState title="No tyres in this view" headingLevel={2} />);
+    expect(
+      screen.getByRole("heading", { level: 2, name: "No tyres in this view" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 3 })).toBeNull();
+  });
 });

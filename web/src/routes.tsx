@@ -100,7 +100,13 @@ const Gallery = import.meta.env.DEV ? lazy(() => import("./ui/Gallery")) : null;
 
 export function AppRoutes() {
   return (
-    <Suspense fallback={<p className="route-loading">Loading.</p>}>
+    <Suspense
+      fallback={
+        <p className="route-loading" role="status">
+          Loading.
+        </p>
+      }
+    >
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route

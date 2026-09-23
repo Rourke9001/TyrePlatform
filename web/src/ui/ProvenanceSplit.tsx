@@ -36,7 +36,9 @@ export function ProvenanceSplit({ segments, caption }: ProvenanceSplitProps) {
             />
           ))}
       </div>
-      <ul className="provenance-legend" aria-label={caption}>
+      {/* Hidden from a screen reader: the bar's name already carries every
+          label and count, so each is heard once. */}
+      <ul className="provenance-legend" aria-hidden="true">
         {segments.map((s) => (
           <li key={s.key}>
             <span className={`provenance-swatch provenance-${s.key}`} aria-hidden="true" />
