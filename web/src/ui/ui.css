@@ -370,3 +370,141 @@
   font-size: var(--text-small);
   color: var(--ink-muted);
 }
+
+/* ------------------------------------------------------------ tables */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.data-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-body);
+}
+
+.data-table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface-sunken);
+  font-family: var(--font-condensed);
+  font-weight: 600;
+  font-size: var(--text-small);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}
+
+.data-table td {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--line);
+  vertical-align: top;
+}
+
+.cell-left {
+  text-align: left;
+}
+
+/* Tabular figures in a column so the digits line up (dataviz, figures). */
+.cell-right {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.cell-basis {
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.data-table-skeleton .skeleton-block {
+  width: 70%;
+}
+
+/* ---------------------------------------------------- table as cards */
+
+/* The list DataTable renders below the phone breakpoint (TYRE-238).
+   usePhone chooses the form, so no @media rule lives here. */
+.data-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.data-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4) var(--space-1);
+}
+
+.data-card-heading {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--ink);
+}
+
+.data-card-fields {
+  margin: 0;
+}
+
+/* NFR-USE-004: every row is a 44px band, so the one row that holds a link
+   gives a gloved thumb the floor without standing taller than the rest. */
+.data-card-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 2.75rem;
+  border-top: 1px solid var(--line);
+}
+
+.data-card-field dt {
+  min-width: 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.data-card-field dd {
+  min-width: 0;
+  margin: 0;
+  text-align: right;
+}
+
+.data-card a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
+/* A skeleton block has no text to size its dd, so the dd takes the row's
+   free width and the block sits at the right edge, where a value would. */
+.data-card-skeleton dd {
+  flex: 1;
+}
+
+.data-card-skeleton dd .skeleton-block {
+  margin-left: auto;
+}
