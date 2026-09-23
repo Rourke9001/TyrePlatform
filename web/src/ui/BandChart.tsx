@@ -107,6 +107,12 @@ function BandMark({ band, index, hit, onFocusBand, onHoverBand, children }: Band
       onBlur={() => onFocusBand(null)}
       onMouseEnter={() => onHoverBand(index)}
       onMouseLeave={() => onHoverBand(null)}
+      // Every browser gives an SVG group focus on mousedown, so a clicked
+      // band would outlive the pointer leaving and strand its tooltip
+      // (activeIndex falls back to focused); nothing here is text to
+      // select, so suppressing the pointer's default focus costs nothing
+      // (TYRE-238 review).
+      onMouseDown={(e) => e.preventDefault()}
     >
       <rect {...hit} fill="transparent" />
       {children}
