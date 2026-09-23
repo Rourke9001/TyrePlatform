@@ -203,3 +203,95 @@
   font-size: var(--text-small);
   color: var(--severity-critical);
 }
+
+/* ------------------------------------------------------------ badges */
+
+/* Ink text on a tint of the severity colour, never the colour as text:
+   the caution step clears 2.3:1 on white (tokens.ts). */
+.severity-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.1rem var(--space-2) 0.1rem var(--space-1);
+  border-left: 3px solid var(--ink-muted);
+  border-radius: var(--radius-control);
+  background: var(--surface-sunken);
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.severity-badge[data-severity="CRITICAL"] {
+  border-left-color: var(--severity-critical);
+  background: color-mix(in srgb, var(--severity-critical) 14%, var(--surface));
+}
+
+.severity-badge[data-severity="WARNING"] {
+  border-left-color: var(--severity-warning);
+  background: color-mix(in srgb, var(--severity-warning) 18%, var(--surface));
+}
+
+.severity-badge[data-severity="INFO"] {
+  border-left-color: var(--severity-info);
+  background: color-mix(in srgb, var(--severity-info) 12%, var(--surface));
+}
+
+.severity-glyph {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  min-width: 1.1em;
+  text-align: center;
+}
+
+/* ------------------------------------------------------------- tiles */
+
+.stat-tile {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-raised);
+  padding: var(--space-4) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.stat-tile-critical {
+  border-top: 3px solid var(--severity-critical);
+}
+
+.stat-tile-warning {
+  border-top: 3px solid var(--severity-warning);
+}
+
+.stat-label {
+  margin: 0;
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+/* Proportional figures on a standalone value; tabular figures belong in
+   a column (dataviz, figures). */
+.stat-value {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-display);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--ink);
+}
+
+.stat-qualifier,
+.stat-judged {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.stat-link {
+  margin-top: var(--space-2);
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--primary);
+}
