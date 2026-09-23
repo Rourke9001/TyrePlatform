@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { Suspense, lazy, type ReactNode } from "react";
 import { Navigate, Route, Routes, useParams, useSearchParams } from "react-router";
 
 import { useActorSettled, useCan, useCanAny } from "./auth/actorContext";
@@ -72,6 +72,11 @@ function AdminRoute({
   if (!can) return <p role="alert">You do not have permission to use this screen.</p>;
   return <>{children}</>;
 }
+
+// The gallery imports Radix, so it loads behind a lazy boundary and never
+// on the capture route (ADR-0015). DEV only, and the lazy() call itself is
+// guarded so a production build emits no gallery chunk at all.
+const Gallery = import.meta.env.DEV ? lazy(() => import("./ui/Gallery")) : null;
 
 export function AppRoutes() {
   return (
@@ -151,7 +156,24 @@ export function AppRoutes() {
           </AdminRoute>
         }
       />
-      <Route path="*" element={<NotFound />} />
+      {/* The catch-all is written in both branches so a production build,
+          where Gallery is null, folds this to that one route and leaves
+          nothing behind in the entry chunk the capture budget gates. */}
+      {Gallery ? (
+        <>
+          <Route
+            path="/dev/design"
+            element={
+              <Suspense fallback={<p>Loading the gallery.</p>}>
+                <Gallery />
+              </Suspense>
+            }
+          />
+          <Route path="*" element={<NotFound />} />
+        </>
+      ) : (
+        <Route path="*" element={<NotFound />} />
+      )}
     </Routes>
   );
 }
