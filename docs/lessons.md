@@ -28,6 +28,26 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-23 — A silently short `npm ci` reports its own success and fails eslint two steps later (TYRE-180)
+
+**What happened:** `npm ci` in a fresh worktree reported `added 259 packages`
+and exit 0. `make lint` then failed on `web/src/ui/Dialog.tsx` with
+`@typescript-eslint/no-unsafe-call`/`no-unsafe-member-access` on
+`event.preventDefault()` inside a Radix `onCloseAutoFocus` callback, a file
+untouched by the branch. `node_modules/@radix-ui/` did not exist at all,
+though `package-lock.json` names it. A second `npm ci` in the same directory
+reported `added 302 packages` and the whole `@radix-ui` scope appeared; the
+same `make lint` then passed clean. Nothing about the first run's exit code
+or output named a missing package.
+
+**The rule:** when `make lint`'s TypeScript-aware eslint fails on a file the
+branch never touched, check whether the failing import actually resolves
+(`node -e "require('./node_modules/<pkg>/package.json')"`) before reading the
+diff for a cause. If it does not, re-run `npm ci` rather than debugging the
+lint rule; a short-counted `npm ci` is a silent partial install, not a
+reported failure, and a package's absence surfaces as a type-resolution
+error two tools later.
+
 ## 2026-09-23 — A focusable SVG chart mark takes focus on mousedown, so a focus-driven tooltip sticks after a click (TYRE-238)
 
 **What happened:** the PR #70 fix gave BandChart separate hover and focus
