@@ -48,6 +48,18 @@ lint rule; a short-counted `npm ci` is a silent partial install, not a
 reported failure, and a package's absence surfaces as a type-resolution
 error two tools later.
 
+## 2026-09-23 — An agent worktree can start on main, not the branch you are on (TYRE-180)
+
+**What happened:** Agent isolation "worktree" created worktrees at 08c6d2b
+while the session sat on develop 6ce7444. Two of four lanes built on that
+stale tree and reported "cut from develop"; one ran a green `make check`
+against a tree three weeks old.
+
+**The rule:** first thing in any agent worktree, run `git merge-base HEAD
+develop`. If it is not develop's tip, rebuild the branch onto develop before
+editing. The orchestrator re-checks the merge-base before trusting any
+lane's gate.
+
 ## 2026-09-23 — A focusable SVG chart mark takes focus on mousedown, so a focus-driven tooltip sticks after a click (TYRE-238)
 
 **What happened:** the PR #70 fix gave BandChart separate hover and focus
