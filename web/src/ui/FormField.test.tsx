@@ -39,4 +39,14 @@ describe("FormField", () => {
     const input = screen.getByLabelText("Unit");
     expect(input).toHaveAttribute("aria-describedby", "unit-note unit-hint");
   });
+
+  it("adds no aria-describedby when the control has no own description and there is no hint or error", () => {
+    render(
+      <FormField id="plain" label="Plain">
+        <input id="plain" />
+      </FormField>,
+    );
+    const input = screen.getByLabelText("Plain");
+    expect(input).not.toHaveAttribute("aria-describedby");
+  });
 });
