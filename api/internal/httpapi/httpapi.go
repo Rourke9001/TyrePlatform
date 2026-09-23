@@ -38,6 +38,9 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 	}
 
 	r := chi.NewRouter()
+	// NFR-SEC-010, ahead of every route so a 404/405 carries the same
+	// headers as a matched one (security.go).
+	r.Use(securityHeaders)
 	// chi answers both of these itself, in text/plain, unless they are
 	// registered. They are the envelope's only escapees (ADR-0012).
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {
