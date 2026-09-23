@@ -173,8 +173,7 @@ func TestCombinationCapabilities(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 
 	// TYRE-180 F5: the second rig write carries the same require(a,
-	// auth.ManageAssignments) gate as the create above, and until now nothing
-	// in the suite drove it with an unprivileged actor. The gate runs before
+	// auth.ManageAssignments) gate as the create above. The gate runs before
 	// the rig id is resolved, so a well-formed but nonexistent id still
 	// reaches it rather than a 404 masking the question.
 	endPath := "/api/combinations/" + uuid.NewString() + "/end"
@@ -291,12 +290,12 @@ func TestCombinationEmptyTowedIsRefusedBySQL(t *testing.T) {
 	require.Equal(t, 0, countCombinations(t, ctx, admin, tenantID))
 }
 
-// TYRE-208 F6: endCombination had no table-driven test of its own refusals,
-// only the malformed-path-id case at the end of TestCombinationShapeRefusals
-// above (which stays there: pathID's 400 is a different rule from these
-// four, app.end_combination_at's own, 000044). The message assertions use
-// Contains, not Equal: TY017's two date-naming messages interpolate a
-// timestamptz whose text form this test does not reproduce.
+// TYRE-208 F6: app.end_combination_at's four refusals (000044), one row
+// each. The malformed-path-id case in TestCombinationShapeRefusals above
+// stays there: pathID's 400 is a different rule from these, which are all
+// SQL-level. The message assertions use Contains, not Equal: TY017's two
+// date-naming messages interpolate a timestamptz whose text form this test
+// does not reproduce.
 func TestEndCombinationRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string

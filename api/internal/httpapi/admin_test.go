@@ -107,8 +107,8 @@ func TestCreateVehicle(t *testing.T) {
 	require.Equal(t, "NEW-1", created.FleetNumber)
 	require.NotEmpty(t, created.ID)
 	// TYRE-180 F4b: the create answers the same projection GET /api/vehicles
-	// does (fleetUnitJSON), not the narrower shape it used to, so a caller
-	// holding the response has what the list would show without a refetch.
+	// does (fleetUnitJSON, ADR-0013 decision 9), so a caller holding the
+	// response has what the list would show without a refetch.
 	require.NotNil(t, created.UnitKind)
 	require.Equal(t, "HORSE", *created.UnitKind)
 	require.Equal(t, "ACTIVE", created.Status)
