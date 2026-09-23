@@ -509,3 +509,130 @@
 .data-card-skeleton dd .skeleton-block {
   margin-left: auto;
 }
+
+/* ------------------------------------------------------------- chart */
+
+/* BandChart renders one form, chosen by usePhone, and shows the tooltip
+   only while a band is active, so no @media or :has rule lives here. */
+.band-chart {
+  margin: 0;
+}
+
+.band-chart-title {
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--ink-muted);
+  margin-bottom: var(--space-2);
+}
+
+.band-chart-plot {
+  position: relative;
+}
+
+.band-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+/* Hairline, solid, one step off the surface (dataviz, gridlines). */
+.band-chart-baseline {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.band-chart-bar {
+  cursor: default;
+}
+
+.band-chart-bar:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Text wears text tokens, never the series colour (dataviz). */
+.band-chart-count {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 600;
+  fill: var(--ink);
+}
+
+.band-chart-axis {
+  font-family: var(--font-ui);
+  font-size: 14px;
+  fill: var(--ink-muted);
+}
+
+.band-chart-tooltip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  box-shadow: var(--elevation-overlay);
+  padding: var(--space-2) var(--space-3);
+  font-size: var(--text-small);
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 2;
+}
+
+/* The tooltip nearest each edge is pulled back inside the plot, so the
+   first and last band do not hang off the panel. */
+.band-chart-tooltip[data-edge="start"] {
+  transform: translateX(-15%);
+}
+
+.band-chart-tooltip[data-edge="end"] {
+  transform: translateX(-85%);
+}
+
+/* The rows form sets it against the plot's right edge, level with its
+   row, so the row's label on the left stays in view. */
+.band-chart-tooltip-beside {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.band-chart-table {
+  margin-top: var(--space-3);
+  font-size: var(--text-small);
+}
+
+/* NFR-USE-004: the disclosure is the chart's one control, so it gets the
+   44px floor. */
+.band-chart-table summary {
+  cursor: pointer;
+  color: var(--primary);
+  font-weight: 600;
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+}
+
+.band-chart-table table {
+  width: 100%;
+  margin-top: var(--space-2);
+  border-collapse: collapse;
+}
+
+.band-chart-table th,
+.band-chart-table td {
+  padding: var(--space-1) var(--space-2);
+  border-top: 1px solid var(--line);
+  text-align: left;
+}
+
+/* The rule above outranks the shared .cell-right, so the numerics are
+   put back on the right here. */
+.band-chart-table .cell-right {
+  text-align: right;
+}
+
+.band-chart-empty {
+  margin: 0;
+  color: var(--ink-muted);
+}
