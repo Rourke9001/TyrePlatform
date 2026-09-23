@@ -118,12 +118,15 @@ before it is reviewed. Rules that are not visible in the code:
 - Select and Dialog import Radix, so a screen that uses them loads behind
   `React.lazy` in `routes.tsx`. The capture route's JavaScript is gated:
   `npm run bundle:check` (also in `make lint` and CI) fails when the entry
-  chunk's static closure exceeds `bundle-budget.json`. The budget only
-  ratchets down; a rise needs `--record` and a reason in the PR.
+  chunk's static closure exceeds `bundle-budget.json`, or when any module under
+  `src/capture/` or `src/driver/` is reachable from the entry only through a
+  dynamic import (ADR-0009, rule 7). The budget only ratchets down; a rise
+  needs `--record` and a reason in the PR.
 - The word "roadworthy" appears in no label, legend or aria text; the
   platform reports the tenant's configured thresholds (CLAUDE.md).
-- Money is `Money | null` and rendered by `formatRand`; `null` reads as
-  "Hidden" or "Not valued" with the unvalued count beside it, never as 0.
+- A money figure is `Money` (`src/api/money.ts`) and rendered only by
+  `formatRand`. An absent one (`null` on the wire) must read "Hidden" or "Not
+  valued" with the unvalued count beside it, never 0 (U36, NFR-PRO-002/003).
 - The dev tenant and actor switchers live in the collapsed dev bar after
   the content (`src/shell/DevBar.tsx`), never in the header (TYRE-242).
 - Below `breakpoint.phone` (640px, `src/theme/tokens.ts`) `DataTable` renders
