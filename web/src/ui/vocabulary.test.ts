@@ -25,13 +25,14 @@ describe("severityLabel", () => {
 
 // U18, U48: the page names the clock each figure is judged at, once.
 describe("judgedAtLabel", () => {
-  it("names the five clocks", () => {
+  it("names the six clocks and passes an unknown code through", () => {
     expect(judgedAtLabel("SUBMITTED_AT")).toBe("as inspected");
     expect(judgedAtLabel("TODAY")).toBe("today");
     expect(judgedAtLabel("TENANT_TODAY")).toBe("on the tenant's calendar day");
     expect(judgedAtLabel("LATEST_READING")).toBe("at the latest reading");
     expect(judgedAtLabel("PERIOD")).toBe("for the period");
     expect(judgedAtLabel("AS_AT")).toBe("as at the chosen date");
+    expect(judgedAtLabel("YESTERDAY")).toBe("YESTERDAY");
   });
 });
 
@@ -54,9 +55,10 @@ describe("unavailableLabel", () => {
 
 // U29: AUDIT is the umbrella for "measured outside an inspection".
 describe("treadSourceLabel and basisLabel", () => {
-  it("say what each source is in words", () => {
+  it("say what each source is in words and pass an unknown code through", () => {
     expect(treadSourceLabel("READING")).toBe("inspection reading");
     expect(treadSourceLabel("AUDIT")).toBe("measured outside an inspection");
+    expect(treadSourceLabel("GAUGE")).toBe("GAUGE");
     expect(basisLabel("ACTUAL")).toBe("actual cost");
     expect(basisLabel("ESTIMATED")).toBe("estimated");
     expect(basisLabel("AUDIT")).toBe("audit valuation");
