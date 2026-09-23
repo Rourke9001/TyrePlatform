@@ -288,64 +288,73 @@ func TestRetreadReturnCrossTenantIsInvisible(t *testing.T) {
 	require.Zero(t, retreadCount)
 }
 
-// returnedOn is parsed in Go before the transaction opens, like the
-// dispatch's sentOn, for the reason instantField's note gives (fitments.go).
-func TestLogRetreadReturnRefusesMalformedReturnedOn(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "retread-bad-date")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
-	jobID, _, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
+// TYRE-208 F6: logRetreadReturn had no table-driven test. Both are shape
+// refusals ADR-0013 decision 5 puts in Go before a transaction opens, so
+// each carries the fixture and the request body its own case needs, and the
+// original two tests' assertions are both kept: the job stays open in
+// either case, and the second additionally pins the tyre's state, since an
+// absent decision must never reach the bare bool's false, which is the
+// rejection that scraps the casing.
+func TestLogRetreadReturnShapeRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// body builds the request from the job's fixture, so a case that
+		// needs tenantToday can read it.
+		body            func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string
+		wantMessagePart string
+		checkTyreState  bool
+	}{
+		{
+			// returnedOn is parsed in Go before the transaction opens, like
+			// the dispatch's sentOn, for the reason instantField's note
+			// gives (fitments.go).
+			name: "malformed returnedOn",
+			body: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string {
+				return retreadReturnBody("31-12-2026", "RPT-BAD", "1000.00", "12.0", "500.00")
+			},
+			wantMessagePart: "returnedOn",
+		},
+		{
+			name: "absent casingAccepted",
+			body: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string {
+				return fmt.Sprintf(`{"returnedOn":%q,"reportReference":"RPT-NODEC"}`,
+					tenantToday(t, ctx, admin, tenantID))
+			},
+			wantMessagePart: "casingAccepted",
+			checkTyreState:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, admin := testStore(t, ctx)
+			tenantID, _ := plantTenant(t, ctx, admin, "retread-shape-refusal")
+			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+			plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
+			plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+			jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
 
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(),
-		retreadReturnBody("31-12-2026", "RPT-BAD", "1000.00", "12.0", "500.00"))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "invalid_submission", ref.Code)
-	require.Contains(t, ref.Message, "returnedOn")
+			h := httpapi.New(s, httpapi.HeaderActorResolver{})
+			rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(),
+				tc.body(t, ctx, admin, tenantID))
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Contains(t, ref.Message, tc.wantMessagePart)
 
-	var returnedAt *string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT returned_at::text FROM app.retread_job WHERE id = $1`, jobID).Scan(&returnedAt))
-	require.Nil(t, returnedAt, "the refusal never reached the database")
-}
+			var returnedAt *string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT returned_at::text FROM app.retread_job WHERE id = $1`, jobID).Scan(&returnedAt))
+			require.Nil(t, returnedAt, "the refusal never reached the database")
 
-// The presence check the handler owns (ADR-0013 d.5): whether the key is
-// there is the request's shape, and its absence must never reach the bare
-// bool's false, which is the rejection that scraps the casing. Refused
-// before any transaction opens, in the same vocabulary as the two required
-// strings beside it.
-func TestLogRetreadReturnRequiresTheCasingDecision(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "retread-no-decision")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
-	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
-
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"returnedOn":%q,"reportReference":"RPT-NODEC"}`,
-			tenantToday(t, ctx, admin, tenantID)))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "invalid_submission", ref.Code)
-	require.Contains(t, ref.Message, "casingAccepted")
-
-	var returnedAt *string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT returned_at::text FROM app.retread_job WHERE id = $1`, jobID).Scan(&returnedAt))
-	require.Nil(t, returnedAt, "the refused request closed nothing")
-	var state string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
-	require.Equal(t, "AT_RETREADER", state, "an absent decision scrapped nothing")
+			if tc.checkTyreState {
+				var state string
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+				require.Equal(t, "AT_RETREADER", state, "an absent decision scrapped nothing")
+			}
+		})
+	}
 }
 
 // U9, FR-TYR-009, BR-VAL-004: the rejection is the other half of D3 and the

@@ -171,6 +171,24 @@ func TestCombinationCapabilities(t *testing.T) {
 
 	rec = get(t, h, "/api/combinations", tenantID.String(), driver.String())
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+
+	// TYRE-180 F5: the second rig write carries the same require(a,
+	// auth.ManageAssignments) gate as the create above, and until now nothing
+	// in the suite drove it with an unprivileged actor. The gate runs before
+	// the rig id is resolved, so a well-formed but nonexistent id still
+	// reaches it rather than a 404 masking the question.
+	endPath := "/api/combinations/" + uuid.NewString() + "/end"
+	rec = post(t, h, endPath, tenantID.String(), technician.String(), `{}`)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	var techRefusal refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &techRefusal))
+	require.Equal(t, "forbidden", techRefusal.Code)
+
+	rec = post(t, h, endPath, tenantID.String(), driver.String(), `{}`)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	var driverRefusal refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &driverRefusal))
+	require.Equal(t, "forbidden", driverRefusal.Code)
 }
 
 // A TY017 raised by app.create_combination reaches the wire verbatim
@@ -271,6 +289,107 @@ func TestCombinationEmptyTowedIsRefusedBySQL(t *testing.T) {
 	require.Equal(t, "TY017", ref.Code)
 	require.Equal(t, "a rig has at least one towed unit; a unit on its own needs no rig", ref.Message)
 	require.Equal(t, 0, countCombinations(t, ctx, admin, tenantID))
+}
+
+// TYRE-208 F6: endCombination had no table-driven test of its own refusals,
+// only the malformed-path-id case at the end of TestCombinationShapeRefusals
+// above (which stays there: pathID's 400 is a different rule from these
+// four, app.end_combination_at's own, 000044). The message assertions use
+// Contains, not Equal: TY017's two date-naming messages interpolate a
+// timestamptz whose text form this test does not reproduce.
+func TestEndCombinationRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// rig plants whatever fixture this case needs, through the API where
+		// a case needs a genuine prior state (already ended), and returns
+		// the rig id to end and the endedOn to send.
+		rig         func(t *testing.T, ctx context.Context, admin *pgx.Conn, h http.Handler, tenantID uuid.UUID, controller uuid.UUID) (rigID, endedOn string)
+		wantCode    string
+		wantMessage string
+	}{
+		{
+			name: "no such rig in this fleet",
+			rig: func(t *testing.T, ctx context.Context, admin *pgx.Conn, h http.Handler, tenantID uuid.UUID, controller uuid.UUID) (string, string) {
+				return uuid.NewString(), ""
+			},
+			wantCode:    "TY012",
+			wantMessage: "no such rig in this fleet",
+		},
+		{
+			name: "a rig already ended",
+			rig: func(t *testing.T, ctx context.Context, admin *pgx.Conn, h http.Handler, tenantID uuid.UUID, controller uuid.UUID) (string, string) {
+				horseID := plantRigUnit(t, ctx, admin, tenantID, "HORSE")
+				trailerID := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
+				rec := post(t, h, "/api/combinations", tenantID.String(), controller.String(),
+					fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}],"effectiveOn":"2020-01-05"}`,
+						horseID, trailerID))
+				require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+				var rig rigBody
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rig))
+				endRec := post(t, h, "/api/combinations/"+rig.ID+"/end", tenantID.String(), controller.String(),
+					`{"endedOn":"2020-01-06"}`)
+				require.Equal(t, http.StatusOK, endRec.Code, endRec.Body.String())
+				return rig.ID, "2020-01-07"
+			},
+			wantCode:    "TY017",
+			wantMessage: "this rig ended on",
+		},
+		{
+			name: "an end before the rig's own start",
+			rig: func(t *testing.T, ctx context.Context, admin *pgx.Conn, h http.Handler, tenantID uuid.UUID, controller uuid.UUID) (string, string) {
+				horseID := plantRigUnit(t, ctx, admin, tenantID, "HORSE")
+				trailerID := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
+				rec := post(t, h, "/api/combinations", tenantID.String(), controller.String(),
+					fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}],"effectiveOn":"2020-02-10"}`,
+						horseID, trailerID))
+				require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+				var rig rigBody
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rig))
+				return rig.ID, "2020-02-01"
+			},
+			wantCode:    "TY017",
+			wantMessage: "it cannot end before that",
+		},
+		{
+			name: "an end in the future",
+			rig: func(t *testing.T, ctx context.Context, admin *pgx.Conn, h http.Handler, tenantID uuid.UUID, controller uuid.UUID) (string, string) {
+				horseID := plantRigUnit(t, ctx, admin, tenantID, "HORSE")
+				trailerID := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
+				rec := post(t, h, "/api/combinations", tenantID.String(), controller.String(),
+					fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}],"effectiveOn":"2020-01-05"}`,
+						horseID, trailerID))
+				require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+				var rig rigBody
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rig))
+				// Fixed far-future literal, never arithmetic on a clock
+				// (lessons 2026-09-03): the point is a date after today,
+				// whenever today happens to be.
+				return rig.ID, "2099-01-01"
+			},
+			wantCode:    "TY017",
+			wantMessage: "never in the future",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, admin := testStore(t, ctx)
+			tenantID, _ := plantTenant(t, ctx, admin, "end-refusal")
+			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+			h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+			rigID, endedOn := tc.rig(t, ctx, admin, h, tenantID, controller)
+			body := "{}"
+			if endedOn != "" {
+				body = fmt.Sprintf(`{"endedOn":%q}`, endedOn)
+			}
+			rec := post(t, h, "/api/combinations/"+rigID+"/end", tenantID.String(), controller.String(), body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, tc.wantCode, ref.Code)
+			require.Contains(t, ref.Message, tc.wantMessage)
+		})
+	}
 }
 
 // Both rig writes take their ids from the request and their tenant only from
