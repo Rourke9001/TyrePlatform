@@ -9582,5 +9582,312 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 63. TYRE-211, TYRE-142: the policy in force now has one inclusive resolver, and one call reads one row (FR-CFG-051, FR-CFG-044, FR-VAL-006)'
+-- An as-at reader passes a day's exclusive edge to threshold_policy_for. A
+-- writer asks what is in force at the instant it runs, through
+-- threshold_policy_in_force, where a row effective at now() already governs
+-- (000048's header). Each block plants at the transaction's own now(), the
+-- one instant where the two readings part, and rolls back; 63e proves it.
+
+\echo '== 63a. a row effective at now() is in force for the now readers and not for an as-at edge at that instant; both resolvers share one precedence'
+BEGIN;
+DO $$
+DECLARE t1   constant uuid := '11111111-1111-1111-1111-111111111111';
+        grp  constant uuid := md5('t63agrp')::uuid;
+        pnow constant uuid := md5('t63apnow')::uuid;
+        pstr constant uuid := md5('t63apstr')::uuid;
+        pgrp constant uuid := md5('t63apgrp')::uuid;
+        pgdr constant uuid := md5('t63apgdr')::uuid;
+        pol app.threshold_policy; mm numeric; n int; stray int; props text;
+        g uuid; c app.axle_class; want uuid; got uuid; edge uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', t1::text, true);
+
+  -- Invoker rights and no SET clause, the shape of threshold_policy_for, so
+  -- RLS binds the lookup to the caller's tenant (db/CLAUDE.md, "Adding a
+  -- function"; checks 8c and 8d).
+  SELECT string_agg(p.oid::regprocedure::text || ' ' || l.lanname || ' ' || p.provolatile::text
+                    || ' definer=' || p.prosecdef::text
+                    || ' config=' || COALESCE(p.proconfig::text, 'none'), '; ')
+    INTO props
+    FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
+   WHERE p.pronamespace = 'app'::regnamespace AND p.proname = 'threshold_policy_in_force';
+  IF props IS DISTINCT FROM 'threshold_policy_in_force(uuid,uuid,axle_class) sql s definer=false config=none' THEN
+    RAISE EXCEPTION 'FAIL 63a: the in-force resolver reads as [%]', COALESCE(props, 'absent');
+  END IF;
+
+  -- The group rows sit a minute or two back so the precedence probe below
+  -- is decided by tier and not only by the instant.
+  INSERT INTO app.operating_group (id, tenant_id, name, created_by)
+  VALUES (grp, t1, 'T63A Northern', NULL);
+  INSERT INTO app.threshold_policy (id, tenant_id, operating_group_id, axle_class,
+                                    retread_threshold_mm, scrap_threshold_mm, effective_from)
+  VALUES (pnow, t1, NULL, NULL,    6.0, 6.0, now()),
+         (pstr, t1, NULL, 'STEER', 5.0, 4.0, now()),
+         (pgrp, t1, grp,  NULL,    5.5, 4.0, now() - interval '1 minute'),
+         (pgdr, t1, grp,  'DRIVE', 7.0, 4.0, now() - interval '2 minutes');
+
+  pol := app.threshold_policy_in_force(t1, NULL, NULL);
+  IF pol.id IS DISTINCT FROM pnow THEN
+    RAISE EXCEPTION 'FAIL 63a: a row effective at now() was not in force now (resolved % at %)',
+      pol.id, pol.retread_threshold_mm;
+  END IF;
+  -- The same instant as an as-at edge keeps the row out, so a day is still
+  -- valued under the policy of that day (000036's convention, FR-CFG-051).
+  pol := app.threshold_policy_for(t1, NULL, NULL, now());
+  mm  := app.removal_threshold_mm_for(t1, now());
+  IF pol.retread_threshold_mm IS DISTINCT FROM 4.0 OR mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL 63a: an as-at edge at now() already saw the row effective at it (% / %)',
+      pol.retread_threshold_mm, mm;
+  END IF;
+  mm := app.current_removal_threshold_mm();
+  IF mm IS DISTINCT FROM 6.0 THEN
+    RAISE EXCEPTION 'FAIL 63a: current_removal_threshold_mm answered % with a 6.0 row in force', mm;
+  END IF;
+  SELECT count(*), count(*) FILTER (WHERE f.removal_threshold_mm IS DISTINCT FROM 6.0)
+    INTO n, stray FROM app.v_removal_forecast f;
+  IF n = 0 OR stray <> 0 THEN
+    RAISE EXCEPTION 'FAIL 63a: % of % forecast rows project against a threshold other than the 6.0 in force',
+      stray, n;
+  END IF;
+
+  -- timestamptz counts whole microseconds, so an exclusive edge one
+  -- microsecond past now() is the same instant read inclusively, and the two
+  -- resolvers must then agree on every tier. The expected row is named as
+  -- well, so the pair cannot agree by both being wrong.
+  FOR g, c, want IN
+    SELECT * FROM (VALUES (NULL::uuid, NULL::app.axle_class, pnow),
+                          (NULL, 'STEER', pstr), (NULL, 'DRIVE', pnow),
+                          (grp,  NULL,    pgrp), (grp,  'STEER', pgrp),
+                          (grp,  'DRIVE', pgdr)) v
+  LOOP
+    got  := (app.threshold_policy_in_force(t1, g, c)).id;
+    edge := (app.threshold_policy_for(t1, g, c, now() + interval '1 microsecond')).id;
+    IF got IS DISTINCT FROM want OR edge IS DISTINCT FROM want THEN
+      RAISE EXCEPTION 'FAIL 63a: group % class % resolved % in force and % at the next microsecond, expected %',
+        g, c, got, edge, want;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  63a a row effective at now() governs current_removal_threshold_mm and the forecast, not an as-at edge at that instant; one precedence';
+END $$;
+ROLLBACK;
+
+\echo '== 63b. one policy row written in the transaction prices every stored rate and caps every retread in the calls that follow (FR-VAL-006, BR-FIT-009, FR-CFG-044)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1  constant uuid := md5('sz1')::uuid;
+        pt1  constant uuid := md5('pt1')::uuid;
+        pol  constant uuid := md5('t63bpol')::uuid;
+        d_rt constant uuid := md5('t63brt')::uuid;
+        ta   constant uuid := md5('t63bta')::uuid;   -- returned and accepted
+        tb   constant uuid := md5('t63btb')::uuid;   -- returning at the planted cap
+        tc   constant uuid := md5('t63btc')::uuid;   -- dispatched at the planted cap
+        ja   constant uuid := md5('t63bja')::uuid;
+        jb   constant uuid := md5('t63bjb')::uuid;
+        tz text; r record; rate numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  -- Every figure differs from the seeded row's (4.0, cap 2), so each
+  -- assertion names the row that governed the call.
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+                                    warning_threshold_mm, max_retreads, effective_from)
+  VALUES (pol, bac, 6.0, 6.0, 8.0, 1, now());
+
+  SELECT * INTO r FROM app.receive_tyres('{"new_tread_mm":"25.0","purchase_price":"4319.91"}'::jsonb);
+  SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = r.tyre_id;
+  IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 6.0) THEN
+    RAISE EXCEPTION 'FAIL 63b: receive_tyres stored % where the 6.0 in force gives % (4.0 gives %)',
+      rate, app.rand_per_mm(4319.91, 25.0, 6.0), app.rand_per_mm(4319.91, 25.0, 4.0);
+  END IF;
+  SELECT * INTO r FROM app.receive_tyres('{"new_tread_mm":"25.0"}'::jsonb);
+  PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
+  SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = r.tyre_id;
+  IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 6.0) THEN
+    RAISE EXCEPTION 'FAIL 63b: set_tyre_cost stored % where the 6.0 in force gives %',
+      rate, app.rand_per_mm(4319.91, 25.0, 6.0);
+  END IF;
+
+  INSERT INTO app.depot (id, tenant_id, name, type)
+  VALUES (d_rt, bac, 'T63B Retreaders', 'RETREADER');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status,
+                        retread_count, state) VALUES
+    (ta, bac, 'T63TYREA', sz1, pt1, 'NEW',     0, 'AT_RETREADER'),
+    (tb, bac, 'T63TYREB', sz1, pt1, 'RETREAD', 1, 'AT_RETREADER'),
+    (tc, bac, 'T63TYREC', sz1, pt1, 'RETREAD', 1, 'REMOVED');
+  -- Raw jobs, 42g's pattern, because dispatch_tyre would refuse tb at the door.
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at) VALUES
+    (ja, bac, ta, d_rt, app.tenant_today(tz) - 3),
+    (jb, bac, tb, d_rt, app.tenant_today(tz) - 3);
+
+  -- 5.5 mm clears the seeded 4.0 and not the 6.0 in force.
+  BEGIN
+    PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T63-RPT-A', 2500.00, 5.5, 800.00);
+    RAISE EXCEPTION 'FAIL 63b: a casing returned at 5.5 mm was accepted under the 6.0 threshold in force';
+  EXCEPTION WHEN sqlstate 'TY014' THEN
+    IF SQLERRM NOT LIKE '%removal threshold of 6.0 mm%' THEN
+      RAISE EXCEPTION 'FAIL 63b: the 5.5 mm return was refused for another reason: %', SQLERRM;
+    END IF;
+  END;
+  PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T63-RPT-A', 2500.00, 16.0, 800.00);
+  SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = ta;
+  IF rate IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, 6.0) THEN
+    RAISE EXCEPTION 'FAIL 63b: log_retread_return stored % where the 6.0 in force gives %',
+      rate, app.rand_per_mm(2500.00, 16.0, 6.0);
+  END IF;
+
+  -- The cap comes off the same row. At cap 1 a casing retreaded once is
+  -- refused, where the seeded cap of 2 would pass it.
+  BEGIN
+    PERFORM app.log_retread_return(jb, app.tenant_today(tz) - 1, true, 'T63-RPT-B', 2500.00, 16.0, 800.00);
+    RAISE EXCEPTION 'FAIL 63b: a return past the cap in force was retreaded';
+  EXCEPTION WHEN sqlstate 'TY015' THEN
+    IF SQLERRM NOT LIKE '%cap of 1%' THEN
+      RAISE EXCEPTION 'FAIL 63b: the return was refused at another cap: %', SQLERRM;
+    END IF;
+  END;
+  BEGIN
+    PERFORM app.dispatch_tyre(tc, 'AT_RETREADER', d_rt);
+    RAISE EXCEPTION 'FAIL 63b: a dispatch past the cap in force was sent';
+  EXCEPTION WHEN sqlstate 'TY015' THEN
+    IF SQLERRM NOT LIKE '%cap of 1%' THEN
+      RAISE EXCEPTION 'FAIL 63b: the dispatch was refused at another cap: %', SQLERRM;
+    END IF;
+  END;
+  RAISE NOTICE 'PASS  63b a row written in the transaction prices receive_tyres, set_tyre_cost and log_retread_return at 6.0 and caps the return and the dispatch at 1';
+END $$;
+ROLLBACK;
+
+\echo '== 63c. a class row and a group row in force at now() reach none of the class-blind readers (U5, FR-CFG-044)'
+-- These readers name no axle class and no group, because a casing off the
+-- vehicle has neither (U5), so only a tenant-wide row can govern them. A
+-- newer STEER row and a newer group row, at cap 0 and a 7.0 threshold, must
+-- move nothing they read.
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        grp  constant uuid := md5('t63cgrp')::uuid;
+        sz1  constant uuid := md5('sz1')::uuid;
+        pt1  constant uuid := md5('pt1')::uuid;
+        d_rt constant uuid := md5('t63crt')::uuid;
+        td   constant uuid := md5('t63ctd')::uuid;
+        tz text; mm numeric; job uuid; rate numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  INSERT INTO app.operating_group (id, tenant_id, name, created_by)
+  VALUES (grp, bac, 'T63C Northern', NULL);
+  INSERT INTO app.threshold_policy (id, tenant_id, operating_group_id, axle_class,
+                                    retread_threshold_mm, scrap_threshold_mm, max_retreads,
+                                    retreads_permitted, effective_from)
+  VALUES (md5('t63cstr')::uuid, bac, NULL, 'STEER', 7.0, 4.0, 0, false, now()),
+         (md5('t63cgrppol')::uuid, bac, grp, NULL, 7.0, 4.0, 0, false, now());
+
+  mm := app.current_removal_threshold_mm();
+  IF mm IS DISTINCT FROM 4.0 THEN
+    RAISE EXCEPTION 'FAIL 63c: current_removal_threshold_mm reached a class or group row (%)', mm;
+  END IF;
+
+  INSERT INTO app.depot (id, tenant_id, name, type)
+  VALUES (d_rt, bac, 'T63C Retreaders', 'RETREADER');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status,
+                        retread_count, state)
+  VALUES (td, bac, 'T63TYRED', sz1, pt1, 'NEW', 0, 'REMOVED');
+  BEGIN
+    SELECT d.retread_job_id INTO job
+      FROM app.dispatch_tyre(td, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 3) d;
+  EXCEPTION WHEN sqlstate 'TY015' THEN
+    RAISE EXCEPTION 'FAIL 63c: dispatch_tyre read a class or group cap: %', SQLERRM;
+  END;
+  BEGIN
+    PERFORM app.log_retread_return(job, app.tenant_today(tz) - 1, true, 'T63-RPT-D', 2500.00, 16.0, 800.00);
+  EXCEPTION WHEN sqlstate 'TY015' THEN
+    RAISE EXCEPTION 'FAIL 63c: log_retread_return read a class or group cap: %', SQLERRM;
+  END;
+  SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = td;
+  IF rate IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, 4.0) THEN
+    RAISE EXCEPTION 'FAIL 63c: log_retread_return priced at % rather than the tenant-wide 4.0 (%)',
+      rate, app.rand_per_mm(2500.00, 16.0, 4.0);
+  END IF;
+  RAISE NOTICE 'PASS  63c the tenant-wide row alone governs current_removal_threshold_mm, the dispatch cap and the return''s cap and rate';
+END $$;
+ROLLBACK;
+
+\echo '== 63d. fit_tyre reads the axle-class row in force at now(), so a DRIVE rule written in the transaction reaches the next fit (FR-FIT-006, FR-CFG-044, U11)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        vh  constant uuid := md5('t63dh')::uuid;
+        sz1 constant uuid := md5('sz1')::uuid;
+        pt1 constant uuid := md5('pt1')::uuid;
+        ty1 constant uuid := md5('t63dty1')::uuid;
+        ty2 constant uuid := md5('t63dty2')::uuid;
+        cfg uuid; pa uuid; pb uuid; r record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- The seed fills every position on veh1, so this block plants its own
+  -- empty HORSE on the same configuration (section 41's pattern); a HORSE
+  -- owes a fitment odometer (TY009).
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO pa FROM app.position p
+   WHERE p.configuration_id = cfg AND p.axle_class = 'DRIVE' AND NOT p.is_spare
+   ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO pb FROM app.position p
+   WHERE p.configuration_id = cfg AND p.axle_class = 'DRIVE' AND NOT p.is_spare
+   ORDER BY p.sequence OFFSET 1 LIMIT 1;
+  IF pa IS NULL OR pb IS NULL THEN
+    RAISE EXCEPTION 'FAIL 63d: veh1''s configuration has no two DRIVE positions to fit';
+  END IF;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (vh, bac, 'T63-H', 'T63H GP', cfg, 'HORSE', md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status,
+                        retread_count, state) VALUES
+    (ty1, bac, 'T63TYRE1', sz1, pt1, 'RETREAD', 1, 'IN_STOCK'),
+    (ty2, bac, 'T63TYRE2', sz1, pt1, 'RETREAD', 1, 'IN_STOCK');
+
+  -- The control. The seeded rows permit retreads on DRIVE, so nothing warns.
+  SELECT * INTO r FROM app.fit_tyre(ty1, vh, pa, 12.0, 'MARK_OUTBOARD', 400000);
+  IF r.warnings @> '[{"code":"RETREAD_ON_NON_PERMITTED_AXLE"}]'::jsonb THEN
+    RAISE EXCEPTION 'FAIL 63d: a retread on DRIVE warned before any DRIVE rule existed: %', r.warnings;
+  END IF;
+  -- One DRIVE row later, at the same instant. The class row outranks the
+  -- tenant-wide one and is in force from now().
+  INSERT INTO app.threshold_policy (id, tenant_id, axle_class, retreads_permitted, effective_from)
+  VALUES (md5('t63ddrv')::uuid, bac, 'DRIVE', false, now());
+  SELECT * INTO r FROM app.fit_tyre(ty2, vh, pb, 12.0, 'MARK_OUTBOARD', 400000);
+  IF NOT (r.warnings @> '[{"code":"RETREAD_ON_NON_PERMITTED_AXLE"}]'::jsonb) THEN
+    RAISE EXCEPTION 'FAIL 63d: a DRIVE rule in force at now() did not reach the fit: %', r.warnings;
+  END IF;
+  RAISE NOTICE 'PASS  63d a DRIVE rule written at now() warns the next retread fitted on DRIVE, and not the one before it';
+END $$;
+ROLLBACK;
+
+\echo '== 63e. nothing 63a to 63d planted outlives its rollback'
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT (SELECT count(*) FROM app.threshold_policy
+           WHERE id IN (md5('t63apnow')::uuid, md5('t63apstr')::uuid, md5('t63apgrp')::uuid,
+                        md5('t63apgdr')::uuid, md5('t63bpol')::uuid, md5('t63cstr')::uuid,
+                        md5('t63cgrppol')::uuid, md5('t63ddrv')::uuid))
+       + (SELECT count(*) FROM app.operating_group
+           WHERE id IN (md5('t63agrp')::uuid, md5('t63cgrp')::uuid))
+       + (SELECT count(*) FROM app.tyre WHERE display_code LIKE 'T63TYRE%')
+       -- 63b's two receipts carry issued codes, so they are found by their rate.
+       + (SELECT count(*) FROM app.tyre WHERE rand_per_mm = app.rand_per_mm(4319.91, 25.0, 6.0))
+       + (SELECT count(*) FROM app.retread_job
+           WHERE tyre_id IN (md5('t63bta')::uuid, md5('t63btb')::uuid, md5('t63ctd')::uuid))
+       + (SELECT count(*) FROM app.depot WHERE id IN (md5('t63brt')::uuid, md5('t63crt')::uuid))
+       + (SELECT count(*) FROM app.vehicle WHERE id = md5('t63dh')::uuid)
+    INTO n;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 63e: % rows planted by section 63 survived their rollback', n;
+  END IF;
+  RAISE NOTICE 'PASS  63e section 63 leaves no residue';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

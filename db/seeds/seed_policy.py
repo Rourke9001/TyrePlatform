@@ -2,8 +2,8 @@
 # generators cannot disagree about them (CLAUDE.md rule 5: a threshold is
 # configuration, never a constant in a rule). These are the seeded rows'
 # values; the rows themselves are the authority once loaded, and
-# app.threshold_policy_for and app.target_pressure_for are the only readers
-# in SQL.
+# app.threshold_policy_for, app.threshold_policy_in_force and
+# app.target_pressure_for are the only readers in SQL.
 #
 # Both retread and scrap sit at 4.0mm: BAC runs a single pull point today,
 # and 4mm is its policy figure, never a legal claim (CFL-012). The warning
