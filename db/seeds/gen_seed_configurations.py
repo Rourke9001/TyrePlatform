@@ -63,7 +63,6 @@ for tid in ['11111111-1111-1111-1111-111111111111','22222222-2222-2222-2222-2222
                 # a Must, but the right answer for a real fleet is unknown, so
                 # it is a key, not a constant (rule 5).
                 ('capture_spares', True),
-                ('spare_capture_scope','COMBINATION'),
                 ('width_spread_warn_mm',4),('dual_mate_warn_mm',3),('axle_divergence_warn_mm',3),
                 ('tread_bands',[[0,4],[5,7],[8,10],[11,13],[14,None]]),
                 # FR-FIT-008's minimum plus the two this platform writes itself
