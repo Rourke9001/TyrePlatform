@@ -13,10 +13,16 @@ const bands = [
   { bandOrdinal: 5, lowerMm: 14, upperExclusiveMm: null, tyreCount: 2, pctOfGroup: 7.41 },
 ];
 
+// The wire's own label for the first band, which names a range the band
+// does not cover (TYRE-270).
+const wireBands = bands.map((b) => (b.bandOrdinal === 1 ? { ...b, bandLabel: "0-4mm" } : b));
+
+const PLOT = "Tread depth across running positions, 5 bands";
+
 describe("BandChart", () => {
   // U40: the words come from the bounds; TYRE-270's bandLabel never renders.
   it("labels every bar from its bounds and puts the count on the bar", () => {
-    render(<BandChart title="Tread depth across running positions" bands={bands} />);
+    render(<BandChart title="Tread depth across running positions" bands={wireBands} />);
     const chart = screen.getByRole("figure", { name: "Tread depth across running positions" });
     expect(
       within(chart).getByRole("img", { name: "0 to under 5 mm: 10 tyres, 37%" }),
@@ -24,6 +30,9 @@ describe("BandChart", () => {
     expect(
       within(chart).getByRole("img", { name: "14 mm and over: 2 tyres, 7%" }),
     ).toBeInTheDocument();
+    expect(within(within(chart).getByRole("group", { name: PLOT })).getByText("10")).toHaveClass(
+      "band-chart-count",
+    );
     expect(within(chart).queryByText("0-4mm")).toBeNull();
     expect(chart.querySelector("[data-form='columns']")).not.toBeNull();
     expect(chart.querySelector("[data-form='rows']")).toBeNull();
@@ -79,6 +88,9 @@ describe("BandChart", () => {
       const rows = within(chart).getAllByRole("img");
       expect(rows).toHaveLength(5);
       expect(rows[0]).toHaveAccessibleName("0 to under 5 mm: 10 tyres, 37%");
+      const plot = within(chart).getByRole("group", { name: PLOT });
+      expect(within(plot).getByText("0 to under 5 mm")).toHaveClass("band-chart-axis");
+      expect(within(plot).getByText("10")).toHaveClass("band-chart-count");
       expect(chart.querySelector("[data-form='rows']")).not.toBeNull();
       expect(chart.querySelector("[data-form='columns']")).toBeNull();
     });
