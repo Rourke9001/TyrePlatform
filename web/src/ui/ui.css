@@ -56,7 +56,10 @@
   filter: brightness(0.92);
 }
 
-.btn:disabled {
+/* aria-disabled keeps a busy control focusable (FilterBar); it looks the
+   same as a disabled one. */
+.btn:disabled,
+.btn[aria-disabled="true"] {
   background: var(--surface-sunken);
   color: var(--ink-muted);
   border-color: transparent;
@@ -198,7 +201,8 @@
 }
 
 .field-invalid input,
-.field-invalid select {
+.field-invalid select,
+.field-invalid .select-trigger {
   border-color: var(--severity-critical);
 }
 
@@ -707,8 +711,13 @@
   outline: none;
 }
 
+/* Radix moves focus onto the option and the rule above drops the global
+   ring; the tint alone is 1.13:1 on the surface, so an inset ring marks the
+   option a keyboard is on (WCAG 1.4.11, 3:1). */
 .select-item[data-highlighted] {
   background: var(--surface-sunken);
+  outline: 2px solid var(--primary);
+  outline-offset: -2px;
 }
 
 .select-item[data-state="checked"] {

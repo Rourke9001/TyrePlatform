@@ -18,14 +18,23 @@ describe("FilterBar", () => {
     expect(group).toContainElement(screen.getByRole("combobox", { name: "Depot" }));
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
   });
 
-  it("disables the refresh while one is in flight", () => {
+  it("keeps the refresh focusable but inert while one is in flight, and says so", async () => {
+    const user = userEvent.setup();
+    const onRefresh = vi.fn();
     render(
-      <FilterBar onRefresh={() => undefined} refreshing>
+      <FilterBar onRefresh={onRefresh} refreshing>
         <span />
       </FilterBar>,
     );
-    expect(screen.getByRole("button", { name: "Refreshing" })).toBeDisabled();
+    const button = screen.getByRole("button", { name: "Refreshing" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await user.click(button);
+    await user.keyboard("{Enter}");
+    expect(onRefresh).not.toHaveBeenCalled();
+    expect(button).toHaveFocus();
+    expect(screen.getByRole("status")).toHaveTextContent("Refreshing");
   });
 });

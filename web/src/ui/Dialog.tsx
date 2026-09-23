@@ -17,12 +17,18 @@ export function Dialog({ open, onOpenChange, title, description, children }: Dia
   // caller's button does not have, so without this focus lands on the body
   // on close. The opener is kept here instead (WCAG 2.4.3).
   const opener = useRef<HTMLElement | null>(null);
+  // No description renders no Description, since a hidden copy of the title
+  // is read twice; aria-describedby={undefined} is Radix's documented way to
+  // say there is none. Only that branch passes the key: it would override
+  // the id Radix wires to a real description.
+  const noDescription = description ? {} : { "aria-describedby": undefined };
   return (
     <RadixDialog.Root open={open} onOpenChange={onOpenChange}>
       <RadixDialog.Portal>
         <RadixDialog.Overlay className="dialog-overlay" />
         <RadixDialog.Content
           className="dialog-content"
+          {...noDescription}
           onOpenAutoFocus={() => {
             opener.current =
               document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -33,12 +39,10 @@ export function Dialog({ open, onOpenChange, title, description, children }: Dia
           }}
         >
           <RadixDialog.Title className="dialog-title">{title}</RadixDialog.Title>
-          {description ? (
+          {description && (
             <RadixDialog.Description className="dialog-description">
               {description}
             </RadixDialog.Description>
-          ) : (
-            <RadixDialog.Description className="visually-hidden">{title}</RadixDialog.Description>
           )}
           {children}
           <RadixDialog.Close className="btn btn-quiet dialog-close" aria-label="Close">

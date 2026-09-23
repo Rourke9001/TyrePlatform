@@ -15,9 +15,23 @@ export function FilterBar({ children, onRefresh, refreshing = false }: FilterBar
     <div className="filter-bar" role="group" aria-label="Filters">
       <div className="filter-bar-controls">{children}</div>
       {onRefresh && (
-        <Button variant="secondary" onClick={onRefresh} disabled={refreshing}>
-          {refreshing ? "Refreshing" : "Refresh"}
-        </Button>
+        <>
+          {/* aria-disabled, not disabled: a disabled button drops the focus of
+              the keyboard user who pressed it (WCAG 2.4.3), and the status
+              line says what the label swap alone does not announce. */}
+          <Button
+            variant="secondary"
+            aria-disabled={refreshing || undefined}
+            onClick={() => {
+              if (!refreshing) onRefresh();
+            }}
+          >
+            {refreshing ? "Refreshing" : "Refresh"}
+          </Button>
+          <span role="status" className="visually-hidden">
+            {refreshing ? "Refreshing" : ""}
+          </span>
+        </>
       )}
     </div>
   );

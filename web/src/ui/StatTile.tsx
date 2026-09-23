@@ -15,6 +15,9 @@ interface StatTileProps {
   // (web/CLAUDE.md: the one data- attribute exception).
   requirement?: string;
   tone?: "default" | "critical" | "warning";
+  // The label nests under the heading the tile sits beneath: 3 below a
+  // Panel's h2, 2 directly under a page's h1.
+  headingLevel?: 2 | 3 | 4;
 }
 
 export function StatTile({
@@ -26,17 +29,19 @@ export function StatTile({
   linkLabel = "See the list",
   requirement,
   tone = "default",
+  headingLevel = 3,
 }: StatTileProps) {
   const headingId = useId();
+  const Heading = `h${headingLevel}` as const;
   return (
     <article
       className={`stat-tile stat-tile-${tone}`}
       aria-labelledby={headingId}
       data-requirement={requirement}
     >
-      <h3 id={headingId} className="stat-label">
+      <Heading id={headingId} className="stat-label">
         {label}
-      </h3>
+      </Heading>
       <p className="stat-value">{value}</p>
       {/* A div, not a p: a qualifier may carry a list or a split (block
           content), and React refuses a block inside a paragraph. */}

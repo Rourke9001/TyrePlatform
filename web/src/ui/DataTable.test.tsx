@@ -65,6 +65,21 @@ describe("DataTable", () => {
     expect(screen.queryByText("none")).toBeNull();
   });
 
+  it("says the table is loading in a status line", () => {
+    render(
+      <DataTable
+        caption="Tyres at risk"
+        columns={columns}
+        rows={[]}
+        rowKey={(r) => r.id}
+        empty={<p>none</p>}
+        loading
+      />,
+    );
+    expect(screen.getByRole("table", { name: "Tyres at risk" })).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading Tyres at risk");
+  });
+
   describe("on a phone", () => {
     const rows: Row[] = [
       { id: "t1", unit: "HORSE", tread: "2.0 mm", basis: "audit valuation" },
@@ -169,6 +184,21 @@ describe("DataTable", () => {
       expect(list).toHaveAttribute("aria-busy", "true");
       expect(within(list).getAllByRole("listitem")).toHaveLength(4);
       expect(screen.queryByText("none")).toBeNull();
+    });
+
+    it("says the card list is loading in a status line", () => {
+      render(
+        <DataTable
+          caption="Tyres at risk"
+          columns={columns}
+          rows={[]}
+          rowKey={(r) => r.id}
+          empty={<p>none</p>}
+          loading
+        />,
+      );
+      expect(screen.getByRole("list", { name: "Tyres at risk" })).toBeInTheDocument();
+      expect(screen.getByRole("status")).toHaveTextContent("Loading Tyres at risk");
     });
 
     it("renders the empty state instead of an empty list", () => {

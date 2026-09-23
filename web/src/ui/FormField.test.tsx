@@ -15,4 +15,18 @@ describe("FormField", () => {
     expect(input).toHaveAttribute("aria-invalid", "true");
     expect(screen.getByRole("alert")).toHaveTextContent("Needs a to date as well");
   });
+
+  it("leaves a control's own description alone when it has no hint or error", () => {
+    render(
+      <>
+        <p id="own">Set by the page</p>
+        <FormField id="depot" label="Depot">
+          <input id="depot" aria-describedby="own" />
+        </FormField>
+      </>,
+    );
+    const input = screen.getByLabelText("Depot");
+    expect(input).toHaveAccessibleDescription("Set by the page");
+    expect(input).not.toHaveAttribute("aria-invalid");
+  });
 });

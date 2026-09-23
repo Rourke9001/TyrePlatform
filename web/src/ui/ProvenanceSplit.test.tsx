@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ProvenanceSplit } from "./ProvenanceSplit";
@@ -21,9 +21,9 @@ describe("ProvenanceSplit", () => {
     const segments = bar.querySelectorAll("[data-segment]");
     expect(segments).toHaveLength(3);
     expect((segments[1] as HTMLElement).style.width).toBe("50%");
-    expect(screen.getByRole("list", { name: "Casing value provenance" })).toBeInTheDocument();
-    expect(screen.getByText("Audit")).toBeInTheDocument();
-    expect(screen.getAllByText("2")).not.toHaveLength(0);
+    const legend = screen.getByRole("list", { hidden: true });
+    expect(legend).toHaveAttribute("aria-hidden", "true");
+    expect(within(legend).getByText("Audit").closest("li")).toHaveTextContent(/^Audit2$/);
   });
 
   it("says so when every count is zero instead of drawing an empty bar", () => {

@@ -35,4 +35,10 @@ describe("StatTile", () => {
     expect(screen.getByRole("article", { name: "Overdue tasks" })).toHaveTextContent("0");
     expect(screen.queryByRole("link")).toBeNull();
   });
+
+  it("takes the heading level from the caller", () => {
+    render(<StatTile label="Overdue tasks" value="0" headingLevel={2} />);
+    expect(screen.getByRole("heading", { level: 2, name: "Overdue tasks" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 3 })).toBeNull();
+  });
 });
