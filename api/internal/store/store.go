@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -17,6 +18,13 @@ import (
 
 	"tyreplatform/api/internal/auth"
 )
+
+// defaultMaxConns is applied only when the DSN carries no pool_max_conns of
+// its own (store_test.go's =1 override for connection-identity tests must
+// keep working). The arithmetic it satisfies, replicas x pool + headroom <=
+// the server's max_connections, is recorded once in ADR-0005 next to the
+// scale block rather than here (TYRE-184 F8).
+const defaultMaxConns = 10
 
 type Store struct {
 	pool *pgxpool.Pool
@@ -38,6 +46,11 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 		cfg.ConnConfig.RuntimeParams = map[string]string{}
 	}
 	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	// pgxpool.ParseConfig already applied a DSN's own pool_max_conns, if it
+	// named one; only an unsized pool falls back to the recorded default.
+	if !strings.Contains(dsn, "pool_max_conns") {
+		cfg.MaxConns = defaultMaxConns
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating connection pool: %w", err)
