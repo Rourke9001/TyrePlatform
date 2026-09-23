@@ -1,21 +1,24 @@
-import { useCallback, useSyncExternalStore } from "react";
+import { useCallback, useMemo, useSyncExternalStore } from "react";
 
 import { breakpoint } from "../theme/tokens";
 
 export const PHONE_QUERY = `(max-width: ${breakpoint.phone}px)`;
 
 export function useMediaQuery(query: string): boolean {
+  // One list per hook instance and query, not a module-level cache: tests
+  // mock matchMedia per test, and a shared cache would carry one test's
+  // list into the next.
+  const list = useMemo(() => window.matchMedia(query), [query]);
   const subscribe = useCallback(
     (changed: () => void) => {
-      const list = window.matchMedia(query);
       list.addEventListener("change", changed);
       return () => list.removeEventListener("change", changed);
     },
-    [query],
+    [list],
   );
   return useSyncExternalStore(
     subscribe,
-    () => window.matchMedia(query).matches,
+    () => list.matches,
     () => false,
   );
 }

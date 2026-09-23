@@ -31,4 +31,12 @@ describe("useMediaQuery", () => {
     });
     expect(result.current).toBe(true);
   });
+
+  it("re-renders without calling matchMedia again", () => {
+    const list = new TestMediaQueryList(PHONE_QUERY, false);
+    const matchMedia = vi.spyOn(window, "matchMedia").mockReturnValue(list);
+    const { rerender } = renderHook(() => useMediaQuery(PHONE_QUERY));
+    rerender();
+    expect(matchMedia).toHaveBeenCalledTimes(1);
+  });
 });
