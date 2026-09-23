@@ -37,7 +37,7 @@ export function ProvenanceSplit({ segments, caption }: ProvenanceSplitProps) {
           ))}
       </div>
       {/* Hidden from a screen reader: the bar's name already carries every
-          label and count, so each is heard once. */}
+          label and count in words (NFR-USE-009), so each is heard once. */}
       <ul className="provenance-legend" aria-hidden="true">
         {segments.map((s) => (
           <li key={s.key}>
