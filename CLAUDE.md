@@ -112,6 +112,32 @@ acceptance gate rests on there being exactly one implementation.
   `eslint-config-prettier` last, so exactly one tool has an opinion about any
   given line.
 
+**UI design skills advise; this file and ADR-0015 decide.** `ui-ux-pro-max`
+(project plugin) is for design direction: palette, type, layout, UX rules.
+`web-design-guidelines` (`.claude/skills/`) is a `file:line` audit for
+accessibility, forms, focus and motion; run it over changed UI files before a
+PR. Where either one contradicts the repo, the repo wins:
+
+- ADR-0015 is the one styling system: `tokens.ts` and plain CSS, Radix for the
+  hard controls, inline SVG charts. No Tailwind, shadcn, GSAP or component
+  library, whatever a search result recommends. Fonts stay self-hosted
+  (`web/src/theme/fonts.ts`), never a CDN.
+- Never run `ui-ux-pro-max` with `--persist`. The token file is the design
+  authority, and a `design-system/MASTER.md` would be a second one.
+- Copy stays straight-quoted and sentence case (`/unslop`), not curly quotes
+  or Title Case.
+- Dates render through `web/src/time/tenantTime.ts` (rule 6) and money through
+  `formatRand` in `web/src/api/money.ts` (rule 2), never through `Intl`
+  directly.
+- The capture route answers to the three-minute rule and its bundle budget
+  first. NFR-USE-004 floors its targets at 44px, and the keypad and tiles sit
+  at 56 to 64px for gloves. A skill's 44px is that floor, not a size to
+  shrink to.
+
+The same precedence holds for `frontend-design` and `dataviz`.
+- The dashboard and exceptions mockups accepted at the TYRE-238 gate are
+  fixed. The rest of the web app is redesigned in B7.4 (TYRE-240).
+
 **Formatting and linting are not advisory.** Every command in `make lint`
 can fail the build, and `make lint` runs the same set as CI in the same
 order. If a gate cannot run, fix the gate — do not let it pass silently.
