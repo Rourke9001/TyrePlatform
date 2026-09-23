@@ -97,10 +97,9 @@ END $$;
 DO $$
 DECLARE bad text;
 BEGIN
-  -- current_user, not the literal 'app_rw': the DML probes this replaced ran
-  -- as the connecting role, so they also caught a grant to app_login itself
-  -- or through any other membership, not only app_rw's own ACL row.
-  -- has_any_column_privilege also catches a column-level re-grant, e.g.
+  -- current_user, not the literal 'app_rw': a grant to app_login itself or
+  -- through any other membership reaches the connection just as surely as
+  -- one on app_rw's own ACL row. has_any_column_privilege also catches a column-level re-grant, e.g.
   -- GRANT UPDATE (pressure_kpa) ON app.reading TO app_rw, which
   -- has_table_privilege alone would miss. Extended with each REVOKE
   -- INSERT/UPDATE issued against app_rw since 000001. app.inspection's
