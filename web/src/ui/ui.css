@@ -24,10 +24,13 @@
   color: var(--on-primary);
   background: var(--primary);
 }
-.btn-primary:hover {
+/* ui.css loads after controls.css (ThemeProvider.tsx), so an unguarded hover
+   or active rule here outranks controls.css's .btn-primary:disabled at equal
+   specificity and repaints a disabled legacy button on hover (TYRE-238). */
+.btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--primary-hover);
 }
-.btn-primary:active {
+.btn-primary:active:not(:disabled, [aria-disabled="true"]) {
   background: var(--primary-pressed);
 }
 
@@ -36,7 +39,7 @@
   background: var(--surface);
   border-color: var(--line);
 }
-.btn-secondary:hover {
+.btn-secondary:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--surface-sunken);
 }
 
@@ -44,7 +47,7 @@
   color: var(--primary);
   background: transparent;
 }
-.btn-quiet:hover {
+.btn-quiet:hover:not(:disabled, [aria-disabled="true"]) {
   background: var(--surface-sunken);
 }
 
@@ -52,7 +55,7 @@
   color: var(--surface);
   background: var(--severity-critical);
 }
-.btn-danger:hover {
+.btn-danger:hover:not(:disabled, [aria-disabled="true"]) {
   filter: brightness(0.92);
 }
 
