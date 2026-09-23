@@ -28,6 +28,22 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-23 — `npm ci` beside a running dev server deletes `node_modules` and then stops (TYRE-143)
+
+**What happened:** during the sweep close-out, `npm ci` ran in the main
+checkout while a Vite dev server from that same checkout was serving :5173.
+npm deletes `node_modules` before it installs. On Windows the running server
+holds `node_modules/@esbuild/win32-x64/esbuild.exe` open, so the delete
+failed with `EPERM ... unlink` after most of the tree was already gone.
+`make lint` then failed with "'prettier' is not recognized". `npm install`
+repaired it without touching the locked binary.
+
+**The rule:** never run `npm ci` in a checkout whose dev server is running.
+Run gates in a worktree with its own `node_modules`, or stop the server
+first. If it has already happened, run `npm install` (not `npm ci`) to put
+back what was deleted, then confirm `git status` shows no lockfile drift you
+did not mean.
+
 ## 2026-09-23 — A silently short `npm ci` reports its own success and fails eslint two steps later (TYRE-180)
 
 **What happened:** `npm ci` in a fresh worktree reported `added 259 packages`
