@@ -909,42 +909,46 @@ func TestReturnToStockFromBreakdownSupplier(t *testing.T) {
 	require.Zero(t, jobs)
 }
 
-// TYRE-208 F6: returnTyreToStock had no table-driven test. Both of
-// app.return_tyre_to_stock's own refusals (000033) get a row: a state that
-// is neither REMOVED nor AT_BREAKDOWN_SUPPLIER, and a depot naming something
-// that is not an active DEPOT or STORE.
+// TYRE-208 F6: app.return_tyre_to_stock's two refusals (000033), one row
+// each: a state that is neither REMOVED nor AT_BREAKDOWN_SUPPLIER, and a
+// depot naming something that is not an active DEPOT or STORE.
 func TestReturnTyreToStockRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		// plantTyre plants the tyre in the state this case needs and returns
-		// its id; depotID is a store to restock to, or "" for none named.
-		plantTyre   func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID
-		depotID     func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string
+		// its id.
+		plantTyre func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID
+		// depot plants the depot to name and returns its id and its name,
+		// the second needed to pin TY014's message (000033:744-745).
+		depot       func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (id, name string)
 		wantCode    string
 		wantMessage string
+		wantState   string
 	}{
 		{
 			name: "from IN_STOCK is TY012",
 			plantTyre: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID {
 				return plantTyre(t, ctx, admin, tenantID, "RET-INSTOCK-"+uuid.NewString()[:8], nil)
 			},
-			depotID: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string {
-				storeDepot, _ := plantDepotOfType(t, ctx, admin, tenantID, "STORE")
-				return storeDepot.String()
+			depot: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (string, string) {
+				storeDepot, name := plantDepotOfType(t, ctx, admin, tenantID, "STORE")
+				return storeDepot.String(), name
 			},
 			wantCode:    "TY012",
 			wantMessage: "this tyre is IN_STOCK; only a removed or returned casing is restocked here",
+			wantState:   "IN_STOCK",
 		},
 		{
 			name: "to a depot that is not an active store is TY014",
 			plantTyre: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID {
 				return plantRemovedTyre(t, ctx, admin, tenantID, "RET-BADDEPOT-"+uuid.NewString()[:8])
 			},
-			depotID: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string {
-				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
-				return retreader.String()
+			depot: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (string, string) {
+				retreader, name := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+				return retreader.String(), name
 			},
-			wantCode: "TY014",
+			wantCode:  "TY014",
+			wantState: "REMOVED",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -955,26 +959,31 @@ func TestReturnTyreToStockRefusals(t *testing.T) {
 			h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 			tyreID := tc.plantTyre(t, ctx, admin, tenantID)
-			depot := tc.depotID(t, ctx, admin, tenantID)
+			depotID, depotName := tc.depot(t, ctx, admin, tenantID)
+			if tc.wantMessage == "" {
+				tc.wantMessage = fmt.Sprintf("%s is not an active depot or store", depotName)
+			}
 			rec := post(t, h, "/api/tyres/"+tyreID.String()+"/return", tenantID.String(), controller.String(),
-				fmt.Sprintf(`{"depotId":%q}`, depot))
+				fmt.Sprintf(`{"depotId":%q}`, depotID))
 			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 			var ref refusalBody
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
 			require.Equal(t, tc.wantCode, ref.Code)
-			if tc.wantMessage != "" {
-				require.Equal(t, tc.wantMessage, ref.Message)
-			}
+			require.Equal(t, tc.wantMessage, ref.Message)
+
+			var state string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+			require.Equal(t, tc.wantState, state, "a refused return must not have moved the casing")
 		})
 	}
 }
 
-// TYRE-208 F6: dispatchTyre had no table-driven test. These five refusals
-// each set up their own fixture (a shared one would not distinguish an
+// TYRE-208 F6: app.dispatch_tyre's five refusals (000033, ADR-0013 d.5),
+// each needing its own fixture (a shared one would not distinguish an
 // IN_STOCK casing from one AT_RETREADER already), so the table carries a
 // setup closure per case rather than a name/body pair, and a checkAfter
-// closure for the differing post-conditions the original linear tests
-// asserted (a job count, or the tyre's own state).
+// closure for the tyre's own post-condition (a job count, or its state).
 func TestDispatchTyreRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -982,15 +991,13 @@ func TestDispatchTyreRefusals(t *testing.T) {
 		// test and the request body to send.
 		setup    func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (tyreID uuid.UUID, body string)
 		wantCode string
-		// checkMessage false means the original test asserted only the code
-		// (the enum-cast case: Postgres's own 22P02 text is canned and
-		// nothing here pins its wording). exactMessage false means Contains
-		// rather than Equal, for the one case whose message is Go's own
-		// field-naming prefix rather than a pinned SQL sentence.
-		checkMessage bool
-		wantMessage  string
-		exactMessage bool
-		checkAfter   func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID)
+		// wantMessage empty means no message assertion: 22P02's own text is
+		// Postgres's canned wording, not a pinned sentence (ADR-0012). exact
+		// false means Contains rather than Equal, for the one case whose
+		// message is Go's own field-naming prefix.
+		wantMessage string
+		exact       bool
+		checkAfter  func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID)
 	}{
 		{
 			// U2: Appendix C lists no dispatch out of stock, so a casing
@@ -1006,10 +1013,9 @@ func TestDispatchTyreRefusals(t *testing.T) {
 				tyreID := plantTyre(t, ctx, admin, tenantID, "IN-STOCK-"+uuid.NewString()[:8], nil)
 				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader)
 			},
-			wantCode:     "TY012",
-			checkMessage: true,
-			wantMessage:  "this tyre is IN_STOCK; a dispatch is from REMOVED only",
-			exactMessage: true,
+			wantCode:    "TY012",
+			wantMessage: "this tyre is IN_STOCK; a dispatch is from REMOVED only",
+			exact:       true,
 			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
 				var jobs int
 				require.NoError(t, admin.QueryRow(ctx,
@@ -1031,11 +1037,10 @@ func TestDispatchTyreRefusals(t *testing.T) {
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "AT-CAP-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader)
 			},
-			wantCode:     "TY015",
-			checkMessage: true,
+			wantCode: "TY015",
 			wantMessage: "this casing has been retreaded 0 time(s), at a cap of 0; " +
 				"at its cap it is a purchase, not a retread candidate",
-			exactMessage: true,
+			exact: true,
 			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
 				var state string
 				require.NoError(t, admin.QueryRow(ctx,
@@ -1054,10 +1059,8 @@ func TestDispatchTyreRefusals(t *testing.T) {
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "BAD-DATE-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q,"sentOn":"yesterday"}`, retreader)
 			},
-			wantCode:     "invalid_submission",
-			checkMessage: true,
-			wantMessage:  "sentOn",
-			exactMessage: false,
+			wantCode:    "invalid_submission",
+			wantMessage: "sentOn",
 			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
 				var state string
 				require.NoError(t, admin.QueryRow(ctx,
@@ -1078,10 +1081,9 @@ func TestDispatchTyreRefusals(t *testing.T) {
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DEST-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"FITTED","depotId":%q}`, retreader)
 			},
-			wantCode:     "TY012",
-			checkMessage: true,
-			wantMessage:  "a dispatch is to the retreader or to the breakdown supplier",
-			exactMessage: true,
+			wantCode:    "TY012",
+			wantMessage: "a dispatch is to the retreader or to the breakdown supplier",
+			exact:       true,
 			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
 				var state string
 				require.NoError(t, admin.QueryRow(ctx,
@@ -1101,9 +1103,6 @@ func TestDispatchTyreRefusals(t *testing.T) {
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DEST2-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"THE MOON","depotId":%q}`, retreader)
 			},
-			// No message assertion: the original test checked only the code
-			// here, since 22P02's own text is Postgres's canned wording, not
-			// a pinned sentence.
 			wantCode: "invalid_submission",
 			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
 				var state string
@@ -1126,14 +1125,12 @@ func TestDispatchTyreRefusals(t *testing.T) {
 			var ref refusalBody
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
 			require.Equal(t, tc.wantCode, ref.Code)
-			if !tc.checkMessage {
-				tc.checkAfter(t, ctx, admin, tyreID)
-				return
-			}
-			if tc.exactMessage {
-				require.Equal(t, tc.wantMessage, ref.Message)
-			} else {
-				require.Contains(t, ref.Message, tc.wantMessage)
+			if tc.wantMessage != "" {
+				if tc.exact {
+					require.Equal(t, tc.wantMessage, ref.Message)
+				} else {
+					require.Contains(t, ref.Message, tc.wantMessage)
+				}
 			}
 			tc.checkAfter(t, ctx, admin, tyreID)
 		})
