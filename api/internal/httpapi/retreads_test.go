@@ -288,13 +288,12 @@ func TestRetreadReturnCrossTenantIsInvisible(t *testing.T) {
 	require.Zero(t, retreadCount)
 }
 
-// TYRE-208 F6: logRetreadReturn had no table-driven test. Both are shape
-// refusals ADR-0013 decision 5 puts in Go before a transaction opens, so
-// each carries the fixture and the request body its own case needs, and the
-// original two tests' assertions are both kept: the job stays open in
-// either case, and the second additionally pins the tyre's state, since an
-// absent decision must never reach the bare bool's false, which is the
-// rejection that scraps the casing.
+// TYRE-208 F6: logRetreadReturn's two shape refusals, one row each. Both are
+// shape refusals ADR-0013 decision 5 puts in Go before a transaction opens,
+// so each case carries the request body it needs; the job stays open in
+// either case, and the absent-decision case additionally pins the tyre's
+// state, since an absent decision must never reach the bare bool's false,
+// which is the rejection that scraps the casing.
 func TestLogRetreadReturnShapeRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string

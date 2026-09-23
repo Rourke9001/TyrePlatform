@@ -160,9 +160,10 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		// ADR-0013 decision 9: a create answers the list's own projection so a
-		// caller holds what it just wrote without a second round trip
-		// (TYRE-180 F4b). Both added fields are known at insert time.
+		// ADR-0013 decision 9: a create answers the list's own projection
+		// (fleetUnitJSON) so a caller holds what it just wrote without a
+		// second round trip; unitKind and status are both known at insert
+		// time (TYRE-180 F4b).
 		var created fleetUnitJSON
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {

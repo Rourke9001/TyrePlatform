@@ -11,11 +11,8 @@ const securityHeadersCSP = "default-src 'none'; frame-ancestors 'none'"
 // securityHeaders sets NFR-SEC-010's headers on every answer this process
 // gives, refusals included: chi resolves NotFound and MethodNotAllowed
 // through the same middleware chain as a matched route, so registering this
-// once on the root router (New) before any route is added covers both.
-// frame-ancestors in the CSP already blocks framing; X-Frame-Options is set
-// too for a client that reads only the older header. The driver PWA's own
-// static-asset headers are TYRE-51's, unbuilt as of this middleware; this
-// covers only what this Go process answers.
+// on the root router before any route covers both. The static web app's own
+// headers are TYRE-51's.
 func securityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
