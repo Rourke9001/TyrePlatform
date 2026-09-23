@@ -71,7 +71,7 @@ describe("BandChart", () => {
       restore();
     });
 
-    // Owner 12938 and the accepted mockup: five bound labels cannot sit side by
+    // TYRE-238 comment 12938 and the accepted mockup: five bound labels cannot sit side by
     // side at 390, so below the breakpoint the chart is one row per band.
     it("turns into one row per band on a phone, each still labelled from its bounds", () => {
       render(<BandChart title="Tread depth across running positions" bands={bands} />);

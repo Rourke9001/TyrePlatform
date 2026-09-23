@@ -244,9 +244,9 @@ describe("AppRoutes", () => {
     renderAt("/fleet/units/u9", actor(["CaptureInspection"]));
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
     expect(screen.queryByRole("heading", { name: "HORSE-1" })).toBeNull();
-    // renderAt is synchronous, so with the guard gone UnitDetail would still
-    // mount pending on this first render; this is the assertion that
-    // separates a refusal from a slow read.
+    // UnitDetail is lazy: with the guard gone this first synchronous render
+    // shows the Suspense fallback, or UnitDetail's own pending read once an
+    // earlier test has loaded the chunk, and both say "Loading".
     expect(screen.queryByText(/loading/i)).toBeNull();
   });
 

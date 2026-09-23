@@ -30,20 +30,14 @@ Newest first.
 
 ## 2026-09-23 — A dev-only route written as `{x && <Route/>}` survives the production build and fails the capture budget (TYRE-238)
 
-**What happened:** the design system gallery's route was guarded twice, the
-`lazy()` call by `import.meta.env.DEV ? lazy(...) : null` and the route by
-`{Gallery && <Route .../>}`. The build emitted no gallery chunk, but the
-minifier kept `const wE=null;` and `wE` in the route children, and the
-capture entry closure grew by 12 gzip bytes over its budget
-(`make lint` failed at `web-bundle`). Guarding with
-`{import.meta.env.DEV && Gallery && ...}` still left `!1` in the array
-(4 bytes over).
+**What happened:** the gallery's `{Gallery && <Route/>}` emitted no chunk, yet
+the minifier kept `null` in the route children and the entry went over budget.
 
-**The rule:** in `routes.tsx`, gate a dev-only route with a ternary whose
-production branch is a route that exists anyway (the catch-all in both
-branches, the dev route beside it in a Fragment), so a build folds it to
-the same output as before. Prove it with `npm run bundle:check`, not by
-the absence of a chunk.
+**The rule:** a build-time-false JSX child still leaves a placeholder in the
+children array (`!1`, or a kept `null` const). When a dev-only guard must
+leave nothing, fold it into a sibling that exists anyway, so both branches
+build to the same output. Prove any dev-only guard with
+`npm run bundle:check`, never by a missing chunk.
 
 ## 2026-09-19 — A control query on the admin connection reads a tenant-scoped function as empty, and passes (TYRE-36)
 
