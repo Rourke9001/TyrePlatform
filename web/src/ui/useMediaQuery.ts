@@ -7,7 +7,7 @@ export const PHONE_QUERY = `(max-width: ${breakpoint.phone}px)`;
 export function useMediaQuery(query: string): boolean {
   // One list per hook instance and query, not a module-level cache: tests
   // mock matchMedia per test, and a shared cache would carry one test's
-  // list into the next.
+  // list into the next (TYRE-238).
   const list = useMemo(() => window.matchMedia(query), [query]);
   const subscribe = useCallback(
     (changed: () => void) => {
