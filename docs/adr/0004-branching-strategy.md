@@ -1,6 +1,6 @@
 # ADR-0004: Branching — develop integrates, main mirrors production
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-09-23)
 - **Date:** 2026-08-20
 - **Deciders:** Rourke (Delivery)
 
@@ -55,3 +55,10 @@ someone (the same one person) must remember to promote after a green run.
 **Revisit when:** Azure environments exist and the Bicep/GitHub Actions
 pipelines are written — the environment-to-branch mapping, protection rules
 and promotion mechanics are deliberately deferred to that ADR.
+
+**Accepted 2026-09-23 (TYRE-188 F8):** the repo has run on Option B since
+20 Aug 2026, and the owner accepted it rather than leave a decision in force
+marked Proposed. ADR-0005 builds on it, CONTRIBUTING.md documents the
+terminal promotion, and ruleset 21929055 keeps `develop` from being deleted
+by a merge. The 29 Aug 2026 promotion through a pull request
+(`docs/lessons.md`) is the failure the terminal promotion exists to prevent.
