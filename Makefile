@@ -66,19 +66,6 @@ db-seeds-check: ## Assert the seed generators are deterministic (mirrors the CI-
 	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql > /tmp/tyreplatform-seed-hash-b
 	diff /tmp/tyreplatform-seed-hash-a /tmp/tyreplatform-seed-hash-b && echo "seed generation is deterministic"
 
-# Deliberately NOT in `make check`, matching deps-age and e2e above: proving
-# determinism needs a second regeneration and a hash compare, which CI pays
-# for on every build (ci.yml, `database` job); this target is the same check,
-# on demand, for a contributor auditing a generator change locally
-# (TYRE-188 F6).
-.PHONY: db-seeds-check
-db-seeds-check: ## Assert the seed generators are deterministic (mirrors the CI-only gate)
-	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
-	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql > /tmp/tyreplatform-seed-hash-a
-	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
-	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql > /tmp/tyreplatform-seed-hash-b
-	diff /tmp/tyreplatform-seed-hash-a /tmp/tyreplatform-seed-hash-b && echo "seed generation is deterministic"
-
 .PHONY: db-migrate
 db-migrate: db-up ## Apply pending migrations (golang-migrate, versioned in schema_migrations)
 	$(MIGRATE) up
