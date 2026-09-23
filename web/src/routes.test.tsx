@@ -57,10 +57,10 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("heading", { name: /my inspections/i })).toBeDefined();
   });
 
-  it("lands a ViewFleet holder on the fleet view rather than the driver view", () => {
+  it("lands a ViewFleet holder on the fleet view rather than the driver view", async () => {
     mockFetchJson(200, []);
     renderAt("/", actor(["ViewFleet"]));
-    expect(screen.getByRole("heading", { name: /units/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { name: /units/i })).toBeDefined();
   });
 
   it("renders a not-found view for an unknown path", () => {
@@ -177,17 +177,17 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
   });
 
-  it("renders the add-a-user screen for an actor holding ManageUsers", () => {
+  it("renders the add-a-user screen for an actor holding ManageUsers", async () => {
     renderAt("/admin/users/new", actor(["ManageUsers"]));
-    expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /add a user/i })).toBeInTheDocument();
   });
 
   // D9 split the invite: a CONTROLLER or DEPOT_MANAGER holds InviteDriver and
   // not ManageUsers, and the whole point of the split is that they reach this
   // screen anyway (ADR-0011).
-  it("renders the add-a-user screen for an actor holding InviteDriver alone", () => {
+  it("renders the add-a-user screen for an actor holding InviteDriver alone", async () => {
     renderAt("/admin/users/new", actor(["InviteDriver"]));
-    expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /add a user/i })).toBeInTheDocument();
   });
 
   it("tells an actor without the capability, rather than blanking the screen, at /fleet/tyres", () => {
@@ -206,9 +206,9 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
   });
 
-  it("renders the receive-tyre screen for an actor holding ManageAssets", () => {
+  it("renders the receive-tyre screen for an actor holding ManageAssets", async () => {
     renderAt("/fleet/tyres/new", actor(["ViewFleet", "ManageAssets"]));
-    expect(screen.getByRole("heading", { name: /receive tyres/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /receive tyres/i })).toBeInTheDocument();
   });
 
   it("renders the unit screen at /fleet/units/:unitId for a ViewFleet holder", async () => {
