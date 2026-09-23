@@ -299,7 +299,7 @@
 /* -------------------------------------------------------- provenance */
 
 .provenance {
-  margin: 0;
+  margin: var(--space-2) 0 0;
 }
 
 /* Segments separated by a 2px surface gap, never a stroke (dataviz,
@@ -358,6 +358,7 @@
   width: 10px;
   height: 10px;
   border-radius: 2px;
+  flex: none;
 }
 
 .provenance-count {
