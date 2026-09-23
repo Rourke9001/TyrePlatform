@@ -16,7 +16,8 @@ export function FormField({ id, label, hint, error, children }: FormFieldProps) 
   const control = Children.map(children, (child) => {
     if (!isValidElement<{ "aria-describedby"?: string }>(child)) return child;
     // The child's own ids come first: a caller who already wired a
-    // description (e.g. a unit hint) keeps it read before this field's.
+    // description (e.g. a unit hint) keeps it read before this field's
+    // (TYRE-238).
     const ownIds = child.props["aria-describedby"]?.split(" ") ?? [];
     const describedBy =
       [...ownIds, hintId, errorId].filter((v, i, arr) => v && arr.indexOf(v) === i).join(" ") ||
