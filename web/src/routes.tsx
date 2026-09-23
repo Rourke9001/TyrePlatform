@@ -3,17 +3,37 @@ import { Navigate, Route, Routes, useParams, useSearchParams } from "react-route
 
 import { useActorSettled, useCan, useCanAny } from "./auth/actorContext";
 import { RequireCapability } from "./auth/RequireCapability";
-import { AddDriver } from "./admin/AddDriver";
-import { AddUnit } from "./admin/AddUnit";
 import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
-import { VehicleList } from "./dashboard/VehicleList";
-import { FitmentList } from "./fleet/FitmentList";
-import { RetreadQueue } from "./fleet/RetreadQueue";
-import { ReceiveTyre } from "./fleet/ReceiveTyre";
-import { RigsScreen } from "./fleet/rigs/RigsScreen";
-import { TyreList } from "./fleet/tyres/TyreList";
-import { UnitDetail } from "./fleet/unit/UnitDetail";
+
+// Every manager page loads on its own route and never on the capture
+// route's first paint (ADR-0015, TYRE-238): the bundle gate
+// (scripts/check-capture-bundle.mjs) holds the entry closure to what the
+// driver needs. CaptureFlow and DriverHome stay static on purpose; a lazy
+// fetch in front of the driver's flow is the round trip ADR-0009 avoids.
+const AddDriver = lazy(() => import("./admin/AddDriver").then((m) => ({ default: m.AddDriver })));
+const AddUnit = lazy(() => import("./admin/AddUnit").then((m) => ({ default: m.AddUnit })));
+const VehicleList = lazy(() =>
+  import("./dashboard/VehicleList").then((m) => ({ default: m.VehicleList })),
+);
+const FitmentList = lazy(() =>
+  import("./fleet/FitmentList").then((m) => ({ default: m.FitmentList })),
+);
+const RetreadQueue = lazy(() =>
+  import("./fleet/RetreadQueue").then((m) => ({ default: m.RetreadQueue })),
+);
+const ReceiveTyre = lazy(() =>
+  import("./fleet/ReceiveTyre").then((m) => ({ default: m.ReceiveTyre })),
+);
+const RigsScreen = lazy(() =>
+  import("./fleet/rigs/RigsScreen").then((m) => ({ default: m.RigsScreen })),
+);
+const TyreList = lazy(() =>
+  import("./fleet/tyres/TyreList").then((m) => ({ default: m.TyreList })),
+);
+const UnitDetail = lazy(() =>
+  import("./fleet/unit/UnitDetail").then((m) => ({ default: m.UnitDetail })),
+);
 
 function NotFound() {
   return <p>Not found.</p>;
@@ -80,100 +100,95 @@ const Gallery = import.meta.env.DEV ? lazy(() => import("./ui/Gallery")) : null;
 
 export function AppRoutes() {
   return (
-    <Routes>
-      <Route path="/" element={<Landing />} />
-      <Route
-        path="/fleet"
-        element={
-          <RequireCapability capability="ViewFleet">
-            <VehicleList />
-          </RequireCapability>
-        }
-      />
-      <Route
-        path="/fleet/rigs"
-        element={
-          <RequireCapability capability="ViewFleet">
-            <RigsScreen />
-          </RequireCapability>
-        }
-      />
-      <Route
-        path="/fleet/tyres"
-        element={
-          <AdminRoute capability="ManageAssets">
-            <TyreList />
-          </AdminRoute>
-        }
-      />
-      <Route
-        path="/fleet/tyres/new"
-        element={
-          <AdminRoute capability="ManageAssets">
-            <ReceiveTyre />
-          </AdminRoute>
-        }
-      />
-      <Route
-        path="/fleet/tyres/retreads"
-        element={
-          <AdminRoute capability="LogRetread">
-            <RetreadQueue />
-          </AdminRoute>
-        }
-      />
-      <Route
-        path="/fleet/units/:unitId"
-        element={
-          <AdminRoute capability="ViewFleet">
-            <UnitRoute />
-          </AdminRoute>
-        }
-      />
-      <Route
-        path="/fleet/fitments"
-        element={
-          <RequireCapability capability="ViewFleet">
-            <FitmentList />
-          </RequireCapability>
-        }
-      />
-      <Route path="/my" element={<DriverHome />} />
-      <Route path="/capture/:vehicleId" element={<CaptureRoute />} />
-      <Route
-        path="/admin/units/new"
-        element={
-          <AdminRoute capability="ManageAssets">
-            <AddUnit />
-          </AdminRoute>
-        }
-      />
-      <Route
-        path="/admin/users/new"
-        element={
-          <AdminRoute capability={["ManageUsers", "InviteDriver"]}>
-            <AddDriver />
-          </AdminRoute>
-        }
-      />
-      {/* The catch-all is written in both branches so a production build,
-          where Gallery is null, folds this to that one route and leaves
-          nothing behind in the entry chunk the capture budget gates. */}
-      {Gallery ? (
-        <>
-          <Route
-            path="/dev/design"
-            element={
-              <Suspense fallback={<p>Loading the gallery.</p>}>
-                <Gallery />
-              </Suspense>
-            }
-          />
+    <Suspense fallback={<p className="route-loading">Loading.</p>}>
+      <Routes>
+        <Route path="/" element={<Landing />} />
+        <Route
+          path="/fleet"
+          element={
+            <RequireCapability capability="ViewFleet">
+              <VehicleList />
+            </RequireCapability>
+          }
+        />
+        <Route
+          path="/fleet/rigs"
+          element={
+            <RequireCapability capability="ViewFleet">
+              <RigsScreen />
+            </RequireCapability>
+          }
+        />
+        <Route
+          path="/fleet/tyres"
+          element={
+            <AdminRoute capability="ManageAssets">
+              <TyreList />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/fleet/tyres/new"
+          element={
+            <AdminRoute capability="ManageAssets">
+              <ReceiveTyre />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/fleet/tyres/retreads"
+          element={
+            <AdminRoute capability="LogRetread">
+              <RetreadQueue />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/fleet/units/:unitId"
+          element={
+            <AdminRoute capability="ViewFleet">
+              <UnitRoute />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/fleet/fitments"
+          element={
+            <RequireCapability capability="ViewFleet">
+              <FitmentList />
+            </RequireCapability>
+          }
+        />
+        <Route path="/my" element={<DriverHome />} />
+        <Route path="/capture/:vehicleId" element={<CaptureRoute />} />
+        <Route
+          path="/admin/units/new"
+          element={
+            <AdminRoute capability="ManageAssets">
+              <AddUnit />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/admin/users/new"
+          element={
+            <AdminRoute capability={["ManageUsers", "InviteDriver"]}>
+              <AddDriver />
+            </AdminRoute>
+          }
+        />
+        {/* The catch-all is written in both branches so a production build,
+            where Gallery is null, folds this to that one route and leaves
+            nothing behind in the entry chunk the capture budget gates. */}
+        {Gallery ? (
+          <>
+            <Route path="/dev/design" element={<Gallery />} />
+            <Route path="*" element={<NotFound />} />
+          </>
+        ) : (
           <Route path="*" element={<NotFound />} />
-        </>
-      ) : (
-        <Route path="*" element={<NotFound />} />
-      )}
-    </Routes>
+        )}
+      </Routes>
+    </Suspense>
   );
 }
