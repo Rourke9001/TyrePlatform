@@ -379,7 +379,7 @@
   width: 1px;
   height: 1px;
   overflow: hidden;
-  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
   white-space: nowrap;
 }
 
@@ -397,8 +397,6 @@
 }
 
 .data-table th {
-  position: sticky;
-  top: 0;
   background: var(--surface-sunken);
   font-family: var(--font-condensed);
   font-weight: 600;
@@ -408,6 +406,7 @@
   color: var(--ink-muted);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
+  white-space: nowrap;
 }
 
 .data-table td {
@@ -425,6 +424,7 @@
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
+  white-space: nowrap;
 }
 
 .cell-basis {
