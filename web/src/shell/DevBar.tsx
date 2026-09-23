@@ -13,7 +13,6 @@ import {
 // honours the header behind APP_DEV_TENANT_HEADER=1. Reload on change so
 // every query re-enters cleanly for the new tenant.
 function DevTenantSwitcher() {
-  if (!import.meta.env.DEV) return null;
   const current = getDevTenantId() ?? "";
   return (
     <label className="shell-tenant">
@@ -43,7 +42,6 @@ function DevTenantSwitcher() {
 // Dev stand-in for identity until TYRE-2. Switching actor also switches
 // tenant, since a driver on tenant B has no rows under tenant A.
 function DevActorSwitcher() {
-  if (!import.meta.env.DEV) return null;
   const current = getDevActorId() ?? "";
   return (
     <label className="shell-tenant">
