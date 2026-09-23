@@ -1,0 +1,27 @@
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { describe, expect, it, vi } from "vitest";
+
+import { Dialog } from "./Dialog";
+
+describe("Dialog", () => {
+  it("is a named dialog that closes on Escape", async () => {
+    const user = userEvent.setup();
+    const onOpenChange = vi.fn();
+    render(
+      <Dialog
+        open
+        onOpenChange={onOpenChange}
+        title="Dispose tyre"
+        description="This cannot be undone."
+      >
+        <p>body</p>
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
+    expect(dialog).toHaveAccessibleDescription("This cannot be undone.");
+    expect(dialog).toContainElement(screen.getByText("body"));
+    await user.keyboard("{Escape}");
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+});

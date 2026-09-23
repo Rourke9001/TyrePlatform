@@ -636,3 +636,106 @@
   margin: 0;
   color: var(--ink-muted);
 }
+
+/* ------------------------------------------------------------ select */
+
+.select-trigger {
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 12rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+}
+
+.select-icon {
+  font-family: var(--font-mono);
+  color: var(--ink-muted);
+}
+
+.select-content {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  box-shadow: var(--elevation-overlay);
+  min-width: var(--radix-select-trigger-width);
+  z-index: 10;
+}
+
+.select-viewport {
+  padding: var(--space-1);
+}
+
+.select-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-control);
+  font-size: var(--text-body);
+  cursor: pointer;
+  outline: none;
+}
+
+.select-item[data-highlighted] {
+  background: var(--surface-sunken);
+}
+
+.select-item[data-state="checked"] {
+  font-weight: 600;
+}
+
+.select-indicator {
+  font-family: var(--font-mono);
+  color: var(--primary);
+}
+
+/* ------------------------------------------------------------ dialog */
+
+.dialog-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(22, 25, 29, 0.45);
+}
+
+.dialog-content {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(32rem, calc(100vw - 2rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-overlay);
+  padding: var(--space-5);
+}
+
+.dialog-title {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+}
+
+.dialog-description {
+  margin: 0 0 var(--space-4);
+  color: var(--ink-muted);
+}
+
+.dialog-close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  min-width: 2.75rem;
+}

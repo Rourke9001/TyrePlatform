@@ -40,3 +40,21 @@ if (typeof window !== "undefined") {
   (window as { matchMedia?: Window["matchMedia"] }).matchMedia ??= (query) =>
     new TestMediaQueryList(query, false);
 }
+
+// Radix Select reads pointer capture and scrolls the highlighted item into
+// view; jsdom implements neither, and without these three every Select
+// test fails on "hasPointerCapture is not a function" before it asserts
+// anything (ADR-0015, consequences).
+if (typeof Element !== "undefined") {
+  // Cast to property syntax, matching the matchMedia stub above: lib.dom's
+  // method shorthand ties an implicit `this` that the unbound-method rule
+  // objects to on a bare read, and these stubs never call `this`.
+  const proto = Element.prototype as unknown as {
+    hasPointerCapture?: Element["hasPointerCapture"];
+    releasePointerCapture?: Element["releasePointerCapture"];
+    scrollIntoView?: Element["scrollIntoView"];
+  };
+  proto.hasPointerCapture ??= () => false;
+  proto.releasePointerCapture ??= () => undefined;
+  proto.scrollIntoView ??= () => undefined;
+}
