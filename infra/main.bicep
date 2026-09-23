@@ -274,6 +274,11 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       // Scale to zero: an idle POC costs nothing (ADR-0001). If the first
       // request of the morning proves too slow, minReplicas: 1 at a known
       // monthly cost is the documented fix.
+      //
+      // maxReplicas: 2 means the submit rate limit's per-process constants
+      // (ratelimit.go) enforce twice their stated number with both replicas
+      // warm, and a cold start from minReplicas: 0 resets every window
+      // (TYRE-184 F7).
       scale: { minReplicas: 0, maxReplicas: 2 }
     }
   }
