@@ -204,15 +204,17 @@ line with `TY021` (000041), which had an entry and a test from the day it was
 raised but was never named here. `TY008`, `TY010` and `TY020` stay out on the
 reasoning already recorded above.
 
-**Amended 2026-09-23 (TYRE-153, TYRE-212):** the Consequences section below
+**Amended 2026-09-23 (TYRE-153, TYRE-212):** the Consequences section above
 named a control, "tests keep the vocabulary aligned," that did not exist; the
 review sweep caught it 2.75x past the "roughly a dozen codes" revisit trigger.
 The control now exists as one file, `api/internal/httpapi/refusal_codes.json`,
 naming every code `writeError` can emit and every TY code any app-schema
 function raises whether or not a route can reach it. Three tests hold it to
-account from the three places that need to agree: `TestRefusalCodesRegistryCoversGoWireVocabulary`
-and `TestEveryTYCodeRaisedInSchemaIsRegistered` (this package) from the Go and
-database sides, `web/src/api/refusal.test.ts` from the TypeScript side. This
+account from the three places that need to agree, each checked as set
+equality so a rename shows up as clearly as an addition:
+`TestRefusalCodesRegistryCoversGoWireVocabulary` and
+`TestEveryTYCodeRaisedInSchemaIsRegistered` (this package) from the Go and
+database sides, `web/lint/refusal.test.ts` from the TypeScript side. This
 is also TYRE-191 F2's canonical home for the per-code meanings that had
 drifted into four wordings across seven frozen migration preambles: a future
 migration's SQLSTATE preamble cites this file instead of restating a code's

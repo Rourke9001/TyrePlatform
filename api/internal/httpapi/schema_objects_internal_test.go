@@ -3,6 +3,8 @@ package httpapi
 import (
 	"context"
 	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -10,78 +12,57 @@ import (
 	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
 )
 
-// schemaFunctions and schemaViews are every app.<name>( and app.v_<name>
-// literal this package's own SQL strings name (excluding _test.go files,
-// which is why this list is shorter than a whole-repo grep: a test fixture's
-// setup query is covered transitively by the integration tests that run it,
-// not by this catalogue). TYRE-184 F6: conflictCodes and the two enum
-// mirrors already had a live-schema check (TestConflictCodesNameLiveSchemaObjects,
-// TestEnumMirrorsMatchTheLiveSchema); nothing checked a renamed function or
-// view, which fails loudly only when a test happens to drive that route, and
-// only at run time (docs/lessons.md, 2026-09-01, TYRE-95).
-var schemaFunctions = []string{
-	"apply_composition_observation",
-	"config_for",
-	"create_combination",
-	"create_inspection_task",
-	"current_actor_id",
-	"current_tenant_id",
-	"dismiss_composition_observation",
-	"dispatch_tyre",
-	"dispose_tyre",
-	"end_combination",
-	"fit_tyre",
-	"inflation_compliance",
-	"log_retread_return",
-	"receive_tyres",
-	"remove_tyre",
-	"removal_threshold_mm_for",
-	"return_tyre_to_stock",
-	"rotate_tyres",
-	"set_tyre_cost",
-	"set_vehicle_status",
-	"submit_inspection",
-	"target_pressure_for",
-	"tenant_today",
-	"tyre_for_code",
-	"tyre_valuation_asof",
-	"void_inspection",
-	"wear_rate_mm_per_month",
-}
+// schemaFunctionRef and schemaViewRef match an app.<name>( call or an
+// app.v_<name> reference in this package's own SQL strings. Regexed against
+// source at test time, not hand-listed: a call or a view name added,
+// removed or renamed changes what discoverSchemaReferences returns with no
+// edit to this file (TYRE-184 F6). Seven enum-cast type names
+// (::app.unit_kind and its kind) are not covered by either pattern; nothing
+// in this package checks them against the live schema.
+var (
+	schemaFunctionRef = regexp.MustCompile(`app\.([a-z][a-z0-9_]*)\(`)
+	schemaViewRef     = regexp.MustCompile(`app\.(v_[a-z0-9_]+)`)
+)
 
-// Ten of these are read only by the B7.2 analytics endpoints (analytics.go,
-// dashboard.go, valuation.go, exceptions.go): v_casing_value_at_risk,
-// v_estate_valuation, v_exception, v_irregular_wear_ranking,
-// v_spare_tyre_age, v_tread_distribution, v_tread_summary, v_tyre_at_risk,
-// v_tyre_wear_rate, v_unit_inspection_status.
-var schemaViews = []string{
-	"v_actor_depot",
-	"v_capture_vehicle",
-	"v_casing_value_at_risk",
-	"v_depot_vehicle",
-	"v_driver_vehicle",
-	"v_estate_valuation",
-	"v_exception",
-	"v_inspection_task",
-	"v_irregular_wear_ranking",
-	"v_my_inspection_task",
-	"v_removal_forecast",
-	"v_spare_tyre_age",
-	"v_tread_distribution",
-	"v_tread_summary",
-	"v_tyre_at_risk",
-	"v_tyre_awaiting_cost",
-	"v_tyre_wear_rate",
-	"v_unit_inspection_status",
-	"v_user_capture_vehicle",
+// discoverSchemaReferences reads every non-test .go file in this package and
+// returns the function names and view names its SQL strings name. Excluding
+// _test.go files makes this shorter than a whole-repo grep: a test fixture's
+// setup query is covered transitively by the integration tests that run it,
+// not by this catalogue.
+func discoverSchemaReferences(t *testing.T) (functions map[string]bool, views map[string]bool) {
+	t.Helper()
+	functions = map[string]bool{}
+	views = map[string]bool{}
+	entries, err := os.ReadDir(".")
+	req.NoError(t, err)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		req.NoError(t, err)
+		text := string(src)
+		for _, m := range schemaFunctionRef.FindAllStringSubmatch(text, -1) {
+			functions[m[1]] = true
+		}
+		for _, m := range schemaViewRef.FindAllStringSubmatch(text, -1) {
+			views[m[1]] = true
+		}
+	}
+	return functions, views
 }
 
 // TestSchemaFunctionsAndViewsExistLive is TestConflictCodesNameLiveSchemaObjects'
 // sibling for the objects a constraint-name check does not reach: a function
-// call or a view name that this package's SQL strings hardcode. Worth doing
-// for the views especially, since a renamed scope view is an ADR-0006 seam a
-// misnamed one would silently widen or narrow. Add a name to either list with
-// no matching object in app and this goes red.
+// call or a view name that this package's SQL strings hardcode. A renamed
+// function or view fails loudly only when a test happens to drive that
+// route, and only at run time (docs/lessons.md, 2026-09-01, TYRE-95);
+// conflictCodes' constraint check and TestEnumMirrorsMatchTheLiveSchema do
+// not reach either kind of object, so this is what does. Rename a call this
+// package makes and this goes red on the new name; the old one simply stops
+// appearing in discoverSchemaReferences's result, so nothing pins it as
+// missing, which is the correct behaviour for a name genuinely retired.
 func TestSchemaFunctionsAndViewsExistLive(t *testing.T) {
 	ctx := context.Background()
 	adminURL := os.Getenv("TEST_ADMIN_DATABASE_URL")
@@ -92,21 +73,23 @@ func TestSchemaFunctionsAndViewsExistLive(t *testing.T) {
 	req.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close(context.Background()) })
 
-	for _, name := range schemaFunctions {
+	functions, views := discoverSchemaReferences(t)
+
+	for name := range functions {
 		var exists bool
 		req.NoError(t, conn.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 			                 WHERE n.nspname = 'app' AND p.proname = $1)`,
 			name).Scan(&exists))
-		req.True(t, exists, "schemaFunctions names app.%s(), which no live function carries", name)
+		req.True(t, exists, "this package calls app.%s(), which no live function carries", name)
 	}
 
-	for _, name := range schemaViews {
+	for name := range views {
 		var exists bool
 		req.NoError(t, conn.QueryRow(ctx,
 			`SELECT EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
 			                 WHERE n.nspname = 'app' AND c.relname = $1 AND c.relkind = 'v')`,
 			name).Scan(&exists))
-		req.True(t, exists, "schemaViews names app.%s, which no live view carries", name)
+		req.True(t, exists, "this package names app.%s, which no live view carries", name)
 	}
 }
