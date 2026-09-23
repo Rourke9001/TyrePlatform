@@ -295,3 +295,78 @@
   font-weight: 600;
   color: var(--primary);
 }
+
+/* -------------------------------------------------------- provenance */
+
+.provenance {
+  margin: 0;
+}
+
+/* Segments separated by a 2px surface gap, never a stroke (dataviz,
+   spacers). */
+.provenance-bar {
+  display: flex;
+  gap: 2px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--surface-sunken);
+}
+
+.provenance-segment {
+  display: block;
+  height: 100%;
+}
+
+.provenance-actual {
+  background: var(--provenance-actual);
+}
+.provenance-audit {
+  background: var(--provenance-audit);
+}
+.provenance-estimated {
+  background: var(--provenance-estimated);
+}
+/* Unvalued is grey and hatched at 45 degrees so it reads in greyscale and
+   under forced colours as "not a value" (dataviz, texture; ADR-0010). */
+.provenance-unvalued {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--provenance-unvalued) 0 3px,
+    var(--surface) 3px 6px
+  );
+}
+
+.provenance-legend {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.provenance-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.provenance-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.provenance-count {
+  font-family: var(--font-mono);
+  color: var(--ink);
+}
+
+.provenance-empty {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
