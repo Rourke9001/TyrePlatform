@@ -13,15 +13,19 @@ interface FormFieldProps {
 export function FormField({ id, label, hint, error, children }: FormFieldProps) {
   const hintId = hint ? `${id}-hint` : undefined;
   const errorId = error ? `${id}-error` : undefined;
-  const describedBy = [hintId, errorId].filter(Boolean).join(" ") || undefined;
-  // Only the keys this field sets, so a child's own aria-describedby or
-  // aria-invalid survives a field with no hint or error.
-  const aria: { "aria-describedby"?: string; "aria-invalid"?: boolean } = {};
-  if (describedBy) aria["aria-describedby"] = describedBy;
-  if (error) aria["aria-invalid"] = true;
-  const control = Children.map(children, (child) =>
-    isValidElement<typeof aria>(child) ? cloneElement(child, aria) : child,
-  );
+  const control = Children.map(children, (child) => {
+    if (!isValidElement<{ "aria-describedby"?: string }>(child)) return child;
+    // The child's own ids come first: a caller who already wired a
+    // description (e.g. a unit hint) keeps it read before this field's.
+    const ownIds = child.props["aria-describedby"]?.split(" ") ?? [];
+    const describedBy =
+      [...ownIds, hintId, errorId].filter((v, i, arr) => v && arr.indexOf(v) === i).join(" ") ||
+      undefined;
+    const aria: { "aria-describedby"?: string; "aria-invalid"?: boolean } = {};
+    if (describedBy) aria["aria-describedby"] = describedBy;
+    if (error) aria["aria-invalid"] = true;
+    return cloneElement(child, aria);
+  });
   return (
     <div className={`field${error ? " field-invalid" : ""}`}>
       <label className="field-label" htmlFor={id}>
