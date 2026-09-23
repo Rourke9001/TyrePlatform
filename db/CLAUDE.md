@@ -39,6 +39,14 @@ That procedure does `ENABLE`, `FORCE`, and a policy with both `USING` and
 the role migrations run as. Without `WITH CHECK`, a caller can *write* rows
 into another tenant even though it cannot read them.
 
+A new table in schema `app` is also readable by `app_rw` the moment it is
+created, before anyone decides whether it is tenant-scoped: 000001's
+`ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO app_rw`
+grants `SELECT` on every future table, not only a blanket `GRANT ALL` run
+later. `enable_tenant_rls` is what makes that safe. Check 12 sweeps every
+`relkind='r'` in `app`, not only tables with a `tenant_id` column, so a table
+missing `ENABLE`/`FORCE` fails the build regardless of the default ACL.
+
 Nothing to add to the isolation test: its sweep reads `pg_class` for every
 table with RLS on and a `tenant_id` column, so a new table enrols itself. If
 it does *not* appear, that is the finding — check 12 fails a tenant-scoped
