@@ -9603,9 +9603,9 @@ DECLARE t1   constant uuid := '11111111-1111-1111-1111-111111111111';
 BEGIN
   PERFORM set_config('app.tenant_id', t1::text, true);
 
-  -- Invoker rights and no SET clause, the shape of threshold_policy_for, so
-  -- RLS binds the lookup to the caller's tenant (db/CLAUDE.md, "Adding a
-  -- function"; checks 8c and 8d).
+  -- Invoker rights, so RLS on threshold_policy binds the lookup to the
+  -- caller's tenant (check 8c), and no SET clause, the same shape as
+  -- threshold_policy_for.
   SELECT string_agg(p.oid::regprocedure::text || ' ' || l.lanname || ' ' || p.provolatile::text
                     || ' definer=' || p.prosecdef::text
                     || ' config=' || COALESCE(p.proconfig::text, 'none'), '; ')

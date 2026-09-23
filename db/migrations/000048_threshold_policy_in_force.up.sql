@@ -20,11 +20,10 @@
 -- signatures, defaults and search_path pins they carry, so CREATE OR REPLACE
 -- keeps each routine's oid and grants.
 
--- The dimensions and precedence of app.threshold_policy_for: an
--- operating-group row over a tenant-wide one, an axle-class row over a
--- class-blind one, latest effective within each. A row is in force from its
--- own effective_from instant, so now() is an inclusive edge here (FR-CFG-051,
--- TYRE-142). Section 63 holds the two resolvers to one precedence.
+-- app.threshold_policy_for's dimensions and precedence, with one difference:
+-- a row is in force from its own effective_from instant, so now() is an
+-- inclusive edge here (FR-CFG-051, TYRE-142). Section 63 holds the two
+-- resolvers to one precedence.
 CREATE FUNCTION app.threshold_policy_in_force(p_tenant uuid, p_operating_group uuid,
                                               p_axle_class app.axle_class)
 RETURNS app.threshold_policy
@@ -48,7 +47,7 @@ $$;
 
 -- A forecast is judged against the policy in force now (FR-ANL-004,
 -- TYRE-142). thr.mm is read at several sites below, so the resolver sits
--- behind an OFFSET 0 fence (000045's header gives the mechanism, TYRE-41).
+-- behind an OFFSET 0 fence (TYRE-41).
 -- The ::numeric keeps removal_threshold_mm the unconstrained numeric it is
 -- declared as, which CREATE OR REPLACE VIEW requires of an existing column.
 CREATE OR REPLACE VIEW app.v_removal_forecast WITH (security_invoker = true) AS
