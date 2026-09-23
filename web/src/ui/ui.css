@@ -1,0 +1,205 @@
+/* The component set's rules (ADR-0015). Custom properties only; the values
+   live in src/theme/tokens.ts. controls.css keeps .btn-primary for the
+   screens B7.4 has not restyled yet; the .btn family below is the one new
+   code uses. */
+
+/* ------------------------------------------------------------ buttons */
+
+.btn {
+  min-height: 2.75rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  font-weight: 600;
+  border-radius: var(--radius-control);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.btn-primary {
+  color: var(--on-primary);
+  background: var(--primary);
+}
+.btn-primary:hover {
+  background: var(--primary-hover);
+}
+.btn-primary:active {
+  background: var(--primary-pressed);
+}
+
+.btn-secondary {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line);
+}
+.btn-secondary:hover {
+  background: var(--surface-sunken);
+}
+
+.btn-quiet {
+  color: var(--primary);
+  background: transparent;
+}
+.btn-quiet:hover {
+  background: var(--surface-sunken);
+}
+
+.btn-danger {
+  color: var(--surface);
+  background: var(--severity-critical);
+}
+.btn-danger:hover {
+  filter: brightness(0.92);
+}
+
+.btn:disabled {
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  border-color: transparent;
+  cursor: not-allowed;
+}
+
+.btn-compact {
+  min-height: 2.25rem;
+  font-size: var(--text-small);
+  padding: 0.3rem 0.7rem;
+}
+
+/* ----------------------------------------------------------- headers */
+
+.page-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.page-eyebrow {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-condensed);
+  font-size: var(--text-small);
+  font-weight: 500;
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.page-lede {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+}
+
+.page-header-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* ------------------------------------------------------------ panels */
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-raised);
+  padding: var(--space-5);
+}
+
+.panel-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.panel-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: 700;
+}
+
+.panel-judged {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.panel-actions {
+  margin-left: auto;
+}
+
+/* ------------------------------------------------------- empty state */
+
+.empty-state {
+  padding: var(--space-5);
+  border: 1px dashed var(--line);
+  border-radius: var(--radius-card);
+  color: var(--ink-muted);
+}
+
+.empty-state-title {
+  margin: 0 0 var(--space-1);
+  font-family: var(--font-display);
+  font-size: var(--text-body);
+  color: var(--ink);
+}
+
+.empty-state-body {
+  margin: 0;
+}
+
+.empty-state-action {
+  margin-top: var(--space-3);
+}
+
+/* ------------------------------------------------------------ fields */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.field-label {
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.field input,
+.field select {
+  min-height: 2.75rem;
+  font-family: var(--font-ui);
+  font-size: var(--text-body);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-control);
+  padding: 0.5rem 0.75rem;
+}
+
+.field-invalid input,
+.field-invalid select {
+  border-color: var(--severity-critical);
+}
+
+.field-hint {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.field-error {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--severity-critical);
+}
