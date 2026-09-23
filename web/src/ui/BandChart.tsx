@@ -94,11 +94,10 @@ interface BandMarkProps {
 // than the bar (dataviz, interaction), and the pointer and the keyboard
 // share one pair of handlers.
 function BandMark({ band, index, hit, onFocusBand, children }: BandMarkProps) {
-  const description = describeBand(band);
   return (
     <g
       role="img"
-      aria-label={description}
+      aria-label={describeBand(band)}
       tabIndex={0}
       className="band-chart-bar"
       onFocus={() => onFocusBand(index)}
@@ -106,7 +105,6 @@ function BandMark({ band, index, hit, onFocusBand, children }: BandMarkProps) {
       onMouseEnter={() => onFocusBand(index)}
       onMouseLeave={() => onFocusBand(null)}
     >
-      <title>{description}</title>
       <rect {...hit} fill="transparent" />
       {children}
     </g>
