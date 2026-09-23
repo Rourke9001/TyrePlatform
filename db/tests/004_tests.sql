@@ -94,50 +94,65 @@ BEGIN
 END $$;
 
 \echo '== 4. Append-only enforcement (CR-004, DR-011)'
--- Catalog sweep, not a fixed case list, over every REVOKE UPDATE/INSERT/
--- DELETE on app_rw across all migrations, so a table's revoke enrols itself
--- the way check 12's RLS sweep does (TYRE-178). has_table_privilege reads
--- table-level ACL only, not a column grant (proven by section 51's inspection
--- probe), so app.inspection's UPDATE belongs in this list even though
--- (state, void_reason) is grantable. vehicle_tag_map is the one named
--- exception: 000035 deliberately restores its DELETE (FR-VEH-041, U6).
 DO $$
 DECLARE bad text;
 BEGIN
+  -- current_user, not the literal 'app_rw': the DML probes this replaced ran
+  -- as the connecting role, so they also caught a grant to app_login itself
+  -- or through any other membership, not only app_rw's own ACL row.
+  -- has_any_column_privilege also catches a column-level re-grant, e.g.
+  -- GRANT UPDATE (pressure_kpa) ON app.reading TO app_rw, which
+  -- has_table_privilege alone would miss. Extended with each REVOKE
+  -- INSERT/UPDATE issued against app_rw since 000001. app.inspection's
+  -- UPDATE is left out on purpose: (state, void_reason) is granted by
+  -- design (000040), and section 51 pins that column shape.
   SELECT string_agg(t || '.' || v, ', ') INTO bad
     FROM (VALUES
-      ('reading','UPDATE'), ('reading','DELETE'),
-      ('reading_measurement','UPDATE'), ('reading_measurement','DELETE'),
-      ('tyre_event','UPDATE'), ('tyre_event','DELETE'),
-      ('audit_log','UPDATE'), ('audit_log','DELETE'),
-      ('app_user','DELETE'),
-      ('casing_valuation','UPDATE'), ('casing_valuation','DELETE'),
-      ('tenant_consent','UPDATE'), ('tenant_consent','DELETE'),
-      ('vehicle_odometer_reading','UPDATE'), ('vehicle_odometer_reading','DELETE'),
+      ('reading','UPDATE'),
+      ('reading_measurement','UPDATE'),
+      ('tyre_event','UPDATE'),
+      ('audit_log','UPDATE'),
+      ('casing_valuation','UPDATE'),
+      ('tenant_consent','UPDATE'),
+      ('vehicle_odometer_reading','UPDATE'),
       ('jurisdiction_tread_minimum','INSERT'), ('jurisdiction_tread_minimum','UPDATE'),
-        ('jurisdiction_tread_minimum','DELETE'),
-      ('tenant','DELETE'), ('tenant','INSERT'), ('tenant','UPDATE'),
-      ('configuration','DELETE'), ('depot','DELETE'), ('user_depot','DELETE'),
-      ('axle_configuration','DELETE'), ('position','DELETE'), ('vehicle','DELETE'),
-      ('vehicle_driver','DELETE'), ('combination','DELETE'),
-      ('combination_member','DELETE'), ('combination_member','UPDATE'),
-      ('tyre_size','DELETE'), ('tyre_brand','DELETE'), ('tyre_pattern','DELETE'),
-      ('tyre','DELETE'), ('fitment','DELETE'), ('inspection','DELETE'),
-      ('inspection','UPDATE'), ('photo','DELETE'), ('exception_rule','DELETE'),
-      ('exception','DELETE'), ('notification','DELETE'), ('operating_group','DELETE'),
-      ('vehicle_tag','DELETE'), ('threshold_policy','DELETE'), ('retread_job','DELETE'),
-      ('casing_estimate_by_size','DELETE'), ('tyre_price_list','DELETE'),
-      ('target_pressure','DELETE'), ('inspection_schedule','DELETE'),
-      ('inspection_task','DELETE'), ('inspection_warning','UPDATE'),
-      ('inspection_warning','DELETE'), ('inspection_absent_spare','UPDATE'),
-      ('inspection_absent_spare','DELETE'), ('composition_observation','UPDATE'),
-      ('composition_observation','DELETE')
+      ('tenant','INSERT'), ('tenant','UPDATE'),
+      ('combination_member','UPDATE'),
+      ('inspection_warning','UPDATE'),
+      ('inspection_absent_spare','UPDATE'),
+      ('composition_observation','UPDATE')
     ) AS revoked(t, v)
-   WHERE has_table_privilege('app_rw', 'app.' || t, v);
+   WHERE has_any_column_privilege(current_user, 'app.' || t, v);
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: app role retains revoked privilege(s): %', bad;
   END IF;
-  RAISE NOTICE 'PASS  app role holds none of the 57 revoked (table, verb) pairs';
+
+  -- DELETE: a catalog sweep in section 37b's shape, not a hand-typed list, so
+  -- a table's revoke, or a table that never needed one (display_code_counter
+  -- was never granted DELETE, so no REVOKE exists to harvest), enrols itself.
+  -- valuation_snapshot and vehicle_tag_map are the two deliberate exceptions:
+  -- 000001 never revoked the former, and 000035 restores the latter's
+  -- (FR-VEH-041, U6).
+  SELECT string_agg(c.relname, ', ') INTO bad
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'app' AND c.relkind = 'r'
+     AND c.relname NOT IN ('valuation_snapshot', 'vehicle_tag_map')
+     AND has_table_privilege(current_user, c.oid, 'DELETE');
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: app role can DELETE an append-only table: %', bad;
+  END IF;
+
+  -- TRUNCATE bypasses RLS entirely: it is not a DML statement a policy
+  -- inspects, so the allow-list is empty. No migration has ever granted it.
+  SELECT string_agg(c.relname, ', ') INTO bad
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'app' AND c.relkind = 'r'
+     AND has_table_privilege(current_user, c.oid, 'TRUNCATE');
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: app role can TRUNCATE a table, which RLS cannot see: %', bad;
+  END IF;
+
+  RAISE NOTICE 'PASS  app role holds none of the revoked grants, cannot DELETE an append-only table, and cannot TRUNCATE any table';
 END $$;
 
 \echo '== 5. Governing tread is MIN of the width-wise readings (BR-INS-003, DR-017)'
@@ -490,21 +505,22 @@ END $$;
 -- binds writes to this tenant from one that does not. Every policy must
 -- match the canonical expression exactly, not merely mention the tenant
 -- function: a substring match would pass a widened policy such as
--- `USING (tenant_id = app.current_tenant_id() OR true)` (TYRE-178). The
--- canonical text omits the `app.` qualifier: this session's search_path
--- (line 7) puts app first, so pg_get_expr renders the call unqualified.
--- The read-everyone reference-data policy is the one named exception
--- (CHG-019). Omitting WITH CHECK does not weaken it (docs/lessons.md,
--- 2026-09-08); this check buys that the write predicate is always written
--- down, since a defaulted clause is NULL in pg_policy with no expression to
--- read.
+-- `USING (tenant_id = app.current_tenant_id() OR true)` (TYRE-178).
 DO $$
 DECLARE bad text;
 BEGIN
+  -- The canonical text omits the `app.` qualifier: this session's
+  -- search_path puts app first, so pg_get_expr renders the call unqualified.
   SELECT string_agg(c.relname || '.' || p.polname, ', ') INTO bad
     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
    WHERE c.relnamespace = 'app'::regnamespace
-     AND p.polname <> 'jurisdiction_public_read'
+     -- jurisdiction_tread_minimum's read-everyone policy is the one named
+     -- exception (CHG-019): tied to its table, not the name alone, so a
+     -- widened policy elsewhere reusing this name still fails. Its omitted
+     -- WITH CHECK does not weaken this check (docs/lessons.md, 2026-09-08):
+     -- a defaulted clause is NULL in pg_policy with no expression to read,
+     -- so the OR below still requires one to be written down everywhere else.
+     AND NOT (c.relname = 'jurisdiction_tread_minimum' AND p.polname = 'jurisdiction_public_read')
      AND (COALESCE(pg_get_expr(p.polqual, p.polrelid), '') <>
             CASE WHEN c.relname = 'tenant' THEN '(id = current_tenant_id())'
                  ELSE '(tenant_id = current_tenant_id())' END
@@ -2490,22 +2506,24 @@ BEGIN
   IF got IS DISTINCT FROM '1.0|Regulation 212, National Road Traffic Act 93 of 1996' THEN
     RAISE EXCEPTION 'FAIL: ZA legal minimum reads [%], expected 1.0mm under Regulation 212', got; END IF;
 
-  -- append-only holds for the new records of fact (CR-004 / DR-011)
-  IF has_table_privilege('app_rw','app.casing_valuation','UPDATE')
-     OR has_table_privilege('app_rw','app.tenant_consent','DELETE')
-     OR has_table_privilege('app_rw','app.vehicle_odometer_reading','UPDATE')
-     OR has_table_privilege('app_rw','app.jurisdiction_tread_minimum','INSERT') THEN
-    RAISE EXCEPTION 'FAIL: an append-only grant leaked on a new record of fact'; END IF;
+  -- append-only holds for these records of fact too (CR-004 / DR-011): check
+  -- 4's catalog sweep covers casing_valuation, tenant_consent,
+  -- vehicle_odometer_reading and jurisdiction_tread_minimum, so this section
+  -- leaves that probe to check 4 alone.
 
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  vocabulary, provenance columns, disposal semantics and reference data all hold';
 END $$;
 
--- 27a. TYRE-190 F3: five named CHECK constraints are cited only in app-tier
--- comments as their authority (units.go, units.ts, admin.go, PositionPanel.tsx,
--- tasks_test.go, fitments_test.go) with no SQL exercising them. Each block
--- inserts the one violating row the constraint's own predicate rejects.
+-- 27a. TYRE-190 F3: seven named CHECK constraints are cited only in app-tier
+-- comments as their authority (units.go, units.ts, admin.go,
+-- PositionPanel.tsx, tasks_test.go, fitments_test.go) with no SQL exercising
+-- them. Each block inserts the one violating row its own constraint's
+-- predicate rejects, and GET STACKED DIAGNOSTICS names which constraint
+-- actually fired, so a block cannot pass by catching an unrelated
+-- check_violation (TYRE-178 review).
 DO $$
+DECLARE cn text;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
 
@@ -2513,7 +2531,11 @@ BEGIN
     INSERT INTO app.app_user (tenant_id, email, display_name, role)
     VALUES (app.current_tenant_id(), 'chk190-admin@example.test', 'CHK190', 'PLATFORM_ADMIN');
     RAISE EXCEPTION 'FAIL: platform_admin_has_no_tenant accepted a PLATFORM_ADMIN row with a tenant';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'platform_admin_has_no_tenant' THEN
+      RAISE EXCEPTION 'FAIL: expected platform_admin_has_no_tenant, got %', cn;
+    END IF;
   END;
 
   BEGIN
@@ -2521,14 +2543,22 @@ BEGIN
     SELECT app.current_tenant_id(), ac.id, 'CHK190POS', 999, 1, 'STEER', 'LEFT', 'SINGLE', true
       FROM app.axle_configuration ac WHERE ac.tenant_id = app.current_tenant_id() LIMIT 1;
     RAISE EXCEPTION 'FAIL: spare_has_no_geometry accepted a spare position carrying axle geometry';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'spare_has_no_geometry' THEN
+      RAISE EXCEPTION 'FAIL: expected spare_has_no_geometry, got %', cn;
+    END IF;
   END;
 
   BEGIN
     INSERT INTO app.tyre (tenant_id, display_code, status, retread_count, state)
     VALUES (app.current_tenant_id(), 'CHK190RETREAD', 'NEW', 1, 'IN_STOCK');
     RAISE EXCEPTION 'FAIL: retread_count_matches_status accepted a NEW tyre with a nonzero retread count';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'retread_count_matches_status' THEN
+      RAISE EXCEPTION 'FAIL: expected retread_count_matches_status, got %', cn;
+    END IF;
   END;
 
   BEGIN
@@ -2538,7 +2568,11 @@ BEGIN
      WHERE v.tenant_id = app.current_tenant_id() AND u.tenant_id = app.current_tenant_id()
      LIMIT 1;
     RAISE EXCEPTION 'FAIL: void_has_reason accepted a VOIDED inspection with no reason (FR-INS-012)';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'void_has_reason' THEN
+      RAISE EXCEPTION 'FAIL: expected void_has_reason, got %', cn;
+    END IF;
   END;
 
   BEGIN
@@ -2546,20 +2580,12 @@ BEGIN
     SELECT app.current_tenant_id(), er.id, 'TYRE', gen_random_uuid(), 'WARNING', 'CLOSED'
       FROM app.exception_rule er WHERE er.tenant_id = app.current_tenant_id() LIMIT 1;
     RAISE EXCEPTION 'FAIL: closure_is_explained accepted a CLOSED exception with no resolution (FR-EXC-009)';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'closure_is_explained' THEN
+      RAISE EXCEPTION 'FAIL: expected closure_is_explained, got %', cn;
+    END IF;
   END;
-
-  RAISE NOTICE 'PASS  five named CHECK constraints reject the row their own predicate names';
-END $$;
-ROLLBACK;
-
--- 27b. TYRE-190 F3, continued: two more named CHECKs, on tables section 27
--- does not otherwise touch, each in its own transaction since a fitment or
--- task row is planted, not merely attempted, before the rollback undoes it.
-BEGIN;
-DO $$
-BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
 
   BEGIN
     INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
@@ -2570,7 +2596,11 @@ BEGIN
            (SELECT id FROM app.position WHERE tenant_id = app.current_tenant_id() LIMIT 1),
            now(), 1000, now(), 500, 'CHK190';
     RAISE EXCEPTION 'FAIL: odometer_does_not_decrease accepted a removal odometer before the fitted one';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'odometer_does_not_decrease' THEN
+      RAISE EXCEPTION 'FAIL: expected odometer_does_not_decrease, got %', cn;
+    END IF;
   END;
 
   BEGIN
@@ -2578,10 +2608,14 @@ BEGIN
     SELECT app.current_tenant_id(), v.id, now(), 'CANCELLED', NULL
       FROM app.vehicle v WHERE v.tenant_id = app.current_tenant_id() LIMIT 1;
     RAISE EXCEPTION 'FAIL: cancellation_is_explained accepted a CANCELLED task with no reason';
-  EXCEPTION WHEN check_violation THEN NULL;
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'cancellation_is_explained' THEN
+      RAISE EXCEPTION 'FAIL: expected cancellation_is_explained, got %', cn;
+    END IF;
   END;
 
-  RAISE NOTICE 'PASS  odometer_does_not_decrease and cancellation_is_explained reject their named row';
+  RAISE NOTICE 'PASS  seven named CHECK constraints reject the row their own predicate names';
 END $$;
 ROLLBACK;
 
