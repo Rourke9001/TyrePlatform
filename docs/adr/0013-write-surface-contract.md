@@ -189,6 +189,8 @@ database in one place, and Go only names the refusal for a client.
    uses, and no `Location` header: the platform has no
    `GET /api/vehicles/{id}`, and a header pointing at a route that 404s is
    worse than no header at all.
+   *(Amended 2026-09-23 (TYRE-180): dispatch is the one exception; see the
+   amendment in Consequences below.)*
 
 10. **No idempotency key.** `client_uuid` exists on the capture path because
     a driver's outbox retries a submission with no human present
@@ -263,6 +265,14 @@ The map in `api/internal/httpapi/refusal.go` is the source of truth;
 `TestConflictCodesNameLiveSchemaObjects` guards it against the schema, not
 against either table above, so a future row still needs a matching edit
 here.
+
+**Amended 2026-09-23 (TYRE-180):** `POST /api/tyres/{tyreID}/dispatch` is
+the one write that answers 201 without a row projection. A dispatch always
+writes a tyre event, and only the retreader arm also opens a retread job, so
+the body is `{"retreadJobId": "..."}` on that arm and `{}` on the
+breakdown-supplier arm. The owner kept 201 on both arms (TYRE-143 decision
+8): a client branches on `retreadJobId`, never on the status, and a status
+that varied with the arm would be a second signal for the same fact.
 
 ## Constraints on later work
 
