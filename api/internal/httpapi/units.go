@@ -867,56 +867,6 @@ func listMyVehicles(s *store.Store) http.HandlerFunc {
 	}
 }
 
-type taskJSON struct {
-	ID          string `json:"id"`
-	VehicleID   string `json:"vehicleId"`
-	FleetNumber string `json:"fleetNumber"`
-	DueAt       string `json:"dueAt"`
-	State       string `json:"state"`
-	Overdue     bool   `json:"overdue"`
-}
-
-// listMyTasks is the driver's outstanding work (FR-DSH-012). Overdue is
-// computed in the view, not here: it is an OPEN task past its due date and
-// never a state the client may infer for itself.
-func listMyTasks(s *store.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		tasks := []taskJSON{}
-		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
-			if err := require(a, auth.CaptureInspection); err != nil {
-				return err
-			}
-			// The scope view must stay the driving relation: app.vehicle is
-			// reached only through v_my_inspection_task's already-narrowed
-			// rows, never joined the other way round (ADR-0006).
-			rows, err := tx.Query(ctx,
-				`SELECT t.id, t.vehicle_id, v.fleet_number, t.due_at, t.state::text, t.overdue
-				   FROM app.v_my_inspection_task t
-				   JOIN app.vehicle v ON v.id = t.vehicle_id
-				  ORDER BY t.due_at`)
-			if err != nil {
-				return err
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var t taskJSON
-				var due time.Time
-				if err := rows.Scan(&t.ID, &t.VehicleID, &t.FleetNumber, &due, &t.State, &t.Overdue); err != nil {
-					return err
-				}
-				t.DueAt = due.UTC().Format(time.RFC3339)
-				tasks = append(tasks, t)
-			}
-			return rows.Err()
-		})
-		if !ok {
-			return
-		}
-		writeJSON(ctx, w, tasks)
-	}
-}
-
 func scanVehicles(ctx context.Context, tx pgx.Tx, query string) ([]vehicleJSON, error) {
 	rows, err := tx.Query(ctx, query)
 	if err != nil {

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 
 	"github.com/jackc/pgx/v5"
@@ -63,10 +62,7 @@ func me(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(body); err != nil {
-			slog.ErrorContext(ctx, "encoding me", "err", err)
-		}
+		writeJSON(ctx, w, body)
 	}
 }
 
@@ -115,9 +111,6 @@ func orgBranding(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(b); err != nil {
-			slog.ErrorContext(ctx, "encoding branding", "err", err)
-		}
+		writeJSON(ctx, w, b)
 	}
 }
