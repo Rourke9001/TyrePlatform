@@ -292,16 +292,16 @@ func TestConflictCodesNameLiveSchemaObjects(t *testing.T) {
 }
 
 // registryEntry mirrors one entry of refusal_codes.json (ADR-0012, TYRE-153,
-// TYRE-212). Only the fields the two catalogue tests below need are decoded;
-// meaning/note/raisedBy exist for a human reader and neither test asserts on
-// them.
+// TYRE-212). meaning/note/raisedBy exist for a human reader and no test
+// asserts on them; HTTPStatus is compared against submitStatus's own value
+// below, not just checked for nil.
 type registryEntry struct {
 	Source     string `json:"source"`
 	HTTPStatus *int   `json:"httpStatus"`
 }
 
 // loadRefusalRegistry reads the one file both the Go and TypeScript sides
-// check against (web/src/api/refusal.test.ts reads the same path from its own
+// check against (web/lint/refusal.test.ts reads the same path from its own
 // side of the tree). Failing to parse it is a test setup error, not a
 // registry gap, so it fails the test rather than skipping.
 func loadRefusalRegistry(t *testing.T) map[string]registryEntry {
@@ -320,56 +320,115 @@ func loadRefusalRegistry(t *testing.T) map[string]registryEntry {
 	return registry
 }
 
-// allGoWireCodes is every code writeError can put on the wire: the TY-class
-// keys of submitStatus (forwarded verbatim, ADR-0012) plus every codeXxx
-// constant. submitStatus's non-TY keys (23502, 23503, ...) are Postgres's own
-// SQLSTATEs, translated before writeError ever sees them, and are deliberately
-// excluded: a client never observes one as a code.
-func allGoWireCodes() map[string]bool {
-	codes := map[string]bool{}
-	for k := range submitStatus {
-		if strings.HasPrefix(k, "TY") {
-			codes[k] = true
+// tyCodeShape matches a code by our own class, never a standard Postgres
+// SQLSTATE (ADR-0012: no standard class begins with T), so it separates a
+// codeXxx constant's TY-class values (codeVehicleNotVisible = "TY007") from
+// its named ones without needing to know which is which in advance.
+var tyCodeShape = regexp.MustCompile(`^TY[0-9]+$`)
+
+// goCodeConstant matches a codeXxx constant's declared string value, e.g.
+// `codeUnauthorized = "unauthorized"`. Regexed against source at test time
+// rather than hand-listed: a 22nd constant, or a renamed one, changes what
+// this returns with no edit to this file (TYRE-184's own F6 lesson, applied
+// here to TYRE-153's list).
+var goCodeConstant = regexp.MustCompile(`(?m)^\s*code[A-Z]\w*\s*=\s*"([^"]+)"`)
+
+// discoverGoCodeConstants reads every non-test .go file in this package and
+// returns the string value of every codeXxx constant it declares.
+func discoverGoCodeConstants(t *testing.T) map[string]bool {
+	t.Helper()
+	entries, err := os.ReadDir(".")
+	req.NoError(t, err)
+	values := map[string]bool{}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(name)
+		req.NoError(t, err)
+		for _, m := range goCodeConstant.FindAllStringSubmatch(string(src), -1) {
+			values[m[1]] = true
 		}
 	}
-	for _, c := range []string{
-		codeUnauthorized, codeForbidden, codeVehicleNotVisible, codeBadRequest,
-		codeMalformedJSON, codeInvalidSubmission, codeConflict, codeNotFound,
-		codeMethodNotAllowed, codeRateLimited, codeInternal,
-		codeFleetNumberTaken, codeEmailTaken, codeEmailInactive, codeNothingToReactivate,
-		codeAssignmentOverlaps, codeStaffNumberTaken, codeDisplayCodeTaken,
-		codePositionOccupied, codeTyreAlreadyFitted, codeObservationResolved,
-	} {
-		codes[c] = true
-	}
-	return codes
+	return values
 }
 
 // TestRefusalCodesRegistryCoversGoWireVocabulary is the registry's Go-side
-// half (TYRE-153): every code writeError can emit must be a key in
-// refusal_codes.json, or ADR-0012's claim that a test keeps the vocabulary
-// aligned is false again. Add a codeXxx constant with no matching registry
-// entry and this goes red.
+// half (TYRE-153), checked as set equality in both directions rather than
+// registry-covers-source alone: a renamed codeXxx constant leaves a stale key
+// in refusal_codes.json that a one-directional check would never flag, since
+// the new value would still get added. The TY class is checked by its HTTP
+// reachability instead of by literal string: a code submitStatus maps must be
+// a registry key with a non-null httpStatus equal to submitStatus's own
+// value, and a registry key recorded as unreachable (null httpStatus) must
+// have no submitStatus entry.
+//
+// Rename codeConflict's value and this goes red twice: the old value is a
+// registry key nothing in Go declares any more, and the new value is a Go
+// constant no registry key names.
 func TestRefusalCodesRegistryCoversGoWireVocabulary(t *testing.T) {
 	registry := loadRefusalRegistry(t)
-	for code := range allGoWireCodes() {
-		_, ok := registry[code]
-		req.True(t, ok, "code %q is one writeError can emit but refusal_codes.json does not name it", code)
+	goConstants := discoverGoCodeConstants(t)
+
+	goNonTY := map[string]bool{}
+	for v := range goConstants {
+		if !tyCodeShape.MatchString(v) {
+			goNonTY[v] = true
+		}
+	}
+	registryNonTY := map[string]bool{}
+	registryTYReachable := map[string]bool{}
+	registryTYUnreachable := map[string]bool{}
+	for code, e := range registry {
+		switch {
+		case !tyCodeShape.MatchString(code):
+			registryNonTY[code] = true
+		case e.HTTPStatus != nil:
+			registryTYReachable[code] = true
+		default:
+			registryTYUnreachable[code] = true
+		}
+	}
+
+	for code := range goNonTY {
+		req.True(t, registryNonTY[code], "Go declares code %q, which refusal_codes.json does not name", code)
+	}
+	for code := range registryNonTY {
+		req.True(t, goNonTY[code], "refusal_codes.json names %q, which no codeXxx constant in this package declares any more", code)
+	}
+
+	for code := range submitStatus {
+		if !tyCodeShape.MatchString(code) {
+			continue
+		}
+		req.False(t, registryTYUnreachable[code],
+			"submitStatus maps %q, but refusal_codes.json records it as unreachable (null httpStatus)", code)
+		req.True(t, registryTYReachable[code],
+			"submitStatus maps %q, which refusal_codes.json does not carry a reachable (non-null httpStatus) entry for", code)
+		req.Equal(t, submitStatus[code], *registry[code].HTTPStatus,
+			"submitStatus and refusal_codes.json disagree on %q's HTTP status", code)
+	}
+	for code := range registryTYReachable {
+		_, inSubmitStatus := submitStatus[code]
+		req.True(t, inSubmitStatus,
+			"refusal_codes.json marks %q reachable (non-null httpStatus), but submitStatus has no entry for it", code)
 	}
 }
 
 // tyCodeRaise matches an ERRCODE assignment naming our own private class.
-// Mirrors the class test in TestRefusalForPgError: no standard Postgres
-// SQLSTATE begins with T, so this pattern cannot match anything but our own
-// codes.
+// Mirrors tyCodeShape: no standard Postgres SQLSTATE begins with T, so this
+// pattern cannot match anything but our own codes.
 var tyCodeRaise = regexp.MustCompile(`'(TY[0-9]+)'`)
 
 // TestEveryTYCodeRaisedInSchemaIsRegistered is the registry's database-side
-// half (TYRE-212): every TY code any live app-schema function raises, whether
-// or not a route can reach it, must be a key in refusal_codes.json. Unlike
-// TestConflictCodesNameLiveSchemaObjects this reads pg_proc's own source
-// rather than a Go-side literal list, because the thing being audited is
-// what the database raises, not what Go already expects.
+// half (TYRE-212), checked as set equality: every TY code any live
+// app-schema function raises, whether or not a route can reach it, must be a
+// registry key, and every TY key the registry names must still be raised
+// somewhere live. Unlike TestConflictCodesNameLiveSchemaObjects this reads
+// pg_proc's own source rather than a Go-side literal list, because the thing
+// being audited is what the database raises, not what Go already expects.
+// p.prokind <> 'a' excludes aggregates, which pg_get_functiondef refuses.
 func TestEveryTYCodeRaisedInSchemaIsRegistered(t *testing.T) {
 	ctx := context.Background()
 	adminURL := os.Getenv("TEST_ADMIN_DATABASE_URL")
@@ -383,7 +442,7 @@ func TestEveryTYCodeRaisedInSchemaIsRegistered(t *testing.T) {
 	rows, err := conn.Query(ctx,
 		`SELECT pg_get_functiondef(p.oid)
 		   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
-		  WHERE n.nspname = 'app'`)
+		  WHERE n.nspname = 'app' AND p.prokind <> 'a'`)
 	req.NoError(t, err)
 	defer rows.Close()
 
@@ -399,8 +458,17 @@ func TestEveryTYCodeRaisedInSchemaIsRegistered(t *testing.T) {
 	req.NotEmpty(t, raised, "the sweep found no TY code at all; the query itself is probably broken")
 
 	registry := loadRefusalRegistry(t)
+	registryTY := map[string]bool{}
+	for code := range registry {
+		if tyCodeShape.MatchString(code) {
+			registryTY[code] = true
+		}
+	}
+
 	for code := range raised {
-		_, ok := registry[code]
-		req.True(t, ok, "the live schema raises %q, which refusal_codes.json does not name", code)
+		req.True(t, registryTY[code], "the live schema raises %q, which refusal_codes.json does not name", code)
+	}
+	for code := range registryTY {
+		req.True(t, raised[code], "refusal_codes.json names %q as a TY code, but no live app-schema function raises it any more", code)
 	}
 }
