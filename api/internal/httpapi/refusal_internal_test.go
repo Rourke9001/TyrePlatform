@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -287,5 +288,119 @@ func TestConflictCodesNameLiveSchemaObjects(t *testing.T) {
 			name).Scan(&exists))
 		req.True(t, exists,
 			"conflictCodes names %q, which no constraint or index in the schema carries; its refusal can never fire", name)
+	}
+}
+
+// registryEntry mirrors one entry of refusal_codes.json (ADR-0012, TYRE-153,
+// TYRE-212). Only the fields the two catalogue tests below need are decoded;
+// meaning/note/raisedBy exist for a human reader and neither test asserts on
+// them.
+type registryEntry struct {
+	Source     string `json:"source"`
+	HTTPStatus *int   `json:"httpStatus"`
+}
+
+// loadRefusalRegistry reads the one file both the Go and TypeScript sides
+// check against (web/src/api/refusal.test.ts reads the same path from its own
+// side of the tree). Failing to parse it is a test setup error, not a
+// registry gap, so it fails the test rather than skipping.
+func loadRefusalRegistry(t *testing.T) map[string]registryEntry {
+	t.Helper()
+	raw, err := os.ReadFile("refusal_codes.json")
+	req.NoError(t, err)
+	var entries map[string]json.RawMessage
+	req.NoError(t, json.Unmarshal(raw, &entries))
+	delete(entries, "_comment")
+	registry := make(map[string]registryEntry, len(entries))
+	for code, body := range entries {
+		var e registryEntry
+		req.NoError(t, json.Unmarshal(body, &e), "decoding registry entry %q", code)
+		registry[code] = e
+	}
+	return registry
+}
+
+// allGoWireCodes is every code writeError can put on the wire: the TY-class
+// keys of submitStatus (forwarded verbatim, ADR-0012) plus every codeXxx
+// constant. submitStatus's non-TY keys (23502, 23503, ...) are Postgres's own
+// SQLSTATEs, translated before writeError ever sees them, and are deliberately
+// excluded: a client never observes one as a code.
+func allGoWireCodes() map[string]bool {
+	codes := map[string]bool{}
+	for k := range submitStatus {
+		if strings.HasPrefix(k, "TY") {
+			codes[k] = true
+		}
+	}
+	for _, c := range []string{
+		codeUnauthorized, codeForbidden, codeVehicleNotVisible, codeBadRequest,
+		codeMalformedJSON, codeInvalidSubmission, codeConflict, codeNotFound,
+		codeMethodNotAllowed, codeRateLimited, codeInternal,
+		codeFleetNumberTaken, codeEmailTaken, codeEmailInactive, codeNothingToReactivate,
+		codeAssignmentOverlaps, codeStaffNumberTaken, codeDisplayCodeTaken,
+		codePositionOccupied, codeTyreAlreadyFitted, codeObservationResolved,
+	} {
+		codes[c] = true
+	}
+	return codes
+}
+
+// TestRefusalCodesRegistryCoversGoWireVocabulary is the registry's Go-side
+// half (TYRE-153): every code writeError can emit must be a key in
+// refusal_codes.json, or ADR-0012's claim that a test keeps the vocabulary
+// aligned is false again. Add a codeXxx constant with no matching registry
+// entry and this goes red.
+func TestRefusalCodesRegistryCoversGoWireVocabulary(t *testing.T) {
+	registry := loadRefusalRegistry(t)
+	for code := range allGoWireCodes() {
+		_, ok := registry[code]
+		req.True(t, ok, "code %q is one writeError can emit but refusal_codes.json does not name it", code)
+	}
+}
+
+// tyCodeRaise matches an ERRCODE assignment naming our own private class.
+// Mirrors the class test in TestRefusalForPgError: no standard Postgres
+// SQLSTATE begins with T, so this pattern cannot match anything but our own
+// codes.
+var tyCodeRaise = regexp.MustCompile(`'(TY[0-9]+)'`)
+
+// TestEveryTYCodeRaisedInSchemaIsRegistered is the registry's database-side
+// half (TYRE-212): every TY code any live app-schema function raises, whether
+// or not a route can reach it, must be a key in refusal_codes.json. Unlike
+// TestConflictCodesNameLiveSchemaObjects this reads pg_proc's own source
+// rather than a Go-side literal list, because the thing being audited is
+// what the database raises, not what Go already expects.
+func TestEveryTYCodeRaisedInSchemaIsRegistered(t *testing.T) {
+	ctx := context.Background()
+	adminURL := os.Getenv("TEST_ADMIN_DATABASE_URL")
+	if adminURL == "" {
+		t.Skip("TEST_ADMIN_DATABASE_URL not set; this check needs a migrated Postgres")
+	}
+	conn, err := pgx.Connect(ctx, adminURL)
+	req.NoError(t, err)
+	t.Cleanup(func() { _ = conn.Close(context.Background()) })
+
+	rows, err := conn.Query(ctx,
+		`SELECT pg_get_functiondef(p.oid)
+		   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+		  WHERE n.nspname = 'app'`)
+	req.NoError(t, err)
+	defer rows.Close()
+
+	raised := map[string]bool{}
+	for rows.Next() {
+		var def string
+		req.NoError(t, rows.Scan(&def))
+		for _, m := range tyCodeRaise.FindAllStringSubmatch(def, -1) {
+			raised[m[1]] = true
+		}
+	}
+	req.NoError(t, rows.Err())
+	req.NotEmpty(t, raised, "the sweep found no TY code at all; the query itself is probably broken")
+
+	registry := loadRefusalRegistry(t)
+	for code := range raised {
+		_, ok := registry[code]
+		req.True(t, ok, "the live schema raises %q, which refusal_codes.json does not name", code)
 	}
 }
