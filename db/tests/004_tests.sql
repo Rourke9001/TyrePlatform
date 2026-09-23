@@ -94,36 +94,50 @@ BEGIN
 END $$;
 
 \echo '== 4. Append-only enforcement (CR-004, DR-011)'
+-- Catalog sweep, not a fixed case list, over every REVOKE UPDATE/INSERT/
+-- DELETE on app_rw across all migrations, so a table's revoke enrols itself
+-- the way check 12's RLS sweep does (TYRE-178). has_table_privilege reads
+-- table-level ACL only, not a column grant (proven by section 51's inspection
+-- probe), so app.inspection's UPDATE belongs in this list even though
+-- (state, void_reason) is grantable. vehicle_tag_map is the one named
+-- exception: 000035 deliberately restores its DELETE (FR-VEH-041, U6).
 DO $$
-DECLARE ok boolean := false;
+DECLARE bad text;
 BEGIN
-  BEGIN
-    UPDATE app.reading SET pressure_kpa = 999 WHERE pressure_kpa = 200;
-  EXCEPTION WHEN insufficient_privilege THEN ok := true;
-  END;
-  IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can UPDATE app.reading'; END IF;
-
-  ok := false;
-  BEGIN
-    DELETE FROM app.reading_measurement WHERE tread_mm = 0;
-  EXCEPTION WHEN insufficient_privilege THEN ok := true;
-  END;
-  IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can DELETE app.reading_measurement'; END IF;
-
-  ok := false;
-  BEGIN
-    UPDATE app.tyre_event SET reason = 'x' WHERE false;
-  EXCEPTION WHEN insufficient_privilege THEN ok := true;
-  END;
-  IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can UPDATE app.tyre_event'; END IF;
-
-  ok := false;
-  BEGIN
-    UPDATE app.audit_log SET action = 'x' WHERE false;
-  EXCEPTION WHEN insufficient_privilege THEN ok := true;
-  END;
-  IF NOT ok THEN RAISE EXCEPTION 'FAIL: app role can UPDATE app.audit_log'; END IF;
-  RAISE NOTICE 'PASS  readings, measurements and events cannot be rewritten by the app role';
+  SELECT string_agg(t || '.' || v, ', ') INTO bad
+    FROM (VALUES
+      ('reading','UPDATE'), ('reading','DELETE'),
+      ('reading_measurement','UPDATE'), ('reading_measurement','DELETE'),
+      ('tyre_event','UPDATE'), ('tyre_event','DELETE'),
+      ('audit_log','UPDATE'), ('audit_log','DELETE'),
+      ('app_user','DELETE'),
+      ('casing_valuation','UPDATE'), ('casing_valuation','DELETE'),
+      ('tenant_consent','UPDATE'), ('tenant_consent','DELETE'),
+      ('vehicle_odometer_reading','UPDATE'), ('vehicle_odometer_reading','DELETE'),
+      ('jurisdiction_tread_minimum','INSERT'), ('jurisdiction_tread_minimum','UPDATE'),
+        ('jurisdiction_tread_minimum','DELETE'),
+      ('tenant','DELETE'), ('tenant','INSERT'), ('tenant','UPDATE'),
+      ('configuration','DELETE'), ('depot','DELETE'), ('user_depot','DELETE'),
+      ('axle_configuration','DELETE'), ('position','DELETE'), ('vehicle','DELETE'),
+      ('vehicle_driver','DELETE'), ('combination','DELETE'),
+      ('combination_member','DELETE'), ('combination_member','UPDATE'),
+      ('tyre_size','DELETE'), ('tyre_brand','DELETE'), ('tyre_pattern','DELETE'),
+      ('tyre','DELETE'), ('fitment','DELETE'), ('inspection','DELETE'),
+      ('inspection','UPDATE'), ('photo','DELETE'), ('exception_rule','DELETE'),
+      ('exception','DELETE'), ('notification','DELETE'), ('operating_group','DELETE'),
+      ('vehicle_tag','DELETE'), ('threshold_policy','DELETE'), ('retread_job','DELETE'),
+      ('casing_estimate_by_size','DELETE'), ('tyre_price_list','DELETE'),
+      ('target_pressure','DELETE'), ('inspection_schedule','DELETE'),
+      ('inspection_task','DELETE'), ('inspection_warning','UPDATE'),
+      ('inspection_warning','DELETE'), ('inspection_absent_spare','UPDATE'),
+      ('inspection_absent_spare','DELETE'), ('composition_observation','UPDATE'),
+      ('composition_observation','DELETE')
+    ) AS revoked(t, v)
+   WHERE has_table_privilege('app_rw', 'app.' || t, v);
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: app role retains revoked privilege(s): %', bad;
+  END IF;
+  RAISE NOTICE 'PASS  app role holds none of the 57 revoked (table, verb) pairs';
 END $$;
 
 \echo '== 5. Governing tread is MIN of the width-wise readings (BR-INS-003, DR-017)'
@@ -474,11 +488,16 @@ END $$;
 
 -- Policy SHAPE, not just presence: the sweep above cannot tell a policy that
 -- binds writes to this tenant from one that does not. Every policy must
--- carry both a USING and a WITH CHECK that bind to current_tenant_id(); the
--- read-everyone reference-data policy is the one named exception (CHG-019).
--- Omitting WITH CHECK does not weaken it (docs/lessons.md, 2026-09-08); this
--- check buys that the write predicate is always written down, since a
--- defaulted clause is NULL in pg_policy with no expression to read.
+-- match the canonical expression exactly, not merely mention the tenant
+-- function: a substring match would pass a widened policy such as
+-- `USING (tenant_id = app.current_tenant_id() OR true)` (TYRE-178). The
+-- canonical text omits the `app.` qualifier: this session's search_path
+-- (line 7) puts app first, so pg_get_expr renders the call unqualified.
+-- The read-everyone reference-data policy is the one named exception
+-- (CHG-019). Omitting WITH CHECK does not weaken it (docs/lessons.md,
+-- 2026-09-08); this check buys that the write predicate is always written
+-- down, since a defaulted clause is NULL in pg_policy with no expression to
+-- read.
 DO $$
 DECLARE bad text;
 BEGIN
@@ -486,12 +505,16 @@ BEGIN
     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
    WHERE c.relnamespace = 'app'::regnamespace
      AND p.polname <> 'jurisdiction_public_read'
-     AND (COALESCE(pg_get_expr(p.polqual, p.polrelid), '') NOT LIKE '%current_tenant_id%'
-       OR COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '') NOT LIKE '%current_tenant_id%');
+     AND (COALESCE(pg_get_expr(p.polqual, p.polrelid), '') <>
+            CASE WHEN c.relname = 'tenant' THEN '(id = current_tenant_id())'
+                 ELSE '(tenant_id = current_tenant_id())' END
+       OR COALESCE(pg_get_expr(p.polwithcheck, p.polrelid), '') <>
+            CASE WHEN c.relname = 'tenant' THEN '(id = current_tenant_id())'
+                 ELSE '(tenant_id = current_tenant_id())' END);
   IF bad IS NOT NULL THEN
-    RAISE EXCEPTION 'FAIL: policy without a tenant-bound USING and WITH CHECK: %', bad;
+    RAISE EXCEPTION 'FAIL: policy without the canonical tenant-bound USING and WITH CHECK: %', bad;
   END IF;
-  RAISE NOTICE 'PASS  every policy binds USING and WITH CHECK to the tenant context';
+  RAISE NOTICE 'PASS  every policy binds USING and WITH CHECK to the tenant context, verbatim';
 END $$;
 
 \echo '== 13. Depot scoping is tenant-scoped and visible to its own tenant (FR-AUT-004, DR-001)'
