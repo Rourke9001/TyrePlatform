@@ -7,10 +7,10 @@ import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
 
 // Every manager page loads on its own route and never on the capture
-// route's first paint (ADR-0015, TYRE-238): the bundle gate
-// (scripts/check-capture-bundle.mjs) holds the entry closure to what the
-// driver needs. CaptureFlow and DriverHome stay static on purpose; a lazy
-// fetch in front of the driver's flow is the round trip ADR-0009 avoids.
+// route's first paint (ADR-0015, TYRE-238). CaptureFlow and DriverHome stay
+// static: a lazy fetch in front of the driver's flow is the round trip
+// ADR-0009 avoids. scripts/check-capture-bundle.mjs fails on a module under
+// src/capture/ or src/driver/ made lazy, and on an entry over its budget.
 const AddDriver = lazy(() => import("./admin/AddDriver").then((m) => ({ default: m.AddDriver })));
 const AddUnit = lazy(() => import("./admin/AddUnit").then((m) => ({ default: m.AddUnit })));
 const VehicleList = lazy(() =>
