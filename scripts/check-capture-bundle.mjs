@@ -19,7 +19,9 @@ let manifest;
 try {
   manifest = JSON.parse(readFileSync(resolve(dist, ".vite/manifest.json"), "utf8"));
 } catch (err) {
-  console.error(`no manifest at web/dist/.vite/manifest.json; run "npm run build" in web/ first (${err.message})`);
+  console.error(
+    `no manifest at web/dist/.vite/manifest.json; run "npm run build" in web/ first (${err.message})`,
+  );
   process.exit(2);
 }
 
@@ -39,6 +41,31 @@ function visit(key) {
   for (const dep of manifest[key].imports ?? []) visit(dep);
 }
 visit(entryKey);
+
+// The budget is a ceiling, so a lazy driver module would pass it by
+// shrinking the entry; a chunk fetched in front of capture is the round trip
+// ADR-0009 (rule 7) rules out. The manifest keys a dynamic entry by its
+// source path, which is what this reads, and it refuses --record too.
+const reachable = new Set();
+function visitAll(key) {
+  if (reachable.has(key)) return;
+  reachable.add(key);
+  const chunk = manifest[key];
+  for (const dep of [...(chunk.imports ?? []), ...(chunk.dynamicImports ?? [])]) visitAll(dep);
+}
+visitAll(entryKey);
+const lazyDriver = [...reachable].filter(
+  (key) => !seen.has(key) && /^src\/(capture|driver)\//.test(key),
+);
+if (lazyDriver.length > 0) {
+  for (const key of lazyDriver) {
+    console.error(
+      `FAIL: ${key} is reachable from the entry only through a dynamic import. ` +
+        "The capture and driver modules load with the entry (ADR-0009, CLAUDE.md rule 7); import it statically.",
+    );
+  }
+  process.exit(1);
+}
 
 const chunks = order.map((key) => {
   const file = manifest[key].file;
