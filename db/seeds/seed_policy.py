@@ -24,4 +24,4 @@ WARNING_THRESHOLD_MM = 6.0
 # purpose: a spare's pressure is unclassifiable, never silently compliant.
 # Insertion order is the order the rows are emitted, so it is part of the
 # generator's byte-for-byte determinism.
-TARGET_KPA = {'STEER': 800, 'DRIVE': 750, 'TRAILER': 750, 'TAG': 750}
+TARGET_KPA = {"STEER": 800, "DRIVE": 750, "TRAILER": 750, "TAG": 750}
