@@ -24,7 +24,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 		wantStatus int
 	}{
 		{"healthz, no actor needed", "/healthz", http.StatusOK},
-		{"an unauthenticated write", "/api/me", http.StatusUnauthorized},
+		{"an unauthenticated request", "/api/me", http.StatusUnauthorized},
 		// requireActor is registered on the /api sub-router (New), which
 		// wraps that whole mount including its own routing miss, so an
 		// unmatched path under /api answers 401, not 404. A path outside
