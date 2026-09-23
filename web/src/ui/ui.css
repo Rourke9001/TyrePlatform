@@ -739,3 +739,21 @@
   right: var(--space-2);
   min-width: 2.75rem;
 }
+
+/* -------------------------------------------------------- filter bar */
+
+.filter-bar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+}
+
+.filter-bar-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
