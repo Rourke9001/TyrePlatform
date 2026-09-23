@@ -3,7 +3,7 @@
 - **Status:** Proposed
 - **Date:** 2026-09-21
 - **Deciders:** Rourke (engineer); the owner's answer of 10 Sep 2026 (tokens plus CSS with Radix for the hard controls)
-- **Related:** ADR-0001 (React + Vite) · ADR-0009 (online-first PWA) · ADR-0010 (provenance) · TYRE-27 (tokens and tenant theming) · TYRE-238 · NFR-USE-003/004/007/009 · IR-UI-001
+- **Related:** ADR-0001 (React + Vite) · ADR-0009 (online-first PWA) · ADR-0010 (provenance) · TYRE-27 (tokens and tenant theming) · TYRE-238 · NFR-USE-001/003/009 · IR-UI-001
 
 ## Context
 
