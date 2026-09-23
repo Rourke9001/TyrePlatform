@@ -1,7 +1,8 @@
 // Wire codes to words, once. The server owns every vocabulary (severity,
-// judgedAt, unavailable reasons, tread source), so each map passes an
-// unknown code through rather than throwing, and no page or component
-// spells one of these strings itself (U48).
+// judgedAt, unavailable reasons, tread source, cost basis, inflation bands,
+// band ranges), so each map passes an unknown code through rather than
+// throwing, and no page or component spells one of these strings itself
+// (U48).
 
 // The eslint ban is on toLocaleString and Intl.DateTimeFormat; a number
 // formatter through the global is the sanctioned path (eslint.config.js).

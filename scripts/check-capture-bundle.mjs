@@ -1,10 +1,11 @@
 // The capture route must not pay for the manager app (TYRE-238, ADR-0015).
-// The figure gated is the JavaScript a first load of the entry executes:
-// the entry chunk plus everything it imports statically, followed through
-// dist/.vite/manifest.json, gzip bytes. Dynamic imports are excluded on
-// purpose: a lazy chunk loads when its route is visited, not before the
-// driver's flow. The budget only ratchets down; --record writes the current
-// figure, and a rise fails the gate.
+// Two checks, both read from dist/.vite/manifest.json:
+// 1. The entry's static closure, in gzip bytes, stays within
+//    web/bundle-budget.json. A lazy chunk loads with its route, so it is not
+//    counted; the budget only ratchets down, and --record writes the figure.
+// 2. No module under src/capture/ or src/driver/ is reachable from the entry
+//    only through a dynamic import (ADR-0009): the driver's flow never waits
+//    on a chunk fetch.
 import { readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { resolve, dirname } from "node:path";
