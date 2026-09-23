@@ -275,9 +275,8 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       // request of the morning proves too slow, minReplicas: 1 at a known
       // monthly cost is the documented fix.
       //
-      // maxReplicas: 2 means the submit rate limit's per-process constants
-      // (ratelimit.go) enforce twice their stated number with both replicas
-      // warm, and a cold start from minReplicas: 0 resets every window
+      // maxReplicas and minReplicas both bound the submit rate limiter's
+      // per-process counters; see ratelimit.go's comment for the arithmetic
       // (TYRE-184 F7).
       scale: { minReplicas: 0, maxReplicas: 2 }
     }
