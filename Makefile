@@ -24,6 +24,12 @@ MIGRATE ?= MSYS_NO_PATHCONV=1 docker compose run --rm migrate \
 # python3 on stock Windows is a Microsoft Store stub that opens a browser.
 PYTHON ?= $(shell python3 -c "print()" >/dev/null 2>&1 && echo python3 || echo python)
 
+# Pinned the same way staticcheck is (api/go.mod's `tool` directive): a
+# version, not a floating latest, so a lint result does not depend on when it
+# ran. db/seeds/ruff.toml carries the rule selection (TYRE-163).
+RUFF_VERSION ?= 0.16.8
+RUFF ?= $(PYTHON) -m pip install --quiet --disable-pip-version-check ruff==$(RUFF_VERSION) && $(PYTHON) -m ruff
+
 .PHONY: help
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | \
@@ -44,6 +50,21 @@ db-down: ## Stop and remove the database container
 .PHONY: db-seeds
 db-seeds: ## Regenerate the machine-generated seed SQL
 	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
+
+# Deliberately NOT in `make check`, matching deps-age and e2e above: proving
+# determinism needs a second regeneration and a hash compare, which CI pays
+# for on every build (ci.yml, `database` job); this target is the same check,
+# on demand, for a contributor auditing a generator change locally
+# (TYRE-188 F6). gen_seed_volume.py is excluded: db-seeds does not run it
+# either (db/CLAUDE.md), so nothing here should require db-volume's separate
+# tenant to exist.
+.PHONY: db-seeds-check
+db-seeds-check: ## Assert the seed generators are deterministic (mirrors the CI-only gate)
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql > /tmp/tyreplatform-seed-hash-a
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql > /tmp/tyreplatform-seed-hash-b
+	diff /tmp/tyreplatform-seed-hash-a /tmp/tyreplatform-seed-hash-b && echo "seed generation is deterministic"
 
 # Deliberately NOT in `make check`, matching deps-age and e2e above: proving
 # determinism needs a second regeneration and a hash compare, which CI pays
@@ -180,6 +201,7 @@ deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc windo
 fmt: ## Format everything
 	$(GO_RUN) $(GO_IMAGE) gofmt -w .
 	cd web && npm run format
+	$(RUFF) format db/seeds
 
 # Every line must be able to fail the target (TYRE-49): a gate that
 # swallows its exit code reports success it did not earn. Same set and
@@ -197,6 +219,9 @@ lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard, money pa
 	$(GO_RUN) $(GO_IMAGE) go vet ./...
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck ./...
 	cd web && npm run format:check && npm run lint && npm run typecheck
+	$(RUFF) format --check db/seeds
+	$(RUFF) check db/seeds
+	node scripts/check-comment-style.test.mjs
 	node scripts/check-comment-style.mjs
 	node scripts/check-money-types.mjs --self-test
 	node scripts/check-money-types.mjs

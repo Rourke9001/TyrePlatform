@@ -39,6 +39,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with: { python-version: '3.12' }
 
+      # The generators are the single source of truth for the axle
+      # configuration library (db/CLAUDE.md); ruff pinned the same way
+      # staticcheck is, in db/seeds/ruff.toml and here (TYRE-163).
+      - name: Python format and lint (db/seeds)
+        run: |
+          pip install --quiet ruff==0.16.8
+          ruff format --check db/seeds
+          ruff check db/seeds
+
       - name: Regenerate seeds
         run: cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && python3 gen_seed_volume.py
 
@@ -92,6 +101,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Regression cases for the RULES patterns themselves (TYRE-192), before
+      # the run that judges this tree.
+      - name: Comment standard regression cases
+        run: node scripts/check-comment-style.test.mjs
       # Same script the edit hook and `make lint` run, so a comment that slips
       # past both locally still cannot merge (docs/comments.md, TYRE-22).
       - name: Comment standard (deterministic subset)
