@@ -96,6 +96,34 @@ describe("installChunkReload", () => {
     expect(reload).not.toHaveBeenCalled();
   });
 
+  // Chrome with all cookies blocked, or a sandboxed iframe, throws a
+  // SecurityError merely reading window.sessionStorage, not only on
+  // getItem/setItem. installChunkReload() must not throw either: it runs
+  // in main.tsx before createRoot(...).render, and an install-time throw
+  // would blank the whole app, capture flow included.
+  it("never throws on install, and never reloads, when window.sessionStorage itself throws", () => {
+    const original = Object.getOwnPropertyDescriptor(window, "sessionStorage");
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("blocked", "SecurityError");
+      },
+    });
+
+    try {
+      const reload = vi.fn();
+      expect(() => {
+        uninstall = installChunkReload({ reload });
+      }).not.toThrow();
+
+      dispatchPreloadError();
+
+      expect(reload).not.toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(window, "sessionStorage", original);
+    }
+  });
+
   it("stops listening once uninstalled", () => {
     const reload = vi.fn();
     const storage = fakeStorage();

@@ -24,15 +24,21 @@ export interface ChunkReloadDeps {
 // what main.tsx installs.
 export function installChunkReload(deps: Partial<ChunkReloadDeps> = {}): () => void {
   const reload = deps.reload ?? (() => window.location.reload());
-  const storage = deps.storage ?? window.sessionStorage;
   const now = deps.now ?? Date.now;
 
   function handlePreloadError() {
-    // Blocked storage (private mode, quota) means no guard is possible;
-    // reloading without one risks looping on a chunk that never becomes
-    // reachable, so this leaves the error to reach React instead.
+    // Blocked storage (private mode, quota, or a SecurityError merely
+    // reading window.sessionStorage: all cookies blocked, a sandboxed
+    // iframe) means no guard is possible; reloading without one risks
+    // looping on a chunk that never becomes reachable, so this leaves the
+    // error to reach React instead. The default is resolved here, inside
+    // the try, rather than at install time: install runs in main.tsx
+    // before createRoot(...).render, and a throw there would blank the
+    // whole app, capture flow included.
+    let storage: Pick<Storage, "getItem" | "setItem">;
     let lastReloadAt: number | null;
     try {
+      storage = deps.storage ?? window.sessionStorage;
       const stamp = storage.getItem(STAMP_KEY);
       lastReloadAt = stamp === null ? null : Number(stamp);
     } catch {
@@ -49,6 +55,10 @@ export function installChunkReload(deps: Partial<ChunkReloadDeps> = {}): () => v
     reload();
   }
 
+  // Never preventDefault: with it, Vite's preload helper resolves the
+  // import to undefined and routes.tsx's .then((m) => ({ default: m.X }))
+  // throws a TypeError anyway, so the error reaches React on both paths.
+  // The page may blank until the reload lands; TYRE-280 owns what renders.
   window.addEventListener(PRELOAD_ERROR_EVENT, handlePreloadError);
   return () => window.removeEventListener(PRELOAD_ERROR_EVENT, handlePreloadError);
 }
