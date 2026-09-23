@@ -757,3 +757,29 @@
   gap: var(--space-3);
   flex-wrap: wrap;
 }
+
+/* ----------------------------------------------------------- gallery */
+
+.gallery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.gallery-row {
+  display: flex;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.gallery-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-4);
+}
+
+.gallery-list {
+  margin: 0;
+  padding-left: var(--space-5);
+}
