@@ -22,7 +22,7 @@ export function useMediaQuery(query: string): boolean {
 
 // The phone form is chosen in script, not by a CSS reflow, because a table
 // set to display: block loses its table semantics for a screen reader
-// (ruling P2, TYRE-238).
+// (TYRE-238, the owner's card decision in comment 12938).
 export function usePhone(): boolean {
   return useMediaQuery(PHONE_QUERY);
 }
