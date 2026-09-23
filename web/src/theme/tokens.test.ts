@@ -53,6 +53,7 @@ describe("cssVars", () => {
     });
     expect(vars["--text-hero"]).toBe("3rem");
     expect(vars["--space-7"]).toBe("48px");
+    expect(vars["--target-min"]).toBe("2.75rem");
     expect(vars["--radius-pill"]).toBe("999px");
     expect(vars["--elevation-overlay"]).toBeDefined();
   });
