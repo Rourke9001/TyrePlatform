@@ -1,6 +1,6 @@
 # Implementation order
 
-Re-verified **23 Sep 2026** against `develop` @ `c936401` and the board's open
+Re-verified **23 Sep 2026** against `develop` @ `7b1cf79` and the board's open
 sprint.
 
 **Jira is the live authority.** This page exists so a session working in the
@@ -69,6 +69,34 @@ Exception lifecycle, rule administration and notifications are B8, ticketed
 as TYRE-243 under TYRE-7, not part of B7. The view B7.1 built is the rule
 source B8 inherits.
 
+## The sweep waves
+
+The open `[Sweep]` tickets under TYRE-143 were re-triaged on 23 Sep 2026
+(TYRE-143 comment 12993), and the owner answered its thirteen decisions the
+same day, each on its own ticket. Four waves merged that day: W1b, suite and
+docs (PR [#72](https://github.com/Rourke9001/TyrePlatform/pull/72)); W4a, the
+API contract (PR [#73](https://github.com/Rourke9001/TyrePlatform/pull/73));
+W4b, the refusal-code registry
+(PR [#74](https://github.com/Rourke9001/TyrePlatform/pull/74)); and W1a, CI and
+tooling (PR [#75](https://github.com/Rourke9001/TyrePlatform/pull/75)). None
+added a migration. What is left:
+
+| Wave | Tickets | When |
+|---|---|---|
+| W5a | TYRE-211's write sites with TYRE-142: one inclusive resolver for the policy in force now | in progress |
+| W5b | TYRE-209, input-shape guards | after W5a |
+| W5c | TYRE-175, TYRE-189 F5, TYRE-213 (drops `v_axle_side_divergence`), TYRE-201 | after W5b |
+| W5d | TYRE-168 (coverage counted from the wear rate's own source), TYRE-189 F4, TYRE-190 F10 as tenant configuration | after W5c |
+| W5e | TYRE-210, a committed `db/schema.sql` and a migrate-down gate | last |
+| W2, W3 | TYRE-156, 157, 159 and 187; TYRE-186 (a state filter on the tyre list); TYRE-171; TYRE-173 | between TYRE-239 and TYRE-240 |
+| Capture | TYRE-152 (a photo on the warned position), TYRE-154 (the manifest and iOS install hint) | their own PR; clashes with neither B7.3 nor B7.4 |
+| Infra | TYRE-203 (30-day database backups, blob versioning) | any gap |
+
+W5 runs one PR after another because W5a, W5b and W5c all rewrite the
+lifecycle functions migration 000039 created. TYRE-214 is deferred past the
+POC (decision 11), so W5e ends the chain. TYRE-176 and TYRE-182 stay with
+B7.4.
+
 ## After B7
 
 The candidates below are not sequenced against each other; deployment is
@@ -102,9 +130,12 @@ work.
   when a gap appears.
 - **TYRE-73**, the in-transport lock, is parked post-pilot by its own ticket
   (spec U1, 3 Sep 2026). Nothing in B6's schema forecloses it.
-- The review-sweep residue (the `[Sweep]` tickets under TYRE-143) and B6.4's
-  follow-ups **TYRE-229 to TYRE-236** (under TYRE-55) are on the board; none is
-  Critical.
+- B6.4's follow-ups **TYRE-229 to TYRE-236** (under TYRE-55) are on the
+  board; none is Critical. The sweep's own leftovers sit outside the waves
+  above: **TYRE-191** waits on TYRE-261, **TYRE-195** is done once the
+  Appendix H.1 row is pasted into Confluence, **TYRE-293** pins the format
+  hook's ruff and **TYRE-294** adds two suite hardenings from the PR #72
+  audit.
 - B7.1's own residue is **TYRE-244 to TYRE-249**: the UTC day where the tenant
   day belongs in the register and unit inspection status, the exception suite's
   unpinned boundaries, the branches the fixture cannot reach, and seed
