@@ -347,3 +347,38 @@ func TestPoolPinsSessionTimeZoneToUTC(t *testing.T) {
 	require.NoError(t, s.Pool().QueryRow(ctx, `SHOW TimeZone`).Scan(&tz))
 	require.Equal(t, "UTC", tz, "the pool must override any zone the DSN or the server supplies")
 }
+
+// TestMaxConnsDefaultsWhenDSNNamesNone proves store.New's recorded default
+// (TYRE-184 F8, ADR-0005) actually takes effect, not only that New succeeds.
+func TestMaxConnsDefaultsWhenDSNNamesNone(t *testing.T) {
+	ctx := context.Background()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	s, err := store.New(ctx, dsn)
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	require.EqualValues(t, 10, s.MaxConns())
+}
+
+// TestMaxConnsHonoursDSNOverride is TestTenantContextDoesNotLeakAcrossTransactions's
+// pool_max_conns=1 read from the other side: a DSN's own value must win over
+// the recorded default, not just happen to also be small enough to work.
+func TestMaxConnsHonoursDSNOverride(t *testing.T) {
+	ctx := context.Background()
+	dsn := os.Getenv("TEST_DATABASE_URL")
+	if dsn == "" {
+		t.Skip("TEST_DATABASE_URL not set")
+	}
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	s, err := store.New(ctx, dsn+sep+"pool_max_conns=3")
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	require.EqualValues(t, 3, s.MaxConns())
+}

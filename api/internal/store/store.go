@@ -66,6 +66,13 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+// MaxConns reports the pool's configured ceiling: defaultMaxConns unless the
+// DSN named its own pool_max_conns (TYRE-184 F8). Exported so a test can
+// prove the default actually took effect, not only that New succeeded.
+func (s *Store) MaxConns() int32 {
+	return s.pool.Config().MaxConns
+}
+
 // Pool is for tenant-free work only. Nothing on the request path takes it;
 // its only callers are the tests proving what an unbound query sees. Any
 // tenant-scoped query on it runs with no tenant bound, and RLS returns zero

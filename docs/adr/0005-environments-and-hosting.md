@@ -94,7 +94,15 @@ for a Burstable `Standard_B1ms` flexible server (2 GiB memory) computes a
 default `max_connections` of 50. With `main.bicep`'s `maxReplicas: 2`, two
 API replicas at 10 connections each is 20, leaving 30 for `migrate`, an
 admin `psql` session and the two `TEST_ADMIN_DATABASE_URL` catalogue checks
-that connect directly. This 50 is Azure's stated default for the SKU, not a
-number read off the live server (ADR-0002's verification did not record
-`SHOW max_connections`); confirm it against the deployed instance before
-raising either replica count or pool size.
+that connect directly. Steady state is not the peak: Container Apps runs the
+old and new revisions concurrently for the length of a rolling deploy, so the
+transient ceiling is 4 replicas, not 2, and 4 x 10 = 40 eats most of that
+30-connection headroom for the deploy's duration. The 50 itself is also an
+upper bound Azure does not hand entirely to `app_login`: a flexible server
+reserves a number of connections for its own roles (superuser and
+replication), so the count available to the application is smaller than the
+raw `max_connections` figure. This 50 is Azure's stated default for the SKU,
+not a number read off the live server (ADR-0002's verification did not
+record `SHOW max_connections`); confirm both the raw default and the
+reserved-connection deduction against the deployed instance before raising
+either replica count or pool size.
