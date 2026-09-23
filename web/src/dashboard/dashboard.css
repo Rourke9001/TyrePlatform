@@ -99,9 +99,38 @@
   outline-offset: 2px;
 }
 
+.shell-main {
+  width: 100%;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* The dev switchers' home (TYRE-242): after the content, collapsed. */
+.dev-bar {
+  width: 100%;
+  margin: var(--space-5) auto 0;
+  max-width: 52rem;
+  padding: 0 1.5rem var(--space-4);
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+.dev-bar summary {
+  cursor: pointer;
+}
+
+.dev-bar-controls {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
 /* The driver's shell and the manager's shell are one product, not two: the
-   header stacks and the nav becomes a row, but nothing is hidden behind a
-   disclosure the sun makes invisible. */
+   header stacks and the nav row wraps, but nothing is hidden behind a
+   disclosure the sun makes invisible. 640 is breakpoint.phone in tokens.ts;
+   @media cannot read a custom property. */
 @media (max-width: 640px) {
   .shell-header {
     flex-direction: column;
@@ -109,15 +138,17 @@
     gap: var(--space-2);
   }
   .shell-nav {
-    overflow-x: auto;
+    flex-wrap: wrap;
+    gap: 0 var(--space-2);
+    padding-bottom: var(--space-2);
   }
-}
-
-.shell-main {
-  width: 100%;
-  max-width: 52rem;
-  margin: 0 auto;
-  padding: 1.5rem;
+  /* Below the base .shell-main on purpose: equal specificity, so order wins. */
+  .shell-main {
+    padding: var(--space-4);
+  }
+  .dev-bar {
+    padding-inline: var(--space-4);
+  }
 }
 
 /* ------------------------------------------------------------- vehicles */

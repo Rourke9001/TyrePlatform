@@ -55,4 +55,12 @@ describe("the shell's main nav", () => {
     expect(screen.getByRole("link", { name: "Units" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Tyres" })).toBeInTheDocument();
   });
+
+  // TYRE-242: the switchers must not sit in the header a driver sees first.
+  it("keeps the dev switchers out of the header", () => {
+    renderShellAt("/my", ["CaptureInspection"]);
+    const header = screen.getByRole("banner");
+    expect(header.querySelector("select")).toBeNull();
+    expect(screen.getByText(/^Dev:/)).toBeInTheDocument();
+  });
 });
