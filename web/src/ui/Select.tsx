@@ -16,10 +16,6 @@ interface SelectProps {
   "aria-invalid"?: boolean;
 }
 
-// Radix's Root reserves value="" to mean no selection and shows the
-// placeholder, so an option whose own value is "" (TYRE-239's "All depots")
-// needs a stand-in value Radix will treat as a real item.
-//
 // A space cannot collide: SelectOption.value is always an id or code
 // (depot id, position code, ...), and none of those carry whitespace.
 const EMPTY_VALUE_SENTINEL = "__select empty__";
@@ -29,6 +25,9 @@ const EMPTY_VALUE_SENTINEL = "__select empty__";
 // select would do on desktop and misbehave on iOS with long lists.
 export function Select({ id, value, onValueChange, options, placeholder, ...rest }: SelectProps) {
   const hasEmptyOption = options.some((o) => o.value === "");
+  // Radix's Root reserves value="" to mean no selection and shows the
+  // placeholder, so an option whose own value is "" (TYRE-239's "All
+  // depots") needs a stand-in value Radix will treat as a real item.
   const rootValue = value === "" && hasEmptyOption ? EMPTY_VALUE_SENTINEL : value;
   const handleValueChange = (next: string) => {
     onValueChange(next === EMPTY_VALUE_SENTINEL ? "" : next);
