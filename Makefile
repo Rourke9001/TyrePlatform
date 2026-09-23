@@ -26,9 +26,13 @@ PYTHON ?= $(shell python3 -c "print()" >/dev/null 2>&1 && echo python3 || echo p
 
 # Pinned the same way staticcheck is (api/go.mod's `tool` directive): a
 # version, not a floating latest, so a lint result does not depend on when it
-# ran. db/seeds/ruff.toml carries the rule selection (TYRE-163).
+# ran. db/seeds/ruff.toml carries the rule selection (TYRE-163). Unlike
+# GO_IMAGE's toolchain, ruff runs against the host Python, so fmt/lint must
+# not install into it on every run: that mutates host state and fails
+# outright on a PEP 668 externally-managed host. `make py-tools` is the one
+# place that writes; fmt/lint only assert the pin is already satisfied.
 RUFF_VERSION ?= 0.16.8
-RUFF ?= $(PYTHON) -m pip install --quiet --disable-pip-version-check ruff==$(RUFF_VERSION) && $(PYTHON) -m ruff
+RUFF ?= $(PYTHON) -m ruff
 
 .PHONY: help
 help: ## Show this help
@@ -51,20 +55,20 @@ db-down: ## Stop and remove the database container
 db-seeds: ## Regenerate the machine-generated seed SQL
 	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
 
-# Deliberately NOT in `make check`, matching deps-age and e2e above: proving
-# determinism needs a second regeneration and a hash compare, which CI pays
-# for on every build (ci.yml, `database` job); this target is the same check,
-# on demand, for a contributor auditing a generator change locally
-# (TYRE-188 F6). gen_seed_volume.py is excluded: db-seeds does not run it
-# either (db/CLAUDE.md), so nothing here should require db-volume's separate
-# tenant to exist.
+# Deliberately NOT in `make check` (needs a second regeneration and a hash
+# compare, doubling db-reset's cost on every run); CI pays for that once per
+# build (ci.yml, `database` job). This target is the same check, on demand,
+# for a contributor auditing a generator change locally (TYRE-188 F6).
+# gen_seed_volume.py is pure Python (random.Random(247), no DB connection,
+# db/CLAUDE.md) and CI hashes all three generators, so this does too.
 .PHONY: db-seeds-check
-db-seeds-check: ## Assert the seed generators are deterministic (mirrors the CI-only gate)
-	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
-	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql > /tmp/tyreplatform-seed-hash-a
-	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
-	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql > /tmp/tyreplatform-seed-hash-b
-	diff /tmp/tyreplatform-seed-hash-a /tmp/tyreplatform-seed-hash-b && echo "seed generation is deterministic"
+db-seeds-check: ## Assert all three seed generators are deterministic (mirrors the CI-only gate)
+	@tmp_a=$$(mktemp) && tmp_b=$$(mktemp) && trap 'rm -f "$$tmp_a" "$$tmp_b"' EXIT && \
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && cd ../.. && \
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql > "$$tmp_a" && \
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && cd ../.. && \
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql > "$$tmp_b" && \
+	diff "$$tmp_a" "$$tmp_b" && echo "seed generation is deterministic"
 
 .PHONY: db-migrate
 db-migrate: db-up ## Apply pending migrations (golang-migrate, versioned in schema_migrations)
@@ -184,8 +188,39 @@ deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc windo
 
 ## ---------------------------------------------------------------- aggregate
 
+.PHONY: py-tools
+py-tools: ## Install/upgrade the pinned Python tooling (ruff) for db/seeds
+	$(PYTHON) -m pip install --quiet ruff==$(RUFF_VERSION)
+
+# The one thing fmt/lint check before running ruff, so the failure names the
+# fix instead of a stack trace from a missing or mismatched interpreter tool.
+.PHONY: py-tools-check
+py-tools-check:
+	@v=$$($(PYTHON) -m ruff --version 2>/dev/null | awk '{print $$2}'); \
+	[ "$$v" = "$(RUFF_VERSION)" ] || { \
+	  echo "ruff $(RUFF_VERSION) required, found: $${v:-not installed}. Run: make py-tools"; \
+	  exit 1; \
+	}
+
+# web/package.json's engines field is documentation, not a control: without
+# `engine-strict` (deliberately unset, TYRE-188 F7: CI's e2e job runs `npm ci`
+# on setup-node's bundled npm with no pin step and would break under it), npm
+# only warns and never fails a `npm run`/`npm ci`. web/.npmrc's own comment
+# already names the real risk: an npm below 11.10.0 silently enforces nothing
+# (the 2026-08-20 lesson). This is the same assertion ci.yml's "Release-age
+# gate is active" step runs, so a local make lint on the wrong npm fails the
+# same way CI would.
+.PHONY: npm-release-age-check
+npm-release-age-check:
+	@cd web && age=$$(npm config get min-release-age); \
+	[ "$$age" = "14" ] || { echo "min-release-age is '$$age', expected 14. web/.npmrc not read"; exit 1; }; \
+	have=$$(npm -v); need=11.10.0; \
+	[ "$$(printf '%s\n%s\n' "$$need" "$$have" | sort -V | head -1)" = "$$need" ] \
+	  || { echo "npm $$have ignores min-release-age; need >= $$need. Install a newer npm."; exit 1; }; \
+	echo "min-release-age=$$age enforced by npm $$have"
+
 .PHONY: fmt
-fmt: ## Format everything
+fmt: py-tools-check ## Format everything
 	$(GO_RUN) $(GO_IMAGE) gofmt -w .
 	cd web && npm run format
 	$(RUFF) format db/seeds
@@ -201,7 +236,7 @@ fmt: ## Format everything
 # proven it could have (rule 2, TYRE-36). Its web half is an ESLint rule and
 # rides `npm run lint` above.
 .PHONY: lint
-lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths, bundle
+lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths, bundle
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
 	$(GO_RUN) $(GO_IMAGE) go vet ./...
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck ./...
