@@ -38,8 +38,8 @@ ordinal triggers the suite does not reach). TYRE-247 merged 17 Sep 2026
 `50461fe`), so the sprint's remaining code is TYRE-253 and the half of
 TYRE-193 that the dashboard hero carries. B7.3 is in progress across three
 pull requests from one plan written 21 Sep 2026: TYRE-238's substrate (merged
-23 Sep 2026, PR #66), TYRE-238's components, then TYRE-239 (the dashboard), cut
-after them.
+23 Sep 2026, PR #66), TYRE-238's components (merged 23 Sep 2026, PR #70), then
+TYRE-239 (the dashboard), which is next.
 
 The sprint before it, "B6 - Rig-setup surface", 3 to 17 Sep 2026, closed with
 all nine of its issues Done; its record is in `docs/delivery-history.md`.
@@ -62,7 +62,7 @@ its own branch, PR and review, each planned after the previous merges:
 | B7.1 | TYRE-41 exception view scoped to the latest inspection; TYRE-211 (resolver half); TYRE-183 pins 19/11/9; TYRE-193 (value-at-risk view); TYRE-38 rides | **merged** 15 Sep 2026, PR [#55](https://github.com/Rourke9001/TyrePlatform/pull/55), migration 000045 |
 | B7.1.5 | TYRE-252 first (migration 000046: the measurement-ordinal check becomes statement-level; found at planning, spec S0), then TYRE-247, the dashboard substrate: a volume tenant in Sandbox Fleet (60 units, fortnightly, 24 months, `make db-volume`), the dashboard read path measured on it, and migration 000047 for the index if the plan warrants one (spec B7.1.5, U21, U22, U26) | **merged**: TYRE-252 landed 16 Sep 2026, PR [#58](https://github.com/Rourke9001/TyrePlatform/pull/58), migration 000046, suite section 60; TYRE-247 landed 17 Sep 2026, PR [#61](https://github.com/Rourke9001/TyrePlatform/pull/61), migration 000047, suite section 61. The measurement found the read path costs about 99 seconds warm against U26's 500ms budget, so the index is necessary and nowhere near sufficient; TYRE-256 owns the reshaping, TYRE-257 the load (attributed 17 Sep: the cost was two definer-chain queries without a tenant column and a cached foreign-key plan, not the index), TYRE-258 the relations the volume tenant leaves empty, TYRE-259 the definer-chain defect on the submit path |
 | B7.2 | TYRE-36 analytics read API; TYRE-193 (endpoint half). No migration (U21). The rule B7.1 leaves behind, that `v_casing_value_at_risk` nests AUDIT inside its estimated-or-audit count while `v_estate_valuation` keeps the two disjoint, so one payload must not carry both (U27). TYRE-211's write sites and TYRE-142 are one DB-only PR after B7.2, not part of it (U23, U24) | **merged** 20 Sep 2026, PR [#64](https://github.com/Rourke9001/TyrePlatform/pull/64), no migration. TYRE-36 Done. TYRE-193 stays open: its view (000045) and its endpoint (`GET /api/valuation/at-risk`) are built, the H.3 gate is the rendered figure, and that is B7.3's hero. The measurement the batch recorded is the finding, not the shipment: `GET /api/dashboard` costs about 70x U26's 500ms budget on the volume tenant, owned by TYRE-256 and TYRE-257 |
-| B7.3 | design system (ADR-0015) and the dashboard, new tickets under TYRE-7 | **In progress** across three PRs from one plan. The substrate merged 23 Sep 2026, PR [#66](https://github.com/Rourke9001/TyrePlatform/pull/66), no migration: ADR-0015 (Proposed until the components land) records tokens, plain CSS, three Radix primitives and inline SVG charts, and the capture route's JavaScript is gated against a recorded budget of 148374 gzip bytes in a single chunk. Next is TYRE-238's components, then TYRE-239. The owner accepted the mockups on 23 Sep 2026 (TYRE-238 comment 12936) and answered its three decisions in the next comment: the exceptions table stacks as cards on a phone, the band names (TYRE-271) are fixed in the components PR, and measurements always show one decimal. |
+| B7.3 | design system (ADR-0015) and the dashboard, new tickets under TYRE-7 | **In progress** across three PRs from one plan. The substrate merged 23 Sep 2026, PR [#66](https://github.com/Rourke9001/TyrePlatform/pull/66), no migration: ADR-0015 records tokens, plain CSS, three Radix primitives and inline SVG charts, and the capture route's JavaScript is gated against a recorded budget in a single chunk. The components merged 23 Sep 2026, PR [#70](https://github.com/Rourke9001/TyrePlatform/pull/70), develop `38cc8ff`, no migration: thirteen components with a vitest each, a dev gallery at `/dev/design`, the dev switchers in a collapsed dev bar (TYRE-242, Done), every manager page behind `React.lazy`, and a reload-once handler for a chunk that fails to load. The capture budget went from 148374 to 134917 gzip bytes, and ADR-0015 is Accepted. The owner accepted the mockups on 23 Sep 2026 (TYRE-238 comment 12936) and answered its three decisions in the next comment. Next is TYRE-239, the dashboard, which also finishes TYRE-271 (the band words exist; the screens that render them do not). |
 | B7.4 | TYRE-240, the restyle of the ten existing screens; carries TYRE-176, TYRE-182 and the capture defect TYRE-241 | after B7.3. On 23 Sep 2026 the owner asked for a redesign of everything except the accepted dashboard and exceptions mockups. That widens this row: new mockups at a gate, plus the landing page, the not-found page and the shell. It is proposed on TYRE-240 (comment 12933). The capture flow is out of scope: the owner says it is fine, so U16 holds (comment 12937). The redesign is about usability, because the other screens do not show a new user what to do. The design skills it will use are TYRE-273 |
 
 Exception lifecycle, rule administration and notifications are B8, ticketed
@@ -114,9 +114,18 @@ work.
   member is unvalued should read null) and **TYRE-270** (a tread band label
   names a range the band does not cover). None blocks B7.3; TYRE-270 is the
   one the dashboard legend must not inherit.
-- B7.3's residue so far is **TYRE-271**: the inflation band names reach the
-  manager as database identifiers, and the dashboard needs one vocabulary for
-  them before it renders the inflation panel.
+- B7.3's residue so far: **TYRE-271** is half landed (the inflation band words
+  are in `vocabulary.ts`; TYRE-239's screens must render them). PR #70 left
+  **TYRE-274** (test gaps), **TYRE-275** (Dialog focus return, chart tooltip
+  placement, and more than five tread bands, answered as U56), **TYRE-277**
+  (two gates that pass over a case), **TYRE-278** (the tyre register's money,
+  pre-existing), **TYRE-279** (a CaptureFlow timeout under load) and
+  **TYRE-281** (`ui.css` rides in the capture route's blocking stylesheet).
+  Three were owner decisions, answered 23 Sep 2026 and now buildable:
+  **TYRE-276** (in-content links use a fixed platform colour, U53),
+  **TYRE-280** (one class component as the error boundary, U54) and
+  **TYRE-282** (a comma groups thousands everywhere, U55). TYRE-276 and
+  TYRE-282 touch what TYRE-239 renders, so they land before or with it.
 - TYRE-252's residue is **TYRE-253**, under TYRE-9: the DELETE and UPDATE
   ordinal triggers belong in `005_privileged.sql`, since the app role reaches
   neither and the suite therefore proves only the INSERT one. **TYRE-254** asked
