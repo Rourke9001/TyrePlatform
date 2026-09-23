@@ -25,7 +25,11 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 	}{
 		{"healthz, no actor needed", "/healthz", http.StatusOK},
 		{"an unauthenticated write", "/api/me", http.StatusUnauthorized},
-		{"an unmatched route", "/api/no-such-route", http.StatusNotFound},
+		// requireActor is registered on the /api sub-router (New), which
+		// wraps that whole mount including its own routing miss, so an
+		// unmatched path under /api answers 401, not 404. A path outside
+		// the mount is what reaches the root router's own NotFound handler.
+		{"an unmatched route outside /api", "/no-such-route", http.StatusNotFound},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := get(t, h, tc.path, "", "")
