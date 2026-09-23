@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -86,6 +86,18 @@ describe("BandChart", () => {
 
     await user.unhover(band4);
     expect(screen.getByRole("tooltip")).toHaveTextContent("4 tyres");
+  });
+
+  // Every browser focuses an SVG group on mousedown, which jsdom will not
+  // reproduce, so this asserts the suppression mechanism instead: without
+  // it, a clicked band keeps its tooltip after the pointer leaves (TYRE-238
+  // review).
+  it("suppresses the mousedown default so clicking a band cannot take keyboard focus", () => {
+    render(<BandChart title="Tread depth across running positions" bands={bands} />);
+    const band = screen.getByRole("img", { name: "5 to under 8 mm: 4 tyres, 15%" });
+    const event = createEvent.mouseDown(band);
+    fireEvent(band, event);
+    expect(event.defaultPrevented).toBe(true);
   });
 
   it("clears the tooltip on blur when no band is hovered", () => {
