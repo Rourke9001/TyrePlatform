@@ -6,7 +6,7 @@
 /* ------------------------------------------------------------ buttons */
 
 .btn {
-  min-height: 2.75rem;
+  min-height: var(--target-min);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -187,14 +187,14 @@
 
 .field input,
 .field select {
-  min-height: 2.75rem;
+  min-height: var(--target-min);
   font-family: var(--font-ui);
   font-size: var(--text-body);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  padding: 0.5rem 0.75rem;
+  padding: var(--space-2) var(--space-3);
 }
 
 .field-invalid input,
@@ -490,7 +490,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  min-height: 2.75rem;
+  min-height: var(--target-min);
   border-top: 1px solid var(--line);
 }
 
@@ -513,8 +513,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  min-width: 2.75rem;
-  min-height: 2.75rem;
+  min-width: var(--target-min);
+  min-height: var(--target-min);
 }
 
 /* A skeleton block has no text to size its dd, so the dd takes the row's
@@ -628,7 +628,7 @@
   cursor: pointer;
   color: var(--primary);
   font-weight: 600;
-  min-height: 2.75rem;
+  min-height: var(--target-min);
   display: flex;
   align-items: center;
 }
@@ -660,7 +660,7 @@
 /* ------------------------------------------------------------ select */
 
 .select-trigger {
-  min-height: 2.75rem;
+  min-height: var(--target-min);
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -672,7 +672,7 @@
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: var(--radius-control);
-  padding: 0.5rem 0.75rem;
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }
 
@@ -699,7 +699,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  min-height: 2.75rem;
+  min-height: var(--target-min);
   padding: 0.4rem 0.75rem;
   border-radius: var(--radius-control);
   font-size: var(--text-body);
@@ -725,7 +725,7 @@
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(22, 25, 29, 0.45);
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
 }
 
 .dialog-content {
@@ -757,7 +757,7 @@
   position: absolute;
   top: var(--space-2);
   right: var(--space-2);
-  min-width: 2.75rem;
+  min-width: var(--target-min);
 }
 
 /* -------------------------------------------------------- filter bar */
