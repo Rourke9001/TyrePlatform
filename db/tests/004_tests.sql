@@ -2500,6 +2500,89 @@ BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  vocabulary, provenance columns, disposal semantics and reference data all hold';
 END $$;
+
+-- 27a. TYRE-190 F3: five named CHECK constraints are cited only in app-tier
+-- comments as their authority (units.go, units.ts, admin.go, PositionPanel.tsx,
+-- tasks_test.go, fitments_test.go) with no SQL exercising them. Each block
+-- inserts the one violating row the constraint's own predicate rejects.
+DO $$
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  BEGIN
+    INSERT INTO app.app_user (tenant_id, email, display_name, role)
+    VALUES (app.current_tenant_id(), 'chk190-admin@example.test', 'CHK190', 'PLATFORM_ADMIN');
+    RAISE EXCEPTION 'FAIL: platform_admin_has_no_tenant accepted a PLATFORM_ADMIN row with a tenant';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  BEGIN
+    INSERT INTO app.position (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+    SELECT app.current_tenant_id(), ac.id, 'CHK190POS', 999, 1, 'STEER', 'LEFT', 'SINGLE', true
+      FROM app.axle_configuration ac WHERE ac.tenant_id = app.current_tenant_id() LIMIT 1;
+    RAISE EXCEPTION 'FAIL: spare_has_no_geometry accepted a spare position carrying axle geometry';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  BEGIN
+    INSERT INTO app.tyre (tenant_id, display_code, status, retread_count, state)
+    VALUES (app.current_tenant_id(), 'CHK190RETREAD', 'NEW', 1, 'IN_STOCK');
+    RAISE EXCEPTION 'FAIL: retread_count_matches_status accepted a NEW tyre with a nonzero retread count';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  BEGIN
+    INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer, state, void_reason)
+    SELECT app.current_tenant_id(), v.id, u.id, gen_random_uuid(), now(), now(), 0, 'VOIDED', NULL
+      FROM app.vehicle v, app.app_user u
+     WHERE v.tenant_id = app.current_tenant_id() AND u.tenant_id = app.current_tenant_id()
+     LIMIT 1;
+    RAISE EXCEPTION 'FAIL: void_has_reason accepted a VOIDED inspection with no reason (FR-INS-012)';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  BEGIN
+    INSERT INTO app.exception (tenant_id, rule_id, subject_type, subject_id, severity, state)
+    SELECT app.current_tenant_id(), er.id, 'TYRE', gen_random_uuid(), 'WARNING', 'CLOSED'
+      FROM app.exception_rule er WHERE er.tenant_id = app.current_tenant_id() LIMIT 1;
+    RAISE EXCEPTION 'FAIL: closure_is_explained accepted a CLOSED exception with no resolution (FR-EXC-009)';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  RAISE NOTICE 'PASS  five named CHECK constraints reject the row their own predicate names';
+END $$;
+ROLLBACK;
+
+-- 27b. TYRE-190 F3, continued: two more named CHECKs, on tables section 27
+-- does not otherwise touch, each in its own transaction since a fitment or
+-- task row is planted, not merely attempted, before the rollback undoes it.
+BEGIN;
+DO $$
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
+
+  BEGIN
+    INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
+                              fitted_odometer, removed_at, removed_odometer, removal_reason)
+    SELECT app.current_tenant_id(),
+           (SELECT id FROM app.tyre WHERE tenant_id = app.current_tenant_id() LIMIT 1),
+           (SELECT id FROM app.vehicle WHERE tenant_id = app.current_tenant_id() LIMIT 1),
+           (SELECT id FROM app.position WHERE tenant_id = app.current_tenant_id() LIMIT 1),
+           now(), 1000, now(), 500, 'CHK190';
+    RAISE EXCEPTION 'FAIL: odometer_does_not_decrease accepted a removal odometer before the fitted one';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  BEGIN
+    INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason)
+    SELECT app.current_tenant_id(), v.id, now(), 'CANCELLED', NULL
+      FROM app.vehicle v WHERE v.tenant_id = app.current_tenant_id() LIMIT 1;
+    RAISE EXCEPTION 'FAIL: cancellation_is_explained accepted a CANCELLED task with no reason';
+  EXCEPTION WHEN check_violation THEN NULL;
+  END;
+
+  RAISE NOTICE 'PASS  odometer_does_not_decrease and cancellation_is_explained reject their named row';
+END $$;
 ROLLBACK;
 
 \echo '== 28. Actor scope predicates: depot and task views (FR-AUT-006/008, FR-DSH-012)'
