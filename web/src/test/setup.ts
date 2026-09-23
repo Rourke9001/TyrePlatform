@@ -30,3 +30,13 @@ interface JestShim {
 // Without this a component from one test is still mounted during the next,
 // and queries match the wrong tree.
 afterEach(cleanup);
+
+// jsdom has no matchMedia, and usePhone() calls it on every render. The stub
+// answers false, the desktop width, so every test renders the desktop form
+// unless it forces the phone with forceMatchMedia (src/test/media.ts).
+import { TestMediaQueryList } from "./media";
+// lint/moneyStaysString.test.ts runs in node, where there is no window.
+if (typeof window !== "undefined") {
+  (window as { matchMedia?: Window["matchMedia"] }).matchMedia ??= (query) =>
+    new TestMediaQueryList(query, false);
+}
