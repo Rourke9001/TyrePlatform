@@ -19,6 +19,7 @@ interface SelectProps {
 // Radix's Root reserves value="" to mean no selection and shows the
 // placeholder, so an option whose own value is "" (TYRE-239's "All depots")
 // needs a stand-in value Radix will treat as a real item.
+//
 // A space cannot collide: SelectOption.value is always an id or code
 // (depot id, position code, ...), and none of those carry whitespace.
 const EMPTY_VALUE_SENTINEL = "__select empty__";

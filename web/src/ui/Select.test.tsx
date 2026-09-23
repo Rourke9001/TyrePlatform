@@ -45,9 +45,7 @@ describe("Select", () => {
     expect(trigger).toHaveAttribute("aria-invalid", "true");
   });
 
-  // Radix reserves "" on Root to mean no selection, so an option whose value
-  // is "" (TYRE-239's "All depots") needs Select's internal sentinel mapping
-  // rather than reaching Radix as "".
+  // The sentinel rationale lives once, in Select.tsx.
   describe('an option with value ""', () => {
     const optionsWithEmpty = [
       { value: "", label: "All depots" },
@@ -55,7 +53,7 @@ describe("Select", () => {
       { value: "d2", label: "Durban" },
     ];
 
-    it("renders and opens without throwing", async () => {
+    it('shows the "" option in the open list under its label', async () => {
       const user = userEvent.setup();
       render(
         <Select
