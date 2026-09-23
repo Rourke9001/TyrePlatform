@@ -59,13 +59,25 @@ const CASES = [
     expectFail: false,
   },
   {
-    // Regression for a boundary bug: adding the last change-narration
-    // alternative once left the trailing \b inside the group, so every
-    // earlier alternative lost its word-boundary check and could match a
-    // prefix of a longer word.
+    // Every alternative must sit inside the group the trailing \b closes; one
+    // placed outside it loses its own boundary check and can match a prefix
+    // of a longer word.
     name: 'trailing-boundary-not-lost-for-earlier-alternatives',
     file: 'versioning.go',
     content: `${C} the new ${'versioning'} scheme adds a monotonic column\nfunc f() {}\n`,
+    expectFail: false,
+  },
+  {
+    name: 'before-this-file-clause',
+    file: 'beforethis.go',
+    content: `${C} ${'before'} ${'this'} ${'file'}, retries had no ceiling at all\nfunc f() {}\n`,
+    expectRule: 'change-narration',
+    expectFail: true,
+  },
+  {
+    name: 'before-this-noun-not-in-list',
+    file: 'beforethisinsert.go',
+    content: `${C} the row must exist before this insert runs\nfunc f() {}\n`,
     expectFail: false,
   },
 ];
