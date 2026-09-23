@@ -74,6 +74,10 @@ describe("AppRoutes", () => {
   it("shows nothing at /fleet for an actor who can only capture inspections", () => {
     renderAt("/fleet", actor(["CaptureInspection"]));
     expect(screen.queryByRole("heading", { name: /units/i })).toBeNull();
+    // VehicleList is lazy, so with the guard gone and its chunk not yet
+    // loaded this render shows only the Suspense fallback, and the heading
+    // check alone would pass. The same holds for the two hidden pages below.
+    expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // GET /api/my/tasks returns 200 with [] for an unassigned driver. An empty
@@ -280,6 +284,7 @@ describe("AppRoutes", () => {
     // Distinguishes RequireCapability's silent hide from the catch-all
     // NotFound route: the route must exist and hide, not be absent.
     expect(screen.queryByText(/not found/i)).toBeNull();
+    expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // "Rigs", exact: /rigs/i would also match the list's own "Open rigs" and
@@ -297,6 +302,7 @@ describe("AppRoutes", () => {
     expect(screen.queryByRole("heading", { name: "Rigs" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText(/not found/i)).toBeNull();
+    expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // U2/D5: RigsScreen itself, not the route, gates Set a rig on
