@@ -28,6 +28,23 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-23 — A dev-only route written as `{x && <Route/>}` survives the production build and fails the capture budget (TYRE-238)
+
+**What happened:** the design system gallery's route was guarded twice, the
+`lazy()` call by `import.meta.env.DEV ? lazy(...) : null` and the route by
+`{Gallery && <Route .../>}`. The build emitted no gallery chunk, but the
+minifier kept `const wE=null;` and `wE` in the route children, and the
+capture entry closure grew by 12 gzip bytes over its budget
+(`make lint` failed at `web-bundle`). Guarding with
+`{import.meta.env.DEV && Gallery && ...}` still left `!1` in the array
+(4 bytes over).
+
+**The rule:** in `routes.tsx`, gate a dev-only route with a ternary whose
+production branch is a route that exists anyway (the catch-all in both
+branches, the dev route beside it in a Fragment), so a build folds it to
+the same output as before. Prove it with `npm run bundle:check`, not by
+the absence of a chunk.
+
 ## 2026-09-19 — A control query on the admin connection reads a tenant-scoped function as empty, and passes (TYRE-36)
 
 **What happened:** B7.2's inflation compliance test compared the endpoint's
