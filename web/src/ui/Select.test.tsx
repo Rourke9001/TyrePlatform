@@ -44,4 +44,80 @@ describe("Select", () => {
     expect(trigger).toHaveAccessibleDescription("Active depots only Choose a depot");
     expect(trigger).toHaveAttribute("aria-invalid", "true");
   });
+
+  // Radix reserves "" on Root to mean no selection, so an option whose value
+  // is "" (TYRE-239's "All depots") needs Select's internal sentinel mapping
+  // rather than reaching Radix as "".
+  describe('an option with value ""', () => {
+    const optionsWithEmpty = [
+      { value: "", label: "All depots" },
+      { value: "d1", label: "Johannesburg" },
+      { value: "d2", label: "Durban" },
+    ];
+
+    it("renders and opens without throwing", async () => {
+      const user = userEvent.setup();
+      render(
+        <Select
+          id="depot"
+          aria-label="Depot"
+          value=""
+          onValueChange={() => undefined}
+          options={optionsWithEmpty}
+        />,
+      );
+      const trigger = screen.getByRole("combobox", { name: "Depot" });
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      expect(await screen.findByRole("option", { name: "All depots" })).toBeInTheDocument();
+    });
+
+    it("calls onValueChange with the empty string when chosen", async () => {
+      const user = userEvent.setup();
+      const onValueChange = vi.fn();
+      render(
+        <Select
+          id="depot"
+          aria-label="Depot"
+          value="d1"
+          onValueChange={onValueChange}
+          options={optionsWithEmpty}
+        />,
+      );
+      const trigger = screen.getByRole("combobox", { name: "Depot" });
+      trigger.focus();
+      await user.keyboard("{Enter}");
+      await user.click(await screen.findByRole("option", { name: "All depots" }));
+      expect(onValueChange).toHaveBeenCalledWith("");
+    });
+
+    it("shows the option's label in the trigger when value is the empty string", () => {
+      render(
+        <Select
+          id="depot"
+          aria-label="Depot"
+          value=""
+          onValueChange={() => undefined}
+          options={optionsWithEmpty}
+        />,
+      );
+      const trigger = screen.getByRole("combobox", { name: "Depot" });
+      expect(trigger).toHaveTextContent("All depots");
+    });
+
+    it('still shows the placeholder for value "" when no option has value ""', () => {
+      render(
+        <Select
+          id="depot"
+          aria-label="Depot"
+          value=""
+          onValueChange={() => undefined}
+          options={options}
+          placeholder="Choose a depot"
+        />,
+      );
+      const trigger = screen.getByRole("combobox", { name: "Depot" });
+      expect(trigger).toHaveTextContent("Choose a depot");
+    });
+  });
 });
