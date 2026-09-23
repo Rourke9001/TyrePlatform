@@ -97,11 +97,23 @@ database in one place, and Go only names the refusal for a client.
    ADR-0012 rather than amending it — the envelope, the `TY`-class rule and
    the integrity-class collapse are untouched.
 
-   | Constraint | Wire code | Status |
-   | --- | --- | --- |
-   | `vehicle_tenant_id_fleet_number_key` | `fleet_number_taken` | 409 |
-   | `app_user_tenant_email_key` | `email_taken` | 409 |
-   | `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 |
+   | Constraint | Wire code | Status | Landed |
+   | --- | --- | --- | --- |
+   | `vehicle_tenant_id_fleet_number_key` | `fleet_number_taken` | 409 | this ADR (B4) |
+   | `app_user_tenant_email_key` | `email_taken` | 409 | this ADR (B4) |
+   | `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 | this ADR (B4) |
+   | `one_active_staff_number_per_tenant` | `staff_number_taken` | 409 | B4.5 |
+   | `one_active_display_code_per_tenant` | `display_code_taken` | 409 | B5 slice 1 |
+   | `one_open_fitment_per_position` | `position_occupied` | 409 | B5 slice 2 |
+   | `one_open_fitment_per_tyre` | `tyre_already_fitted` | 409 | B5 slice 2 |
+   | `composition_observation_once` | `observation_resolved` | 409 | B6.4 (migration 000044) |
+
+   *(Amended, TYRE-165: the table above lists all eight rows the live
+   `conflictCodes` map carries, not only the three this decision started
+   with. The map in `api/internal/httpapi/refusal.go` is the source of
+   truth; `TestConflictCodesNameLiveSchemaObjects` guards it against the
+   schema, not against this table, so a future row still needs a matching
+   edit here.)*
 
    `23P01` is new to the map: nothing before this ADR's surfaces could raise
    it, since `vehicle_driver_no_overlap` is reachable only once an
