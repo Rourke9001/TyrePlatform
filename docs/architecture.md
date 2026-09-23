@@ -242,7 +242,7 @@ Go rather than a raw Postgres error.
 | [0001](adr/0001-stack.md) | Platform stack — Azure, Go API, React PWA, PostgreSQL | Proposed |
 | [0002](adr/0002-region-and-data-residency.md) | Azure region and POPIA data residency | Accepted |
 | [0003](adr/0003-tenancy-model.md) | Tenancy model | Proposed — blocked on sponsor acceptance (OI-29 / TYRE-13) |
-| [0004](adr/0004-branching-strategy.md) | Branching — develop integrates, main mirrors production | Proposed |
+| [0004](adr/0004-branching-strategy.md) | Branching — develop integrates, main mirrors production | Accepted |
 | [0005](adr/0005-environments-and-hosting.md) | Environments — staging is production for the pilot | Accepted |
 | [0006](adr/0006-role-depot-scoping-enforcement.md) | Where role and depot scoping is enforced | Accepted |
 | [0007](adr/0007-unit-centric-fleet-model.md) | Unit-centric fleet model | Accepted |
