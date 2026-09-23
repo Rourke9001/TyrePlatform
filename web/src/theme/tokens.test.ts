@@ -24,17 +24,19 @@ describe("the tread band ramp", () => {
 
   // tread_bands is tenant configuration (rule 5): the seeded five is one
   // case, not the shape. The ends are pinned so the darkest step always
-  // means the deepest tread whatever the count.
+  // means the deepest tread whatever the count. treadBandStep returns the
+  // 1-based ramp step, not a hex: components read colour only through the
+  // `--band-N` custom properties (TYRE-238 review).
   it("maps any band count onto the ramp with the ends pinned", () => {
-    expect(treadBandStep(1, 5)).toBe(treadBandRamp[0]);
-    expect(treadBandStep(3, 5)).toBe(treadBandRamp[2]);
-    expect(treadBandStep(5, 5)).toBe(treadBandRamp[4]);
-    expect(treadBandStep(1, 3)).toBe(treadBandRamp[0]);
-    expect(treadBandStep(2, 3)).toBe(treadBandRamp[2]);
-    expect(treadBandStep(3, 3)).toBe(treadBandRamp[4]);
-    expect(treadBandStep(1, 1)).toBe(treadBandRamp[0]);
-    expect(treadBandStep(7, 7)).toBe(treadBandRamp[4]);
-    expect(treadBandStep(9, 7)).toBe(treadBandRamp[4]);
+    expect(treadBandStep(1, 5)).toBe(1);
+    expect(treadBandStep(3, 5)).toBe(3);
+    expect(treadBandStep(5, 5)).toBe(5);
+    expect(treadBandStep(1, 3)).toBe(1);
+    expect(treadBandStep(2, 3)).toBe(3);
+    expect(treadBandStep(3, 3)).toBe(5);
+    expect(treadBandStep(1, 1)).toBe(1);
+    expect(treadBandStep(7, 7)).toBe(5);
+    expect(treadBandStep(9, 7)).toBe(5);
   });
 });
 

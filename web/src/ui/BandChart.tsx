@@ -87,13 +87,16 @@ interface BandMarkProps {
   index: number;
   hit: { x: number; y: number; width: number; height: number };
   onFocusBand: FocusBand;
+  onHoverBand: FocusBand;
   children: ReactNode;
 }
 
 // One band in either form. The hit target is the whole slot or row, bigger
-// than the bar (dataviz, interaction), and the pointer and the keyboard
-// share one pair of handlers.
-function BandMark({ band, index, hit, onFocusBand, children }: BandMarkProps) {
+// than the bar (dataviz, interaction). Focus and hover are tracked
+// separately: blur clears only the keyboard state and mouseleave only the
+// pointer state, so a mouse crossing and leaving a band never drops a
+// keyboard user's tooltip (TYRE-238 review).
+function BandMark({ band, index, hit, onFocusBand, onHoverBand, children }: BandMarkProps) {
   return (
     <g
       role="img"
@@ -102,8 +105,8 @@ function BandMark({ band, index, hit, onFocusBand, children }: BandMarkProps) {
       className="band-chart-bar"
       onFocus={() => onFocusBand(index)}
       onBlur={() => onFocusBand(null)}
-      onMouseEnter={() => onFocusBand(index)}
-      onMouseLeave={() => onFocusBand(null)}
+      onMouseEnter={() => onHoverBand(index)}
+      onMouseLeave={() => onHoverBand(null)}
     >
       <rect {...hit} fill="transparent" />
       {children}
@@ -116,9 +119,10 @@ interface FormProps {
   max: number;
   label: string;
   onFocusBand: FocusBand;
+  onHoverBand: FocusBand;
 }
 
-function BandColumns({ bands, max, label, onFocusBand }: FormProps) {
+function BandColumns({ bands, max, label, onFocusBand, onHoverBand }: FormProps) {
   const slot = columnSlot(bands.length);
   const barWidth = Math.min(COLUMNS.barMax, slot * 0.6);
   const plotHeight = COLUMNS.plotBottom - COLUMNS.plotTop;
@@ -162,8 +166,14 @@ function BandColumns({ bands, max, label, onFocusBand }: FormProps) {
             index={i}
             hit={{ x: slot * i, y: COLUMNS.plotTop, width: slot, height: plotHeight }}
             onFocusBand={onFocusBand}
+            onHoverBand={onHoverBand}
           >
-            <path d={d} fill={treadBandStep(b.bandOrdinal, bands.length)} />
+            {/* style, not the fill attribute: SVG's fill presentation
+                attribute does not take var() reliably (TYRE-238 review). */}
+            <path
+              d={d}
+              style={{ fill: `var(--band-${treadBandStep(b.bandOrdinal, bands.length)})` }}
+            />
             <text
               x={centre}
               y={y - COLUMNS.countGap}
@@ -188,7 +198,7 @@ function BandColumns({ bands, max, label, onFocusBand }: FormProps) {
 // Below the phone breakpoint five bound labels cannot sit side by side,
 // and hiding one is not an option (U40), so each band gets a row and its
 // label a full line (owner, TYRE-238 comment 12938).
-function BandRows({ bands, max, label, onFocusBand }: FormProps) {
+function BandRows({ bands, max, label, onFocusBand, onHoverBand }: FormProps) {
   const lastTop = rowTop(bands.length - 1);
   return (
     <svg
@@ -226,11 +236,15 @@ function BandRows({ bands, max, label, onFocusBand }: FormProps) {
             index={i}
             hit={{ x: 0, y: top, width: ROWS.width, height: ROWS.hit }}
             onFocusBand={onFocusBand}
+            onHoverBand={onHoverBand}
           >
             <text x="0" y={top + ROWS.labelY} className="band-chart-axis">
               {bandRangeLabel(b.lowerMm, b.upperExclusiveMm)}
             </text>
-            <path d={d} fill={treadBandStep(b.bandOrdinal, bands.length)} />
+            <path
+              d={d}
+              style={{ fill: `var(--band-${treadBandStep(b.bandOrdinal, bands.length)})` }}
+            />
             <text x={w + ROWS.countGap} y={top + ROWS.countY} className="band-chart-count">
               {formatCount(b.tyreCount)}
             </text>
@@ -278,18 +292,24 @@ export function BandChart({ title, bands }: BandChartProps) {
   const titleId = useId();
   const phone = usePhone();
   const [focused, setFocused] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
   const max = Math.max(...bands.map((b) => b.tyreCount), 0);
 
   if (max === 0) {
     return <p className="band-chart-empty">No tyres in any band.</p>;
   }
 
-  const active: BandDatum | undefined = focused === null ? undefined : bands[focused];
+  // The pointer wins while it is over a band; leaving it falls back to
+  // whichever band still has keyboard focus, so a mouse crossing the chart
+  // never strands a keyboard user's tooltip on null (TYRE-238 review).
+  const activeIndex = hovered ?? focused;
+  const active: BandDatum | undefined = activeIndex === null ? undefined : bands[activeIndex];
   const formProps: FormProps = {
     bands,
     max,
     label: `${title}, ${plural(bands.length, "band", "bands")}`,
     onFocusBand: setFocused,
+    onHoverBand: setHovered,
   };
 
   return (
@@ -299,8 +319,8 @@ export function BandChart({ title, bands }: BandChartProps) {
       </figcaption>
       <div className="band-chart-plot">
         {phone ? <BandRows {...formProps} /> : <BandColumns {...formProps} />}
-        {active !== undefined && focused !== null && (
-          <BandTooltip band={active} index={focused} count={bands.length} phone={phone} />
+        {active !== undefined && activeIndex !== null && (
+          <BandTooltip band={active} index={activeIndex} count={bands.length} phone={phone} />
         )}
       </div>
       <details className="band-chart-table">
