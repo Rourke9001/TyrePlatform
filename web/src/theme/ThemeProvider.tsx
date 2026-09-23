@@ -8,6 +8,7 @@ import { ThemeContext } from "./themeContext";
 import "./fonts";
 import "./base.css";
 import "./controls.css";
+import "../ui/ui.css";
 
 // What renders when no tenant branding is known yet. Also exactly what the
 // API serves for a tenant that never configured the key (TYRE-26), so first
