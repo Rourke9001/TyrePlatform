@@ -84,3 +84,17 @@ is a known debt, recorded here so it cannot be forgotten.
 
 **Revisit when:** the first external tenant signs (create prod, revisit
 placement), or the sponsorship credit's annual renewal changes the cost basis.
+
+**Amended 2026-09-23 (TYRE-184 F8):** the connection pool was unsized,
+ceiling set by whichever DSN param happened to be present or pgx's own
+default. `store.New` (`api/internal/store/store.go`) now sets
+`pgxpool.Config.MaxConns` to 10 whenever the DSN carries no `pool_max_conns`
+of its own. The arithmetic the number satisfies: Azure's documented formula
+for a Burstable `Standard_B1ms` flexible server (2 GiB memory) computes a
+default `max_connections` of 50. With `main.bicep`'s `maxReplicas: 2`, two
+API replicas at 10 connections each is 20, leaving 30 for `migrate`, an
+admin `psql` session and the two `TEST_ADMIN_DATABASE_URL` catalogue checks
+that connect directly. This 50 is Azure's stated default for the SKU, not a
+number read off the live server (ADR-0002's verification did not record
+`SHOW max_connections`); confirm it against the deployed instance before
+raising either replica count or pool size.
