@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -59,7 +59,7 @@ jobs:
         run: |
           docker run --rm --network host \
             -v "$PWD/db/migrations:/migrations:ro" \
-            migrate/migrate:v4.19.1 \
+            migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 \
             -path=/migrations \
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
 
@@ -108,7 +108,7 @@ jobs:
     # the tests need they still plant in throwaway tenants.
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -128,7 +128,7 @@ jobs:
           cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
           docker run --rm --network host \
             -v "$PWD/db/migrations:/migrations:ro" \
-            migrate/migrate:v4.19.1 \
+            migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 \
             -path=/migrations \
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
           PGURL="postgres://postgres:postgres@localhost:5433/tyre"
@@ -208,7 +208,7 @@ jobs:
     # conclusion (TYRE-65).
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -235,7 +235,7 @@ jobs:
           cd db/seeds && python3 gen_seed_configurations.py && python3 gen_seed_fixture.py && cd ../..
           docker run --rm --network host \
             -v "$PWD/db/migrations:/migrations:ro" \
-            migrate/migrate:v4.19.1 \
+            migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 \
             -path=/migrations \
             -database "postgres://postgres:postgres@localhost:5433/tyre?sslmode=disable" up
           PGURL="postgres://postgres:postgres@localhost:5433/tyre"
