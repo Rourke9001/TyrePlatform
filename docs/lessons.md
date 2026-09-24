@@ -28,6 +28,20 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-24 — vitest's "Worker exited unexpectedly" under host memory pressure is not a test result (TYRE-211)
+
+**What happened:** a `make check` on the W5a branch was left running while
+the session sat idle. The harness then reaped the wrapper for low host
+memory. The orphaned `make` carried on, and its vitest step reported
+`Error: Worker exited unexpectedly`, 58 errors, with only 15 of 73 files run
+and every test that ran passing. The branch touched no web file. The same
+tree passed 702/702 once memory was free.
+
+**The rule:** when vitest fails with worker exits and no assertion failure,
+read it as the host, not the code. Do not debug it and do not re-run it
+while memory is short. Re-run the whole `make check` when the machine is
+quiet, and quote that run as the gate.
+
 ## 2026-09-23 — `npm ci` beside a running dev server deletes `node_modules` and then stops (TYRE-143)
 
 **What happened:** during the sweep close-out, `npm ci` ran in the main
