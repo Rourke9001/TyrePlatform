@@ -772,7 +772,7 @@ func TestTyreWriteCrossTenantIsInvisible(t *testing.T) {
 	// is unsatisfiable across tenants, and answer 23503.
 	t.Run("dispatch", func(t *testing.T) {
 		removedA := plantRemovedTyre(t, ctx, admin, tenantA, "XTEN-DISPATCH-"+uuid.NewString()[:8])
-		plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2)
+		plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2, "4.0")
 		retreaderB, _ := plantDepotOfType(t, ctx, admin, tenantB, "RETREADER")
 
 		rec := post(t, h, "/api/tyres/"+removedA.String()+"/dispatch", tenantB.String(), controllerB.String(),
@@ -839,22 +839,26 @@ func plantRemovedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenant
 	return tyreID
 }
 
-// plantFleetRetreadPolicy plants the tenant-wide cap app.dispatch_tyre and
-// app.log_retread_return both resolve (U5: a REMOVED casing has no axle
+// plantFleetRetreadPolicy plants the tenant-wide policy row app.dispatch_tyre
+// and app.log_retread_return both resolve (U5: a REMOVED casing has no axle
 // class, so the per-class rows cannot govern it). A Go-planted tenant has no
-// threshold_policy row at all, and an absent cap is TY015 rather than
-// unlimited, so every dispatch fixture needs this one.
+// threshold_policy row, and an absent cap is TY015 rather than unlimited, so
+// every dispatch and Log Retread fixture needs this one. The threshold is
+// always named so a test can tell the policy's value from any other source
+// (rule 5, TYRE-308); retread_at_or_above_scrap (000012) keeps it at or above
+// scrap_threshold_mm's default of 4.0.
 //
 // effective_from is backdated for plantRetreadPolicy's reason: both
 // resolvers require effective_from <= now(), and a row stamped by its own
 // DEFAULT now() in an earlier statement is not reliably earlier than the
 // now() the handler's transaction reads.
-func plantFleetRetreadPolicy(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, maxRetreads int) {
+func plantFleetRetreadPolicy(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, maxRetreads int, retreadThresholdMm string) {
 	t.Helper()
 	_, err := admin.Exec(ctx,
-		`INSERT INTO app.threshold_policy (tenant_id, operating_group_id, axle_class, max_retreads, effective_from)
-		 VALUES ($1, NULL, NULL, $2, now() - interval '1 hour')`,
-		tenantID, maxRetreads)
+		`INSERT INTO app.threshold_policy
+		   (tenant_id, operating_group_id, axle_class, max_retreads, retread_threshold_mm, effective_from)
+		 VALUES ($1, NULL, NULL, $2, $3::numeric, now() - interval '1 hour')`,
+		tenantID, maxRetreads, retreadThresholdMm)
 	require.NoError(t, err)
 }
 
@@ -894,7 +898,7 @@ func TestDispatchToRetreaderOpensAJob(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "dispatch-opens-job")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 	retreader, retreaderName := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
 	tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DISPATCH-"+uuid.NewString()[:8])
 
@@ -1064,7 +1068,7 @@ func TestDispatchTyreRefusals(t *testing.T) {
 			// for the wrong reason.
 			name: "from in stock is TY012",
 			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
-				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
 				tyreID := plantTyre(t, ctx, admin, tenantID, "IN-STOCK-"+uuid.NewString()[:8], nil)
 				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader)
@@ -1088,7 +1092,7 @@ func TestDispatchTyreRefusals(t *testing.T) {
 			// merely has no policy row, which is the opposite claim.
 			name: "at the retread cap is TY015",
 			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
-				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 0)
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 0, "4.0")
 				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "AT-CAP-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader)
@@ -1110,7 +1114,7 @@ func TestDispatchTyreRefusals(t *testing.T) {
 			// gives (fitments.go).
 			name: "malformed sentOn",
 			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
-				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "BAD-DATE-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q,"sentOn":"yesterday"}`, retreader)
@@ -1132,7 +1136,7 @@ func TestDispatchTyreRefusals(t *testing.T) {
 			// both destinations.
 			name: "a destination that is a real state but not one",
 			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
-				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DEST-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"FITTED","depotId":%q}`, retreader)
@@ -1154,7 +1158,7 @@ func TestDispatchTyreRefusals(t *testing.T) {
 			// ours to forward (ADR-0012).
 			name: "a destination outside the enum entirely",
 			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
-				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
 				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DEST2-"+uuid.NewString()[:8])
 				return tyreID, fmt.Sprintf(`{"destination":"THE MOON","depotId":%q}`, retreader)

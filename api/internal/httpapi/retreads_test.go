@@ -124,21 +124,6 @@ func TestRetreadJobDaysOutIsTenantLocal(t *testing.T) {
 	}
 }
 
-// plantRemovalThreshold plants rule 5's removal threshold, the configuration
-// key app.current_removal_threshold_mm resolves. A Go-planted tenant has no
-// such row, and app.log_retread_return refuses an accepted return without
-// one (TY014) rather than storing a NULL rate, so every Log Retread fixture
-// plants it. Backdated for plantRemovalReasons' reason: the resolver reads
-// effective_from <= now() inside a later transaction.
-func plantRemovalThreshold(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, mm string) {
-	t.Helper()
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.configuration (tenant_id, key, value, effective_from)
-		 VALUES ($1, 'removal_threshold_mm', to_jsonb($2::numeric), now() - interval '1 hour')`,
-		tenantID, mm)
-	require.NoError(t, err)
-}
-
 // retreadReturnBody is the Log Retread request every test below sends, so a
 // wire field changing name breaks in one place. Money is a string end to end
 // (rule 2): nothing in Go or in a test parses one.
@@ -157,13 +142,17 @@ func retreadReturnBody(returnedOn, reportReference, retreadCost, postTreadMm, ca
 // numeric(12,2) rounding lands on a different number from one derived after
 // it (lesson 2026-09-01: a parameter's numeric(p,s) is discarded, only a
 // local rounds).
+//
+// The policy's threshold is 5.0, not the column default, and the expected
+// rate names that 5.0 rather than asking the resolver, so a return rated
+// from any other threshold source fails here (rule 5, TYRE-308).
 func TestLogRetreadReturnPropagates(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "retread-return")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+	const retreadThresholdMm = "5.0"
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, retreadThresholdMm)
 	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 3)
 
 	const retreadCost, postTreadMm, casingValue = "2500.005", "12.0", "800.00"
@@ -174,15 +163,13 @@ func TestLogRetreadReturnPropagates(t *testing.T) {
 			retreadCost, postTreadMm, casingValue))
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 
-	// The same function, on the same inputs, inside the tenant's own session
-	// so app.current_removal_threshold_mm resolves, never arithmetic here.
+	// The same function on the same inputs, never arithmetic here.
+	// app.rand_per_mm is IMMUTABLE and reads no tenant state, so the admin
+	// connection is enough.
 	var expectedRate string
-	require.NoError(t, s.InActorTx(ctx, tenantID, controller, func(tx pgx.Tx, _ auth.Actor) error {
-		return tx.QueryRow(ctx,
-			`SELECT app.rand_per_mm($1::numeric(12,2), $2::numeric(4,1),
-			                        app.current_removal_threshold_mm())::text`,
-			retreadCost, postTreadMm).Scan(&expectedRate)
-	}))
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT app.rand_per_mm($1::numeric(12,2), $2::numeric(4,1), $3::numeric)::text`,
+		retreadCost, postTreadMm, retreadThresholdMm).Scan(&expectedRate))
 
 	listRec := get(t, h, "/api/tyres", tenantID.String(), controller.String())
 	require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
@@ -232,8 +219,7 @@ func TestLogRetreadRequiresLogRetread(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "retread-return-gate")
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 	jobID, _, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
 	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
 
@@ -261,8 +247,7 @@ func TestRetreadReturnCrossTenantIsInvisible(t *testing.T) {
 	jobA, tyreA, _ := plantOpenRetreadJob(t, ctx, admin, tenantA, 2)
 
 	tenantB, _ := plantTenant(t, ctx, admin, "retread-xten-b")
-	plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantB, "4.0")
+	plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2, "4.0")
 	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -328,8 +313,7 @@ func TestLogRetreadReturnShapeRefusals(t *testing.T) {
 			s, admin := testStore(t, ctx)
 			tenantID, _ := plantTenant(t, ctx, admin, "retread-shape-refusal")
 			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-			plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-			plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+			plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 			jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
 
 			h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -367,8 +351,7 @@ func TestLogRetreadReturnRejectedCasingIsScrapped(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "retread-rejected")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 2)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
