@@ -22,7 +22,7 @@
     {
       "customType": "regex",
       "description": "GO_IMAGE is a docker digest pin, but the default docker manager only reads Dockerfile FROM and compose image: keys, not a Makefile variable (TYRE-161).",
-      "managerFilePatterns": ["^Makefile$"],
+      "managerFilePatterns": ["/^Makefile$/"],
       "matchStrings": [
         "GO_IMAGE \\?= (?<depName>[a-z0-9.\\-/]+):(?<currentValue>[a-zA-Z0-9.\\-]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
@@ -31,7 +31,7 @@
     {
       "customType": "regex",
       "description": "The migrate/migrate image also appears inside `run:` shell steps, invisible to the workflow-services manager that covers ci.yml's postgres service images (TYRE-161).",
-      "managerFilePatterns": ["^\\.github/workflows/ci\\.yml$"],
+      "managerFilePatterns": ["/^\\.github/workflows/ci\\.yml$/"],
       "matchStrings": [
         "(?<depName>migrate/migrate):(?<currentValue>v[0-9.]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
