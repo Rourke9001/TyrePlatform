@@ -1,6 +1,6 @@
 # Implementation order
 
-Re-verified **23 Sep 2026** against `develop` @ `7b1cf79` and the board's open
+Re-verified **24 Sep 2026** against `develop` @ `9c45fed` and the board's open
 sprint.
 
 **Jira is the live authority.** This page exists so a session working in the
@@ -79,12 +79,13 @@ API contract (PR [#73](https://github.com/Rourke9001/TyrePlatform/pull/73));
 W4b, the refusal-code registry
 (PR [#74](https://github.com/Rourke9001/TyrePlatform/pull/74)); and W1a, CI and
 tooling (PR [#75](https://github.com/Rourke9001/TyrePlatform/pull/75)). None
-added a migration. What is left:
+added a migration. The DB chain started on 24 Sep 2026 with W5a. What is
+left:
 
 | Wave | Tickets | When |
 |---|---|---|
-| W5a | TYRE-211's write sites with TYRE-142: one inclusive resolver for the policy in force now | in progress |
-| W5b | TYRE-209, input-shape guards | after W5a |
+| W5a | TYRE-211's write sites with TYRE-142: one inclusive resolver for the policy in force now | **merged** 24 Sep 2026, PR [#77](https://github.com/Rourke9001/TyrePlatform/pull/77), migration 000048, suite section 63 |
+| W5b | TYRE-209, input-shape guards | next |
 | W5c | TYRE-175, TYRE-189 F5, TYRE-213 (drops `v_axle_side_divergence`), TYRE-201 | after W5b |
 | W5d | TYRE-168 (coverage counted from the wear rate's own source), TYRE-189 F4, TYRE-190 F10 as tenant configuration | after W5c |
 | W5e | TYRE-210, a committed `db/schema.sql` and a migrate-down gate | last |
@@ -135,7 +136,12 @@ work.
   above: **TYRE-191** waits on TYRE-261, **TYRE-195** is done once the
   Appendix H.1 row is pasted into Confluence, **TYRE-293** pins the format
   hook's ruff and **TYRE-294** adds two suite hardenings from the PR #72
-  audit.
+  audit. **TYRE-295** (read-only transactions, when a replica is planned)
+  is TYRE-180 F6, split out. W5a left **TYRE-296** (the "in force now" readers outside
+  `threshold_policy`), **TYRE-297** (`receive_tyres` reads the threshold
+  once per tyre), **TYRE-298** and **TYRE-299** (owner decisions on how far
+  a policy row is honoured and whether it is written once) and **TYRE-300**
+  (suite check 7 is not NULL-safe).
 - B7.1's own residue is **TYRE-244 to TYRE-249**: the UTC day where the tenant
   day belongs in the register and unit inspection status, the exception suite's
   unpinned boundaries, the branches the fixture cannot reach, and seed
