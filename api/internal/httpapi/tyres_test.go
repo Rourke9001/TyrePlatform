@@ -624,6 +624,62 @@ func TestDisposeTyreSaleFromInStockIsRefused(t *testing.T) {
 	require.Equal(t, "a tyre is sold from REMOVED only; this one is IN_STOCK (Appendix C)", ref.Message)
 }
 
+// A disposal's reason lands in append-only tyre_event.reason, so it carries
+// the maxTextLen cap, counted in runes (TYRE-307). The TECHNICIAN holds no
+// ManageAssets, so its 422 rather than 403 is what proves the cap runs
+// before withActor opens a transaction (ADR-0013).
+func TestDisposeTyreReasonIsLengthCapped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "dispose-reason-cap")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+
+	tests := []struct {
+		name       string
+		actor      uuid.UUID
+		reason     string
+		wantStatus int
+		wantState  string
+	}{
+		{"one over the cap is refused", controller, strings.Repeat("x", 201), http.StatusUnprocessableEntity, "IN_STOCK"},
+		{"one over the cap is refused before the capability check", technician, strings.Repeat("x", 201), http.StatusUnprocessableEntity, "IN_STOCK"},
+		{"exactly at the cap lands", controller, strings.Repeat("x", 200), http.StatusNoContent, "SCRAPPED"},
+		{"the cap counts runes, not bytes", controller, strings.Repeat("é", 200), http.StatusNoContent, "SCRAPPED"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tyreID := plantTyre(t, ctx, admin, tenantID, "DISPOSE-CAP-"+uuid.NewString()[:8], nil)
+			rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispose", tenantID.String(), tt.actor.String(),
+				fmt.Sprintf(`{"disposal":"SCRAPPED","reason":%q}`, tt.reason))
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			if tt.wantStatus == http.StatusUnprocessableEntity {
+				var ref refusalBody
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+				require.Equal(t, "invalid_submission", ref.Code)
+				require.Equal(t, "reason is too long", ref.Message)
+			}
+
+			var state string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+			require.Equal(t, tt.wantState, state)
+
+			rows, err := admin.Query(ctx,
+				`SELECT reason FROM app.tyre_event WHERE tyre_id = $1 AND type = 'SCRAPPED'`, tyreID)
+			require.NoError(t, err)
+			reasons, err := pgx.CollectRows(rows, pgx.RowTo[string])
+			require.NoError(t, err)
+			if tt.wantState == "SCRAPPED" {
+				require.Equal(t, []string{tt.reason}, reasons)
+			} else {
+				require.Empty(t, reasons, "a refused disposal wrote no history")
+			}
+		})
+	}
+}
+
 // U7: a path id that does not even parse as a uuid is a malformed request,
 // not an invalid submission, so it never reaches app.set_tyre_cost or
 // app.dispose_tyre (pathID, TYRE-92).
