@@ -58,7 +58,21 @@ and promotion mechanics are deliberately deferred to that ADR.
 
 **Accepted 2026-09-23 (TYRE-188 F8):** the repo has run on Option B since
 20 Aug 2026, and the owner accepted it rather than leave a decision in force
-marked Proposed. ADR-0005 builds on it, CONTRIBUTING.md documents the
-terminal promotion, and ruleset 21929055 keeps `develop` from being deleted
-by a merge. The 29 Aug 2026 promotion through a pull request
-(`docs/lessons.md`) is the failure the terminal promotion exists to prevent.
+marked Proposed. ADR-0005 builds on it.
+
+Two promotions through a pull request shaped how `main` is promoted today.
+PR #2 (21 Aug 2026) went through the merge button, and its merge commit put
+`main` ahead of `develop`. The same morning, ruleset 21133437 ("main is
+promoted, never authored") began refusing deletion, non-fast-forward pushes
+and merge commits on `main`, and commit 752c04b wrote the terminal
+promotion, `git push origin origin/develop:main`, into CONTRIBUTING.md.
+PR #34 (29 Aug 2026) promoted through the merge button anyway. GitHub
+rebase-merged it, which is linear and fast-forward, so ruleset 21133437 let
+it through. It rewrote 44 hashes, and the repository's delete-on-merge
+setting then deleted `develop` (`docs/lessons.md`, 31 Aug 2026). Ruleset
+21929055 ("Protect develop from deletion") followed on 31 Aug.
+
+The gap is still open, and nothing refuses a pull request into `main`. The
+repository allows squash and rebase merges, neither ruleset has a rule that
+either kind of merge breaks, and the terminal promotion holds by discipline
+alone.

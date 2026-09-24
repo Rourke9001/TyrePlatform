@@ -89,7 +89,7 @@ left:
 | W5c | TYRE-175, TYRE-189 F5, TYRE-213 (drops `v_axle_side_divergence`), TYRE-201 | after W5b |
 | W5d | TYRE-168 (coverage counted from the wear rate's own source), TYRE-189 F4, TYRE-190 F10 as tenant configuration | after W5c |
 | W5e | TYRE-210, a committed `db/schema.sql` and a migrate-down gate | last |
-| W2, W3 | TYRE-156, 157, 159 and 187; TYRE-186 (a state filter on the tyre list); TYRE-171; TYRE-173 | between TYRE-239 and TYRE-240 |
+| W2, W3 | TYRE-156, 157, 159 and 187; TYRE-186 (a state filter on the tyre list); TYRE-171; TYRE-173, whose F15 (the position badge from the 11px eyebrow to 13px, still the eyebrow in `web/src/capture/capture.css`) the owner said to ship now rather than wait for TYRE-70's handset run (23 Sep 2026) | between TYRE-239 and TYRE-240 |
 | Capture | TYRE-152 (a photo on the warned position), TYRE-154 (the manifest and iOS install hint) | their own PR; clashes with neither B7.3 nor B7.4 |
 | Infra | TYRE-203 (30-day database backups, blob versioning) | any gap |
 
@@ -110,7 +110,10 @@ hardening) alongside. Independent of the application work, so they can fill
 any gap. TYRE-79 is the one with a deadline attached: nobody can log in to
 staging until TYRE-2, its last deploy reported success while shipping a
 crash-looping revision, and staging has to be demonstrably working before
-anyone is shown it. Every demo is a laptop until this lands.
+anyone is shown it. Every demo is a laptop until this lands. **TYRE-205**
+stays In Progress for its Static Web App half, which rides TYRE-51. The API
+has sent NFR-SEC-010's security headers since PR #73, and nothing sets them
+on the web app's host yet.
 
 ### Capture residue under TYRE-4
 
@@ -133,15 +136,32 @@ work.
   (spec U1, 3 Sep 2026). Nothing in B6's schema forecloses it.
 - B6.4's follow-ups **TYRE-229 to TYRE-236** (under TYRE-55) are on the
   board; none is Critical. The sweep's own leftovers sit outside the waves
-  above: **TYRE-191** waits on TYRE-261, **TYRE-195** is done once the
-  Appendix H.1 row is pasted into Confluence, **TYRE-293** pins the format
-  hook's ruff and **TYRE-294** adds two suite hardenings from the PR #72
-  audit. **TYRE-295** (read-only transactions, when a replica is planned)
+  above: **TYRE-191** waits on TYRE-261, and so does **TYRE-192** (In
+  Progress), whose remaining comment-gate pattern would flag three lines of
+  applied migration 000028. **TYRE-195** is done once the Appendix H.1 row
+  is pasted into Confluence, **TYRE-293** pins the format hook's ruff and
+  **TYRE-294** adds two suite hardenings from the PR #72 audit.
+  **TYRE-184** stays In Progress for F5, which lifts each handler's inline
+  `refuseInvalid` chain into a `validate()` method when that handler is
+  next touched, never as a sweep, and for the seven enum-cast type names F6
+  found, which no live-schema check covers. **TYRE-207**'s F11 has no wave.
+  The compliance-language guard in `web/src/test/spoken.ts` runs in six
+  capture test files but not on every driver-facing screen (`DriverHome`
+  has none), and it must never reach a manager screen, where OR-LEG-002
+  requires the operator-responsibility notice. Its F12, dropping
+  `v_axle_side_divergence`, is W5c's under TYRE-213. TYRE-205's Static Web
+  App half is with the deployment track above. **TYRE-295** (read-only
+  transactions, when a replica is planned)
   is TYRE-180 F6, split out. W5a left **TYRE-296** (the "in force now" readers outside
   `threshold_policy`), **TYRE-297** (`receive_tyres` reads the threshold
   once per tyre), **TYRE-298** and **TYRE-299** (owner decisions on how far
   a policy row is honoured and whether it is written once) and **TYRE-300**
   (suite check 7 is not NULL-safe).
+- The independent review of PRs #72 to #77 raised **TYRE-301 to TYRE-312**
+  on 24 Sep 2026, under TYRE-9, TYRE-10, TYRE-55 and TYRE-3. TYRE-306 and
+  TYRE-312 correct documents and comments, and **TYRE-310** waits on an
+  owner decision (which instant prices a back-dated retread return, and two
+  related questions).
 - B7.1's own residue is **TYRE-244 to TYRE-249**: the UTC day where the tenant
   day belongs in the register and unit inspection status, the exception suite's
   unpinned boundaries, the branches the fixture cannot reach, and seed
