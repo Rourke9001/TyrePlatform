@@ -107,6 +107,11 @@ a new capture.
 Careful: a blanket `GRANT ALL ON ALL TABLES IN SCHEMA app TO app_rw` in a later
 migration silently undoes those revokes. Check 4 catches it.
 
+Check 4 treats `UPDATE` as deny-by-default: it fails on any table the app
+role can update, at table or column level, that is not on its allow-list.
+A new table the app edits in place goes on that list in the same change;
+everything else stays a record of fact (TYRE-309).
+
 ## Loading readings from outside
 
 Never load `reading_measurement` with triggers disabled.

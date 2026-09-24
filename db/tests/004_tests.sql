@@ -99,31 +99,45 @@ DECLARE bad text;
 BEGIN
   -- current_user, not the literal 'app_rw': a grant to app_login itself or
   -- through any other membership reaches the connection just as surely as
-  -- one on app_rw's own ACL row. has_any_column_privilege also catches a column-level re-grant, e.g.
-  -- GRANT UPDATE (pressure_kpa) ON app.reading TO app_rw, which
-  -- has_table_privilege alone would miss. Extended with each REVOKE
-  -- INSERT/UPDATE issued against app_rw since 000001. app.inspection's
-  -- UPDATE is left out on purpose: (state, void_reason) is granted by
-  -- design (000040), and section 51 pins that column shape.
+  -- one on app_rw's own ACL row.
+
+  -- has_any_column_privilege, not has_table_privilege: a column-level grant
+  -- such as GRANT UPDATE (pressure_kpa) ON app.reading reaches that column,
+  -- and has_table_privilege sees only a grant on the whole table.
+
+  -- INSERT: platform reference data (CHG-019) and the tenant row itself
+  -- (TYRE-158) are written as postgres, never through the app role.
   SELECT string_agg(t || '.' || v, ', ') INTO bad
     FROM (VALUES
-      ('reading','UPDATE'),
-      ('reading_measurement','UPDATE'),
-      ('tyre_event','UPDATE'),
-      ('audit_log','UPDATE'),
-      ('casing_valuation','UPDATE'),
-      ('tenant_consent','UPDATE'),
-      ('vehicle_odometer_reading','UPDATE'),
-      ('jurisdiction_tread_minimum','INSERT'), ('jurisdiction_tread_minimum','UPDATE'),
-      ('tenant','INSERT'), ('tenant','UPDATE'),
-      ('combination_member','UPDATE'),
-      ('inspection_warning','UPDATE'),
-      ('inspection_absent_spare','UPDATE'),
-      ('composition_observation','UPDATE')
+      ('jurisdiction_tread_minimum','INSERT'),
+      ('tenant','INSERT')
     ) AS revoked(t, v)
    WHERE has_any_column_privilege(current_user, 'app.' || t, v);
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: app role retains revoked privilege(s): %', bad;
+  END IF;
+
+  -- UPDATE is deny-by-default (CR-004, DR-011, TYRE-309): a table off this
+  -- allow-list, existing or new, is a record of fact the app role may not
+  -- rewrite, so any UPDATE grant on it fails here until someone decides the
+  -- table is edited in place and adds it.
+  SELECT string_agg(c.relname, ', ' ORDER BY c.relname) INTO bad
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname = 'app' AND c.relkind IN ('r', 'p')
+     AND has_any_column_privilege(current_user, c.oid, 'UPDATE')
+     AND c.relname NOT IN (
+       'app_user', 'axle_configuration', 'casing_estimate_by_size', 'combination',
+       'configuration', 'depot', 'display_code_counter', 'exception',
+       'exception_rule', 'fitment', 'inspection_schedule', 'inspection_task',
+       'notification', 'operating_group', 'photo', 'position', 'retread_job',
+       'target_pressure', 'threshold_policy', 'tyre', 'tyre_brand', 'tyre_pattern',
+       'tyre_price_list', 'tyre_size', 'user_depot', 'valuation_snapshot',
+       'vehicle', 'vehicle_driver', 'vehicle_tag', 'vehicle_tag_map',
+       -- inspection's grant is (state, void_reason) alone (000040, FR-INS-012);
+       -- section 51 pins that column shape.
+       'inspection');
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: app role can UPDATE a table off the allow-list: %', bad;
   END IF;
 
   -- DELETE: a catalog sweep in section 37b's shape, not a hand-typed list, so
@@ -151,7 +165,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL: app role can TRUNCATE a table, which RLS cannot see: %', bad;
   END IF;
 
-  RAISE NOTICE 'PASS  app role holds none of the revoked grants, cannot DELETE an append-only table, and cannot TRUNCATE any table';
+  RAISE NOTICE 'PASS  app role holds none of the revoked INSERT grants, can UPDATE only allow-listed tables, cannot DELETE an append-only table, and cannot TRUNCATE any table';
 END $$;
 
 \echo '== 5. Governing tread is MIN of the width-wise readings (BR-INS-003, DR-017)'
@@ -534,12 +548,13 @@ BEGIN
     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
    WHERE c.relnamespace = 'app'::regnamespace
      -- jurisdiction_tread_minimum's read-everyone policy is the one named
-     -- exception (CHG-019): tied to its table, not the name alone, so a
-     -- widened policy elsewhere reusing this name still fails. Its omitted
-     -- WITH CHECK does not weaken this check (docs/lessons.md, 2026-09-08):
-     -- a defaulted clause is NULL in pg_policy with no expression to read,
-     -- so the OR below still requires one to be written down everywhere else.
-     AND NOT (c.relname = 'jurisdiction_tread_minimum' AND p.polname = 'jurisdiction_public_read')
+     -- exception (CHG-019), matched by table, name and shape: SELECT only,
+     -- USING (true), no WITH CHECK. The same name on another table, or this
+     -- policy widened to writes, falls through to the canonical test below
+     -- (TYRE-309).
+     AND NOT (c.relname = 'jurisdiction_tread_minimum' AND p.polname = 'jurisdiction_public_read'
+              AND p.polcmd = 'r' AND p.polwithcheck IS NULL
+              AND pg_get_expr(p.polqual, p.polrelid) = 'true')
      AND (COALESCE(pg_get_expr(p.polqual, p.polrelid), '') <>
             CASE WHEN c.relname = 'tenant' THEN '(id = current_tenant_id())'
                  ELSE '(tenant_id = current_tenant_id())' END
@@ -2570,9 +2585,32 @@ BEGIN
   END;
 
   BEGIN
+    INSERT INTO app.position (tenant_id, configuration_id, code, sequence, axle_number, axle_class, side, slot, is_spare)
+    SELECT app.current_tenant_id(), ac.id, 'CHK190POS2', 998, NULL, 'STEER', NULL, NULL, false
+      FROM app.axle_configuration ac WHERE ac.tenant_id = app.current_tenant_id() LIMIT 1;
+    RAISE EXCEPTION 'FAIL: spare_has_no_geometry accepted a running position with no axle geometry';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'spare_has_no_geometry' THEN
+      RAISE EXCEPTION 'FAIL: expected spare_has_no_geometry, got %', cn;
+    END IF;
+  END;
+
+  BEGIN
     INSERT INTO app.tyre (tenant_id, display_code, status, retread_count, state)
     VALUES (app.current_tenant_id(), 'CHK190RETREAD', 'NEW', 1, 'IN_STOCK');
     RAISE EXCEPTION 'FAIL: retread_count_matches_status accepted a NEW tyre with a nonzero retread count';
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
+    IF cn IS DISTINCT FROM 'retread_count_matches_status' THEN
+      RAISE EXCEPTION 'FAIL: expected retread_count_matches_status, got %', cn;
+    END IF;
+  END;
+
+  BEGIN
+    INSERT INTO app.tyre (tenant_id, display_code, status, retread_count, state)
+    VALUES (app.current_tenant_id(), 'CHK190RETREAD0', 'RETREAD', 0, 'IN_STOCK');
+    RAISE EXCEPTION 'FAIL: retread_count_matches_status accepted a RETREAD tyre with a zero retread count';
   EXCEPTION WHEN check_violation THEN
     GET STACKED DIAGNOSTICS cn = CONSTRAINT_NAME;
     IF cn IS DISTINCT FROM 'retread_count_matches_status' THEN
@@ -2634,7 +2672,7 @@ BEGIN
     END IF;
   END;
 
-  RAISE NOTICE 'PASS  seven named CHECK constraints reject the row their own predicate names';
+  RAISE NOTICE 'PASS  seven named CHECK constraints reject the row their own predicate names, and the spare and retread rules reject both sides';
 END $$;
 ROLLBACK;
 
@@ -4090,12 +4128,13 @@ BEGIN
      AND NOT EXISTS (SELECT 1 FROM pg_attribute a
                       WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
      AND EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisunique AND NOT i.indisprimary)
-     AND has_table_privilege('app_rw', c.oid, priv);
+     -- current_user and any column, for check 4's two reasons.
+     AND has_any_column_privilege(current_user, c.oid, priv);
   IF bad IS NOT NULL THEN
-    RAISE EXCEPTION 'FAIL 37: app_rw can write a tenant-free table with a global unique key: %', bad;
+    RAISE EXCEPTION 'FAIL 37: the app role can write a tenant-free table with a global unique key: %', bad;
   END IF;
   RAISE NOTICE 'PASS  37a every tenant-table unique/exclusion key leads with tenant_id or is allowlisted';
-  RAISE NOTICE 'PASS  37b no tenant-free table with a global unique key is writable by app_rw (tenant: it is the tenant; jurisdiction_tread_minimum: platform reference data, 000012)';
+  RAISE NOTICE 'PASS  37b no tenant-free table with a global unique key is writable by the app role (tenant: it is the tenant; jurisdiction_tread_minimum: platform reference data, 000012)';
 END $$;
 ROLLBACK;
 
