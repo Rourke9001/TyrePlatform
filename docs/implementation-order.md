@@ -1,7 +1,7 @@
 # Implementation order
 
-Re-verified **24 Sep 2026** against `develop` @ `9c45fed` and the board's open
-sprint.
+Re-verified **24 Sep 2026** against `develop` @ `8bcae79` with PR #79 applied,
+and the board.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase, the same way
@@ -157,11 +157,17 @@ work.
   once per tyre), **TYRE-298** and **TYRE-299** (owner decisions on how far
   a policy row is honoured and whether it is written once) and **TYRE-300**
   (suite check 7 is not NULL-safe).
-- The independent review of PRs #72 to #77 raised **TYRE-301 to TYRE-312**
-  on 24 Sep 2026, under TYRE-9, TYRE-10, TYRE-55 and TYRE-3. TYRE-306 and
-  TYRE-312 correct documents and comments, and **TYRE-310** waits on an
-  owner decision (which instant prices a back-dated retread return, and two
-  related questions).
+- The independent review of PRs #72 to #77 raised **TYRE-301 to TYRE-313**
+  on 24 Sep 2026. PR [#79](https://github.com/Rourke9001/TyrePlatform/pull/79)
+  landed TYRE-301, 302, 303, 306, 307, 308 and 312, and the first half of
+  three more: **TYRE-304** waits on the owner confirming the Renovate app
+  runs, **TYRE-309** keeps item 2 (check 2 proves nothing for a table tenant
+  B holds no rows in, and the fix needs fixture rows) and **TYRE-311** keeps
+  item 3 (the narration rule's precision, the owner's call). **TYRE-305**
+  (the API pool against B1ms's 35 user connections), **TYRE-310** (which
+  instant prices a back-dated retread return, and two related questions)
+  and **TYRE-313** (nothing blocks a pull request into main) wait on owner
+  decisions.
 - B7.1's own residue is **TYRE-244 to TYRE-249**: the UTC day where the tenant
   day belongs in the register and unit inspection status, the exception suite's
   unpinned boundaries, the branches the fixture cannot reach, and seed
