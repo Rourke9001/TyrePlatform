@@ -28,6 +28,21 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-24 - `gate-not-piped.sh` refuses a `go test -run 'A|B'` because the `|` is inside a quoted regex (TYRE-303)
+
+**What happened:** a lane fixing the refusal registry gate ran
+`go test -run 'TestA|TestB' ./internal/httpapi/` to run two tests, and the
+hook refused it as a piped gate. The hook splits the command on `;`, `&&`
+and `||` and then refuses any gate segment containing a `|`. It does not
+parse quoting, so an alternation inside a `-run` regex reads as a pipe. The
+lane fell back to running the whole package.
+
+**The rule:** to run several Go tests by name, put `set -o pipefail;` first
+(the hook lets any command naming pipefail through), or run the package.
+Do not rewrite the regex to dodge the `|`, and do not weaken the hook to
+parse quotes: a false refusal costs one retry, and a missed pipe costs a
+green gate that never ran.
+
 ## 2026-09-24 — vitest's "Worker exited unexpectedly" under host memory pressure is not a test result (TYRE-211)
 
 **What happened:** a `make check` on the W5a branch was left running while
