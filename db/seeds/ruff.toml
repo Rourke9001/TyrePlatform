@@ -1,3 +1,7 @@
+# Ruff exits 2 under any other version, so the pip pin in ci.yml and the
+# Makefile's RUFF_VERSION cannot drift from this one unnoticed (TYRE-311).
+required-version = "==0.16.8"
+
 # Pinned, minimal rule set for the seed generators (TYRE-163). Ruff with no
 # config here selects a rule set wider than its historical E4/E7/E9/F
 # defaults: import sorting, comprehension rewrites and upgrade suggestions
