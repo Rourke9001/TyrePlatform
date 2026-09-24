@@ -318,4 +318,5 @@ func TestEstateIsDepotScopedByDepotId(t *testing.T) {
 	require.Equal(t, int64(0), outside[0].TyreCount)
 	require.Nil(t, outside[0].CasingValue)
 	require.Nil(t, outside[0].TreadValue)
+	require.Nil(t, outside[0].TotalValue)
 }
