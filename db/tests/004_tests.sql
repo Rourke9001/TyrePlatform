@@ -140,12 +140,13 @@ BEGIN
     RAISE EXCEPTION 'FAIL: app role can UPDATE a table off the allow-list: %', bad;
   END IF;
 
-  -- DELETE: a catalog sweep in section 37b's shape, not a hand-typed list, so
-  -- a table's revoke, or a table that never needed one (display_code_counter
-  -- was never granted DELETE, so no REVOKE exists to harvest), enrols itself.
-  -- valuation_snapshot and vehicle_tag_map are the two deliberate exceptions:
-  -- 000001 never revoked the former, and 000035 restores the latter's
-  -- (FR-VEH-041, U6).
+  -- DELETE is read from the catalogue, so every table enrols itself,
+  -- including one no REVOKE ever named (CR-004, DR-014a).
+
+  -- The two deliberate DELETE exceptions: valuation_snapshot is a derived
+  -- cache the month-end reconcile prunes, so 000018_delete_revoke_dr014a
+  -- leaves its DELETE in place (DR-014a), and 000035 restores
+  -- vehicle_tag_map's (FR-VEH-041, U6).
   SELECT string_agg(c.relname, ', ') INTO bad
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
    WHERE n.nspname = 'app' AND c.relkind IN ('r', 'p')
@@ -2499,10 +2500,9 @@ BEGIN
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL: % fixture vehicles without unit_kind', n; END IF;
 
-  -- CHG-036: nothing in the fixture awaits a cost; an unpriced tyre surfaces
-  -- an unpriced FITTED probe on tenant 2, planted here rather than read from
-  -- check 19: that section rolls back now (TYRE-206), and CHG-036's queue
-  -- needs one tyre with no price to surface
+  -- CHG-036: every fixture tyre is priced, so tenant 1's awaiting-cost queue
+  -- is empty, and the unpriced FITTED probe planted on tenant 2 must surface
+  -- in tenant 2's.
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
   INSERT INTO app.tyre (id,tenant_id,display_code,status,state)
   VALUES (md5('t2gaptyre')::uuid,'22222222-2222-2222-2222-222222222222','T2GAP1','NEW','FITTED');
@@ -2540,27 +2540,27 @@ BEGIN
   IF got IS DISTINCT FROM '1.0|Regulation 212, National Road Traffic Act 93 of 1996' THEN
     RAISE EXCEPTION 'FAIL: ZA legal minimum reads [%], expected 1.0mm under Regulation 212', got; END IF;
 
-  -- append-only holds for these records of fact too (CR-004 / DR-011): check
-  -- 4's catalog sweep covers casing_valuation, tenant_consent,
-  -- vehicle_odometer_reading and jurisdiction_tread_minimum, so this section
-  -- leaves that probe to check 4 alone.
+  -- Check 4 proves the app role cannot rewrite casing_valuation,
+  -- tenant_consent, vehicle_odometer_reading or the legal minima (CR-004,
+  -- DR-011).
 
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  vocabulary, provenance columns, disposal semantics and reference data all hold';
 END $$;
 
--- 27a. TYRE-190 F3: seven named CHECK constraints are cited only in app-tier
--- comments as their authority (units.go, units.ts, admin.go,
--- PositionPanel.tsx, tasks_test.go, fitments_test.go) with no SQL exercising
--- them. Each block inserts the one violating row its own constraint's
--- predicate rejects, and GET STACKED DIAGNOSTICS names which constraint
--- actually fired, so a block cannot pass by catching an unrelated
--- check_violation (TYRE-178 review).
+-- 27a. Seven named CHECK constraints (TYRE-190). Each block inserts a row
+-- its own constraint's predicate rejects, and GET STACKED DIAGNOSTICS names
+-- the constraint that fired, so a block cannot pass by catching an
+-- unrelated check_violation. The spare and retread rules are two-sided and
+-- are planted on both sides (TYRE-309).
 DO $$
 DECLARE cn text;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
 
+  -- platform_admin_has_no_tenant is two-sided too, but only this side is
+  -- reachable as app_login: the policy's WITH CHECK refuses a tenant-less
+  -- non-admin row (42501) before the CHECK is evaluated.
   BEGIN
     INSERT INTO app.app_user (tenant_id, email, display_name, role)
     VALUES (app.current_tenant_id(), 'chk190-admin@example.test', 'CHK190', 'PLATFORM_ADMIN');
