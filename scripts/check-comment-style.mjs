@@ -38,9 +38,8 @@ const CURLY = String.fromCharCode(0x2018, 0x2019, 0x201c, 0x201d);
 // lone U+2014 is a display glyph for an absent value, not prose.
 const RULES = [
   {
-    // "old" plus one of way/version/code/implementation/behaviour can now have
-    // up to three words between them (TYRE-192): a modifier ahead of the noun
-    // used to slip through a rule that only checked adjacency.
+    // Up to three words may sit between "the old" and the noun, so a
+    // modifier cannot hide the phrase (TYRE-192).
     name: 'change-narration',
     re: /\b(previously|used to (be|do|have|use|call|run|return)|the old(?:\s+\S+){0,3}\s+(way|version|code|implementation|behaviou?r)|renamed from|moved here from|refactored (from|out of)|instead of the old|(as|like) before|no longer(?! than)|the (new|previous) (version|implementation)|is what (made|caused|allowed|forced)|before this (file|change|commit|pr|fix|refactor|patch|branch))\b/i,
     advice: 'narrates code history; state the constraint the current code satisfies (git holds the history)',
@@ -53,10 +52,11 @@ const RULES = [
   {
     // Case-sensitive: lowercase "task" is ordinary domain/infra vocabulary
     // (a scheduled inspection task, a background task) and must stay legal;
-    // capitalised "Task <n>" is specifically the plan-step numbering from a
-    // gitignored implementation plan (TYRE-192).
+    // capitalised "Task <n>", plural or letter-suffixed, is specifically the
+    // plan-step numbering from a gitignored implementation plan (TYRE-192,
+    // TYRE-311).
     name: 'plan-step-reference',
-    re: /\bTask \d+\b/,
+    re: /\bTasks? \d+[a-z]?\b/,
     advice: 'cites a plan-step number from an untracked plan doc; state the constraint directly',
   },
   {

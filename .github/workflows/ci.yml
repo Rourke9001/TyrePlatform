@@ -40,8 +40,8 @@ jobs:
         with: { python-version: '3.12' }
 
       # The generators are the single source of truth for the axle
-      # configuration library (db/CLAUDE.md); ruff pinned the same way
-      # staticcheck is, in db/seeds/ruff.toml and here (TYRE-163).
+      # configuration library (db/CLAUDE.md). The ruff pin here must equal
+      # required-version in db/seeds/ruff.toml (TYRE-163, TYRE-311).
       - name: Python format and lint (db/seeds)
         run: |
           pip install --quiet ruff==0.16.8
@@ -168,7 +168,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version: '22', cache: npm, cache-dependency-path: web/package-lock.json }
+        with: { node-version-file: web/.nvmrc, cache: npm, cache-dependency-path: web/package-lock.json }
 
       # TYRE-21: node 22 bundles npm 10.9.9, which predates min-release-age
       # (11.10.0) and would silently enforce nothing. Pinned, not @latest,
@@ -239,7 +239,7 @@ jobs:
           go-version: '1.24'
           cache-dependency-path: api/go.sum
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with: { node-version: '22', cache: npm, cache-dependency-path: web/package-lock.json }
+        with: { node-version-file: web/.nvmrc, cache: npm, cache-dependency-path: web/package-lock.json }
 
       # Same migrated-and-seeded database the schema job builds: the smoke
       # spec asserts against seeded fixture rows (HORSE, the dev actors).

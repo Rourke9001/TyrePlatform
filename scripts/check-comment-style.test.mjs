@@ -59,6 +59,26 @@ const CASES = [
     expectFail: false,
   },
   {
+    name: 'plan-step-reference-plural',
+    file: 'planstep-plural.go',
+    content: `${C} ${'Tasks'} ${'4'} and 5 share the retry budget for this handler\nfunc f() {}\n`,
+    expectRule: 'plan-step-reference',
+    expectFail: true,
+  },
+  {
+    name: 'plan-step-reference-suffixed',
+    file: 'planstep-suffixed.go',
+    content: `${C} ${'Task'} ${'4b'} covers the retry budget for this handler\nfunc f() {}\n`,
+    expectRule: 'plan-step-reference',
+    expectFail: true,
+  },
+  {
+    name: 'lowercase-plural-tasks-is-domain-vocabulary',
+    file: 'scheduled-tasks.go',
+    content: `${C} the scheduler runs inspection tasks 2 at a time per tenant\nfunc f() {}\n`,
+    expectFail: false,
+  },
+  {
     // Every alternative must sit inside the group the trailing \b closes; one
     // placed outside it loses its own boundary check and can match a prefix
     // of a longer word.
