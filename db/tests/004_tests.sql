@@ -53,7 +53,7 @@ BEGIN
   -- forgets its tenant_id fails loudly instead of silently escaping the sweep.
   FOR leaked IN
     SELECT c.relname FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
-     WHERE ns.nspname='app' AND c.relkind='r' AND c.relrowsecurity
+     WHERE ns.nspname='app' AND c.relkind IN ('r','p') AND c.relrowsecurity
        AND c.relname <> 'tenant'          -- keyed by id, checked separately below
        AND EXISTS (SELECT 1 FROM information_schema.columns col
                     WHERE col.table_schema='app' AND col.table_name=c.relname
@@ -70,7 +70,7 @@ BEGIN
   -- the tenant-less allowlist itself
   SELECT string_agg(c.relname, ', ') INTO leaked
     FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
-   WHERE ns.nspname='app' AND c.relkind='r'
+   WHERE ns.nspname='app' AND c.relkind IN ('r','p')
      AND c.relname NOT IN ('tenant','jurisdiction_tread_minimum')
      AND NOT EXISTS (SELECT 1 FROM information_schema.columns col
                       WHERE col.table_schema='app' AND col.table_name=c.relname
@@ -134,7 +134,7 @@ BEGIN
   -- (FR-VEH-041, U6).
   SELECT string_agg(c.relname, ', ') INTO bad
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'app' AND c.relkind = 'r'
+   WHERE n.nspname = 'app' AND c.relkind IN ('r', 'p')
      AND c.relname NOT IN ('valuation_snapshot', 'vehicle_tag_map')
      AND has_table_privilege(current_user, c.oid, 'DELETE');
   IF bad IS NOT NULL THEN
@@ -145,7 +145,7 @@ BEGIN
   -- inspects, so the allow-list is empty. No migration has ever granted it.
   SELECT string_agg(c.relname, ', ') INTO bad
     FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-   WHERE n.nspname = 'app' AND c.relkind = 'r'
+   WHERE n.nspname = 'app' AND c.relkind IN ('r', 'p')
      AND has_table_privilege(current_user, c.oid, 'TRUNCATE');
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: app role can TRUNCATE a table, which RLS cannot see: %', bad;
@@ -483,21 +483,41 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 12. Every table in schema app is under forced RLS'
+\echo '== 12. Every table in schema app is under forced RLS, and app holds nothing that cannot be'
 -- Structural companion to the data sweep in check 2: that sweep only visits
 -- tables that already have RLS, so a table someone forgot to enrol would
 -- never be swept at all. This closes that hole for every future table.
 DO $$
 DECLARE missing text;
 BEGIN
+  -- 'p' as well: a query on a partitioned parent applies the parent's
+  -- policies, not its partitions', so a parent without forced RLS of its
+  -- own returns every partition's rows (TYRE-301).
   SELECT string_agg(c.relname, ', ') INTO missing
     FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
-   WHERE ns.nspname = 'app' AND c.relkind = 'r'
+   WHERE ns.nspname = 'app' AND c.relkind IN ('r', 'p')
      AND NOT (c.relrowsecurity AND c.relforcerowsecurity);
   IF missing IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: table(s) without forced RLS: %', missing;
   END IF;
-  RAISE NOTICE 'PASS  every app table has RLS enabled and forced';
+  RAISE NOTICE 'PASS  every app table, partitioned parents included, has RLS enabled and forced';
+END $$;
+
+-- A materialized view or a foreign table takes the schema's default SELECT
+-- grant to app_rw and can carry no policy, so either one hands the app role
+-- every tenant's rows. Neither kind may exist in app (TYRE-301).
+DO $$
+DECLARE found text;
+BEGIN
+  SELECT string_agg(c.relname || CASE c.relkind WHEN 'm' THEN ' (materialized view)'
+                                                ELSE ' (foreign table)' END,
+                    ', ' ORDER BY c.relname) INTO found
+    FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
+   WHERE ns.nspname = 'app' AND c.relkind IN ('m', 'f');
+  IF found IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL: app holds relation(s) that cannot carry RLS: %', found;
+  END IF;
+  RAISE NOTICE 'PASS  app holds no materialized view and no foreign table';
 END $$;
 
 -- Policy SHAPE, not just presence: the sweep above cannot tell a policy that
@@ -4011,7 +4031,7 @@ BEGIN
   WITH tenant_tables AS (
     SELECT c.oid, c.relname
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname = 'app' AND c.relkind = 'r'
+     WHERE n.nspname = 'app' AND c.relkind IN ('r', 'p')
        AND EXISTS (SELECT 1 FROM pg_attribute a
                     WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
   ),
@@ -4066,7 +4086,7 @@ BEGIN
     FROM pg_class c
     JOIN pg_namespace n ON n.oid = c.relnamespace
     CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) p(priv)
-   WHERE n.nspname = 'app' AND c.relkind = 'r'
+   WHERE n.nspname = 'app' AND c.relkind IN ('r', 'p')
      AND NOT EXISTS (SELECT 1 FROM pg_attribute a
                       WHERE a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped)
      AND EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisunique AND NOT i.indisprimary)
