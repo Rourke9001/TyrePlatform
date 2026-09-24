@@ -9970,5 +9970,51 @@ BEGIN
   RAISE NOTICE 'PASS  63e section 63 leaves no residue';
 END $$;
 
+\echo '== 64. An estate group with no valued member totals NULL, not 0 (TYRE-269, U36, NFR-PRO-002)'
+-- total_value adds each side's known sum (000011); section 17 pins the
+-- casing-only case. With neither side known the total is unknown too, and a
+-- 0 would render as a figure. BAC's baseline has no IN_STOCK tyre, so one
+-- planted tyre is the whole TENANT/IN_STOCK group. Rolled back (DR-014a).
+BEGIN;
+DO $$
+DECLARE n int; v numeric; c numeric; tot numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,state)
+  VALUES (md5('estnull64a')::uuid,'11111111-1111-1111-1111-111111111111','PROBE64A','NEW','IN_STOCK');
+
+  SELECT tyre_count, tread_value, casing_value, total_value INTO STRICT n, v, c, tot
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'IN_STOCK';
+  IF n <> 1 OR v IS NOT NULL OR c IS NOT NULL OR tot IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 64a: unvalued group n=% tread=% casing=% total=%, expected 1/NULL/NULL/NULL', n, v, c, tot;
+  END IF;
+  SELECT total_value INTO STRICT tot
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
+  IF tot IS DISTINCT FROM 70183.50 THEN
+    RAISE EXCEPTION 'FAIL 64a: grand total %, expected 70183.50', tot;
+  END IF;
+  RAISE NOTICE 'PASS  64a a group with no valued member totals NULL; the grand total holds';
+END $$;
+ROLLBACK;
+
+-- The mirror of section 17's PROBE2: tread known, casing not. The total is
+-- the known side, never NULL and never 0.
+BEGIN;
+DO $$
+DECLARE v numeric; c numeric; tot numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,state,last_tread_mm)
+  VALUES (md5('estnull64b')::uuid,'11111111-1111-1111-1111-111111111111','PROBE64B','NEW','2024-03-01',4320.00,25.0,205.7100,'IN_STOCK',10.0);
+
+  SELECT tread_value, casing_value, total_value INTO STRICT v, c, tot
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'IN_STOCK';
+  IF v IS DISTINCT FROM 1234.26 OR c IS NOT NULL OR tot IS DISTINCT FROM 1234.26 THEN
+    RAISE EXCEPTION 'FAIL 64b: tread-only group tread=% casing=% total=%, expected 1234.26/NULL/1234.26', v, c, tot;
+  END IF;
+  RAISE NOTICE 'PASS  64b a group with only the tread side known totals that side';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

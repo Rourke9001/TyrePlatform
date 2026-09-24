@@ -227,7 +227,8 @@ func loadEstate(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUID, 
 		       count(*) FILTER (WHERE casing_basis = 'AUDIT')::bigint,
 		       sum(tread_value)::text,
 		       sum(casing_value)::text,
-		       (COALESCE(sum(tread_value), 0) + COALESCE(sum(casing_value), 0))::text
+		       (CASE WHEN sum(tread_value) IS NULL AND sum(casing_value) IS NULL THEN NULL
+		             ELSE COALESCE(sum(tread_value), 0) + COALESCE(sum(casing_value), 0) END)::text
 		  FROM src
 		 GROUP BY `+groupBy+`
 		 ORDER BY key_name NULLS FIRST, location_class`, depot, asAt, level)
