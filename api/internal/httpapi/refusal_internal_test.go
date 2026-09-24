@@ -5,10 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -326,43 +331,107 @@ func loadRefusalRegistry(t *testing.T) map[string]registryEntry {
 // its named ones without needing to know which is which in advance.
 var tyCodeShape = regexp.MustCompile(`^TY[0-9]+$`)
 
-// goCodeConstant matches a codeXxx constant's declared string value, e.g.
-// `codeUnauthorized = "unauthorized"`. Regexed against source at test time
-// rather than hand-listed: a 22nd constant, or a renamed one, changes what
-// this returns with no edit to this file (TYRE-184's own F6 lesson, applied
-// here to TYRE-153's list).
-var goCodeConstant = regexp.MustCompile(`(?m)^\s*code[A-Z]\w*\s*=\s*"([^"]+)"`)
+// codeConstantValues returns the value of every const or var in f whose name
+// begins with "code" and whose value is a string literal. It reads the parsed
+// declarations rather than matching lines, so a grouped, one-line, typed,
+// multi-name or function-local declaration is found the same way (TYRE-303).
+func codeConstantValues(t *testing.T, f *ast.File) map[string]bool {
+	t.Helper()
+	values := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		decl, ok := n.(*ast.GenDecl)
+		if !ok || (decl.Tok != token.CONST && decl.Tok != token.VAR) {
+			return true
+		}
+		for _, spec := range decl.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok {
+				continue
+			}
+			for i, name := range vs.Names {
+				if !strings.HasPrefix(name.Name, "code") || i >= len(vs.Values) {
+					continue
+				}
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				v, err := strconv.Unquote(lit.Value)
+				req.NoError(t, err, "unquoting %s", name.Name)
+				values[v] = true
+			}
+		}
+		return true
+	})
+	return values
+}
 
-// discoverGoCodeConstants reads every non-test .go file in this package and
-// returns the string value of every codeXxx constant it declares.
+// discoverGoCodeConstants parses every non-test .go file in this package and
+// returns the value of every code constant it declares. Read from source at
+// test time, not hand-listed, so a constant added or renamed changes the
+// result with no edit here (TYRE-184 F6).
 func discoverGoCodeConstants(t *testing.T) map[string]bool {
 	t.Helper()
 	entries, err := os.ReadDir(".")
 	req.NoError(t, err)
+	fset := token.NewFileSet()
 	values := map[string]bool{}
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
 			continue
 		}
-		src, err := os.ReadFile(name)
+		f, err := parser.ParseFile(fset, name, nil, 0)
 		req.NoError(t, err)
-		for _, m := range goCodeConstant.FindAllStringSubmatch(string(src), -1) {
-			values[m[1]] = true
-		}
+		maps.Copy(values, codeConstantValues(t, f))
 	}
 	return values
 }
 
+// One plant per declaration form Go allows for a code constant, and one
+// non-code name the prefix filter must skip (TYRE-303).
+func TestCodeConstantDiscoveryReachesEveryDeclarationForm(t *testing.T) {
+	src := `package p
+
+const (
+	codeBlock = "block"
+)
+
+const codeOneLine = "one_line"
+
+type wireCode string
+
+const codeTyped wireCode = "typed"
+
+var codeVar = "var"
+
+const codePairA, codePairB = "pair_a", "pair_b"
+
+var codeRaw = ` + "`raw`" + `
+
+func f() {
+	const codeLocal = "local"
+}
+
+const msgProbe = "not_a_code"
+`
+	f, err := parser.ParseFile(token.NewFileSet(), "plants.go", src, 0)
+	req.NoError(t, err)
+	req.Equal(t, map[string]bool{
+		"block": true, "one_line": true, "typed": true, "var": true,
+		"pair_a": true, "pair_b": true, "raw": true, "local": true,
+	}, codeConstantValues(t, f))
+}
+
 // TestRefusalCodesRegistryCoversGoWireVocabulary is the registry's Go-side
-// half (TYRE-153), checked as set equality in both directions rather than
-// registry-covers-source alone: a renamed codeXxx constant leaves a stale key
-// in refusal_codes.json that a one-directional check would never flag, since
-// the new value would still get added. The TY class is checked by its HTTP
-// reachability instead of by literal string: a code submitStatus maps must be
-// a registry key with a non-null httpStatus equal to submitStatus's own
-// value, and a registry key recorded as unreachable (null httpStatus) must
-// have no submitStatus entry.
+// half (TYRE-153). Named codes are checked as set equality in both
+// directions: a renamed constant leaves a stale registry key that a
+// one-directional check would never flag. A TY code reaches the wire two
+// ways, and each is checked. A TY-shaped Go constant (codeVehicleNotVisible)
+// is written by Go directly, so it must be a registry key with a non-null
+// httpStatus (TYRE-303). A code submitStatus maps must be a registry key
+// whose httpStatus equals submitStatus's value, and every registry TY key
+// with a non-null httpStatus must have a submitStatus entry.
 //
 // Rename codeConflict's value and this goes red twice: the old value is a
 // registry key nothing in Go declares any more, and the new value is a Go
@@ -375,7 +444,12 @@ func TestRefusalCodesRegistryCoversGoWireVocabulary(t *testing.T) {
 	for v := range goConstants {
 		if !tyCodeShape.MatchString(v) {
 			goNonTY[v] = true
+			continue
 		}
+		entry, named := registry[v]
+		req.True(t, named, "Go declares code %q, which refusal_codes.json does not name", v)
+		req.NotNil(t, entry.HTTPStatus,
+			"Go declares code %q and writes it to the wire, but refusal_codes.json records it as unreachable (null httpStatus)", v)
 	}
 	registryNonTY := map[string]bool{}
 	registryTYReachable := map[string]bool{}
@@ -416,10 +490,36 @@ func TestRefusalCodesRegistryCoversGoWireVocabulary(t *testing.T) {
 	}
 }
 
-// tyCodeRaise matches an ERRCODE assignment naming our own private class.
-// Mirrors tyCodeShape: no standard Postgres SQLSTATE begins with T, so this
-// pattern cannot match anything but our own codes.
-var tyCodeRaise = regexp.MustCompile(`'(TY[0-9]+)'`)
+// tyCodeRaise matches a TY code at a raise site only: USING ERRCODE, or RAISE
+// [level] SQLSTATE. A handler's WHEN SQLSTATE 'TY001' names a code it traps,
+// not one it raises, and must not count (TYRE-303). PL/pgSQL keywords are
+// case-insensitive and USING accepts := as well as =, hence both.
+var tyCodeRaise = regexp.MustCompile(`(?i)(?:ERRCODE\s*:?=\s*|RAISE\s+(?:[a-z]+\s+)?SQLSTATE\s+)'(TY[0-9]+)'`)
+
+// Each raise form PL/pgSQL accepts, and the handler form that must not count.
+func TestTYCodeRaiseMatchesRaiseSitesOnly(t *testing.T) {
+	tests := []struct {
+		src  string
+		want []string
+	}{
+		{`RAISE EXCEPTION USING ERRCODE = 'TY001', MESSAGE = 'x';`, []string{"TY001"}},
+		{"RAISE EXCEPTION USING\n    ERRCODE  = 'TY002',", []string{"TY002"}},
+		{`RAISE EXCEPTION USING ERRCODE := 'TY003';`, []string{"TY003"}},
+		{`raise exception using errcode = 'TY004';`, []string{"TY004"}},
+		{`RAISE SQLSTATE 'TY005';`, []string{"TY005"}},
+		{`RAISE EXCEPTION SQLSTATE 'TY006';`, []string{"TY006"}},
+		{`WHEN SQLSTATE 'TY007' OR SQLSTATE 'TY008' OR unique_violation THEN`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.src, func(t *testing.T) {
+			var got []string
+			for _, m := range tyCodeRaise.FindAllStringSubmatch(tt.src, -1) {
+				got = append(got, m[1])
+			}
+			req.Equal(t, tt.want, got)
+		})
+	}
+}
 
 // TestEveryTYCodeRaisedInSchemaIsRegistered is the registry's database-side
 // half (TYRE-212), checked as set equality: every TY code any live
