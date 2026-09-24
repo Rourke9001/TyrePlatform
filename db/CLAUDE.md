@@ -44,14 +44,22 @@ into another tenant even though it cannot read them.
 app_rw` grants it the moment a table exists, before anyone decides whether
 it is tenant-scoped. A blanket `GRANT ALL` run later (see Append-only,
 below) is a separate, later hazard, not this one. `enable_tenant_rls` is
-what makes the default ACL safe. Check 12 sweeps every `relkind='r'` in
-`app`, not only tables with a `tenant_id` column, so a table missing
-`ENABLE`/`FORCE` fails the build regardless of the default ACL.
+what makes the default ACL safe. Check 12 sweeps every table in `app`,
+ordinary and partitioned (`relkind` `r` and `p`), not only tables with a
+`tenant_id` column, so a table missing `ENABLE`/`FORCE` fails the build
+regardless of the default ACL. A partitioned table needs
+`enable_tenant_rls` on the parent as well as on each partition: a query on
+the parent applies only the parent's policies.
+
+The default ACL covers every relation kind, and a materialized view or a
+foreign table cannot carry a policy, so check 12 refuses either one in `app`
+outright. Derived rows that must be stored go in a table with RLS, the way
+`valuation_snapshot` does.
 
 Nothing to add to the isolation test: its sweep reads `pg_class` for every
-table with RLS on and a `tenant_id` column, so a new table enrols itself. If
-it does *not* appear, that is the finding — check 12 fails a tenant-scoped
-table that was never enrolled.
+table (`r` or `p`) with RLS on and a `tenant_id` column, so a new table
+enrols itself. If it does *not* appear, that is the finding — check 12 fails
+a tenant-scoped table that was never enrolled.
 
 ## Adding a view
 
