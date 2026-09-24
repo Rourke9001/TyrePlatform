@@ -118,6 +118,16 @@ function speakableCodesInSource(): { always: Set<string>; all: Set<string> } {
   return { always, all };
 }
 
+const TY_SHAPE = /^TY[0-9]+$/;
+
+// undefined when the entry is missing or carries no httpStatus key at all.
+function httpStatusOf(entry: unknown): unknown {
+  if (typeof entry !== "object" || entry === null || !("httpStatus" in entry)) {
+    return undefined;
+  }
+  return entry.httpStatus;
+}
+
 describe("the refusal-code registry names every code a screen speaks", () => {
   it("covers ALWAYS_SPEAKABLE, every screen's speakable array and every direct code comparison", () => {
     const registry = loadRegistry();
@@ -129,6 +139,20 @@ describe("the refusal-code registry names every code a screen speaks", () => {
         registry,
         `refusal_codes.json does not name ${code}, which a screen treats as speakable`,
       ).toHaveProperty(code);
+    }
+  });
+
+  // A screen that speaks a TY code no route can answer is wording nobody
+  // will read (ADR-0012's null httpStatus, TYRE-303).
+  it("records every TY code a screen speaks as reachable over HTTP", () => {
+    const registry = loadRegistry();
+    const spokenTY = [...speakableCodesInSource().all].filter((code) => TY_SHAPE.test(code));
+    expect(spokenTY.length).toBeGreaterThan(0);
+    for (const code of spokenTY) {
+      expect(
+        httpStatusOf(registry[code]),
+        `refusal_codes.json records ${code} as unreachable (null httpStatus), but a screen speaks it`,
+      ).toEqual(expect.any(Number));
     }
   });
 });

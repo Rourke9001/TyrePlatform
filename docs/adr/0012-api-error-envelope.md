@@ -210,11 +210,20 @@ review sweep caught it 2.75x past the "roughly a dozen codes" revisit trigger.
 The control now exists as one file, `api/internal/httpapi/refusal_codes.json`,
 naming every code `writeError` can emit and every TY code any app-schema
 function raises whether or not a route can reach it. Three tests hold it to
-account from the three places that need to agree, each checked as set
-equality so a rename shows up as clearly as an addition:
-`TestRefusalCodesRegistryCoversGoWireVocabulary` and
-`TestEveryTYCodeRaisedInSchemaIsRegistered` (this package) from the Go and
-database sides, `web/lint/refusal.test.ts` from the TypeScript side. This
+account from the three places that need to agree, and each checks something
+different (clarified 2026-09-24, TYRE-303):
+`TestRefusalCodesRegistryCoversGoWireVocabulary` (this package) checks set
+equality between the named (non-TY) `code` constants Go declares and the
+registry's named keys, so a rename shows up as clearly as an addition. On
+the TY side it requires every TY-shaped Go constant to be a registry key with
+a non-null `httpStatus`, and it holds `submitStatus`'s TY entries equal to the
+registry's reachable TY keys, status included.
+`TestEveryTYCodeRaisedInSchemaIsRegistered` (this package) checks set
+equality between the TY codes live app-schema functions raise (an `ERRCODE`
+or `RAISE ... SQLSTATE` site, not a `WHEN SQLSTATE` handler) and the
+registry's TY keys. `web/lint/refusal.test.ts` checks one direction only:
+every code a screen speaks is a registry key, and a TY-shaped one has a
+non-null `httpStatus`. A registry key no screen speaks is not a failure. This
 is also TYRE-191 F2's canonical home for the per-code meanings that had
 drifted into four wordings across seven frozen migration preambles: a future
 migration's SQLSTATE preamble cites this file instead of restating a code's
