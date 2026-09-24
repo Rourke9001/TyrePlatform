@@ -248,9 +248,9 @@ func (b receiveTyresRequest) payload() map[string]any {
 	return p
 }
 
-// receivedTyreJSON is what a receive answers per tyre minted: enough for a
-// caller to display or immediately act on what it just created, nothing
-// more (ADR-0013 decision 9's 201-with-projection shape).
+// receivedTyreJSON is one row of what app.receive_tyres returns: a
+// function-backed write answers its function's result, not a list
+// projection (ADR-0013 decision 9, as amended).
 type receivedTyreJSON struct {
 	ID          string `json:"id"`
 	DisplayCode string `json:"displayCode"`
