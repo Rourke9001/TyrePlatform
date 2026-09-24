@@ -9648,17 +9648,20 @@ ROLLBACK;
 -- (000048's header). Each block plants at the transaction's own now(), the
 -- one instant where the two readings part, and rolls back; 63e proves it.
 
-\echo '== 63a. a row effective at now() is in force for the now readers and not for an as-at edge at that instant; both resolvers share one precedence'
+\echo '== 63a. a row effective at now() is in force for the now readers and not for an as-at edge at that instant; a row effective after now() is in force for neither; both resolvers share one precedence'
 BEGIN;
 DO $$
-DECLARE t1   constant uuid := '11111111-1111-1111-1111-111111111111';
-        grp  constant uuid := md5('t63agrp')::uuid;
-        pnow constant uuid := md5('t63apnow')::uuid;
-        pstr constant uuid := md5('t63apstr')::uuid;
-        pgrp constant uuid := md5('t63apgrp')::uuid;
-        pgdr constant uuid := md5('t63apgdr')::uuid;
+DECLARE t1    constant uuid := '11111111-1111-1111-1111-111111111111';
+        grp   constant uuid := md5('t63agrp')::uuid;
+        pnow  constant uuid := md5('t63apnow')::uuid;
+        pstr  constant uuid := md5('t63apstr')::uuid;
+        pgrp  constant uuid := md5('t63apgrp')::uuid;
+        pgdr  constant uuid := md5('t63apgdr')::uuid;
+        psoon constant uuid := md5('t63apsoon')::uuid;
+        pday  constant uuid := md5('t63apday')::uuid;
+        pfstr constant uuid := md5('t63apfstr')::uuid;
         pol app.threshold_policy; mm numeric; n int; stray int; props text;
-        g uuid; c app.axle_class; want uuid; got uuid; edge uuid;
+        g uuid; c app.axle_class; want uuid; got uuid; edge uuid; wide uuid; steer uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', t1::text, true);
 
@@ -9685,6 +9688,24 @@ BEGIN
          (pstr, t1, NULL, 'STEER', 5.0, 4.0, now()),
          (pgrp, t1, grp,  NULL,    5.5, 4.0, now() - interval '1 minute'),
          (pgdr, t1, grp,  'DRIVE', 7.0, 4.0, now() - interval '2 minutes');
+
+  -- now() is the upper edge of "in force now": a row is not in force before
+  -- its own effective_from (FR-CFG-051, TYRE-302). These three sit one
+  -- microsecond and one day past now() at a 9.0 no row in force carries,
+  -- one on the STEER tier, and every now reader must pass over them.
+  INSERT INTO app.threshold_policy (id, tenant_id, operating_group_id, axle_class,
+                                    retread_threshold_mm, scrap_threshold_mm, effective_from)
+  VALUES (psoon, t1, NULL, NULL,    9.0, 4.0, now() + interval '1 microsecond'),
+         (pday,  t1, NULL, NULL,    9.0, 4.0, now() + interval '1 day'),
+         (pfstr, t1, NULL, 'STEER', 9.0, 4.0, now() + interval '1 microsecond');
+  wide  := (app.threshold_policy_in_force(t1, NULL, NULL)).id;
+  steer := (app.threshold_policy_in_force(t1, NULL, 'STEER')).id;
+  mm    := app.current_removal_threshold_mm();
+  SELECT count(*) FILTER (WHERE f.removal_threshold_mm = 9.0) INTO stray FROM app.v_removal_forecast f;
+  IF wide IN (psoon, pday) OR steer = pfstr OR mm = 9.0 OR stray <> 0 THEN
+    RAISE EXCEPTION 'FAIL 63a: a row effective after now() is in force now (tenant-wide %, STEER %, current_removal_threshold_mm %, % forecast rows at 9.0)',
+      wide, steer, mm, stray;
+  END IF;
 
   pol := app.threshold_policy_in_force(t1, NULL, NULL);
   IF pol.id IS DISTINCT FROM pnow THEN
@@ -9727,7 +9748,7 @@ BEGIN
         g, c, got, edge, want;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  63a a row effective at now() governs current_removal_threshold_mm and the forecast, not an as-at edge at that instant; one precedence';
+  RAISE NOTICE 'PASS  63a a row effective at now() governs current_removal_threshold_mm and the forecast, not an as-at edge at that instant; a row effective after now() governs neither; one precedence';
 END $$;
 ROLLBACK;
 
@@ -9931,7 +9952,8 @@ BEGIN
   SELECT (SELECT count(*) FROM app.threshold_policy
            WHERE id IN (md5('t63apnow')::uuid, md5('t63apstr')::uuid, md5('t63apgrp')::uuid,
                         md5('t63apgdr')::uuid, md5('t63bpol')::uuid, md5('t63cstr')::uuid,
-                        md5('t63cgrppol')::uuid, md5('t63ddrv')::uuid))
+                        md5('t63cgrppol')::uuid, md5('t63ddrv')::uuid, md5('t63apsoon')::uuid,
+                        md5('t63apday')::uuid, md5('t63apfstr')::uuid))
        + (SELECT count(*) FROM app.operating_group
            WHERE id IN (md5('t63agrp')::uuid, md5('t63cgrp')::uuid))
        + (SELECT count(*) FROM app.tyre WHERE display_code LIKE 'T63TYRE%')
