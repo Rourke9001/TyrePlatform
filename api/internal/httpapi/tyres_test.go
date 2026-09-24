@@ -487,9 +487,8 @@ func TestReceiveTyresOutOfRangeQuantityIsRefusedNotCoerced(t *testing.T) {
 }
 
 // TYRE-180 F3: displayCode is copied into a row every register, fit picker
-// and dispatch screen renders, and unlike reason/reportReference it carried
-// no length cap. The bound is the same transport cap every free-text field on
-// a write already uses (maxTextLen), not a new number.
+// and dispatch screen renders, so it is bounded by maxTextLen like every
+// free-text field on a write.
 func TestReceiveTyresDisplayCodeTooLongIsRefused(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -969,9 +968,10 @@ func TestReturnToStockFromBreakdownSupplier(t *testing.T) {
 	require.Zero(t, jobs)
 }
 
-// TYRE-208 F6: app.return_tyre_to_stock's two refusals (000033), one row
-// each: a state that is neither REMOVED nor AT_BREAKDOWN_SUPPLIER, and a
-// depot naming something that is not an active DEPOT or STORE.
+// TYRE-208 F6: the app.return_tyre_to_stock refusals pinned here (000033),
+// not every one it raises: a state that is neither REMOVED nor
+// AT_BREAKDOWN_SUPPLIER, and a depot naming something that is not an active
+// DEPOT or STORE.
 func TestReturnTyreToStockRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -1039,11 +1039,13 @@ func TestReturnTyreToStockRefusals(t *testing.T) {
 	}
 }
 
-// TYRE-208 F6: app.dispatch_tyre's five refusals (000033, ADR-0013 d.5),
-// each needing its own fixture (a shared one would not distinguish an
-// IN_STOCK casing from one AT_RETREADER already), so the table carries a
-// setup closure per case rather than a name/body pair, and a checkAfter
-// closure for the tyre's own post-condition (a job count, or its state).
+// TYRE-208 F6: the dispatch refusals pinned here, not every refusal
+// app.dispatch_tyre raises (its in-force body is 000048's). Two rows never
+// reach the function: sentOn is refused in Go and an unknown destination at
+// the enum cast. Each case needs its own fixture (a shared one would not
+// distinguish an IN_STOCK casing from one AT_RETREADER already), so the
+// table carries a setup closure per case and a checkAfter closure for the
+// tyre's own post-condition (a job count, or its state).
 func TestDispatchTyreRefusals(t *testing.T) {
 	for _, tc := range []struct {
 		name string

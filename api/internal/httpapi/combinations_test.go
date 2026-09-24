@@ -174,8 +174,9 @@ func TestCombinationCapabilities(t *testing.T) {
 
 	// TYRE-180 F5: the second rig write carries the same require(a,
 	// auth.ManageAssignments) gate as the create above. The gate runs before
-	// the rig id is resolved, so a well-formed but nonexistent id still
-	// reaches it rather than a 404 masking the question.
+	// app.end_combination resolves the rig id, so a well-formed but
+	// nonexistent id meets it rather than the 422 TY012 "no such rig in this
+	// fleet" TestEndCombinationRefusals pins for a caller who holds the gate.
 	endPath := "/api/combinations/" + uuid.NewString() + "/end"
 	rec = post(t, h, endPath, tenantID.String(), technician.String(), `{}`)
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())

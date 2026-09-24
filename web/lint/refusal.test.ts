@@ -7,22 +7,12 @@ import { describe, expect, it } from "vitest";
 
 const HERE: string = path.dirname(fileURLToPath(import.meta.url));
 
-// The registry's TypeScript-side half (TYRE-153, ADR-0012): every code a
-// screen can render verbatim must be a key in the one file the Go and
-// database sides check against too (api/internal/httpapi/refusal_codes.json,
-// TYRE-212). Read across the tier boundary by plain file path, not by
-// import, so no build step couples the two trees and no TypeScript program
-// has to type-check the other tree's dependency graph. This file lives
-// under lint/, not src/api/, because tsconfig.e2e.json already carries the
-// node types node:fs/node:path/node:url need and eslint's config block for
-// lint/**/*.{js,ts} already turns off type-aware linting there (both exist
-// for moneyStaysString.test.ts); giving web/tsconfig.json the same node
-// types would apply program-wide, where Vite polyfills neither `process`
-// nor `Buffer` for browser code (TYRE-184 review). For the same reason,
-// ALWAYS_SPEAKABLE below is read as text, not imported: an import of
-// src/api/refusal.ts pulls its whole dependency graph (down to
-// src/api/devTenant.ts's import.meta.env) into tsconfig.e2e.json's program,
-// which does not carry the vite/client types that call needs.
+// The registry's TypeScript-side half (ADR-0012, TYRE-153): every code a
+// screen can render verbatim must be a key in
+// api/internal/httpapi/refusal_codes.json, the file the Go and database
+// sides check too. The registry and the screens are read as text, never
+// imported: this runs in tsconfig.e2e.json's node program, which does not
+// carry the vite/client types src/ needs.
 const REGISTRY_PATH: string = path.join(
   HERE,
   "..",

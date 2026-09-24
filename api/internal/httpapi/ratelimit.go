@@ -32,10 +32,12 @@ const (
 // client, not a durable quota, and a shared store would put a network round
 // trip in front of the one endpoint whose latency a driver actually feels.
 //
-// infra/main.bicep's scale block permits maxReplicas: 2, so with both warm
-// the enforced ceiling is twice each constant below (120 submits/min per
-// account, not 60), and minReplicas: 0 means a cold start resets every
-// window to empty (TYRE-184 F7).
+// A fixed window admits up to twice its limit in any sliding minute per
+// replica: a full window's worth at its end, and again at the start of the
+// next. infra/main.bicep's scale block permits maxReplicas: 2, so with both
+// warm the bound is four times each constant above (240 submits per sliding
+// minute per account, not 60), and minReplicas: 0 means a cold start resets
+// every window to empty (TYRE-184 F7).
 type rateLimiter struct {
 	mu      sync.Mutex
 	perMin  int

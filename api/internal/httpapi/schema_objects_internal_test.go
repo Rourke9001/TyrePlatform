@@ -16,9 +16,10 @@ import (
 // app.v_<name> reference in this package's own SQL strings. Regexed against
 // source at test time, not hand-listed: a call or a view name added,
 // removed or renamed changes what discoverSchemaReferences returns with no
-// edit to this file (TYRE-184 F6). Seven enum-cast type names
-// (::app.unit_kind and its kind) are not covered by either pattern; nothing
-// in this package checks them against the live schema.
+// edit to this file (TYRE-184 F6). Enum-cast type names (::app.unit_kind
+// and its kind) are not covered by either pattern.
+// TestEnumMirrorsMatchTheLiveSchema resolves app.unit_kind and app.user_role
+// against the live schema; the other casts have no live check here.
 var (
 	schemaFunctionRef = regexp.MustCompile(`app\.([a-z][a-z0-9_]*)\(`)
 	schemaViewRef     = regexp.MustCompile(`app\.(v_[a-z0-9_]+)`)
