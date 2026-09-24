@@ -223,8 +223,15 @@ equality between the TY codes live app-schema functions raise (an `ERRCODE`
 or `RAISE ... SQLSTATE` site, not a `WHEN SQLSTATE` handler) and the
 registry's TY keys. `web/lint/refusal.test.ts` checks one direction only:
 every code a screen speaks is a registry key, and a TY-shaped one has a
-non-null `httpStatus`. A registry key no screen speaks is not a failure. This
-is also TYRE-191 F2's canonical home for the per-code meanings that had
+non-null `httpStatus`. A registry key no screen speaks is not a failure.
+The TypeScript half lives under `web/lint/`, not `web/src/api/`, because
+`tsconfig.e2e.json` already carries the node types it needs; giving
+`web/tsconfig.json` those types would apply them program-wide, where Vite
+polyfills neither `process` nor `Buffer` for browser code. It reads
+`src/api/refusal.ts` as text for the same reason: an import would pull that
+file's dependency graph, down to `import.meta.env`, into a program without
+the `vite/client` types (TYRE-184). The registry file is also TYRE-191 F2's
+canonical home for the per-code meanings that had
 drifted into four wordings across seven frozen migration preambles: a future
 migration's SQLSTATE preamble cites this file instead of restating a code's
 meaning from memory. `docs/architecture.md`'s TY code ledger (added by

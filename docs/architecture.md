@@ -115,14 +115,17 @@ and turned into an `app.inspection_warning` row. `TY010` (no tenant/actor
 bound) is also absent, because that is a genuine invariant breach, not a
 client mistake.
 
-The TY code ledger, migration by migration:
+The TY code ledger, migration by migration. It is a summary and nothing
+checks it; each code's meaning of record is its entry in
+`api/internal/httpapi/refusal_codes.json`, whose keys the tests hold to the
+live schema (ADR-0012):
 
 | TY code | Migration | What it refuses |
 | --- | --- | --- |
 | TY003 | 000023 | a duplicate submit inside the tenant's configured window (FR-INS-038) |
 | TY004 | 000023 | a reading naming a position outside its vehicle's configuration |
 | TY005 | 000023 | a payload shape `app.submit_inspection` can name directly (missing/empty arrays, out-of-range values) |
-| TY006 | 000023 | a reading whose position expects a different measurement |
+| TY006 | 000023 | a reading that submits `governing_tread_mm`, which is derived as the MIN and never accepted (CR-011) |
 | TY007 | 000023 | an unrecognised or cross-tenant `vehicle_id` |
 | TY008 | 000024 (widened 000028) | a configuration or unit-kind change on a unit with history; no route can reach it, so no `submitStatus` entry exists |
 | TY009 | 000025 | `fitment_odometer_matches_unit_kind`, on every fitment write |

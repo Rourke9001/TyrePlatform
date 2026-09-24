@@ -133,10 +133,8 @@ func logRetreadReturn(s *store.Store) http.HandlerFunc {
 		if refuseInvalid(w, r, err) {
 			return
 		}
-		// requiredText answers presence, not size. The column is unbounded
-		// text, so the same transport cap every free-text field on a write
-		// carries applies here too (maxTextLen). A retreader's docket number
-		// is not kilobytes.
+		// requiredText answers presence, not size, so maxTextLen is checked
+		// here.
 		if len(reportReference) > maxTextLen {
 			refuseInvalid(w, r, invalid("reportReference", "is too long"))
 			return

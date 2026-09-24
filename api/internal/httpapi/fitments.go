@@ -236,10 +236,8 @@ func removeFitment(s *store.Store) http.HandlerFunc {
 		}
 		// Length only, and no trim: which reasons a fleet accepts is
 		// app.remove_tyre's list to check (rule 5), and trimming here would
-		// hand the function a token the caller did not send. maxTextLen is the
-		// same transport bound every free-text field on a write carries. A
-		// reason longer than the whole vocabulary can spell is not one this
-		// side needs to open a transaction to refuse.
+		// hand the function a token the caller did not send. The bound is
+		// maxTextLen, checked before a transaction opens.
 		if len(body.Reason) > maxTextLen {
 			refuseInvalid(w, r, invalid("reason", "is too long"))
 			return

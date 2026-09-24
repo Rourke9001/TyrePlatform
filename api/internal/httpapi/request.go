@@ -76,7 +76,7 @@ func writeStatus(ctx context.Context, w http.ResponseWriter, status int, body an
 // a handful of short strings.
 const maxWriteBytes = 16 << 10
 
-// maxTextLen caps every free-text field on a create. A transport limit for the
+// maxTextLen caps every free-text field on a write. A transport limit for the
 // same reason. The columns are unbounded text, and the database is not the
 // place to discover that a client sent a megabyte of description. text()
 // counts it in runes (TYRE-72 D7); the other sites that check it count bytes.

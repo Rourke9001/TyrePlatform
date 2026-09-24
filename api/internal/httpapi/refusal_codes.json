@@ -8,22 +8,22 @@
   "forbidden": {
     "source": "go",
     "httpStatus": 403,
-    "meaning": "the actor is known but the role lacks the capability the route requires, or names a user this tenant cannot resolve"
+    "meaning": "the actor is known but the role lacks the capability the route requires, names a user this tenant cannot resolve, or asks for something outside the actor's scope (a depot-scoped actor moving a unit's home depot, a capture read of a vehicle the actor cannot reach)"
   },
   "bad_request": {
     "source": "go",
     "httpStatus": 400,
-    "meaning": "a path parameter does not even parse; a malformed request, not an invalid submission"
+    "meaning": "a path parameter that does not parse, query parameters that do not pair (from/to, code/on) or are not supported (only ?open=true), or a body too large or unreadable; a malformed request, not an invalid submission"
   },
   "malformed_json": {
     "source": "go",
     "httpStatus": 400,
-    "meaning": "the request body is not valid JSON"
+    "meaning": "the request body is not valid JSON, is a literal null or carries a second value, or a field has the wrong type (the message names the field)"
   },
   "not_found": {
     "source": "go",
     "httpStatus": 404,
-    "meaning": "no such endpoint (chi's default handler, routed through the envelope)"
+    "meaning": "no such endpoint (chi's default handler, routed through the envelope), or no such unit or report in this fleet on a by-id route, where a row outside the actor's scope reads the same as a missing one"
   },
   "method_not_allowed": {
     "source": "go",
@@ -43,7 +43,7 @@
   "invalid_submission": {
     "source": "go",
     "httpStatus": 422,
-    "meaning": "a Postgres integrity class (23502, 23503, 23514, 22P02, 22023, 22007 or 22008) canned so no constraint or table name reaches the wire"
+    "meaning": "a request field Go refuses before the database sees it (missing, unparseable, too long, not a field of the request, or a homeDepotId outside a depot-scoped creator's depots), with Go's own message naming the field (ADR-0013); or a Postgres integrity class (23502, 23503, 23514, 22P02, 22023, 22007 or 22008) canned so no constraint or table name reaches the wire"
   },
   "conflict": {
     "source": "go",
@@ -147,14 +147,14 @@
   "TY008": {
     "source": "db",
     "httpStatus": null,
-    "meaning": "a vehicle.configuration_id change is refused because fitment, inspection or reading history already exists (D11(ii), FR-VEH-016, INV-4)",
-    "note": "no HTTP path updates app.vehicle.configuration_id; the unit PATCH decoder refuses the field before a transaction ever opens, a database backstop against a path the API deliberately never offers (ADR-0012, amended 2026-09-03)",
+    "meaning": "a vehicle.configuration_id or unit_kind change is refused because fitment, inspection or reading history already exists; a NULL unit_kind may still be backfilled once (D11(ii), FR-VEH-016, INV-4)",
+    "note": "no HTTP path updates app.vehicle.configuration_id or unit_kind; the unit PATCH decoder refuses both fields before a transaction ever opens, a database backstop against a path the API deliberately never offers (ADR-0012, amended 2026-09-03)",
     "raisedBy": ["app.reject_configuration_change_with_history"]
   },
   "TY009": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a fitment write omits fitted_odometer for a unit kind that has one (FR-FIT-002 as corrected, CHG-027)",
+    "meaning": "a fitment write omits fitted_odometer, or a removal omits removed_odometer, for a unit kind that has one (FR-FIT-002 as corrected, CHG-027)",
     "raisedBy": ["app.require_odometer_where_unit_has_one"]
   },
   "TY010": {
