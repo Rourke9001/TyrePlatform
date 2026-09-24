@@ -285,14 +285,13 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 			return
 		}
 		body.ReceivedDate = receivedDate
-		// TYRE-180 F3: the column is unbounded text and every screen renders
-		// it, so the same transport cap every free-text field on a write
-		// carries (maxTextLen) applies here too, matching logRetreadReturn's
-		// reportReference guard (retreads.go).
-		if body.DisplayCode != nil && len(*body.DisplayCode) > maxTextLen {
-			refuseInvalid(w, r, invalid("displayCode", "is too long"))
+		// Every screen renders the code, so it carries maxTextLen (TYRE-180
+		// F3). app.receive_tyres trims and blanks it the same way text() does.
+		displayCode, err := text("displayCode", body.DisplayCode)
+		if refuseInvalid(w, r, err) {
 			return
 		}
+		body.DisplayCode = displayCode
 
 		raw, err := json.Marshal(body.payload())
 		if err != nil {
@@ -401,6 +400,11 @@ func disposeTyre(s *store.Store) http.HandlerFunc {
 		if !decodeJSON(w, r, &body) {
 			return
 		}
+		// The reason lands in append-only tyre_event.reason (maxTextLen).
+		reason, err := text("reason", body.Reason)
+		if refuseInvalid(w, r, err) {
+			return
+		}
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
@@ -408,7 +412,7 @@ func disposeTyre(s *store.Store) http.HandlerFunc {
 			// TY012 arrives via refusalForPgError with the message intact.
 			if _, err := tx.Exec(ctx,
 				`SELECT app.dispose_tyre($1, $2::app.tyre_state, $3, $4::numeric, now())`,
-				tyreID, body.Disposal, body.Reason, body.Proceeds); err != nil {
+				tyreID, body.Disposal, reason, body.Proceeds); err != nil {
 				return fmt.Errorf("disposing tyre %s: %w", tyreID, err)
 			}
 			return nil
