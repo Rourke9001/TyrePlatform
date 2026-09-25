@@ -2,10 +2,9 @@
 --  An estate group with no valued member totals NULL, not 0 (TYRE-269)
 --  Implements: FR-VAL-010, FR-VAL-011, NFR-PRO-002 (B7 spec U36)
 -- ============================================================================
--- total_value keeps 000011's meaning, each side's known sum added, and is
--- NULL only when neither side has a known member: a 0 there renders as a
--- figure where the answer is "not known". loadEstate
--- (api/internal/httpapi/valuation.go) carries the same expression (U35).
+-- total_value adds each side's known sum and is NULL only when neither side
+-- has a known member: a 0 there renders as a figure where the answer is
+-- "not known" (U36, FR-VAL-010).
 -- CREATE OR REPLACE keeps the view's oid and grants; security_invoker is
 -- restated because the command resets every option it does not carry.
 CREATE OR REPLACE VIEW app.v_estate_valuation WITH (security_invoker = true) AS

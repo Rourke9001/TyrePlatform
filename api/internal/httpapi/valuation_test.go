@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
 	"tyreplatform/api/internal/auth"
@@ -243,16 +244,66 @@ func TestEstateRelaysAppendixEToTheCent(t *testing.T) {
 // U35's drift guard: the handler's GROUP BY over app.tyre_valuation_asof
 // is a copy of app.v_estate_valuation's, and this pins the copy to the view
 // at the view's own day for every level, so the two cannot drift silently.
+// BAC values every group on both sides, so a planted tenant carries one
+// group per null case of the total (000049, U36).
 func TestEstateAtTodayMatchesTheViewForEveryLevel(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	requireSeed(t, ctx, admin)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	nomsa := seedID("controller1").String()
 
+	t.Run("seed", func(t *testing.T) {
+		requireEstateMatchesView(t, ctx, h, admin, bacTenant, seedID("controller1").String())
+	})
+
+	f := plantDepotFixture(t, ctx, admin, "estate-null-arms")
+	for _, sql := range []string{
+		`INSERT INTO app.tyre (tenant_id, display_code, status, state)
+		 VALUES ($1, 'NULL-ARM-NEITHER', 'NEW', 'IN_STOCK')`,
+		`INSERT INTO app.tyre (tenant_id, display_code, status, casing_value, state)
+		 VALUES ($1, 'NULL-ARM-CASING', 'NEW', 50.00, 'AT_RETREADER')`,
+		`INSERT INTO app.tyre (tenant_id, display_code, status, purchase_date, purchase_price, new_tread_mm, rand_per_mm, state, last_tread_mm)
+		 VALUES ($1, 'NULL-ARM-TREAD', 'NEW', '2024-03-01', 4320.00, 25.0, 205.7100, 'AT_BREAKDOWN_SUPPLIER', 10.0)`,
+	} {
+		_, err := admin.Exec(ctx, sql, f.Tenant)
+		require.NoError(t, err)
+	}
+	controller := plantUser(t, ctx, admin, f.Tenant, auth.RoleController)
+	t.Run("null arms", func(t *testing.T) {
+		requireEstateMatchesView(t, ctx, h, admin, f.Tenant.String(), controller.String())
+
+		// Each planted state is its own TENANT group, so each arm is reached;
+		// without this a planter drift would compare three both-sided groups.
+		rec := get(t, h, "/api/valuation/estate", f.Tenant.String(), controller.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body estateBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		class := func(name string) estateRow {
+			for _, r := range body.Rows {
+				if r.LocationClass == name {
+					return r
+				}
+			}
+			t.Fatalf("no TENANT row for %s", name)
+			return estateRow{}
+		}
+		neither := class("IN_STOCK")
+		require.Nil(t, neither.TotalValue)
+		casing := class("AT_RETREADER")
+		require.Nil(t, casing.TreadValue)
+		require.Equal(t, ptr("50.00"), casing.TotalValue)
+		tread := class("AT_BREAKDOWN_SUPPLIER")
+		require.Nil(t, tread.CasingValue)
+		require.NotNil(t, tread.TotalValue)
+		require.Equal(t, tread.TreadValue, tread.TotalValue)
+	})
+}
+
+func requireEstateMatchesView(t *testing.T, ctx context.Context, h http.Handler, admin *pgx.Conn, tenant, user string) {
+	t.Helper()
 	for _, level := range []string{"TENANT", "VEHICLE", "DEPOT", "SIZE", "BRAND", "PATTERN"} {
 		t.Run(level, func(t *testing.T) {
-			rec := get(t, h, "/api/valuation/estate?level="+level, bacTenant, nomsa)
+			rec := get(t, h, "/api/valuation/estate?level="+level, tenant, user)
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 			var body estateBody
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
@@ -263,7 +314,7 @@ func TestEstateAtTodayMatchesTheViewForEveryLevel(t *testing.T) {
 				       casing_audit_count, tread_value::text, casing_value::text, total_value::text
 				  FROM app.v_estate_valuation
 				 WHERE tenant_id = $1 AND level = $2
-				 ORDER BY key_name NULLS FIRST, location_class`, bacTenant, level)
+				 ORDER BY key_name NULLS FIRST, location_class`, tenant, level)
 			require.NoError(t, err)
 			defer rows.Close()
 			var want []estateRow

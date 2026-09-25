@@ -84,11 +84,15 @@ forget it.
 Each response says which clock its rows are judged on (`judgedAt`: the
 sheet's `submitted_at` for exceptions, today for the register, the tenant's
 calendar for spares and unit status) and whether money is shown
-(`moneyVisible`). Aggregate money is `null` both when hidden and when every
-member is unvalued; `moneyVisible` and `unvaluedCount` tell the two apart
-(spec U36). The one aggregation written in Go's SQL is the estate as-at
-`GROUP BY` in `loadEstate`, and a test pins it to `app.v_estate_valuation`
-at today so the copy cannot drift.
+(`moneyVisible`). Aggregate money is `null` when hidden, and a sum is
+`null` when no member of the group is valued on that side. The estate's
+`totalValue` is `null` only when neither side has a valued member, that is
+when `unvaluedCount` (tread) and `casingUnvaluedCount` both equal
+`tyreCount`; `moneyVisible` tells hidden from unvalued (spec U36, 000049).
+The one aggregation written in Go's SQL is the estate as-at `GROUP BY` in
+`loadEstate`, and a test pins it to `app.v_estate_valuation` at today, on
+the seed and on a planted tenant with a group for each null case, so the
+copy cannot drift.
 
 ## Conventions
 
