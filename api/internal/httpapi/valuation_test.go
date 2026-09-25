@@ -223,8 +223,10 @@ func TestEstateRelaysAppendixEToTheCent(t *testing.T) {
 	require.Equal(t, ptr("8228.40"), all(body.Rows, ptr("LINK12")).TreadValue)
 	require.Equal(t, ptr("1234.26"), all(body.Rows, ptr("LINK6")).TreadValue)
 
-	// Section 18: as at 2026-07-01, 26 of 27 valued, tread R25,096.63; as at
-	// 2026-06-01 nothing is valued yet, and a NULL sum stays null (U36).
+	// Section 18: as at 2026-07-01, 26 of 27 valued, tread R25,096.63. As at
+	// 2026-06-01 no tyre is tread-valued yet, but the AUDIT casing fallback
+	// (000036) carries no date gate, so all 27 casings still value and the
+	// total is the casing side alone (R1, R2, U36).
 	body = read("/api/valuation/estate?asAt=2026-07-01")
 	require.Equal(t, "2026-07-01", body.AsAt)
 	july := all(body.Rows, nil)
@@ -234,6 +236,8 @@ func TestEstateRelaysAppendixEToTheCent(t *testing.T) {
 	june := all(body.Rows, nil)
 	require.Equal(t, int64(27), june.UnvaluedCount)
 	require.Nil(t, june.TreadValue)
+	require.Equal(t, ptr("49612.50"), june.CasingValue)
+	require.Equal(t, ptr("49612.50"), june.TotalValue)
 }
 
 // U35's drift guard: the handler's GROUP BY over app.tyre_valuation_asof

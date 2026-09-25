@@ -9971,10 +9971,12 @@ BEGIN
 END $$;
 
 \echo '== 64. An estate group with no valued member totals NULL, not 0 (TYRE-269, U36, NFR-PRO-002)'
--- total_value adds each side's known sum (000011); section 17 pins the
--- casing-only case. With neither side known the total is unknown too, and a
--- 0 would render as a figure. BAC's baseline has no IN_STOCK tyre, so one
--- planted tyre is the whole TENANT/IN_STOCK group. Rolled back (DR-014a).
+-- total_value adds each side's known sum (000011). With neither side known
+-- the total is unknown too, and a 0 would render as a figure; 64b and 64c
+-- pin the one-side-known cases in both directions, so a regression that
+-- nulls a partial sum fails here too (R2). BAC's baseline has no IN_STOCK
+-- tyre, so each planted tyre is the whole TENANT/IN_STOCK group. Rolled
+-- back (DR-014a).
 BEGIN;
 DO $$
 DECLARE n int; v numeric; c numeric; tot numeric;
@@ -9997,8 +9999,9 @@ BEGIN
 END $$;
 ROLLBACK;
 
--- The mirror of section 17's PROBE2: tread known, casing not. The total is
--- the known side, never NULL and never 0.
+-- 64b: section 17's PROBE1 without its casing, so its tread is the same
+-- AUDIT value, 6mm over the threshold at R205.71/mm. The total is the known
+-- side, never NULL and never 0.
 BEGIN;
 DO $$
 DECLARE v numeric; c numeric; tot numeric;
@@ -10013,6 +10016,26 @@ BEGIN
     RAISE EXCEPTION 'FAIL 64b: tread-only group tread=% casing=% total=%, expected 1234.26/NULL/1234.26', v, c, tot;
   END IF;
   RAISE NOTICE 'PASS  64b a group with only the tread side known totals that side';
+END $$;
+ROLLBACK;
+
+-- 64c: section 17's PROBE2, casing known and no tread input. The mirror of
+-- 64b, in the other direction: the total is the casing side alone, never
+-- NULL and never 0.
+BEGIN;
+DO $$
+DECLARE v numeric; c numeric; tot numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,casing_value,state)
+  VALUES (md5('estnull64c')::uuid,'11111111-1111-1111-1111-111111111111','PROBE64C','NEW',50.00,'IN_STOCK');
+
+  SELECT tread_value, casing_value, total_value INTO STRICT v, c, tot
+    FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'IN_STOCK';
+  IF v IS NOT NULL OR c IS DISTINCT FROM 50.00 OR tot IS DISTINCT FROM 50.00 THEN
+    RAISE EXCEPTION 'FAIL 64c: casing-only group tread=% casing=% total=%, expected NULL/50.00/50.00', v, c, tot;
+  END IF;
+  RAISE NOTICE 'PASS  64c a group with only the casing side known totals that side';
 END $$;
 ROLLBACK;
 
