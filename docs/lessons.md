@@ -28,14 +28,14 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
-## 2026-09-25 — A focused Go test run after `make e2e` fails the Appendix E pins on a mutated seed (TYRE-269)
+## 2026-09-25 — A focused Go test run on an unreset database fails the Appendix E pins (TYRE-269)
 
 **What happened:** during the PR #81 review fixes, a focused `go test -run
 "TestEstate|TestValuation|TestDashboard"` failed `TestEstateRelaysAppendixEToTheCent`
 and `TestDashboardRelaysEveryPinnedFigure`, which read as a valuation
-regression. The last thing to touch the database was an earlier `make e2e`,
-whose capture spec submits into the seed. After `make db-reset` the same
-tests passed unchanged.
+regression. The database had been written to since its last reset (an
+earlier `make e2e`, whose capture spec submits into the seed, is the likely
+writer). After `make db-reset` the same tests passed unchanged.
 
 **The rule:** before a focused Go or suite run, `make db-reset`. A red pin on
 a database another run has written to says nothing about the change; only
