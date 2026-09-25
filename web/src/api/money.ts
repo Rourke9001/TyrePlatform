@@ -1,3 +1,5 @@
+import { groupThousands } from "../format/groupThousands";
+
 // Money over the wire is the exact decimal string the server sent, and it
 // stays one (rule 2; web/CLAUDE.md). The brand makes that a type the lint
 // rule can see, so house/money-stays-string can refuse Number(), arithmetic
@@ -16,6 +18,6 @@ export function formatRand(m: Money): string {
   const [whole, cents = "00"] = m.split(".");
   const negative = whole.startsWith("-");
   const digits = negative ? whole.slice(1) : whole;
-  const grouped = digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  const grouped = groupThousands(digits);
   return `${negative ? "-" : ""}R${grouped}.${cents.padEnd(2, "0")}`;
 }

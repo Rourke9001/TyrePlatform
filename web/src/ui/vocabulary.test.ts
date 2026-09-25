@@ -78,8 +78,9 @@ describe("bandRangeLabel", () => {
 
 describe("formatCount, formatMm and formatPct", () => {
   it("groups thousands, always shows one decimal of tread and none of a percentage", () => {
-    // en-ZA groups with U+00A0, a non-breaking space (history.test.ts says the same).
-    expect(formatCount(1234)).toBe("1 234");
+    // U55: a comma, as money groups.
+    expect(formatCount(1234)).toBe("1,234");
+    expect(formatCount(1234567)).toBe("1,234,567");
     expect(formatCount(0)).toBe("0");
     expect(formatMm(2)).toBe("2.0 mm");
     expect(formatMm(4)).toBe("4.0 mm");
