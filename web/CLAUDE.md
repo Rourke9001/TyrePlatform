@@ -48,12 +48,17 @@ Online-first with a durable submit outbox — not an offline sync engine.
 - Photos queue separately from readings.
 - A render error on any route, capture included, leaves the shell and the
   outbox indicator mounted and offers "Try again" (`RouteErrorBoundary`,
-  U54). On the driver's static routes (capture and `/my`) that remounts in
-  place, with no network, and on capture `useDraftLifecycle` restores every
-  entry already written to the draft; it loses the keystroke whose render threw and review text not
-  yet submitted, and after a "degraded" storage fault nothing later was
-  written to lose. Elsewhere it reloads the page, because a lazy route
-  caches a failed import.
+  U54). The driver's static routes (capture and `/my`) remount in place
+  without a reload, which keeps the shell and outbox indicator on a phone
+  with no signal; `/my` still refetches `/api/my/tasks` on mount
+  (`DriverHome`, default staleTime 0) and shows its own load error
+  offline. On capture, `useDraftLifecycle` restores every entry already
+  written to the draft, so a remount loses only the keystroke whose
+  render threw and any review text not yet submitted. Entries after a
+  "degraded" storage fault were never written, so they are not kept; the
+  capture screen already reports that state, and the boundary cannot see
+  it. Elsewhere "Try again" reloads the page, because a lazy route caches
+  a failed import (ADR-0009).
 
 ## Browser tests (e2e/)
 

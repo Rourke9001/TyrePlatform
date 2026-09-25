@@ -3,9 +3,9 @@
 // dispatches `vite:preloadError` on window for both a failed dependency
 // preload and a failed base import(), cancelable, so one listener covers
 // both. React.lazy caches the rejection and the failed component then
-// throws during render, unmounting the whole root; a reload against a fresh
-// deploy is the recovery. While the guard window (below) is open, the throw
-// reaches React and RouteErrorBoundary renders the retry (TYRE-280).
+// throws during render; a reload against a fresh deploy is the recovery.
+// While the guard window (below) is open, the throw reaches React and
+// RouteErrorBoundary renders the retry (TYRE-280).
 const PRELOAD_ERROR_EVENT = "vite:preloadError";
 const STAMP_KEY = "chunkReloadAt";
 
