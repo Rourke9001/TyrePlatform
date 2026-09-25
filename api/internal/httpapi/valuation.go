@@ -163,8 +163,9 @@ func valueAtRisk(s *store.Store) http.HandlerFunc {
 // estateRowJSON is one row of the estate aggregation in
 // app.v_estate_valuation's own names (U27): estimatedCount is the tread
 // basis, and the three casing partitions are disjoint, unlike the at-risk
-// view's nested count. Money is null when the sum is NULL (every member
-// unvalued) or when hidden; moneyVisible on the body says which (U36).
+// view's nested count. A side's money is null when no member has that side
+// valued, the total only when neither side has one (000049), and all of it
+// when hidden; moneyVisible on the body says which (U36).
 type estateRowJSON struct {
 	Level                string  `json:"level"`
 	KeyName              *string `json:"keyName"`
@@ -193,7 +194,7 @@ var estateKey = map[string]string{
 }
 
 // loadEstate aggregates app.tyre_valuation_asof at one date with the same
-// SELECT list and ROLLUP app.v_estate_valuation uses (000045), scoped by
+// SELECT list and ROLLUP app.v_estate_valuation uses (000049), scoped by
 // depot_id before grouping. This is the one aggregation written in a
 // handler (U30, U35): the view keys its DEPOT rows by name and aggregates
 // SIZE, BRAND and PATTERN across the tenant, so a depot actor's estate
