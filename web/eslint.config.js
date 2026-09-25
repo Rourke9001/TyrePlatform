@@ -19,8 +19,9 @@ import { moneyStaysString } from "./lint/moneyStaysString.js";
 // name a block's plugins do not know is a config error, not a silent skip.
 const house = { rules: { "money-stays-string": moneyStaysString } };
 
-// Rule 6's display half, enforced not remembered (TYRE-89, TYRE-95). Split
-// into three constants because src/time is exempt from exactly one of them.
+// Rule 6's display half, enforced not remembered (TYRE-89, TYRE-95). Each
+// ban is its own constant, gathered below into appBans; each override
+// block drops exactly one of them.
 //
 // toLocale* is banned by property name alone: syntax cannot tell a Date
 // receiver from a Number, so toLocaleString deliberately also catches
