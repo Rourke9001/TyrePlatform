@@ -138,6 +138,12 @@ before it is reviewed. Rules that are not visible in the code:
 - A measurement always shows one decimal with a point (`formatMm`, "4.0 mm");
   millimetres never go through `Intl`'s en-ZA format, whose decimal separator
   is a comma.
+- Every displayed number groups thousands with a comma, as money does:
+  "1,234 tyres", "416,180 km", "R1,234.00" (U55). The separator is written
+  once, in `groupThousands` (`src/format/groupThousands.ts`), which
+  `formatRand`, `formatCount`, `formatPct` and the capture route's
+  kilometres all call. eslint refuses `Intl.NumberFormat`, whose en-ZA
+  grouping is a no-break space.
 - Inflation band identifiers become words in `vocabulary.ts`
   (`inflationBandLabel`, TYRE-271), relative to the tenant's configured target
   pressure.

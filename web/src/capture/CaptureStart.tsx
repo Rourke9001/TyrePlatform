@@ -4,6 +4,7 @@ import type { CaptureContext } from "./captureContext";
 import { odometerRejection, odometerWarnings, projectedOdometerKm } from "./history";
 import type { RecordedWarning } from "./draft";
 import { Keypad } from "./Keypad";
+import { groupThousands } from "../format/groupThousands";
 import "./capture.css";
 
 // The keypad's granularity is the field's own unit (whole km), never the
@@ -25,11 +26,6 @@ const UNIT_WORD: Record<string, string> = {
   LIGHT: "Light vehicle",
 };
 const unitWord = (kind: string) => UNIT_WORD[kind] ?? kind;
-
-// Grouped in threes, the way the instrument itself reads. A driver is
-// transcribing six digits from a dial into a phone in the sun; ungrouped they
-// have nothing to check their place against.
-const grouped = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
 
 export function CaptureStart({
   motive,
@@ -153,14 +149,18 @@ export function CaptureStart({
       {wantsOdometer && (
         <fieldset className="cap-card">
           <legend className="cap-eyebrow">Odometer</legend>
+          {/* Grouped in threes, the way the instrument reads, with the comma
+              every displayed number uses (U55): a driver transcribing six
+              digits from a dial in the sun has nothing to check their place
+              against ungrouped. */}
           <p className={`cap-odo${value === null ? " is-empty" : ""}`} aria-live="polite">
-            {shown === "" ? "000 000" : grouped(shown)}
+            {shown === "" ? "000,000" : groupThousands(shown)}
             <span className="cap-odo-unit">km</span>
           </p>
           <p className="cap-hint">
             {motive.lastOdometerKm === null
               ? "No reading on record yet. This one starts the count."
-              : `Last reading ${Intl.NumberFormat("en-ZA").format(motive.lastOdometerKm)} km`}
+              : `Last reading ${groupThousands(String(motive.lastOdometerKm))} km`}
             {motive.lastOdometerAt
               ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
               : ""}
@@ -170,7 +170,7 @@ export function CaptureStart({
               Disappears once the value is the driver's. */}
           {value === null && projected !== null && (
             <button type="button" className="cap-secondary" onClick={() => setAccepted(true)}>
-              Confirm {grouped(String(projected))} km
+              Confirm {groupThousands(String(projected))} km
             </button>
           )}
           {value === null && projected !== null && (

@@ -40,7 +40,7 @@ const toLocaleBans = [
   {
     selector: "MemberExpression[property.name='toLocaleString']",
     message:
-      'Render dates through web/src/time/tenantTime.ts (rule 6). For a number, use Intl.NumberFormat("en-ZA").format(n). It gives the same output, and lint cannot tell the receivers apart.',
+      "Render dates through web/src/time/tenantTime.ts (rule 6) and group numbers through groupThousands (web/src/format/groupThousands.ts, U55). Lint cannot tell the receivers apart.",
   },
 ];
 
@@ -55,13 +55,26 @@ const intlDateTimeFormatBan = {
 
 // `const { DateTimeFormat } = Intl` (or aliasing Intl itself) reaches the
 // same browser-zone formatter without ever writing the member expression
-// the ban above matches. Intl.NumberFormat is unaffected: call it through
-// the global, not through an alias.
+// the ban above matches. The other Intl formatters are reached through the
+// global, never an alias.
 const intlAliasBan = {
   selector: "VariableDeclarator[init.name='Intl']",
   message:
     "Do not alias or destructure Intl. It reaches DateTimeFormat around the rule 6 ban. Reach the other Intl formatters through the global; dates go through web/src/time/tenantTime.ts.",
 };
+
+// U55: every displayed number groups with a comma, written once in
+// web/src/format/groupThousands.ts. Intl.NumberFormat("en-ZA") groups with a
+// no-break space and would put a second convention beside money's.
+const intlNumberFormatBan = {
+  selector: "MemberExpression[object.name='Intl'][property.name='NumberFormat']",
+  message:
+    "Group a displayed number through groupThousands (web/src/format/groupThousands.ts). A comma everywhere, as money does (U55).",
+};
+
+// Every no-restricted-syntax block derives from this one list, because a
+// block's array replaces the main block's rather than adding to it.
+const appBans = [...toLocaleBans, intlDateTimeFormatBan, intlAliasBan, intlNumberFormatBan];
 
 export default tseslint.config(
   { ignores: ["dist", "node_modules", "coverage"] },
@@ -92,19 +105,19 @@ export default tseslint.config(
       // The house rule from CLAUDE.md: "if you reach for `any`, the type is
       // wrong", with the same weight as a compile error, not a warning.
       "@typescript-eslint/no-explicit-any": "error",
-      "no-restricted-syntax": ["error", ...toLocaleBans, intlDateTimeFormatBan, intlAliasBan],
+      "no-restricted-syntax": ["error", ...appBans],
       // Rule 2's web half (spec U31): see web/lint/moneyStaysString.js.
       "house/money-stays-string": "error",
     },
   },
   // web/src/time/tenantTime.ts is the one legitimate home the bans above
   // point to (rule 6, TYRE-89). Only the Intl.DateTimeFormat construction it
-  // needs is exempted; toLocale* and the Intl-alias ban still hold here
-  // (TYRE-95).
+  // needs is exempted; toLocale*, the Intl-alias ban and the number-format
+  // ban still hold here (TYRE-95, U55).
   {
     files: ["src/time/**/*.{ts,tsx}"],
     rules: {
-      "no-restricted-syntax": ["error", ...toLocaleBans, intlAliasBan],
+      "no-restricted-syntax": ["error", ...appBans.filter((ban) => ban !== intlDateTimeFormatBan)],
     },
   },
   // Config, tooling and e2e files sit outside the app's tsconfig project, so

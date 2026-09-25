@@ -182,10 +182,7 @@ describe("odometerRejection", () => {
   // server raises TY001 for it. Refusing here saves the driver finding out
   // after the walk-around.
   it("refuses a reading below the last recorded one", () => {
-    // Intl.NumberFormat("en-ZA") groups with a non-breaking space, and a
-    // small-ICU build may group differently again, so match any single
-    // non-digit rather than guessing which separator shipped.
-    expect(odometerRejection(412000, ctx)).toMatch(/412\D?180/);
+    expect(odometerRejection(412000, ctx)).toBe("Lower than the last recorded 412,180 km.");
   });
 
   it("accepts a reading at or above it", () => {
@@ -217,6 +214,10 @@ describe("odometerWarnings", () => {
     expect(codes(w)).toEqual(["FR-INS-033"]);
     expect(w[0].requiresConfirmation).toBe(true);
     expect(w[0].enteredValue).toBe("512180");
+    // 100000 km over six days is 16666.7 a day, rounded and grouped (U55).
+    expect(w[0].message).toBe(
+      "That is about 16,667 km a day since the last reading. Check the digits.",
+    );
   });
 
   // Boundary: FR-INS-033 exactly at the ceiling (6 days * 1600km/day = 9600km

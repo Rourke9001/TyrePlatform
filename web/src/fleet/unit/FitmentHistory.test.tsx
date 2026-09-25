@@ -38,8 +38,8 @@ describe("a unit's fitment history", () => {
       }),
     ]);
 
-    expect(within(rowFor("TY001")).getByText("12000 km (Measured)")).toBeTruthy();
-    expect(within(rowFor("TY002")).getByText("9000 km (Inferred)")).toBeTruthy();
+    expect(within(rowFor("TY001")).getByText("12,000 km (Measured)")).toBeTruthy();
+    expect(within(rowFor("TY002")).getByText("9,000 km (Inferred)")).toBeTruthy();
   });
 
   it("says a distance is unavailable rather than printing a number it does not have", () => {
