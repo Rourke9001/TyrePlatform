@@ -28,6 +28,21 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-25 — vitest stubs every CSS import to `""`, `?raw` included, unless `test.css.include` matches (TYRE-276)
+
+**What happened:** `brandConfinement.test.ts` reads the app's stylesheets as
+text with `import.meta.glob(..., { query: "?raw" })` to check which
+selectors read a brand custom property. Before `vite.config.ts`'s `test`
+block carried a `css.include` pattern, the glob found all eight sheets but
+every one came back as an empty string, so the test failed on
+`expected [] to include '.shell-wordmark'` rather than on the CSS content.
+
+**The rule:** a test that reads a stylesheet as text needs a guard
+assertion that it saw a known selector, not just that the glob returned
+files. Without that guard, a config gap that stubs every sheet to `""`
+passes silently, because an empty haystack also satisfies "found no
+offenders".
+
 ## 2026-09-24 - `gate-not-piped.sh` refuses a `go test -run 'A|B'` because the `|` is inside a quoted regex (TYRE-303)
 
 **What happened:** a lane fixing the refusal registry gate ran

@@ -44,7 +44,7 @@
 }
 
 .btn-quiet {
-  color: var(--primary);
+  color: var(--interactive);
   background: transparent;
 }
 .btn-quiet:hover:not(:disabled, [aria-disabled="true"]) {
@@ -312,7 +312,7 @@
   margin-top: var(--space-2);
   font-size: var(--text-small);
   font-weight: 600;
-  color: var(--primary);
+  color: var(--interactive);
 }
 
 /* -------------------------------------------------------- provenance */
@@ -573,7 +573,7 @@
 }
 
 .band-chart-bar:focus-visible {
-  outline: 3px solid var(--primary);
+  outline: 3px solid var(--interactive);
   outline-offset: 2px;
 }
 
@@ -633,7 +633,7 @@
    44px floor. */
 .band-chart-table summary {
   cursor: pointer;
-  color: var(--primary);
+  color: var(--interactive);
   font-weight: 600;
   min-height: var(--target-min);
   display: flex;
@@ -719,7 +719,7 @@
    option a keyboard is on (WCAG 1.4.11, 3:1). */
 .select-item[data-highlighted] {
   background: var(--surface-sunken);
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--interactive);
   outline-offset: -2px;
 }
 
@@ -729,7 +729,7 @@
 
 .select-indicator {
   font-family: var(--font-mono);
-  color: var(--primary);
+  color: var(--interactive);
 }
 
 /* ------------------------------------------------------------ dialog */

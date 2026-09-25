@@ -129,3 +129,11 @@ until a ticket asks for one; the tokens are shaped for it but empty.
 the bundle gate cannot hold the capture route flat without contortion; when
 a second chart form (time series) is needed and the SVG cost exceeds a
 library's; or when a tenant asks for dark mode.
+
+**Amended 2026-09-25 (TYRE-276, U53):** the tenant's one colour now
+reaches chrome and filled controls only. Links, quiet buttons and every
+focus ring use the fixed `--interactive` token, because `deriveBrandTheme`
+guarantees text on the brand, not the brand as text or as a ring: a light
+brand falls to 1.6:1 on the surface, and a red one reads as a CRITICAL
+severity. `src/theme/brandConfinement.test.ts` keeps the brand out of
+page content.

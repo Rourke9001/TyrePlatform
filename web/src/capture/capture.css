@@ -116,7 +116,7 @@
    that) or base.css's global :focus-visible outline, so the two rings
    never fight over the same property. */
 .cap-pos.is-active {
-  box-shadow: 0 0 0 3px var(--primary);
+  box-shadow: 0 0 0 3px var(--interactive);
 }
 
 /* TYRE-155: settled, not flagged. The strike-through is the words-not-colour
@@ -281,11 +281,12 @@
 
 /* "This is the field the keypad is about to fill." Ring shape matches
    .cap-pos.is-active; the border thickening is a second, non-colour cue
-   that survives a black-and-white screenshot (NFR-USE-009). */
+   that survives a black-and-white screenshot (NFR-USE-009). U77: the ring
+   follows U53's fixed colour, not the tenant's brand. */
 .cap-fld.is-on {
   border-width: 3px;
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 25%, transparent);
+  border-color: var(--interactive);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive) 25%, transparent);
 }
 
 .cap-fld-k {

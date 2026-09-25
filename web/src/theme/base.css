@@ -30,7 +30,15 @@ body {
   }
 }
 
+/* U53: every focus ring is the fixed platform colour, 3:1 on either surface
+   whatever the tenant's brand (tokens.test.ts). */
 :focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 2px solid var(--interactive);
   outline-offset: 2px;
+}
+
+/* U53: a link reads in the fixed platform colour, never the browser's blue
+   or the tenant's brand. A classed anchor sets its own colour and wins. */
+a {
+  color: var(--interactive);
 }

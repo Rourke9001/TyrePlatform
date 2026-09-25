@@ -6,6 +6,7 @@ import {
   palette,
   provenanceColor,
   severityColor,
+  statusColor,
   treadBandRamp,
   treadBandStep,
 } from "./tokens";
@@ -58,5 +59,26 @@ describe("cssVars", () => {
     expect(vars["--target-min"]).toBe("2.75rem");
     expect(vars["--radius-pill"]).toBe("999px");
     expect(vars["--elevation-overlay"]).toBeDefined();
+    expect(vars).toHaveProperty("--interactive", palette.interactive);
+  });
+});
+
+// U53 (TYRE-276): links, quiet buttons and focus rings use one fixed colour,
+// so it is checked here once instead of per tenant. Text needs 4.5:1 and a
+// focus indicator 3:1, so text is the binding floor on both surfaces the
+// token is drawn on (a quiet button's hover and a highlighted option sit on
+// the sunken one).
+describe("the interactive colour", () => {
+  it("clears 4.5:1 on the surface and on the sunken surface", () => {
+    expect(contrastRatio(palette.interactive, palette.surface)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(palette.interactive, palette.surfaceSunken)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("never follows the tenant's brand and never repeats an alarm hue", () => {
+    for (const brand of ["#E2202A", "#c0361c", "#F2C744", "#7A2E8D", "#1F7A5A", palette.brand]) {
+      expect(cssVars(deriveBrandTheme(brand))).toHaveProperty("--interactive", palette.interactive);
+    }
+    const alarms: string[] = [...Object.values(severityColor), ...Object.values(statusColor)];
+    expect(alarms.map((hex) => hex.toLowerCase())).not.toContain(palette.interactive.toLowerCase());
   });
 });
