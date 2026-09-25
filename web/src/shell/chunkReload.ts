@@ -4,8 +4,8 @@
 // preload and a failed base import(), cancelable, so one listener covers
 // both. React.lazy caches the rejection and the failed component then
 // throws during render, unmounting the whole root; a reload against a fresh
-// deploy is the recovery. TYRE-280 owns what renders while the guard window
-// (below) is open and the throw reaches React instead.
+// deploy is the recovery. While the guard window (below) is open, the throw
+// reaches React and RouteErrorBoundary renders the retry (TYRE-280).
 const PRELOAD_ERROR_EVENT = "vite:preloadError";
 const STAMP_KEY = "chunkReloadAt";
 
@@ -31,7 +31,7 @@ export function installChunkReload(deps: Partial<ChunkReloadDeps> = {}): () => v
     // reading window.sessionStorage: all cookies blocked, a sandboxed
     // iframe) means no guard is possible; reloading without one risks
     // looping on a chunk that never becomes reachable, so this leaves the
-    // error to reach React instead (TYRE-280).
+    // error to reach RouteErrorBoundary instead (TYRE-280).
     let storage: Pick<Storage, "getItem" | "setItem">;
     let lastReloadAt: number | null;
     try {
@@ -58,7 +58,7 @@ export function installChunkReload(deps: Partial<ChunkReloadDeps> = {}): () => v
   // Never preventDefault: with it, Vite's preload helper resolves the
   // import to undefined and routes.tsx's .then((m) => ({ default: m.X }))
   // throws a TypeError anyway, so the error reaches React on both paths.
-  // The page may blank until the reload lands; TYRE-280 owns what renders.
+  // RouteErrorBoundary renders the retry until the reload lands (TYRE-280).
   window.addEventListener(PRELOAD_ERROR_EVENT, handlePreloadError);
   return () => window.removeEventListener(PRELOAD_ERROR_EVENT, handlePreloadError);
 }

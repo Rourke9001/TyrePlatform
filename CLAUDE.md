@@ -101,7 +101,9 @@ acceptance gate rests on there being exactly one implementation.
 - `context.Context` is the first parameter, always.
 
 **TypeScript / React**
-- Function components, hooks. No class components.
+- Function components, hooks. No class components, with one named
+  exception: `web/src/shell/RouteErrorBoundary.tsx`, because React catches
+  a render error only in a class (U54). eslint refuses any other.
 - `strict: true`. No `any` — if you reach for it, the type is wrong.
   `@typescript-eslint/no-explicit-any` is an error, not a warning.
 - Tanstack Query for server state, plain `useState`/`useReducer` for local.

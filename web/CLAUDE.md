@@ -46,6 +46,14 @@ Online-first with a durable submit outbox — not an offline sync engine.
 - Each inspection carries a client-generated UUID; the server treats
   submission as idempotent, so replaying the outbox is safe.
 - Photos queue separately from readings.
+- A render error on any route, capture included, leaves the shell and the
+  outbox indicator mounted and offers "Try again" (`RouteErrorBoundary`,
+  U54). On the driver's static routes (capture and `/my`) that remounts in
+  place, with no network, and on capture `useDraftLifecycle` restores every
+  entry already written to the draft; it loses the keystroke whose render threw and review text not
+  yet submitted, and after a "degraded" storage fault nothing later was
+  written to lose. Elsewhere it reloads the page, because a lazy route
+  caches a failed import.
 
 ## Browser tests (e2e/)
 
@@ -79,7 +87,8 @@ the next copy edit.
 
 ## Conventions
 
-- Function components and hooks. `strict: true`. No `any`.
+- Function components and hooks, except `src/shell/RouteErrorBoundary.tsx`,
+  the one class (U54). `strict: true`. No `any`.
 - Tanstack Query for server state; `useState`/`useReducer` for local. No Redux.
 - Money arrives from the API as a **string**. Keep it a string. Format for
   display, never `Number()` it — JavaScript has no decimal type and this is the
