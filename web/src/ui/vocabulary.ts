@@ -6,8 +6,14 @@
 
 import { groupThousands } from "../format/groupThousands";
 
+// groupThousands takes an integer's digits, so a count or percentage is
+// made whole first, rounding half away from zero as Intl.NumberFormat did.
+function wholeDigits(n: number): string {
+  return String(Math.sign(n) * Math.round(Math.abs(n)));
+}
+
 export function formatCount(n: number): string {
-  return groupThousands(String(n));
+  return groupThousands(wholeDigits(n));
 }
 
 // en-ZA's decimal separator is a comma in current ICU (Intl.NumberFormat
@@ -22,7 +28,7 @@ export function formatMm(n: number): string {
 // A percentage on the wire is a SQL column (pctOfGroup, pctOfClassified);
 // this rounds for display and never computes one.
 export function formatPct(n: number): string {
-  return `${groupThousands(String(Math.round(n)))}%`;
+  return `${groupThousands(wholeDigits(n))}%`;
 }
 
 const SEVERITY_LABELS: Record<string, string> = {

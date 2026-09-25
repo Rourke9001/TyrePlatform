@@ -5,7 +5,7 @@
 // digits it produced itself; this is a free-text field a manager types
 // into.
 export const ODOMETER_REFUSAL =
-  "Enter the odometer in whole kilometres, digits only, no spaces, decimal point or units.";
+  "Enter the odometer in whole kilometres, digits only, no spaces, commas, decimal point or units.";
 
 // FR-FIT-002: a unit with an odometer needs the reading on every fitment
 // write, or 000025's trigger refuses the whole write. readOdometer("")

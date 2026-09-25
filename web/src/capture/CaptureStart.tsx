@@ -154,7 +154,7 @@ export function CaptureStart({
               digits from a dial in the sun has nothing to check their place
               against ungrouped. */}
           <p className={`cap-odo${value === null ? " is-empty" : ""}`} aria-live="polite">
-            {shown === "" ? "000,000" : groupThousands(shown)}
+            {groupThousands(shown === "" ? "000000" : shown)}
             <span className="cap-odo-unit">km</span>
           </p>
           <p className="cap-hint">

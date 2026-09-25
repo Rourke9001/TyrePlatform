@@ -88,6 +88,14 @@ describe("formatCount, formatMm and formatPct", () => {
     expect(formatPct(44.44)).toBe("44%");
     expect(formatPct(100)).toBe("100%");
   });
+
+  it("makes a fraction whole before grouping it", () => {
+    expect(formatCount(1234.5678)).toBe("1,235");
+    expect(formatCount(0.1 + 0.2)).toBe("0");
+    expect(formatCount(-0.4)).toBe("0");
+    expect(formatPct(-2.5)).toBe("-3%");
+    expect(formatPct(2.5)).toBe("3%");
+  });
 });
 
 // TYRE-271: every identifier the API can send has words, and none of them

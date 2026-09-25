@@ -489,6 +489,29 @@ describe("a position panel", () => {
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
+  // The refusal above shows the reading grouped (U55), but the field takes
+  // digits only, so a manager who copies the grouped form is told why.
+  it("refuses a comma-grouped removal odometer and names the comma", async () => {
+    stubFetch();
+    const user = userEvent.setup();
+    renderPanel(
+      unitPosition({
+        id: "p2",
+        code: "POS2",
+        fitment: openFitment({ fitmentId: "f4", fittedOdometer: 100000 }),
+      }),
+      { hasOdometer: true, removalReasons: ["Worn out"] },
+    );
+
+    await user.selectOptions(await screen.findByRole("combobox", { name: "Reason" }), "Worn out");
+    await user.type(screen.getByRole("textbox", { name: "Tread (mm)" }), "4.5");
+    await user.type(screen.getByRole("textbox", { name: "Odometer" }), "100,500");
+    await user.click(screen.getByRole("button", { name: "Remove tyre" }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("commas");
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
+  });
+
   // NFR-USE-012: a controller looks for TY2 where TY2 belongs, and the read
   // arrives in received-date order.
   it("offers the stock in natural code order, not the order the register returned", async () => {

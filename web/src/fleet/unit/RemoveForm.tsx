@@ -7,7 +7,7 @@ import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
 import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
-import { groupThousands } from "../../format/groupThousands";
+import { formatCount } from "../../ui/vocabulary";
 
 const REMOVE_WORDING = {
   speakable: ["TY009", "TY012", "TY014"],
@@ -20,7 +20,7 @@ const REMOVE_WORDING = {
 // smaller one as a 23514 the API can only report as a generic
 // invalid_submission. Refusing here instead names the reading to beat.
 function belowFittedOdometer(fitted: number): string {
-  return `The odometer cannot be below ${groupThousands(String(fitted))}, the reading this tyre was fitted at.`;
+  return `The odometer cannot be below ${formatCount(fitted)}, the reading this tyre was fitted at.`;
 }
 
 // The occupied-position form. Rendered only while position.fitment is not
