@@ -72,9 +72,24 @@ const intlNumberFormatBan = {
     "Group a displayed number through groupThousands (web/src/format/groupThousands.ts). A comma everywhere, as money does (U55).",
 };
 
+// U54: function components only, with one named exception, the route error
+// boundary, since React catches a render error only in a class.
+const classComponentBan = {
+  selector:
+    "ClassDeclaration[superClass.name=/^(Pure)?Component$/], ClassDeclaration[superClass.property.name=/^(Pure)?Component$/], ClassExpression[superClass.name=/^(Pure)?Component$/], ClassExpression[superClass.property.name=/^(Pure)?Component$/]",
+  message:
+    "Function components only (CLAUDE.md). The one exception is src/shell/RouteErrorBoundary.tsx (U54).",
+};
+
 // Every no-restricted-syntax block derives from this one list, because a
 // block's array replaces the main block's rather than adding to it.
-const appBans = [...toLocaleBans, intlDateTimeFormatBan, intlAliasBan, intlNumberFormatBan];
+const appBans = [
+  ...toLocaleBans,
+  intlDateTimeFormatBan,
+  intlAliasBan,
+  intlNumberFormatBan,
+  classComponentBan,
+];
 
 export default tseslint.config(
   { ignores: ["dist", "node_modules", "coverage"] },
@@ -118,6 +133,13 @@ export default tseslint.config(
     files: ["src/time/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": ["error", ...appBans.filter((ban) => ban !== intlDateTimeFormatBan)],
+    },
+  },
+  // The one class component (U54); every other ban still holds here.
+  {
+    files: ["src/shell/RouteErrorBoundary.tsx"],
+    rules: {
+      "no-restricted-syntax": ["error", ...appBans.filter((ban) => ban !== classComponentBan)],
     },
   },
   // Config, tooling and e2e files sit outside the app's tsconfig project, so
