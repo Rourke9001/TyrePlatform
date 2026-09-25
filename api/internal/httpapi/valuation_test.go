@@ -226,7 +226,7 @@ func TestEstateRelaysAppendixEToTheCent(t *testing.T) {
 	// Section 18: as at 2026-07-01, 26 of 27 valued, tread R25,096.63. As at
 	// 2026-06-01 no tyre is tread-valued yet, but the AUDIT casing fallback
 	// (000036) carries no date gate, so all 27 casings still value and the
-	// total is the casing side alone (R1, R2, U36).
+	// total is the casing side alone (TYRE-269, U36).
 	body = read("/api/valuation/estate?asAt=2026-07-01")
 	require.Equal(t, "2026-07-01", body.AsAt)
 	july := all(body.Rows, nil)

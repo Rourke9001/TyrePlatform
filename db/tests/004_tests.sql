@@ -9974,7 +9974,7 @@ END $$;
 -- total_value adds each side's known sum (000011). With neither side known
 -- the total is unknown too, and a 0 would render as a figure; 64b and 64c
 -- pin the one-side-known cases in both directions, so a regression that
--- nulls a partial sum fails here too (R2). BAC's baseline has no IN_STOCK
+-- nulls a partial sum fails here too (TYRE-269). BAC's baseline has no IN_STOCK
 -- tyre, so each planted tyre is the whole TENANT/IN_STOCK group. Rolled
 -- back (DR-014a).
 BEGIN;
