@@ -58,7 +58,7 @@ Online-first with a durable submit outbox — not an offline sync engine.
   "degraded" storage fault were never written, so they are not kept; the
   capture screen already reports that state, and the boundary cannot see
   it. Elsewhere "Try again" reloads the page, because a lazy route caches
-  a failed import (ADR-0009).
+  a failed import (TYRE-280).
 
 ## Browser tests (e2e/)
 
