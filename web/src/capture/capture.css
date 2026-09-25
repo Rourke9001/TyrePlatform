@@ -281,8 +281,9 @@
 
 /* "This is the field the keypad is about to fill." Ring shape matches
    .cap-pos.is-active; the border thickening is a second, non-colour cue
-   that survives a black-and-white screenshot (NFR-USE-009). U77: the ring
-   follows U53's fixed colour, not the tenant's brand. */
+   that survives a black-and-white screenshot (NFR-USE-009). U53, U77
+   (TYRE-276): the ring follows U53's fixed colour, not the tenant's
+   brand. */
 .cap-fld.is-on {
   border-width: 3px;
   border-color: var(--interactive);
