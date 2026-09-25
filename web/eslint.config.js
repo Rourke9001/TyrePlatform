@@ -47,28 +47,31 @@ const toLocaleBans = [
 
 // MemberExpression, not NewExpression: ECMA-402 makes Intl.DateTimeFormat
 // callable without `new`, and either form formats in the browser's zone
-// without touching toLocale* at all (rule 6, TYRE-95).
+// without touching toLocale* at all (rule 6, TYRE-95). The second selector
+// is globalThis.Intl or window.Intl.
 const intlDateTimeFormatBan = {
-  selector: "MemberExpression[object.name='Intl'][property.name='DateTimeFormat']",
+  selector:
+    "MemberExpression[object.name='Intl'][property.name='DateTimeFormat'], MemberExpression[object.property.name='Intl'][property.name='DateTimeFormat']",
   message:
     "Render dates through formatTenantDate/useTenantDate (web/src/time/tenantTime.ts). The browser's zone is not the tenant's (rule 6).",
 };
 
-// `const { DateTimeFormat } = Intl` (or aliasing Intl itself) reaches the
-// same browser-zone formatter without ever writing the member expression
-// the ban above matches. The other Intl formatters are reached through the
-// global, never an alias.
+// `const { DateTimeFormat } = Intl` (or aliasing Intl itself) reaches a
+// banned formatter without ever writing the member expression its ban
+// matches.
 const intlAliasBan = {
   selector: "VariableDeclarator[init.name='Intl']",
   message:
-    "Do not alias or destructure Intl. It reaches DateTimeFormat around the rule 6 ban. Reach the other Intl formatters through the global; dates go through web/src/time/tenantTime.ts.",
+    "Do not alias or destructure Intl. It reaches DateTimeFormat and NumberFormat around their bans: dates go through web/src/time/tenantTime.ts (rule 6), numbers through groupThousands (web/src/format/groupThousands.ts, U55).",
 };
 
 // U55: every displayed number groups with a comma, written once in
 // web/src/format/groupThousands.ts. Intl.NumberFormat("en-ZA") groups with a
-// no-break space and would put a second convention beside money's.
+// no-break space and would put a second convention beside money's. The
+// second selector is globalThis.Intl or window.Intl.
 const intlNumberFormatBan = {
-  selector: "MemberExpression[object.name='Intl'][property.name='NumberFormat']",
+  selector:
+    "MemberExpression[object.name='Intl'][property.name='NumberFormat'], MemberExpression[object.property.name='Intl'][property.name='NumberFormat']",
   message:
     "Group a displayed number through groupThousands (web/src/format/groupThousands.ts). A comma everywhere, as money does (U55).",
 };
