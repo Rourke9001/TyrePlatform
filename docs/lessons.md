@@ -28,6 +28,19 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-25 — A focused Go test run after `make e2e` fails the Appendix E pins on a mutated seed (TYRE-269)
+
+**What happened:** during the PR #81 review fixes, a focused `go test -run
+"TestEstate|TestValuation|TestDashboard"` failed `TestEstateRelaysAppendixEToTheCent`
+and `TestDashboardRelaysEveryPinnedFigure`, which read as a valuation
+regression. The last thing to touch the database was an earlier `make e2e`,
+whose capture spec submits into the seed. After `make db-reset` the same
+tests passed unchanged.
+
+**The rule:** before a focused Go or suite run, `make db-reset`. A red pin on
+a database another run has written to says nothing about the change; only
+the reset run counts. `make test` resets first, which is why it is the gate.
+
 ## 2026-09-25 — vitest stubs every CSS import to `""`, `?raw` included, unless `test.css.include` matches (TYRE-276)
 
 **What happened:** `brandConfinement.test.ts` reads the app's stylesheets as
@@ -70,7 +83,10 @@ tree passed 702/702 once memory was free.
 **The rule:** when vitest fails with worker exits and no assertion failure,
 read it as the host, not the code. Do not debug it and do not re-run it
 while memory is short. Re-run the whole `make check` when the machine is
-quiet, and quote that run as the gate.
+quiet, and quote that run as the gate. It recurred on 25 Sep (PR #81): a
+backgrounded `make check` was reaped while the session sat idle. Run it in
+the foreground in two halves, `make fmt lint` then `make test`, each inside
+the tool's 10-minute limit, so an idle session never holds it.
 
 ## 2026-09-23 — `npm ci` beside a running dev server deletes `node_modules` and then stops (TYRE-143)
 
