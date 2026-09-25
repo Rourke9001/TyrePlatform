@@ -4,13 +4,10 @@
 // throwing, and no page or component spells one of these strings itself
 // (U48).
 
-// The eslint ban is on toLocaleString and Intl.DateTimeFormat; a number
-// formatter through the global is the sanctioned path (eslint.config.js).
-const countFormat = new Intl.NumberFormat("en-ZA");
-const pctFormat = new Intl.NumberFormat("en-ZA", { maximumFractionDigits: 0 });
+import { groupThousands } from "../format/groupThousands";
 
 export function formatCount(n: number): string {
-  return countFormat.format(n);
+  return groupThousands(String(n));
 }
 
 // en-ZA's decimal separator is a comma in current ICU (Intl.NumberFormat
@@ -25,7 +22,7 @@ export function formatMm(n: number): string {
 // A percentage on the wire is a SQL column (pctOfGroup, pctOfClassified);
 // this rounds for display and never computes one.
 export function formatPct(n: number): string {
-  return `${pctFormat.format(n)}%`;
+  return `${groupThousands(String(Math.round(n)))}%`;
 }
 
 const SEVERITY_LABELS: Record<string, string> = {
