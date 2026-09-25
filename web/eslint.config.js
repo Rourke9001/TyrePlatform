@@ -77,7 +77,7 @@ const intlNumberFormatBan = {
 // boundary, since React catches a render error only in a class.
 const classComponentBan = {
   selector:
-    "ClassDeclaration[superClass.name=/^(Pure)?Component$/], ClassDeclaration[superClass.property.name=/^(Pure)?Component$/], ClassExpression[superClass.name=/^(Pure)?Component$/], ClassExpression[superClass.property.name=/^(Pure)?Component$/], ImportSpecifier[imported.name=/^(Pure)?Component$/]",
+    "ClassDeclaration[superClass.name=/^(Pure)?Component$/], ClassDeclaration[superClass.property.name=/^(Pure)?Component$/], ClassExpression[superClass.name=/^(Pure)?Component$/], ClassExpression[superClass.property.name=/^(Pure)?Component$/], ImportDeclaration[importKind!='type'] > ImportSpecifier[importKind!='type'][imported.name=/^(Pure)?Component$/]",
   message:
     "Function components only (CLAUDE.md). The one exception is src/shell/RouteErrorBoundary.tsx (U54).",
 };
