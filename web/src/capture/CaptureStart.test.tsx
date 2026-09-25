@@ -70,9 +70,9 @@ describe("CaptureStart's odometer", () => {
     renderStart(vi.fn());
     // Scoped to the readout: the confirm control names the same number, and
     // that it does is asserted separately below.
-    expect(screen.getByText(/416 180/, { selector: "p" })).toBeInTheDocument();
+    expect(screen.getByText(/416,180/, { selector: "p" })).toBeInTheDocument();
     // Still on screen, because checking the dash against it is the point.
-    expect(screen.getByText(/412 180 km/)).toBeInTheDocument();
+    expect(screen.getByText(/412,180 km/)).toBeInTheDocument();
   });
 
   // "CONFIRMED values are recorded to the odometer timeline": an untouched
@@ -98,7 +98,7 @@ describe("CaptureStart's odometer", () => {
     renderStart(onStart);
     const user = setup();
 
-    await user.click(screen.getByRole("button", { name: /confirm 416 180 km/i }));
+    await user.click(screen.getByRole("button", { name: /confirm 416,180 km/i }));
     await user.click(screen.getByRole("button", { name: /start inspection/i }));
 
     expect(onStart.mock.calls[0][0].odometerKm).toBe(416180);
@@ -130,7 +130,7 @@ describe("CaptureStart's odometer", () => {
   // the last reading, which is the value that must never arrive pre-filled.
   it("starts empty when the unit has no rate to project at", () => {
     renderStart(vi.fn(), { averageDailyKm: null });
-    expect(screen.getByText(/000 000/)).toBeInTheDocument();
+    expect(screen.getByText(/000,000/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /confirm/i })).toBeNull();
   });
 
@@ -149,8 +149,8 @@ describe("CaptureStart's odometer", () => {
   // all, and distance is never apportioned to a towed unit (FR-INS-064).
   it("asks a trailer for nothing", () => {
     renderStart(vi.fn(), { unitKind: "TRAILER" });
-    expect(screen.queryByText(/000 000/)).toBeNull();
-    expect(screen.queryByText(/416 180/)).toBeNull();
+    expect(screen.queryByText(/000,000/)).toBeNull();
+    expect(screen.queryByText(/416,180/)).toBeNull();
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
   });
 });

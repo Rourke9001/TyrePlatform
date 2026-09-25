@@ -485,7 +485,7 @@ describe("a position panel", () => {
     await user.type(screen.getByRole("textbox", { name: "Odometer" }), "99999");
     await user.click(screen.getByRole("button", { name: "Remove tyre" }));
 
-    expect((await screen.findByRole("alert")).textContent).toContain("100000");
+    expect((await screen.findByRole("alert")).textContent).toContain("100,000");
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 

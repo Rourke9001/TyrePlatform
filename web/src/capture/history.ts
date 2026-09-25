@@ -1,6 +1,7 @@
 import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { PositionEntry, Warning } from "./warnings";
 import { governingTread } from "./warnings";
+import { groupThousands } from "../format/groupThousands";
 
 // The same figure app.wear_rate_mm_per_month uses to convert days to
 // months: a unit conversion, not a threshold, but it must match the
@@ -74,7 +75,7 @@ export function projectedOdometerKm(ctx: CaptureContext, now: Date): number | nu
 export function odometerRejection(odometerKm: number | null, ctx: CaptureContext): string | null {
   if (odometerKm === null || ctx.lastOdometerKm === null) return null;
   if (odometerKm >= ctx.lastOdometerKm) return null;
-  return `Lower than the last recorded ${Intl.NumberFormat("en-ZA").format(ctx.lastOdometerKm)} km.`;
+  return `Lower than the last recorded ${groupThousands(String(ctx.lastOdometerKm))} km.`;
 }
 
 // FR-INS-033's confirmation governs capture only; DR-020 governs the
@@ -96,7 +97,7 @@ export function odometerWarnings(
     {
       code: "FR-INS-033",
       requiresConfirmation: true,
-      message: `That is about ${Intl.NumberFormat("en-ZA").format(Math.round(perDay))} km a day since the last reading. Check the digits.`,
+      message: `That is about ${groupThousands(String(Math.round(perDay)))} km a day since the last reading. Check the digits.`,
       enteredValue: String(odometerKm),
     },
   ];
