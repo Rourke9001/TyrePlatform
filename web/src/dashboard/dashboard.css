@@ -95,7 +95,7 @@
    offset outline, stronger than base.css's 2px default. */
 .shell-nav a:focus-visible,
 .shell-main :focus-visible {
-  outline: 3px solid var(--primary);
+  outline: 3px solid var(--interactive);
   outline-offset: 2px;
 }
 

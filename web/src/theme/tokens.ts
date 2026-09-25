@@ -13,6 +13,10 @@ export const palette = {
   // "Convoy" petrol blue: the platform's own brand, used until a tenant
   // configures one (same default the API serves, TYRE-26).
   brand: "#14586e",
+  // U53: links, quiet buttons and every focus ring use this fixed platform
+  // colour, never the tenant's, so a red brand's link cannot read as
+  // CRITICAL and a light brand cannot fall under 4.5:1 as text.
+  interactive: "#14586e",
 } as const;
 
 // The capture app's per-reading status scale, keyed by state name and
@@ -141,6 +145,7 @@ export function cssVars(brand: BrandTheme): Record<string, string> {
     "--surface": palette.surface,
     "--surface-sunken": palette.surfaceSunken,
     "--line": palette.line,
+    "--interactive": palette.interactive,
     "--primary": brand.primary,
     "--primary-hover": brand.primaryHover,
     "--primary-pressed": brand.primaryPressed,

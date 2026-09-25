@@ -28,6 +28,9 @@ export default defineConfig({
     // to the node environment, which has no document.
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // brandConfinement.test.ts reads the stylesheets as text (U53); vitest
+    // stubs a CSS import to "" unless it is listed here, ?raw included.
+    css: { include: [/\.css\?raw$/] },
     // e2e/ belongs to Playwright, whose specs need a live stack; vitest
     // matching *.spec.ts would try to run them in jsdom and fail on import.
     exclude: [...configDefaults.exclude, "e2e/**"],
