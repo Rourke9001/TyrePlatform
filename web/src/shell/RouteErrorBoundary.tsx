@@ -69,7 +69,9 @@ export function RouteErrorBoundary({
   const { key, pathname } = useLocation();
   const onCapture = pathname.startsWith("/capture/");
   // CaptureFlow and DriverHome are the static routes (routes.tsx).
-  const inPlace = onCapture || pathname === "/my";
+  // react-router matches "/my/" to the same route as "/my", so the
+  // trailing slash is stripped before the comparison.
+  const inPlace = onCapture || pathname.replace(/\/+$/, "") === "/my";
   return (
     <Boundary resetKey={key} onCapture={onCapture} inPlace={inPlace} reload={reload}>
       {children}

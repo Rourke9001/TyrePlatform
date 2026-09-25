@@ -125,13 +125,12 @@ describe("RouteErrorBoundary (U54)", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  // The driver's routes are static in the entry chunk, so a remount re-runs
-  // them and capture restores its draft from IndexedDB; a reload without
-  // signal would land on the browser's offline page (ADR-0009, no service
-  // worker).
+  // The in-place arm, for the driver's static routes (RouteErrorBoundary's
+  // retry, U54).
   it.each([
     ["/capture/v-1", "/capture/:vehicleId"],
     ["/my", "/my"],
+    ["/my/", "/my"],
   ])("tries again in place on %s, without a reload", async (path, pattern) => {
     pageBroken = true;
     const { reload } = renderAt(path, <Route path={pattern} element={<FlakyPage />} />);
