@@ -1,5 +1,5 @@
 import { Component, type ReactNode } from "react";
-import { useLocation } from "react-router";
+import { useLocation, useMatch } from "react-router";
 
 interface BoundaryProps {
   resetKey: string;
@@ -35,11 +35,10 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
   }
 
   // The driver's routes are static in the entry chunk, so clearing the error
-  // remounts them and useDraftLifecycle restores the draft with no network. A
-  // reload there would strand a driver without signal on the browser's
-  // offline page, since there is no service worker (ADR-0009). Everywhere
-  // else a lazy route caches its rejected import, so only a reload helps
-  // (TYRE-280).
+  // remounts them in place: a reload would strand a driver without signal on
+  // the browser's offline page, since there is no service worker (ADR-0009).
+  // Every other route is lazy, and React caches a rejected import, so only a
+  // reload helps there (TYRE-280).
   private readonly retry = (): void => {
     if (this.props.inPlace) this.setState({ failed: false });
     else this.props.reload();
@@ -66,12 +65,12 @@ export function RouteErrorBoundary({
   children: ReactNode;
   reload?: () => void;
 }) {
-  const { key, pathname } = useLocation();
-  const onCapture = pathname.startsWith("/capture/");
-  // CaptureFlow and DriverHome are the static routes (routes.tsx).
-  // react-router matches "/my/" to the same route as "/my", so the
-  // trailing slash is stripped before the comparison.
-  const inPlace = onCapture || pathname.replace(/\/+$/, "") === "/my";
+  const { key } = useLocation();
+  // routes.tsx's patterns for CaptureFlow and DriverHome, matched the way the
+  // router matches them: case, a trailing slash and percent-encoding included.
+  const onCapture = useMatch("/capture/:vehicleId") !== null;
+  const onDriverHome = useMatch("/my") !== null;
+  const inPlace = onCapture || onDriverHome;
   return (
     <Boundary resetKey={key} onCapture={onCapture} inPlace={inPlace} reload={reload}>
       {children}

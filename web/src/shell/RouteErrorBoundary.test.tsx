@@ -116,9 +116,9 @@ describe("RouteErrorBoundary (U54)", () => {
     await expectShellMounted();
   });
 
-  // React.lazy caches the rejection, so off the capture route the retry is a
+  // React.lazy caches the rejection, so on a lazy route the retry is a
   // reload, never a re-render.
-  it("reloads the page from its button off the capture route", async () => {
+  it("reloads the page from its button off the driver's routes", async () => {
     const { reload } = renderAt("/fleet", <Route path="/fleet" element={<Boom />} />);
 
     await userEvent.click(await screen.findByRole("button", { name: "Try again" }));
@@ -131,6 +131,9 @@ describe("RouteErrorBoundary (U54)", () => {
     ["/capture/v-1", "/capture/:vehicleId"],
     ["/my", "/my"],
     ["/my/", "/my"],
+    ["/MY", "/my"],
+    ["/Capture/v-1", "/capture/:vehicleId"],
+    ["/%6Dy", "/my"],
   ])("tries again in place on %s, without a reload", async (path, pattern) => {
     pageBroken = true;
     const { reload } = renderAt(path, <Route path={pattern} element={<FlakyPage />} />);
