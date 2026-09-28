@@ -10039,5 +10039,33 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 65. The governing-tread definer chain names its tenant in every lookup (TYRE-259, rule 1)'
+-- refresh_governing_tread runs as its definer and the snapshot reconcile
+-- runs inside it, so RLS adds no tenant column to either plan and a lookup
+-- without one reads every tenant's history on each measurement written. No
+-- result on the fixture moves with the predicates, so the pin is on the
+-- function text: a rewrite of either function (TYRE-257) has to carry them.
+DO $$
+DECLARE missing text[] := '{}';
+BEGIN
+  IF position('m.tenant_id = row_tenant'
+              IN pg_get_functiondef('app.refresh_governing_tread()'::regprocedure)) = 0 THEN
+    missing := array_append(missing, 'refresh_governing_tread: m.tenant_id = row_tenant');
+  END IF;
+  IF position('r.tenant_id = t.tenant_id'
+              IN pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure)) = 0 THEN
+    missing := array_append(missing, 'tyre_valuation_asof: r.tenant_id = t.tenant_id');
+  END IF;
+  IF position('f.tenant_id = t.tenant_id'
+              IN pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure)) = 0 THEN
+    missing := array_append(missing, 'tyre_valuation_asof: f.tenant_id = t.tenant_id');
+  END IF;
+  IF cardinality(missing) > 0 THEN
+    RAISE EXCEPTION 'FAIL 65: definer-chain lookup(s) without a tenant predicate: %',
+      array_to_string(missing, '; ');
+  END IF;
+  RAISE NOTICE 'PASS  65 the MIN(), the latest-reading lookup and the fitment join each name the tenant';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
