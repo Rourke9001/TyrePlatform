@@ -83,6 +83,13 @@ function that a view is built over carries no pin: the planner inlines
 those and a SET clause blocks the inlining (000036). Check 8d holds both
 halves. Cite this section from a migration; do not restate it.
 
+Everything the definer reaches, including the snapshot reconcile and
+`app.tyre_valuation_asof`, runs with RLS off, so a lookup there must name
+its tenant in the text. Without it the planner cannot use a tenant-leading
+index, and a submit reads every tenant's history once per measurement
+(TYRE-259). Suite section 65 pins the three predicates that exist;
+`app.tyre_in_estate_asof` does not name its tenant yet (TYRE-347).
+
 ## Money
 
 `numeric`, never `real` or `double precision`. `app.tread_value()` and
