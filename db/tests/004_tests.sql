@@ -350,11 +350,11 @@ BEGIN
 END $$;
 
 \echo '== 8c. Routines do not silently bypass RLS (SECURITY DEFINER sweep)'
--- Companion to 8b's blind spot: 8b sweeps relkind='v', but TYRE-33 moved
--- tenant-scoped logic into app.tyre_valuation_asof(), a SECURITY DEFINER
--- routine owned by the migration superuser, so one added by mistake would
--- bypass RLS entirely (FR-TEN-004) and merge green. Each allowlisted
--- routine carries its own tenant backstop, documented at the function.
+-- Companion to 8b's blind spot: 8b sweeps relkind='v', but tenant-scoped
+-- logic also lives in routines (app.tyre_valuation_asof, TYRE-33), and a
+-- SECURITY DEFINER one owned by the migration superuser would bypass RLS
+-- entirely (FR-TEN-004) and merge green. Each allowlisted routine carries
+-- its own tenant backstop, documented at the function.
 DO $$
 DECLARE offenders text;
 BEGIN
@@ -10039,25 +10039,28 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 65. The governing-tread definer chain names its tenant in every lookup (TYRE-259, rule 1)'
+\echo '== 65. The governing-tread definer chain names its tenant in the MIN(), the latest-reading lookup and the fitment join (TYRE-259, rule 1)'
 -- refresh_governing_tread runs as its definer and the snapshot reconcile
 -- runs inside it, so RLS adds no tenant column to either plan and a lookup
 -- without one reads every tenant's history on each measurement written. No
 -- result on the fixture moves with the predicates, so the pin is on the
 -- function text: a rewrite of either function (TYRE-257) has to carry them.
+-- Comments are stripped first, so a predicate kept only in a comment fails.
 DO $$
-DECLARE missing text[] := '{}';
+DECLARE
+  missing text[] := '{}';
+  governs text := regexp_replace(pg_get_functiondef('app.refresh_governing_tread()'::regprocedure),
+                                 '--[^\n]*', '', 'g');
+  register text := regexp_replace(pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure),
+                                  '--[^\n]*', '', 'g');
 BEGIN
-  IF position('m.tenant_id = row_tenant'
-              IN pg_get_functiondef('app.refresh_governing_tread()'::regprocedure)) = 0 THEN
+  IF position('m.tenant_id = row_tenant' IN governs) = 0 THEN
     missing := array_append(missing, 'refresh_governing_tread: m.tenant_id = row_tenant');
   END IF;
-  IF position('r.tenant_id = t.tenant_id'
-              IN pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure)) = 0 THEN
+  IF position('r.tenant_id = t.tenant_id' IN register) = 0 THEN
     missing := array_append(missing, 'tyre_valuation_asof: r.tenant_id = t.tenant_id');
   END IF;
-  IF position('f.tenant_id = t.tenant_id'
-              IN pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure)) = 0 THEN
+  IF position('f.tenant_id = t.tenant_id' IN register) = 0 THEN
     missing := array_append(missing, 'tyre_valuation_asof: f.tenant_id = t.tenant_id');
   END IF;
   IF cardinality(missing) > 0 THEN
