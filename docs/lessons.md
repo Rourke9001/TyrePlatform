@@ -43,10 +43,12 @@ cost more than the one before it. Re-run as `make db-reset` then `make
 db-volume` with nothing in between, the same code loaded in 281 s.
 
 **The rule:** load the volume state only as `make db-reset` immediately
-followed by `make db-volume`, with no suite run or query in between. When a
-load runs long, compare `pg_stat_user_tables.last_autoanalyze` with the
-load's start time, and `EXPLAIN` the suspect lookup under both versions on
-the same state, before blaming the change.
+followed by `make db-volume`, with nothing that writes in between: no suite
+run, Go integration test or `make e2e`, since rolled-back inserts count
+toward autoanalyze too. When a load runs long, compare
+`pg_stat_user_tables.last_autoanalyze` with the load's start time, and
+`EXPLAIN` the suspect lookup under both versions on the same state, before
+blaming the change.
 
 ## 2026-09-25 — A focused Go test run on an unreset database fails the Appendix E pins (TYRE-269)
 
