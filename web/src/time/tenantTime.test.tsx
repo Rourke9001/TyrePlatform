@@ -11,6 +11,7 @@ import {
   INVALID_INSTANT,
   tenantDateFormatter,
   useTenantDate,
+  useTenantInstant,
 } from "./tenantTime";
 
 // A fixed instant in two zones 25 hours apart. Their civil dates can never
@@ -178,5 +179,40 @@ describe("formatTenantInstant", () => {
 
   it("marks an unparseable instant the same way the date formatter does", () => {
     expect(formatTenantInstant("not a date", "Africa/Johannesburg")).toBe("invalid date");
+  });
+});
+
+describe("useTenantInstant", () => {
+  const instant = "2026-09-22T07:10:45.563568Z";
+
+  const driver = me({
+    userId: "u1",
+    displayName: "Driver",
+    role: "driver",
+    capabilities: ["CaptureInspection"],
+  });
+
+  function withActor(actor: Me | null, settled: boolean) {
+    return function Wrapper({ children }: { children: ReactNode }) {
+      return <ActorContext.Provider value={{ actor, settled }}>{children}</ActorContext.Provider>;
+    };
+  }
+
+  it("renders the tenant's zone once the actor arrives", () => {
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(driver, true) });
+    expect(result.current(instant)).toMatch(/^22 Sept? 2026 09:10$/);
+  });
+
+  // Staging 401s everyone until TYRE-2 (TYRE-95): when /api/me has failed
+  // the UTC fallback never lifts, so the instant must say it is provisional
+  // rather than read the time out with full confidence.
+  it("marks the instant provisional once the actor request has errored", () => {
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(null, true) });
+    expect(result.current(instant)).toMatch(/^22 Sept? 2026 07:10 \(UTC\)$/);
+  });
+
+  it("never marks the invalid-instant marker provisional", () => {
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(null, true) });
+    expect(result.current("not-a-date")).toBe(INVALID_INSTANT);
   });
 });
