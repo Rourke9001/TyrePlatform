@@ -64,8 +64,11 @@ Online-first with a durable submit outbox — not an offline sync engine.
 
 `e2e/` holds Playwright specs; vitest never runs them (excluded in
 vite.config.ts) and they never mock — they drive the real dev stack in
-headless browsers. Three projects: `chromium` at a desktop viewport,
-`android` (Pixel 7) and `ios` (iPhone 14, WebKit). The capture app is judged
+headless browsers. Four projects: `bac-readonly` (Desktop Chrome,
+`dashboard.spec.ts` only, the web leg of the three-way agreement, which
+`android` depends on so no BAC write races a BAC read), `chromium` at a
+desktop viewport, `android` (Pixel 7) and `ios` (iPhone 14, WebKit). The
+capture app is judged
 at phone dimensions, so `reach.spec.ts` runs on all three and
 `capture.spec.ts` on `android` alone — FR-INS-038's duplicate window is
 tenant state in one shared database, and the same vehicle submitted from a
@@ -105,10 +108,13 @@ the next copy edit.
   The capture app's per-reading status colours are fixed and keyed to state
   *names*; the dashboard's tread bands take a one-hue ramp keyed to band
   *ordinal* (`treadBandRamp`, `treadBandStep`), since the band count is
-  tenant configuration; the mm thresholds that assign either are tenant
-  configuration and never reach this codebase (rule 5). Fonts are self-hosted @fontsource — no CDN: the capture app must
-  render on a flaky depot connection, and a font fetch is a third-party
-  dependency the driver's flow must never wait on (ADR-0009).
+  tenant configuration; above five bands each fill blends the neighbouring
+  stops (`src/ui/bandFill.ts`, U56), in a lazy module so the capture route
+  does not carry it; the mm thresholds that assign either are tenant
+  configuration and never reach this codebase (rule 5). Fonts are
+  self-hosted @fontsource — no CDN: the capture app must render on a flaky
+  depot connection, and a font fetch is a third-party dependency the
+  driver's flow must never wait on (ADR-0009).
 - Tenant branding (display name, primary colour, nullable logo) is tenant
   configuration in the database (`app.configuration` key `branding`), served
   by `GET /api/org/branding` and applied by `src/theme/ThemeProvider.tsx`,
@@ -161,3 +167,13 @@ before it is reviewed. Rules that are not visible in the code:
 - Inflation band identifiers become words in `vocabulary.ts`
   (`inflationBandLabel`, TYRE-271), relative to the tenant's configured target
   pressure.
+- The dashboard (`src/dashboard/Dashboard.tsx`) is one `GET /api/dashboard`
+  call with `staleTime: Infinity`, no refetch on focus and no retry; the
+  Refresh button is the only refetch (FR-DSH-013). Every figure is a wire
+  field; the page names the clock each one is judged at from `judgedAt`
+  ("as inspected" for exceptions, "today" for the register and value at
+  risk). The spares, exceptions and at-risk lists are their own queries,
+  and every link off a depot view carries the depot. Whether the actor is
+  depot-scoped is `me.scope` from `GET /api/me` (U87), never derived from
+  `role` or from `me.depots`, which lists a user's depot rows whatever
+  their role. The depot filter offers DEPOT and STORE depots only (U85).
