@@ -3,6 +3,11 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 import { actAs } from "./admin";
 import { MELUSI_DRIVER, TENANT_BAC } from "./bac";
 
+// Shared by capture.spec.ts and reach.spec.ts, not copied into each: a second
+// copy would drift from the fixture's driver and its assignments.
+// Seed-derived ids and dev actor headers, per admin.ts; the headers exist
+// only under import.meta.env.DEV, hence vite dev, never a build.
+//
 // TYRE-80's rule is Sandbox-only; BAC is the one documented exception (TYRE-208
 // F5). capture.spec.ts submits into BAC because its driver, their assignment
 // and the superlink live there, not in Sandbox's fixture. Nothing else may
