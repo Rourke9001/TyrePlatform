@@ -56,6 +56,12 @@ describe("the shell's main nav", () => {
     expect(screen.getByRole("link", { name: "Tyres" })).toBeInTheDocument();
   });
 
+  it("offers the dashboard and the exceptions to a fleet viewer", () => {
+    renderShellAt("/", ["ViewFleet"]);
+    expect(screen.getByRole("link", { name: "Dashboard", current: "page" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Exceptions" })).toHaveAttribute("href", "/exceptions");
+  });
+
   // TYRE-242: the switchers must not sit in the header a driver sees first.
   it("keeps the dev switchers out of the header", () => {
     renderShellAt("/my", ["CaptureInspection"]);

@@ -9,6 +9,7 @@ import { ActorProvider } from "./auth/ActorProvider";
 import { AppRoutes, UnitRoute } from "./routes";
 import type { Me } from "./auth/me";
 import {
+  dashboardBody,
   fitmentRow,
   me,
   requestedUrl,
@@ -57,10 +58,37 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("heading", { name: /my inspections/i })).toBeDefined();
   });
 
-  it("lands a ViewFleet holder on the fleet view rather than the driver view", async () => {
-    mockFetchJson(200, []);
+  it("lands a ViewFleet holder on the dashboard rather than the driver view", async () => {
+    // The dashboard page also reads /api/spares and /api/depots, which
+    // expect their own shapes; a one-body mock would hand them the
+    // dashboard body and crash the filters, so this mock answers by path.
+    const mock: Mock<typeof fetch> = vi.fn();
+    mock.mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url.startsWith("/api/dashboard")) return Promise.resolve(respond(200, dashboardBody()));
+      if (url.startsWith("/api/spares")) {
+        return Promise.resolve(
+          respond(200, { scope: dashboardBody().scope, judgedAt: "TENANT_TODAY", spares: [] }),
+        );
+      }
+      return Promise.resolve(respond(200, []));
+    });
+    vi.stubGlobal("fetch", mock);
     renderAt("/", actor(["ViewFleet"]));
-    expect(await screen.findByRole("heading", { name: /units/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeDefined();
+  });
+
+  // D7, ADR-0013 decision 4: a destination refuses out loud.
+  it("refuses /at-risk out loud without ViewValuation", async () => {
+    mockFetchJson(200, []);
+    renderAt("/at-risk", actor(["ViewFleet"]));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission");
+  });
+
+  it("refuses /exceptions out loud without ViewFleet", async () => {
+    mockFetchJson(200, []);
+    renderAt("/exceptions", actor(["CaptureInspection"]));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission");
   });
 
   it("renders a not-found view for an unknown path", () => {
@@ -154,10 +182,10 @@ describe("AppRoutes", () => {
     );
 
     expect(screen.queryByRole("heading", { name: /inspections/i })).toBeNull();
-    expect(screen.queryByRole("heading", { name: /units/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Dashboard" })).toBeNull();
 
     release(new Response(JSON.stringify(controller), { status: 200 }));
-    expect(await screen.findByRole("heading", { name: /units/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeDefined();
   });
 
   it("tells an actor without the capability, rather than blanking the screen", () => {

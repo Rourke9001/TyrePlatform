@@ -9,13 +9,23 @@ const TENANT_BAC = "11111111-1111-1111-1111-111111111111";
 const NOMSA_CONTROLLER = "14fc2c61-398c-3508-084e-d61e615e695e";
 const MELUSI_DRIVER = "b85aef08-6081-80db-9d4d-dad38ae40545";
 
-test("a controller lands on the fleet and sees seeded vehicles", async ({ page }) => {
+test("a controller lands on the dashboard and reaches the units from it", async ({ page }) => {
   await actAs(page, NOMSA_CONTROLLER, TENANT_BAC);
   await page.goto("/");
-  // FR-DSH-001: the landing view follows the role.
+  // FR-DSH-001: the landing view follows the role; the dashboard is it.
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
+  // The API sends asAt with six fractional digits (Go's time.Time); this
+  // project runs on WebKit too, where a Date that refused them would render
+  // the invalid-instant marker (rule 6).
+  const asAt = page.getByText(/^As at /);
+  await expect(asAt).toBeVisible();
+  await expect(asAt).not.toContainText("invalid date");
+  // The dashboard has its own "Units" panel and a "Stale units" tile, so
+  // the click is proved by the URL and the exact h1, not a loose name.
+  await page.getByRole("link", { name: "Units", exact: true }).click();
   await expect(page).toHaveURL(/\/fleet$/);
-  await expect(page.getByRole("heading", { name: "Units" })).toBeVisible();
-  // Seeded fixture fleet numbers (db/seeds/gen_seed_fixture.py).
+  await expect(page.getByRole("heading", { level: 1, name: "Units", exact: true })).toBeVisible();
   await expect(page.getByText("HORSE", { exact: true }).first()).toBeVisible();
 });
 
