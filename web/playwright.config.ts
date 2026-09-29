@@ -18,11 +18,24 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
+    // dashboard.spec.ts reads BAC and asserts the pinned 19, 11, 9 and
+    // R16,537.50 (CLAUDE.md, the three-way agreement). capture.spec.ts
+    // writes BAC on android, and fullyParallel would let that write land
+    // mid-read, so android depends on this project (U50).
+    {
+      name: "bac-readonly",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /dashboard\.spec/,
+    },
     // capture.spec.ts submits, and FR-INS-038's duplicate window is tenant
     // state in one shared database: a second project's submit is refused by
     // the first's. Gated here, not skipped inside the file: a skip still
     // launches a browser and builds a context per project.
-    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /capture\.spec/ },
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /capture\.spec|dashboard\.spec/,
+    },
     // The capture app is judged at phone dimensions or not at all: thumb reach,
     // 44px targets and sunlight legibility are the design, not the styling.
     // Pixel 7 and iPhone 14 bracket the sizes a driver actually carries.
@@ -35,7 +48,8 @@ export default defineConfig({
     {
       name: "android",
       use: { ...devices["Pixel 7"] },
-      testIgnore: /admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec/,
+      dependencies: ["bac-readonly"],
+      testIgnore: /admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec/,
     },
     // iPhone 14 is WebKit, buying the second phone viewport and nothing more:
     // capture.spec.ts is ignored here since FR-INS-038's window is per unit
@@ -45,7 +59,8 @@ export default defineConfig({
     {
       name: "ios",
       use: { ...devices["iPhone 14"] },
-      testIgnore: /capture\.spec|admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec/,
+      testIgnore:
+        /capture\.spec|admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec/,
     },
   ],
   webServer: {
