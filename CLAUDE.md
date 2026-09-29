@@ -228,8 +228,8 @@ Do not drift into any of these. They come up repeatedly.
 - **Not a compliance system.** The platform reports the tenant's *configured
   policy* thresholds. It does not determine roadworthiness or legal minimums
   and must never be described as doing so.
-- **Not a marketplace.** The tyre-seller marketplace is out of scope for the
-  POC. It implies a second customer type, which is a tenancy decision, not a
+- **Not a marketplace.** The tyre-seller marketplace is post-POC (ADR-0003).
+  It implies a second customer type, which is a tenancy decision, not a
   feature. Do not build toward it without an explicit decision.
 - Out of scope: telematics/TPMS, native apps (PWA only), ML tread reading from
   photos, procurement and accounting integration.
