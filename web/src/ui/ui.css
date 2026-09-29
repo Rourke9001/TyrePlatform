@@ -542,11 +542,16 @@
   margin: 0;
 }
 
+/* The tooltip sits above the plot, over this caption (TYRE-275), so the
+   caption keeps the tooltip's height: two lines at the body's 1.5 line
+   height plus its padding and border. Any shorter and a band's tooltip
+   covers the panel's heading. */
 .band-chart-title {
   font-size: var(--text-small);
   font-weight: 600;
   color: var(--ink-muted);
-  margin-bottom: var(--space-2);
+  min-height: calc(3em + 2 * var(--space-2) + 2px);
+  margin-bottom: var(--space-1);
 }
 
 .band-chart-plot {
@@ -593,7 +598,7 @@
 
 .band-chart-tooltip {
   position: absolute;
-  top: 0;
+  bottom: calc(100% + var(--space-1));
   transform: translateX(-50%);
   background: var(--surface);
   border: 1px solid var(--line);
@@ -616,11 +621,10 @@
   transform: translateX(-85%);
 }
 
-/* The rows form sets it against the plot's right edge, level with its
-   row, so the row's label on the left stays in view. */
-.band-chart-tooltip-beside {
-  left: auto;
-  right: 0;
+/* The rows form has no column to follow, so its tooltip sits at the plot's
+   left edge, above the first row's label (TYRE-275). */
+.band-chart-tooltip[data-form="rows"] {
+  left: 0;
   transform: none;
 }
 

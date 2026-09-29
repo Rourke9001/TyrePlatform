@@ -66,8 +66,8 @@ export type ProvenanceKey = keyof typeof provenanceColor;
 // The light end clears 2:1 on the surface and each step is darker than the
 // last; tokens.test.ts pins both. Five steps, not "one per band": the
 // tenant configures the band count (rule 5), and up to five bands get a
-// distinct step; above five, adjacent bands share one (seven bands land on
-// 1, 2, 2, 3, 4, 4, 5). TYRE-275 owns spreading those out further.
+// distinct step; above five, BandChart blends between neighbouring steps
+// (web/src/ui/bandFill.ts, U56).
 export const treadBandRamp = ["#8fbccb", "#5fa0b6", "#3a819a", "#1f6a83", "#0f4457"] as const;
 
 // Returns the 1-based ramp step (1 to 5), not a hex: colour reaches a

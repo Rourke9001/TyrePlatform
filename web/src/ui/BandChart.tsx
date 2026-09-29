@@ -1,6 +1,6 @@
 import { useId, useState, type ReactNode } from "react";
 
-import { treadBandStep } from "../theme/tokens";
+import { bandFallback, bandFill } from "./bandFill";
 import { usePhone } from "./useMediaQuery";
 import { bandRangeLabel, formatCount, formatPct } from "./vocabulary";
 
@@ -85,6 +85,7 @@ type BandIndexHandler = (index: number | null) => void;
 interface BandMarkProps {
   band: BandDatum;
   index: number;
+  bandCount: number;
   hit: { x: number; y: number; width: number; height: number };
   onFocusBand: BandIndexHandler;
   onHoverBand: BandIndexHandler;
@@ -96,13 +97,24 @@ interface BandMarkProps {
 // separately: blur clears only the keyboard state and mouseleave only the
 // pointer state, so a mouse crossing and leaving a band never drops a
 // keyboard user's tooltip (TYRE-238 review).
-function BandMark({ band, index, hit, onFocusBand, onHoverBand, children }: BandMarkProps) {
+function BandMark({
+  band,
+  index,
+  bandCount,
+  hit,
+  onFocusBand,
+  onHoverBand,
+  children,
+}: BandMarkProps) {
   return (
     <g
       role="img"
       aria-label={describeBand(band)}
       tabIndex={0}
       className="band-chart-bar"
+      // U56: where color-mix is unsupported, the path's blended fill is
+      // invalid at computed-value time and inherits this nearest stop.
+      style={{ fill: bandFallback(band.bandOrdinal, bandCount) }}
       onFocus={() => onFocusBand(index)}
       onBlur={() => onFocusBand(null)}
       onMouseEnter={() => onHoverBand(index)}
@@ -152,7 +164,7 @@ function BandColumns({ bands, max, label, onFocusBand, onHoverBand }: FormProps)
         const x = slot * i + (slot - barWidth) / 2;
         const y = COLUMNS.plotBottom - height;
         const centre = slot * i + slot / 2;
-        const r = Math.min(RADIUS, height / 2);
+        const r = Math.min(RADIUS, height / 2, barWidth / 2);
         const [first, second] = axisLines(bandRangeLabel(b.lowerMm, b.upperExclusiveMm));
         // Rounded at the data end only: a path, since rect's rx rounds
         // both ends.
@@ -170,16 +182,14 @@ function BandColumns({ bands, max, label, onFocusBand, onHoverBand }: FormProps)
             key={b.bandOrdinal}
             band={b}
             index={i}
+            bandCount={bands.length}
             hit={{ x: slot * i, y: COLUMNS.plotTop, width: slot, height: plotHeight }}
             onFocusBand={onFocusBand}
             onHoverBand={onHoverBand}
           >
             {/* style, not the fill attribute: SVG's fill presentation
                 attribute does not take var() reliably (TYRE-238 review). */}
-            <path
-              d={d}
-              style={{ fill: `var(--band-${treadBandStep(b.bandOrdinal, bands.length)})` }}
-            />
+            <path d={d} style={{ fill: bandFill(b.bandOrdinal, bands.length) }} />
             <text
               x={centre}
               y={y - COLUMNS.countGap}
@@ -240,6 +250,7 @@ function BandRows({ bands, max, label, onFocusBand, onHoverBand }: FormProps) {
             key={b.bandOrdinal}
             band={b}
             index={i}
+            bandCount={bands.length}
             hit={{ x: 0, y: top, width: ROWS.width, height: ROWS.hit }}
             onFocusBand={onFocusBand}
             onHoverBand={onHoverBand}
@@ -247,10 +258,7 @@ function BandRows({ bands, max, label, onFocusBand, onHoverBand }: FormProps) {
             <text x="0" y={top + ROWS.labelY} className="band-chart-axis">
               {bandRangeLabel(b.lowerMm, b.upperExclusiveMm)}
             </text>
-            <path
-              d={d}
-              style={{ fill: `var(--band-${treadBandStep(b.bandOrdinal, bands.length)})` }}
-            />
+            <path d={d} style={{ fill: bandFill(b.bandOrdinal, bands.length) }} />
             <text x={w + ROWS.countGap} y={top + ROWS.countY} className="band-chart-count">
               {formatCount(b.tyreCount)}
             </text>
@@ -268,24 +276,56 @@ interface BandTooltipProps {
   phone: boolean;
 }
 
-// Above its column on a desktop, with the first and last pulled back
-// inside the plot by data-edge; beside its row on a phone.
+// Above the plot in both forms (TYRE-275): every count sits inside the
+// plot, so a tooltip there covers one. A column's tooltip follows its
+// column across, the first and last pulled back inside by data-edge.
 function BandTooltip({ band, index, count, phone }: BandTooltipProps) {
   const edge = index === 0 ? "start" : index === count - 1 ? "end" : undefined;
   return (
     <div
       role="tooltip"
-      className={phone ? "band-chart-tooltip band-chart-tooltip-beside" : "band-chart-tooltip"}
+      className="band-chart-tooltip"
+      data-form={phone ? "rows" : "columns"}
       data-edge={phone ? undefined : edge}
       style={
-        phone
-          ? { top: percent(rowTop(index), rowsHeight(count)) }
-          : { left: percent(columnSlot(count) * (index + 0.5), COLUMNS.width) }
+        phone ? undefined : { left: percent(columnSlot(count) * (index + 0.5), COLUMNS.width) }
       }
     >
       <strong>{bandRangeLabel(band.lowerMm, band.upperExclusiveMm)}</strong>
       <br />
       {plural(band.tyreCount, "tyre", "tyres")}, {formatPct(band.pctOfGroup)}
+    </div>
+  );
+}
+
+interface BandPlotProps {
+  title: string;
+  bands: BandDatum[];
+  max: number;
+  phone: boolean;
+}
+
+// The pointer wins while it is over a band; leaving it falls back to
+// whichever band still has keyboard focus, so a mouse crossing the chart
+// never strands a keyboard user's tooltip on null (TYRE-238 review).
+function BandPlot({ title, bands, max, phone }: BandPlotProps) {
+  const [focused, setFocused] = useState<number | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
+  const activeIndex = hovered ?? focused;
+  const active: BandDatum | undefined = activeIndex === null ? undefined : bands[activeIndex];
+  const formProps: FormProps = {
+    bands,
+    max,
+    label: `${title}, ${plural(bands.length, "band", "bands")}`,
+    onFocusBand: setFocused,
+    onHoverBand: setHovered,
+  };
+  return (
+    <div className="band-chart-plot">
+      {phone ? <BandRows {...formProps} /> : <BandColumns {...formProps} />}
+      {active !== undefined && activeIndex !== null && (
+        <BandTooltip band={active} index={activeIndex} count={bands.length} phone={phone} />
+      )}
     </div>
   );
 }
@@ -297,38 +337,26 @@ function BandTooltip({ band, index, count, phone }: BandTooltipProps) {
 export function BandChart({ title, bands }: BandChartProps) {
   const titleId = useId();
   const phone = usePhone();
-  const [focused, setFocused] = useState<number | null>(null);
-  const [hovered, setHovered] = useState<number | null>(null);
   const max = Math.max(...bands.map((b) => b.tyreCount), 0);
 
   if (max === 0) {
     return <p className="band-chart-empty">No tyres in any band.</p>;
   }
 
-  // The pointer wins while it is over a band; leaving it falls back to
-  // whichever band still has keyboard focus, so a mouse crossing the chart
-  // never strands a keyboard user's tooltip on null (TYRE-238 review).
-  const activeIndex = hovered ?? focused;
-  const active: BandDatum | undefined = activeIndex === null ? undefined : bands[activeIndex];
-  const formProps: FormProps = {
-    bands,
-    max,
-    label: `${title}, ${plural(bands.length, "band", "bands")}`,
-    onFocusBand: setFocused,
-    onHoverBand: setHovered,
-  };
-
   return (
     <figure className="band-chart" aria-labelledby={titleId}>
       <figcaption id={titleId} className="band-chart-title">
         {title}
       </figcaption>
-      <div className="band-chart-plot">
-        {phone ? <BandRows {...formProps} /> : <BandColumns {...formProps} />}
-        {active !== undefined && activeIndex !== null && (
-          <BandTooltip band={active} index={activeIndex} count={bands.length} phone={phone} />
-        )}
-      </div>
+      {/* Keyed by form: a switch across 640px remounts the plot, so a band
+          active in one form leaves no tooltip over the other (TYRE-275). */}
+      <BandPlot
+        key={phone ? "rows" : "columns"}
+        title={title}
+        bands={bands}
+        max={max}
+        phone={phone}
+      />
       <details className="band-chart-table">
         <summary>Show as table</summary>
         <table aria-labelledby={titleId}>

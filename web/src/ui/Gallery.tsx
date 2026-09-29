@@ -38,6 +38,15 @@ const bands = [
   { bandOrdinal: 5, lowerMm: 14, upperExclusiveMm: null, tyreCount: 2, pctOfGroup: 7 },
 ];
 
+// Seven bands, so the blend above five (U56) can be seen beside the five.
+const sevenBands = [0, 3, 5, 7, 9, 11, 14].map((lowerMm, i, all) => ({
+  bandOrdinal: i + 1,
+  lowerMm,
+  upperExclusiveMm: all[i + 1] ?? null,
+  tyreCount: 9 - i,
+  pctOfGroup: 14,
+}));
+
 interface SampleRow {
   id: string;
   unit: string;
@@ -179,6 +188,7 @@ export default function Gallery() {
 
       <Panel id="g-chart" title="Band chart">
         <BandChart title="Tread depth across running positions" bands={bands} />
+        <BandChart title="Seven configured bands" bands={sevenBands} />
       </Panel>
 
       <Panel id="g-table" title="Data table">
