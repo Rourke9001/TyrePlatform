@@ -140,3 +140,19 @@
     padding: var(--space-4);
   }
 }
+
+/* The rule name with its code on a line of its own, in mono (the accepted
+   exceptions mockup). The minimum width keeps a long name from squeezing
+   the other six columns. */
+.cell-rule {
+  display: block;
+  min-width: 15rem;
+}
+
+.rule-code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  font-weight: 400;
+  color: var(--ink-muted);
+}
