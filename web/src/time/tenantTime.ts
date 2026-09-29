@@ -84,8 +84,8 @@ export function formatTenantInstant(instant: string | Date, timeZone: string): s
   if (Number.isNaN(at.getTime())) {
     return INVALID_INSTANT;
   }
-  // The accepted mockups write "22 Sep 2026 09:10"; en-ZA's own pattern
-  // puts a comma between the date and the time, so the parts are joined here.
+  // en-ZA's own pattern puts a comma between the date and the time, and the
+  // accepted mockups write a space, so the parts are joined here.
   const parts = tenantInstantFormatter(timeZone).formatToParts(at);
   const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   return `${part("day")} ${part("month")} ${part("year")} ${part("hour")}:${part("minute")}`;

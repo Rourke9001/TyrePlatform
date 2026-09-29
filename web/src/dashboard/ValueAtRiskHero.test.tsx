@@ -71,7 +71,7 @@ describe("ValueAtRiskHero", () => {
     expect(hero).toHaveTextContent("Spares: Hidden from 1 tyre");
     expect(hero).not.toHaveTextContent("R0.00");
     expect(hero).not.toHaveTextContent("Not valued");
-    // ADR-0013 decision 4: no link to a screen the reader cannot open.
+    // D7: no link to a screen the reader cannot open.
     expect(screen.queryByRole("link", { name: "See the at-risk list" })).toBeNull();
   });
 

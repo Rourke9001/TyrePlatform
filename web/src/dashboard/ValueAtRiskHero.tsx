@@ -67,8 +67,8 @@ export function ValueAtRiskHero({
           </>
         )}
       </p>
-      {/* ADR-0013 decision 4: /at-risk is gated on ViewValuation, so a
-          reader without it is not offered a link to a refusal. */}
+      {/* D7: /at-risk is gated on ViewValuation, so a reader without it
+          is not offered a link to a refusal. */}
       {moneyVisible && (
         <Link className="hero-link" to={withDepot("/at-risk", depot)}>
           See the at-risk list

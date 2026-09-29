@@ -70,7 +70,8 @@ func me(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// scopeName is the wire's word for an actor's breadth (U87).
+// scopeName is the wire's word for an actor's breadth (U87). Anything but
+// ScopeTenant reads as DEPOT, the narrower breadth.
 func scopeName(s auth.Scope) string {
 	if s == auth.ScopeTenant {
 		return "TENANT"

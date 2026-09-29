@@ -626,8 +626,8 @@
   z-index: 2;
 }
 
-/* The tooltip nearest each edge is pulled back inside the plot, so the
-   first and last band do not hang off the panel. */
+/* The tooltip nearest each edge is pulled back inside the plot's width, so
+   the first and last band do not hang off the panel. */
 .band-chart-tooltip[data-edge="start"] {
   transform: translateX(-15%);
 }

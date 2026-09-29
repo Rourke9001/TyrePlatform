@@ -68,11 +68,10 @@ headless browsers. Four projects: `bac-readonly` (Desktop Chrome,
 `dashboard.spec.ts` only, the web leg of the three-way agreement, which
 `android` depends on so no BAC write races a BAC read), `chromium` at a
 desktop viewport, `android` (Pixel 7) and `ios` (iPhone 14, WebKit). The
-capture app is judged
-at phone dimensions, so `reach.spec.ts` runs on all three and
-`capture.spec.ts` on `android` alone — FR-INS-038's duplicate window is
-tenant state in one shared database, and the same vehicle submitted from a
-second project is refused by the first.
+capture app is judged at phone dimensions, so `reach.spec.ts` runs on the
+three device projects and `capture.spec.ts` on `android` alone — FR-INS-038's
+duplicate window is tenant state in one shared database, and the same vehicle
+submitted from a second project is refused by the first.
 
 **A green `make e2e` says nothing about the capture target.** The M2
 airplane-mode run was performed against **emulated** evidence — the Pixel 7
@@ -172,9 +171,11 @@ before it is reviewed. Rules that are not visible in the code:
   Refresh button is the only refetch (FR-DSH-013). Every figure is a wire
   field; the page names the clock each one is judged at from `judgedAt`
   ("as inspected" for exceptions, "today" for the register and value at
-  risk). The spares, exceptions and at-risk lists are their own queries.
-  A link off a depot view carries the depot, and a list that cannot narrow
-  to a depot (the rigs) is not linked from a depot view. Whether the actor is
-  depot-scoped is `me.scope` from `GET /api/me` (U87), never derived from
-  `role` or from `me.depots`, which lists a user's depot rows whatever
-  their role. The depot filter offers DEPOT and STORE depots only (U85).
+  risk), or, for the three panels whose wire carries none (estate, tread
+  depth, inflation), from the code the page names beside them. The spares,
+  exceptions and at-risk lists are their own queries. A link off a depot
+  view carries the depot, and a list that cannot narrow to a depot (the
+  rigs) is not linked from a depot view. Whether the actor is depot-scoped
+  is `me.scope` from `GET /api/me` (U87), never derived from `role` or from
+  `me.depots`, which lists a user's depot rows whatever their role. The
+  depot filter offers DEPOT and STORE depots only (U85).

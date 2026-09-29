@@ -100,8 +100,8 @@ describe("navItemsFor", () => {
   });
 
   // D7: Fitments is a ViewFleet read like Units, not ManageAssets. TYRE-72:
-  // Rigs joins as a third ViewFleet read, between Tyres and Fitments in
-  // registry order. U49: the dashboard and the exceptions list lead it.
+  // Rigs joins between Tyres and Fitments in registry order. U49: the
+  // dashboard and the exceptions list lead it.
   it("gives a ViewFleet holder the dashboard, the exceptions, Units, Rigs and Fitments, and nothing else", () => {
     const labels = navItemsFor(["ViewFleet"]).map((i) => i.label);
     expect(labels).toEqual(["Dashboard", "Exceptions", "Units", "Rigs", "Fitments"]);

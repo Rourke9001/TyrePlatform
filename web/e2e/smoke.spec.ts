@@ -11,8 +11,8 @@ test("a controller lands on the dashboard and reaches the units from it", async 
   await expect(page.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
   await expect(page).toHaveURL(/^https?:\/\/[^/]+\/$/);
   // The API sends asAt with six fractional digits (Go's time.Time); this
-  // project runs on WebKit too, where a Date that refused them would render
-  // the invalid-instant marker (rule 6).
+  // spec also runs on ios, which is WebKit, where a Date that refused them
+  // would render the invalid-instant marker (rule 6).
   const asAt = page.getByText(/^As at /);
   await expect(asAt).toBeVisible();
   await expect(asAt).not.toContainText("invalid date");
