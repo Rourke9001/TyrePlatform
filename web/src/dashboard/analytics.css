@@ -104,7 +104,7 @@
 }
 
 /* The two tiles that read with the chart stack as one column beside it,
-   rather than taking a row of their own (the accepted mockup, sections 7 and 8). */
+   rather than taking a row of their own (the accepted mockup). */
 .tile-stack {
   display: flex;
   flex-direction: column;

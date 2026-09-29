@@ -185,8 +185,7 @@ export function absenceLabel(kind: Absence): string {
   return ABSENCE_LABELS[kind];
 }
 
-// U48: an exception's subject in words. A VEHICLE subject has no position,
-// a pair names both of its positions, and a spare with no code is "spare".
+// U48: an exception's subject in words.
 export function subjectPositionLabel(
   subjectType: string,
   positionCode: string | null,

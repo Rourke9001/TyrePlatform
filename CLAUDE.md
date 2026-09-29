@@ -192,7 +192,8 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
   one view, `app.v_exception` (migration 000045), judged at each unit's latest
   inspection; `db/tests/004_tests.sql` §59 pins the numbers and §8 the
   position sets. The API relays that view (B7.2, `GET /api/exceptions`), and the
-  dashboard's e2e will assert the rendered counts against it once B7.3 lands. The
+  dashboard's e2e asserts the rendered counts against it
+  (`web/e2e/dashboard.spec.ts`, in the `bac-readonly` project). The
   capture app's leg never reads the view and, being online-first, never
   will: it warns per vehicle at entry from its own independent
   implementation of the same thresholds (`web/src/capture/warnings.ts`).

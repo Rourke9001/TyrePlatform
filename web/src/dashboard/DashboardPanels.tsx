@@ -173,9 +173,10 @@ export function DashboardPanels({ body, depot, depotFiltered }: DashboardPanelsP
           <BandChart title="Tread depth across running positions" bands={treadDistribution} />
         </Panel>
         {/* FR-DSH-009 and 016, read with the chart. Rule 5: a null horizon
-            or spread is a configuration absence, never a 0. The forecast
-            list is a report (TYRE-6), so that tile has no link. */}
+            or spread is a configuration absence, never a 0. */}
         <div className="tile-stack">
+          {/* The forecast list is a report (TYRE-6), so this tile has no
+              link. */}
           <StatTile
             label="Replacement window opens"
             value={forecastValue(removalForecast)}

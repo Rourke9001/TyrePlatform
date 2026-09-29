@@ -119,8 +119,9 @@ export function fetchOpenFitments(): Promise<FleetFitment[]> {
   return apiGet<FleetFitment[]>("/api/fitments?open=true");
 }
 
-// fetchDepots backs the dispatch and return forms' pickers. type is built
-// only when given. An unrecognised value reaches the cast and comes back
+// fetchDepots backs the dispatch and return forms' pickers, the dashboard's
+// depot filter and the list pages' depot names. type is built only when
+// given. An unrecognised value reaches the cast and comes back
 // as invalid_submission (22P02; TYRE-128 decision 7), not narrowed a second
 // time here.
 export function fetchDepots(type?: string): Promise<Depot[]> {

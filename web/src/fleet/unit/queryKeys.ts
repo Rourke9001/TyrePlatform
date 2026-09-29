@@ -2,9 +2,9 @@ import type { QueryKey } from "@tanstack/react-query";
 
 import type { DashboardParams, ExceptionsParams } from "../../api/dashboard";
 
-// The unit screen's cache keys in one module: react-refresh's rule refuses
-// a non-component export beside a component, and every form here
-// invalidates keys it does not own the query for.
+// The fleet and dashboard screens' cache keys in one module: react-refresh's
+// rule refuses a non-component export beside a component, and every form
+// and refresh here invalidates keys it does not own the query for.
 
 // admin/AddUnit.tsx's library read; kept here since that screen already
 // imports vehiclesKey from this module (TYRE-260).

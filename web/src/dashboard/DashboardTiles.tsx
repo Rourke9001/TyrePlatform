@@ -27,7 +27,7 @@ export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: s
   // U44: an empty estate's total line is the absence alone; "across 0
   // tyres" would only restate it.
   const estateEmpty = moneyVisible && estate.tyreCount === 0;
-  // U44: since 000049 the total is a partial sum when one side has no valued
+  // U44, 000049: the total is a partial sum when one side has no valued
   // member, so it discloses both sides' unvalued counts when either is not 0.
   const partial =
     estate.unvaluedCount > 0 || estate.casingUnvaluedCount > 0

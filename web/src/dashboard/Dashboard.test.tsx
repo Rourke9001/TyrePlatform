@@ -10,10 +10,8 @@ import { ActorContext } from "../auth/actorContext";
 import { dashboardBody, me, renderWithActor, requestedUrl, respond } from "../test/fixtures";
 import Dashboard from "./Dashboard";
 
-// U41's retry option only matters against a client that has not already
-// turned retries off. renderWithActor's testQueryClient does that (fixtures.ts),
-// so this wrapper takes the library's own defaults instead, the way
-// renderWithActor builds its providers but with a plain QueryClient.
+// renderWithActor's providers with a plain QueryClient, whose retries are
+// the library's defaults; the retry test below says why.
 function renderWithDefaultRetries(ui: ReactElement) {
   const client = new QueryClient();
   return render(

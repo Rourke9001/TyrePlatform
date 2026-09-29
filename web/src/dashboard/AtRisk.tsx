@@ -51,7 +51,8 @@ export default function AtRisk() {
     refetchOnWindowFocus: false,
     retry: 0,
   });
-  // A depot view names its depot; the list shares the dashboard's cache entry.
+  // A depot view names its depot; the depots query shares the dashboard's
+  // cache entry.
   const depots = useQuery({
     queryKey: depotsKey(tenantKey),
     queryFn: () => fetchDepots(),

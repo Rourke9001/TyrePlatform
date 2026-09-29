@@ -97,7 +97,7 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeDefined();
   });
 
-  // D7, ADR-0013 decision 4: a destination refuses out loud.
+  // D7: a destination refuses out loud.
   it("refuses /at-risk out loud without ViewValuation", async () => {
     mockFetchJson(200, []);
     renderAt("/at-risk", actor(["ViewFleet"]));
