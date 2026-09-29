@@ -9,6 +9,10 @@ export interface Me {
   role: string;
   capabilities: string[];
   depots: string[];
+  // U87: "TENANT" or "DEPOT", the breadth the server reads for this actor.
+  // A string, as capabilities are, so a new value cannot break this client
+  // on deploy order; nothing here derives it from role.
+  scope: string;
   // The tenant's IANA timezone. Every date a screen shows is formatted in it
   // (rule 6). See web/src/time/tenantTime.ts, which is the only path.
   timezone: string;

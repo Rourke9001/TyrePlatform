@@ -18,6 +18,9 @@ type meJSON struct {
 	Role         string   `json:"role"`
 	Capabilities []string `json:"capabilities"`
 	Depots       []string `json:"depots"`
+	// U87: the actor's breadth as the server composes every read (auth.go's
+	// scopes, by role), so the client never derives it from the role.
+	Scope string `json:"scope"`
 	// The tenant's IANA zone, so the client can render a stored UTC instant
 	// as the tenant's civil time (rule 6, FR-TEN-005). Sent here rather than
 	// per-response because it changes about never and every screen needs it.
@@ -42,6 +45,7 @@ func me(s *store.Store) http.HandlerFunc {
 				Role:         string(a.Role),
 				Capabilities: []string{},
 				Depots:       []string{},
+				Scope:        scopeName(a.Scope()),
 			}
 			// In the actor's own transaction, so RLS answers for this tenant
 			// and the row cannot be another's.
@@ -64,6 +68,14 @@ func me(s *store.Store) http.HandlerFunc {
 
 		writeJSON(ctx, w, body)
 	}
+}
+
+// scopeName is the wire's word for an actor's breadth (U87).
+func scopeName(s auth.Scope) string {
+	if s == auth.ScopeTenant {
+		return "TENANT"
+	}
+	return "DEPOT"
 }
 
 // defaultPrimaryColor is the platform's own brand blue, used until a tenant
