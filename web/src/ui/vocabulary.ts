@@ -1,8 +1,8 @@
 // Wire codes to words, once. The server owns every vocabulary (severity,
 // judgedAt, unavailable reasons, tread source, cost basis, inflation bands,
-// band ranges), so each map passes an unknown code through rather than
-// throwing, and no page or component spells one of these strings itself
-// (U48).
+// band ranges, absences, subject positions), so each map passes an unknown
+// code through rather than throwing, and no page or component spells one
+// of these strings itself (U48).
 
 import { groupThousands } from "../format/groupThousands";
 
@@ -92,6 +92,7 @@ const BASIS_LABELS: Record<string, string> = {
   ACTUAL: "actual cost",
   ESTIMATED: "estimated",
   AUDIT: "audit valuation",
+  UNVALUED: "not valued",
 };
 
 export function basisLabel(code: string): string {
@@ -137,4 +138,36 @@ const INFLATION_BAND_LABELS: Record<(typeof INFLATION_BAND_KEYS)[number], string
 
 export function inflationBandLabel(key: string): string {
   return (INFLATION_BAND_LABELS as Record<string, string>)[key] ?? key;
+}
+
+// U48, NFR-PRO-002: where the wire sends null rather than a code, the page
+// names what is absent, once, here, and never renders it as 0.
+const ABSENCE_LABELS = {
+  unclassifiedShare: "none classified",
+  unmeasured: "not measured",
+  neverMeasured: "never",
+  unknown: "unknown",
+  undated: "not dated",
+  noSpreadConfigured: "No width spread is configured for this tenant.",
+  noTyres: "No tyres in this view",
+} as const;
+
+export type Absence = keyof typeof ABSENCE_LABELS;
+
+export function absenceLabel(kind: Absence): string {
+  return ABSENCE_LABELS[kind];
+}
+
+// U48: an exception's subject in words. A VEHICLE subject has no position,
+// a pair names both of its positions, and a spare with no code is "spare".
+export function subjectPositionLabel(
+  subjectType: string,
+  positionCode: string | null,
+  positionCode2: string | null,
+  isSpare: boolean,
+): string {
+  if (subjectType === "VEHICLE") return "whole unit";
+  if (positionCode && positionCode2) return `${positionCode} and ${positionCode2}`;
+  if (positionCode) return positionCode;
+  return isSpare ? "spare" : absenceLabel("unknown");
 }
