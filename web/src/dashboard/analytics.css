@@ -80,6 +80,12 @@
   gap: var(--space-4);
 }
 
+/* A list page's summary tiles keep the filter bar's space above the list,
+   so the last tile does not sit on the table's edge. */
+.analytics-page > .tile-grid {
+  margin-bottom: var(--space-5);
+}
+
 /* Each panel takes its own height: a stretched panel leaves dead space
    under the shorter of the two. */
 .panel-grid {

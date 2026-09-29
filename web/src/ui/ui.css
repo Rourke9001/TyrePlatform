@@ -203,6 +203,26 @@
   padding: var(--space-2) var(--space-3);
 }
 
+/* A checkbox is a target before it is a box: the box sits before its label
+   on a row at the 44px floor, as the accepted exceptions mockup draws it
+   (NFR-USE-004). */
+.field:has(> input[type="checkbox"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+}
+
+/* U53: a tick in page content takes the platform colour, not the brand. */
+.field > input[type="checkbox"] {
+  order: -1;
+  min-height: 0;
+  width: 1.25rem;
+  height: 1.25rem;
+  padding: 0;
+  accent-color: var(--interactive);
+}
+
 .field-invalid input,
 .field-invalid select,
 .field-invalid .select-trigger {
@@ -791,9 +811,11 @@
   flex-wrap: wrap;
 }
 
-/* The refresh sits on the controls' own line, not on their labels' line, so
-   the row reads as one band of inputs with one button at its end. */
-.filter-bar > .btn {
+/* The refresh, and a checkbox with its label beside it, sit on the controls'
+   own line, not on their labels' line, so the row reads as one band of
+   inputs with one button at its end. */
+.filter-bar > .btn,
+.filter-bar .field:has(> input[type="checkbox"]) {
   margin-top: calc(var(--text-small) * 1.5 + var(--space-1));
 }
 
