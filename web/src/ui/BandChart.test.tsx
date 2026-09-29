@@ -1,9 +1,10 @@
-import { createEvent, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, createEvent, fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { forceMatchMedia } from "../test/media";
+import { forceMatchMedia, TestMediaQueryList } from "../test/media";
 import { BandChart } from "./BandChart";
+import { PHONE_QUERY } from "./useMediaQuery";
 
 const bands = [
   { bandOrdinal: 1, lowerMm: 0, upperExclusiveMm: 5, tyreCount: 10, pctOfGroup: 37.04 },
@@ -121,6 +122,90 @@ describe("BandChart", () => {
     expect(screen.getByText("No tyres in any band.")).toBeInTheDocument();
   });
 
+  // U56: above five bands every bar gets its own fill, still through the
+  // --band-N custom properties.
+  it("gives each of seven bands its own fill through the custom properties", () => {
+    const seven = [0, 3, 5, 7, 9, 11, 14].map((lowerMm, i, all) => ({
+      bandOrdinal: i + 1,
+      lowerMm,
+      upperExclusiveMm: all[i + 1] ?? null,
+      tyreCount: 2 + i,
+      pctOfGroup: 10,
+    }));
+    render(<BandChart title="Tread depth across running positions" bands={seven} />);
+    const fills = Array.from(document.querySelectorAll<SVGPathElement>(".band-chart-svg path")).map(
+      (p) => p.style.fill,
+    );
+    expect(new Set(fills).size).toBe(7);
+    expect(fills.every((f) => f.includes("var(--band-"))).toBe(true);
+    // The fallback a browser without color-mix inherits (U56): each bar's
+    // group carries its nearest stop.
+    const groups = Array.from(
+      document.querySelectorAll<SVGGElement>(".band-chart-svg .band-chart-bar"),
+    );
+    expect(groups.map((g) => g.style.fill)).toEqual([
+      "var(--band-1)",
+      "var(--band-2)",
+      "var(--band-2)",
+      "var(--band-3)",
+      "var(--band-4)",
+      "var(--band-4)",
+      "var(--band-5)",
+    ]);
+  });
+
+  // TYRE-275: every count sits inside the plot, so the tooltip sits above
+  // it, following its column across. The middle band of five is centred at
+  // exactly half the width.
+  it("places the tooltip above the plot, following its column", async () => {
+    const user = userEvent.setup();
+    render(<BandChart title="Tread depth across running positions" bands={bands} />);
+    await user.hover(screen.getByRole("img", { name: "8 to under 11 mm: 6 tyres, 22%" }));
+    const tooltip = screen.getByRole("tooltip");
+    expect(tooltip).toHaveAttribute("data-form", "columns");
+    expect(tooltip.style.left).toBe("50%");
+  });
+
+  // TYRE-275: a width change across 640px while a band is active leaves no
+  // tooltip over the other form.
+  // The spy is restored in finally: a failed assertion would otherwise leave
+  // matchMedia answering phone for every later test in the file.
+  it("clears the tooltip when the form switches", async () => {
+    const list = new TestMediaQueryList(PHONE_QUERY, false);
+    const spy = vi.spyOn(window, "matchMedia").mockReturnValue(list);
+    try {
+      const user = userEvent.setup();
+      render(<BandChart title="Tread depth across running positions" bands={bands} />);
+      await user.hover(screen.getByRole("img", { name: "5 to under 8 mm: 4 tyres, 15%" }));
+      expect(screen.getByRole("tooltip")).toBeInTheDocument();
+      act(() => {
+        list.change(true);
+      });
+      expect(screen.queryByRole("tooltip")).toBeNull();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  // TYRE-275: a bar narrower than twice the radius keeps a flat top rather
+  // than a path that doubles back on itself. 56 bands make every figure a
+  // whole unit (slot 10, bar 6, x 2), so the clamped radius of 3 puts both
+  // ends at exactly 5; the unclamped 4 would end the run at 4, before the arc.
+  it("clamps the column radius by the bar's width", () => {
+    const many = Array.from({ length: 56 }, (_, i) => ({
+      bandOrdinal: i + 1,
+      lowerMm: i,
+      upperExclusiveMm: i + 1,
+      tyreCount: 5,
+      pctOfGroup: 1,
+    }));
+    render(<BandChart title="Tread depth across running positions" bands={many} />);
+    const d =
+      document.querySelector<SVGPathElement>(".band-chart-svg path")?.getAttribute("d") ?? "";
+    const [, arcEnd, runEnd] = /Q \S+ \S+ (\S+) \S+ H (\S+)/.exec(d) ?? [];
+    expect(Number(runEnd)).toBeGreaterThanOrEqual(Number(arcEnd));
+  });
+
   describe("on a phone", () => {
     let restore: () => void;
 
@@ -145,6 +230,15 @@ describe("BandChart", () => {
       expect(within(plot).getByText("10")).toHaveClass("band-chart-count");
       expect(chart.querySelector("[data-form='rows']")).not.toBeNull();
       expect(chart.querySelector("[data-form='columns']")).toBeNull();
+    });
+
+    it("puts a row's tooltip above the plot, not beside the row's count", async () => {
+      const user = userEvent.setup();
+      render(<BandChart title="Tread depth across running positions" bands={bands} />);
+      await user.hover(screen.getByRole("img", { name: "0 to under 5 mm: 10 tyres, 37%" }));
+      const tooltip = screen.getByRole("tooltip");
+      expect(tooltip).toHaveAttribute("data-form", "rows");
+      expect(tooltip.style.top).toBe("");
     });
   });
 });
