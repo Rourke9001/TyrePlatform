@@ -457,20 +457,21 @@ func listOpenFitments(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// listDepots is the dispatch and return forms' picker (D6). Gated on
-// ManageAssets, like the other asset reads (listAxleConfigurations,
-// listTyres): a depot list is only useful to someone who may act on it.
-// Only active depots are returned. A retired depot is not a valid
-// destination for a new dispatch. An unrecognised ?type= reaches the cast
-// and is refused as 22P02, mapped in submitStatus (TYRE-128 decision 7):
-// the enum lives in the database and Go holds no copy of it.
+// listDepots is the dispatch and return forms' picker (D6) and the
+// dashboard's depot filter (FR-DSH-011). Only active depots are returned. A
+// retired depot is not a valid destination for a new dispatch. An
+// unrecognised ?type= reaches the cast and is refused as 22P02, mapped in
+// submitStatus (TYRE-128 decision 7): the enum lives in the database and Go
+// holds no copy of it.
 func listDepots(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		depotType := r.URL.Query().Get("type")
 		out := []depotJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
-			if err := require(a, auth.ManageAssets); err != nil {
+			// FR-DSH-011, U42: the dashboard's filter is a read surface, and a
+			// TECHNICIAN holds ViewFleet and nothing else.
+			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
 			sql := `SELECT id, name, type::text FROM app.depot WHERE active = true`

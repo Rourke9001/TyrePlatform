@@ -478,6 +478,33 @@ func TestDepotsFilterByType(t *testing.T) {
 		"TYRE-128 decision 7: the enum cast answers 22P02, mapped in submitStatus; Go holds no copy")
 }
 
+// FR-DSH-011, U42: the dashboard's depot filter is a ViewFleet surface and
+// a TECHNICIAN holds nothing else, so the list answers them; a driver
+// still cannot read it.
+func TestDepotsListForAnyFleetViewer(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "depots-viewfleet")
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.depot (tenant_id, name, type, active) VALUES ($1, 'Yard One', 'DEPOT'::app.depot_type, true)`,
+		tenantID)
+	require.NoError(t, err)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/depots", tenantID.String(), technician.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var depots []depotBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &depots))
+	require.Len(t, depots, 1)
+	require.Equal(t, "Yard One", depots[0].Name)
+
+	rec = get(t, h, "/api/depots", tenantID.String(), driver.String())
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+}
+
 // A DRIVER holds CaptureInspection alone, never ViewFleet, so the unit read
 // is refused before unitByID ever runs (FR-AUT-005's "what may be asked
 // for", not only what comes back, the same shape TestFleetListIsCapabilityGated
