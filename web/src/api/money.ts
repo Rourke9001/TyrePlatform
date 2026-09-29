@@ -21,3 +21,12 @@ export function formatRand(m: Money): string {
   const grouped = groupThousands(digits);
   return `${negative ? "-" : ""}R${grouped}.${cents.padEnd(2, "0")}`;
 }
+
+// U36: the wire nulls money two ways. moneyVisible false means the actor may
+// not see money, so even a present value is hidden; true with null means no
+// member was valued. Neither renders as a number.
+export function moneyText(value: Money | null, visible: boolean): string {
+  if (!visible) return "Hidden";
+  if (value === null) return "Not valued";
+  return formatRand(value);
+}

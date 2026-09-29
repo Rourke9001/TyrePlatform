@@ -1,5 +1,7 @@
 import type { QueryKey } from "@tanstack/react-query";
 
+import type { DashboardParams, ExceptionsParams } from "../../api/dashboard";
+
 // The unit screen's cache keys in one module: react-refresh's rule refuses
 // a non-component export beside a component, and every form here
 // invalidates keys it does not own the query for.
@@ -66,4 +68,23 @@ export function rigsKey(tenantKey: string): QueryKey {
 // it (D5, TYRE-75).
 export function observationsKey(tenantKey: string): QueryKey {
   return ["observations", tenantKey];
+}
+
+// U17: the dashboard is one call whose parameters are part of its identity,
+// so a different depot or period is a different query. The tenant prefix
+// lets the refresh invalidate every variant at once (FR-DSH-013).
+export function dashboardKey(tenantKey: string, params: DashboardParams = {}): QueryKey {
+  return ["dashboard", tenantKey, params];
+}
+
+export function exceptionsKey(tenantKey: string, params: ExceptionsParams = {}): QueryKey {
+  return ["exceptions", tenantKey, params];
+}
+
+export function atRiskKey(tenantKey: string, depot?: string): QueryKey {
+  return ["at-risk", tenantKey, depot ?? null];
+}
+
+export function sparesKey(tenantKey: string, depot?: string): QueryKey {
+  return ["spares", tenantKey, depot ?? null];
 }
