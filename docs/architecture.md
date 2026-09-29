@@ -36,6 +36,10 @@ the ADRs say why each was chosen and what it costs.
               Blob Storage (photos)
 ```
 
+The manager dashboard reads `GET /api/dashboard`, one composed call in one
+transaction, and renders every figure as the wire sends it; the web leg of
+the three-way agreement is `web/e2e/dashboard.spec.ts`.
+
 ## Where logic lives, and why
 
 **The database is not a persistence layer here. It is the domain model.**
