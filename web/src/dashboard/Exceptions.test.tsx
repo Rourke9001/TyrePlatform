@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { ExceptionRow } from "../api/dashboard";
 import { exceptionRow, renderWithActor, requestedUrl, respond } from "../test/fixtures";
 import { forceMatchMedia } from "../test/media";
 import Exceptions from "./Exceptions";
@@ -47,7 +48,7 @@ const rows = [
   }),
 ];
 
-beforeEach(() => {
+function stubExceptions(served: ExceptionRow[] = rows) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
@@ -57,7 +58,7 @@ beforeEach(() => {
           respond(200, {
             scope: { level: "TENANT", depotCount: 0, depot: null },
             judgedAt: "SUBMITTED_AT",
-            exceptions: rows,
+            exceptions: served,
           }),
         );
       }
@@ -67,6 +68,10 @@ beforeEach(() => {
       return Promise.resolve(respond(404, { code: "not_found", message: "no" }));
     }),
   );
+}
+
+beforeEach(() => {
+  stubExceptions();
 });
 
 afterEach(() => {
@@ -121,6 +126,27 @@ describe("Exceptions", () => {
     ).toBeInTheDocument();
     const calls = vi.mocked(fetch).mock.calls.map((c) => requestedUrl(c[0]));
     expect(calls).toContain("/api/exceptions?depot=d1");
+  });
+
+  // U55: one exception is singular.
+  it("counts one exception in the singular", async () => {
+    stubExceptions([rows[0]]);
+    renderWithActor(<Exceptions />, { capabilities: ["ViewFleet"], withRouter: true });
+    expect(await screen.findByText("1 exception, as inspected")).toBeInTheDocument();
+  });
+
+  // U48: an empty list says what is absent, in the accepted mockup's words.
+  it("names an empty list", async () => {
+    stubExceptions([]);
+    renderWithActor(<Exceptions />, { capabilities: ["ViewFleet"], withRouter: true });
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "No open exceptions" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Nothing the configured rules flag at the latest inspection of any unit in this view.",
+      ),
+    ).toBeInTheDocument();
   });
 
   describe("on a phone", () => {

@@ -172,8 +172,9 @@ before it is reviewed. Rules that are not visible in the code:
   Refresh button is the only refetch (FR-DSH-013). Every figure is a wire
   field; the page names the clock each one is judged at from `judgedAt`
   ("as inspected" for exceptions, "today" for the register and value at
-  risk). The spares, exceptions and at-risk lists are their own queries,
-  and every link off a depot view carries the depot. Whether the actor is
+  risk). The spares, exceptions and at-risk lists are their own queries.
+  A link off a depot view carries the depot, and a list that cannot narrow
+  to a depot (the rigs) is not linked from a depot view. Whether the actor is
   depot-scoped is `me.scope` from `GET /api/me` (U87), never derived from
   `role` or from `me.depots`, which lists a user's depot rows whatever
   their role. The depot filter offers DEPOT and STORE depots only (U85).

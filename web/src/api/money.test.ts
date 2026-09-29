@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRand, moneyText, type Money } from "./money";
+import { formatRand, moneyOrEmpty, moneyText, type Money } from "./money";
 
 const rand = (s: string) => s as Money;
 
@@ -30,5 +30,16 @@ describe("moneyText", () => {
     expect(moneyText(null, false)).toBe("Hidden");
     expect(moneyText(null, true)).toBe("Not valued");
     expect(moneyText("1.00" as Money, false)).toBe("Hidden");
+  });
+});
+
+// U36, U44: a set with no tyre also sends null, and that null is the empty
+// set, not "every member unvalued"; Hidden still wins over it.
+describe("moneyOrEmpty", () => {
+  it("names an empty set, keeps Hidden ahead of it and Not valued for a set of unvalued tyres", () => {
+    expect(moneyOrEmpty(null, true, 0, "None at risk")).toBe("None at risk");
+    expect(moneyOrEmpty(null, false, 0, "None at risk")).toBe("Hidden");
+    expect(moneyOrEmpty(null, true, 3, "None at risk")).toBe("Not valued");
+    expect(moneyOrEmpty("16537.50" as Money, true, 9, "None at risk")).toBe("R16,537.50");
   });
 });

@@ -26,8 +26,9 @@ export function writeDashboardParams(params: DashboardParams): URLSearchParams {
   return search;
 }
 
-// U17: a tile and the list it links to count the same units, so every link
-// off a depot view carries the depot.
+// U17: a tile and the list it links to count the same units, so a link off
+// a depot view carries the depot, and a list that cannot narrow to a depot
+// is not linked from a depot view.
 export function withDepot(path: string, depot?: string): string {
   if (!depot) return path;
   return `${path}${path.includes("?") ? "&" : "?"}depot=${encodeURIComponent(depot)}`;

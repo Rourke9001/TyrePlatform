@@ -16,6 +16,23 @@ function renderTiles(overrides: Parameters<typeof dashboardBody>[0] = {}, depot?
 const follows = (a: Node, b: Node) =>
   (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
 
+// What loadEstate sends over no tyre: the ROLLUP's total row, every count 0
+// and every sum null.
+const emptyEstate = {
+  ...dashboardBody().estate,
+  tyreCount: 0,
+  actualCount: 0,
+  estimatedCount: 0,
+  unvaluedCount: 0,
+  casingUnvaluedCount: 0,
+  casingActualCount: 0,
+  casingEstimatedCount: 0,
+  casingAuditCount: 0,
+  treadValue: null,
+  casingValue: null,
+  totalValue: null,
+};
+
 describe("DashboardTiles", () => {
   // The accepted mockup's order: estate, then exceptions, then units.
   it("lays the panels out in the accepted mockup's order", () => {
@@ -125,6 +142,62 @@ describe("DashboardTiles", () => {
     });
     expect(screen.getByRole("region", { name: "Estate value" })).toHaveTextContent(
       "R20,571.00 across 27 tyres in total; tread 0 of 27 unvalued, casing 27 of 27 unvalued.",
+    );
+  });
+
+  // U36, U44: an estate with no tyre sends null values too. That is the
+  // empty set, never "Not valued".
+  it("says there are no tyres, not that they are unvalued, for an empty estate", () => {
+    renderTiles({ estate: emptyEstate });
+    const tread = screen.getByRole("article", { name: "Tread value" });
+    const casing = screen.getByRole("article", { name: "Casing value" });
+    expect(within(tread).getByText("No tyres in this view")).toBeInTheDocument();
+    expect(within(casing).getByText("No tyres in this view")).toBeInTheDocument();
+    const region = screen.getByRole("region", { name: "Estate value" });
+    expect(within(region).getByText("No tyres in this view.")).toBeInTheDocument();
+    expect(region).not.toHaveTextContent("Not valued");
+  });
+
+  // U36: the projection wins over the empty set.
+  it("says Hidden for an empty estate when the actor may not see money", () => {
+    renderTiles({ moneyVisible: false, estate: emptyEstate });
+    const region = screen.getByRole("region", { name: "Estate value" });
+    expect(within(region).getAllByText("Hidden")).toHaveLength(2);
+    expect(region).toHaveTextContent("Hidden across 0 tyres in total.");
+    expect(region).not.toHaveTextContent("No tyres in this view");
+  });
+
+  // U55: one of a thing is singular.
+  it("says one tyre, one rule and one running position in the singular", () => {
+    const estate = dashboardBody().estate;
+    renderTiles({
+      estate: { ...estate, tyreCount: 1, actualCount: 1, casingAuditCount: 1 },
+      exceptions: { ...dashboardBody().exceptions, rulesConfigured: 1 },
+      belowThreshold: { judgedAt: "TODAY", running: 1, spare: 1 },
+    });
+    expect(screen.getByRole("region", { name: "Estate value" })).toHaveTextContent(
+      "R70,183.50 across 1 tyre in total.",
+    );
+    expect(screen.getByRole("article", { name: "Open exceptions" })).toHaveTextContent(
+      /11 urgent; 1 rule configured(?!s)/,
+    );
+    const below = screen.getByRole("article", { name: "Below the removal threshold" });
+    expect(
+      within(below).getByText("running position; 1 spare disclosed separately"),
+    ).toBeInTheDocument();
+  });
+
+  // U17: /fleet/rigs cannot narrow to a depot, so a depot view offers no
+  // link to a list that would count every depot's reports.
+  it("offers the rigs link only when no depot is chosen", () => {
+    const { unmount } = renderTiles({}, "d1");
+    const tile = screen.getByRole("article", { name: "Unreconciled rig reports" });
+    expect(within(tile).queryByRole("link")).toBeNull();
+    unmount();
+    renderTiles();
+    expect(screen.getByRole("link", { name: "See the rigs" })).toHaveAttribute(
+      "href",
+      "/fleet/rigs",
     );
   });
 

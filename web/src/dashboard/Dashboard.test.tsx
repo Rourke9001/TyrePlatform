@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { getDevTenantId } from "../api/devTenant";
 import { ActorContext } from "../auth/actorContext";
 import { dashboardBody, me, renderWithActor, requestedUrl, respond } from "../test/fixtures";
 import Dashboard from "./Dashboard";
@@ -284,6 +285,77 @@ describe("Dashboard", () => {
     );
     expect(calls("/api/dashboard")).toEqual(["/api/dashboard?depot=d1"]);
     await expectOwnDepotsOnly(user);
+  });
+
+  // FR-DSH-013, H.3 criterion 6: the lists the tiles link to are marked
+  // stale with the dashboard, so the hero and the at-risk list it opens
+  // never show two different registers.
+  it("marks the exceptions and at-risk lists stale when Refresh is pressed", async () => {
+    const invalidate = vi.spyOn(QueryClient.prototype, "invalidateQueries");
+    try {
+      renderWithActor(<Dashboard />, {
+        capabilities: ["ViewFleet", "ViewValuation"],
+        withRouter: true,
+      });
+      await screen.findByText("R16,537.50");
+      await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+      const tenantKey = getDevTenantId() ?? "default";
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["exceptions", tenantKey] });
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ["at-risk", tenantKey] });
+    } finally {
+      invalidate.mockRestore();
+    }
+  });
+
+  // U55: one depot is singular.
+  it("names one depot in the singular", async () => {
+    stubApi(dashboardBody({ scope: { level: "DEPOTS", depotCount: 1, depot: null } }));
+    renderWithActor(<Dashboard />, { capabilities: ["ViewFleet"], withRouter: true });
+    expect(await screen.findByText(/across your 1 depot$/)).toBeInTheDocument();
+  });
+
+  // U44, U48: an empty estate says so once, in the vocabulary's words.
+  it("names an empty estate", async () => {
+    const estate = dashboardBody().estate;
+    stubApi(
+      dashboardBody({
+        estate: {
+          ...estate,
+          tyreCount: 0,
+          actualCount: 0,
+          casingAuditCount: 0,
+          treadValue: null,
+          casingValue: null,
+          totalValue: null,
+        },
+      }),
+    );
+    renderWithActor(<Dashboard />, { capabilities: ["ViewFleet"], withRouter: true });
+    expect(
+      await screen.findByRole("heading", { level: 2, name: "No tyres in this view" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText("Nothing is fitted or in stock here, so there is nothing to value."),
+    ).toBeInTheDocument();
+  });
+
+  // U87 fails closed: a breadth this client does not know is offered only
+  // the actor's own depots, as the server and the inflation wording read it.
+  it("offers an actor of an unknown breadth only their own depots", async () => {
+    const user = userEvent.setup();
+    stubDepotScopedApi();
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      actor: { role: "CONTROLLER", depots: ["d1"], scope: "REGION" },
+    });
+    await screen.findByText(/^As at /);
+    const picker = screen.getByRole("combobox", { name: "Depot" });
+    picker.focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findAllByRole("option")).toHaveLength(2);
+    expect(screen.getByRole("option", { name: "All my depots" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Johannesburg" })).toBeInTheDocument();
   });
 
   it("explains a failed load and offers a retry, never a blank page", async () => {
