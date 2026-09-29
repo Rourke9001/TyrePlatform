@@ -6,21 +6,30 @@ get a live dashboard of condition, value and cost-per-kilometre.
 
 Read this file before doing anything.
 
-**The specification is not in this repo.** The SRS, POC scope and agreement,
-project brief, axle configuration reference and capture sheet analysis live in
-Confluence. `.mcp.json` ships the Atlassian server, so fetch them from there —
-`docs/spec/` may hold an untracked local mirror for grepping, but it is a
-cache, never the authority. Read the project brief before substantive design
-work. Search the SRS; do not read it end to end.
+**Jira is the current state of the work; Confluence is the authority.** The
+SRS, POC scope and agreement, project brief, axle configuration reference and
+capture sheet analysis live in Confluence, and `.mcp.json` ships the Atlassian
+server. Read a ticket from Jira and the requirements it cites from Confluence,
+never from a local copy: anything under `docs/spec/` is untracked and may be
+stale. Read the project brief before substantive design work. Search the SRS;
+do not read it end to end.
 
-## The one constraint everything is subordinate to
+A problem found along the way, whether a defect, a requirement that does not
+fit or a better approach than the SRS describes, is checked against the SRS
+and raised as a new Jira ticket. Where the SRS is wrong or the other approach
+wins, that ticket proposes the SRS change, and the SRS is updated rather than
+worked around (owner, 29 Sep 2026).
 
-> A driver must capture a full vehicle in under three minutes, on a phone, in
-> the sun, with gloves on.
+## The capture target
 
+> A driver captures a vehicle in about three minutes, on a phone, in the sun,
+> with gloves on.
+
+This is the UX target capture is designed to, not a rule, an acceptance
+criterion or a KPI (owner, 29 Sep 2026); web/CLAUDE.md carries the SRS figures.
 A completed sheet carries **three tread readings per position**, so a superlink
-is 108 numeric entries, not 52. If a change makes capture slower it is wrong,
-however good it looks on the dashboard. Adoption is the whole game.
+is 108 numeric entries, not 52, and a change that adds taps or seconds per
+position needs a reason that outweighs them. Adoption is the whole game.
 
 ## Non-negotiable rules
 
@@ -79,8 +88,8 @@ See `docs/architecture.md` and the ADRs in `docs/adr/`. In short:
 - `db/` — PostgreSQL 16. The business rules live here: valuation functions,
   exception views, RLS policies. This is deliberate, not laziness.
 - `api/` — Go. Thin. Auth, tenant context, transport, sync reconciliation.
-- `web/` — React + Vite. Two apps: the driver capture PWA and the manager
-  dashboard.
+- `web/` — React + Vite. One application (IR-UI-001): the driver capture PWA
+  and the manager dashboard, reached by role-appropriate routes.
 - `infra/` — Bicep. Azure.
 
 **Where logic belongs:** if it is a business rule about tyres, it goes in SQL
@@ -131,8 +140,8 @@ PR. Where either one contradicts the repo, the repo wins:
 - Dates render through `web/src/time/tenantTime.ts` (rule 6) and money through
   `formatRand` in `web/src/api/money.ts` (rule 2), never through `Intl`
   directly.
-- The capture route answers to the three-minute rule and its bundle budget
-  first. NFR-USE-004 floors its targets at 44px, and the keypad and tiles sit
+- The capture route is designed to the three-minute target and held to its
+  bundle budget first. NFR-USE-004 floors its targets at 44px, and the keypad and tiles sit
   at 56 to 64px for gloves. A skill's 44px is that floor, not a size to
   shrink to.
 
@@ -182,8 +191,8 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
   positions below the removal threshold**. The database computes them through
   one view, `app.v_exception` (migration 000045), judged at each unit's latest
   inspection; `db/tests/004_tests.sql` §59 pins the numbers and §8 the
-  position sets. The API will relay that view (B7.2) and the dashboard's e2e
-  will assert the rendered counts against it (B7.3), once both land. The
+  position sets. The API relays that view (B7.2, `GET /api/exceptions`), and the
+  dashboard's e2e will assert the rendered counts against it once B7.3 lands. The
   capture app's leg never reads the view and, being online-first, never
   will: it warns per vehicle at entry from its own independent
   implementation of the same thresholds (`web/src/capture/warnings.ts`).
@@ -219,20 +228,20 @@ Do not drift into any of these. They come up repeatedly.
 - **Not a compliance system.** The platform reports the tenant's *configured
   policy* thresholds. It does not determine roadworthiness or legal minimums
   and must never be described as doing so.
-- **Not a marketplace.** The tyre-seller marketplace is out of scope pending
-  OI-29. It implies a second customer type, which is a tenancy decision, not a
+- **Not a marketplace.** The tyre-seller marketplace is out of scope for the
+  POC. It implies a second customer type, which is a tenancy decision, not a
   feature. Do not build toward it without an explicit decision.
 - Out of scope: telematics/TPMS, native apps (PWA only), ML tread reading from
   photos, procurement and accounting integration.
 
-## Open questions that block work
+## Questions outside the codebase
 
-`docs/open-issues.md` is the live register, mirrored in Jira under TYRE-11.
-Nothing blocks code today: the sponsor's 22 Aug 2026 answers closed the old
-blockers (OI-28's answer — tread positions are outer/centre/inner relative to
-the vehicle centreline — is CHG-010, and pre-convention captures carry
-`orientation_known = false`). The open items that shape upcoming work are
-OI-29 (tenancy, sponsor acceptance of ADR-0003) and OI-31/32/33.
+Sponsor, commercial, IP and legal questions are handled by the team outside
+the project, and Jira carries codebase and infrastructure work only (owner,
+29 Sep 2026). The answers already given are recorded in Confluence. One shapes
+the schema throughout: tread positions are outer/centre/inner relative to the
+vehicle centreline (CHG-010), and pre-convention captures carry
+`orientation_known = false`.
 
 ## Working with me
 

@@ -1,6 +1,6 @@
 /* Control/surface patterns more than one screen needs, in one place, loaded
    beside base.css. capture.css is deliberately not a client: it answers to
-   the three-minute constraint and gloves/sunlight sizing instead. */
+   the three-minute capture target and gloves/sunlight sizing instead. */
 
 /* The heading a management screen opens with. Margin is the caller's: a
    heading in a flex bar wants none, one above a form wants rhythm below it. */

@@ -225,7 +225,7 @@ test("a rig walks as one sequence and attributes every reading to its own unit",
   // rig, but what is SENT is (vehicle_id, position_id) per unit; a leaked
   // projection would file every trailer's tyres against the horse.
   // Extended timeout: 29 cells of round trips exceeds the default 30s budget.
-  // NFR-USE-001a's seven minutes governs a driver, not this test.
+  // NFR-USE-001a's seven minutes is a target for a driver, not for this test.
   test.setTimeout(180_000);
 
   const horse = await assignedVehicle(request, "HORSE");

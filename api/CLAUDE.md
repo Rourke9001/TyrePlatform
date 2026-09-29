@@ -44,10 +44,9 @@ When a read's breadth depends on role, choose the source relation from
 default, and `auth.ScopeTenant` is the only thing that widens it — see
 `listVehicles`.
 
-`internal/store.InTenantTx` still exists, for tenant-scoped work with no
-actor to resolve. There is currently none of that: every handler binds an
-actor through `withActor`. Do not reach for `InTenantTx` to skip a capability
-check.
+`internal/store.InTenantTx` is for tenant-scoped work with no actor to
+resolve. No handler does any: every handler binds an actor through
+`withActor`. Do not reach for `InTenantTx` to skip a capability check.
 
 If you find yourself querying `pool` directly inside a request, stop. That
 query runs with no tenant context and returns nothing — which looks like a
@@ -55,7 +54,7 @@ data bug and is actually a missing transaction.
 
 ## The dev header resolver
 
-The dev resolver now supplies a **user** as well as a tenant. Locally, anyone
+The dev resolver supplies a **user** as well as a tenant. Locally, anyone
 who can send a header is anyone, in any tenant, so the capability gate is
 decorative in development — it is a development convenience with the blast
 radius of an authentication bypass. The `CONTAINER_APP_NAME` veto in
@@ -74,10 +73,10 @@ does arithmetic on money; `tyres.go` is the shape to copy.
 The B7.2 routes (`exceptions.go`, `valuation.go`, `analytics.go`,
 `dashboard.go`) relay the database's views and never compute a figure:
 every count, sum and percentage is a SQL column, and where an actor's
-depots must be summed it is `sum()` in the same statement (spec U25). Two
+depots must be summed it is `sum()` in the same statement (spec U25). Three
 helpers in `scope.go` compose scope the way `unitSource` does: `unitScope`
 for anything keyed by vehicle, `aggregateScope` for the TENANT/DEPOT
-aggregate views, with `depotRowsScope` for the itemised DEPOT reading. All
+aggregate views, and `depotRowsScope` for the itemised DEPOT reading. All
 three take the optional `?depot=` as `$1`, always, so a caller cannot
 forget it.
 

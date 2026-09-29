@@ -14,7 +14,8 @@ You verify that the money is right. Cent-exact, not approximately right.
    `parseFloat`, `::real`, `::double precision` anywhere near a monetary value.
    Money is `numeric`/`DECIMAL` end to end, including over the wire — a JSON
    number is an IEEE double in most parsers, so amounts crossing the API
-   boundary must be strings or minor units.
+   boundary are JSON strings, never numbers (api/CLAUDE.md, Money over the
+   wire).
 5. Check that the removal threshold is read from configuration and not typed
    as a literal `4`. A hard-coded threshold is correct for this tenant today
    and wrong for the second customer.

@@ -3,12 +3,15 @@
 React + Vite. **One application, one deployment** (IR-UI-001): a
 mobile-optimised capture interface and a desktop-optimised management
 interface, reached by role-appropriate routes within it. They share components
-but not priorities — see the three-minute constraint below.
+but not priorities — see the capture target below.
 
-## The capture app answers to one number
+## The capture target
 
 > A trained driver completes a ten-position vehicle in a median of **3 minutes**
 > (NFR-USE-001), and a 26-position combination in **7 minutes** (NFR-USE-001a).
+
+These are UX targets the capture app is designed to, not acceptance criteria
+or KPIs (CLAUDE.md, The capture target).
 
 Three tread readings per position means a superlink is **108 numeric entries**.
 Every interaction decision follows from that arithmetic:
@@ -26,12 +29,12 @@ Every interaction decision follows from that arithmetic:
 
 **Before adding anything to the capture flow, count the taps it costs.** A
 feature that improves the dashboard and adds three seconds per position adds
-over a minute to a superlink, and the POC fails on adoption.
+over a minute to a superlink, and slow capture costs adoption.
 
-`docs/prototypes/driver_capture_prototype.html` is the reference for the
-interaction model — a gitignored working mirror. The authority is Confluence:
-*Driver Capture Prototype v1.0* (pageId 13238274, under *UI Prototypes v1.0*
-in the Specification tree).
+The reference for the interaction model is the Confluence page *Driver
+Capture Prototype v1.0* (pageId 13238274, under *UI Prototypes v1.0* in the
+Specification tree). `docs/prototypes/driver_capture_prototype.html` is a
+gitignored working copy of it and may be stale.
 
 ## The network (ADR-0009)
 
@@ -68,12 +71,12 @@ at phone dimensions, so `reach.spec.ts` runs on all three and
 tenant state in one shared database, and the same vehicle submitted from a
 second project is refused by the first.
 
-**A green `make e2e` does not prove the three-minute constraint.** The M2
+**A green `make e2e` says nothing about the capture target.** The M2
 airplane-mode run was performed against **emulated** evidence — the Pixel 7
 project with `setOffline(true)`, no real handset — and Playwright taps as fast
 as the browser accepts. **NFR-USE-001's three minutes and NFR-USE-001a's seven
-remain unmeasured**; they need a trained driver on a real phone, with gloves, in
-the sun. What these specs do establish is that the flow completes offline, syncs
+remain unmeasured**; measuring them takes a trained driver on a real phone,
+with gloves, in the sun. What these specs do establish is that the flow completes offline, syncs
 on reconnect, and files every reading against the unit that owns the position.
 
 Run with `make e2e`, which reseeds and requires `make api-run` in another

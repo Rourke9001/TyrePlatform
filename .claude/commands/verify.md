@@ -11,8 +11,8 @@ Run the full verification and report honestly.
    `app.v_exception`, and check 59's numbers: **19 exceptions, 11 urgent,
    9 running positions below the removal threshold**, plus the value-at-risk
    figure R16,537.50 running and R1,837.50 spare. The view is the one
-   implementation of those counts; the API relays it (B7.2) and the dashboard
-   e2e asserts the rendered numbers against it (B7.3) once both land. A suite
+   implementation of those counts; the API relays it (B7.2), and the dashboard
+   e2e will assert the rendered numbers against it once B7.3 lands. A suite
    run is the whole of the database leg, not the whole agreement.
 5. `cd web && npm test -- src/capture/warnings.test.ts`. The capture leg is
    live today: it never reads the view and never will (CLAUDE.md, Testing),
