@@ -365,7 +365,7 @@ BEGIN
      AND p.prosecdef
      -- refresh_governing_tread materialises the MIN across a reading's
      -- measurements (CR-011) for rows the writer may not see; 000004 documents
-     -- the same-tenant backstop it carries in place of RLS.
+     -- the same-tenant backstop it carries in place of RLS (body since 000050).
      AND p.proname <> ALL (ARRAY['refresh_governing_tread']);
   IF offenders IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: SECURITY DEFINER routine(s) outside the allowlist, RLS does not bind them: %', offenders;
@@ -10040,35 +10040,189 @@ END $$;
 ROLLBACK;
 
 \echo '== 65. The governing-tread definer chain names its tenant in the MIN(), the latest-reading lookup and the fitment join (TYRE-259, rule 1)'
--- refresh_governing_tread runs as its definer and the snapshot reconcile
--- runs inside it, so RLS adds no tenant column to either plan and a lookup
--- without one reads every tenant's history on each measurement written. No
--- result on the fixture moves with the predicates, so the pin is on the
--- function text: a rewrite of either function (TYRE-257) has to carry them.
--- Comments are stripped first, so a predicate kept only in a comment fails.
+-- Why the chain must name its tenant: db/CLAUDE.md, Adding a function. No
+-- fixture result moves with the predicates, so the pin is on the text of the
+-- function the trigger runs, and a rewrite (TYRE-257) has to carry them. The
+-- fitment one has no index to use until TYRE-347. 65a proves the matcher on
+-- planted text. The two temporary functions serve 65 and 66b and are dropped
+-- after 66b.
+--
+-- Block comments are stripped before line comments, because a line comment
+-- inside a block comment would otherwise take the block's closing marker
+-- with it.
+CREATE FUNCTION pg_temp.sans_comments(body text) RETURNS text
+LANGUAGE sql IMMUTABLE AS $fn$
+  SELECT regexp_replace(regexp_replace(body, '/\*.*?\*/', '', 'g'), '--[^\n]*', '', 'g')
+$fn$;
+-- \m and \M anchor each alias, so pr.tenant_id is not r.tenant_id.
+CREATE FUNCTION pg_temp.names_tenant(body text, lhs text, rhs text) RETURNS boolean
+LANGUAGE sql IMMUTABLE AS $fn$
+  SELECT pg_temp.sans_comments(body)
+         ~ ('\m' || replace(lhs, '.', '\.') || '\s*=\s*' || replace(rhs, '.', '\.') || '\M|'
+            || '\m' || replace(rhs, '.', '\.') || '\s*=\s*' || replace(lhs, '.', '\.') || '\M')
+$fn$;
+
+\echo '== 65a. the matcher finds a predicate in either operand order and any spacing, and not in a comment or under a longer alias'
 DO $$
 DECLARE
-  missing text[] := '{}';
-  governs text := regexp_replace(pg_get_functiondef('app.refresh_governing_tread()'::regprocedure),
-                                 '--[^\n]*', '', 'g');
-  register text := regexp_replace(pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure),
-                                  '--[^\n]*', '', 'g');
+  l constant text := 'r.tenant_id';
+  r constant text := 't.tenant_id';
 BEGIN
-  IF position('m.tenant_id = row_tenant' IN governs) = 0 THEN
-    missing := array_append(missing, 'refresh_governing_tread: m.tenant_id = row_tenant');
+  IF NOT pg_temp.names_tenant('WHERE r.tenant_id = t.tenant_id', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: the plain predicate was not found';
   END IF;
-  IF position('r.tenant_id = t.tenant_id' IN register) = 0 THEN
+  IF NOT pg_temp.names_tenant('WHERE t.tenant_id=r.tenant_id', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: the reversed, unspaced predicate was not found';
+  END IF;
+  IF NOT pg_temp.names_tenant(E'WHERE r.tenant_id\n    = t.tenant_id', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: a predicate broken across lines was not found';
+  END IF;
+  IF NOT pg_temp.names_tenant('/* a */ AND r.tenant_id = t.tenant_id /* b */', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: live text between two block comments was stripped with them';
+  END IF;
+  IF pg_temp.names_tenant('AND pr.tenant_id = t.tenant_id', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: pr.tenant_id was taken for r.tenant_id';
+  END IF;
+  IF pg_temp.names_tenant('-- AND r.tenant_id = t.tenant_id', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: a predicate in a line comment was found';
+  END IF;
+  IF pg_temp.names_tenant(E'/*\n AND r.tenant_id = t.tenant_id\n*/', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: a predicate in a block comment was found';
+  END IF;
+  IF pg_temp.names_tenant('/* AND r.tenant_id = t.tenant_id -- x */', l, r) THEN
+    RAISE EXCEPTION 'FAIL 65a: a predicate in a block comment holding a line comment was found';
+  END IF;
+  RAISE NOTICE 'PASS  65a the matcher finds both spellings and ignores comments and longer aliases';
+END $$;
+
+\echo '== 65b. the MIN() the trigger runs, the latest-reading lookup and the fitment join each carry the predicate'
+DO $$
+DECLARE
+  governs  regprocedure;
+  enabled  "char";
+  register text := pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure);
+  missing  text[] := '{}';
+BEGIN
+  SELECT t.tgfoid::regprocedure, t.tgenabled INTO governs, enabled
+    FROM pg_trigger t
+   WHERE t.tgrelid = 'app.reading_measurement'::regclass
+     AND t.tgname = 'reading_measurement_governs';
+  IF governs IS NULL THEN
+    RAISE EXCEPTION 'FAIL 65b: reading_measurement_governs is gone; point this pin at whatever maintains governing_tread_mm now';
+  END IF;
+  IF enabled NOT IN ('O', 'A') THEN
+    RAISE EXCEPTION 'FAIL 65b: reading_measurement_governs is not enabled (tgenabled %)', enabled;
+  END IF;
+  IF NOT pg_temp.names_tenant(pg_get_functiondef(governs), 'm.tenant_id', 'row_tenant') THEN
+    missing := array_append(missing, governs::text || ': m.tenant_id = row_tenant');
+  END IF;
+  IF NOT pg_temp.names_tenant(register, 'r.tenant_id', 't.tenant_id') THEN
     missing := array_append(missing, 'tyre_valuation_asof: r.tenant_id = t.tenant_id');
   END IF;
-  IF position('f.tenant_id = t.tenant_id' IN register) = 0 THEN
+  IF NOT pg_temp.names_tenant(register, 'f.tenant_id', 't.tenant_id') THEN
     missing := array_append(missing, 'tyre_valuation_asof: f.tenant_id = t.tenant_id');
   END IF;
   IF cardinality(missing) > 0 THEN
-    RAISE EXCEPTION 'FAIL 65: definer-chain lookup(s) without a tenant predicate: %',
+    RAISE EXCEPTION 'FAIL 65b: definer-chain lookup(s) without a tenant predicate: %',
       array_to_string(missing, '; ');
   END IF;
-  RAISE NOTICE 'PASS  65 the MIN(), the latest-reading lookup and the fitment join each name the tenant';
+  RAISE NOTICE 'PASS  65b % and the register''s latest-reading lookup and fitment join each name the tenant', governs;
 END $$;
+
+\echo '== 66. When captures of a unit share a submitted_at, the register values each tyre on the reading v_exception judges (TYRE-348, FR-VAL-006)'
+-- v_latest_unit_inspection (000045) breaks a submitted_at tie on received_at
+-- and then id. The register has to break it the same way, or a tyre is
+-- valued on one reading and judged on another. Three captures of veh1 share
+-- one submitted_at, two of them one received_at too, so both keys decide.
+-- 66a catches a wrong order in either key. An order with no tiebreaker
+-- picks by plan and passed 66a on this fixture, so 66b pins the text.
+
+\echo '== 66a. the tie resolves to the same reading in the register and in v_exception (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  t1      constant uuid := '11111111-1111-1111-1111-111111111111';
+  veh     constant uuid := md5('veh1')::uuid;
+  s       constant timestamptz := date_trunc('minute', now()) - interval '1 hour';
+  first_in constant uuid := md5('t348-a')::uuid;
+  tie_b   constant uuid := md5('t348-b')::uuid;
+  tie_c   constant uuid := md5('t348-c')::uuid;
+  winner  uuid := least(tie_b, tie_c);
+  loser   uuid := greatest(tie_b, tie_c);
+  pos1 uuid; pos2 uuid; tyre1 uuid; tyre2 uuid;
+  picked uuid; judged numeric; valued numeric;
+  insp uuid; tyre uuid; expected numeric;
+  n int := 0;
+BEGIN
+  PERFORM set_config('app.tenant_id', t1::text, true);
+  SELECT f.position_id, f.tyre_id INTO STRICT pos1, tyre1
+    FROM app.fitment f JOIN app.position p ON p.id = f.position_id
+   WHERE f.vehicle_id = veh AND p.code = '1' AND f.removed_at IS NULL;
+  SELECT f.position_id, f.tyre_id INTO STRICT pos2, tyre2
+    FROM app.fitment f JOIN app.position p ON p.id = f.position_id
+   WHERE f.vehicle_id = veh AND p.code = '2' AND f.removed_at IS NULL;
+
+  INSERT INTO app.inspection (id, tenant_id, vehicle_id, combination_id, user_id, client_uuid,
+                              started_at, submitted_at, received_at, state)
+  VALUES (first_in, t1, veh, md5('comb1')::uuid, md5('driver1')::uuid, md5('t348-cli-a')::uuid,
+          s - interval '5 minutes', s, s + interval '10 minutes', 'SYNCED'),
+         (tie_b, t1, veh, md5('comb1')::uuid, md5('driver1')::uuid, md5('t348-cli-b')::uuid,
+          s - interval '5 minutes', s, s + interval '20 minutes', 'SYNCED'),
+         (tie_c, t1, veh, md5('comb1')::uuid, md5('driver1')::uuid, md5('t348-cli-c')::uuid,
+          s - interval '5 minutes', s, s + interval '20 minutes', 'SYNCED');
+
+  -- The winner reads 7.0 on tyre1 and 8.0 on tyre2; every other reading is
+  -- deeper, so a wrong pick shows as a deeper tread.
+  FOREACH insp IN ARRAY ARRAY[winner, first_in, loser] LOOP
+    n := n + 1;
+    INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+    VALUES (md5('t348-1-' || insp)::uuid, t1, insp, veh, pos1, tyre1, 800);
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known, granularity_mm)
+    VALUES (t1, md5('t348-1-' || insp)::uuid, 1, 'OUTER', 5.0 + 2 * n, false, 1.0);
+  END LOOP;
+  n := 0;
+  FOREACH insp IN ARRAY ARRAY[loser, first_in, winner] LOOP
+    n := n + 1;
+    INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+    VALUES (md5('t348-2-' || insp)::uuid, t1, insp, veh, pos2, tyre2, 800);
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known, granularity_mm)
+    VALUES (t1, md5('t348-2-' || insp)::uuid, 1, 'OUTER', 14.0 - 2 * n, false, 1.0);
+  END LOOP;
+
+  SELECT u.inspection_id INTO STRICT picked
+    FROM app.v_latest_unit_inspection u WHERE u.vehicle_id = veh;
+  IF picked IS DISTINCT FROM winner THEN
+    RAISE EXCEPTION 'FAIL 66a: v_latest_unit_inspection took %, not the tie''s winner %; the premise is wrong', picked, winner;
+  END IF;
+  FOR i IN 1..2 LOOP
+    tyre := (ARRAY[tyre1, tyre2])[i];
+    expected := (ARRAY[7.0, 8.0])[i];
+    SELECT lr.governing_tread_mm INTO STRICT judged
+      FROM app.v_latest_reading lr WHERE lr.vehicle_id = veh AND lr.tyre_id = tyre;
+    SELECT tv.current_tread_mm INTO STRICT valued
+      FROM app.tyre_valuation_asof((now() AT TIME ZONE 'UTC')::date) tv WHERE tv.tyre_id = tyre;
+    IF judged IS DISTINCT FROM expected THEN
+      RAISE EXCEPTION 'FAIL 66a: v_latest_reading judges tyre % on % mm, not the winner''s %', tyre, judged, expected;
+    END IF;
+    IF valued IS DISTINCT FROM judged THEN
+      RAISE EXCEPTION 'FAIL 66a: the register values tyre % on % mm but v_exception judges it on % mm', tyre, valued, judged;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  66a a submitted_at tie resolves to the same reading in the register and in v_exception';
+END $$;
+ROLLBACK;
+
+\echo '== 66b. the register orders its latest-reading lookup by v_latest_unit_inspection''s three keys'
+DO $$
+BEGIN
+  IF pg_temp.sans_comments(pg_get_functiondef('app.tyre_valuation_asof(date)'::regprocedure))
+     !~ 'ORDER BY\s+i\.submitted_at\s+DESC\s*,\s*i\.received_at\s+DESC\s*,\s*i\.id\M' THEN
+    RAISE EXCEPTION 'FAIL 66b: the register''s latest-reading lookup no longer orders by submitted_at DESC, received_at DESC, id';
+  END IF;
+  RAISE NOTICE 'PASS  66b the register breaks a submitted_at tie on received_at and then id';
+END $$;
+DROP FUNCTION pg_temp.names_tenant(text, text, text);
+DROP FUNCTION pg_temp.sans_comments(text);
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

@@ -2,18 +2,19 @@
 --  The governing-tread definer chain names its tenant (TYRE-259)
 --  Implements: FR-VAL-006, CR-011, DR-017; rule 1
 -- ============================================================================
--- refresh_governing_tread runs as its definer and the snapshot reconcile runs
--- inside it, so RLS adds no tenant column to their plans. A lookup that names
--- none reads every tenant's history once per measurement written, and one
--- tenant's submit time grows with the whole platform's (rule 1, TYRE-259,
--- which carries the measurements).
+-- Everything refresh_governing_tread reaches runs with RLS off, so its
+-- lookups name their tenant in the text (db/CLAUDE.md, Adding a function;
+-- TYRE-259 carries the measurements). Each predicate is one a composite FK
+-- (000004) already holds, so no row moves. tyre_in_estate_asof and a fitment
+-- index are still open (TYRE-347).
 --
--- Each predicate is one a composite FK (000004) already holds, so no row and
--- no valuation moves (FR-VAL-006).
+-- The latest-reading lookup also takes v_exception's tiebreaker, the one
+-- change in meaning here: a submitted_at tie resolves as 000045 resolves it
+-- instead of by plan (TYRE-348). The fixture holds no such tie.
 
 -- CREATE OR REPLACE resets every property the command omits, so SECURITY
--- DEFINER and the pinned search_path are restated (db/CLAUDE.md, Adding a
--- function).
+-- DEFINER and the pinned search_path are restated (docs/lessons.md,
+-- 2026-09-15).
 CREATE OR REPLACE FUNCTION app.refresh_governing_tread() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = app, pg_temp AS $$
 DECLARE target uuid; row_tenant uuid; target_tenant uuid;
@@ -111,7 +112,7 @@ LANGUAGE sql STABLE AS $$
     LEFT JOIN app.tyre_brand   b  ON b.id  = t.brand_id
     LEFT JOIN app.tyre_pattern pt ON pt.id = t.pattern_id
     -- f and lr name t's tenant because the definer chain runs this with RLS
-    -- off (TYRE-259).
+    -- off (TYRE-259). f has no index to use it until TYRE-347.
     LEFT JOIN app.fitment f ON f.tenant_id = t.tenant_id AND f.tyre_id = t.id AND f.fitted_at < bound.ts
                            AND (f.removed_at IS NULL OR f.removed_at >= bound.ts)
     LEFT JOIN app.vehicle  v   ON v.id   = f.vehicle_id
@@ -126,7 +127,9 @@ LANGUAGE sql STABLE AS $$
             AND i.state <> 'VOIDED'
             AND r.governing_tread_mm IS NOT NULL
             AND i.submitted_at < bound.ts
-          ORDER BY i.submitted_at DESC
+          -- v_latest_unit_inspection's order (000045), so a tyre is valued
+          -- on the reading v_exception judges (TYRE-348).
+          ORDER BY i.submitted_at DESC, i.received_at DESC, i.id
           LIMIT 1) lr ON true
     CROSS JOIN LATERAL (
          SELECT CASE WHEN t.rand_per_mm IS NOT NULL AND thr.mm IS NOT NULL

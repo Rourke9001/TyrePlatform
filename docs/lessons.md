@@ -28,6 +28,26 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-29 - `make db-volume` after a suite run can plan its load quadratically (TYRE-348)
+
+**What happened:** a `make db-volume` run straight after `make db-test` on
+a freshly reset database was cancelled at 23 minutes, against 248 s the day
+before. The first suspect was the change under test, a tiebreaker added to
+the register's latest-reading sort. It was not the cause: both sort orders
+planned identically. The suite's rolled-back inserts had set off
+autoanalyze on `reading` and `reading_measurement` 35 seconds before the
+load started, so the load's single transaction planned on statistics that
+said 53 rows. The reconcile's latest-reading lookup then seq-scanned every
+inspection and probed `reading_by_tyre` once for each, so every statement
+cost more than the one before it. Re-run as `make db-reset` then `make
+db-volume` with nothing in between, the same code loaded in 281 s.
+
+**The rule:** load the volume state only as `make db-reset` immediately
+followed by `make db-volume`, with no suite run or query in between. When a
+load runs long, compare `pg_stat_user_tables.last_autoanalyze` with the
+load's start time, and `EXPLAIN` the suspect lookup under both versions on
+the same state, before blaming the change.
+
 ## 2026-09-25 — A focused Go test run on an unreset database fails the Appendix E pins (TYRE-269)
 
 **What happened:** during the PR #81 review fixes, a focused `go test -run

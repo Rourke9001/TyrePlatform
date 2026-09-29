@@ -75,20 +75,22 @@ this is merely a footgun rather than a breach.
 ## Adding a function
 
 Invoker rights, always; the one definer is `app.refresh_governing_tread`
-(000004), and a new definer needs a review and a suite section before it
-lands (check 8c). Every plpgsql routine pins `SET search_path = app,
-pg_temp`, because plpgsql resolves unqualified names when it runs and
-would otherwise follow the caller's path (TYRE-181). A `LANGUAGE sql` table
-function that a view is built over carries no pin: the planner inlines
+(000004, body since 000050), and a new definer needs a review and a suite
+section before it lands (check 8c). Every plpgsql routine pins `SET
+search_path = app, pg_temp`, because plpgsql resolves unqualified names
+when it runs and would otherwise follow the caller's path (TYRE-181). A
+`LANGUAGE sql` table function that a view is built over carries no pin:
+the planner inlines
 those and a SET clause blocks the inlining (000036). Check 8d holds both
 halves. Cite this section from a migration; do not restate it.
 
 Everything the definer reaches, including the snapshot reconcile and
-`app.tyre_valuation_asof`, runs with RLS off, so a lookup there must name
-its tenant in the text. Without it the planner cannot use a tenant-leading
-index, and a submit reads every tenant's history once per measurement
-(TYRE-259). Suite section 65 pins the three predicates that exist;
-`app.tyre_in_estate_asof` does not name its tenant yet (TYRE-347).
+`app.tyre_valuation_asof`, runs with RLS off. A lookup there that finds its
+rows through a tenant-leading index must name the tenant in its text, or
+the planner cannot use the index and one tenant's submit grows with every
+tenant's history (TYRE-259). A primary-key probe needs no tenant. Suite
+section 65 pins the three predicates in place. The fitment one has no index
+to use yet, and `app.tyre_in_estate_asof` names no tenant (both TYRE-347).
 
 ## Money
 
