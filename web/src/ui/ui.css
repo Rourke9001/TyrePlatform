@@ -542,16 +542,11 @@
   margin: 0;
 }
 
-/* The tooltip sits above the plot, over this caption (TYRE-275), so the
-   caption keeps the tooltip's height: two lines at the body's 1.5 line
-   height plus its padding and border. Any shorter and a band's tooltip
-   covers the panel's heading. */
 .band-chart-title {
   font-size: var(--text-small);
   font-weight: 600;
   color: var(--ink-muted);
-  min-height: calc(3em + 2 * var(--space-2) + 2px);
-  margin-bottom: var(--space-1);
+  margin-bottom: var(--space-2);
 }
 
 .band-chart-plot {
