@@ -1,14 +1,15 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
 import type { ReactElement } from "react";
-import { MemoryRouter } from "react-router";
+import { Link, MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDevTenantId } from "../api/devTenant";
 import { ActorContext } from "../auth/actorContext";
 import { dashboardBody, me, renderWithActor, requestedUrl, respond } from "../test/fixtures";
 import Dashboard from "./Dashboard";
+import { PERIOD_SETTLE_MS } from "./dashboardParams";
 
 // renderWithActor's providers with a plain QueryClient, whose retries are
 // the library's defaults; the retry test below says why.
@@ -114,6 +115,26 @@ function stubDepotScopedApi({ depotScoped = true, depotCount = 3 } = {}) {
     }
     if (url.startsWith("/api/depots")) return Promise.resolve(respond(200, tenantDepots));
     return Promise.resolve(respond(200, { scope, judgedAt: "TENANT_TODAY", spares: [] }));
+  });
+}
+
+// Real time, past the point an edit would have been sent, so a request
+// that never happens is proved absent rather than not yet due.
+function pastSettle(): Promise<void> {
+  return act(() => new Promise<void>((resolve) => setTimeout(resolve, PERIOD_SETTLE_MS + 200)));
+}
+
+function stubFailedDepots() {
+  const fetchMock = stubApi();
+  fetchMock.mockImplementation((input: RequestInfo | URL) => {
+    const url = requestedUrl(input);
+    if (url.startsWith("/api/depots")) {
+      return Promise.resolve(respond(500, { code: "internal", message: "no" }));
+    }
+    if (url.startsWith("/api/dashboard")) return Promise.resolve(respond(200, dashboardBody()));
+    return Promise.resolve(
+      respond(200, { scope: dashboardBody().scope, judgedAt: "TENANT_TODAY", spares: [] }),
+    );
   });
 }
 
@@ -248,29 +269,62 @@ describe("Dashboard", () => {
     await screen.findByText("R16,537.50");
   });
 
-  it("says the depots did not load, and the dashboard still renders", async () => {
-    const fetchMock = stubApi();
-    fetchMock.mockImplementation((input: RequestInfo | URL) => {
-      const url = requestedUrl(input);
-      if (url.startsWith("/api/depots")) {
-        return Promise.resolve(respond(500, { code: "internal", message: "no" }));
-      }
-      if (url.startsWith("/api/dashboard")) return Promise.resolve(respond(200, dashboardBody()));
-      return Promise.resolve(
-        respond(200, { scope: dashboardBody().scope, judgedAt: "TENANT_TODAY", spares: [] }),
-      );
-    });
+  // The failure is the field's, not the trigger's: with "All depots" offered
+  // Radix never shows a placeholder, and the trigger must still name the
+  // depot chosen so it can be cleared.
+  it.each([["/"], ["/?depot=d1"]])(
+    "says the depots did not load at %s, and the dashboard still renders",
+    async (entry) => {
+      stubFailedDepots();
+      renderWithActor(<Dashboard />, {
+        capabilities: ["ViewFleet"],
+        withRouter: true,
+        initialEntries: [entry],
+      });
+      await screen.findByText("R16,537.50");
+      expect(await screen.findByText("Depots did not load")).toBeInTheDocument();
+    },
+  );
+
+  it("offers every depot again when the depots did not load on a depot view", async () => {
+    const user = userEvent.setup();
+    stubFailedDepots();
     renderWithActor(<Dashboard />, {
       capabilities: ["ViewFleet"],
       withRouter: true,
       initialEntries: ["/?depot=d1"],
     });
-    await screen.findByText("R16,537.50");
-    await waitFor(() => {
-      expect(screen.getByRole("combobox", { name: "Depot" })).toHaveTextContent(
-        "Depots did not load",
-      );
+    await screen.findByText("Depots did not load");
+    expect(screen.getByRole("combobox", { name: "Depot" })).toHaveTextContent("Depot not listed");
+    await expectPickerOffers(user, ["All depots", "Depot not listed"]);
+    await user.click(screen.getByRole("option", { name: "All depots" }));
+    await waitFor(() => expect(calls("/api/dashboard")).toContain("/api/dashboard"));
+  });
+
+  // A depot the picker does not offer (a retreader, another depot's link, a
+  // closed depot) still reads as chosen and can be cleared; a depot-scoped
+  // actor is never shown the name of a depot that is not theirs (U42).
+  it.each([
+    ["a retreader, to a tenant-wide actor", "r1", false],
+    ["another depot, to a depot-scoped actor", "d3", true],
+  ])("names %s as a depot not listed", async (_, depot, depotScoped) => {
+    const user = userEvent.setup();
+    stubDepotScopedApi({ depotScoped });
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      initialEntries: [`/?depot=${depot}`],
+      actor: depotScoped ? technician : tenantWideTechnician,
     });
+    const picker = screen.getByRole("combobox", { name: "Depot" });
+    await waitFor(() => expect(picker).toHaveTextContent("Depot not listed"));
+    expect(picker).not.toHaveTextContent(/Retreaders|Cape Town/);
+    await expectPickerOffers(
+      user,
+      depotScoped
+        ? ["All my depots", "Johannesburg", "Durban", "Depot not listed"]
+        : ["All depots", "Johannesburg", "Durban", "Cape Town", "Depot not listed"],
+    );
   });
 
   // TYRE-239 DoD, U42, U85, U87: a depot-scoped actor's figures are composed
@@ -428,6 +482,71 @@ describe("Dashboard", () => {
     });
     await screen.findByText(/^As at /);
     await expectPickerOffers(user, ["All my depots", "Johannesburg"]);
+  });
+
+  // U41: every dashboard call costs seconds on a volume tenant, so a year
+  // typed into a date field is one request, not one per keystroke.
+  it("sends one request for a year typed into the period", async () => {
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      initialEntries: ["/?from=2026-07-01&to=2026-09-01"],
+    });
+    await screen.findByText(/^As at /);
+    const from = screen.getByLabelText("Inflation period from");
+    for (const value of ["0002-08-01", "0020-08-01", "0202-08-01", "2026-08-01"]) {
+      fireEvent.change(from, { target: { value } });
+    }
+    await waitFor(() =>
+      expect(calls("/api/dashboard")).toEqual([
+        "/api/dashboard?from=2026-07-01&to=2026-09-01",
+        "/api/dashboard?from=2026-08-01&to=2026-09-01",
+      ]),
+    );
+  });
+
+  it("refuses a from that is not before the to, and sends nothing", async () => {
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      initialEntries: ["/?from=2026-07-01&to=2026-09-01"],
+    });
+    await screen.findByText(/^As at /);
+    fireEvent.change(screen.getByLabelText("Inflation period from"), {
+      target: { value: "2026-09-15" },
+    });
+    expect(await screen.findByText("Must be after the from date")).toBeInTheDocument();
+    await pastSettle();
+    expect(calls("/api/dashboard")).toEqual(["/api/dashboard?from=2026-07-01&to=2026-09-01"]);
+  });
+
+  // FR-DSH-011: the URL is the filter state, so a link or Back that changes
+  // it moves the fields too, and an edit it overtakes is dropped, not sent.
+  it("follows the URL when a link drops the period", async () => {
+    renderWithActor(
+      <>
+        <Link to="/">Home</Link>
+        <Dashboard />
+      </>,
+      {
+        capabilities: ["ViewFleet"],
+        withRouter: true,
+        initialEntries: ["/?from=2026-07-01&to=2026-09-01"],
+      },
+    );
+    await screen.findByText(/^As at /);
+    const from = screen.getByLabelText("Inflation period from");
+    const to = screen.getByLabelText("Inflation period to");
+    expect(from).toHaveValue("2026-07-01");
+    fireEvent.change(from, { target: { value: "2026-08-01" } });
+    await userEvent.click(screen.getByRole("link", { name: "Home" }));
+    expect(from).toHaveValue("");
+    expect(to).toHaveValue("");
+    await pastSettle();
+    expect(calls("/api/dashboard")).toEqual([
+      "/api/dashboard?from=2026-07-01&to=2026-09-01",
+      "/api/dashboard",
+    ]);
   });
 
   it("explains a failed load and offers a retry, never a blank page", async () => {

@@ -177,6 +177,7 @@ const ABSENCE_LABELS = {
   noOpenExceptionsBody:
     "Nothing the configured rules flag at the latest inspection of any unit in this view.",
   unnamedDepot: "one depot",
+  unlistedDepot: "Depot not listed",
 } as const;
 
 export type Absence = keyof typeof ABSENCE_LABELS;
