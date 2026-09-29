@@ -21,9 +21,10 @@ test("the dashboard renders the Appendix J figures the suite pins", async ({ pag
   // H.3 criterion 5: 19, 11 and 9, each on the tile that answers its FR.
   const open = page.locator("[data-requirement='FR-DSH-003']");
   await expect(open.getByText("19", { exact: true })).toBeVisible();
-  // A bare "11 urgent" is a substring of "111 urgent"; the pinned figure
-  // must fail on any other number, so the digit before it is never a digit.
-  await expect(open).toContainText(/(^|\D)11 urgent/);
+  // H.3 criterion 5: the 11 must fail on any other number, and a bare
+  // "11 urgent" is a substring of "111 urgent". innerText, because the
+  // tile's text content runs the 19 straight into the 11.
+  await expect(open).toContainText(/(^|\D)11 urgent/, { useInnerText: true });
   await expect(open).toContainText("as inspected");
 
   const below = page.locator("[data-requirement='FR-DSH-004']");
