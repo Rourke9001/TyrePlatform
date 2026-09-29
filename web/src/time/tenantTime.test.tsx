@@ -7,6 +7,7 @@ import type { Me } from "../auth/me";
 import { me } from "../test/fixtures";
 import {
   formatTenantDate,
+  formatTenantInstant,
   INVALID_INSTANT,
   tenantDateFormatter,
   useTenantDate,
@@ -156,5 +157,26 @@ describe("useTenantDate", () => {
     const first = result.current;
     rerender();
     expect(result.current).toBe(first);
+  });
+});
+
+describe("formatTenantInstant", () => {
+  // Africa/Johannesburg is UTC+2 with no daylight time: 07:10Z is 09:10.
+  // The wire's asAt carries six fractional digits (Go's time.Time).
+  it("renders a UTC instant as the tenant's civil date and time", () => {
+    expect(formatTenantInstant("2026-09-22T07:10:45.563568Z", "Africa/Johannesburg")).toMatch(
+      /^22 Sept? 2026 09:10$/,
+    );
+  });
+
+  // hourCycle h23: some ICU builds write midnight as "24:00" under hour12.
+  it("writes midnight as 00:00", () => {
+    expect(formatTenantInstant("2026-09-21T22:00:00Z", "Africa/Johannesburg")).toMatch(
+      /^22 Sept? 2026 00:00$/,
+    );
+  });
+
+  it("marks an unparseable instant the same way the date formatter does", () => {
+    expect(formatTenantInstant("not a date", "Africa/Johannesburg")).toBe("invalid date");
   });
 });
