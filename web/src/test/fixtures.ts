@@ -25,6 +25,7 @@ export function me(overrides: Partial<Me> = {}): Me {
     role: "CONTROLLER",
     capabilities: [],
     depots: [],
+    scope: "TENANT",
     timezone: "Africa/Johannesburg",
     displayCodePolicy: "FREE",
     ...overrides,

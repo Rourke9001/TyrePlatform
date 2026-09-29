@@ -84,3 +84,17 @@ func TestDepotRowsScopeListsOnlyReachableDepots(t *testing.T) {
 	req.NotContains(t, depotRowsScope(controller, depotByName), "v_actor_depot")
 	req.Contains(t, depotRowsScope(technician, depotByName), "v.key_name IN (SELECT d.name FROM app.depot d JOIN app.v_actor_depot ad ON ad.depot_id = d.id)")
 }
+
+// U87: a role missing from auth.go's scope table reads as DEPOT, the
+// narrower breadth, matching auth.Scope's zero value.
+func TestScopeNameIsTheWireWordForBreadth(t *testing.T) {
+	for role, want := range map[auth.Role]string{
+		auth.RoleOrgAdmin:     "TENANT",
+		auth.RoleController:   "TENANT",
+		auth.RoleDepotManager: "DEPOT",
+		auth.RoleTechnician:   "DEPOT",
+		auth.Role("UNKNOWN"):  "DEPOT",
+	} {
+		req.Equal(t, want, scopeName(auth.Actor{Role: role}.Scope()), string(role))
+	}
+}

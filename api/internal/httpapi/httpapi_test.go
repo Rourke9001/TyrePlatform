@@ -637,6 +637,31 @@ func TestMeReportsTheRoleTheDatabaseHolds(t *testing.T) {
 	require.Empty(t, me.Depots)
 }
 
+// U87: the page asks the server whether its reader sees the tenant or only
+// their depots, rather than copying auth.go's scope table into TypeScript.
+func TestMeReportsTheActorsScope(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "me-scope")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	for role, want := range map[auth.Role]string{
+		auth.RoleOrgAdmin:     "TENANT",
+		auth.RoleController:   "TENANT",
+		auth.RoleDepotManager: "DEPOT",
+		auth.RoleTechnician:   "DEPOT",
+	} {
+		userID := plantUser(t, ctx, admin, tenantID, role)
+		rec := get(t, h, "/api/me", tenantID.String(), userID.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var body struct {
+			Scope string `json:"scope"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		require.Equal(t, want, body.Scope, string(role))
+	}
+}
+
 func TestRequestWithoutAUserIsUnauthorized(t *testing.T) {
 	h := httpapi.New(nil, httpapi.HeaderActorResolver{})
 
