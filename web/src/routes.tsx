@@ -34,19 +34,23 @@ const TyreList = lazy(() =>
 const UnitDetail = lazy(() =>
   import("./fleet/unit/UnitDetail").then((m) => ({ default: m.UnitDetail })),
 );
+const Dashboard = lazy(() => import("./dashboard/Dashboard"));
+const Exceptions = lazy(() => import("./dashboard/Exceptions"));
+const AtRisk = lazy(() => import("./dashboard/AtRisk"));
 
 function NotFound() {
   return <p>Not found.</p>;
 }
 
-// FR-DSH-001/FR-DSH-012: a driver has no fleet view to land on, and the redirect is
-// one-shot since a capability check reads false before GET /api/me answers
-// and cannot revise itself later.
+// FR-DSH-001: a ViewFleet actor lands on the dashboard, rendered here at
+// "/" rather than redirected, so the one landing has one URL. FR-DSH-012: a
+// driver has no fleet view and goes to their own work. One-shot, since a
+// capability check reads false before GET /api/me answers.
 function Landing() {
   const settled = useActorSettled();
   const canViewFleet = useCan("ViewFleet");
   if (!settled) return null;
-  return canViewFleet ? <Navigate to="/fleet" replace /> : <Navigate to="/my" replace />;
+  return canViewFleet ? <Dashboard /> : <Navigate to="/my" replace />;
 }
 
 // FR-INS-048's one tap into the work. The vehicle is in the path and the task
@@ -163,6 +167,22 @@ export function AppRoutes() {
             <RequireCapability capability="ViewFleet">
               <FitmentList />
             </RequireCapability>
+          }
+        />
+        <Route
+          path="/exceptions"
+          element={
+            <AdminRoute capability="ViewFleet">
+              <Exceptions />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/at-risk"
+          element={
+            <AdminRoute capability="ViewValuation">
+              <AtRisk />
+            </AdminRoute>
           }
         />
         <Route path="/my" element={<DriverHome />} />

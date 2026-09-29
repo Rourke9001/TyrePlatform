@@ -9,6 +9,8 @@ export interface NavItem {
 }
 
 export const NAV_ITEMS: readonly NavItem[] = [
+  { to: "/", label: "Dashboard", capability: "ViewFleet" },
+  { to: "/exceptions", label: "Exceptions", capability: "ViewFleet" },
   { to: "/fleet", label: "Units", capability: "ViewFleet" },
   { to: "/fleet/tyres", label: "Tyres", capability: "ManageAssets" },
   { to: "/fleet/rigs", label: "Rigs", capability: "ViewFleet" },
