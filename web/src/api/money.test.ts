@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatRand, type Money } from "./money";
+import { formatRand, moneyText, type Money } from "./money";
 
 const rand = (s: string) => s as Money;
 
@@ -19,5 +19,16 @@ describe("formatRand", () => {
   });
   it("shows a scale the server sent rather than dropping a digit", () => {
     expect(formatRand(rand("1234.567"))).toBe("R1,234.567");
+  });
+});
+
+// U36: null with moneyVisible false is a projection, null with it true is
+// "every member unvalued"; neither is ever 0 (NFR-PRO-002/003).
+describe("moneyText", () => {
+  it("formats a figure, names a hidden one and names an unvalued one", () => {
+    expect(moneyText("16537.50" as Money, true)).toBe("R16,537.50");
+    expect(moneyText(null, false)).toBe("Hidden");
+    expect(moneyText(null, true)).toBe("Not valued");
+    expect(moneyText("1.00" as Money, false)).toBe("Hidden");
   });
 });
