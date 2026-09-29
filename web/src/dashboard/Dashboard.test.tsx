@@ -114,16 +114,18 @@ describe("Dashboard", () => {
     expect(calls("/api/dashboard")).toHaveLength(1);
   });
 
-  // FR-DSH-013 and U41: the button is the only refetch. The spares half is
-  // pinned once the panel that reads them exists (DashboardPanels' task).
-  it("refetches only when Refresh is pressed", async () => {
+  // FR-DSH-013 and U41: the button is the only refetch, and it refetches
+  // the spares list (its own query, U51) with the dashboard.
+  it("refetches only when Refresh is pressed, the spares with it", async () => {
     renderWithActor(<Dashboard />, {
       capabilities: ["ViewFleet", "ViewValuation"],
       withRouter: true,
     });
     await screen.findByText("R16,537.50");
+    await waitFor(() => expect(calls("/api/spares")).toHaveLength(1));
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(calls("/api/dashboard")).toHaveLength(2));
+    await waitFor(() => expect(calls("/api/spares")).toHaveLength(2));
   });
 
   // FR-DSH-011: the filter is the URL, so a depot view is a link.
