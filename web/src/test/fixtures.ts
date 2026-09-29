@@ -412,7 +412,7 @@ export function exceptionRow(
     vehicleId: "v1",
     fleetNumber: "HORSE",
     unitLabel: "Truck tractor 6x4",
-    // The BAC response's exception rows all carry a depot (ruling B1).
+    // Every row in the BAC response carries a depot.
     depotId: "d1",
     axleClass: "DRIVE",
     positionCode: "7",
@@ -432,9 +432,8 @@ export function exceptionRow(
   };
 }
 
-// The at-risk list's own capture: every BAC tyre on it carries a reading
-// (not an audit) source and a depot (ruling B1; the exceptions capture's
-// BAC tyre has neither).
+// Every default follows the BAC at-risk response, where each tyre carries
+// a READING source and a depot.
 export function atRiskTyre(overrides: Partial<TyreAtRisk> & { tyreId: string }): TyreAtRisk {
   return {
     displayCode: "2102BAC7",
