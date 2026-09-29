@@ -56,6 +56,41 @@ export function tenantDateFormatter(timeZone: string): Intl.DateTimeFormat {
   return formatter;
 }
 
+const instantFormatters = new Map<string, Intl.DateTimeFormat>();
+
+// Keyed per zone for the same cost reason as tenantDateFormatter above. Not
+// exported: formatTenantInstant is the one path an instant takes to a screen.
+function tenantInstantFormatter(timeZone: string): Intl.DateTimeFormat {
+  let formatter = instantFormatters.get(timeZone);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat("en-ZA", {
+      timeZone,
+      year: "numeric",
+      month: "short",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    });
+    instantFormatters.set(timeZone, formatter);
+  }
+  return formatter;
+}
+
+// U17: every dashboard figure shares one as-at instant, so it is shown
+// with its time as well as its date.
+export function formatTenantInstant(instant: string | Date, timeZone: string): string {
+  const at = instant instanceof Date ? instant : new Date(instant);
+  if (Number.isNaN(at.getTime())) {
+    return INVALID_INSTANT;
+  }
+  // The accepted mockups write "22 Sep 2026 09:10"; en-ZA's own pattern
+  // puts a comma between the date and the time, so the parts are joined here.
+  const parts = tenantInstantFormatter(timeZone).formatToParts(at);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("day")} ${part("month")} ${part("year")} ${part("hour")}:${part("minute")}`;
+}
+
 // UTC is the fallback while GET /api/me has not resolved (TYRE-95). In
 // flight: render plainly, since the transient flash costs less than gating
 // the landing screen. Errored: the fallback never lifts, so dates are
@@ -75,6 +110,20 @@ export function useTenantDate(): (instant: string | Date) => string {
       const text = formatTenantDate(instant, timeZone);
       // An unparseable instant is unparseable in every zone; a provisional
       // marker on it would imply the value could resolve once the actor does.
+      return provisional && text !== INVALID_INSTANT ? `${text} (UTC)` : text;
+    },
+    [timeZone, provisional],
+  );
+}
+
+export function useTenantInstant(): (instant: string | Date) => string {
+  const actor = useActor();
+  const settled = useActorSettled();
+  const timeZone = actor?.timezone ?? "UTC";
+  const provisional = settled && actor === null;
+  return useCallback(
+    (instant: string | Date) => {
+      const text = formatTenantInstant(instant, timeZone);
       return provisional && text !== INVALID_INSTANT ? `${text} (UTC)` : text;
     },
     [timeZone, provisional],
