@@ -1,9 +1,28 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider, focusManager } from "@tanstack/react-query";
+import type { ReactElement } from "react";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { dashboardBody, renderWithActor, requestedUrl, respond } from "../test/fixtures";
+import { ActorContext } from "../auth/actorContext";
+import { dashboardBody, me, renderWithActor, requestedUrl, respond } from "../test/fixtures";
 import Dashboard from "./Dashboard";
+
+// U41's retry option only matters against a client that has not already
+// turned retries off. renderWithActor's testQueryClient does that (fixtures.ts),
+// so this wrapper takes the library's own defaults instead, the way
+// renderWithActor builds its providers but with a plain QueryClient.
+function renderWithDefaultRetries(ui: ReactElement) {
+  const client = new QueryClient();
+  return render(
+    <ActorContext.Provider value={{ actor: me({ capabilities: ["ViewFleet"] }), settled: true }}>
+      <QueryClientProvider client={client}>
+        <MemoryRouter>{ui}</MemoryRouter>
+      </QueryClientProvider>
+    </ActorContext.Provider>,
+  );
+}
 
 function stubApi(body = dashboardBody()) {
   const fetchMock = vi.fn((input: RequestInfo | URL) => {
@@ -126,6 +145,49 @@ describe("Dashboard", () => {
     await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
     await waitFor(() => expect(calls("/api/dashboard")).toHaveLength(2));
     await waitFor(() => expect(calls("/api/spares")).toHaveLength(2));
+  });
+
+  // U41: a focus toggle must not add a second call. In query-core's
+  // shouldFetchOn, refetchOnWindowFocus: false short-circuits before
+  // staleness is checked, and staleTime: Infinity keeps the query from
+  // being stale if that check is reached, so either option alone already
+  // blocks the refetch; this test fails only when both are gone.
+  it("does not refetch when the window regains focus (U41)", async () => {
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet", "ViewValuation"],
+      withRouter: true,
+    });
+    await screen.findByText("R16,537.50");
+    expect(calls("/api/dashboard")).toHaveLength(1);
+    try {
+      // The client's focus subscriber is async (queryClient.js's mount()),
+      // so a refetch it issues lands a microtask later; the awaits below
+      // drain that queue before the assertion reads calls().
+      await act(async () => {
+        focusManager.setFocused(false);
+        focusManager.setFocused(true);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(calls("/api/dashboard")).toHaveLength(1);
+    } finally {
+      // A later test's own focus state must not inherit this one's toggle.
+      focusManager.setFocused(undefined);
+    }
+  });
+
+  // U41: retry: 0 is the query's own option, not a reliance on the test
+  // client's retry: false (fixtures.ts's testQueryClient). A default
+  // QueryClient here proves the option, not the harness, stops the retries;
+  // without it the alert would wait out three backed-off attempts.
+  it("does not retry a failed load (U41)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+    renderWithDefaultRetries(<Dashboard />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("The dashboard didn't load");
+    expect(calls("/api/dashboard")).toHaveLength(1);
   });
 
   // FR-DSH-011: the filter is the URL, so a depot view is a link.
