@@ -1,8 +1,8 @@
 # Implementation order
 
-Re-verified **29 Sep 2026** against `develop` @ `8adfcf2` and the board, the
-day the owner took sponsor, commercial, IP and legal questions off the board
-(TYRE-351). No PR has merged since the rider PR's close-out (#82).
+Re-verified **29 Sep 2026** against `develop` @ `f55df44` and the board, at
+the close-out of TYRE-259 (#83) and TYRE-351 (#84), the day the owner took
+sponsor, commercial, IP and legal questions off the board.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -12,7 +12,7 @@ Re-verify before trusting anything below; the method is at the end.
 
 A batch here is a sequencing claim, not a scope claim. Each ticket's own
 definition of done governs what gets built. Batches B1 to B6 have all merged,
-and B7.1, B7.2 and the rider PR with them. Their records, and the rationale each one left for
+and B7.1, B7.2, the rider PR and TYRE-259 with them. Their records, and the rationale each one left for
 the batch after it, are in `docs/delivery-history.md`; a citation written as
 `docs/implementation-order.md §B5` resolves to the same-named section there.
 
@@ -52,7 +52,7 @@ disjoint files: web and API work on the left, database work on the right.
 
 | Step | Web and API lane | Database lane |
 |---|---|---|
-| 1 | **Merged** 25 Sep 2026, PR [#81](https://github.com/Rourke9001/TyrePlatform/pull/81): the rider PR, TYRE-276 (U53), TYRE-282 (U55), TYRE-280 (U54) and TYRE-269 (migration 000049), with TYRE-338 | TYRE-259 with TYRE-348, PR [#83](https://github.com/Rourke9001/TyrePlatform/pull/83), in review: the governing-tread definer chain scanned every tenant's history on each submit. TYRE-257 follows it |
+| 1 | **Merged** 25 Sep 2026, PR [#81](https://github.com/Rourke9001/TyrePlatform/pull/81): the rider PR, TYRE-276 (U53), TYRE-282 (U55), TYRE-280 (U54) and TYRE-269 (migration 000049), with TYRE-338 | **Merged** 29 Sep 2026, PR [#83](https://github.com/Rourke9001/TyrePlatform/pull/83): TYRE-259 with TYRE-348, migration 000050 and suite sections 65 and 66. The definer chain's MIN() and latest-reading lookup name their tenant; the volume load went from 862 s to 248 s. TYRE-346, 347, 349 and 350 are its residuals. TYRE-257 follows it |
 | 2 | TYRE-239, the dashboard, with the chart half of TYRE-275 (tooltip placement, and more than five bands blended, U56). Closes TYRE-193 and TYRE-271 | W5b: TYRE-209 with TYRE-108 (rotate only), 112, 134, 135, 136 and 137 riding |
 | 3 | B9, the pilot path, below | W5c: TYRE-175, 189 F5, 213 and 201 (source_ip only), with 297, 122 and 224 riding. TYRE-98 follows it |
 | 4 | Capture PR (W3): TYRE-173 (F15 now, a capture-only caution shade, U76), 171, 218, 220, 241 (U78), 129, 154, 207 F11, 285 (with 216's on-road swap, U62), 323 and 329, and the error-boundary residuals on capture: TYRE-333, 334, 339 and 340, with 337 and 342 once the owner has called them. Then photos, TYRE-152 | W5d: TYRE-168, 189 F4 and 190 F10 |
