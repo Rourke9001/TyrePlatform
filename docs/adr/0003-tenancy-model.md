@@ -1,8 +1,8 @@
 # ADR-0003: Tenancy model
 
-- **Status:** Proposed — blocked on OI-29
-- **Date:** 2026-08-20
-- **Deciders:** Rourke + Sponsor
+- **Status:** Accepted, 29 Sep 2026: Option A for the POC
+- **Date:** 2026-08-20, decided 2026-09-29
+- **Deciders:** Rourke (owner)
 
 ## Context
 
@@ -39,11 +39,19 @@ agreement's change-control clause exists to prevent.
 
 ## Decision
 
-**Pending OI-29 / TYRE-13.** Must be settled before the P1 schema is frozen.
+**Option A for the POC: a tenant is a fleet.** The marketplace is post-POC
+(owner, 29 Sep 2026), so no seller party exists while the POC runs.
 
-The recommendation is Option B: it is nearly free and it keeps the door open,
-without designing anything speculative.
+The recommendation was Option B. It was not taken: the P1 schema shipped
+without a `party_type` column, and adding one now for a product that starts
+after the POC would be the unused column Option B's own downside describes.
 
 ## Consequences
 
-**Revisit when:** OI-29 is answered. This ADR blocks the M1 milestone.
+Every policy and view assumes a tenant is a fleet, which is true for the whole
+POC. A marketplace after it is the migration Option A's downside names: a party
+type on `app.tenant` and a review of every policy for cross-tenant seller
+visibility (ADR-0006).
+
+**Revisit when:** the marketplace is taken up after the POC, before any seller
+tenant exists.
