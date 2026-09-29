@@ -1,8 +1,8 @@
 # Implementation order
 
-Re-verified **25 Sep 2026** against `develop` @ `25e0ac5` and the board, at
-the close-out of the rider PR (#81), the day after a checkpoint audit pruned
-the board (TYRE-332).
+Re-verified **29 Sep 2026** against `develop` @ `8adfcf2` and the board, the
+day the owner took sponsor, commercial, IP and legal questions off the board
+(TYRE-351). No PR has merged since the rider PR's close-out (#82).
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -52,10 +52,10 @@ disjoint files: web and API work on the left, database work on the right.
 
 | Step | Web and API lane | Database lane |
 |---|---|---|
-| 1 | **Merged** 25 Sep 2026, PR [#81](https://github.com/Rourke9001/TyrePlatform/pull/81): the rider PR, TYRE-276 (U53), TYRE-282 (U55), TYRE-280 (U54) and TYRE-269 (migration 000049), with TYRE-338 | TYRE-259, its own PR: the governing-tread definer chain scans every tenant's history on each submit. Valuation verifier. TYRE-257 follows it |
+| 1 | **Merged** 25 Sep 2026, PR [#81](https://github.com/Rourke9001/TyrePlatform/pull/81): the rider PR, TYRE-276 (U53), TYRE-282 (U55), TYRE-280 (U54) and TYRE-269 (migration 000049), with TYRE-338 | TYRE-259 with TYRE-348, PR [#83](https://github.com/Rourke9001/TyrePlatform/pull/83), in review: the governing-tread definer chain scanned every tenant's history on each submit. TYRE-257 follows it |
 | 2 | TYRE-239, the dashboard, with the chart half of TYRE-275 (tooltip placement, and more than five bands blended, U56). Closes TYRE-193 and TYRE-271 | W5b: TYRE-209 with TYRE-108 (rotate only), 112, 134, 135, 136 and 137 riding |
 | 3 | B9, the pilot path, below | W5c: TYRE-175, 189 F5, 213 and 201 (source_ip only), with 297, 122 and 224 riding. TYRE-98 follows it |
-| 4 | Capture PR (W3): TYRE-173 (F15 now, a capture-only caution shade, U76), 171, 218, 220, 241 (U78), 129, 154, 207 F11, 285 (with 216's on-road swap, U62), 323 and 329, and the error-boundary residuals on capture: TYRE-333, 334, 339 and 340, with 337 and 342 once the owner has called them. Then photos, TYRE-152. Then TYRE-70's handset run | W5d: TYRE-168, 189 F4 and 190 F10 |
+| 4 | Capture PR (W3): TYRE-173 (F15 now, a capture-only caution shade, U76), 171, 218, 220, 241 (U78), 129, 154, 207 F11, 285 (with 216's on-road swap, U62), 323 and 329, and the error-boundary residuals on capture: TYRE-333, 334, 339 and 340, with 337 and 342 once the owner has called them. Then photos, TYRE-152 | W5d: TYRE-168, 189 F4 and 190 F10 |
 | 5 | W2: TYRE-156, 157, 159, 141, 115, 116, 186 F12, 187 (which takes TYRE-140 items 1 and 4), 274, the Dialog focus half of 275, and TYRE-335 (focus after an in-place retry) | W5e: TYRE-210, taking 189 F6, with 265 |
 | 6 | B7.4: TYRE-240, the redesign, carrying TYRE-119, 132, 176, 182, 278, 281, 291, 327, 328, 330 and 345 | |
 | 7 | Reports and export: TYRE-320 with 287, 290 and 292 (292 waits on TYRE-109). Milestone M4 | |
@@ -105,9 +105,9 @@ Cut 10 Sep 2026 on the owner's call. Design:
 | B7.3 | TYRE-238, then TYRE-239 | TYRE-238 is Done: PR [#66](https://github.com/Rourke9001/TyrePlatform/pull/66), PR [#70](https://github.com/Rourke9001/TyrePlatform/pull/70) and close-out PR [#71](https://github.com/Rourke9001/TyrePlatform/pull/71), 23 Sep 2026, ADR-0015 Accepted, mockups accepted (TYRE-238 comment 12936). The rider PR merged 25 Sep 2026, PR [#81](https://github.com/Rourke9001/TyrePlatform/pull/81), migration 000049. Next is TYRE-239 (step 2 above) |
 | B7.4 | TYRE-240 | After the capture PR and W2 (steps 4 to 6). The owner widened it from a restyle to a redesign of everything except the accepted dashboard and exceptions mockups (comments 12933 and 12937); capture stays out (U16) |
 
-The open sprint, "B7.1.5/B7.2 - Analytics API" (16 to 30 Sep 2026), has two
-issues left: TYRE-193, In Progress and closing with TYRE-239, and TYRE-253,
-which rides the privileged-suite PR below.
+The next sprint, "B7.3 + W5b — Dashboard" (30 Sep to 14 Oct 2026, not yet
+started), carries two issues over: TYRE-193, In Progress and closing with
+TYRE-239, and TYRE-253, which rides the privileged-suite PR below.
 
 ## Homed, not scheduled
 
