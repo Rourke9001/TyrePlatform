@@ -22,6 +22,7 @@ import {
   plural,
   treadSourceLabel,
 } from "../ui/vocabulary";
+import { readDashboardParams } from "./dashboardParams";
 import "./analytics.css";
 
 // U47: the hero's own words for the same breakdown, so the figure and the
@@ -40,7 +41,7 @@ function classValue(c: AtRiskClass): string {
 // construction; a null is an empty class or an unvalued one (U36).
 export default function AtRisk() {
   const [search] = useSearchParams();
-  const depot = search.get("depot") ?? undefined;
+  const depot = readDashboardParams(search).depot;
   const tenantKey = getDevTenantId() ?? "default";
   const actor = useActor();
   const formatInstant = useTenantInstant();

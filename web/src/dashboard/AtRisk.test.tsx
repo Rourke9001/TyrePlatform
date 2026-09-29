@@ -159,6 +159,23 @@ describe("AtRisk", () => {
     expect(atRiskCalls()).toEqual(["/api/valuation/at-risk?depot=d1"]);
   });
 
+  // An empty ?depot= names no depot, as the dashboard and /exceptions read
+  // it, so the tenant-wide figures are never labelled as one depot's.
+  it("reads an empty depot in the URL as no depot", async () => {
+    renderWithActor(<AtRisk />, {
+      capabilities: ["ViewFleet", "ViewValuation"],
+      withRouter: true,
+      initialEntries: ["/at-risk?depot="],
+    });
+    expect(
+      await screen.findByText("Tyres at or below the removal threshold, judged today"),
+    ).toBeInTheDocument();
+    expect(atRiskCalls()).toEqual(["/api/valuation/at-risk"]);
+    expect(
+      vi.mocked(fetch).mock.calls.some((c) => requestedUrl(c[0]).startsWith("/api/depots")),
+    ).toBe(false);
+  });
+
   it("explains a failed load rather than an empty list", async () => {
     stubAtRisk(atRiskBody(), 500);
     renderWithActor(<AtRisk />, { capabilities: ["ViewFleet", "ViewValuation"], withRouter: true });
