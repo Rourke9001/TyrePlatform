@@ -1,25 +1,32 @@
 import { Link } from "react-router";
 
 import type { DashboardBody } from "../api/dashboard";
-import { moneyText } from "../api/money";
+import { moneyOrEmpty, type Money } from "../api/money";
 import { Panel } from "../ui/Panel";
 import { ProvenanceSplit } from "../ui/ProvenanceSplit";
 import { SeverityBadge } from "../ui/SeverityBadge";
 import { StatTile } from "../ui/StatTile";
-import { formatCount, judgedAtLabel, severityLabel } from "../ui/vocabulary";
+import {
+  absenceLabel,
+  formatCount,
+  judgedAtLabel,
+  plural,
+  pluralWord,
+  SEVERITY_CODES,
+  severityLabel,
+} from "../ui/vocabulary";
 import { withDepot } from "./dashboardParams";
-
-const SEVERITY_ORDER = ["CRITICAL", "WARNING", "INFO"];
-
-function plural(n: number, one: string, many: string): string {
-  return `${formatCount(n)} ${n === 1 ? one : many}`;
-}
 
 export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: string }) {
   const { exceptions, belowThreshold, estate, units, moneyVisible } = body;
-  const severities = SEVERITY_ORDER.filter((s) => s in exceptions.bySeverity).concat(
-    Object.keys(exceptions.bySeverity).filter((s) => !SEVERITY_ORDER.includes(s)),
+  const severities = SEVERITY_CODES.filter((s) => s in exceptions.bySeverity).concat(
+    Object.keys(exceptions.bySeverity).filter((s) => !SEVERITY_CODES.includes(s)),
   );
+  const estateMoney = (value: Money | null) =>
+    moneyOrEmpty(value, moneyVisible, estate.tyreCount, absenceLabel("noTyres"));
+  // U44: an empty estate's total line is the absence alone; "across 0
+  // tyres" would only restate it.
+  const estateEmpty = moneyVisible && estate.tyreCount === 0;
   // U44: since 000049 the total is a partial sum when one side has no valued
   // member, so it discloses both sides' unvalued counts when either is not 0.
   const partial =
@@ -37,7 +44,7 @@ export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: s
         <div className="tile-grid">
           <StatTile
             label="Tread value"
-            value={moneyText(estate.treadValue, moneyVisible)}
+            value={estateMoney(estate.treadValue)}
             qualifier={
               <>
                 {formatCount(estate.unvaluedCount)} of {formatCount(estate.tyreCount)} unvalued
@@ -55,7 +62,7 @@ export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: s
           />
           <StatTile
             label="Casing value"
-            value={moneyText(estate.casingValue, moneyVisible)}
+            value={estateMoney(estate.casingValue)}
             qualifier={
               <>
                 {formatCount(estate.casingUnvaluedCount)} of {formatCount(estate.tyreCount)}{" "}
@@ -74,7 +81,9 @@ export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: s
           />
         </div>
         <p className="clock-note">
-          {`${moneyText(estate.totalValue, moneyVisible)} across ${formatCount(estate.tyreCount)} tyres in total${partial}.`}
+          {estateEmpty
+            ? `${absenceLabel("noTyres")}.`
+            : `${estateMoney(estate.totalValue)} across ${plural(estate.tyreCount, "tyre", "tyres")} in total${partial}.`}
         </p>
       </Panel>
 
@@ -90,7 +99,7 @@ export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: s
             qualifier={
               <>
                 {plural(exceptions.urgent, "urgent", "urgent")};{" "}
-                {formatCount(exceptions.rulesConfigured)} rules configured
+                {plural(exceptions.rulesConfigured, "rule configured", "rules configured")}
                 <ul className="severity-lines">
                   {severities.map((s) => (
                     <li key={s}>
@@ -111,7 +120,7 @@ export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: s
           <StatTile
             label="Below the removal threshold"
             value={formatCount(belowThreshold.running)}
-            qualifier={`running positions; ${plural(belowThreshold.spare, "spare", "spares")} disclosed separately`}
+            qualifier={`${pluralWord(belowThreshold.running, "running position", "running positions")}; ${plural(belowThreshold.spare, "spare", "spares")} disclosed separately`}
             judged={judgedAtLabel(belowThreshold.judgedAt)}
             to={moneyVisible ? withDepot("/at-risk", depot) : undefined}
             linkLabel="See the at-risk list"
@@ -153,10 +162,12 @@ export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: s
             requirement="FR-EXC-027"
             tone={units.stale > 0 ? "warning" : "default"}
           />
+          {/* U17: /fleet/rigs cannot narrow to a depot, so a depot view
+              offers no link to a list that counts every depot. */}
           <StatTile
             label="Unreconciled rig reports"
             value={formatCount(body.pendingCompositionReports)}
-            to="/fleet/rigs"
+            to={depot ? undefined : "/fleet/rigs"}
             linkLabel="See the rigs"
             requirement="FR-EXC-029"
             tone={body.pendingCompositionReports > 0 ? "warning" : "default"}

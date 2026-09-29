@@ -24,6 +24,8 @@ import {
   formatPct,
   inflationBandLabel,
   judgedAtLabel,
+  plural,
+  pluralWord,
   treadSourceLabel,
   unavailableLabel,
 } from "../ui/vocabulary";
@@ -33,10 +35,6 @@ interface DashboardPanelsProps {
   body: DashboardBody;
   depot?: string;
   depotFiltered: boolean;
-}
-
-function plural(n: number, one: string, many: string): string {
-  return `${formatCount(n)} ${n === 1 ? one : many}`;
 }
 
 const inflationColumns: Column<InflationBand>[] = [
@@ -70,7 +68,7 @@ function windowLine(
   const span = `${formatDate(inflation.from)} to ${formatDate(inflation.to)}. The end date is excluded.`;
   return inflation.windowDays === null
     ? `Chosen period: ${span}`
-    : `Configured window: ${formatCount(inflation.windowDays)} days, ${span}`;
+    : `Configured window: ${plural(inflation.windowDays, "day", "days")}, ${span}`;
 }
 
 // dashboard.go sends a null dueCount only with its reason beside it. A null
@@ -160,7 +158,7 @@ export function DashboardPanels({ body, depot, depotFiltered }: DashboardPanelsP
               columns={inflationColumns}
               rows={inflation.bands}
               rowKey={(b) => String(b.bandOrdinal)}
-              empty={<EmptyState title="No readings in the period" />}
+              empty={<EmptyState title={absenceLabel("noReadingsInPeriod")} />}
             />
           </>
         )}
@@ -184,7 +182,7 @@ export function DashboardPanels({ body, depot, depotFiltered }: DashboardPanelsP
             qualifier={
               removalForecast.horizonDays === null
                 ? undefined
-                : `within ${formatCount(removalForecast.horizonDays)} days of ${formatDate(removalForecast.from)}`
+                : `within ${plural(removalForecast.horizonDays, "day", "days")} of ${formatDate(removalForecast.from)}`
             }
             judged={judgedAtLabel(removalForecast.judgedAt)}
             requirement="FR-DSH-009"
@@ -199,7 +197,7 @@ export function DashboardPanels({ body, depot, depotFiltered }: DashboardPanelsP
             qualifier={
               irregularWear.spreadWarnMm === null
                 ? undefined
-                : `running positions with a spread of ${formatMm(irregularWear.spreadWarnMm)} or more; ${plural(irregularWear.spare, "spare", "spares")} disclosed separately`
+                : `${pluralWord(irregularWear.running, "running position", "running positions")} with a spread of ${formatMm(irregularWear.spreadWarnMm)} or more; ${plural(irregularWear.spare, "spare", "spares")} disclosed separately`
             }
             judged={judgedAtLabel(irregularWear.judgedAt)}
             to={withDepot(`/exceptions?rule=${IRREGULAR_WEAR_RULE}`, depot)}
@@ -225,8 +223,8 @@ export function DashboardPanels({ body, depot, depotFiltered }: DashboardPanelsP
             rowKey={(s) => s.tyreId}
             loading={spares.isPending}
             empty={
-              <EmptyState title="No spares">
-                No spare position carries a tyre in this view.
+              <EmptyState title={absenceLabel("noSpares")}>
+                {absenceLabel("noSparesBody")}
               </EmptyState>
             }
           />

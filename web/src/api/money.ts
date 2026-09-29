@@ -22,11 +22,24 @@ export function formatRand(m: Money): string {
   return `${negative ? "-" : ""}R${grouped}.${cents.padEnd(2, "0")}`;
 }
 
-// U36: the wire nulls money two ways. moneyVisible false means the actor may
-// not see money, so even a present value is hidden; true with null means no
-// member was valued. Neither renders as a number.
+// U36: moneyVisible false means the actor may not see money, so even a
+// present value is hidden; true with null means no member was valued.
+// Neither renders as a number.
 export function moneyText(value: Money | null, visible: boolean): string {
   if (!visible) return "Hidden";
   if (value === null) return "Not valued";
   return formatRand(value);
+}
+
+// U36, U44: a set with no tyre sends null too, and that null means there is
+// nothing to value, so it reads as the caller's empty-set absence rather
+// than "Not valued". Hidden still wins over it.
+export function moneyOrEmpty(
+  value: Money | null,
+  visible: boolean,
+  tyreCount: number,
+  empty: string,
+): string {
+  if (visible && tyreCount === 0) return empty;
+  return moneyText(value, visible);
 }

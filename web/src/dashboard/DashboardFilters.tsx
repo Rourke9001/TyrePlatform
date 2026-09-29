@@ -35,8 +35,9 @@ export function DashboardFilters({
   const [to, setTo] = useState(params.to ?? "");
 
   // U42, U87: a depot-scoped actor is offered only the depots GET /api/me
-  // names as theirs. Presentation only (NFR-SEC-006).
-  const depotScoped = actor?.scope === "DEPOT";
+  // names as theirs. Presentation only (NFR-SEC-006). Any breadth but
+  // TENANT counts as depot-scoped, failing closed as the server does.
+  const depotScoped = actor?.scope !== "TENANT";
   const mine = new Set(actor?.depots ?? []);
   const options = [
     { value: "", label: depotScoped ? "All my depots" : "All depots" },

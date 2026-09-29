@@ -9,7 +9,7 @@ import { useTenantInstant } from "../time/tenantTime";
 import { Button } from "../ui/Button";
 import { EmptyState } from "../ui/EmptyState";
 import { PageHeader } from "../ui/PageHeader";
-import { absenceLabel, formatCount } from "../ui/vocabulary";
+import { absenceLabel, plural } from "../ui/vocabulary";
 import { DashboardFilters } from "./DashboardFilters";
 import { DashboardPanels } from "./DashboardPanels";
 import { DashboardTiles } from "./DashboardTiles";
@@ -41,14 +41,18 @@ export default function Dashboard() {
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ["dashboard", tenantKey] });
     void queryClient.invalidateQueries({ queryKey: ["spares", tenantKey] });
+    // H.3 criterion 6: the lists the tiles link to are marked stale too, so
+    // the next visit refetches and never shows an older register than the
+    // hero it was opened from.
+    void queryClient.invalidateQueries({ queryKey: ["exceptions", tenantKey] });
+    void queryClient.invalidateQueries({ queryKey: ["at-risk", tenantKey] });
   }
 
   function lede(body: DashboardBody): string {
     const parts = [`As at ${formatInstant(body.asAt)}`];
     if (actor) parts.push(actor.timezone);
     if (body.scope.level === "DEPOTS") {
-      const n = body.scope.depotCount;
-      parts.push(`across your ${formatCount(n)} ${n === 1 ? "depot" : "depots"}`);
+      parts.push(`across your ${plural(body.scope.depotCount, "depot", "depots")}`);
     }
     return parts.join(", ");
   }
@@ -99,7 +103,7 @@ export default function Dashboard() {
           />
           {dashboard.data.estate.tyreCount === 0 && (
             <EmptyState title={absenceLabel("noTyres")} headingLevel={2}>
-              Nothing is fitted or in stock here, so there is nothing to value.
+              {absenceLabel("noTyresBody")}
             </EmptyState>
           )}
         </>

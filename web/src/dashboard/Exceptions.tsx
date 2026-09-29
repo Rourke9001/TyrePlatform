@@ -16,16 +16,15 @@ import { Select } from "../ui/Select";
 import { SeverityBadge } from "../ui/SeverityBadge";
 import {
   absenceLabel,
-  formatCount,
   formatMm,
   formatPct,
   judgedAtLabel,
+  plural,
+  SEVERITY_CODES,
   severityLabel,
   subjectPositionLabel,
 } from "../ui/vocabulary";
 import "./analytics.css";
-
-const SEVERITIES = ["CRITICAL", "WARNING", "INFO"];
 
 // The URL spells includeResolved as resolved; this and update() below are
 // the only two places that know both spellings.
@@ -93,11 +92,10 @@ export default function Exceptions() {
   }
 
   function lede(judgedAt: string): string {
-    const parts = [
-      `${formatCount(rows.length)} ${rows.length === 1 ? "exception" : "exceptions"}`,
-      judgedAtLabel(judgedAt),
-    ];
-    if (params.depot !== undefined) parts.push(`at ${depotName ?? "one depot"}`);
+    const parts = [plural(rows.length, "exception", "exceptions"), judgedAtLabel(judgedAt)];
+    if (params.depot !== undefined) {
+      parts.push(`at ${depotName ?? absenceLabel("unnamedDepot")}`);
+    }
     return parts.join(", ");
   }
 
@@ -144,7 +142,7 @@ export default function Exceptions() {
             onValueChange={(v) => update({ severity: v === "" ? undefined : v })}
             options={[
               { value: "", label: "All severities" },
-              ...SEVERITIES.map((s) => ({ value: s, label: severityLabel(s) })),
+              ...SEVERITY_CODES.map((s) => ({ value: s, label: severityLabel(s) })),
             ]}
           />
         </FormField>
@@ -179,8 +177,8 @@ export default function Exceptions() {
           loading={list.isPending}
           cardHeadingLevel={2}
           empty={
-            <EmptyState title="No open exceptions" headingLevel={2}>
-              Nothing the configured rules flag at the latest inspection of any unit in this view.
+            <EmptyState title={absenceLabel("noOpenExceptions")} headingLevel={2}>
+              {absenceLabel("noOpenExceptionsBody")}
             </EmptyState>
           }
         />

@@ -1,9 +1,9 @@
 import { Link } from "react-router";
 
 import type { BelowThreshold, ValueAtRisk } from "../api/dashboard";
-import { moneyText } from "../api/money";
+import { moneyOrEmpty, moneyText } from "../api/money";
 import { ProvenanceSplit } from "../ui/ProvenanceSplit";
-import { formatCount, judgedAtLabel } from "../ui/vocabulary";
+import { absenceLabel, formatCount, judgedAtLabel, plural } from "../ui/vocabulary";
 import { withDepot } from "./dashboardParams";
 
 interface ValueAtRiskHeroProps {
@@ -27,12 +27,19 @@ export function ValueAtRiskHero({
       <h2 id="hero-title" className="hero-label">
         Value at risk
       </h2>
-      <p className="hero-figure">{moneyText(running.casingValueAtRisk, moneyVisible)}</p>
+      <p className="hero-figure">
+        {moneyOrEmpty(
+          running.casingValueAtRisk,
+          moneyVisible,
+          running.tyreCount,
+          absenceLabel("noneAtRisk"),
+        )}
+      </p>
       {/* U18: the register's today count, not the exception count, which is
           judged at each unit's latest inspection. */}
       <p className="hero-qualifier">
-        from {formatCount(belowThreshold.running)} running tyres at or below the removal threshold{" "}
-        {judgedAtLabel(belowThreshold.judgedAt)}
+        from {plural(belowThreshold.running, "running tyre", "running tyres")} at or below the
+        removal threshold {judgedAtLabel(belowThreshold.judgedAt)}
       </p>
       <p className="hero-footnote">
         {formatCount(running.actualCount)} at actual cost,{" "}
@@ -47,10 +54,18 @@ export function ValueAtRiskHero({
           { key: "unvalued", label: "Unvalued", count: running.unvaluedCount },
         ]}
       />
+      {/* U36, U44: an empty spare class is its absence, the whole line;
+          Hidden still wins over it. */}
       <p className="hero-spare">
-        Spares: {moneyText(spare.casingValueAtRisk, moneyVisible)} from{" "}
-        {formatCount(spare.tyreCount)} {spare.tyreCount === 1 ? "tyre" : "tyres"}
-        {spare.unvaluedCount > 0 && `, ${formatCount(spare.unvaluedCount)} unvalued`}
+        {moneyVisible && spare.tyreCount === 0 ? (
+          absenceLabel("noSparesAtRisk")
+        ) : (
+          <>
+            Spares: {moneyText(spare.casingValueAtRisk, moneyVisible)} from{" "}
+            {plural(spare.tyreCount, "tyre", "tyres")}
+            {spare.unvaluedCount > 0 && `, ${formatCount(spare.unvaluedCount)} unvalued`}
+          </>
+        )}
       </p>
       {/* ADR-0013 decision 4: /at-risk is gated on ViewValuation, so a
           reader without it is not offered a link to a refusal. */}

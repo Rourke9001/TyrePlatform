@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Button } from "./Button";
 
 interface FilterBarProps {
-  children: ReactNode;
+  children?: ReactNode;
   onRefresh?: () => void;
   refreshing?: boolean;
 }

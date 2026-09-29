@@ -2,7 +2,7 @@ import { useId, useState, type ReactNode } from "react";
 
 import { bandFallback, bandFill } from "./bandFill";
 import { usePhone } from "./useMediaQuery";
-import { bandRangeLabel, formatCount, formatPct } from "./vocabulary";
+import { bandRangeLabel, formatCount, formatPct, plural } from "./vocabulary";
 
 export interface BandDatum {
   bandOrdinal: number;
@@ -46,10 +46,6 @@ const ROWS = {
 } as const;
 
 const RADIUS = 4;
-
-function plural(n: number, one: string, many: string): string {
-  return `${formatCount(n)} ${n === 1 ? one : many}`;
-}
 
 function describeBand(b: BandDatum): string {
   return `${bandRangeLabel(b.lowerMm, b.upperExclusiveMm)}: ${plural(b.tyreCount, "tyre", "tyres")}, ${formatPct(b.pctOfGroup)}`;

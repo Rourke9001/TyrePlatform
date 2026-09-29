@@ -1,8 +1,9 @@
-// Wire codes to words, once. The server owns every vocabulary (severity,
-// judgedAt, unavailable reasons, tread source, cost basis, inflation bands,
-// band ranges, absences, subject positions), so each map passes an unknown
-// code through rather than throwing, and no page or component spells one
-// of these strings itself (U48).
+// The dashboard's words, written once so no page spells one itself (U48).
+// The server owns the code vocabularies (severity, judgedAt, unavailable
+// reasons, tread source, cost basis, inflation bands), so each code map
+// passes an unknown code through rather than throwing; absenceLabel is a
+// closed set the pages choose from, and the number helpers format every
+// count (U55).
 
 import { groupThousands } from "../format/groupThousands";
 
@@ -14,6 +15,15 @@ function wholeDigits(n: number): string {
 
 export function formatCount(n: number): string {
   return groupThousands(wholeDigits(n));
+}
+
+// The noun for a count that renders apart from it, as a tile's value does.
+export function pluralWord(n: number, one: string, many: string): string {
+  return n === 1 ? one : many;
+}
+
+export function plural(n: number, one: string, many: string): string {
+  return `${formatCount(n)} ${pluralWord(n, one, many)}`;
 }
 
 // en-ZA's decimal separator is a comma in current ICU (Intl.NumberFormat
@@ -30,6 +40,10 @@ export function formatMm(n: number): string {
 export function formatPct(n: number): string {
   return `${groupThousands(wholeDigits(n))}%`;
 }
+
+// FR-DSH-003: most urgent first, the one order the tiles and the
+// exceptions filter both list.
+export const SEVERITY_CODES: readonly string[] = ["CRITICAL", "WARNING", "INFO"];
 
 const SEVERITY_LABELS: Record<string, string> = {
   INFO: "Info",
@@ -140,8 +154,9 @@ export function inflationBandLabel(key: string): string {
   return (INFLATION_BAND_LABELS as Record<string, string>)[key] ?? key;
 }
 
-// U48, NFR-PRO-002: where the wire sends null rather than a code, the page
-// names what is absent, once, here, and never renders it as 0.
+// U48, NFR-PRO-002: where the wire sends null, an empty set or an empty
+// list rather than a code, the page names what is absent, once, here, and
+// never renders it as 0.
 const ABSENCE_LABELS = {
   unclassifiedShare: "none classified",
   unmeasured: "not measured",
@@ -150,6 +165,18 @@ const ABSENCE_LABELS = {
   undated: "not dated",
   noSpreadConfigured: "No width spread is configured for this tenant.",
   noTyres: "No tyres in this view",
+  noTyresBody: "Nothing is fitted or in stock here, so there is nothing to value.",
+  noneAtRisk: "None at risk",
+  noSparesAtRisk: "No spares at or below the removal threshold",
+  noTyresAtRisk: "Nothing at or below the removal threshold",
+  noTyresAtRiskBody: "Every fitted tyre in this view reads above the configured removal threshold.",
+  noReadingsInPeriod: "No readings in the period",
+  noSpares: "No spares",
+  noSparesBody: "No spare position carries a tyre in this view.",
+  noOpenExceptions: "No open exceptions",
+  noOpenExceptionsBody:
+    "Nothing the configured rules flag at the latest inspection of any unit in this view.",
+  unnamedDepot: "one depot",
 } as const;
 
 export type Absence = keyof typeof ABSENCE_LABELS;

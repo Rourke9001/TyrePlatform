@@ -132,6 +132,46 @@ describe("DashboardPanels", () => {
     );
   });
 
+  // U55: a one-day window or horizon and one running position are
+  // tenant configuration and a fleet's state, and read in the singular.
+  it("says one day and one running position in the singular", () => {
+    const base = dashboardBody();
+    renderWithActor(
+      <DashboardPanels
+        body={dashboardBody({
+          inflationCompliance: { ...base.inflationCompliance, windowDays: 1 },
+          removalForecast: { ...base.removalForecast, horizonDays: 1 },
+          irregularWear: { ...base.irregularWear, running: 1 },
+        })}
+        depotFiltered={false}
+      />,
+      { withRouter: true },
+    );
+    expect(
+      screen.getByText(/^Configured window: 1 day, 24 Aug 2026 to 23 Sept? 2026\./),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("article", { name: "Replacement window opens" })).toHaveTextContent(
+      /within 1 day of 22 Sept? 2026/,
+    );
+    expect(screen.getByRole("article", { name: "Irregular wear" })).toHaveTextContent(
+      "running position with a spread of 4.0 mm or more",
+    );
+  });
+
+  // U48: an empty period is an absence with its own words.
+  it("names an empty inflation period rather than drawing an empty table", () => {
+    const base = dashboardBody().inflationCompliance;
+    renderWithActor(
+      <DashboardPanels
+        body={dashboardBody({ inflationCompliance: { ...base, bands: [] } })}
+        depotFiltered={false}
+      />,
+      { withRouter: true },
+    );
+    const panel = screen.getByRole("region", { name: "Inflation compliance" });
+    expect(within(panel).getByText("No readings in the period")).toBeInTheDocument();
+  });
+
   // Rule 5, U48: an unconfigured horizon or spread is a configuration
   // absence with its own words, never a 0.
   it("names an unconfigured horizon and spread instead of showing 0", () => {
@@ -171,5 +211,28 @@ describe("DashboardPanels", () => {
     expect(within(panel).getByRole("cell", { name: "inspection reading" })).toBeInTheDocument();
     expect(within(panel).getByRole("cell", { name: "23 Jul 2026" })).toBeInTheDocument();
     expect(within(panel).getByRole("cell", { name: "935" })).toBeInTheDocument();
+  });
+
+  it("names an empty spares list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          respond(200, {
+            scope: { level: "TENANT", depotCount: 0, depot: null },
+            judgedAt: "TENANT_TODAY",
+            spares: [],
+          }),
+        ),
+      ),
+    );
+    renderWithActor(<DashboardPanels body={dashboardBody()} depotFiltered={false} />, {
+      withRouter: true,
+    });
+    const panel = await screen.findByRole("region", { name: "Spares" });
+    expect(await within(panel).findByText("No spares")).toBeInTheDocument();
+    expect(
+      within(panel).getByText("No spare position carries a tyre in this view."),
+    ).toBeInTheDocument();
   });
 });

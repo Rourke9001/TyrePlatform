@@ -10,6 +10,9 @@ import {
   INFLATION_BAND_KEYS,
   inflationBandLabel,
   judgedAtLabel,
+  plural,
+  pluralWord,
+  SEVERITY_CODES,
   severityLabel,
   subjectPositionLabel,
   treadSourceLabel,
@@ -22,6 +25,24 @@ describe("severityLabel", () => {
     expect(severityLabel("WARNING")).toBe("Warning");
     expect(severityLabel("INFO")).toBe("Info");
     expect(severityLabel("SEVERE")).toBe("SEVERE");
+  });
+
+  // The tiles and the exceptions filter list the severities in one order.
+  it("lists the severities most urgent first, each in words", () => {
+    expect(SEVERITY_CODES).toEqual(["CRITICAL", "WARNING", "INFO"]);
+    expect(SEVERITY_CODES.map(severityLabel)).toEqual(["Critical", "Warning", "Info"]);
+  });
+});
+
+// U55: the count is grouped; the noun is singular at exactly one.
+describe("plural and pluralWord", () => {
+  it("says one of a thing at 1 and many at any other count", () => {
+    expect(plural(1, "tyre", "tyres")).toBe("1 tyre");
+    expect(plural(0, "tyre", "tyres")).toBe("0 tyres");
+    expect(plural(2, "day", "days")).toBe("2 days");
+    expect(plural(1234, "tyre", "tyres")).toBe("1,234 tyres");
+    expect(pluralWord(1, "running position", "running positions")).toBe("running position");
+    expect(pluralWord(9, "running position", "running positions")).toBe("running positions");
   });
 });
 
@@ -134,6 +155,23 @@ describe("absenceLabel", () => {
       "No width spread is configured for this tenant.",
     );
     expect(absenceLabel("noTyres")).toBe("No tyres in this view");
+    expect(absenceLabel("noTyresBody")).toBe(
+      "Nothing is fitted or in stock here, so there is nothing to value.",
+    );
+    expect(absenceLabel("noneAtRisk")).toBe("None at risk");
+    expect(absenceLabel("noSparesAtRisk")).toBe("No spares at or below the removal threshold");
+    expect(absenceLabel("noTyresAtRisk")).toBe("Nothing at or below the removal threshold");
+    expect(absenceLabel("noTyresAtRiskBody")).toBe(
+      "Every fitted tyre in this view reads above the configured removal threshold.",
+    );
+    expect(absenceLabel("noReadingsInPeriod")).toBe("No readings in the period");
+    expect(absenceLabel("noSpares")).toBe("No spares");
+    expect(absenceLabel("noSparesBody")).toBe("No spare position carries a tyre in this view.");
+    expect(absenceLabel("noOpenExceptions")).toBe("No open exceptions");
+    expect(absenceLabel("noOpenExceptionsBody")).toBe(
+      "Nothing the configured rules flag at the latest inspection of any unit in this view.",
+    );
+    expect(absenceLabel("unnamedDepot")).toBe("one depot");
   });
 });
 
