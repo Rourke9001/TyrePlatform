@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  absenceLabel,
   bandRangeLabel,
   basisLabel,
   formatCount,
@@ -10,6 +11,7 @@ import {
   inflationBandLabel,
   judgedAtLabel,
   severityLabel,
+  subjectPositionLabel,
   treadSourceLabel,
   unavailableLabel,
 } from "./vocabulary";
@@ -116,5 +118,40 @@ describe("inflationBandLabel", () => {
 
   it("passes an unknown identifier through", () => {
     expect(inflationBandLabel("flat")).toBe("flat");
+  });
+});
+
+// U48, NFR-PRO-002: an absence the wire sends as null has one rendering,
+// and none of them reads as a zero.
+describe("absenceLabel", () => {
+  it("names every absence the dashboard pages render", () => {
+    expect(absenceLabel("unclassifiedShare")).toBe("none classified");
+    expect(absenceLabel("unmeasured")).toBe("not measured");
+    expect(absenceLabel("neverMeasured")).toBe("never");
+    expect(absenceLabel("unknown")).toBe("unknown");
+    expect(absenceLabel("undated")).toBe("not dated");
+    expect(absenceLabel("noSpreadConfigured")).toBe(
+      "No width spread is configured for this tenant.",
+    );
+    expect(absenceLabel("noTyres")).toBe("No tyres in this view");
+  });
+});
+
+describe("basisLabel", () => {
+  // U36: an unvalued casing reads in the Money rule's own words.
+  it("names the register's UNVALUED basis the way the money column does", () => {
+    expect(basisLabel("UNVALUED")).toBe("not valued");
+  });
+});
+
+// U48: where an exception sits on its unit, from the wire's subject type
+// and position codes.
+describe("subjectPositionLabel", () => {
+  it("names a whole unit, a pair, a position, a spare and an unknown place", () => {
+    expect(subjectPositionLabel("VEHICLE", null, null, false)).toBe("whole unit");
+    expect(subjectPositionLabel("POSITION_PAIR", "8", "7", false)).toBe("8 and 7");
+    expect(subjectPositionLabel("TYRE", "7", null, false)).toBe("7");
+    expect(subjectPositionLabel("TYRE", null, null, true)).toBe("spare");
+    expect(subjectPositionLabel("TYRE", null, null, false)).toBe("unknown");
   });
 });
