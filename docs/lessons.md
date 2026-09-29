@@ -28,6 +28,31 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-29 - a stopped `npm run dev` can leave vite's node child on the port (TYRE-239)
+
+**What happened:** `TaskStop`, and killing the Git Bash shell it ran in, stops
+the shell but leaves vite's `node` child listening on 5173; twice in this
+session it had to be stopped by process id, found with `Get-CimInstance
+Win32_Process` and stopped with `Stop-Process -Id`.
+
+**The rule:** after stopping a dev server, confirm the port is closed
+(`curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/` prints 000)
+before any `npm ci` or `npm install`, and stop a survivor by pid.
+
+## 2026-09-29 - `toContainText` runs sibling block text together with no separator (TYRE-239)
+
+**What happened:** a Playwright `toContainText` reads an element's text
+content, which runs sibling block elements together with no separator: the
+dashboard's open-exceptions tile read "...1911 urgent..." because its value
+`<p>19</p>` sat directly before the qualifier. A digit-guarded regex
+`/(^|\D)11 urgent/`, proved only against a hand-built string starting at
+"11", passed there and failed on the real page.
+
+**The rule:** when an assertion depends on what sits beside a figure, pass
+`{ useInnerText: true }` (rendered text, one line per block) and prove the
+assertion on the real page with a planted wrong value, never against a
+string you wrote.
+
 ## 2026-09-29 - `make db-volume` after a suite run can plan its load quadratically (TYRE-348)
 
 **What happened:** a `make db-volume` run straight after `make db-test` on
