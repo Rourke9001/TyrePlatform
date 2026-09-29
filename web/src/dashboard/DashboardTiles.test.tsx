@@ -68,6 +68,25 @@ describe("DashboardTiles", () => {
     expect(screen.getByText(/judged at each unit's latest inspection/)).toBeInTheDocument();
   });
 
+  // FR-DSH-003: open and total differ once a fitment resolves a row, so
+  // the tile reads open; its clock label is the wire's own code (U48).
+  it("reads the open count, not the total, and names the clock the wire sends", () => {
+    renderTiles({
+      exceptions: {
+        ...dashboardBody().exceptions,
+        judgedAt: "AS_AT",
+        open: 17,
+        urgent: 10,
+        total: 19,
+        bySeverity: { CRITICAL: 10, WARNING: 7 },
+      },
+    });
+    const open = screen.getByRole("article", { name: "Open exceptions" });
+    expect(within(open).getByText("17")).toBeInTheDocument();
+    expect(within(open).queryByText("19")).toBeNull();
+    expect(within(open).getByText("as at the chosen date")).toBeInTheDocument();
+  });
+
   // U17: a tile and the list it opens count the same units.
   it("carries the chosen depot onto every list link", () => {
     renderTiles({}, "d1");
@@ -107,7 +126,7 @@ describe("DashboardTiles", () => {
 
   // U44, 000049: an estate with no valued member reads null, rendered
   // through the Money rule beside its count, never 0.
-  it("discloses the unvalued count beside every estate figure", () => {
+  it("says Not valued beside the count for an estate with no valued member", () => {
     const estate = dashboardBody().estate;
     renderTiles({
       estate: {
@@ -123,9 +142,68 @@ describe("DashboardTiles", () => {
       },
     });
     const region = screen.getByRole("region", { name: "Estate value" });
-    expect(region).toHaveTextContent("Not valued");
-    expect(region).toHaveTextContent("27 of 27 unvalued");
+    const tread = screen.getByRole("article", { name: "Tread value" });
+    expect(within(tread).getByText("Not valued")).toBeInTheDocument();
+    expect(tread).toHaveTextContent("27 of 27 unvalued");
     expect(region).not.toHaveTextContent("R0.00");
+  });
+
+  // FR-DSH-002, U27, U44: counts that share no value, so each tile's
+  // qualifier and split read their own fields.
+  it("discloses each side's own unvalued count and split beside its figure", () => {
+    const estate = dashboardBody().estate;
+    renderTiles({
+      estate: {
+        ...estate,
+        tyreCount: 27,
+        actualCount: 20,
+        estimatedCount: 4,
+        unvaluedCount: 3,
+        casingActualCount: 5,
+        casingEstimatedCount: 6,
+        casingAuditCount: 10,
+        casingUnvaluedCount: 6,
+      },
+    });
+    const tread = screen.getByRole("article", { name: "Tread value" });
+    expect(within(tread).getByText("R20,571.00")).toBeInTheDocument();
+    expect(within(tread).getByText("3 of 27 unvalued")).toBeInTheDocument();
+    expect(
+      within(tread).getByRole("img", {
+        name: "Tread value provenance: Actual 20, Estimated 4, Unvalued 3",
+      }),
+    ).toBeInTheDocument();
+    const casing = screen.getByRole("article", { name: "Casing value" });
+    expect(within(casing).getByText("R49,612.50")).toBeInTheDocument();
+    expect(within(casing).getByText("6 of 27 unvalued")).toBeInTheDocument();
+    expect(
+      within(casing).getByRole("img", {
+        name: "Casing value provenance: Actual 5, Estimated 6, Audit 10, Unvalued 6",
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Estate value" })).toHaveTextContent(
+      "R70,183.50 across 27 tyres in total; tread 3 of 27 unvalued, casing 6 of 27 unvalued.",
+    );
+  });
+
+  // U36: hidden is a projection, not a zero, and a reader without
+  // ViewValuation is offered no link to /at-risk (D7).
+  it("says Hidden for every estate figure and offers no at-risk link when money is hidden", () => {
+    const estate = dashboardBody().estate;
+    renderTiles({
+      moneyVisible: false,
+      estate: { ...estate, treadValue: null, casingValue: null, totalValue: null },
+    });
+    const region = screen.getByRole("region", { name: "Estate value" });
+    const tread = screen.getByRole("article", { name: "Tread value" });
+    expect(within(tread).getByText("Hidden")).toBeInTheDocument();
+    const casing = screen.getByRole("article", { name: "Casing value" });
+    expect(within(casing).getByText("Hidden")).toBeInTheDocument();
+    expect(region).toHaveTextContent("Hidden across 27 tyres in total.");
+    expect(region).not.toHaveTextContent("Not valued");
+    const below = screen.getByRole("article", { name: "Below the removal threshold" });
+    expect(within(below).queryByRole("link")).toBeNull();
+    expect(screen.queryByRole("link", { name: "See the at-risk list" })).toBeNull();
   });
 
   // 000049: one side wholly unvalued leaves a partial total, which says so.
@@ -201,29 +279,35 @@ describe("DashboardTiles", () => {
     );
   });
 
+  // FR-DSH-005, 006; FR-EXC-027, 029: no two fields share a value, so
+  // each tile reads its own, and the panel names its clock from the wire.
   it("renders coverage, overdue, stale and unreconciled as four tiles on the tenant's day", () => {
     renderTiles({
       units: {
         judgedAt: "TENANT_TODAY",
-        total: 3,
-        scheduled: 1,
-        covered: 1,
-        unscheduled: 2,
-        stale: 1,
+        total: 7,
+        scheduled: 4,
+        covered: 3,
+        unscheduled: 3,
+        stale: 2,
         staleUnknown: 1,
       },
-      overdueTasks: 2,
-      pendingCompositionReports: 1,
+      overdueTasks: 5,
+      pendingCompositionReports: 6,
     });
-    expect(screen.getByRole("article", { name: "Inspection coverage" })).toHaveTextContent(
-      "1 of 3",
-    );
-    expect(screen.getByRole("article", { name: "Inspection coverage" })).toHaveTextContent(
-      "2 unscheduled",
-    );
-    expect(screen.getByRole("article", { name: "Overdue tasks" })).toHaveTextContent("2");
-    expect(screen.getByRole("article", { name: "Stale units" })).toHaveTextContent("1 unknown");
-    expect(screen.getByRole("link", { name: "See the rigs" })).toHaveAttribute(
+    const panel = screen.getByRole("region", { name: "Units" });
+    expect(panel).toHaveTextContent("on the tenant's calendar day");
+    const coverage = screen.getByRole("article", { name: "Inspection coverage" });
+    expect(within(coverage).getByText("3 of 7")).toBeInTheDocument();
+    expect(within(coverage).getByText("4 scheduled, 3 unscheduled")).toBeInTheDocument();
+    const overdue = screen.getByRole("article", { name: "Overdue tasks" });
+    expect(within(overdue).getByText("5")).toBeInTheDocument();
+    const stale = screen.getByRole("article", { name: "Stale units" });
+    expect(within(stale).getByText("2")).toBeInTheDocument();
+    expect(within(stale).getByText("1 unknown, never inspected")).toBeInTheDocument();
+    const rigs = screen.getByRole("article", { name: "Unreconciled rig reports" });
+    expect(within(rigs).getByText("6")).toBeInTheDocument();
+    expect(within(rigs).getByRole("link", { name: "See the rigs" })).toHaveAttribute(
       "href",
       "/fleet/rigs",
     );

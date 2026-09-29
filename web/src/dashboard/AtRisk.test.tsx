@@ -22,11 +22,14 @@ function atRiskBody(overrides: Partial<AtRiskBody> = {}): AtRiskBody {
     spare,
     tyres: [
       atRiskTyre({ tyreId: "t1" }),
+      // Only an AUDIT tread can be undated: a READING's readAt is the
+      // inspection's submitted_at, which is never null (000050).
       atRiskTyre({
         tyreId: "t2",
         isSpare: true,
         positionCode: "S",
         currentTreadMm: 2,
+        treadSource: "AUDIT",
         readAt: null,
         casingValue: null,
         casingBasis: "UNVALUED",
@@ -36,12 +39,21 @@ function atRiskBody(overrides: Partial<AtRiskBody> = {}): AtRiskBody {
   };
 }
 
-function stubAtRisk(body: AtRiskBody = atRiskBody()) {
+function stubAtRisk(body: AtRiskBody = atRiskBody(), status = 200) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const url = requestedUrl(input);
-      if (url.startsWith("/api/valuation/at-risk")) return Promise.resolve(respond(200, body));
+      if (url.startsWith("/api/valuation/at-risk")) {
+        return Promise.resolve(
+          status === 200
+            ? respond(200, body)
+            : respond(status, { code: "internal", message: "no" }),
+        );
+      }
+      if (url.startsWith("/api/depots")) {
+        return Promise.resolve(respond(200, [{ id: "d1", name: "Johannesburg", type: "DEPOT" }]));
+      }
       return Promise.resolve(respond(404, { code: "not_found", message: "no" }));
     }),
   );
@@ -73,13 +85,18 @@ describe("AtRisk", () => {
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(within(table).getByRole("cell", { name: "1.0 mm of 4.0 mm" })).toBeInTheDocument();
     expect(within(table).getByRole("cell", { name: "2.0 mm of 4.0 mm" })).toBeInTheDocument();
-    expect(within(table).getAllByRole("cell", { name: "inspection reading" })).toHaveLength(2);
+    expect(within(table).getAllByRole("cell", { name: "inspection reading" })).toHaveLength(1);
+    expect(
+      within(table).getAllByRole("cell", { name: "measured outside an inspection" }),
+    ).toHaveLength(1);
     expect(within(table).getByRole("cell", { name: "R1,837.50" })).toBeInTheDocument();
     expect(within(table).getByRole("cell", { name: "audit valuation" })).toBeInTheDocument();
     // U36: one tyre's unvalued casing, in the Money rule's words in both columns.
     expect(within(table).getByRole("cell", { name: "Not valued" })).toBeInTheDocument();
     expect(within(table).getByRole("cell", { name: "not valued" })).toBeInTheDocument();
     expect(within(table).getByRole("cell", { name: "not dated" })).toBeInTheDocument();
+    // Rule 6: 05:46Z is 07:46 in the tenant's zone.
+    expect(within(table).getByRole("cell", { name: "23 Jul 2026 07:46" })).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Running" })).toHaveTextContent("R16,537.50");
     expect(screen.getByRole("article", { name: "Spares" })).toHaveTextContent("R1,837.50");
     expect(screen.getByText(/judged today/)).toBeInTheDocument();
@@ -101,6 +118,52 @@ describe("AtRisk", () => {
         "1 tyre: 0 at actual cost, 1 estimated or audit, of which 1 audit; 0 unvalued",
       ),
     ).toBeInTheDocument();
+  });
+
+  // U47, U27: fields that share no value, so each figure reads its own.
+  it("reads each count of the running class from its own field", async () => {
+    const { running } = dashboardBody().valueAtRisk;
+    stubAtRisk(
+      atRiskBody({
+        running: {
+          ...running,
+          tyreCount: 9,
+          actualCount: 1,
+          estimatedOrAuditCount: 6,
+          auditCount: 4,
+          unvaluedCount: 2,
+        },
+      }),
+    );
+    renderWithActor(<AtRisk />, { capabilities: ["ViewFleet", "ViewValuation"], withRouter: true });
+    const tile = await screen.findByRole("article", { name: "Running" });
+    expect(
+      within(tile).getByText(
+        "9 tyres: 1 at actual cost, 6 estimated or audit, of which 4 audit; 2 unvalued",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  // U17: a depot view reads that depot's tyres and says which depot.
+  it("sends the depot from the URL and names it", async () => {
+    renderWithActor(<AtRisk />, {
+      capabilities: ["ViewFleet", "ViewValuation"],
+      withRouter: true,
+      initialEntries: ["/at-risk?depot=d1"],
+    });
+    expect(
+      await screen.findByText(
+        "Tyres at or below the removal threshold, judged today, at Johannesburg",
+      ),
+    ).toBeInTheDocument();
+    expect(atRiskCalls()).toEqual(["/api/valuation/at-risk?depot=d1"]);
+  });
+
+  it("explains a failed load rather than an empty list", async () => {
+    stubAtRisk(atRiskBody(), 500);
+    renderWithActor(<AtRisk />, { capabilities: ["ViewFleet", "ViewValuation"], withRouter: true });
+    expect(await screen.findByRole("alert")).toHaveTextContent("The at-risk list did not load.");
+    expect(screen.queryByText("Nothing at or below the removal threshold")).toBeNull();
   });
 
   // U36, U44: a class with no tyre also sends null. That is the empty set,

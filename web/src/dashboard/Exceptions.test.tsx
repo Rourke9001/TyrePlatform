@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ExceptionRow } from "../api/dashboard";
@@ -6,8 +7,10 @@ import { exceptionRow, renderWithActor, requestedUrl, respond } from "../test/fi
 import { forceMatchMedia } from "../test/media";
 import Exceptions from "./Exceptions";
 
-// The BAC capture's own rules: a tread below threshold, irregular wear
-// (replaced since), a dual-mate pair in mm and a pressure rule in %.
+// The BAC capture's own rules: a tread below threshold, irregular wear, a
+// dual-mate pair in mm and a pressure rule in %, and one row a fitment has
+// resolved since, which exceptions.go sends only when includeResolved is
+// set.
 const rows = [
   exceptionRow({ subjectId: "a" }),
   exceptionRow({
@@ -20,7 +23,6 @@ const rows = [
     displayCode: "2102BAC5",
     measureMm: 4,
     thresholdMm: 4,
-    resolvedByFitment: true,
   }),
   exceptionRow({
     subjectId: "c",
@@ -46,19 +48,29 @@ const rows = [
     measurePct: 26.666666666666668,
     thresholdPct: 80,
   }),
+  exceptionRow({
+    subjectId: "e",
+    positionCode: "8",
+    displayCode: "2102BAC8",
+    resolvedByFitment: true,
+  }),
 ];
 
-function stubExceptions(served: ExceptionRow[] = rows) {
+function stubExceptions(served: ExceptionRow[] = rows, status = 200) {
   vi.stubGlobal(
     "fetch",
     vi.fn((input: RequestInfo | URL) => {
       const url = requestedUrl(input);
       if (url.startsWith("/api/exceptions")) {
+        if (status !== 200) {
+          return Promise.resolve(respond(status, { code: "internal", message: "no" }));
+        }
+        const withResolved = url.includes("includeResolved=true");
         return Promise.resolve(
           respond(200, {
             scope: { level: "TENANT", depotCount: 0, depot: null },
             judgedAt: "SUBMITTED_AT",
-            exceptions: served,
+            exceptions: served.filter((r) => withResolved || !r.resolvedByFitment),
           }),
         );
       }
@@ -95,7 +107,7 @@ describe("Exceptions", () => {
     expect(within(table).getByRole("cell", { name: "8 and 7" })).toBeInTheDocument();
     expect(within(table).getAllByText("Warning")).toHaveLength(2);
     expect(within(table).getAllByRole("cell", { name: "23 Jul 2026 07:46" })).toHaveLength(4);
-    expect(within(table).getByRole("cell", { name: "Yes" })).toBeInTheDocument();
+    expect(within(table).getAllByRole("cell", { name: "No" })).toHaveLength(4);
     expect(screen.getByText("4 exceptions, as inspected")).toBeInTheDocument();
     // Rule 6: the zone is named once, under the table.
     expect(screen.getByText(/^Times are Africa\/Johannesburg\./)).toBeInTheDocument();
@@ -112,6 +124,49 @@ describe("Exceptions", () => {
     expect(calls).toContain(
       "/api/exceptions?severity=CRITICAL&rule=FR-EXC-020&includeResolved=true",
     );
+  });
+
+  // U14, FR-EXC-010: a row a fitment resolved is shown only when asked
+  // for, and says it was replaced.
+  it("shows a replaced row only when replaced rows are included", async () => {
+    renderWithActor(<Exceptions />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      initialEntries: ["/exceptions?resolved=true"],
+    });
+    const table = await screen.findByRole("table", { name: "Exceptions" });
+    await waitFor(() => expect(table).not.toHaveAttribute("aria-busy"));
+    expect(within(table).getAllByRole("row")).toHaveLength(6);
+    expect(within(table).getByRole("cell", { name: "Yes" })).toBeInTheDocument();
+    expect(screen.getByRole("checkbox", { name: "Include replaced" })).toBeChecked();
+  });
+
+  // U17: a filter changed on a depot view keeps the depot.
+  it("keeps the depot when the severity changes", async () => {
+    const user = userEvent.setup();
+    renderWithActor(<Exceptions />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      initialEntries: ["/exceptions?depot=d1"],
+    });
+    await screen.findByText("4 exceptions, as inspected, at Johannesburg");
+    const severity = screen.getByRole("combobox", { name: "Severity" });
+    severity.focus();
+    await user.keyboard("{Enter}");
+    await user.click(await screen.findByRole("option", { name: "Critical" }));
+    await waitFor(() => {
+      const calls = vi.mocked(fetch).mock.calls.map((c) => requestedUrl(c[0]));
+      expect(calls.filter((u) => u.startsWith("/api/exceptions")).at(-1)).toBe(
+        "/api/exceptions?severity=CRITICAL&depot=d1",
+      );
+    });
+  });
+
+  it("explains a failed load rather than an empty list", async () => {
+    stubExceptions(rows, 500);
+    renderWithActor(<Exceptions />, { capabilities: ["ViewFleet"], withRouter: true });
+    expect(await screen.findByRole("alert")).toHaveTextContent("The exceptions list did not load.");
+    expect(screen.queryByText("No open exceptions")).toBeNull();
   });
 
   // U17: a depot view arrives from a dashboard link and says so.

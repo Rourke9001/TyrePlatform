@@ -170,6 +170,18 @@ describe("formatTenantInstant", () => {
     );
   });
 
+  // Rule 6: the same instant in a zone eleven hours west of UTC is the
+  // previous day, so neither the runner's zone nor the first zone the
+  // cache met can pass for the tenant's.
+  it("renders the same instant on another tenant's day in another zone", () => {
+    expect(formatTenantInstant("2026-09-22T07:10:45.563568Z", "Africa/Johannesburg")).toMatch(
+      /^22 Sept? 2026 09:10$/,
+    );
+    expect(formatTenantInstant("2026-09-22T07:10:45.563568Z", "Pacific/Midway")).toMatch(
+      /^21 Sept? 2026 20:10$/,
+    );
+  });
+
   // hourCycle h23: some ICU builds write midnight as "24:00" under hour12.
   it("writes midnight as 00:00", () => {
     expect(formatTenantInstant("2026-09-21T22:00:00Z", "Africa/Johannesburg")).toMatch(
@@ -201,6 +213,12 @@ describe("useTenantInstant", () => {
   it("renders the tenant's zone once the actor arrives", () => {
     const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(driver, true) });
     expect(result.current(instant)).toMatch(/^22 Sept? 2026 09:10$/);
+  });
+
+  it("renders a tenant west of UTC on its own day", () => {
+    const west = me({ ...driver, timezone: "Pacific/Midway" });
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(west, true) });
+    expect(result.current(instant)).toMatch(/^21 Sept? 2026 20:10$/);
   });
 
   // Staging 401s everyone until TYRE-2 (TYRE-95): when /api/me has failed

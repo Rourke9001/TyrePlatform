@@ -66,6 +66,40 @@ describe("DashboardPanels", () => {
     expect(within(panel).queryByText("dangerously_under")).toBeNull();
   });
 
+  // U86: every column of a band reads its own field; no two share a value.
+  it("renders each inflation column from its own field", () => {
+    const base = dashboardBody().inflationCompliance;
+    renderWithActor(
+      <DashboardPanels
+        body={dashboardBody({
+          inflationCompliance: {
+            ...base,
+            bands: [
+              {
+                ...base.bands[0],
+                readingCount: 40,
+                tyreCount: 12,
+                pctOfClassified: 62.5,
+                coldCount: 25,
+                hotCount: 9,
+                unknownCount: 6,
+              },
+            ],
+          },
+        })}
+        depotFiltered={false}
+      />,
+      { withRouter: true },
+    );
+    const table = screen.getByRole("table", { name: "Inflation compliance by band" });
+    const [, row] = within(table).getAllByRole("row");
+    expect(
+      within(row)
+        .getAllByRole("cell")
+        .map((c) => c.textContent),
+    ).toEqual(["Critically under target", "40", "12", "63%", "25", "9", "6"]);
+  });
+
   // U52: a chosen period has no configured length, only its two dates.
   it("names a chosen period by its dates", () => {
     const base = dashboardBody().inflationCompliance;
@@ -119,9 +153,13 @@ describe("DashboardPanels", () => {
     });
     const forecast = screen.getByRole("article", { name: "Replacement window opens" });
     expect(forecast).toHaveAttribute("data-requirement", "FR-DSH-009");
+    // dueCount 10 and horizonDays 30, running 5 and spare 1: each value is
+    // its own field.
+    expect(within(forecast).getByText("10")).toBeInTheDocument();
     expect(forecast).toHaveTextContent(/within 30 days of 22 Sept? 2026/);
     expect(forecast).toHaveTextContent("today");
     const wear = screen.getByRole("article", { name: "Irregular wear" });
+    expect(within(wear).getByText("5")).toBeInTheDocument();
     expect(wear).toHaveTextContent(
       "running positions with a spread of 4.0 mm or more; 1 spare disclosed separately",
     );
@@ -211,6 +249,27 @@ describe("DashboardPanels", () => {
     expect(within(panel).getByRole("cell", { name: "inspection reading" })).toBeInTheDocument();
     expect(within(panel).getByRole("cell", { name: "23 Jul 2026" })).toBeInTheDocument();
     expect(within(panel).getByRole("cell", { name: "935" })).toBeInTheDocument();
+  });
+
+  // Rule 6: 22:30Z is already the next day in the tenant's zone.
+  it("dates a spare's last measurement on the tenant's calendar", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          respond(200, {
+            scope: { level: "TENANT", depotCount: 0, depot: null },
+            judgedAt: "TENANT_TODAY",
+            spares: [spareRow({ tyreId: "s1", lastMeasuredAt: "2026-07-23T22:30:00Z" })],
+          }),
+        ),
+      ),
+    );
+    renderWithActor(<DashboardPanels body={dashboardBody()} depotFiltered={false} />, {
+      withRouter: true,
+    });
+    const panel = await screen.findByRole("region", { name: "Spares" });
+    expect(await within(panel).findByRole("cell", { name: "24 Jul 2026" })).toBeInTheDocument();
   });
 
   it("names an empty spares list", async () => {

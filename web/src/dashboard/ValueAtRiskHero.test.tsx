@@ -66,10 +66,48 @@ describe("ValueAtRiskHero", () => {
         spare: { ...dashboardBody().valueAtRisk.spare, casingValueAtRisk: null },
       },
     });
-    expect(screen.getAllByText("Hidden")).not.toHaveLength(0);
-    expect(screen.queryByText("R0.00")).toBeNull();
+    const hero = screen.getByRole("region", { name: "Value at risk" });
+    expect(within(hero).getByText("Hidden")).toBeInTheDocument();
+    expect(hero).toHaveTextContent("Spares: Hidden from 1 tyre");
+    expect(hero).not.toHaveTextContent("R0.00");
+    expect(hero).not.toHaveTextContent("Not valued");
     // ADR-0013 decision 4: no link to a screen the reader cannot open.
     expect(screen.queryByRole("link", { name: "See the at-risk list" })).toBeNull();
+  });
+
+  // U27, U18: fields that share no value, so each figure reads its own; the
+  // count behind the figure is the register's below-threshold count, not
+  // the class's tyreCount, which comes from another view.
+  it("reads each running count from its own field and the count from below-threshold", () => {
+    const base = dashboardBody().valueAtRisk;
+    renderHero({
+      valueAtRisk: {
+        ...base,
+        running: {
+          ...base.running,
+          tyreCount: 9,
+          actualCount: 1,
+          estimatedOrAuditCount: 6,
+          auditCount: 4,
+          unvaluedCount: 2,
+        },
+      },
+      belowThreshold: { judgedAt: "TODAY", running: 8, spare: 1 },
+    });
+    const hero = screen.getByRole("region", { name: "Value at risk" });
+    expect(
+      within(hero).getByText("from 8 running tyres at or below the removal threshold today"),
+    ).toBeInTheDocument();
+    expect(
+      within(hero).getByText(
+        "1 at actual cost, 6 estimated or audit, of which 4 audit; 2 unvalued",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(hero).getByRole("img", {
+        name: "Running value at risk provenance: Actual 1, Estimated or audit 6, Unvalued 2",
+      }),
+    ).toBeInTheDocument();
   });
 
   // U55: one of a thing is singular, on the qualifier and on the spare line.
