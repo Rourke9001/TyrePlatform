@@ -6,9 +6,10 @@ import { MELUSI_DRIVER, NOMSA_CONTROLLER, TENANT_BAC } from "./bac";
 test("a controller lands on the dashboard and reaches the units from it", async ({ page }) => {
   await actAs(page, NOMSA_CONTROLLER, TENANT_BAC);
   await page.goto("/");
-  // FR-DSH-001: the landing view follows the role; the dashboard is it.
-  await expect(page).toHaveURL(/\/$/);
+  // FR-DSH-001, U49: the dashboard is the landing, rendered at "/". The URL
+  // is read once the page has rendered, so a redirect would have moved it.
   await expect(page.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
   // The API sends asAt with six fractional digits (Go's time.Time); this
   // project runs on WebKit too, where a Date that refused them would render
   // the invalid-instant marker (rule 6).
