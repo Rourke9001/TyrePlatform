@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 
@@ -30,6 +30,25 @@ function mockFetchJson(status: number, body: unknown): Mock<typeof fetch> {
   mock.mockImplementation(() => Promise.resolve(respond(status, body)));
   vi.stubGlobal("fetch", mock);
   return mock;
+}
+
+// The two list pages each expect their own body; any other read (the
+// depots behind a depot name) answers an empty list.
+function mockListsByPath(): void {
+  const scope = dashboardBody().scope;
+  const mock: Mock<typeof fetch> = vi.fn();
+  mock.mockImplementation((input: RequestInfo | URL) => {
+    const url = requestedUrl(input);
+    if (url.startsWith("/api/exceptions")) {
+      return Promise.resolve(respond(200, { scope, judgedAt: "SUBMITTED_AT", exceptions: [] }));
+    }
+    if (url.startsWith("/api/valuation/at-risk")) {
+      const { running, spare } = dashboardBody().valueAtRisk;
+      return Promise.resolve(respond(200, { scope, judgedAt: "TODAY", running, spare, tyres: [] }));
+    }
+    return Promise.resolve(respond(200, []));
+  });
+  vi.stubGlobal("fetch", mock);
 }
 
 const DEV_ACTOR_STORAGE_KEY = "tyre.dev.user-id";
@@ -89,6 +108,18 @@ describe("AppRoutes", () => {
     mockFetchJson(200, []);
     renderAt("/exceptions", actor(["CaptureInspection"]));
     expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission");
+  });
+
+  // Each list's gate is the one capability its API checks: ViewFleet for
+  // /exceptions (exceptions.go), ViewValuation for /at-risk (valuation.go).
+  it("opens /exceptions for ViewFleet alone and /at-risk with ViewValuation beside it", async () => {
+    mockListsByPath();
+    renderAt("/exceptions", actor(["ViewFleet"]));
+    expect(await screen.findByRole("heading", { level: 1, name: "Exceptions" })).toBeDefined();
+    cleanup();
+    mockListsByPath();
+    renderAt("/at-risk", actor(["ViewFleet", "ViewValuation"]));
+    expect(await screen.findByRole("heading", { level: 1, name: "Value at risk" })).toBeDefined();
   });
 
   it("renders a not-found view for an unknown path", () => {
@@ -183,6 +214,10 @@ describe("AppRoutes", () => {
 
     expect(screen.queryByRole("heading", { name: /inspections/i })).toBeNull();
     expect(screen.queryByRole("heading", { name: "Dashboard" })).toBeNull();
+    // Dashboard is lazy: rendered before the actor settles, this first
+    // render shows the Suspense fallback, and the heading check alone
+    // would pass whenever no earlier test had loaded the chunk.
+    expect(screen.queryByText(/loading/i)).toBeNull();
 
     release(new Response(JSON.stringify(controller), { status: 200 }));
     expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeDefined();

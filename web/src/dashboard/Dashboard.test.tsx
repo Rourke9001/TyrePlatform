@@ -54,60 +54,81 @@ function calls(prefix: string): string[] {
 // retreader row U85 keeps out of the filter even though it is theirs.
 const technician = { role: "TECHNICIAN", depots: ["d1", "d2", "r1"], scope: "DEPOT" };
 
-function stubDepotScopedApi() {
+// U87: role and scope disagree with auth.go's table on purpose, so a
+// TypeScript copy of that table fails where reading me.scope passes.
+const tenantWideTechnician = { role: "TECHNICIAN", depots: ["d1"], scope: "TENANT" };
+const depotScopedController = { role: "CONTROLLER", depots: ["d1"], scope: "DEPOT" };
+
+// What the server sends: analytics.go answers TENANT_ONLY, with no window
+// and no bands, for any ?depot= request and any depot-scoped actor, and
+// valuation.go nulls every money string when money is hidden.
+function wireBody(overrides: Parameters<typeof dashboardBody>[0], tenantOnly: boolean) {
+  const body = dashboardBody(overrides);
+  const { running, spare } = body.valueAtRisk;
+  return {
+    ...body,
+    inflationCompliance: tenantOnly
+      ? { from: null, to: null, windowDays: null, unavailable: "TENANT_ONLY", bands: [] }
+      : body.inflationCompliance,
+    ...(body.moneyVisible
+      ? {}
+      : {
+          valueAtRisk: {
+            ...body.valueAtRisk,
+            running: { ...running, casingValueAtRisk: null },
+            spare: { ...spare, casingValueAtRisk: null },
+          },
+          estate: { ...body.estate, treadValue: null, casingValue: null, totalValue: null },
+        }),
+  };
+}
+
+const tenantDepots = [
+  { id: "d1", name: "Johannesburg", type: "DEPOT" },
+  { id: "d2", name: "Durban", type: "STORE" },
+  { id: "d3", name: "Cape Town", type: "DEPOT" },
+  { id: "r1", name: "Retreaders", type: "RETREADER" },
+];
+
+// depotScoped is the server's reading of the actor, which decides the
+// unfiltered body's scope and inflation. depotCount is len(a.DepotIDs),
+// every user_depot row of any type (scope.go), so the technician's is 3.
+function stubDepotScopedApi({ depotScoped = true, depotCount = 3 } = {}) {
   const fetchMock = stubApi();
+  const scope = depotScoped
+    ? { level: "DEPOTS", depotCount, depot: null }
+    : { level: "TENANT", depotCount: 0, depot: null };
   fetchMock.mockImplementation((input: RequestInfo | URL) => {
     const url = requestedUrl(input);
     if (url === "/api/dashboard") {
-      return Promise.resolve(
-        respond(
-          200,
-          dashboardBody({
-            scope: { level: "DEPOTS", depotCount: 2, depot: null },
-            moneyVisible: false,
-          }),
-        ),
-      );
+      return Promise.resolve(respond(200, wireBody({ scope, moneyVisible: false }, depotScoped)));
     }
     if (url.startsWith("/api/dashboard?depot=")) {
       return Promise.resolve(
         respond(
           200,
-          dashboardBody({
-            scope: { level: "DEPOT", depotCount: 1, depot: "d1" },
-            moneyVisible: false,
-          }),
+          wireBody(
+            { scope: { level: "DEPOT", depotCount: 1, depot: "d1" }, moneyVisible: false },
+            true,
+          ),
         ),
       );
     }
-    if (url.startsWith("/api/depots")) {
-      return Promise.resolve(
-        respond(200, [
-          { id: "d1", name: "Johannesburg", type: "DEPOT" },
-          { id: "d2", name: "Durban", type: "STORE" },
-          { id: "d3", name: "Cape Town", type: "DEPOT" },
-          { id: "r1", name: "Retreaders", type: "RETREADER" },
-        ]),
-      );
-    }
-    return Promise.resolve(
-      respond(200, {
-        scope: { level: "DEPOTS", depotCount: 2, depot: null },
-        judgedAt: "TENANT_TODAY",
-        spares: [],
-      }),
-    );
+    if (url.startsWith("/api/depots")) return Promise.resolve(respond(200, tenantDepots));
+    return Promise.resolve(respond(200, { scope, judgedAt: "TENANT_TODAY", spares: [] }));
   });
 }
 
-async function expectOwnDepotsOnly(user: ReturnType<typeof userEvent.setup>) {
+// Opens the picker and waits for the depots to arrive in it, then reads
+// the exact set offered: the count, and each option by its name.
+async function expectPickerOffers(user: ReturnType<typeof userEvent.setup>, names: string[]) {
   const picker = screen.getByRole("combobox", { name: "Depot" });
   picker.focus();
   await user.keyboard("{Enter}");
-  expect(await screen.findAllByRole("option")).toHaveLength(3);
-  expect(screen.getByRole("option", { name: "All my depots" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "Johannesburg" })).toBeInTheDocument();
-  expect(screen.getByRole("option", { name: "Durban" })).toBeInTheDocument();
+  await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(names.length));
+  for (const name of names) {
+    expect(screen.getByRole("option", { name })).toBeInTheDocument();
+  }
 }
 
 beforeEach(() => {
@@ -193,7 +214,7 @@ describe("Dashboard", () => {
 
   // FR-DSH-011: the filter is the URL, so a depot view is a link.
   it("sends the depot from the URL", async () => {
-    stubApi(dashboardBody({ scope: { level: "DEPOT", depotCount: 1, depot: "d1" } }));
+    stubApi(wireBody({ scope: { level: "DEPOT", depotCount: 1, depot: "d1" } }, true));
     renderWithActor(<Dashboard />, {
       capabilities: ["ViewFleet", "ViewValuation"],
       withRouter: true,
@@ -201,6 +222,11 @@ describe("Dashboard", () => {
     });
     await screen.findByText("R16,537.50");
     expect(calls("/api/dashboard")).toContain("/api/dashboard?depot=d1");
+    await waitFor(() => expect(calls("/api/spares")).toContain("/api/spares?depot=d1"));
+    // U44: me()'s default actor is tenant-wide, so it can widen again.
+    expect(
+      screen.getByText("Tenant-wide only. Clear the depot filter to see it."),
+    ).toBeInTheDocument();
   });
 
   // Radix shows its placeholder only for an empty value, so a depot named
@@ -261,12 +287,14 @@ describe("Dashboard", () => {
       withRouter: true,
       actor: technician,
     });
-    expect(await screen.findByText(/across your 2 depots$/)).toBeInTheDocument();
-    await expectOwnDepotsOnly(user);
+    expect(await screen.findByText(/across your 3 depots$/)).toBeInTheDocument();
+    expect(screen.getByText("Not available for a depot view yet.")).toBeInTheDocument();
+    await expectPickerOffers(user, ["All my depots", "Johannesburg", "Durban"]);
     await user.click(screen.getByRole("option", { name: "Johannesburg" }));
     await waitFor(() => expect(calls("/api/dashboard")).toContain("/api/dashboard?depot=d1"));
     expect(screen.getByRole("combobox", { name: "Depot" })).toHaveTextContent("Johannesburg");
-    await expectOwnDepotsOnly(user);
+    expect(await screen.findByText("Not available for a depot view yet.")).toBeInTheDocument();
+    await expectPickerOffers(user, ["All my depots", "Johannesburg", "Durban"]);
   });
 
   // U87: the actor's breadth comes from GET /api/me, so a link straight to
@@ -284,7 +312,58 @@ describe("Dashboard", () => {
       expect(screen.getByRole("combobox", { name: "Depot" })).toHaveTextContent("Johannesburg"),
     );
     expect(calls("/api/dashboard")).toEqual(["/api/dashboard?depot=d1"]);
-    await expectOwnDepotsOnly(user);
+    expect(await screen.findByText("Not available for a depot view yet.")).toBeInTheDocument();
+    await expectPickerOffers(user, ["All my depots", "Johannesburg", "Durban"]);
+  });
+
+  // U87 (TYRE-239 comment 13340): the breadth is me.scope, never the role.
+  it("offers a tenant-wide actor every depot and store whatever the role", async () => {
+    const user = userEvent.setup();
+    stubDepotScopedApi({ depotScoped: false });
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      actor: tenantWideTechnician,
+    });
+    await screen.findByText(/^As at /);
+    await expectPickerOffers(user, ["All depots", "Johannesburg", "Durban", "Cape Town"]);
+  });
+
+  it("offers a depot-scoped actor their own depots whatever the role", async () => {
+    const user = userEvent.setup();
+    stubDepotScopedApi({ depotCount: 1 });
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      actor: depotScopedController,
+    });
+    await screen.findByText(/across your 1 depot$/);
+    await expectPickerOffers(user, ["All my depots", "Johannesburg"]);
+  });
+
+  // U44, U87: on a depot view only a tenant-wide actor can clear the filter
+  // to a figure, so only they are told to.
+  it("words the tenant-only inflation by the actor's scope, not the role", async () => {
+    stubDepotScopedApi({ depotScoped: false });
+    const { unmount } = renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      initialEntries: ["/?depot=d1"],
+      actor: tenantWideTechnician,
+    });
+    expect(
+      await screen.findByText("Tenant-wide only. Clear the depot filter to see it."),
+    ).toBeInTheDocument();
+    unmount();
+    stubDepotScopedApi({ depotCount: 1 });
+    renderWithActor(<Dashboard />, {
+      capabilities: ["ViewFleet"],
+      withRouter: true,
+      initialEntries: ["/?depot=d1"],
+      actor: depotScopedController,
+    });
+    expect(await screen.findByText("Not available for a depot view yet.")).toBeInTheDocument();
+    expect(screen.queryByText(/Clear the depot filter/)).toBeNull();
   });
 
   // FR-DSH-013, H.3 criterion 6: the lists the tiles link to are marked
@@ -350,21 +429,24 @@ describe("Dashboard", () => {
       actor: { role: "CONTROLLER", depots: ["d1"], scope: "REGION" },
     });
     await screen.findByText(/^As at /);
-    const picker = screen.getByRole("combobox", { name: "Depot" });
-    picker.focus();
-    await user.keyboard("{Enter}");
-    expect(await screen.findAllByRole("option")).toHaveLength(2);
-    expect(screen.getByRole("option", { name: "All my depots" })).toBeInTheDocument();
-    expect(screen.getByRole("option", { name: "Johannesburg" })).toBeInTheDocument();
+    await expectPickerOffers(user, ["All my depots", "Johannesburg"]);
   });
 
   it("explains a failed load and offers a retry, never a blank page", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
-    );
+    const fetchMock = stubApi();
+    const answer = fetchMock.getMockImplementation();
+    let failed = false;
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      if (!failed && requestedUrl(input).startsWith("/api/dashboard")) {
+        failed = true;
+        return Promise.reject(new TypeError("Failed to fetch"));
+      }
+      return answer ? answer(input) : Promise.reject(new Error("no stub"));
+    });
     renderWithActor(<Dashboard />, { capabilities: ["ViewFleet"], withRouter: true });
     expect(await screen.findByRole("alert")).toHaveTextContent("The dashboard didn't load");
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("R16,537.50")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 });

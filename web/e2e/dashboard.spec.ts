@@ -16,7 +16,8 @@ test("the dashboard renders the Appendix J figures the suite pins", async ({ pag
   const hero = page.locator("[data-requirement='FR-DSH-017']");
   await expect(hero.getByText("R16,537.50", { exact: true })).toBeVisible();
   await expect(hero).toContainText("of which 9 audit");
-  await expect(hero).toContainText("Spares: R1,837.50 from 1 tyre");
+  // The spare line whole, so "from 1 tyres" fails.
+  await expect(hero.getByText(/^Spares: R1,837\.50 from 1 tyre$/)).toBeVisible();
 
   // H.3 criterion 5: 19, 11 and 9, each on the tile that answers its FR.
   const open = page.locator("[data-requirement='FR-DSH-003']");
@@ -35,12 +36,12 @@ test("the dashboard renders the Appendix J figures the suite pins", async ({ pag
 test("the exceptions list carries the same 19, and 11 of them critical", async ({ page }) => {
   await actAsPieter(page);
   await page.goto("/exceptions");
-  await expect(page.getByText("19 exceptions, as inspected")).toBeVisible();
+  await expect(page.getByText("19 exceptions, as inspected", { exact: true })).toBeVisible();
   const rows = page.getByRole("table", { name: "Exceptions" }).getByRole("row");
   await expect(rows).toHaveCount(20);
 
   await page.goto("/exceptions?severity=CRITICAL");
-  await expect(page.getByText("11 exceptions, as inspected")).toBeVisible();
+  await expect(page.getByText("11 exceptions, as inspected", { exact: true })).toBeVisible();
 });
 
 test("the at-risk list carries the nine running tyres and the spare", async ({ page }) => {
@@ -50,5 +51,10 @@ test("the at-risk list carries the nine running tyres and the spare", async ({ p
     .getByRole("table", { name: "Tyres at or below the removal threshold" })
     .getByRole("row");
   await expect(rows).toHaveCount(11);
-  await expect(page.getByRole("article", { name: "Running" })).toContainText("R16,537.50");
+  const running = page.getByRole("article", { name: "Running" });
+  await expect(running).toContainText("R16,537.50");
+  // innerText, for the reason the "11 urgent" line gives: the figure's text
+  // runs straight into the count.
+  await expect(running).toContainText(/(^|\D)9 tyres/, { useInnerText: true });
+  await expect(page.getByRole("article", { name: "Spares" })).toContainText("R1,837.50");
 });
