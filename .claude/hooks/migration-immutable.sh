@@ -31,6 +31,6 @@ Write a new migration instead. The next free number is ${next:-<check db/migrati
 
 If the intent is to reverse something, the down file of the migration that added
 it is the place, and a new pair is how it reaches an existing database.
-CLAUDE.md, Commands: never edit an applied migration.
+db/CLAUDE.md, Schema changes are migrations: never edit an applied migration.
 EOF
 exit 2

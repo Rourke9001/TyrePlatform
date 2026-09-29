@@ -192,8 +192,9 @@ fallback covers a header absent or blank (local/dev, `httptest`).
 
 ## Capture and the network
 
-The hypothesis the POC exists to test is that a driver captures a full vehicle
-in under three minutes. Everything about the capture path is subordinate.
+The capture path is designed to a UX target of about three minutes per
+vehicle (CLAUDE.md, The capture target). It is a target, not an acceptance
+criterion.
 
 Per ADR-0009 (client platform and on-device data): the client is
 **online-first with a durable submit outbox**, not an offline-first sync
@@ -217,8 +218,8 @@ read composes `app.v_capture_vehicle`, and without the same check on the
 write a driver could submit against any unit in the tenant, wider than the
 read ever exposed. A superlink payload legitimately carries readings
 against several `vehicle_id`s in one submit: the motive unit plus each
-coupled trailer, so a completed sheet is 108 numeric entries, not 52 (the
-one constraint everything in `CLAUDE.md` is subordinate to). Checking only
+coupled trailer, so a completed sheet is 108 numeric entries, not 52 (`CLAUDE.md`,
+The capture target). Checking only
 the top-level `vehicle_id` would let a driver assigned to unit A embed a
 reading against unrelated unit B in the same tenant: `TY004` in
 `app.submit_inspection` only confirms a position belongs to its own

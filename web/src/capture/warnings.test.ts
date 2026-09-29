@@ -113,7 +113,7 @@ describe("positionWarnings", () => {
 
   // FR-INS-031a supersedes FR-INS-037 rather than stacking with it: at 20%
   // under, both rules are true, and showing a gloved driver two rows about
-  // one number costs seconds the three-minute budget does not have.
+  // one number costs seconds against the three-minute target.
   it("escalates to a confirmation instead of stacking two pressure warnings", () => {
     const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 600 }, steer, config);
     expect(codes(w)).toContain("FR-INS-031a");

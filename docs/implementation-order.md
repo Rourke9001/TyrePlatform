@@ -5,8 +5,8 @@ the close-out of the rider PR (#81), the day after a checkpoint audit pruned
 the board (TYRE-332).
 
 **Jira is the live authority.** This page exists so a session working in the
-repo can see the shape of the queue without leaving the codebase, the same way
-`open-issues.md` does for the blocker register. Where this page and the board
+repo can see the shape of the queue without leaving the codebase. Where this
+page and the board
 disagree, the board wins, and the disagreement is a bug in this page.
 Re-verify before trusting anything below; the method is at the end.
 
@@ -59,7 +59,7 @@ disjoint files: web and API work on the left, database work on the right.
 | 5 | W2: TYRE-156, 157, 159, 141, 115, 116, 186 F12, 187 (which takes TYRE-140 items 1 and 4), 274, the Dialog focus half of 275, and TYRE-335 (focus after an in-place retry) | W5e: TYRE-210, taking 189 F6, with 265 |
 | 6 | B7.4: TYRE-240, the redesign, carrying TYRE-119, 132, 176, 182, 278, 281, 291, 327, 328, 330 and 345 | |
 | 7 | Reports and export: TYRE-320 with 287, 290 and 292 (292 waits on TYRE-109). Milestone M4 | |
-| 8 | B8: TYRE-243, the exception lifecycle, rule administration and notifications, with TYRE-58 riding. Milestone M5. TYRE-44 must be answered first | |
+| 8 | B8: TYRE-243, the exception lifecycle, rule administration and notifications, with TYRE-58 riding. Milestone M5 | |
 | 9 | Import, TYRE-322, and pilot readiness, TYRE-321. Milestone M6 | |
 
 W5b, W5c and W5d each rewrite the lifecycle functions migration 000039
@@ -137,22 +137,18 @@ when a gap appears.
 
 ## Blocked on people, not code
 
-**The owner:** sign the POC agreement (TYRE-15); register the domain before
-TYRE-51 and TYRE-154 need it (TYRE-19); confirm or drop Renovate (TYRE-304);
-remove the Key Vault Administrator assignment (TYRE-63); decide whether
-capture's "Try again" takes the 56px glove size (TYRE-337) and whether the
-live pressure entry groups thousands (TYRE-342); settle the POC
-agreement's M4 wording, which
-still names six reports while H.2 defers three; and run the handset capture
-(TYRE-70).
+**The owner:** confirm or drop Renovate (TYRE-304); remove the Key Vault
+Administrator assignment (TYRE-63); decide whether capture's "Try again" takes
+the 56px glove size (TYRE-337) and whether the live pressure entry groups
+thousands (TYRE-342). TYRE-51 and TYRE-154 need the platform domain, which the
+team registers outside Jira.
 
-**The sponsor:** driver-to-unit assignment (TYRE-44), before B8; whether
-pressure is gauged today (TYRE-46), before the dashboard shows an
-inflation-compliance figure.
+Sponsor, commercial, IP and legal questions are handled by the team outside
+the project; Jira carries codebase and infrastructure work only (owner,
+29 Sep 2026).
 
-**Parked post-POC.** TYRE-13, 47, 59, 60, 61, 73, 106, 214, 228 and 295 carry
-the label `post-poc`. They stay open and off the active board. TYRE-13 and
-TYRE-47 keep their rows in `open-issues.md`.
+**Parked post-POC.** TYRE-59, 60, 61, 73, 106, 214, 228 and 295 carry the
+label `post-poc`. They stay open and off the active board.
 
 ## Re-verifying this page
 
