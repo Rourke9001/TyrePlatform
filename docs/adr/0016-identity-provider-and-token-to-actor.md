@@ -140,7 +140,9 @@ on each Entra user and proven by an RLS lookup of `app.app_user` by `oid`.**
    through `app.record_session_start()`. That function is the one writer of
    `app.audit_log` besides ADR-0014's trigger, and `SESSION_START` sits
    outside the trigger's `TG_OP` vocabulary because it records an
-   authentication event, not a row mutation.
+   authentication event, not a row mutation. "The one writer" is a
+   convention, not an enforcement: `app_rw` can already insert any row into
+   `app.audit_log`.
 10. **`PLATFORM_ADMIN`** has no login in the POC.
 
 **On FR-AUT-015.** With 24-hour sessions, Option A's window for a
