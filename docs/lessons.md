@@ -28,6 +28,20 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-09-30 - `String.replace` turns a SQL `$$` into `$` when splicing a suite section (TYRE-346)
+
+**What happened:** suite section 67 was spliced into `db/tests/004_tests.sql`
+with `node -e` and `String.prototype.replace`. In a replacement string `$$`
+means a literal `$`, so every `DO $$` body lost a dollar sign. The Bash tool
+also halved the section's backslashes (lesson 2026-09-08), so `\echo` came
+out as `echo`. The mangled section reached a commit and had to be rebuilt
+from a clean copy.
+
+**The rule:** never splice SQL through a string `replace` or a quoted `-e`
+script. Write the new section to its own file with the Write tool and join
+the pieces by line number (`head -n`, `cat`, `tail -n +`), or use Edit. Then
+check `git diff` for `$$` and `\echo` before committing.
+
 ## 2026-09-29 - a stopped `npm run dev` can leave vite's node child on the port (TYRE-239)
 
 **What happened:** `TaskStop`, and killing the Git Bash shell it ran in, stops
