@@ -10253,6 +10253,10 @@ DO $$
 DECLARE err text;
 BEGIN
   CREATE TEMP TABLE probe_67 (reading_id uuid, tenant_id uuid);
+  -- Control: an invoker trigger function attaches, so a refusal below is the
+  -- definer's grant and not the login's right to create triggers at all.
+  CREATE TRIGGER probe_67_control AFTER INSERT ON probe_67
+    FOR EACH STATEMENT EXECUTE FUNCTION app.check_measurement_ordinals();
   BEGIN
     CREATE TRIGGER probe_67_t AFTER INSERT ON probe_67
       FOR EACH ROW EXECUTE FUNCTION app.refresh_governing_tread();
