@@ -23,9 +23,9 @@ else. The authorisation layer ADR-0006 designed has no input.
 
 Three constraints shape how that input should arrive.
 
-**FR-AUT-001 requires an external identity provider**, and `architecture.md`
-names Entra External ID. No ADR records that choice and no Entra tenant
-exists, so a decision that blocks on one blocks every surface above it —
+**FR-AUT-001 requires an external identity provider.** ADR-0001 chose Entra
+External ID and ADR-0002 records its tenant, but nothing signs anyone in
+yet, so a decision that blocks on sign-in blocks every surface above it:
 capture, assets and reports all need to know who is asking.
 
 **NFR-SEC-006 is explicit:** *"Authorisation shall be evaluated server-side on
@@ -98,16 +98,17 @@ are gated on capabilities rather than on role names.**
    additive change rather than a refactor.
 3. The dev resolver extends the existing `X-Tenant-ID` pattern and stays under
    the `CONTAINER_APP_NAME` veto already table-tested in `main_test.go` (on presence since TYRE-160: an operator override to the empty string still vetoes). Entra
-   External ID lands later as a second implementation of the same interface,
-   with its own ADR.
+   External ID lands later as a second implementation, with its own ADR.
+   ADR-0016 is that ADR, and it changes the interface to carry a subject and
+   an error.
 
 ## Consequences
 
 **Good:** a deactivated user loses access on their next request, not on their
 next token. `app.app_user` stays the single register of who may do what, which
 is where FR-AUT-009/010 put it. The definer allowlist stays at one entry. Every
-surface above this — capture, assets, reports — can be built against a stable
-actor seam without waiting for an Azure Entra tenant to exist.
+surface above this (capture, assets, reports) can be built against a stable
+actor seam without waiting for sign-in to be built.
 
 **Bad:** FR-AUT-001 is **not satisfied** by this decision alone. Until the
 identity-provider sub-project lands, the only resolver is the dev one, and it
@@ -133,7 +134,7 @@ staff have no login until that module is built.
 
 **Revisit when:** the identity provider lands and the subject-to-tenant
 bootstrap has to be chosen (a token claim keeps the allowlist at one; a
-login-time lookup spends the second entry); a measured latency problem appears;
+login-time lookup spends the second entry; ADR-0016 chose the claim); a measured latency problem appears;
 a feature escalates an already-assigned `app.inspection_task` row in place —
 the table keeps its `UPDATE` grant (000012), and `v_my_inspection_task.overdue`
 computes `state = 'OPEN' AND due_at < now()` while admitting both `OPEN` and
