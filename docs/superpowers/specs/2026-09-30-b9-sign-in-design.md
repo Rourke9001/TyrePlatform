@@ -671,9 +671,14 @@ attributable to the person who made them.
   including the end-session redirect. Ending the Entra session matters,
   because otherwise the next tap of "Sign in" would sign the same person
   straight back in.
-- The sign-in screen then says: "Inspections captured by another driver are
-  waiting on this phone. They need to sign in here to send them before anyone
-  else can use it." It names nobody, because the phone keeps the other
+- Before that `signOut()`, the token store writes a one-shot marker to
+  `sessionStorage`. When the app comes back from the end-session redirect,
+  the sign-in screen reads the marker, clears it, and says: "Inspections
+  captured by another driver are waiting on this phone. They need to sign in
+  here to send them before anyone else can use it." Without the marker, the
+  screen shows only its neutral count of waiting inspections, because a
+  driver whose own session lapsed must not be told the work is someone
+  else's. The message names nobody, because the phone keeps the other
   driver's id, not their name.
 - As a second guard, `attemptSend` refuses to send an entry whose stamp
   differs from the session's subject.
@@ -710,6 +715,10 @@ attributable to the person who made them.
 A plain "Sign out" button sits beside `ActorBadge` in the shell header. It is
 new, uses no Radix, and counts towards the entry rise. It imports the auth
 chunk's `signOut` lazily.
+
+The PD-S3 guard lives on this button, not in `signOut()`. `signOut()` itself
+is unconditional, because the U104 undo has to sign a person out while
+another driver's inspections are held.
 
 **When sign-out is refused.** It is refused while a draft or any outbox entry
 exists, whether queued, sending or failed (PD-S3). The refusal renders inline
@@ -983,7 +992,10 @@ been removed.
 **The outbox:**
 
 - a sign-in as a different subject, with a held entry or draft, is undone
-  through `signOut()`, and the screen shows the waiting message;
+  through `signOut()`, and the screen shows the waiting message only when the
+  one-shot marker is present, clearing it on first render;
+- a lapsed driver whose own entries are held sees the neutral count, not the
+  waiting message;
 - `attemptSend` refuses an entry stamped for another subject;
 - the post-sign-in flush skips failed entries;
 - the 401 copy in `OutboxIndicator` and `CaptureDone`.
