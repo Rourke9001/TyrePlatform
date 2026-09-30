@@ -182,7 +182,9 @@ refuses on the first failure.
    `sub` is pairwise per app and is not used.
 10. **Tenant claim.** The claim named by `AUTH_TENANT_CLAIM` is present and
     parses as a UUID. If it is missing or malformed, the token is valid but
-    the person has no platform access, so the answer is 403, not 401 (PD-S1).
+    the person has no platform access, so the answer is 403
+    `not_provisioned`, not 401. Section 4 says why the outbox holds it rather
+    than failing it.
 
 **Libraries.** Three pinned versions, all within go 1.24. TYRE-379 owns the
 toolchain upgrade.
@@ -242,26 +244,28 @@ fills `TenantID`, `Subject` and `SessionID`.
 | Condition | Status | Code |
 | --- | --- | --- |
 | No token, malformed token, no `kid`, bad signature, or wrong issuer, audience, client, version, tenant or scope; expired; unknown `kid` against a loaded set | 401 | `unauthorized` (existing) |
-| A valid token with no usable tenant claim | 403 | `forbidden` (existing) |
+| A valid token with no usable tenant claim | 403 | `not_provisioned` (new) |
 | No key set loaded yet, discovery unreachable, a discovery issuer mismatch, or no resolver configured | 503 | `auth_unavailable` (new) |
 | Any other resolver error | 500 | `internal` (existing), logged at error |
 
 The registry changes with it:
 
-- `api/internal/httpapi/refusal_codes.json` gains `auth_unavailable` (503) and
-  `tenant_inactive` (403).
-- The meaning of `forbidden` gains "a valid token with no usable platform
-  tenant claim".
+- `api/internal/httpapi/refusal_codes.json` gains `auth_unavailable` (503),
+  `tenant_inactive` (403) and `not_provisioned` (403).
+- `forbidden` keeps its meaning: an unlinked or inactive user, or a
+  capability the role does not hold.
 
 `TestRefusalCodesRegistryCoversGoWireVocabulary` then holds. ADR-0012's
 2026-09-23 amendment already makes the registry the site table, so ADR-0012
 itself does not change.
 
-The two new message constants:
+The three new message constants:
 
 - `msgAuthUnavailable`: "sign-in is unavailable right now; try again shortly".
 - `msgTenantInactive`: "this company's account is not active; contact your
   fleet office" (FR-TEN-009's explanatory message).
+- `msgNotProvisioned`: "this account is not set up for a company yet;
+  contact your fleet office".
 
 **Composing the resolvers.** `main` composes the two resolvers only in a
 `devheader` build with the dev switch on. In that case a request that carries
@@ -440,7 +444,7 @@ database's owning role: `postgres` locally, and the Flexible Server admin
 The runbook binds `app.tenant_id` in the same transaction. The link therefore
 works whether or not that role bypasses RLS; it does not rely on a bypass.
 
-`infra/main.bicep:29` describes the admin credential as migrations-only.
+`infra/main.bicep:28` describes the admin credential as migrations-only.
 PR C corrects that description to include provisioning.
 
 The link, like every other write to `app.app_user`, is unaudited until TYRE-98
@@ -554,9 +558,17 @@ MSAL was the obvious choice, and it is rejected:
 ### The token store
 
 **The mirror.** The token store reads a mirror from one `localStorage` key:
-`{ accessToken, expiresAt, subject, tenantId }`. The auth chunk writes the
-mirror after every sign-in and renewal. The entry never reads the library's
-own storage format.
+`{ accessToken, expiresAt, obtainedAt, subject, tenantId }`.
+
+- The auth chunk writes it after every renewal, and after a sign-in once the
+  U104 stamp compare has passed.
+- `subject` is the `oid` from the ID token, which the `profile` scope
+  carries. The client never decodes the access token.
+- `tenantId` comes from `/api/me`, which gains a `tenantId` field read from
+  `app.current_tenant_id()` in the actor's transaction. That is the tenant
+  RLS has proven, not the claim. The token store adds it to the mirror when
+  `/api/me` first succeeds after a sign-in.
+- The entry never reads the library's own storage format.
 
 **Expiry.** A token counts as expired 60 seconds before `expiresAt`, so none
 expires in flight.
@@ -579,6 +591,20 @@ expires in flight.
   error, so the outbox reads it as offline. The app does not claim the driver
   is signed out.
 
+**A fresh token refused.** If a token obtained by a renewal or a fresh
+sign-in less than 60 seconds earlier (`obtainedAt`) is refused with 401, the
+API is misconfigured. A wrong `AUTH_AUDIENCE`, `AUTH_CLIENT_ID` or scope name
+gives every valid token a 401, and renewing again cannot help. The token store
+then:
+
+- stops renewing for the rest of the page load;
+- logs the fact once;
+- makes every call throw `ApiError(503, code "auth_unavailable")` without
+  touching the API.
+
+`ActorState.failure` becomes `'unavailable'`, and the outbox reads 503 as
+retryable. A reload clears the latch.
+
 **A failed import of the auth chunk is a network failure, never a reason to
 reload.**
 
@@ -593,7 +619,7 @@ reload.**
 
 **Sending.** `send()` in `web/src/api/client.ts` attaches
 `Authorization: Bearer`. On a 401 from the API it clears the mirror, so the
-next call renews.
+next call renews, unless the token was fresh (above).
 
 ### The redirect callback
 
@@ -633,7 +659,7 @@ or 403, so a signed-out driver is not kept waiting through retries.
 | `failure` | When | What the app shows |
 | --- | --- | --- |
 | `signed-out` | 401 | The sign-in screen replaces the routes, but only when this page load's first `/api/me` settles with 401. The screen has one sentence, one "Email me a sign-in code" button at 56 to 64px (NFR-USE-004), and the count of inspections waiting. The button calls `signIn()`, a top-level redirect to Entra. |
-| `not-set-up` | 403 `forbidden` | A screen saying the account is not set up and to contact the fleet office (PD-S1). |
+| `not-set-up` | 403 `forbidden` or `not_provisioned` | A screen saying the account is not set up and to contact the fleet office (PD-S1). |
 | `tenant-inactive` | 403 `tenant_inactive` | A screen with `msgTenantInactive`. |
 | `unavailable` | 503 `auth_unavailable` | A screen saying sign-in is unavailable right now. It never shows the sign-in button. |
 
@@ -651,9 +677,21 @@ The final copy for these screens is written in the plan, under `/unslop`.
 ### The outbox and the driver stamp (U104)
 
 **Stamping.** Each draft and each outbox entry records the capturing driver's
-subject, taken from the mirror when the draft starts. The capture payload does
-not change: the server still attributes the inspection to whoever sends it, so
-the client ensures that is the driver who captured it.
+subject. The capture payload does not change: the server still attributes the
+inspection to whoever sends it, so the client makes sure that is the driver
+who captured it. The stamp fails closed:
+
+- **Its source.** The stamp is taken from its own `localStorage` key, the
+  last-known subject, not from the mirror. The auth chunk writes that key at
+  every sign-in and renewal, and only `signOut()` clears it. A 401, which
+  clears the mirror, leaves it alone.
+- **No subject, no draft.** A draft cannot start without a known subject. The
+  capture start refuses and asks the driver to sign in.
+- **Rows from before this change.** A Dexie version bump (version 2) marks
+  every draft and outbox row that already exists `legacy: true`. Only those
+  rows send under whoever is signed in. Production has none, because staging
+  has never let anyone sign in. A row with neither a stamp nor the legacy mark
+  is never sent.
 
 **One driver on the phone at a time.** This follows the norm for shared
 devices: a previous user's unsent work goes only under that user's identity,
@@ -680,21 +718,29 @@ attributable to the person who made them.
   driver whose own session lapsed must not be told the work is someone
   else's. The message names nobody, because the phone keeps the other
   driver's id, not their name.
-- As a second guard, `attemptSend` refuses to send an entry whose stamp
-  differs from the session's subject.
-- An entry or draft with no stamp predates this change. Production has none,
-  because staging has never let anyone sign in, and such an entry sends under
-  the current session.
+- As a second guard, `attemptSend` takes the credential it is about to use
+  from the token store as one pair, `{ accessToken, subject }`, and compares
+  the entry's stamp with that subject, never with a separately read mirror.
+  The guard also holds under `force`, because "Sync now" calls
+  `flushOutbox({ force: true })`. A refusal on a mismatch leaves the entry's
+  state, attempts and backoff untouched.
 - If that driver never comes back, the phone stays blocked for the app until
   someone clears its site data by hand. That is an explicit act on the phone,
   not a silent discard by the app (FR-OFF-014). ADR-0016 records it as an
   accepted edge.
 
-**What does not change.**
+**How refusals classify.** `classify()` in `web/src/capture/outbox.ts`
+treats every 403 as permanent today. PD-S1 accepted that for an unlinked or
+inactive user only, so it now reads the code as well as the status:
 
-- `classify()` keeps 401 retryable, and the pin at
-  `web/src/capture/outbox.test.ts:83-89` holds.
-- The backoff stays as it is.
+| Refusal | Outbox | Why |
+| --- | --- | --- |
+| 401 | Retryable, as now | The pin at `web/src/capture/outbox.test.ts:83-89` holds. |
+| 403 `tenant_inactive` | Retryable | The tenant's state is temporary (`SUSPENDED`, `PROVISIONING`). Failing would mark every queued inspection in the fleet as failed, and only "Sync now" would bring them back. |
+| 403 `not_provisioned` | Retryable | One Entra configuration slip would otherwise fail every driver's queue at once. |
+| 403 `forbidden` | Permanent, as now | An unlinked or inactive user, or a missing capability (PD-S1). |
+
+The backoff stays as it is. The outbox tests gain a case per row.
 
 **After sign-in.** `completeSignIn()` is followed by a flush that:
 
@@ -728,8 +774,11 @@ office has refused is removed.
 
 **When sign-out goes ahead,** it:
 
-1. clears the mirror, the library's store and every `tyre.branding.*` key;
-2. redirects to Entra's end-session endpoint.
+1. clears the mirror, the last-known subject and every `tyre.branding.*` key;
+2. calls the library's `signoutRedirect()`, which sends `id_token_hint` to
+   Entra's end-session endpoint and removes the stored user itself. Clearing
+   the library's store first would drop the hint, and Entra could then show
+   an account picker instead of returning to `/`.
 
 **What sign-out cannot do.**
 
@@ -747,7 +796,8 @@ The one persisted cache is `ThemeProvider`'s branding. Its key is
 `tyre.branding.${getDevTenantId() ?? "default"}`, which in production is the
 same for every tenant. The fix:
 
-- In production the key becomes the signed-in tenant, taken from the mirror.
+- In production the key becomes the signed-in tenant: the mirror's
+  `tenantId`, which `/api/me` supplies.
 - Sign-out removes every `tyre.branding.*` key.
 - Under vite dev the key stays on the dev tenant.
 
@@ -814,9 +864,13 @@ the app; `createUser` reactivates by email and keeps the old subject. Then:
 
 expecting one row.
 
-**A leaver.** Until TYRE-377 lands, run
+**A leaver.** First confirm that the person's phone holds nothing unsent. A
+disabled account can never send its held entries, and the U104 stamp keeps
+anyone else from sending them. The same holds for a rehire who gets a new
+Entra account: their old held entries carry the old `oid`. Then, until
+TYRE-377 lands, run
 `UPDATE app.app_user SET active = false WHERE id = '<id>'`, expecting one
-row. Then disable the Entra account.
+row, and disable the Entra account.
 
 ### Entra settings
 
@@ -924,7 +978,8 @@ key set for a test RSA key. Tokens are minted per case.
 - an unknown `kid` against a loaded set, with the limiter spent, which refuses
   within its bound.
 
-**Refused with 403:** a tenant claim that is missing or malformed.
+**Refused with 403 `not_provisioned`:** a tenant claim that is missing or
+malformed.
 
 **Refused with 503:** discovery unreachable on the first request, which then
 recovers on a later one; and a discovery issuer mismatch.
@@ -949,7 +1004,8 @@ neither carries the token text.
 
 ### Go integration tests, against a real Postgres
 
-- A linked user resolves, and `/api/me` returns their id.
+- A linked user resolves, and `/api/me` returns their id and the tenant id
+  from `app.current_tenant_id()`.
 - An unlinked subject gets 403, and so does an inactive user.
 - A tenant claim that names another tenant gets 403. This is the RLS proof.
 - `SUSPENDED`, `CLOSED` and `PROVISIONING` tenants get 403 `tenant_inactive`.
@@ -979,7 +1035,9 @@ The suite section described in section 2.
 - no refresh token, which gives a 401;
 - `invalid_grant`, which clears storage and gives a 401;
 - a network failure, which stays a network failure;
-- a failed auth import, which neither reloads nor reads as a 401.
+- a failed auth import, which neither reloads nor reads as a 401;
+- a 401 on a token obtained seconds earlier, which latches `unavailable` and
+  stops renewing.
 
 **Sending:** `send()` attaches the bearer and clears the mirror on a 401. With
 the DEV flag unset, it never imports the auth chunk.
@@ -996,7 +1054,13 @@ been removed.
   one-shot marker is present, clearing it on first render;
 - a lapsed driver whose own entries are held sees the neutral count, not the
   waiting message;
-- `attemptSend` refuses an entry stamped for another subject;
+- `attemptSend` refuses an entry stamped for another subject, under `force`
+  too, and leaves its state, attempts and backoff untouched;
+- a draft cannot start without a last-known subject, and a 401 does not clear
+  that subject;
+- only rows marked `legacy` send unstamped;
+- `classify()` holds on 403 `tenant_inactive` and `not_provisioned`, and fails
+  on 403 `forbidden`;
 - the post-sign-in flush skips failed entries;
 - the 401 copy in `OutboxIndicator` and `CaptureDone`.
 
@@ -1107,7 +1171,7 @@ say so. The reasons:
 - `web/CLAUDE.md`: the e2e mock exception and the auth chunk.
 - The header comment in `web/playwright.config.ts`.
 - `api/internal/httpapi/refusal_codes.json`.
-- The admin credential's description at `infra/main.bicep:29`.
+- The admin credential's description at `infra/main.bicep:28`.
 
 **TYRE-373's errata,** pasted by hand. The list grows to:
 
