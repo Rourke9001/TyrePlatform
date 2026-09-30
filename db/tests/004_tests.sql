@@ -4559,8 +4559,8 @@ BEGIN
   IF r.warnings IS DISTINCT FROM '[]'::jsonb THEN
     RAISE EXCEPTION 'FAIL 41a: a clean fit returned warnings %', r.warnings;
   END IF;
-  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty1) <> 'FITTED'
-     OR (SELECT t.last_tread_mm FROM app.tyre t WHERE t.id = ty1) <> 14.0
+  IF (SELECT t.state FROM app.tyre t WHERE t.id = ty1) IS DISTINCT FROM 'FITTED'
+     OR (SELECT t.last_tread_mm FROM app.tyre t WHERE t.id = ty1) IS DISTINCT FROM 14.0
      OR (SELECT t.last_tread_at FROM app.tyre t WHERE t.id = ty1) IS NULL THEN
     RAISE EXCEPTION 'FAIL 41a: the tyre did not move to FITTED carrying its tread';
   END IF;
@@ -5112,16 +5112,17 @@ BEGIN
   SELECT t.retread_count, t.status, t.new_tread_mm, t.pattern_id, t.state,
          t.current_depot_id, t.rand_per_mm
     INTO r FROM app.tyre t WHERE t.id = ta;
-  IF r.retread_count <> 1 OR r.status <> 'RETREAD' OR r.new_tread_mm <> 16.0
-     OR r.pattern_id IS DISTINCT FROM pt1 OR r.state <> 'IN_STOCK'
+  IF r.retread_count IS DISTINCT FROM 1 OR r.status IS DISTINCT FROM 'RETREAD'
+     OR r.new_tread_mm IS DISTINCT FROM 16.0
+     OR r.pattern_id IS DISTINCT FROM pt1 OR r.state IS DISTINCT FROM 'IN_STOCK'
      OR r.current_depot_id IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 42a: the return did not propagate to the tyre: %', r;
   END IF;
-  IF (SELECT j.retread_cost FROM app.retread_job j WHERE j.id = ja) <> 2500.01 THEN
+  IF (SELECT j.retread_cost FROM app.retread_job j WHERE j.id = ja) IS DISTINCT FROM 2500.01 THEN
     RAISE EXCEPTION 'FAIL 42a: the job stored % rather than the cost rounded to cents',
       (SELECT j.retread_cost FROM app.retread_job j WHERE j.id = ja);
   END IF;
-  IF r.rand_per_mm IS DISTINCT FROM
+  IF r.rand_per_mm IS NULL OR r.rand_per_mm IS DISTINCT FROM
      (SELECT app.rand_per_mm(j.retread_cost, t.new_tread_mm, app.current_removal_threshold_mm())
         FROM app.retread_job j JOIN app.tyre t ON t.id = j.tyre_id WHERE j.id = ja) THEN
     RAISE EXCEPTION 'FAIL 42a: stored rate % is not reproducible from the stored cost and tread',
@@ -5313,7 +5314,8 @@ BEGIN
   -- same side of the ceiling would pass without testing anything.
   bad_cost := round(100000000 * (16.0 - thr), 2);
   ok_cost  := bad_cost - 0.12;
-  IF app.rand_per_mm(bad_cost, 16.0, thr) < 100000000
+  IF app.rand_per_mm(bad_cost, 16.0, thr) IS NULL OR app.rand_per_mm(ok_cost, 16.0, thr) IS NULL
+     OR app.rand_per_mm(bad_cost, 16.0, thr) < 100000000
      OR app.rand_per_mm(ok_cost, 16.0, thr) >= 100000000
      OR bad_cost > 9999999999.99 THEN
     RAISE EXCEPTION 'FAIL 42f: the rate-ceiling probe does not straddle the boundary (% then %, cost %)',
