@@ -76,7 +76,10 @@ this is merely a footgun rather than a breach.
 
 Invoker rights, always; the one definer is `app.refresh_governing_tread`
 (000004, body since 000050), and a new definer needs a review and a suite
-section before it lands (check 8c). Every plpgsql routine pins `SET
+section before it lands (check 8c). A new function is executable by
+PUBLIC by default, so a definer's migration revokes EXECUTE from PUBLIC and
+app_rw: a caller who can execute it can attach it as a trigger to a table
+of its own (section 67, TYRE-346). Every plpgsql routine pins `SET
 search_path = app, pg_temp`, because plpgsql resolves unqualified names
 when it runs and would otherwise follow the caller's path (TYRE-181). A
 `LANGUAGE sql` table function that a view is built over carries no pin:

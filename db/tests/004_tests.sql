@@ -10221,6 +10221,51 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  66b the register breaks a submitted_at tie on received_at and then id';
 END $$;
+
+\echo '== 67. The app login cannot attach the governing-tread definer to a table of its own (TYRE-346, rule 1)'
+-- PostgreSQL checks EXECUTE on a trigger function at CREATE TRIGGER, not when
+-- the trigger fires, so reading_measurement_governs keeps working without the
+-- grant: section 31's submit and 60b still read the MIN it writes.
+
+\echo '== 67a. no SECURITY DEFINER routine in app is executable by the app login'
+DO $$
+DECLARE offenders text;
+BEGIN
+  IF to_regprocedure('app.refresh_governing_tread()') IS NULL THEN
+    RAISE EXCEPTION 'FAIL 67a: app.refresh_governing_tread() is gone; point this section at whatever definer replaced it';
+  END IF;
+  -- has_function_privilege counts PUBLIC and app_rw, the two grants 000001 left.
+  SELECT string_agg(p.oid::regprocedure::text, ', ' ORDER BY p.proname) INTO offenders
+    FROM pg_proc p
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND p.prosecdef
+     AND has_function_privilege(current_user, p.oid, 'EXECUTE');
+  IF offenders IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 67a: % may execute %, so it can attach it as a trigger and run it with RLS off',
+      current_user, offenders;
+  END IF;
+  RAISE NOTICE 'PASS  67a no definer in app is executable by %', current_user;
+END $$;
+
+\echo '== 67b. attaching the definer to the login''s own temp table is refused'
+DO $$
+DECLARE err text;
+BEGIN
+  CREATE TEMP TABLE probe_67 (reading_id uuid, tenant_id uuid);
+  BEGIN
+    CREATE TRIGGER probe_67_t AFTER INSERT ON probe_67
+      FOR EACH ROW EXECUTE FUNCTION app.refresh_governing_tread();
+  EXCEPTION WHEN insufficient_privilege THEN err := SQLERRM;
+  END;
+  DROP TABLE probe_67;
+  IF err IS NULL THEN
+    RAISE EXCEPTION 'FAIL 67b: % attached app.refresh_governing_tread() to its own temp table', current_user;
+  END IF;
+  IF err NOT LIKE '%refresh_governing_tread%' THEN
+    RAISE EXCEPTION 'FAIL 67b: the trigger was refused, but not for the definer (%)', err;
+  END IF;
+  RAISE NOTICE 'PASS  67b the definer cannot be attached to a table the login owns';
+END $$;
 DROP FUNCTION pg_temp.names_tenant(text, text, text);
 DROP FUNCTION pg_temp.sans_comments(text);
 
