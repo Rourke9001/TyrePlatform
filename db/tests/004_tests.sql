@@ -220,14 +220,14 @@ BEGIN
     ) AS t(tyre, tread, rate, expected)
   LOOP
     got := app.tread_value(r.tread, 4, r.rate);
-    IF got <> r.expected THEN
+    IF got IS DISTINCT FROM r.expected THEN
       RAISE WARNING 'FAIL % : expected % got %', r.tyre, r.expected, got;
       fails := fails + 1;
     END IF;
   END LOOP;
   IF fails > 0 THEN RAISE EXCEPTION 'FAIL: % valuation rows did not reproduce', fails; END IF;
   RAISE NOTICE 'PASS  all 15 Appendix E valuations reproduce to the cent';
-  IF app.rand_per_mm(4319.91, 25.0, 4) <> 205.7100 THEN
+  IF app.rand_per_mm(4319.91, 25.0, 4) IS DISTINCT FROM 205.7100 THEN
     RAISE EXCEPTION 'FAIL: rand_per_mm derivation wrong, got %', app.rand_per_mm(4319.91,25.0,4);
   END IF;
   RAISE NOTICE 'PASS  rand_per_mm = purchase_price / usable tread';
@@ -5405,7 +5405,7 @@ BEGIN
 
   -- (j) The local sentinel for check 7's Appendix E pin: nothing in this
   -- section may redefine the one implementation of the rate (FR-VAL-006).
-  IF app.rand_per_mm(4319.91, 25.0, 4.0) <> 205.7100 THEN
+  IF app.rand_per_mm(4319.91, 25.0, 4.0) IS DISTINCT FROM 205.7100 THEN
     RAISE EXCEPTION 'FAIL 42j: rand_per_mm no longer derives Appendix E, got %',
       app.rand_per_mm(4319.91, 25.0, 4.0);
   END IF;
@@ -9570,7 +9570,7 @@ BEGIN
   SELECT count(*) INTO n FROM app.reading_measurement WHERE reading_id IN (rd1, rd2);
   IF n <> 6 THEN RAISE EXCEPTION 'FAIL 60b: expected 6 measurements across the two readings, found %', n; END IF;
   SELECT governing_tread_mm INTO g FROM app.reading WHERE id = rd2;
-  IF g <> 11.0 THEN RAISE EXCEPTION 'FAIL 60b: governing depth on the single-row path is %, expected 11.0', g; END IF;
+  IF g IS DISTINCT FROM 11.0 THEN RAISE EXCEPTION 'FAIL 60b: governing depth on the single-row path is %, expected 11.0', g; END IF;
   RAISE NOTICE 'PASS  60b a whole position in one statement and three ordered single-row statements both pass, governing MIN intact';
 END $$;
 ROLLBACK;
@@ -9702,8 +9702,9 @@ BEGIN
   steer := (app.threshold_policy_in_force(t1, NULL, 'STEER')).id;
   mm    := app.current_removal_threshold_mm();
   SELECT count(*) FILTER (WHERE f.removal_threshold_mm = 9.0) INTO stray FROM app.v_removal_forecast f;
-  IF wide IN (psoon, pday) OR steer = pfstr OR mm = 9.0 OR stray <> 0 THEN
-    RAISE EXCEPTION 'FAIL 63a: a row effective after now() is in force now (tenant-wide %, STEER %, current_removal_threshold_mm %, % forecast rows at 9.0)',
+  IF wide IS NULL OR wide IN (psoon, pday) OR steer IS NULL OR steer = pfstr
+     OR mm IS NULL OR mm = 9.0 OR stray <> 0 THEN
+    RAISE EXCEPTION 'FAIL 63a: no row, or a row effective after now(), is in force now (tenant-wide %, STEER %, current_removal_threshold_mm %, % forecast rows at 9.0)',
       wide, steer, mm, stray;
   END IF;
 
