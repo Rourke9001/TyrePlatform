@@ -131,7 +131,10 @@ on each Entra user and proven by an RLS lookup of `app.app_user` by `oid`.**
    its `localStorage` cache does not survive a browser restart without "Keep
    me signed in".
 8. **Held inspections are stamped** with the capturing driver's subject and
-   send only under that driver's session (U104).
+   send only under that driver's session. While one driver's inspection is
+   held on a phone, anyone else's sign-in is undone (U104). This is the norm
+   for shared devices (SAP's offline SDK, Apple's Shared iPad) and keeps
+   every record attributable to its author.
 9. **Authentication events** (FR-AUD-004): passcode events in Entra's logs,
    refused tokens in the API's log, session starts in `app.audit_log`
    through `app.record_session_start()`. That function is the one writer of
@@ -160,7 +163,9 @@ Per-user tenant attributes are Graph state that CI cannot see. A person
 needed in two tenants needs two Entra accounts. Passcode failures are visible
 only in Entra. Signing out does not revoke an access token the API has
 already accepted; it lapses within 90 minutes. On a shared phone, one
-driver's held inspection waits until that driver signs in again. Local runs,
+driver's held inspection blocks anyone else's sign-in until that driver signs
+in again, and a driver who never returns leaves the phone blocked for the app
+until its site data is cleared by hand. Local runs,
 tests and CI must remember the build tag.
 
 **Revisit when:** the mapped claim cannot reach tyre-api's access token
