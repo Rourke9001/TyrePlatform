@@ -46,7 +46,7 @@ the first sub-project of B9, and it gates a usable staging.
 | U101 | The platform tenant is a claim on each person's Entra account. It is set at provisioning and emitted in tyre-api's access token. The API binds the claim and then proves it: the lookup by `oid` runs under RLS, so a wrong tenant finds no row. If the passcode flow cannot carry the claim, the design goes back to the owner. |
 | U102 | The session survives an app restart. The token is kept in browser storage for its lifetime, which is 24 hours at most. TYRE-373 amends NFR-PRV-006 and ADR-0009. |
 | U103 | The dev header resolver is compiled out of the release binary with a Go build tag, not only vetoed at runtime. |
-| U104 | Each held inspection is stamped with the driver who captured it and sends only under that driver's session. |
+| U104 | Each held inspection is stamped with the driver who captured it and sends only under that driver's session. Following the norm for shared devices, a sign-in by anyone else is refused while another driver's inspection is held on the phone. |
 | PD-S1 | A valid token for an unlinked or inactive user gets 403, which the outbox treats as permanent. The runbook has each pilot driver sign in once before their first field day. |
 | PD-S2 | TYRE-373 covers the SRS rows that sign-in moves. FR-AUD-004 joins this ticket: session starts are recorded, refused tokens are logged, and passcode failures stay in Entra's sign-in logs. |
 | PD-S3 | Sign-out is refused while the outbox or a draft holds an inspection. |
@@ -655,18 +655,35 @@ subject, taken from the mirror when the draft starts. The capture payload does
 not change: the server still attributes the inspection to whoever sends it, so
 the client ensures that is the driver who captured it.
 
-**Sending.** `attemptSend` sends an entry only when its subject matches the
-current session's subject.
+**One driver on the phone at a time.** This follows the norm for shared
+devices: a previous user's unsent work goes only under that user's identity,
+and the next user's sign-in is refused until it has gone. Discarding it is
+never automatic. The sources are SAP's offline OData SDK and SAP Service and
+Asset Manager, which fail the next login and name the previous user, and
+Apple's Shared iPad, which fails a new sign-in while a user's data is still
+unsynced. SAP calls sending under the next user a security concern, and 21 CFR
+Part 11 and the MHRA's data integrity guidance both require records to be
+attributable to the person who made them.
 
-- An entry for another driver stays held. It reads "Waiting for the driver who
-  captured it to sign in".
-- An entry with no subject predates this change. Production has none, because
-  staging has never let anyone sign in, and such an entry sends under the
-  current session.
-
-**A draft that belongs to another driver.** It is not resumed. It is kept,
-never discarded (FR-OFF-014), and the capture start says that another driver's
-inspection is in progress on this phone.
+- After `completeSignIn()`, the token store compares the new subject with the
+  stamps on the draft and on every outbox entry.
+- If any stamp differs, the sign-in is undone through the full `signOut()`,
+  including the end-session redirect. Ending the Entra session matters,
+  because otherwise the next tap of "Sign in" would sign the same person
+  straight back in.
+- The sign-in screen then says: "Inspections captured by another driver are
+  waiting on this phone. They need to sign in here to send them before anyone
+  else can use it." It names nobody, because the phone keeps the other
+  driver's id, not their name.
+- As a second guard, `attemptSend` refuses to send an entry whose stamp
+  differs from the session's subject.
+- An entry or draft with no stamp predates this change. Production has none,
+  because staging has never let anyone sign in, and such an entry sends under
+  the current session.
+- If that driver never comes back, the phone stays blocked for the app until
+  someone clears its site data by hand. That is an explicit act on the phone,
+  not a silent discard by the app (FR-OFF-014). ADR-0016 records it as an
+  accepted edge.
 
 **What does not change.**
 
@@ -676,8 +693,7 @@ inspection is in progress on this phone.
 
 **After sign-in.** `completeSignIn()` is followed by a flush that:
 
-- ignores the backoff for entries that match the new subject and are queued
-  or held on a 401;
+- ignores the backoff for entries that are queued or held on a 401;
 - never resends a failed entry, which keeps its own recovery action.
 
 **The indicator.**
@@ -866,9 +882,9 @@ withdrawn.
 **One Entra account maps to one platform tenant.** A trainer who is needed in
 the demonstration tenant (U92) needs a second email address.
 
-**Shared phones.** The driver stamp (U104) keeps a lapsed session from
-sending one driver's captures under another's name. PD-S3 keeps an explicit
-sign-out from stranding them.
+**Shared phones.** The driver stamp (U104) refuses anyone else's sign-in while
+one driver's inspections are held, so a lapsed session cannot send them under
+another name. PD-S3 keeps an explicit sign-out from stranding them.
 
 **iPhone home-screen apps** keep their own storage and may complete the
 redirect in Safari instead of in the app. No manifest ships yet (TYRE-154), so
@@ -966,7 +982,9 @@ been removed.
 
 **The outbox:**
 
-- an entry stamped for another subject is not sent;
+- a sign-in as a different subject, with a held entry or draft, is undone
+  through `signOut()`, and the screen shows the waiting message;
+- `attemptSend` refuses an entry stamped for another subject;
 - the post-sign-in flush skips failed entries;
 - the 401 copy in `OutboxIndicator` and `CaptureDone`.
 
@@ -1014,8 +1032,9 @@ say so. The reasons:
 - An error callback shows the "did not finish" line.
 - A submit refused with 401 is held, reads "Sign in to send", and sends after
   sign-in.
-- After a sign-in as a different subject, the held entry stays unsent and
-  reads as waiting for its driver.
+- A sign-in as a different subject while an entry is held reaches the
+  end-session endpoint, returns to the sign-in screen with the waiting
+  message, and leaves the entry unsent.
 - Sign-out is refused while an entry is held. Once the outbox is empty,
   sign-out reaches the end-session endpoint and clears the mirror.
 
