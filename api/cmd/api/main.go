@@ -53,18 +53,19 @@ var authVars = []string{
 // stops startup, as a malformed TRUSTED_PROXY_HOPS does. A variable counts as
 // set when it is non-empty.
 func authConfig(getenv func(string) string) (bearer.Config, bool, error) {
-	set := 0
+	var unset []string
 	for _, name := range authVars {
-		if getenv(name) != "" {
-			set++
+		if getenv(name) == "" {
+			unset = append(unset, name)
 		}
 	}
+	set := len(authVars) - len(unset)
 	switch set {
 	case 0:
 		return bearer.Config{}, false, nil
 	case len(authVars):
 	default:
-		return bearer.Config{}, false, fmt.Errorf("%d of the %d AUTH_* variables are set; set all of them or none", set, len(authVars))
+		return bearer.Config{}, false, fmt.Errorf("%d of the %d AUTH_* variables are set; set all of them or none (unset: %s)", set, len(authVars), strings.Join(unset, ", "))
 	}
 	cfg := bearer.Config{TenantClaim: getenv("AUTH_TENANT_CLAIM")}
 	if strings.ContainsAny(cfg.TenantClaim, " \t\r\n") {
@@ -117,13 +118,18 @@ func checkDiscoveryAppID(discoveryURL, audience string) error {
 func authURL(getenv func(string) string, name string) (string, error) {
 	raw := getenv(name)
 	u, err := url.Parse(raw)
-	if err != nil || !u.IsAbs() || u.Host == "" {
-		return "", fmt.Errorf("%s must be an absolute URL, got %q", name, raw)
+	// The value is compared with iss byte for byte, so it is refused rather
+	// than trimmed or lower-cased when it is not already exact. url.Parse
+	// lower-cases the scheme, so the scheme is read from raw. Userinfo is
+	// refused so a secret is never echoed in an error.
+	if err != nil || raw != strings.TrimSpace(raw) || !u.IsAbs() || u.Hostname() == "" ||
+		u.User != nil || u.Fragment != "" || strings.Contains(raw, "#") {
+		return "", fmt.Errorf("%s must be an absolute URL with a host, no userinfo, fragment or surrounding space", name)
 	}
-	if u.Scheme == "https" || (u.Scheme == "http" && isLoopback(u.Hostname())) {
+	if strings.HasPrefix(raw, "https://") || (strings.HasPrefix(raw, "http://") && isLoopback(u.Hostname())) {
 		return raw, nil
 	}
-	return "", fmt.Errorf("%s must be https (http only on a loopback host), got %q", name, raw)
+	return "", fmt.Errorf("%s must be lower-case https (http only on a loopback host)", name)
 }
 
 func isLoopback(host string) bool {
@@ -185,7 +191,7 @@ func main() {
 	defer s.Close()
 
 	// A typed nil must not reach the interface, or requireActor would call
-	// it instead of answering 503.
+	// it instead of answering 503 (ADR-0016).
 	var bearerResolver httpapi.ActorResolver
 	if haveAuth {
 		br := bearer.New(authCfg)

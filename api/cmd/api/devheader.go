@@ -26,8 +26,10 @@ func devHeaderEnabled(lookup func(string) (string, bool)) bool {
 	return v == "1"
 }
 
-// devResolver is a devheader build's wiring: the header resolver when the
-// dev switch is on, otherwise whatever bearer resolver AUTH_* configured.
+// devResolver is a devheader build's wiring. Switch off: whatever bearer
+// resolver AUTH_* configured. Switch on: the header resolver alone, or, when
+// a bearer resolver is configured too, a routedResolver that sends requests
+// carrying Authorization to the bearer one.
 func devResolver(lookup func(string) (string, bool), bearerResolver httpapi.ActorResolver, logger *slog.Logger) httpapi.ActorResolver {
 	if !devHeaderEnabled(lookup) {
 		return bearerResolver

@@ -11,6 +11,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"tyreplatform/api/internal/bearer"
 	"tyreplatform/api/internal/httpapi"
 )
 
@@ -131,6 +132,12 @@ func TestAuthConfig(t *testing.T) {
 		{"an audience that is not a uuid", map[string]string{"AUTH_AUDIENCE": "api://tyre-api"}, false, true},
 		{"a client id that is not a uuid", map[string]string{"AUTH_CLIENT_ID": "tyre-pwa"}, false, true},
 		{"a claim name with a space", map[string]string{"AUTH_TENANT_CLAIM": "platform tenant"}, false, true},
+		{"an issuer with a trailing space", map[string]string{"AUTH_ISSUER": "https://example.ciamlogin.com/tid/v2.0 "}, false, true},
+		{"an upper-case scheme", map[string]string{"AUTH_ISSUER": "HTTPS://example.ciamlogin.com/tid/v2.0"}, false, true},
+		{"an issuer with a fragment", map[string]string{"AUTH_ISSUER": "https://example.ciamlogin.com/tid/v2.0#x"}, false, true},
+		{"an issuer with userinfo", map[string]string{"AUTH_ISSUER": "https://user:secret@example.ciamlogin.com/tid/v2.0"}, false, true},
+		{"an issuer with an empty hostname", map[string]string{"AUTH_ISSUER": "https://:443/tid/v2.0"}, false, true},
+		{"an IPv6 loopback http URL", map[string]string{"AUTH_ISSUER": "http://[::1]:8081/tid/v2.0"}, true, false},
 		{"a discovery URL with no appid", map[string]string{"AUTH_DISCOVERY_URL": base}, false, true},
 		{"a discovery appid naming another app", map[string]string{"AUTH_DISCOVERY_URL": base + "?appid=0c0ffee0-0000-4000-8000-000000000003"}, false, true},
 		{"a discovery appid that is not a uuid", map[string]string{"AUTH_DISCOVERY_URL": base + "?appid=tyre-api"}, false, true},
@@ -193,4 +200,38 @@ func TestDevResolverRoutesByTheAuthorizationHeader(t *testing.T) {
 
 	require.Same(t, bearerStub, devResolver(func(string) (string, bool) { return "", false }, bearerStub, logger),
 		"with the dev switch off only the bearer resolver is wired")
+}
+
+// bearer compares azp and tid byte for byte, so authConfig hands it the
+// canonical lower-case form, and each value lands in its own field.
+func TestAuthConfigValues(t *testing.T) {
+	cfg, wired, err := authConfig(authEnv(nil))
+	require.NoError(t, err)
+	require.True(t, wired)
+	require.Equal(t, bearer.Config{
+		DiscoveryURL: "https://example.ciamlogin.com/tid/v2.0/.well-known/openid-configuration?appid=0c0ffee0-0000-4000-8000-000000000002",
+		Issuer:       "https://example.ciamlogin.com/tid/v2.0",
+		TenantID:     "0c0ffee0-0000-4000-8000-000000000001",
+		Audience:     "0c0ffee0-0000-4000-8000-000000000002",
+		ClientID:     "0c0ffee0-0000-4000-8000-000000000003",
+		TenantClaim:  "extension_abc_platformTenantId",
+	}, cfg)
+
+	cfg, _, err = authConfig(authEnv(map[string]string{
+		"AUTH_TENANT_ID": "0C0FFEE0-0000-4000-8000-000000000001",
+		"AUTH_AUDIENCE":  "0C0FFEE0-0000-4000-8000-000000000002",
+		"AUTH_CLIENT_ID": "0C0FFEE0-0000-4000-8000-000000000003",
+	}))
+	require.NoError(t, err)
+	require.Equal(t, "0c0ffee0-0000-4000-8000-000000000001", cfg.TenantID)
+	require.Equal(t, "0c0ffee0-0000-4000-8000-000000000002", cfg.Audience)
+	require.Equal(t, "0c0ffee0-0000-4000-8000-000000000003", cfg.ClientID)
+}
+
+func TestAuthConfigNamesTheUnsetVariables(t *testing.T) {
+	_, _, err := authConfig(authEnv(map[string]string{"AUTH_ISSUER": "", "AUTH_CLIENT_ID": "", "AUTH_TENANT_CLAIM": ""}))
+	require.ErrorContains(t, err, "AUTH_ISSUER")
+	require.ErrorContains(t, err, "AUTH_CLIENT_ID")
+	require.ErrorContains(t, err, "AUTH_TENANT_CLAIM")
+	require.NotContains(t, err.Error(), "AUTH_AUDIENCE")
 }

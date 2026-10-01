@@ -15,9 +15,9 @@ import (
 // NFR-SEC-007: rate-limit submission per account and per source address.
 // Submission is the only endpoint this slice adds; authentication
 // endpoints belong to Entra, which rate-limits them itself (spec section 1,
-// Rate limit). Two independent
-// counters, not a composite key, because a key of account+address lets one
-// account rotating N addresses get N times the account limit
+// Rate limit). Two independent counters, not a composite key, because a key
+// of account+address lets one account rotating N addresses get N times the
+// account limit
 // (submitRateLimit refuses if EITHER counter refuses). The account limit
 // (60/min) is far above human capture rate and far below a retry loop's; the
 // address limit is 10x that because a depot's drivers share one NAT egress
