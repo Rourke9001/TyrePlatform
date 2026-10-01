@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 // NFR-SEC-007: rate-limit submission per account and per source address.
@@ -76,10 +78,8 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 
 // submitRateLimit composes the two counters into NFR-SEC-007's one
 // middleware, built once at router construction and closed over here (see
-// New). Keyed on the identity requireActor resolved, never a raw header,
-// because HeaderActorResolver is DEV ONLY and keying on it directly would
-// collapse the per-account limit into one bucket the moment the real
-// identity provider lands. requireActor's r.Use ordering guarantee is
+// New). Keyed on the identity requireActor resolved through accountKey,
+// never a raw header, because HeaderActorResolver is DEV ONLY. requireActor's r.Use ordering guarantee is
 // TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
 func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -102,7 +102,7 @@ func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(h
 			// count against the address it came from, or an attacker could
 			// use a string of doomed-to-be-refused accounts to dodge the
 			// address counter entirely.
-			accountOK := account.allow(id.UserID.String(), now)
+			accountOK := account.allow(accountKey(id), now)
 			addressOK := address.allow(host, now)
 			if !accountOK || !addressOK {
 				w.Header().Set("Retry-After", strconv.Itoa(int(rateLimitWindow.Seconds())))
@@ -112,6 +112,16 @@ func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(h
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// accountKey is NFR-SEC-007's per-account bucket. A bearer identity has no
+// user id and a subject is unique only within a tenant, so the key names the
+// tenant and whichever of the two the resolver set (spec section 1).
+func accountKey(id Identity) string {
+	if id.Subject != uuid.Nil {
+		return id.TenantID.String() + "/subject/" + id.Subject.String()
+	}
+	return id.TenantID.String() + "/user/" + id.UserID.String()
 }
 
 // clientAddress resolves the per-address counter's key, honouring

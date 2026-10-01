@@ -243,7 +243,7 @@ func TestRequireActorRunsBeforeInlineRateLimitMiddleware(t *testing.T) {
 	router := chi.NewRouter()
 	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10), 1)
 	router.Route("/api", func(r chi.Router) {
-		r.Use(requireActor(HeaderActorResolver{}))
+		r.Use(requireActor(HeaderActorResolver{}, 1))
 		r.With(limiter).Post("/inspections", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
@@ -256,4 +256,26 @@ func TestRequireActorRunsBeforeInlineRateLimitMiddleware(t *testing.T) {
 	router.ServeHTTP(rec, hreq)
 
 	req.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+// Bearer identities carry no user id, so keying on UserID alone would put
+// every signed-in person in one bucket (spec section 1, Rate limit).
+func TestSubmitRateLimitGivesEachSubjectItsOwnBucket(t *testing.T) {
+	limiter := submitRateLimit(newRateLimiter(1), newRateLimiter(100), 1)
+	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	tenant := uuid.New()
+	var codes []int
+	for _, id := range []Identity{
+		{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:a"},
+		{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:b"},
+	} {
+		hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
+		hreq = hreq.WithContext(context.WithValue(hreq.Context(), identityKey{}, id))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, hreq)
+		codes = append(codes, rec.Code)
+	}
+	req.Equal(t, []int{http.StatusOK, http.StatusOK}, codes)
 }

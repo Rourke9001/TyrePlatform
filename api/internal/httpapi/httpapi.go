@@ -51,7 +51,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 	})
 	r.Get("/healthz", healthz)
 	r.Route("/api", func(r chi.Router) {
-		r.Use(requireActor(resolver))
+		r.Use(requireActor(resolver, o.trustedProxyHops))
 		r.Get("/me", me(s))
 		r.Get("/vehicles", listVehicles(s))
 		r.Post("/vehicles", createVehicle(s))
