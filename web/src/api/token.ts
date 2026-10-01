@@ -145,6 +145,11 @@ export function authUnavailable(): ApiError {
   return new ApiError(503, "sign-in is unavailable", "auth_unavailable");
 }
 
+// True once a fresh token was refused (spec section 4, A fresh token refused).
+export function isLatched(): boolean {
+  return latched;
+}
+
 export function sessionLapsed(): boolean {
   return lapsed;
 }

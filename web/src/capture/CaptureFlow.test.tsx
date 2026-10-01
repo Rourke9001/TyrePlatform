@@ -10,11 +10,11 @@ import type { CaptureContext } from "./captureContext";
 import { clearDraft, db, loadDraft, markSpareAbsent, startDraft } from "./draft";
 import { listOutbox } from "./outbox";
 
+const DRIVER = "oid-driver-1";
+
 // CaptureFlow uses useCaptureContext -> useQuery, so an unwrapped render
 // throws before any assertion runs. retry:false matters too: the default
 // three retries would make the "refuses to start" test wait them out.
-const DRIVER = "oid-driver-1";
-
 function renderFlow() {
   return renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />);
 }

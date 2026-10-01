@@ -508,6 +508,11 @@ describe("the version 2 upgrade (U104)", () => {
     });
     expect(fresh.legacy).toBe(false);
     expect(fresh.driverSubject).toBe(DRIVER);
+
+    // Reopening is not an upgrade: the new row stays unmarked.
+    db.close();
+    await db.open();
+    expect((await loadDraft())?.legacy).toBe(false);
   });
 
   // "No subject, no draft" at the storage layer too.
