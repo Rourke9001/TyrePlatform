@@ -1,15 +1,12 @@
 package httpapi_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
@@ -85,6 +82,8 @@ func TestBearerAnUnlinkedOrInactiveUserIsForbidden(t *testing.T) {
 
 	userID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	subject := linkSubject(t, ctx, admin, userID)
+	rec = getWithToken(t, h, "/api/me", idp.Mint(t, idp.Claims(subject, tenantID)))
+	require.Equal(t, http.StatusOK, rec.Code, "control: the linked, active user resolves")
 	_, err := admin.Exec(ctx, `UPDATE app.app_user SET active = false WHERE id = $1`, userID)
 	require.NoError(t, err)
 	rec = getWithToken(t, h, "/api/me", idp.Mint(t, idp.Claims(subject, tenantID)))
@@ -158,34 +157,4 @@ func TestBearerASessionStartIsRecordedOnce(t *testing.T) {
 		`SELECT count(*) FROM app.audit_log WHERE tenant_id = $1 AND session_id = $2 AND action = 'SESSION_START'`,
 		tenantID, "sid:"+claims["sid"].(string)).Scan(&n))
 	require.Equal(t, 1, n)
-}
-
-// Spec section 7, Logging: a forged token's log line carries no oid, one that
-// fails at step 5 carries it, and neither carries the token. Not parallel:
-// slog's default is process-wide.
-func TestBearerRefusalsLogWhatTheyMayAndNeverTheToken(t *testing.T) {
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	h, idp := bearerHandler(t, nil)
-	subject := uuid.New()
-
-	forged := idp.MintWith(t, jwt.SigningMethodRS256, idp.OtherKey(), map[string]any{"kid": bearertest.Kid}, idp.Claims(subject, uuid.New()))
-	require.Equal(t, http.StatusUnauthorized, getWithToken(t, h, "/api/me", forged).Code)
-	forgedLine := buf.String()
-	buf.Reset()
-
-	c := idp.Claims(subject, uuid.New())
-	c["azp"] = uuid.NewString()
-	wrongClient := idp.Mint(t, c)
-	require.Equal(t, http.StatusUnauthorized, getWithToken(t, h, "/api/me", wrongClient).Code)
-	stepFiveLine := buf.String()
-
-	require.Contains(t, forgedLine, bearertest.Kid)
-	require.NotContains(t, forgedLine, subject.String())
-	require.NotContains(t, forgedLine, forged)
-	require.Contains(t, stepFiveLine, subject.String())
-	require.NotContains(t, stepFiveLine, wrongClient)
 }

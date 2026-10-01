@@ -37,6 +37,9 @@ var (
 // kid alone before the signature verifies, the verified claims after.
 type logAttrs interface{ LogAttrs() []any }
 
+// logLevel is a resolver error that knows how loud its log line should be.
+type logLevel interface{ LogLevel() slog.Level }
+
 type identityKey struct{}
 
 // clientKey carries the client address to withActor, whose refusals are
@@ -84,7 +87,12 @@ func requireActor(resolver ActorResolver, trustedProxyHops int) func(http.Handle
 				slog.WarnContext(ctx, "refusing a token with no platform tenant", attrs...)
 				writeError(ctx, w, http.StatusForbidden, codeNotProvisioned, msgNotProvisioned)
 			case errors.Is(err, ErrAuthUnavailable):
-				slog.WarnContext(ctx, "identity provider unavailable", attrs...)
+				level := slog.LevelWarn
+				var ll logLevel
+				if errors.As(err, &ll) {
+					level = ll.LogLevel()
+				}
+				slog.Log(ctx, level, "identity provider unavailable", attrs...)
 				writeError(ctx, w, http.StatusServiceUnavailable, codeAuthUnavailable, msgAuthUnavailable)
 			default:
 				// A 500 is a resolver bug, not a refused token, so what failed is safe
@@ -106,7 +114,15 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 
 // actorAttrs names the actor in a refusal log: the client address, the
 // subject or the user id under the dev resolver, the tenant and the session
-// (spec section 1, Logging a refusal).
+// (spec section 1, Logging a refusal). The identity field that is nil is
+// omitted.
 func actorAttrs(ctx context.Context, id Identity) []any {
-	return []any{"client", clientFrom(ctx), "tenant", id.TenantID, "subject", id.Subject, "user", id.UserID, "session", id.SessionID}
+	attrs := []any{"client", clientFrom(ctx), "tenant", id.TenantID}
+	if id.Subject != uuid.Nil {
+		attrs = append(attrs, "subject", id.Subject)
+	}
+	if id.UserID != uuid.Nil {
+		attrs = append(attrs, "user", id.UserID)
+	}
+	return append(attrs, "session", id.SessionID)
 }

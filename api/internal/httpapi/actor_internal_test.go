@@ -52,8 +52,9 @@ func captureLog(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// The refusal table in spec section 1, The seam. 401 sends the client to sign in, so a missing
-// resolver or an unreachable identity provider must never be one.
+// The refusal table in spec section 1, The seam. 401 sends the client to
+// sign in, so a missing resolver or an unreachable identity provider must
+// never be one.
 func TestRequireActorMapsEachRefusalToItsStatus(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -93,6 +94,24 @@ func TestRequireActorLogsTheRefusalButNeverTheToken(t *testing.T) {
 	req.Contains(t, line, `"reason":"expired"`)
 	req.Contains(t, line, `"client":"192.0.2.1"`)
 	req.NotContains(t, line, "secret-token-text")
+}
+
+// One person, one name: the Entra object id is "subject" in every log line,
+// and the identity field that is nil is left out rather than logged as the
+// nil UUID (spec section 1, Logging a refusal).
+func TestActorAttrsOmitTheIdentityFieldThatIsNil(t *testing.T) {
+	tenant, subject, user := uuid.New(), uuid.New(), uuid.New()
+	ctx := context.Background()
+
+	bearer := fmt.Sprint(actorAttrs(ctx, Identity{TenantID: tenant, Subject: subject, SessionID: "sid:a"}))
+	req.Contains(t, bearer, "subject "+subject.String())
+	req.NotContains(t, bearer, "user")
+	req.NotContains(t, bearer, uuid.Nil.String())
+
+	dev := fmt.Sprint(actorAttrs(ctx, Identity{TenantID: tenant, UserID: user}))
+	req.Contains(t, dev, "user "+user.String())
+	req.NotContains(t, dev, "subject")
+	req.NotContains(t, dev, uuid.Nil.String())
 }
 
 // A nil UUID parses but names no one. A nil user would reach InActorTx with

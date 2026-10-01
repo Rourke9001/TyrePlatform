@@ -382,8 +382,8 @@ func TestARequestThatHangsUpDoesNotFailTheLoadForOthers(t *testing.T) {
 	require.EqualValues(t, 1, idp.DiscoveryHits.Load(), "the detached load finished and was kept")
 }
 
-// jwkset starts its refresh goroutine before the first fetch, so a failed
-// load must end it or it fetches forever.
+// The key set starts its refresh goroutine before the first fetch, so a failed
+// load must end it or it fetches forever (spec section 1, Loading the keys).
 func TestAFailedKeyLoadStopsItsRefreshGoroutine(t *testing.T) {
 	idp := bearertest.New(t)
 	idp.SetJWKSStatus(http.StatusInternalServerError)
@@ -470,10 +470,46 @@ func TestTheRefusalLogLineNamesOnlyVerifiedClaimsAndNeverTheToken(t *testing.T) 
 	require.Contains(t, line, bearertest.Kid)
 	require.NotContains(t, line, subject.String(), "a forged token's oid is the caller's choice")
 
-	c := idp.Claims(subject, uuid.New())
+	tenant := uuid.New()
+	c := idp.Claims(subject, tenant)
 	c["azp"] = uuid.NewString()
 	line = refuse(idp.Mint(t, c))
 	require.Contains(t, line, subject.String(), "a token refused at step 5 has verified, so its oid is logged")
+	require.Contains(t, line, `"subject":"`+subject.String()+`"`, "one name for the person across both log lines")
+	require.Contains(t, line, `"tenant":"`+tenant.String()+`"`)
+	require.NotContains(t, line, `"oid"`)
+}
+
+// A discovery issuer mismatch answers 503 to every call until someone fixes
+// the deploy, so it is an Error; a token refused or an identity provider
+// that is merely unreachable stays a Warn (spec section 1, step 3).
+func TestAConfigurationFailureLogsAtErrorAndAnOutageAtWarn(t *testing.T) {
+	idp := bearertest.New(t)
+	h := httpapi.New(nil, newResolver(t, idp))
+	var buf syncBuffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	token := idp.Mint(t, idp.Claims(uuid.New(), uuid.New()))
+
+	idp.SetDiscoveryStatus(http.StatusServiceUnavailable)
+	buf.Reset()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, request(token))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	require.Contains(t, buf.String(), `"level":"WARN"`, "an unreachable identity provider is an outage")
+
+	idp.SetDiscoveryStatus(http.StatusOK)
+	idp.SetDiscoveryIssuer("https://someone-else.example/v2.0")
+	r2 := httpapi.New(nil, newResolver(t, idp))
+	buf.Reset()
+	rec = httptest.NewRecorder()
+	r2.ServeHTTP(rec, request(token))
+	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+	line := buf.String()
+	require.Contains(t, line, `"level":"ERROR"`)
+	require.Contains(t, line, "https://someone-else.example/v2.0")
+	require.Contains(t, line, idp.Issuer())
 }
 
 // Spec section 1, Logging a refusal: before the signature verifies the kid is

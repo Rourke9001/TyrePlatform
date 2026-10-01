@@ -13,15 +13,13 @@ import (
 )
 
 // NFR-SEC-007: rate-limit submission per account and per source address.
-// Submission is the only endpoint this slice adds; authentication
-// endpoints belong to Entra, which rate-limits them itself (spec section 1,
-// Rate limit). Two independent counters, not a composite key, because a key
-// of account+address lets one account rotating N addresses get N times the
-// account limit
-// (submitRateLimit refuses if EITHER counter refuses). The account limit
-// (60/min) is far above human capture rate and far below a retry loop's; the
-// address limit is 10x that because a depot's drivers share one NAT egress
-// address. Both are Go constants: rule 5 governs tenant policy, and a rate
+// Authentication endpoints are Entra's to limit (spec section 1, Rate limit).
+// Two independent counters, not a composite key: account+address would let
+// one account rotating N addresses get N times the limit (submitRateLimit
+// refuses if EITHER counter refuses). The account limit (60/min) is far above
+// human capture rate and far below a retry loop's; the address limit is 10x
+// that because a depot's drivers share one NAT egress address. Both are Go
+// constants: rule 5 governs tenant policy, and a rate
 // limit is an operational transport control, built once at router
 // construction with no tenant in scope.
 const (
@@ -79,9 +77,8 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 
 // submitRateLimit composes the two counters into NFR-SEC-007's one
 // middleware, built once at router construction and closed over here (see
-// New). Keyed on the identity requireActor resolved through accountKey,
-// never a raw header, because the header resolver is dev only and compiled
-// out of the release binary (U103). requireActor's r.Use ordering guarantee
+// New). Keyed on the identity requireActor resolved through accountKey, never
+// a raw header, because a raw header is unauthenticated input. requireActor's r.Use ordering guarantee
 // is TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
 func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
