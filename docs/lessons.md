@@ -1535,3 +1535,18 @@ premise against the source or the running database, not against the review
 text; a test that passes before the fix is the premise failing, not the
 fix being unnecessary. And a gate's control carries the shape its real
 input has, tags and all, or the run proves only that the control fires.
+
+## 2026-10-01 — A down-file proof that moves migration files aside through a Windows temp-path glob loses them, and `migrate down 1` then reverts the wrong migration (TYRE-317)
+
+**What happened:** to take a pre-000052 baseline, the migration files were
+moved to `$TMP/hold` and brought back with an unquoted glob on the Windows
+temp path (`C:\Users\ROURKE~1\...`). The glob did not match, so the files
+stayed in scratch, `make db-reset` stopped at the seeds (which already
+named the new column), the database sat at 000051, and `migrate down 1`
+reverted 000051 while the diff still printed "grants restored".
+
+**The rule:** never prove a down file by moving its migration out of
+`db/migrations/`. Take the baseline from a copy of the catalogue taken
+before the up is applied (migrate to the prior version, query, then up); and
+before trusting a `down 1`, read the `NN/d name` line it prints
+and check it is the migration under test.

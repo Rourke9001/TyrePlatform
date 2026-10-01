@@ -1,19 +1,18 @@
 -- Sign-in (TYRE-317, ADR-0016): a person's Entra oid links them to their
 -- app_user row, and each bearer session's first use is recorded.
 
--- Nullable: a user exists before first sign-in, and PLATFORM_ADMIN rows
--- never get one (ADR-0011). Unique per tenant, like email, so the index never
--- checks across tenants; one Entra account per tenant is enforced in Entra,
--- where the tenant claim is single-valued (ADR-0016 decision 6).
+-- Nullable: a user exists before first sign-in, and the runbook links no
+-- subject to a PLATFORM_ADMIN row (ADR-0011).
 ALTER TABLE app.app_user ADD COLUMN subject uuid;
+
+-- Unique per tenant, like email, so the index never checks across tenants;
+-- one Entra account per tenant is enforced in Entra (ADR-0016 Option 1).
 CREATE UNIQUE INDEX app_user_tenant_subject_key
   ON app.app_user (tenant_id, subject) WHERE subject IS NOT NULL;
 
--- Only the owning role writes subject, through the provisioning runbook. A
--- column REVOKE does not narrow a table-level grant, so the table grant goes
--- and every other column comes back. A column grant is checked against the
--- statement's own SET list, so the stamp trigger still writes updated_at and
--- updated_by. Suite 68a holds this shape (TYRE-317).
+-- Only the owning role writes subject, so no handler can re-link a login
+-- (ADR-0016 decision 6). A column REVOKE does not narrow a table-level grant,
+-- so the table grant goes and every other column comes back. Suite 68a.
 REVOKE INSERT, UPDATE ON app.app_user FROM app_rw;
 GRANT INSERT (id, tenant_id, email, display_name, staff_number, role, active,
               created_at, created_by, updated_at, updated_by)
@@ -27,13 +26,8 @@ GRANT UPDATE (id, tenant_id, email, display_name, staff_number, role, active,
 CREATE UNIQUE INDEX audit_log_session_start_key
   ON app.audit_log (tenant_id, session_id) WHERE action = 'SESSION_START';
 
--- FR-AUD-004's session start (ADR-0016 decision 9), the one writer of
--- app.audit_log besides app.audit_row_change(). Invoker rights and a pinned
--- search_path (db/CLAUDE.md, Adding a function). It raises P0001 rather than
--- write a row with no session, actor or tenant; withActor answers that 500,
--- since it is a caller's bug. The tenant check matters for the owning role,
--- which RLS may not bind: a NULL-tenant row is one no tenant can read
--- (ADR-0014). source_ip stays NULL until TYRE-201 binds it.
+-- Refuses rather than write an unattributed session start (FR-AUD-004,
+-- ADR-0016 decision 9).
 CREATE FUNCTION app.record_session_start() RETURNS void
 LANGUAGE plpgsql
 SECURITY INVOKER
