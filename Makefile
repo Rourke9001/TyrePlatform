@@ -169,8 +169,11 @@ web-test: ## Frontend tests
 	cd web && npm test
 
 .PHONY: web-bundle
-web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015)
+web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk and no dev identity in the build (TYRE-317)
+	node scripts/check-capture-bundle.mjs --self-test
 	cd web && npm run build && npm run bundle:check
+	node scripts/check-dist-dev-strings.mjs --self-test
+	node scripts/check-dist-dev-strings.mjs
 
 # Not in `make test`: needs a live stack (make api-run, make db-reset) and
 # CI runs it as its own job (TYRE-65). Reseed is mandatory: FR-INS-038

@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiGet, apiPatch, apiPost } from "./client";
+import { AUTH_HEADER, ApiError, apiGet, apiPatch, apiPost } from "./client";
 import { clearDevActorId, clearDevTenantId, setDevActorId, setDevTenantId } from "./devTenant";
 import { sentBody } from "../test/fixtures";
+import { bearerSession } from "../test/bearerSession";
 
 function stubFetch(status: number, body: unknown, ok = false) {
   vi.stubGlobal(
@@ -164,5 +165,86 @@ describe("apiPatch", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).code).toBe("invalid_submission");
     expect((error as ApiError).message).toBe("fleetNumber may not be blank");
+  });
+});
+
+vi.mock("../auth/oidc", () => ({
+  renew: vi.fn(),
+  signIn: vi.fn(),
+  completeSignIn: vi.fn(),
+  signOut: vi.fn(),
+}));
+
+describe("the bearer path", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    window.localStorage.clear();
+    bearerSession();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    window.localStorage.clear();
+  });
+
+  function mirror(obtainedAt: number) {
+    window.localStorage.setItem(
+      "tyre.auth.mirror",
+      JSON.stringify({
+        accessToken: "at-1",
+        expiresAt: Date.now() + 3_600_000,
+        obtainedAt,
+        subject: "oid-a",
+        tenantId: null,
+      }),
+    );
+  }
+
+  // The latch is module state (token.ts), so each case loads its own graph.
+  async function freshClient() {
+    vi.resetModules();
+    return import("./client");
+  }
+
+  it("attaches the bearer and no dev header", async () => {
+    const { apiGet: get } = await freshClient();
+    mirror(Date.now() - 5 * 60_000);
+    window.localStorage.setItem("tyre.dev.user-id", "dev-actor");
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+
+    await get("/api/me");
+
+    const headers = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers);
+    expect(headers.get(AUTH_HEADER)).toBe("Bearer at-1");
+    expect(headers.get("X-User-ID")).toBeNull();
+  });
+
+  it("clears the mirror on a 401 for an older token, and the refusal stays a 401", async () => {
+    const { apiGet: get, ApiError: Err } = await freshClient();
+    mirror(Date.now() - 5 * 60_000);
+    stubFetch(401, { code: "unauthorized", message: "the request does not identify a user" });
+
+    const err = await get("/api/me").catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(Err);
+    expect((err as InstanceType<typeof Err>).status).toBe(401);
+    expect(window.localStorage.getItem("tyre.auth.mirror")).toBeNull();
+  });
+
+  // Spec section 4: a misconfigured API must read "unavailable", never send
+  // the driver to a sign-in that cannot help.
+  it("turns a 401 on a token obtained seconds ago into 503, and then stops calling the API", async () => {
+    const { apiGet: get } = await freshClient();
+    mirror(Date.now());
+    stubFetch(401, { code: "unauthorized", message: "x" });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const first = (await get("/api/me").catch((e: unknown) => e)) as ApiError;
+    const second = (await get("/api/me").catch((e: unknown) => e)) as ApiError;
+
+    expect(first.status).toBe(503);
+    expect(first.code).toBe("auth_unavailable");
+    expect(second.status).toBe(503);
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
   });
 });

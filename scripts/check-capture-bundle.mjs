@@ -16,6 +16,75 @@ const dist = resolve(root, "web/dist");
 const budgetPath = resolve(root, "web/bundle-budget.json");
 const record = process.argv.includes("--record");
 
+// TYRE-317, ADR-0016: the sign-in library loads only when a renewal, a
+// sign-in or a sign-out needs it, so a re-record must never take it as an
+// ordinary rise. _signoutStart is one of its method names, a property that
+// minification keeps.
+const LIBRARY_MARKER = "_signoutStart";
+const AUTH_CHUNK = "src/auth/oidc.ts";
+
+// Depth-first over static imports (a chunk reached twice counts once), and
+// separately over static and dynamic imports together.
+function closures(manifest, entryKey) {
+  const seen = new Set();
+  const order = [];
+  (function visit(key) {
+    if (seen.has(key)) return;
+    seen.add(key);
+    order.push(key);
+    for (const dep of manifest[key].imports ?? []) visit(dep);
+  })(entryKey);
+  const reachable = new Set();
+  (function visitAll(key) {
+    if (reachable.has(key)) return;
+    reachable.add(key);
+    const chunk = manifest[key];
+    for (const dep of [...(chunk.imports ?? []), ...(chunk.dynamicImports ?? [])]) visitAll(dep);
+  })(entryKey);
+  return { seen, order, reachable };
+}
+
+function authChunkFindings(manifest, entryKey, readChunk) {
+  const { seen, order, reachable } = closures(manifest, entryKey);
+  const out = [];
+  if (seen.has(AUTH_CHUNK)) out.push(`${AUTH_CHUNK} is in the entry's static closure`);
+  if (!reachable.has(AUTH_CHUNK)) out.push(`${AUTH_CHUNK} is not reachable from the entry at all`);
+  for (const key of order) {
+    if (readChunk(manifest[key].file).includes(LIBRARY_MARKER)) {
+      out.push(`${manifest[key].file} carries oidc-client-ts ("${LIBRARY_MARKER}")`);
+    }
+  }
+  return out;
+}
+
+// A guard that finds nothing has to be shown able to find something (TYRE-49).
+if (process.argv.includes("--self-test")) {
+  const lazy = {
+    "index.html": { file: "entry.js", isEntry: true, dynamicImports: [AUTH_CHUNK] },
+    [AUTH_CHUNK]: { file: "oidc.js" },
+  };
+  const eager = {
+    "index.html": { file: "entry.js", isEntry: true, imports: [AUTH_CHUNK] },
+    [AUTH_CHUNK]: { file: "oidc.js" },
+  };
+  const absent = { "index.html": { file: "entry.js", isEntry: true } };
+  const text = (files) => (file) => files[file] ?? "";
+  const cases = [
+    ["lazy and clean", authChunkFindings(lazy, "index.html", text({ "oidc.js": LIBRARY_MARKER })), 0],
+    ["imported statically", authChunkFindings(eager, "index.html", text({})), 1],
+    ["library bundled into the entry", authChunkFindings(lazy, "index.html", text({ "entry.js": LIBRARY_MARKER })), 1],
+    ["never reached", authChunkFindings(absent, "index.html", text({})), 1],
+  ];
+  for (const [name, found, want] of cases) {
+    if (found.length !== want) {
+      console.error(`self-test: ${name}: expected ${want} finding(s), got ${JSON.stringify(found)}`);
+      process.exit(1);
+    }
+  }
+  console.log("self-test: OK");
+  process.exit(0);
+}
+
 let manifest;
 try {
   manifest = JSON.parse(readFileSync(resolve(dist, ".vite/manifest.json"), "utf8"));
@@ -32,29 +101,20 @@ if (!entryKey) {
   process.exit(2);
 }
 
-// Depth-first over static imports; a chunk reached twice counts once.
-const seen = new Set();
-const order = [];
-function visit(key) {
-  if (seen.has(key)) return;
-  seen.add(key);
-  order.push(key);
-  for (const dep of manifest[key].imports ?? []) visit(dep);
-}
-visit(entryKey);
-
 // The budget is a ceiling, so a lazy driver module would pass it by
 // shrinking the entry; a chunk fetched in front of capture is the round trip
 // ADR-0009 (rule 7) rules out. The manifest keys a dynamic entry by its
 // source path, which is what this reads, and it refuses --record too.
-const reachable = new Set();
-function visitAll(key) {
-  if (reachable.has(key)) return;
-  reachable.add(key);
-  const chunk = manifest[key];
-  for (const dep of [...(chunk.imports ?? []), ...(chunk.dynamicImports ?? [])]) visitAll(dep);
+const { seen, order, reachable } = closures(manifest, entryKey);
+
+const authFindings = authChunkFindings(manifest, entryKey, (file) =>
+  readFileSync(resolve(dist, file), "utf8"),
+);
+if (authFindings.length > 0) {
+  for (const f of authFindings) console.error(`FAIL: ${f}`);
+  process.exit(1);
 }
-visitAll(entryKey);
+
 const lazyDriver = [...reachable].filter(
   (key) => !seen.has(key) && /^src\/(capture|driver)\//.test(key),
 );

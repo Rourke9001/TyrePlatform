@@ -200,7 +200,7 @@ jobs:
       - name: Locked packages are old enough
         run: node scripts/check-release-age.mjs
 
-      # The same six commands `make lint` and `make test` run locally, spelled
+      # The same commands `make lint` and `make test` run locally, spelled
       # out rather than delegated to make: the runner has no docker-based Go
       # toolchain to hand and this job is web-only. No `--if-present` on any of
       # them. A missing script must fail the build, not pass silently
@@ -214,7 +214,10 @@ jobs:
           npm run typecheck
           npm test
           npm run build
+          npm run bundle:check -- --self-test
           npm run bundle:check
+          node ../scripts/check-dist-dev-strings.mjs --self-test
+          node ../scripts/check-dist-dev-strings.mjs
 
   e2e:
     name: Browser smoke
