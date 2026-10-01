@@ -95,7 +95,8 @@ describe("SignOutButton (PD-S3)", () => {
     await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
   });
 
-  // Owner decision 4: an unreadable store holds nothing, so sign-out goes on.
+  // Spec section 4, TYRE-317: an unreadable store holds nothing, so sign-out
+  // goes on.
   it("signs out when the held work cannot be read", async () => {
     vi.spyOn(db, "table").mockImplementation(() => {
       throw new Error("storage unavailable");
@@ -104,7 +105,7 @@ describe("SignOutButton (PD-S3)", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
     const oidc = await import("./oidc");
     await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
-    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("status")).toHaveTextContent("");
   });
 
   // signOut() clears everything local before it can reject (offline, no
@@ -122,14 +123,65 @@ describe("SignOutButton (PD-S3)", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
-  // A resolve is a navigation that may have been restored from the bfcache,
-  // not the end of sign-out, so the button comes back.
+  // With the real signOut() the subject is cleared and the button hides; this
+  // pins only that pending resets once the call settles.
   it("is tappable again once the sign-out settles", async () => {
     render(<SignOutButton />);
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
     const oidc = await import("./oidc");
     await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
     await vi.waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled());
+  });
+
+  it("keeps keyboard focus while the guard reads, and ignores a second tap", async () => {
+    render(<SignOutButton />);
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Sign out" });
+    button.focus();
+    await user.click(button);
+    expect(button).toHaveFocus();
+    expect(button).not.toBeDisabled();
+    const oidc = await import("./oidc");
+    await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
+  });
+
+  it("marks the button aria-disabled while pending and ignores taps", async () => {
+    let release: (n: number) => void = () => undefined;
+    const outbox = await import("../capture/outbox");
+    vi.spyOn(outbox, "heldCount").mockImplementation(
+      () => new Promise<number>((resolve) => (release = resolve)),
+    );
+    render(<SignOutButton />);
+    const user = userEvent.setup();
+    const button = screen.getByRole("button", { name: "Sign out" });
+    await user.click(button);
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    await user.click(button);
+    release(0);
+    const oidc = await import("./oidc");
+    await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
+    expect(outbox.heldCount).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the live region mounted while empty", () => {
+    render(<SignOutButton />);
+    expect(screen.getByRole("status")).toHaveTextContent("");
+  });
+
+  it("empties the live region before a repeat refusal so it is announced again", async () => {
+    await db.table("outbox").put(heldEntry("u1", "failed"));
+    render(<SignOutButton />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await screen.findByText(/still on this phone/);
+    const seen: string[] = [];
+    const region = screen.getByRole("status");
+    const observer = new MutationObserver(() => seen.push(region.textContent ?? ""));
+    observer.observe(region, { childList: true, characterData: true, subtree: true });
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await vi.waitFor(() => expect(seen.at(-1)).toMatch(/still on this phone/));
+    observer.disconnect();
+    expect(seen).toContain("");
   });
 
   it("clears a refusal once the work has gone", async () => {
@@ -140,6 +192,6 @@ describe("SignOutButton (PD-S3)", () => {
     await screen.findByRole("status");
     await db.table("outbox").clear();
     await user.click(screen.getByRole("button", { name: "Sign out" }));
-    await vi.waitFor(() => expect(screen.queryByRole("status")).toBeNull());
+    await vi.waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(""));
   });
 });

@@ -5,6 +5,7 @@ import { getDevTenantId } from "../api/devTenant";
 import { BRANDING_PREFIX, bearerMode, readMirror } from "../api/token";
 import { deriveBrandTheme } from "./derive";
 import { applyCssVars, cssVars, palette } from "./tokens";
+import { useActor } from "../auth/actorContext";
 import { ThemeContext } from "./themeContext";
 import "./fonts";
 import "./base.css";
@@ -24,9 +25,9 @@ const PLATFORM_BRANDING: Branding = {
 // (ADR-0016). A key shared by every tenant would paint one company's brand
 // for the next person on the phone; unknown means no cache, only the fetch.
 // Under the DEV header path the dev tenant stays the key (TYRE-28).
-function brandingTenantKey(): string | null {
+function brandingTenantKey(actorTenant: string | null): string | null {
   if (import.meta.env.DEV && !bearerMode()) return getDevTenantId() ?? "default";
-  return readMirror()?.tenantId ?? null;
+  return readMirror()?.tenantId ?? actorTenant;
 }
 
 function cacheKey(tenantKey: string): string {
@@ -62,7 +63,9 @@ function writeCachedBranding(tenantKey: string, branding: Branding): void {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const tenantKey = brandingTenantKey();
+  // Read through the actor so this re-renders when GET /api/me answers and
+  // the key moves from unknown to the tenant (ADR-0016).
+  const tenantKey = brandingTenantKey(useActor()?.tenantId ?? null);
 
   // Last-known branding paints the first frame so a reload or offline start
   // shows the right brand with no flash-of-default; the fetch then confirms
