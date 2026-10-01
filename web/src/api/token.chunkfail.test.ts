@@ -3,7 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { ApiError } from "./apiError";
 import { credential } from "./token";
 import { suppressReloadWhile } from "../shell/chunkReload";
-import { bearerSession } from "../test/fixtures";
+import { bearerSession } from "../test/bearerSession";
 
 // Every case here wants the auth chunk to fail to load, as it does in a dead
 // zone. token.ts reaches it only through a dynamic import.

@@ -13,7 +13,7 @@ import {
   writeMirror,
   type Mirror,
 } from "./token";
-import { bearerSession } from "../test/fixtures";
+import { bearerSession } from "../test/bearerSession";
 
 const MIRROR: Mirror = {
   accessToken: "at-1",
@@ -127,10 +127,11 @@ describe("credential", () => {
   });
 
   it("hands back a valid mirrored token without loading the auth chunk", async () => {
-    const { token, oidc } = await fresh();
+    const { token, oidc, suppressReloadWhile } = await fresh();
     token.writeMirror(MIRROR);
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-1", subject: "oid-a" });
     expect(oidc.renew).not.toHaveBeenCalled();
+    expect(suppressReloadWhile).not.toHaveBeenCalled();
   });
 
   // 60 seconds early, so no token expires between the check and the server.
@@ -212,14 +213,49 @@ describe("credential", () => {
     }
   });
 
+  it("renews again after a failed renewal settles", async () => {
+    const { token, oidc } = await fresh();
+    vi.mocked(oidc.renew)
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValueOnce(RENEWED);
+
+    await expect(token.credential()).rejects.toBeInstanceOf(TypeError);
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).toHaveBeenCalledTimes(2);
+  });
+
+  // A blocked store must neither renew on every call nor hide a refused
+  // fresh token from the latch.
+  it("holds a renewed token in memory when storage refuses it, and still latches", async () => {
+    const { token, oidc } = await fresh();
+    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
+    const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const full = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    try {
+      await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+      await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+      expect(oidc.renew).toHaveBeenCalledTimes(1);
+
+      expect(token.refused("at-2")).toBe(true);
+      await expect(token.credential()).rejects.toMatchObject({ status: 503 });
+      expect(logged).toHaveBeenCalledTimes(1);
+      expect(oidc.renew).toHaveBeenCalledTimes(1);
+    } finally {
+      full.mockRestore();
+    }
+  });
+
   it("answers 503 auth_unavailable, without the chunk, when the build carries no VITE_AUTH_* values", async () => {
     vi.unstubAllEnvs();
-    const { token, oidc, ApiError } = await fresh();
+    const { token, oidc, ApiError, suppressReloadWhile } = await fresh();
 
     const error = await token.credential().catch((e: unknown) => e);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as InstanceType<typeof ApiError>).code).toBe("auth_unavailable");
     expect(oidc.renew).not.toHaveBeenCalled();
+    expect(suppressReloadWhile).not.toHaveBeenCalled();
   });
 });
 
@@ -232,7 +268,7 @@ describe("refused", () => {
   // token; renewing again cannot help.
   it("latches on a 401 for a token obtained seconds ago, and then refuses every call with 503", async () => {
     const { token, oidc } = await fresh();
-    token.writeMirror(MIRROR);
+    token.writeMirror({ ...MIRROR, obtainedAt: Date.now() });
     const logged = vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     expect(token.refused("at-1")).toBe(true);
@@ -241,6 +277,24 @@ describe("refused", () => {
     expect(token.refused("at-1")).toBe(true);
     expect(logged).toHaveBeenCalledTimes(1);
     expect(oidc.renew).not.toHaveBeenCalled();
+  });
+
+  // A slow 401 for at-1 can land after a renewal to at-2.
+  it("leaves a mirror that has moved on to another token alone", async () => {
+    const { token } = await fresh();
+    token.writeMirror({ ...MIRROR, accessToken: "at-2" });
+
+    expect(token.refused("at-1")).toBe(false);
+    expect(token.readMirror()?.accessToken).toBe("at-2");
+  });
+
+  it("keeps answering true once latched, even for another token", async () => {
+    const { token } = await fresh();
+    token.writeMirror({ ...MIRROR, obtainedAt: Date.now() });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(token.refused("at-1")).toBe(true);
+    expect(token.refused("at-9")).toBe(true);
   });
 
   it("clears the mirror on a 401 for an older token, so the next call renews", async () => {
