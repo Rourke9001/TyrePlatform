@@ -161,6 +161,21 @@ export function onLapse(listener: () => void): () => void {
   };
 }
 
+// Sign-out's local clear (spec section 4, Signing out). `held` lives here, so
+// the page a rejected sign-out or a back-forward restore leaves in place
+// cannot answer with the old token.
+export function clearSession(): void {
+  held = null;
+  window.localStorage.removeItem(MIRROR_KEY);
+  window.localStorage.removeItem(SUBJECT_KEY);
+}
+
+function setLapsed(value: boolean): void {
+  if (lapsed === value) return;
+  lapsed = value;
+  lapseListeners.forEach((listener) => listener());
+}
+
 // The chunk never writes the mirror (spec section 4), so the store does. A
 // blocked store must not fail a renewed token, so only then is `held` kept;
 // a working store stays the one source, which another tab's sign-out clears.
@@ -203,19 +218,12 @@ export async function credential(): Promise<{ accessToken: string; subject: stri
   if (latched || !authConfigured()) throw authUnavailable();
   const usable = (m: Mirror | null) => m !== null && m.expiresAt - EXPIRY_SKEW_MS > Date.now();
   const mirror = readMirror();
-  const current = usable(mirror) ? mirror : usable(held) ? held : null;
-  if (current !== null) {
-    return { accessToken: current.accessToken, subject: current.subject };
-  }
-  const renewed = await renewOnce();
-  if (renewed === null) {
-    if (!lapsed) {
-      lapsed = true;
-      lapseListeners.forEach((listener) => listener());
-    }
-    throw new ApiError(401, "signed out", "signed_out");
-  }
-  return { accessToken: renewed.accessToken, subject: renewed.subject };
+  const current = usable(mirror) ? mirror : usable(held) ? held : await renewOnce();
+  // Another tab's sign-in writes the shared mirror, which ends this tab's
+  // lapse too.
+  setLapsed(current === null);
+  if (current === null) throw new ApiError(401, "signed out", "signed_out");
+  return { accessToken: current.accessToken, subject: current.subject };
 }
 
 // U104: who a held inspection is stamped with and sent under. Under the DEV

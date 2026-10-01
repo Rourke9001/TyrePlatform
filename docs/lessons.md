@@ -28,6 +28,26 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-01 - oidc-client-ts sends the refresh POST unbounded unless the timeout is passed per call (TYRE-317)
+
+**What happened:** `renew()` called `signinSilent()` with no arguments, and
+the plan's library check took `silentRequestTimeoutInSeconds` in the
+settings to bound the refresh. In oidc-client-ts 3.5.0 `signinSilent()`
+destructures that option from its own arguments and passes it on as
+`timeoutInSeconds`; `_useRefreshToken` then spreads those arguments over its
+settings default, so the explicit `undefined` wins and `fetchWithTimeout`
+calls bare `fetch` with no abort signal. A node probe showed no signal with
+the setting alone and a signal only with
+`signinSilent({ silentRequestTimeoutInSeconds: 10 })`. The token store
+shares one renewal, so one stalled refresh would have held every API call on
+the page.
+
+**The rule:** pass `silentRequestTimeoutInSeconds` to `signinSilent()` on
+every call, never rely on the settings for it, and keep a test that the
+refresh request carries an abort signal (`web/src/auth/oidc.test.ts`). On a
+library bump, re-check that a request the design bounds still gets a signal
+before trusting a setting's name.
+
 ## 2026-10-01 - vitest's default worker count times out untouched jsdom tests on this host (TYRE-317)
 
 **What happened:** `make check` on a branch that touched no web file failed

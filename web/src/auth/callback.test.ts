@@ -159,19 +159,24 @@ describe("completeRedirect", () => {
     expect(markerAtSignOut).toBe("1");
   });
 
-  it("reads a failed stamp read as nothing held, so the sign-in proceeds, and the send guard still holds (owner decision 4)", async () => {
+  it("reads a failed stamp read as nothing held, so the sign-in proceeds, and the send guard still holds (TYRE-317, spec section 4)", async () => {
     const { callback, oidc, token, draft, outbox } = await fresh();
     await holdEntryStampedFor(outbox, draft, "oid-b");
     vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
     vi.spyOn(draft.db.drafts, "get").mockRejectedValue(new Error("storage unavailable"));
     const held = vi.spyOn(draft.db.table("outbox"), "toArray");
     held.mockRejectedValueOnce(new Error("storage unavailable"));
+    const flush = vi.spyOn(outbox, "flushOutbox");
 
     await expect(callback.completeRedirect()).resolves.toBe("signed-in");
     expect(oidc.signOut).not.toHaveBeenCalled();
     expect(token.lastKnownSubject()).toBe("oid-a");
     // The flush runs under oid-a; the entry is oid-b's, so nothing is sent.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Awaited to its end, so the absence below is not a race.
+    expect(flush).toHaveBeenCalledTimes(1);
+    await flush.mock.results[0]?.value;
+    expect(held).toHaveBeenCalledTimes(2);
+    expect(await outbox.listOutbox()).toMatchObject([{ state: "queued", lastStatus: 401 }]);
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 

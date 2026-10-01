@@ -11,7 +11,7 @@ import {
   type User,
 } from "oidc-client-ts";
 
-import { BRANDING_PREFIX, MIRROR_KEY, SUBJECT_KEY } from "../api/token";
+import { BRANDING_PREFIX, clearSession } from "../api/token";
 
 export interface Tokens {
   accessToken: string;
@@ -42,6 +42,8 @@ export interface Auth {
 }
 
 const TRANSIENT_CODES = new Set(["server_error", "temporarily_unavailable"]);
+// Transport timing, not tenant policy (rule 5).
+const REQUEST_TIMEOUT_SECONDS = 10;
 
 function tokensOf(user: User): Tokens {
   const oid = user.profile.oid;
@@ -57,12 +59,11 @@ function returnToOf(state: unknown): unknown {
     : undefined;
 }
 
-// What the entry wrote: the mirror, the last-known subject and every cached
-// tenant brand. The library's own user is left for signoutRedirect.
+// What the entry wrote: the token store's session and every cached tenant
+// brand. The library's own user is left for signoutRedirect.
 function forgetIdentity(): void {
+  clearSession();
   const storage = window.localStorage;
-  storage.removeItem(MIRROR_KEY);
-  storage.removeItem(SUBJECT_KEY);
   const branded: string[] = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
@@ -87,10 +88,10 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       automaticSilentRenew: false,
       monitorSession: false,
       loadUserInfo: false,
-      // The library sets no timeout of its own (oidc-client-ts.js 1014, 1069),
-      // so a stalled metadata or token request would leave the page blank.
-      // 10 s is its own silent-request default.
-      requestTimeoutInSeconds: 10,
+      // oidc-client-ts sets no request timeout of its own, so a stalled
+      // discovery, key or code-exchange request would leave the page blank
+      // (ADR-0016). Renewal is bounded per call in renew().
+      requestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
       ...(settings.metadata ? { metadata: settings.metadata } : {}),
     },
     redirectNavigator,
@@ -116,10 +117,20 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       const user = await manager.getUser();
       // Without a refresh token the library falls back to a hidden iframe on
       // silent_redirect_uri, which defaults to redirect_uri, "/".
-      if (!user?.refresh_token) return null;
+      if (!user?.refresh_token) {
+        // A session that cannot renew is over, and its ID token names the
+        // person (spec section 6).
+        if (user) await manager.removeUser();
+        return null;
+      }
       let renewed: User | null;
       try {
-        renewed = await manager.signinSilent();
+        // The settings' timeout does not reach the refresh request
+        // (docs/lessons.md, 2026-10-01), and one stalled refresh would hold
+        // every caller of the token store's shared renewal.
+        renewed = await manager.signinSilent({
+          silentRequestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
+        });
       } catch (error) {
         // Spec section 4 "Renewal": a refused refresh token ends the
         // session, so any ErrorResponse lapses except the provider's own

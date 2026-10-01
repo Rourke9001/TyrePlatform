@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,17 +16,19 @@ const branding = { displayName: "Sandbox Fleet", primaryColor: "#E2202A", logoUr
 // network. That is the same stub that OutboxIndicator's own suite uses.
 function renderShellAt(path: string, capabilities: string[]) {
   return render(
-    <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
-      <ActorContext
-        value={{ actor: me({ displayName: "Controller", capabilities }), settled: true }}
-      >
-        <MemoryRouter initialEntries={[path]}>
-          <AppShell>
-            <p>screen</p>
-          </AppShell>
-        </MemoryRouter>
-      </ActorContext>
-    </ThemeContext>,
+    <QueryClientProvider client={new QueryClient()}>
+      <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
+        <ActorContext
+          value={{ actor: me({ displayName: "Controller", capabilities }), settled: true }}
+        >
+          <MemoryRouter initialEntries={[path]}>
+            <AppShell>
+              <p>screen</p>
+            </AppShell>
+          </MemoryRouter>
+        </ActorContext>
+      </ThemeContext>
+    </QueryClientProvider>,
   );
 }
 
