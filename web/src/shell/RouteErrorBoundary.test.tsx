@@ -1,6 +1,7 @@
 import { lazy, Suspense, type ReactNode } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -56,24 +57,26 @@ function renderAt(path: string, routes: ReactNode) {
   const reload = vi.fn();
   const onCaughtError = vi.fn();
   render(
-    <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
-      <ActorContext
-        value={{
-          actor: me({ displayName: "Controller", capabilities: ["ViewFleet", "ManageAssets"] }),
-          settled: true,
-        }}
-      >
-        <MemoryRouter initialEntries={[path]}>
-          <AppShell>
-            <RouteErrorBoundary reload={reload}>
-              <Suspense fallback={<p>Loading.</p>}>
-                <Routes>{routes}</Routes>
-              </Suspense>
-            </RouteErrorBoundary>
-          </AppShell>
-        </MemoryRouter>
-      </ActorContext>
-    </ThemeContext>,
+    <QueryClientProvider client={new QueryClient()}>
+      <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
+        <ActorContext
+          value={{
+            actor: me({ displayName: "Controller", capabilities: ["ViewFleet", "ManageAssets"] }),
+            settled: true,
+          }}
+        >
+          <MemoryRouter initialEntries={[path]}>
+            <AppShell>
+              <RouteErrorBoundary reload={reload}>
+                <Suspense fallback={<p>Loading.</p>}>
+                  <Routes>{routes}</Routes>
+                </Suspense>
+              </RouteErrorBoundary>
+            </AppShell>
+          </MemoryRouter>
+        </ActorContext>
+      </ThemeContext>
+    </QueryClientProvider>,
     { onCaughtError },
   );
   return { reload, onCaughtError };

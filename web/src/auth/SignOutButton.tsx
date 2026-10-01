@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { authChunk, bearerMode, lastKnownSubject } from "../api/token";
 import { heldCount } from "../capture/outbox";
@@ -15,6 +16,7 @@ function stillHeld(n: number): string {
 // has to sign a person out while another driver's work is held. A storage
 // read that fails holds nothing, so sign-out goes ahead (heldCount).
 export function SignOutButton() {
+  const queryClient = useQueryClient();
   const [held, setHeld] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   // signOut() clears everything local before it can reject, and its resolve
@@ -51,6 +53,9 @@ export function SignOutButton() {
       } catch {
         // Rejected after the local clear: signed out locally.
       }
+      // Settled with the page still here, so the cached actor goes and
+      // /api/me is asked again (spec section 4, Cached state).
+      void queryClient.resetQueries();
     } finally {
       setPending(false);
     }

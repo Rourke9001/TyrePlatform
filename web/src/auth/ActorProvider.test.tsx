@@ -81,17 +81,20 @@ describe("ActorProvider failure", () => {
     vi.useFakeTimers();
     fetchMeMock.mockRejectedValue(new TypeError("Failed to fetch"));
     void client.refetchQueries({ queryKey: ["me"] });
-    // Mid-refetch the query reads pending again, with no error.
+    // Mid-refetch the query reads pending again, with no error. The call
+    // count proves the refetch has started before the screen is judged.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(0);
     });
+    expect(fetchMeMock).toHaveBeenCalledTimes(2);
     expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.queryByText("the routes")).toBeNull();
-    // Three retries back off for 1, 2 and 4 seconds.
+    // Three retries back off for 1, 2 and 4 seconds, then the query settles.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);
     });
-    expect(fetchMeMock.mock.calls.length).toBeGreaterThan(2);
+    expect(fetchMeMock).toHaveBeenCalledTimes(5);
+    expect(client.getQueryCache().findAll({ queryKey: ["me"] })[0]?.state.status).toBe("error");
     expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.queryByText("the routes")).toBeNull();
   });

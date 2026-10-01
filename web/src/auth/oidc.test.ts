@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { User, UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
 
-import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
+import { MIRROR_KEY, SUBJECT_KEY, credential } from "../api/token";
+import { bearerSession } from "../test/bearerSession";
 import { createAuth } from "./oidc";
 
 const ORIGIN = "http://localhost:5173";
@@ -91,6 +92,8 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe("signIn", () => {
@@ -156,6 +159,9 @@ describe("renew", () => {
     await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(document.body.querySelectorAll("iframe")).toHaveLength(before);
+    // Spec section 6: the ID token carries a name and an email address, and
+    // a session that cannot renew is over.
+    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
   });
 
   it("uses the refresh token and returns the new access token", async () => {
@@ -171,9 +177,9 @@ describe("renew", () => {
     expect(tokens?.subject).toBe("oid-a");
   });
 
-  // oidc-client-ts has no default request timeout (1014, 1069), so without
-  // one a stalled metadata or code-exchange request leaves the callback page
-  // blank. Metadata discovery (878) is the request this can observe.
+  // oidc-client-ts sets no request timeout of its own, so without one a
+  // stalled discovery or code-exchange request leaves the callback page blank
+  // (ADR-0016). Discovery is the request this test can observe.
   it("bounds its discovery request with an abort signal", async () => {
     const fetchMock = vi.fn(() =>
       Promise.resolve(
@@ -190,6 +196,22 @@ describe("renew", () => {
     await vi.waitFor(() => expect(urls).toHaveLength(1));
 
     const init = (fetchMock.mock.calls as unknown as [string, RequestInit][])[0][1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  // The settings' timeout does not reach the refresh request, so renew()
+  // passes its own (docs/lessons.md, 2026-10-01). Unbounded, one stalled
+  // refresh holds every caller of the shared renewal.
+  it("bounds its refresh request with an abort signal", async () => {
+    const id = idToken("oid-a");
+    storeUser({ id_token: id, refresh_token: "rt-old" });
+    const fetchMock = vi.fn(() => Promise.resolve(tokenResponse(id)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createAuth(SETTINGS).renew();
+
+    const [url, init] = (fetchMock.mock.calls as unknown as [string, RequestInit][])[0];
+    expect(url).toBe(`${IDP}/token`);
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
@@ -325,5 +347,44 @@ describe("signOut", () => {
     expect(atNavigate).toEqual({ mirror: null, subject: null, branding: null, user: null });
     expect(window.localStorage.getItem("tyre.branding.default")).toBeNull();
     expect(window.localStorage.getItem("tyre.dev.tenant-id")).toBe("kept");
+  });
+
+  // A renewal that storage would not mirror is held in memory by the token
+  // store. The page outlives a rejected sign-out or a back-forward restore,
+  // and must not answer with the signed-out person's token (spec section 4).
+  it("forgets a renewed token the token store held in memory", async () => {
+    bearerSession();
+    const id = idToken("oid-a");
+    storeUser({ id_token: id, refresh_token: "rt-old" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          url.endsWith("/token")
+            ? tokenResponse(id)
+            : new Response(JSON.stringify(SETTINGS.metadata), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+              }),
+        ),
+      ),
+    );
+    const store = window.localStorage;
+    const real = store.setItem.bind(store);
+    const blocked = vi
+      .spyOn(Storage.prototype, "setItem")
+      .mockImplementation((key: string, value: string) => {
+        if (key === MIRROR_KEY) throw new DOMException("full", "QuotaExceededError");
+        real(key, value);
+      });
+    await expect(credential()).resolves.toMatchObject({ accessToken: "at-new" });
+    expect(window.localStorage.getItem(MIRROR_KEY)).toBeNull();
+    blocked.mockRestore();
+
+    const { navigator, urls } = capturing();
+    void createAuth(SETTINGS, navigator).signOut();
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+
+    await expect(credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
   });
 });

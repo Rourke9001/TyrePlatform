@@ -1,6 +1,7 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { SignOutButton } from "./SignOutButton";
 
@@ -17,7 +18,11 @@ beforeEach(() => {
 });
 
 it("says so, and stays signed in, when the sign-out chunk cannot load", async () => {
-  render(<SignOutButton />);
+  render(
+    <QueryClientProvider client={new QueryClient()}>
+      <SignOutButton />
+    </QueryClientProvider>,
+  );
   await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Could not sign out. Find signal and try again.",

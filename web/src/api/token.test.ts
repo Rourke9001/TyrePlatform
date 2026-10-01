@@ -178,6 +178,22 @@ describe("credential", () => {
     expect(lapsed).toHaveBeenCalledTimes(1);
   });
 
+  // Another tab's sign-in writes the shared mirror. This tab's calls then
+  // succeed, so its line must stop saying the sign-in has run out.
+  it("ends the lapse, and says so, once a usable token is back", async () => {
+    const { token, oidc } = await fresh();
+    vi.mocked(oidc.renew).mockResolvedValue(null);
+    const changed = vi.fn();
+    token.onLapse(changed);
+    await expect(token.credential()).rejects.toMatchObject({ status: 401 });
+    expect(token.sessionLapsed()).toBe(true);
+
+    token.writeMirror(MIRROR);
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-1", subject: "oid-a" });
+    expect(token.sessionLapsed()).toBe(false);
+    expect(changed).toHaveBeenCalledTimes(2);
+  });
+
   // The outbox reads a network failure as offline, never as signed out.
   it("lets a network failure from the renewal through as itself", async () => {
     const { token, oidc, ApiError } = await fresh();
