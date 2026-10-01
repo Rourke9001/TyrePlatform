@@ -16,22 +16,41 @@ function stillHeld(n: number): string {
 // read that fails holds nothing, so sign-out goes ahead (heldCount).
 export function SignOutButton() {
   const [held, setHeld] = useState<number | null>(null);
+  const [failed, setFailed] = useState(false);
   // signOut() clears everything local before it can reject, and its resolve
   // is a navigation that a bfcache restore can undo, so neither is the end of
-  // sign-out: the button settles on either and the next render re-reads the
-  // subject (spec section 4, Signing out).
+  // sign-out (TYRE-317): the button settles on either and the next render
+  // re-reads the subject. aria-disabled, not disabled, so a focused button
+  // keeps keyboard focus while the guard reads storage.
   const [pending, setPending] = useState(false);
   if (!bearerMode() || lastKnownSubject() === null) return null;
 
   async function onClick() {
+    if (pending) return;
     setPending(true);
+    setFailed(false);
+    // Emptied first so a repeat refusal with the same count is announced
+    // again by the live region.
+    setHeld(null);
     try {
       const count = await heldCount();
-      setHeld(count > 0 ? count : null);
-      if (count === 0) await (await authChunk()).signOut();
-    } catch {
-      // Signed out locally, or the chunk did not load; the button re-reads
-      // the subject on this settle and shows nothing misleading.
+      if (count > 0) {
+        setHeld(count);
+        return;
+      }
+      let chunk;
+      try {
+        chunk = await authChunk();
+      } catch {
+        // No signal for the lazy chunk: still signed in, say so.
+        setFailed(true);
+        return;
+      }
+      try {
+        await chunk.signOut();
+      } catch {
+        // Rejected after the local clear: signed out locally.
+      }
     } finally {
       setPending(false);
     }
@@ -42,14 +61,17 @@ export function SignOutButton() {
       <button
         type="button"
         className="auth-secondary"
-        disabled={pending}
+        aria-disabled={pending}
         onClick={() => void onClick()}
       >
         Sign out
       </button>
-      {held !== null && (
-        <p role="status" className="auth-note">
-          {stillHeld(held)}
+      <p role="status" className="auth-note">
+        {held !== null ? stillHeld(held) : ""}
+      </p>
+      {failed && (
+        <p role="alert" className="auth-note">
+          Could not sign out. Find signal and try again.
         </p>
       )}
     </div>

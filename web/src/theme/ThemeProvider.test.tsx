@@ -1,20 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 
 import { ThemeProvider } from "./ThemeProvider";
-import { testQueryClient } from "../test/fixtures";
+import { useBranding } from "./themeContext";
+import { ActorContext } from "../auth/actorContext";
+import { me, testQueryClient } from "../test/fixtures";
 
 const BRANDING = { displayName: "Acme", primaryColor: "#123456", logoUrl: null };
 
-function mount() {
-  return render(
-    <QueryClientProvider client={testQueryClient()}>
-      <ThemeProvider>
-        <p>app</p>
-      </ThemeProvider>
-    </QueryClientProvider>,
+// Shows the fetched name, so a test can wait for the branding to land before
+// it asserts that nothing was cached.
+function Name() {
+  return <p>{useBranding().branding.displayName}</p>;
+}
+
+function tree(actor: ReturnType<typeof me> | null) {
+  return (
+    <QueryClientProvider client={client}>
+      <ActorContext.Provider value={{ actor, settled: actor !== null }}>
+        <ThemeProvider>
+          <Name />
+        </ThemeProvider>
+      </ActorContext.Provider>
+    </QueryClientProvider>
   );
+}
+
+let client = testQueryClient();
+
+function mount() {
+  return render(tree(null));
 }
 
 function brandingKeys(): string[] {
@@ -41,6 +57,7 @@ function setMirror(tenantId: string | null) {
 }
 
 beforeEach(() => {
+  client = testQueryClient();
   window.localStorage.clear();
   vi.stubGlobal(
     "fetch",
@@ -69,11 +86,23 @@ describe("the branding cache key", () => {
     stubAuthEnv();
     setMirror(null);
     mount();
-    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());
-    // Let the answer reach the query and the effects run, so a write that was
-    // going to happen has happened before the absence is asserted.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await screen.findByText("Acme");
     expect(brandingKeys()).toEqual([]);
+  });
+
+  it("moves to the tenant when /api/me answers, without a reload", async () => {
+    window.localStorage.setItem("tyre.dev.auth", "bearer");
+    stubAuthEnv();
+    setMirror(null);
+    const view = mount();
+    await screen.findByText("Acme");
+    expect(brandingKeys()).toEqual([]);
+
+    // What fetchMe does on success: the mirror learns the tenant, then the
+    // actor arrives.
+    setMirror("t-9");
+    view.rerender(tree(me({ tenantId: "t-9" })));
+    await waitFor(() => expect(window.localStorage.getItem("tyre.branding.t-9")).not.toBeNull());
   });
 
   it("stays on the dev tenant under the DEV header path", async () => {
