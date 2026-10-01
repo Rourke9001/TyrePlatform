@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBranding, type Branding } from "../api/branding";
 import { getDevTenantId } from "../api/devTenant";
+import { BRANDING_PREFIX, bearerMode, readMirror } from "../api/token";
 import { deriveBrandTheme } from "./derive";
 import { applyCssVars, cssVars, palette } from "./tokens";
 import { ThemeContext } from "./themeContext";
@@ -19,11 +20,17 @@ const PLATFORM_BRANDING: Branding = {
   logoUrl: null,
 };
 
-// Branding is cached per tenant, not under one key: the dev tenant switcher
-// (TYRE-28) flips tenants in place, and one shared key would paint tenant
-// A's colours on tenant B until the fetch lands.
+// The cache key is the signed-in tenant the mirror learnt from GET /api/me
+// (ADR-0016). A key shared by every tenant would paint one company's brand
+// for the next person on the phone; unknown means no cache, only the fetch.
+// Under the DEV header path the dev tenant stays the key (TYRE-28).
+function brandingTenantKey(): string | null {
+  if (import.meta.env.DEV && !bearerMode()) return getDevTenantId() ?? "default";
+  return readMirror()?.tenantId ?? null;
+}
+
 function cacheKey(tenantKey: string): string {
-  return `tyre.branding.${tenantKey}`;
+  return `${BRANDING_PREFIX}${tenantKey}`;
 }
 
 function readCachedBranding(tenantKey: string): Branding | null {
@@ -55,15 +62,18 @@ function writeCachedBranding(tenantKey: string, branding: Branding): void {
 }
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const tenantKey = getDevTenantId() ?? "default";
+  const tenantKey = brandingTenantKey();
 
   // Last-known branding paints the first frame so a reload or offline start
   // shows the right brand with no flash-of-default; the fetch then confirms
   // or corrects it.
-  const cached = useMemo(() => readCachedBranding(tenantKey), [tenantKey]);
+  const cached = useMemo(
+    () => (tenantKey === null ? null : readCachedBranding(tenantKey)),
+    [tenantKey],
+  );
 
   const query = useQuery({
-    queryKey: ["branding", tenantKey],
+    queryKey: ["branding", tenantKey ?? "unknown"],
     queryFn: fetchBranding,
     staleTime: 5 * 60 * 1000,
   });
@@ -78,7 +88,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [theme]);
 
   useEffect(() => {
-    if (query.data) writeCachedBranding(tenantKey, query.data);
+    if (query.data && tenantKey !== null) writeCachedBranding(tenantKey, query.data);
   }, [tenantKey, query.data]);
 
   const value = useMemo(() => ({ branding, theme }), [branding, theme]);

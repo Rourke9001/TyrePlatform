@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { useActor } from "../auth/actorContext";
+import { SignOutButton } from "../auth/SignOutButton";
 import { SignInLine } from "../auth/SignInLine";
 import { OutboxIndicator } from "../capture/OutboxIndicator";
 import { DevBar } from "../shell/DevBar";
@@ -58,6 +59,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <BrandMark />
           <ActorBadge />
         </div>
+        <SignOutButton />
       </header>
       {/* A driver who navigated away from capture still needs to know an
           inspection is waiting to send and which one needs a person

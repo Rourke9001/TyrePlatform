@@ -74,3 +74,9 @@
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--line);
 }
+
+.auth-signout {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
