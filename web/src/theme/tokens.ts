@@ -120,8 +120,9 @@ export const space = {
 } as const;
 
 // The 44px floor for a manager's controls (NFR-USE-004); the capture keypad
-// and tiles sit higher, at 56 to 64px, for gloves.
-export const target = { min: "2.75rem" } as const;
+// and tiles sit higher, at 56 to 64px, for gloves. `glove` is that 56px, for
+// sign-in (NFR-USE-004).
+export const target = { min: "2.75rem", glove: "3.5rem" } as const;
 
 // Two shadows only: a card's lift off the sunken surface and an overlay's
 // (dialog, popover) lift off everything. Ink at low alpha so a tenant's
@@ -176,6 +177,7 @@ export function cssVars(brand: BrandTheme): Record<string, string> {
     "--space-6": space[6],
     "--space-7": space[7],
     "--target-min": target.min,
+    "--target-glove": target.glove,
     "--elevation-raised": elevation.raised,
     "--elevation-overlay": elevation.overlay,
     "--severity-info": severityColor.INFO,

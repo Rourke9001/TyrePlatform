@@ -1,0 +1,68 @@
+/* NFR-USE-004: sign-in is a gloved tap at the capture keypad's size, not the
+   manager's 44px floor. */
+.auth-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target-glove);
+  padding: 0 var(--space-4);
+  margin: 0;
+  border: 2px solid var(--primary);
+  border-radius: var(--radius-control);
+  background: var(--primary);
+  color: var(--on-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.auth-primary:active {
+  background: var(--primary-pressed);
+  border-color: var(--primary-pressed);
+}
+
+.auth-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  margin: 0;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-control);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+}
+
+.auth-screen {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 28rem;
+  padding: var(--space-5) var(--space-4);
+}
+
+.auth-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+}
+
+.auth-body,
+.auth-note {
+  margin: 0;
+}
+
+.auth-note {
+  font-size: var(--text-small);
+}
+
+.auth-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+}

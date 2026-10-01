@@ -57,6 +57,8 @@ describe("cssVars", () => {
     expect(vars["--text-hero"]).toBe("3rem");
     expect(vars["--space-7"]).toBe("48px");
     expect(vars["--target-min"]).toBe("2.75rem");
+    // NFR-USE-004: the glove target for sign-in, as the capture keypad's.
+    expect(vars["--target-glove"]).toBe("3.5rem");
     expect(vars["--radius-pill"]).toBe("999px");
     expect(vars["--elevation-overlay"]).toBeDefined();
     expect(vars).toHaveProperty("--interactive", palette.interactive);

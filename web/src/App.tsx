@@ -1,3 +1,4 @@
+import { AuthGate } from "./auth/AuthGate";
 import { AppShell } from "./dashboard/AppShell";
 import { AppRoutes } from "./routes";
 import { RouteErrorBoundary } from "./shell/RouteErrorBoundary";
@@ -7,9 +8,11 @@ import { RouteErrorBoundary } from "./shell/RouteErrorBoundary";
 export function App() {
   return (
     <AppShell>
-      <RouteErrorBoundary>
-        <AppRoutes />
-      </RouteErrorBoundary>
+      <AuthGate>
+        <RouteErrorBoundary>
+          <AppRoutes />
+        </RouteErrorBoundary>
+      </AuthGate>
     </AppShell>
   );
 }

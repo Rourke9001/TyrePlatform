@@ -28,6 +28,7 @@ export function me(overrides: Partial<Me> = {}): Me {
     scope: "TENANT",
     timezone: "Africa/Johannesburg",
     displayCodePolicy: "FREE",
+    tenantId: "t0",
     ...overrides,
   };
 }
