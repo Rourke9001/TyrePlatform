@@ -233,7 +233,7 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		writeError(ctx, w, http.StatusUnauthorized, codeUnauthorized, msgUnauthorized)
 		return false
 	}
-	err := s.InActorTx(ctx, id.TenantID, id.UserID, fn)
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: id.TenantID, UserID: id.UserID}, fn)
 	pgRef, isClient := refusalForPgError(err)
 	var ref refusalError
 	switch {

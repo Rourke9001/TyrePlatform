@@ -221,6 +221,108 @@ func plantDepotFor(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID,
 	return depotID
 }
 
+// linkSubject gives a planted user an Entra subject the way the provisioning
+// runbook does, through the admin connection: the app role cannot write the
+// column (000052).
+func linkSubject(t *testing.T, ctx context.Context, admin *pgx.Conn, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+	subject := uuid.New()
+	_, err := admin.Exec(ctx, `UPDATE app.app_user SET subject = $2 WHERE id = $1`, userID, subject)
+	require.NoError(t, err)
+	return subject
+}
+
+// ADR-0016: a bearer request names a subject, and the user and role come
+// from the database under RLS.
+func TestInActorTxResolvesASubjectToItsUser(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	subject := linkSubject(t, ctx, admin, userID)
+
+	var got auth.Actor
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, Subject: subject},
+		func(_ pgx.Tx, actor auth.Actor) error {
+			got = actor
+			return nil
+		}))
+	require.Equal(t, userID, got.UserID)
+	require.Equal(t, a.id, got.TenantID)
+	require.Equal(t, auth.RoleDriver, got.Role)
+}
+
+// A tenant claim naming the wrong tenant finds no row (ADR-0016 decision 5).
+// The control resolves the same subject in its own tenant, so the refusal is
+// the tenant and not the subject.
+func TestInActorTxRefusesASubjectClaimedForAnotherTenant(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, b := openFixtures(t, ctx)
+	userInB := plantUser(t, ctx, admin, b.id, auth.RoleDriver, true)
+	subject := linkSubject(t, ctx, admin, userInB)
+
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: b.id, Subject: subject},
+		func(pgx.Tx, auth.Actor) error { return nil }))
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: a.id, Subject: subject},
+		func(pgx.Tx, auth.Actor) error {
+			t.Fatal("fn must not run for a subject claimed for another tenant")
+			return nil
+		})
+	require.ErrorIs(t, err, store.ErrNoSuchActor)
+}
+
+func TestInActorTxRefusesAKeyWithBothOrNeitherIdentity(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+
+	for name, key := range map[string]store.ActorKey{
+		"both":    {TenantID: a.id, UserID: userID, Subject: uuid.New()},
+		"neither": {TenantID: a.id},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := s.InActorTx(ctx, key, func(pgx.Tx, auth.Actor) error {
+				t.Fatal("fn must not run for a malformed key")
+				return nil
+			})
+			require.Error(t, err)
+			require.NotErrorIs(t, err, store.ErrNoSuchActor,
+				"a malformed key is a programming mistake, not a refusal the client may read")
+		})
+	}
+}
+
+// app.session_id is what TYRE-201's trigger and app.record_session_start()
+// read (FR-AUD-002, FR-AUD-004). A dev-resolver key carries none.
+func TestInActorTxBindsTheSessionIDOnlyWhenTheKeyCarriesOne(t *testing.T) {
+	ctx := context.Background()
+	_, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	subject := linkSubject(t, ctx, admin, userID)
+
+	// One connection, so the second transaction runs where the first bound a
+	// session: the Nil below then proves the binding died with it.
+	appURL, _ := testURLs(t)
+	sep := "?"
+	if strings.Contains(appURL, "?") {
+		sep = "&"
+	}
+	s, err := store.New(ctx, appURL+sep+"pool_max_conns=1")
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+
+	var bound *string
+	readSession := func(tx pgx.Tx, _ auth.Actor) error {
+		return tx.QueryRow(ctx, `SELECT nullif(current_setting('app.session_id', true), '')`).Scan(&bound)
+	}
+	session := "sid:" + uuid.NewString()
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, Subject: subject, SessionID: session}, readSession))
+	require.NotNil(t, bound)
+	require.Equal(t, session, *bound)
+
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, readSession))
+	require.Nil(t, bound)
+}
+
 // The role is read from app.app_user, never supplied by the caller
 // (ADR-0011), so planting a role and reading it back is the whole contract.
 func TestInActorTxResolvesRoleAndDepotsFromTheDatabase(t *testing.T) {
@@ -233,7 +335,7 @@ func TestInActorTxResolvesRoleAndDepotsFromTheDatabase(t *testing.T) {
 	sort.Slice(want, func(i, j int) bool { return want[i].String() < want[j].String() })
 
 	var got auth.Actor
-	require.NoError(t, s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, actor auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, func(_ pgx.Tx, actor auth.Actor) error {
 		got = actor
 		return nil
 	}))
@@ -252,7 +354,7 @@ func TestInActorTxRefusesDeactivatedUser(t *testing.T) {
 	s, admin, a, _ := openFixtures(t, ctx)
 	userID := plantUser(t, ctx, admin, a.id, auth.RoleController, false)
 
-	err := s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, func(_ pgx.Tx, _ auth.Actor) error {
 		t.Fatal("fn must not run for a deactivated user")
 		return nil
 	})
@@ -266,7 +368,7 @@ func TestInActorTxRefusesUserFromAnotherTenant(t *testing.T) {
 	s, admin, a, b := openFixtures(t, ctx)
 	userInB := plantUser(t, ctx, admin, b.id, auth.RoleOrgAdmin, true)
 
-	err := s.InActorTx(ctx, a.id, userInB, func(_ pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userInB}, func(_ pgx.Tx, _ auth.Actor) error {
 		t.Fatal("fn must not run for a user outside the bound tenant")
 		return nil
 	})
@@ -277,7 +379,7 @@ func TestInActorTxRefusesUnknownUser(t *testing.T) {
 	ctx := context.Background()
 	s, _, a, _ := openFixtures(t, ctx)
 
-	err := s.InActorTx(ctx, a.id, uuid.New(), func(_ pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: uuid.New()}, func(_ pgx.Tx, _ auth.Actor) error {
 		t.Fatal("fn must not run for a user that does not exist")
 		return nil
 	})
@@ -307,7 +409,7 @@ func TestActorContextDoesNotLeakAcrossTransactions(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 
-	require.NoError(t, s.InActorTx(ctx, a.id, userID, func(_ pgx.Tx, actor auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, func(_ pgx.Tx, actor auth.Actor) error {
 		require.Len(t, actor.DepotIDs, 1, "the actor must see their own depot inside the transaction")
 		return nil
 	}))

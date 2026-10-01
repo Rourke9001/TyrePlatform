@@ -109,6 +109,19 @@ func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.
 // distinguishable only in the log (FR-AUT-011, ADR-0011).
 var ErrNoSuchActor = errors.New("actor not found or inactive")
 
+// ActorKey names who a request acts as. Exactly one of UserID and Subject is
+// set: UserID by the dev header resolver, Subject (the Entra oid) by the
+// bearer resolver (ADR-0016). It lives here because store cannot import
+// httpapi.
+type ActorKey struct {
+	TenantID  uuid.UUID
+	UserID    uuid.UUID
+	Subject   uuid.UUID
+	SessionID string
+}
+
+var errActorKeyShape = errors.New("actor key must set exactly one of UserID and Subject")
+
 // InActorTx runs fn inside a transaction with app.tenant_id and app.actor_id
 // both bound, having first resolved the actor from app.app_user under RLS.
 //
@@ -116,7 +129,10 @@ var ErrNoSuchActor = errors.New("actor not found or inactive")
 // can be forged; app.app_user is the register of record, and reading it here
 // is what makes deactivation bite on the next request rather than at token
 // expiry (ADR-0011, NFR-SEC-006).
-func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn func(pgx.Tx, auth.Actor) error) error {
+func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, auth.Actor) error) error {
+	if (key.UserID == uuid.Nil) == (key.Subject == uuid.Nil) {
+		return errActorKeyShape
+	}
 	// READ COMMITTED is pinned: submitStatus maps createUser's reactivate
 	// race to a 409 only because the loser's UPDATE re-evaluates its WHERE
 	// against the winner's committed row. Under REPEATABLE READ the same
@@ -127,21 +143,27 @@ func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn fu
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
 
+	// app.session_id is bound only for a bearer request; TYRE-201's trigger
+	// and app.record_session_start() read it (FR-AUD-002, FR-AUD-004).
 	if _, err := tx.Exec(ctx,
-		`SELECT set_config('app.tenant_id', $1, true), set_config('app.actor_id', $2, true)`,
-		tenantID.String(), userID.String()); err != nil {
-		return fmt.Errorf("binding actor context: %w", err)
+		`SELECT set_config('app.tenant_id', $1::text, true),
+		        CASE WHEN $2::text <> '' THEN set_config('app.session_id', $2::text, true) END`,
+		key.TenantID.String(), key.SessionID); err != nil {
+		return fmt.Errorf("binding tenant context: %w", err)
 	}
 
-	actor := auth.Actor{UserID: userID, TenantID: tenantID}
+	lookup, arg := `SELECT id, display_name, role::text, active FROM app.app_user WHERE id = $1`, key.UserID
+	if key.Subject != uuid.Nil {
+		lookup, arg = `SELECT id, display_name, role::text, active FROM app.app_user WHERE subject = $1`, key.Subject
+	}
+	actor := auth.Actor{TenantID: key.TenantID}
 	var roleName string
 	var active bool
-	// The tenant_isolation policy does the tenant check: a user belonging to
-	// another tenant is not visible here, so a wrong tenant needs no branch.
-	// role is cast to text because the enum's OID is not in pgx's type map.
-	err = tx.QueryRow(ctx,
-		`SELECT display_name, role::text, active FROM app.app_user WHERE id = $1`, userID).
-		Scan(&actor.DisplayName, &roleName, &active)
+	// The tenant_isolation policy does the tenant check: a user of another
+	// tenant, or a subject claimed for the wrong one, is not visible here, so
+	// a wrong or forged tenant needs no branch (ADR-0016 decision 5). role is
+	// cast to text because the enum's OID is not in pgx's type map.
+	err = tx.QueryRow(ctx, lookup, arg).Scan(&actor.UserID, &actor.DisplayName, &roleName, &active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNoSuchActor
 	}
@@ -152,6 +174,10 @@ func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn fu
 		return ErrNoSuchActor
 	}
 	actor.Role = auth.Role(roleName)
+
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.actor_id', $1, true)`, actor.UserID.String()); err != nil {
+		return fmt.Errorf("binding actor context: %w", err)
+	}
 
 	depots, err := actorDepots(ctx, tx)
 	if err != nil {
