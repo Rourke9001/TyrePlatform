@@ -123,14 +123,19 @@ export interface Sender {
   subject: string | null;
 }
 
-// Renewed first when this close to expiry, so none expires in flight.
+// Renewed first when this close to expiry, so none expires in flight (spec
+// section 4, Expiry).
 const EXPIRY_SKEW_MS = 60_000;
 // A 401 on a token obtained this recently means the API refuses every valid
 // token (a wrong AUTH_AUDIENCE, AUTH_CLIENT_ID or scope). Renewing cannot
-// help, so the store stops until a reload.
+// help, so the store stops until a reload (spec section 4, A fresh token
+// refused).
 const FRESH_MS = 60_000;
 
 let latched = false;
+// The last renewed token, kept beside the mirror: a blocked store cannot hold
+// it, and the latch and the renewal count both depend on remembering it.
+let held: Mirror | null = null;
 let renewing: Promise<Mirror | null> | null = null;
 let lapsed = false;
 const lapseListeners = new Set<() => void>();
@@ -152,10 +157,10 @@ export function onLapse(listener: () => void): () => void {
 }
 
 // The chunk never writes the mirror (spec section 4), so the store does. A
-// full or blocked store must not turn a renewed token into an error: the call
-// still gets it, and the next one renews again.
+// blocked store must not fail a renewed token, so `held` is set first.
 function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mirror | null {
   if (tokens === null) {
+    held = null;
     clearMirror();
     return null;
   }
@@ -165,11 +170,12 @@ function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mir
     obtainedAt: Date.now(),
     tenantId: previous?.subject === tokens.subject ? previous.tenantId : null,
   };
+  held = mirror;
   try {
     writeMirror(mirror);
     rememberSubject(mirror.subject);
   } catch {
-    // Storage refused the write.
+    // Kept in `held` only.
   }
   return mirror;
 }
@@ -189,9 +195,11 @@ function renewOnce(): Promise<Mirror | null> {
 export async function credential(): Promise<{ accessToken: string; subject: string }> {
   // Before the import: a build without VITE_AUTH_* cannot sign anyone in.
   if (latched || !authConfigured()) throw authUnavailable();
+  const usable = (m: Mirror | null) => m !== null && m.expiresAt - EXPIRY_SKEW_MS > Date.now();
   const mirror = readMirror();
-  if (mirror !== null && mirror.expiresAt - EXPIRY_SKEW_MS > Date.now()) {
-    return { accessToken: mirror.accessToken, subject: mirror.subject };
+  const current = usable(mirror) ? mirror : usable(held) ? held : null;
+  if (current !== null) {
+    return { accessToken: current.accessToken, subject: current.subject };
   }
   const renewed = await renewOnce();
   if (renewed === null) {
@@ -222,12 +230,19 @@ export function stampSubject(): string | null {
 // send() calls this on a 401 from the API. True when the refusal latched the
 // store: every later call then answers 503 without touching the API.
 export function refused(accessToken: string): boolean {
+  if (latched) return true;
   const mirror = readMirror();
-  if (mirror?.accessToken === accessToken && Date.now() - mirror.obtainedAt < FRESH_MS) {
-    if (!latched) console.error("API refused a fresh token (ADR-0016)");
+  const recent = [mirror, held].find(
+    (m) => m?.accessToken === accessToken && Date.now() - m.obtainedAt < FRESH_MS,
+  );
+  if (recent !== undefined) {
+    console.error("API refused a fresh token (ADR-0016)");
     latched = true;
     return true;
   }
-  clearMirror();
+  // A slow 401 for an earlier token must not clear a session that has since
+  // renewed.
+  if (held?.accessToken === accessToken) held = null;
+  if (mirror?.accessToken === accessToken) clearMirror();
   return false;
 }
