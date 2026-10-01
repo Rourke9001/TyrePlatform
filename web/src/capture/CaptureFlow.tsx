@@ -1,6 +1,10 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import { ApiError } from "../api/client";
+import { bearerMode } from "../api/token";
+import { SignInButton } from "../auth/SignInButton";
+
 import { CaptureDiagram } from "./CaptureDiagram";
 import { CaptureDone } from "./CaptureDone";
 import { CaptureReview } from "./CaptureReview";
@@ -21,6 +25,7 @@ import "./capture.css";
 interface Outcome {
   state: "sent" | "queued" | "failed";
   lastCode: string | null;
+  lastStatus: number | null;
 }
 
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
@@ -107,10 +112,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         const still = (await listOutbox()).find((e) => e.clientUuid === entry.clientUuid);
         setOutcome(
           still === undefined
-            ? { state: "sent", lastCode: null }
+            ? { state: "sent", lastCode: null, lastStatus: null }
             : {
                 state: still.state === "failed" ? "failed" : "queued",
                 lastCode: still.lastCode ?? null,
+                lastStatus: still.lastStatus,
               },
         );
         setDraft(null);
@@ -126,9 +132,24 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
 
   let body: ReactNode;
   if (screen === "done" && outcome) {
-    body = <CaptureDone state={outcome.state} lastCode={outcome.lastCode} />;
+    body = (
+      <CaptureDone
+        state={outcome.state}
+        lastCode={outcome.lastCode}
+        lastStatus={outcome.lastStatus}
+      />
+    );
   } else if (!resumed || motive.isPending) {
     body = <p className="cap-wait">Loading…</p>;
+  } else if (lifecycle.otherDriverHeld) {
+    body = (
+      <section className="cap-screen">
+        <p role="alert" className="cap-alert cap-alert--stop">
+          An inspection another driver started is open on this phone. They need to sign in here to
+          finish it before anyone else can use it.
+        </p>
+      </section>
+    );
   } else if (held) {
     const heldName = held.fleetNumber ?? "the other vehicle";
     body = (
@@ -153,11 +174,15 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     // warning depends on data that must have arrived. The storage-unavailable
     // alert is hoisted so its retry can sit beside this screen's own, each
     // naming its own action.
+    const signedOut = motive.error instanceof ApiError && motive.error.status === 401;
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
-          Could not load this vehicle. Find signal and try again.
+          {signedOut
+            ? "Sign in to load this vehicle."
+            : "Could not load this vehicle. Find signal and try again."}
         </p>
+        {signedOut && bearerMode() && <SignInButton label="Sign in" />}
         <button type="button" className="cap-primary" onClick={() => void motive.refetch()}>
           Reload vehicle
         </button>
@@ -288,6 +313,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
               Recheck storage
             </button>
           )}
+        </div>
+      )}
+      {lifecycle.signInNeeded && (
+        <div role="alert" className="cap-alert cap-alert--stop cap-storage">
+          <p className="cap-storage-msg">Sign in before you start an inspection.</p>
+          {bearerMode() && <SignInButton label="Sign in" />}
         </div>
       )}
       {body}
