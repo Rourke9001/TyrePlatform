@@ -258,47 +258,44 @@ func TestRequireActorRunsBeforeInlineRateLimitMiddleware(t *testing.T) {
 	req.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 }
 
-// Bearer identities carry no user id, so keying on UserID alone would put
-// every signed-in person in one bucket (spec section 1, Rate limit).
-func TestSubmitRateLimitGivesEachSubjectItsOwnBucket(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(1), newRateLimiter(100), 1)
-	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	tenant := uuid.New()
-	var codes []int
-	for _, id := range []Identity{
-		{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:a"},
-		{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:b"},
-	} {
-		hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
-		hreq = hreq.WithContext(context.WithValue(hreq.Context(), identityKey{}, id))
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, hreq)
-		codes = append(codes, rec.Code)
+// Each case is a set of accounts at a one-per-minute account limit, so a
+// second request landing in an earlier account's bucket would be refused.
+func TestSubmitRateLimitGivesEachBearerAccountItsOwnBucket(t *testing.T) {
+	tenant, subject := uuid.New(), uuid.New()
+	tests := []struct {
+		name string
+		ids  []Identity
+	}{
+		// Bearer identities carry no user id, so keying on UserID alone would
+		// put every signed-in person in one bucket (spec section 1, Rate limit).
+		{"each subject in one tenant", []Identity{
+			{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:a"},
+			{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:b"},
+		}},
+		// A subject is unique only within a tenant (000052), so the same
+		// subject under a second tenant is a different account.
+		{"one subject in each tenant", []Identity{
+			{TenantID: uuid.New(), Subject: subject, SessionID: "sid:a"},
+			{TenantID: uuid.New(), Subject: subject, SessionID: "sid:b"},
+			{TenantID: uuid.New(), Subject: subject, SessionID: "sid:c"},
+		}},
 	}
-	req.Equal(t, []int{http.StatusOK, http.StatusOK}, codes)
-}
-
-// A subject is unique only within a tenant (000052), so the same subject
-// under a second tenant is a different account and a different bucket.
-func TestSubmitRateLimitKeysTheSubjectPerTenant(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(1), newRateLimiter(100), 1)
-	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	}))
-	subject := uuid.New()
-	var codes []int
-	for _, id := range []Identity{
-		{TenantID: uuid.New(), Subject: subject, SessionID: "sid:a"},
-		{TenantID: uuid.New(), Subject: subject, SessionID: "sid:b"},
-		{TenantID: uuid.New(), Subject: subject, SessionID: "sid:c"},
-	} {
-		hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
-		hreq = hreq.WithContext(context.WithValue(hreq.Context(), identityKey{}, id))
-		rec := httptest.NewRecorder()
-		h.ServeHTTP(rec, hreq)
-		codes = append(codes, rec.Code)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limiter := submitRateLimit(newRateLimiter(1), newRateLimiter(100), 1)
+			h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			var codes, want []int
+			for _, id := range tt.ids {
+				hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
+				hreq = hreq.WithContext(context.WithValue(hreq.Context(), identityKey{}, id))
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, hreq)
+				codes = append(codes, rec.Code)
+				want = append(want, http.StatusOK)
+			}
+			req.Equal(t, want, codes)
+		})
 	}
-	req.Equal(t, []int{http.StatusOK, http.StatusOK, http.StatusOK}, codes)
 }
