@@ -26,7 +26,7 @@ param swaLocation string = 'westeurope'
 param env string = 'staging'
 
 @secure()
-@description('PostgreSQL admin password. Migrations-only credential: the API connects as app_login, never as this admin - RLS does not bind superusers (non-negotiable rule 1).')
+@description('PostgreSQL admin password. Used for migrations and for the provisioning runbook\'s subject link (docs/runbooks/provision-a-user.md). The API connects as app_login, never as this admin - RLS does not bind superusers (non-negotiable rule 1).')
 param pgAdminPassword string
 
 @description('Object id of the deploying user, granted Key Vault Secrets Officer so secrets can be written after deployment.')
