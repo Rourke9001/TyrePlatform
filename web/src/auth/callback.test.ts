@@ -2,13 +2,20 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { bearerSession } from "../test/bearerSession";
 
-vi.mock("./oidc", () => ({
-  completeSignIn: vi.fn(),
-  signOut: vi.fn(),
-  renew: vi.fn(),
-  signIn: vi.fn(),
-  discardUser: vi.fn(() => Promise.resolve()),
-}));
+// The factory runs when the chunk is first imported, so a count of zero
+// shows the entry never reached for it.
+const chunk = vi.hoisted(() => ({ loads: 0 }));
+
+vi.mock("./oidc", () => {
+  chunk.loads += 1;
+  return {
+    completeSignIn: vi.fn(),
+    signOut: vi.fn(),
+    renew: vi.fn(),
+    signIn: vi.fn(),
+    discardUser: vi.fn(() => Promise.resolve()),
+  };
+});
 
 const SIGNED_IN = {
   accessToken: "at-a",
@@ -84,9 +91,11 @@ async function holdEntryStampedFor(
 describe("completeRedirect", () => {
   it("does nothing, and loads no chunk, on a URL that is not a callback", async () => {
     window.history.replaceState(null, "", "/my");
-    const { callback, oidc } = await fresh();
+    vi.resetModules();
+    chunk.loads = 0;
+    const callback = await import("./callback");
     await expect(callback.completeRedirect()).resolves.toBe("none");
-    expect(oidc.completeSignIn).not.toHaveBeenCalled();
+    expect(chunk.loads).toBe(0);
   });
 
   it("does nothing under the DEV header path, even on a callback URL", async () => {
@@ -102,6 +111,7 @@ describe("completeRedirect", () => {
     await holdEntryStampedFor(outbox, draft, "oid-a");
 
     await expect(callback.completeRedirect()).resolves.toBe("signed-in");
+    expect(callback.signInDidNotFinish()).toBe(false);
 
     const mirror = token.readMirror();
     expect(mirror?.subject).toBe("oid-a");
@@ -122,6 +132,7 @@ describe("completeRedirect", () => {
     vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
 
     await expect(callback.completeRedirect()).resolves.toBe("undone");
+    expect(callback.signInDidNotFinish()).toBe(false);
 
     expect(oidc.signOut).toHaveBeenCalledTimes(1);
     expect(vi.mocked(fetch)).not.toHaveBeenCalled();
@@ -148,14 +159,20 @@ describe("completeRedirect", () => {
     expect(markerAtSignOut).toBe("1");
   });
 
-  it("reads a failed stamp read as nothing held, so the sign-in proceeds (owner decision 4)", async () => {
-    const { callback, oidc, token, draft } = await fresh();
+  it("reads a failed stamp read as nothing held, so the sign-in proceeds, and the send guard still holds (owner decision 4)", async () => {
+    const { callback, oidc, token, draft, outbox } = await fresh();
+    await holdEntryStampedFor(outbox, draft, "oid-b");
     vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
     vi.spyOn(draft.db.drafts, "get").mockRejectedValue(new Error("storage unavailable"));
+    const held = vi.spyOn(draft.db.table("outbox"), "toArray");
+    held.mockRejectedValueOnce(new Error("storage unavailable"));
 
     await expect(callback.completeRedirect()).resolves.toBe("signed-in");
     expect(oidc.signOut).not.toHaveBeenCalled();
     expect(token.lastKnownSubject()).toBe("oid-a");
+    // The flush runs under oid-a; the entry is oid-b's, so nothing is sent.
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled();
   });
 
   it("reports an error return as not finished, and removes the query", async () => {
@@ -193,6 +210,20 @@ describe("completeRedirect", () => {
     expect(token.readMirror()).toBeNull();
   });
 
+  it("still reports failed when the library's user cannot be removed", async () => {
+    const { callback, oidc } = await fresh();
+    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    vi.mocked(oidc.discardUser).mockImplementation(() => {
+      throw new Error("chunk unavailable");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+
+    await expect(callback.completeRedirect()).resolves.toBe("failed");
+    expect(callback.signInDidNotFinish()).toBe(true);
+  });
+
   it("fails the same way when only the last-known subject cannot be written", async () => {
     const { callback, oidc, token } = await fresh();
     vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
@@ -216,6 +247,11 @@ describe("safeReturnPath", () => {
     expect(callback.safeReturnPath("/capture/v1?taskId=t1")).toBe("/capture/v1?taskId=t1");
     expect(callback.safeReturnPath("https://evil.test/x")).toBe("/");
     expect(callback.safeReturnPath("//evil.test/x")).toBe("/");
+    // new URL() collapses these to a path that starts with two slashes.
+    expect(callback.safeReturnPath("/..//evil.test")).toBe("/");
+    expect(callback.safeReturnPath("/.//evil.test")).toBe("/");
+    expect(callback.safeReturnPath("/%2e%2e//evil.test")).toBe("/");
+    expect(callback.safeReturnPath("javascript:alert(1)")).toBe("/");
     expect(callback.safeReturnPath("/\\evil.test")).toBe("/");
     expect(callback.safeReturnPath(undefined)).toBe("/");
     expect(callback.safeReturnPath(42)).toBe("/");

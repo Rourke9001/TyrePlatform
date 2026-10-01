@@ -30,6 +30,10 @@ function render() {
   );
 }
 
-// The callback settles before the first render: the U104 compare must run
-// before anything calls the API as the person who just signed in (ADR-0016).
-void completeRedirect().then(render, render);
+// Settled before the first render (callback.ts says why). A rejection is
+// logged once with no token or URL, and the app still renders.
+completeRedirect()
+  .catch(() => {
+    console.error("sign-in callback failed");
+  })
+  .finally(render);

@@ -171,6 +171,28 @@ describe("renew", () => {
     expect(tokens?.subject).toBe("oid-a");
   });
 
+  // oidc-client-ts has no default request timeout (1014, 1069), so without
+  // one a stalled metadata or code-exchange request leaves the callback page
+  // blank. Metadata discovery (878) is the request this can observe.
+  it("bounds its discovery request with an abort signal", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(SETTINGS.metadata), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const { navigator, urls } = capturing();
+
+    void createAuth({ ...SETTINGS, metadata: undefined }, navigator).signIn("/x");
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+
+    const init = (fetchMock.mock.calls as unknown as [string, RequestInit][])[0][1];
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
   // U102: the 24-hour refresh token has lapsed. Nothing outlives the session.
   it("removes the stored user and returns null on invalid_grant", async () => {
     storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });

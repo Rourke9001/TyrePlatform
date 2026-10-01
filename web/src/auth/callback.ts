@@ -21,13 +21,16 @@ export function isRedirectCallback(url: URL): boolean {
   return url.pathname === "/" && q.has("state") && (q.has("code") || q.has("error"));
 }
 
-// returnTo rides through the identity provider inside the request's state, so
-// only a same-origin path is followed; anything else is an open redirect.
+// Only the state id goes to the identity provider; returnTo stays in the
+// local state store. The same-origin check is defence in depth for a value
+// read back from storage. It tests the parsed path, because new URL() turns
+// "/..//evil.test" into "//evil.test", which a browser reads as another host.
 export function safeReturnPath(value: unknown): string {
-  if (typeof value !== "string" || !value.startsWith("/") || value.startsWith("//")) return "/";
+  if (typeof value !== "string" || !value.startsWith("/")) return "/";
   try {
     const url = new URL(value, window.location.origin);
-    return url.origin === window.location.origin ? `${url.pathname}${url.search}${url.hash}` : "/";
+    if (url.origin !== window.location.origin || url.pathname.startsWith("//")) return "/";
+    return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/";
   }
@@ -40,8 +43,9 @@ async function othersHeld(subject: string): Promise<boolean> {
 }
 
 // U104: sign the newcomer out through the full signOut(), marker first. A
-// rejection (end-session metadata unreachable offline) leaves nothing local
-// to keep, so it counts as signed out.
+// rejection (end-session metadata unreachable offline) still counts as signed
+// out: oidc.ts signOut clears the entry's keys first, and the library's own
+// removeUser runs before it navigates.
 async function undoSignIn(): Promise<void> {
   try {
     window.sessionStorage.setItem(OTHER_DRIVER_KEY, "1");
@@ -51,14 +55,14 @@ async function undoSignIn(): Promise<void> {
   try {
     await (await authChunk()).signOut();
   } catch {
-    // signOut clears the mirror and subject before it can reject.
+    // Signed out locally; see above.
   }
 }
 
 export type RedirectOutcome = "none" | "signed-in" | "failed" | "undone";
 
 // Runs before the first render (main.tsx), so the U104 compare comes before
-// anything calls the API as the person who just signed in (ADR-0016).
+// anything calls the API as the person who just signed in (ADR-0016, U104).
 export async function completeRedirect(): Promise<RedirectOutcome> {
   const url = new URL(window.location.href);
   if (!bearerMode() || !isRedirectCallback(url)) return "none";
@@ -94,7 +98,11 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     // cannot track and no draft could start (U104; spec section 6). Both go,
     // so that load shows the sign-in screen.
     clearMirror();
-    await (await authChunk()).discardUser().catch(() => undefined);
+    try {
+      await (await authChunk()).discardUser();
+    } catch {
+      // Nothing more to remove from here; the sign-in still did not finish.
+    }
     didNotFinish = true;
     return "failed";
   }

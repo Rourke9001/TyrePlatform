@@ -87,6 +87,10 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       automaticSilentRenew: false,
       monitorSession: false,
       loadUserInfo: false,
+      // The library sets no timeout of its own (oidc-client-ts.js 1014, 1069),
+      // so a stalled metadata or token request would leave the page blank.
+      // 10 s is its own silent-request default.
+      requestTimeoutInSeconds: 10,
       ...(settings.metadata ? { metadata: settings.metadata } : {}),
     },
     redirectNavigator,
