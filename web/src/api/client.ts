@@ -3,8 +3,14 @@
 
 import { getDevActorId, getDevTenantId } from "./devTenant";
 import { ApiError } from "./apiError";
+import { authUnavailable, bearerMode, refused, sender, type Sender } from "./token";
 
 export { ApiError } from "./apiError";
+
+// The one name the bearer travels under here, and one constant in Go
+// (bearer.HeaderName). If Static Web Apps strips it on the linked backend,
+// the fallback header changes in those two places only (ADR-0016, TYRE-51).
+export const AUTH_HEADER = "Authorization";
 
 // An unreadable body yields nulls, not a throw (ADR-0012): failing to parse
 // a refusal must not lose the inspection the outbox is holding. Both fields
@@ -23,15 +29,26 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
   }
 }
 
+const devSender: Sender = { accessToken: null, subject: null };
+
 // One implementation of identity attribution, refusal shaping and 204
 // handling; apiGet/Post/Patch delegate here so they cannot drift apart.
-async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function send<T>(method: string, path: string, body?: unknown, as?: Sender): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const devTenant = getDevTenantId();
-  const devActor = getDevActorId();
-  if (devTenant) headers["X-Tenant-ID"] = devTenant;
-  if (devActor) headers["X-User-ID"] = devActor;
+  // No await on the DEV header path: fetch starts in the caller's own tick,
+  // which tests that hold the response open rely on.
+  const who = as ?? (import.meta.env.DEV && !bearerMode() ? devSender : await sender());
+  if (who.accessToken !== null) {
+    headers[AUTH_HEADER] = `Bearer ${who.accessToken}`;
+  } else if (import.meta.env.DEV) {
+    // Inside the DEV guard so a production build names neither header
+    // (scripts/check-dist-dev-strings.mjs holds it, TYRE-317).
+    const devTenant = getDevTenantId();
+    const devActor = getDevActorId();
+    if (devTenant) headers["X-Tenant-ID"] = devTenant;
+    if (devActor) headers["X-User-ID"] = devActor;
+  }
 
   const res = await fetch(path, {
     method,
@@ -39,6 +56,9 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) {
+    if (res.status === 401 && who.accessToken !== null && refused(who.accessToken)) {
+      throw authUnavailable();
+    }
     const { code, message } = await refusal(res);
     throw new ApiError(res.status, message ?? `${method} ${path} failed: ${res.status}`, code);
   }
@@ -57,6 +77,12 @@ export function apiGet<T>(path: string): Promise<T> {
 
 export function apiPost<T>(path: string, body: unknown): Promise<T> {
   return send<T>("POST", path, body);
+}
+
+// U104: the outbox sends under the credential it compared the entry's stamp
+// against, never one read again after the compare.
+export function apiPostAs<T>(path: string, body: unknown, as: Sender): Promise<T> {
+  return send<T>("POST", path, body, as);
 }
 
 // PATCH carries the unit's descriptive fields, ones no SQL rule governs
