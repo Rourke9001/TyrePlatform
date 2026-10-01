@@ -414,7 +414,8 @@ whatever numbers are free when the branch is cut.
   It is written in plpgsql, `SECURITY INVOKER`, with
   `SET search_path = app, pg_temp`, and takes no arguments.
   - It reads `nullif(current_setting('app.session_id', true), '')` and
-    `app.current_actor_id()`, and raises if either is NULL.
+    `app.current_actor_id()`, and raises if either is NULL, or if no tenant is
+    bound.
   - It inserts into `app.audit_log`:
     - `tenant_id = app.current_tenant_id()`;
     - `actor_id` = the actor;
@@ -564,8 +565,15 @@ MSAL was the obvious choice, and it is rejected:
 **The mirror.** The token store reads a mirror from one `localStorage` key:
 `{ accessToken, expiresAt, obtainedAt, subject, tenantId }`.
 
-- The auth chunk writes it after every renewal, and after a sign-in once the
-  U104 stamp compare has passed.
+- The token store writes it from what the auth chunk returns, after every
+  renewal. After a sign-in the redirect callback
+  (`web/src/auth/callback.ts`, in the entry) writes it once the U104 stamp
+  compare has passed, with `obtainedAt` set so the fresh-token latch covers a
+  sign-in too. The chunk returns tokens and writes neither key, so each key
+  has one writer. `signOut()` clears them.
+- A sign-in whose mirror or last-known subject cannot be written is reported
+  as not finished, and the library's stored user is removed, so no session
+  exists that the app cannot track.
 - `subject` is the `oid` from the ID token, which the `profile` scope
   carries. The client never decodes the access token.
 - `tenantId` comes from `/api/me`, which gains a `tenantId` field read from
@@ -617,13 +625,16 @@ reload.**
   reloading.
 - The token store holds the handle across its own import. The rule of never
   calling `preventDefault` stands for the route chunks.
-- Once, after the first render, while online and with a stored session, the
-  store warms the auth chunk. A later renewal in a dead zone then resolves
+- Once, after the first render, while online, in bearer mode and with a
+  last-known subject (not the mirror, which a 401 clears), the store warms the
+  auth chunk. A later renewal in a dead zone then resolves
   from the module map.
 
 **Sending.** `send()` in `web/src/api/client.ts` attaches
 `Authorization: Bearer`. On a 401 from the API it clears the mirror, so the
-next call renews, unless the token was fresh (above).
+next call renews, unless the token was fresh (above). It clears the mirror
+only if the mirror still holds the refused token: a slow 401 for an older
+token clears nothing.
 
 ### The redirect callback
 
@@ -647,9 +658,13 @@ The `UserManager` is configured as follows:
 - redirect URI and post-logout redirect URI both `/`;
 - `automaticSilentRenew: false`, set explicitly because the library defaults
   it to true;
-- no session-monitor iframe and no userinfo call.
+- no session-monitor iframe and no userinfo call;
+- `requestTimeoutInSeconds: 10`, so a stalled discovery, key or token request
+  cannot leave the page waiting.
 
-The chunk exports `signIn()`, `completeSignIn()`, `renew()` and `signOut()`.
+The chunk exports `signIn()`, `completeSignIn()`, `renew()`, `signOut()`
+and `discardUser()`, which removes the library's stored user when a sign-in
+cannot be recorded.
 
 ### Signing in
 
@@ -662,10 +677,10 @@ or 403, so a signed-out driver is not kept waiting through retries.
 
 | `failure` | When | What the app shows |
 | --- | --- | --- |
-| `signed-out` | 401 | The sign-in screen replaces the routes, but only when this page load's first `/api/me` settles with 401. The screen has one sentence, one "Email me a sign-in code" button at 56 to 64px (NFR-USE-004), and the count of inspections waiting. The button calls `signIn()`, a top-level redirect to Entra. |
+| `signed-out` | 401 | The sign-in screen replaces the routes on a 401 while no `/api/me` has succeeded in this page load. A settled failure is held through a later refetch until `/api/me` returns data. The screen has one sentence, one "Email me a sign-in code" button at 56 to 64px (NFR-USE-004), and the count of inspections waiting. The button calls `signIn()`, a top-level redirect to Entra. |
 | `not-set-up` | 403 `forbidden` or `not_provisioned` | A screen saying the account is not set up and to contact the fleet office (PD-S1). |
 | `tenant-inactive` | 403 `tenant_inactive` | A screen with `msgTenantInactive`. |
-| `unavailable` | 503 `auth_unavailable` | A screen saying sign-in is unavailable right now. It never shows the sign-in button. |
+| `unavailable` | 503 `auth_unavailable` | A screen saying sign-in is unavailable right now. It never shows the sign-in button. The query does not retry it, and the screen's "Try again" reloads. |
 
 **The prompt never interrupts a capture.**
 
@@ -686,7 +701,7 @@ inspection to whoever sends it, so the client makes sure that is the driver
 who captured it. The stamp fails closed:
 
 - **Its source.** The stamp is taken from its own `localStorage` key, the
-  last-known subject, not from the mirror. The auth chunk writes that key at
+  last-known subject, not from the mirror. The token store writes that key at
   every sign-in and renewal, and only `signOut()` clears it. A 401, which
   clears the mirror, leaves it alone.
 - **No subject, no draft.** A draft cannot start without a known subject. The
@@ -707,13 +722,15 @@ unsynced. SAP calls sending under the next user a security concern, and 21 CFR
 Part 11 and the MHRA's data integrity guidance both require records to be
 attributable to the person who made them.
 
-- After `completeSignIn()`, the token store compares the new subject with the
-  stamps on the draft and on every outbox entry.
+- After `completeSignIn()`, the redirect callback compares the new subject
+  with the stamps on the draft and on every outbox entry. A storage read that
+  fails at this compare reads as nothing held. The send guard below and the
+  draft-resume refusal fail closed instead, so attribution still holds.
 - If any stamp differs, the sign-in is undone through the full `signOut()`,
   including the end-session redirect. Ending the Entra session matters,
   because otherwise the next tap of "Sign in" would sign the same person
   straight back in.
-- Before that `signOut()`, the token store writes a one-shot marker to
+- Before that `signOut()`, the redirect callback writes a one-shot marker to
   `sessionStorage`. When the app comes back from the end-session redirect,
   the sign-in screen reads the marker, clears it, and says: "Inspections
   captured by another driver are waiting on this phone. They need to sign in
@@ -766,12 +783,18 @@ A plain "Sign out" button sits beside `ActorBadge` in the shell header. It is
 new, uses no Radix, and counts towards the entry rise. It imports the auth
 chunk's `signOut` lazily.
 
+A `signOut()` that rejects after the local clear counts as signed out
+locally, and its resolve is not completion: it is a navigation that a
+back-forward cache restore can undo. A failed import of the auth chunk shows
+a short line and leaves the driver signed in.
+
 The PD-S3 guard lives on this button, not in `signOut()`. `signOut()` itself
 is unconditional, because the U104 undo has to sign a person out while
 another driver's inspections are held.
 
 **When sign-out is refused.** It is refused while a draft or any outbox entry
-exists, whether queued, sending or failed (PD-S3). The refusal renders inline
+exists, whether queued, sending or failed (PD-S3). A storage read that fails
+at this guard reads as nothing held, so sign-out goes ahead. The refusal renders inline
 beneath the button, with a role of status. It says how many inspections are
 waiting and that sign-out comes back once they have sent, or once one the
 office has refused is removed.
@@ -801,7 +824,8 @@ The one persisted cache is `ThemeProvider`'s branding. Its key is
 same for every tenant. The fix:
 
 - In production the key becomes the signed-in tenant: the mirror's
-  `tenantId`, which `/api/me` supplies.
+  `tenantId`, falling back to the `tenantId` that `/api/me` returned. Both are
+  RLS-proven, and the provider re-renders when `/api/me` answers.
 - Sign-out removes every `tyre.branding.*` key.
 - Under vite dev the key stays on the dev tenant.
 
@@ -815,8 +839,9 @@ web-bundle`. It fails the build if the production `dist` contains
 `X-Tenant-ID`, `X-User-ID` or `tyre.dev.`. This makes TYRE-317's "absent from
 production builds" testable for the web.
 
-The rise is measured after the change and recorded once, with
-`npm run bundle:check -- --record` and a reason in the PR
+The rise is measured after each task that grows the entry and recorded in
+that task's commit, with `npm run bundle:check -- --record`, so every
+commit's gate is green. The PR reports one net rise with its reason
 (`scripts/check-capture-bundle.mjs:100`).
 
 ### Development and e2e
@@ -1078,7 +1103,8 @@ The project is `auth`, and its spec is `web/e2e/auth.spec.ts`.
 **Set-up:**
 
 - It runs on the Pixel 7, matched by `testMatch: /auth\.spec/`. The other
-  four projects add `auth\.spec` to `testIgnore`.
+  three projects that would match it add `auth\.spec` to `testIgnore`;
+  `bac-readonly` already matches only `dashboard\.spec`.
 - It sets the bearer flag before each test.
 - The stub values for `VITE_AUTH_*` come from a committed
   `web/.env.development`, which points at a non-routable host,
