@@ -953,10 +953,8 @@ type userBody struct {
 // wrapper key.
 func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
-	var body struct {
-		Code string `json:"code"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	var body refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
 	return body.Code
 }
 

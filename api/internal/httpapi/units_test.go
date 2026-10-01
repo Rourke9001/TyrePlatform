@@ -292,12 +292,7 @@ func TestGetUnitIsTenantScoped(t *testing.T) {
 
 	rec := get(t, h, "/api/vehicles/"+vehicleA.String(), tenantB.String(), userB.String())
 	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
-
-	var body struct {
-		Code string `json:"code"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, "not_found", body.Code)
+	require.Equal(t, "not_found", errorCode(t, rec))
 }
 
 type fitmentHistoryBody struct {

@@ -35,15 +35,6 @@ func getWithToken(t *testing.T, h http.Handler, path, token string) *httptest.Re
 	return rec
 }
 
-func refusalCode(t *testing.T, rec *httptest.ResponseRecorder) string {
-	t.Helper()
-	var body struct {
-		Code string `json:"code"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
-	return body.Code
-}
-
 // The app role cannot write app_user.subject (000052), so the subject is
 // linked through the admin connection the way the provisioning runbook does.
 func linkSubject(t *testing.T, ctx context.Context, admin *pgx.Conn, userID uuid.UUID) uuid.UUID {
@@ -78,7 +69,7 @@ func TestBearerAnUnlinkedOrInactiveUserIsForbidden(t *testing.T) {
 
 	rec := getWithToken(t, h, "/api/me", idp.Mint(t, idp.Claims(uuid.New(), tenantID)))
 	require.Equal(t, http.StatusForbidden, rec.Code, "an unlinked subject")
-	require.Equal(t, "forbidden", refusalCode(t, rec))
+	require.Equal(t, "forbidden", errorCode(t, rec))
 
 	userID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	subject := linkSubject(t, ctx, admin, userID)
@@ -88,7 +79,7 @@ func TestBearerAnUnlinkedOrInactiveUserIsForbidden(t *testing.T) {
 	require.NoError(t, err)
 	rec = getWithToken(t, h, "/api/me", idp.Mint(t, idp.Claims(subject, tenantID)))
 	require.Equal(t, http.StatusForbidden, rec.Code, "an inactive user")
-	require.Equal(t, "forbidden", refusalCode(t, rec))
+	require.Equal(t, "forbidden", errorCode(t, rec))
 }
 
 // ADR-0016 decision 5, end to end: a tenant claim naming another tenant finds
@@ -104,7 +95,7 @@ func TestBearerATenantClaimNamingAnotherTenantIsForbidden(t *testing.T) {
 	require.Equal(t, http.StatusOK, getWithToken(t, h, "/api/me", idp.Mint(t, idp.Claims(subject, tenantA))).Code)
 	rec := getWithToken(t, h, "/api/me", idp.Mint(t, idp.Claims(subject, tenantB)))
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-	require.Equal(t, "forbidden", refusalCode(t, rec))
+	require.Equal(t, "forbidden", errorCode(t, rec))
 }
 
 func TestBearerATenantThatIsNotActiveIsRefused(t *testing.T) {
@@ -124,7 +115,7 @@ func TestBearerATenantThatIsNotActiveIsRefused(t *testing.T) {
 				return
 			}
 			require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-			require.Equal(t, "tenant_inactive", refusalCode(t, rec))
+			require.Equal(t, "tenant_inactive", errorCode(t, rec))
 		})
 	}
 }
@@ -138,7 +129,7 @@ func TestBearerAMissingTenantClaimIsNotProvisioned(t *testing.T) {
 
 	rec := getWithToken(t, h, "/api/me", idp.Mint(t, claims))
 	require.Equal(t, http.StatusForbidden, rec.Code)
-	require.Equal(t, "not_provisioned", refusalCode(t, rec))
+	require.Equal(t, "not_provisioned", errorCode(t, rec))
 }
 
 func TestBearerASessionStartIsRecordedOnce(t *testing.T) {
