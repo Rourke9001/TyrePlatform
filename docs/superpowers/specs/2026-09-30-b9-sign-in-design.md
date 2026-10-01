@@ -922,9 +922,11 @@ commit's gate is green. The PR reports one net rise with its reason
 Every SQL step runs as the owning role (section 2), inside
 `BEGIN; SELECT set_config('app.tenant_id', '<tenant>', true); ...; COMMIT;`.
 Each step expects the stated row count and otherwise runs `ROLLBACK` and
-stops.
+stops. Each statement scopes itself with `app.current_tenant_id()`, because
+email is unique only per tenant and the role may bypass RLS (section 2: the
+link works whether or not it does).
 
-1. **Confirm the tenant.** `SELECT state FROM app.tenant` returns `ACTIVE`,
+1. **Confirm the tenant.** `SELECT state FROM app.tenant WHERE id = app.current_tenant_id()` returns `ACTIVE`,
    because TYRE-376 refuses `PROVISIONING`.
 2. **Create the person in the External ID admin center,** or by Graph, in
    whatever shape check b proves works with the passcode flow. Then set their
@@ -939,10 +941,10 @@ stops.
    same email address.
    - A tenant's first `ORG_ADMIN` has nobody to invite them. They are
      inserted by SQL instead:
-     `INSERT INTO app.app_user (tenant_id, email, display_name, role) VALUES ('<tenant>', '<email>', '<name>', 'ORG_ADMIN')`,
+     `INSERT INTO app.app_user (tenant_id, email, display_name, role) VALUES (app.current_tenant_id(), '<email>', '<name>', 'ORG_ADMIN')`,
      expecting one row.
 5. **Link the subject:**
-   `UPDATE app.app_user SET subject = '<oid>' WHERE lower(email) = lower('<email>') AND subject IS NULL RETURNING id`,
+   `UPDATE app.app_user SET subject = '<oid>' WHERE lower(email) = lower('<email>') AND subject IS NULL AND tenant_id = app.current_tenant_id() RETURNING id`,
    expecting exactly one row.
 6. **Check the link.** Have the person sign in once before their first field
    day, and confirm the app greets them by name. A linking mistake then shows
@@ -951,7 +953,7 @@ stops.
 **A rehire with a new Entra account.** An admin first reactivates the user in
 the app; `createUser` reactivates by email and keeps the old subject. Then:
 
-`UPDATE app.app_user SET subject = '<new oid>' WHERE lower(email) = lower('<email>') AND subject = '<old oid>'`,
+`UPDATE app.app_user SET subject = '<new oid>' WHERE lower(email) = lower('<email>') AND subject = '<old oid>' AND tenant_id = app.current_tenant_id()`,
 
 expecting one row.
 
@@ -960,7 +962,8 @@ disabled account can never send its held entries, and the U104 stamp keeps
 anyone else from sending them. The same holds for a rehire who gets a new
 Entra account: their old held entries carry the old `oid`. Then, until
 TYRE-377 lands, run
-`UPDATE app.app_user SET active = false WHERE id = '<id>'`, expecting one
+`SELECT id, tenant_id, display_name, active FROM app.app_user WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id()` (expecting one row) and then
+`UPDATE app.app_user SET active = false WHERE id = '<id>' AND tenant_id = app.current_tenant_id()`, expecting one
 row, and disable the Entra account.
 
 ### Entra settings

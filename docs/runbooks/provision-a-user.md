@@ -21,10 +21,17 @@ Entra tenant, and the app cannot write the link.
   ```
 
 - Each step says how many rows it expects. Any other count: `ROLLBACK;` and
-  stop. In Azure the owning role is not a superuser, so RLS binds it, and a
-  step run without the `set_config` line updates 0 rows with no error.
-  Locally `postgres` bypasses RLS, so the same mistake goes unseen there. The
-  row count is the check.
+  stop.
+- The binding scopes each statement through its WHERE clause
+  (`app.current_tenant_id()`), so the step is correct whether or not the
+  role bypasses RLS. Email is unique only per tenant, and a bypassing role
+  would otherwise reach another tenant's row at the expected count. A missing
+  `set_config` gives 0 rows under either kind of role. To see which kind the
+  Azure role is:
+
+  ```sql
+  SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
 
 ## Entra settings, once
 
@@ -37,31 +44,35 @@ Owner actions, recorded on Confluence page 10682399.
 - Requested access token version 2 (check a).
 - `acceptMappedClaims` set to true. Microsoft accepts it only when the
   requested audience is the app's GUID or an identifier URI on a verified
-  domain; otherwise sign-in fails with `AADSTS501461`. The fix is the
-  identifier URI `https://<tenant>.onmicrosoft.com/tyre-api`, with
-  `VITE_AUTH_API_SCOPE` changed to match. That is configuration, not a
-  failure of U101.
+  domain; otherwise sign-in fails with `AADSTS501461`. Check a records the
+  identifier URI. Only if check c2 returns that error, change the identifier
+  URI to `https://<tenant>.onmicrosoft.com/tyre-api`, change
+  `VITE_AUTH_API_SCOPE` to match, and run c2 again. That is configuration,
+  not a failure of U101.
 - The `access_as_user` scope.
 - `sid` as an optional claim on the access token. Without it every hourly
   token counts as a new session, and FR-AUD-002's `session_id` cannot tie a
   day's work together. Check c2 confirms it arrives.
 - The tenant claim: a custom user attribute for the platform tenant, added
   in the enterprise app under Attributes and Claims with source "Directory
-  schema extension". The name it arrives under is `AUTH_TENANT_CLAIM`.
+  schema extension". Its emitted name goes into `AUTH_TENANT_CLAIM`.
   **Stage 2:** the name from check c2.
 - No Microsoft Graph application permission (TYRE-378).
 
 **The user flow** (a46a2c2f-4cc0-4422-877e-533ba4c92060)
 
-- Self-service sign-up is off.
+- Self-service sign-up is off. Set it as an owner action, by a Graph PATCH
+  on `identity/authenticationEventsFlows/{user flow id}` (beta) with
+  `onInteractiveAuthFlowStart.isSignUpAllowed` set to false.
 - The tenant attribute is not collected on the sign-up page. Only the owner
   sets it, by Graph. Anyone who could set it could name any tenant.
 
 **tyre-pwa**
 
 - SPA redirect URIs `http://localhost:5173/` and the Static Web App's
-  origin followed by `/`, and nothing else. Remove `https://jwt.ms` and any
-  implicit-grant setting added for checks b and c.
+  origin followed by `/`, and nothing else. Once checks b and c have their
+  results posted, remove `https://jwt.ms` and any implicit-grant setting
+  added for them.
 - Admin consent to tyre-api's `access_as_user`.
 
 ## Provision a person
@@ -70,7 +81,7 @@ Owner actions, recorded on Confluence page 10682399.
    sign-in refused (TYRE-376).
 
    ```sql
-   SELECT state FROM app.tenant WHERE id = '<tenant id>';
+   SELECT state FROM app.tenant WHERE id = app.current_tenant_id();
    ```
 
    Expect one row: `ACTIVE`.
@@ -93,7 +104,7 @@ Owner actions, recorded on Confluence page 10682399.
 
    ```sql
    INSERT INTO app.app_user (tenant_id, email, display_name, role)
-   VALUES ('<tenant id>', '<email>', '<name>', 'ORG_ADMIN');
+   VALUES (app.current_tenant_id(), '<email>', '<name>', 'ORG_ADMIN');
    ```
 
    Expect `INSERT 0 1`.
@@ -102,6 +113,7 @@ Owner actions, recorded on Confluence page 10682399.
    ```sql
    UPDATE app.app_user SET subject = '<oid>'
     WHERE lower(email) = lower('<email>') AND subject IS NULL
+      AND tenant_id = app.current_tenant_id()
    RETURNING id;
    ```
 
@@ -117,7 +129,8 @@ email and keeps the old subject. Then:
 
 ```sql
 UPDATE app.app_user SET subject = '<new oid>'
- WHERE lower(email) = lower('<email>') AND subject = '<old oid>';
+ WHERE lower(email) = lower('<email>') AND subject = '<old oid>'
+   AND tenant_id = app.current_tenant_id();
 ```
 
 Expect `UPDATE 1`.
@@ -136,9 +149,13 @@ them (U104). The leaver step below exists so that never happens.
    find the id and deactivate by it:
 
    ```sql
-   SELECT id FROM app.app_user WHERE lower(email) = lower('<email>');
-   UPDATE app.app_user SET active = false WHERE id = '<user id>';
+   SELECT id, tenant_id, display_name, active FROM app.app_user
+    WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id();
+   UPDATE app.app_user SET active = false
+    WHERE id = '<user id>' AND tenant_id = app.current_tenant_id();
    ```
+
+   Expect one row from the SELECT.
 
    Expect `UPDATE 1`. It bites on their next request (ADR-0011).
 3. **Disable their Entra account.** An access token the API has already
