@@ -76,10 +76,12 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 
 // submitRateLimit composes the two counters into NFR-SEC-007's one
 // middleware, built once at router construction and closed over here (see
-// New). Keyed on the identity requireActor resolved through accountKey, never
-// a raw header, which is unauthenticated input. requireActor's r.Use ordering
-// guarantee is TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
-func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(http.Handler) http.Handler {
+// New). Both keys are requireActor's: the identity through accountKey, never
+// a raw header, which is unauthenticated input, and the client address it
+// binds before the identity, so a bound identity means a bound address.
+// requireActor's r.Use ordering guarantee is
+// TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
+func submitRateLimit(account, address *rateLimiter) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id, ok := identityFrom(r.Context())
@@ -92,7 +94,7 @@ func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(h
 				return
 			}
 
-			host := clientAddress(r, trustedProxyHops)
+			host := clientFrom(r.Context())
 
 			now := time.Now()
 			// Both counters always advance, even if one has already
