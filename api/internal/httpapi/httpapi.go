@@ -75,7 +75,6 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.With(submitRateLimit(
 			newRateLimiter(accountSubmitsPerMinute),
 			newRateLimiter(addressSubmitsPerMinute),
-			o.trustedProxyHops,
 		)).Post("/inspections", submitInspection(s))
 		// Unlike the submit above, no rate limiter: FR-INS-012 gates this on
 		// VoidInspection, a human role, not on an unattended outbox retrying
