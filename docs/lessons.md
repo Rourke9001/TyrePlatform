@@ -28,6 +28,39 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-01 - vitest's default worker count times out untouched jsdom tests on this host (TYRE-317)
+
+**What happened:** `make check` on a branch that touched no web file failed
+`web-test` three runs in a row with `Test timed out in 5000ms` in
+CaptureFlow, Exceptions and Dashboard tests, a different handful each run,
+plus one Dashboard debounce assertion (3 calls against 2). Vitest 4.1 starts
+about 15 workers on the 16-core host, each building a jsdom environment,
+with about 3.6 GB of RAM free: setup summed 200 s and environment 400 s
+inside an 86 s run. The same three files passed alone in 32 s, and
+`VITEST_MAX_WORKERS=4 make check` passed 837 of 837.
+
+**The rule:** on this host run the gate as `VITEST_MAX_WORKERS=4 make check`.
+When web tests time out in files the branch did not touch, cap the workers
+and re-run before reading the diff for a cause. Never raise a test timeout or
+add `maxWorkers` to `vite.config.ts` to get there: the limit is the host's,
+not the repo's. This differs from 2026-09-24, where workers exited; here they
+ran and were too slow.
+
+## 2026-10-01 - A down-file proof that moves migration files aside through a Windows temp-path glob loses them, and `migrate down 1` then reverts the wrong migration (TYRE-317)
+
+**What happened:** to take a pre-000052 baseline, the migration files were
+moved to `$TMP/hold` and brought back with an unquoted glob on the Windows
+temp path (`C:\Users\ROURKE~1\...`). The glob did not match, so the files
+stayed in scratch, `make db-reset` stopped at the seeds (which already
+named the new column), the database sat at 000051, and `migrate down 1`
+reverted 000051 while the diff still printed "grants restored".
+
+**The rule:** never prove a down file by moving its migration out of
+`db/migrations/`. Take the baseline from a copy of the catalogue taken
+before the up is applied (migrate to the prior version, query, then up); and
+before trusting a `down 1`, read the `NN/d name` line it prints
+and check it is the migration under test.
+
 ## 2026-09-30 - `String.replace` turns a SQL `$$` into `$` when splicing a suite section (TYRE-346)
 
 **What happened:** suite section 67 was spliced into `db/tests/004_tests.sql`
@@ -1535,18 +1568,3 @@ premise against the source or the running database, not against the review
 text; a test that passes before the fix is the premise failing, not the
 fix being unnecessary. And a gate's control carries the shape its real
 input has, tags and all, or the run proves only that the control fires.
-
-## 2026-10-01 — A down-file proof that moves migration files aside through a Windows temp-path glob loses them, and `migrate down 1` then reverts the wrong migration (TYRE-317)
-
-**What happened:** to take a pre-000052 baseline, the migration files were
-moved to `$TMP/hold` and brought back with an unquoted glob on the Windows
-temp path (`C:\Users\ROURKE~1\...`). The glob did not match, so the files
-stayed in scratch, `make db-reset` stopped at the seeds (which already
-named the new column), the database sat at 000051, and `migrate down 1`
-reverted 000051 while the diff still printed "grants restored".
-
-**The rule:** never prove a down file by moving its migration out of
-`db/migrations/`. Take the baseline from a copy of the catalogue taken
-before the up is applied (migrate to the prior version, query, then up); and
-before trusting a `down 1`, read the `NN/d name` line it prints
-and check it is the migration under test.
