@@ -104,15 +104,14 @@ func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.
 	return nil
 }
 
-// ErrNoSuchActor means the request named a user this tenant cannot see, or
-// one that has been deactivated. The two are the same refusal to a client and
+// ErrNoSuchActor means the key resolved to no user this tenant can see, or to
+// one that has been deactivated: an unknown or wrong-tenant user id, or a
+// subject linked to no visible user. All are the same refusal to a client and
 // distinguishable only in the log (FR-AUT-011, ADR-0011).
 var ErrNoSuchActor = errors.New("actor not found or inactive")
 
 // ActorKey names who a request acts as. Exactly one of UserID and Subject is
-// set: UserID by the dev header resolver, Subject (the Entra oid) by the
-// bearer resolver (ADR-0016). It lives here because store cannot import
-// httpapi.
+// set (spec section 2, ADR-0016).
 type ActorKey struct {
 	TenantID  uuid.UUID
 	UserID    uuid.UUID
@@ -144,7 +143,7 @@ func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, aut
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
 
 	// app.session_id is bound only for a bearer request; TYRE-201's trigger
-	// and app.record_session_start() read it (FR-AUD-002, FR-AUD-004).
+	// will read it, and app.record_session_start() does (FR-AUD-002, FR-AUD-004).
 	if _, err := tx.Exec(ctx,
 		`SELECT set_config('app.tenant_id', $1::text, true),
 		        CASE WHEN $2::text <> '' THEN set_config('app.session_id', $2::text, true) END`,
