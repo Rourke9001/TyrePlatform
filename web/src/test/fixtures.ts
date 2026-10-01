@@ -11,9 +11,10 @@ import type { DashboardBody, ExceptionRow, SpareRow, TyreAtRisk } from "../api/d
 import type { Money } from "../api/money";
 
 // The default retries a failed request three times with backoff, which
-// would schedule timers that outlive the test body.
+// would schedule timers that outlive the test body. A query that sets its own
+// retry (captureContextQuery) still retries, so its delay is zero here.
 export function testQueryClient(): QueryClient {
-  return new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return new QueryClient({ defaultOptions: { queries: { retry: false, retryDelay: 0 } } });
 }
 
 // The one construction site for a test actor: when Me gains a field, tsc

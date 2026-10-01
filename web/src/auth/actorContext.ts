@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 
 import { ApiError } from "../api/apiError";
+import { bearerMode } from "../api/token";
 import type { Me } from "./me";
 
 // Context and hook live apart from the provider component: exporting a
@@ -44,12 +45,12 @@ export function useAuthFailure(): AuthFailure {
   return useContext(ActorContext).failure ?? null;
 }
 
-// True while AuthGate is showing the sign-in screen (spec section 4). That
-// screen carries its own waiting count and sign-in button, so the outbox
-// indicator above it must not offer a second one.
-export function useSignInScreenShowing(): boolean {
+// True while AuthGate shows a gate screen (sign-in, not set up, inactive or
+// unavailable; spec section 4). Each carries its own action, so nothing
+// mounted above the gate may offer another sign-in.
+export function useGateScreenShowing(): boolean {
   const { actor, settled, failure } = useContext(ActorContext);
-  return actor === null && settled && failure === "signed-out";
+  return bearerMode() && actor === null && settled && (failure ?? null) !== null;
 }
 
 export function useActorSettled(): boolean {

@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 
 import { bearerMode, stampSubject } from "../api/token";
-import { useSignInScreenShowing } from "../auth/actorContext";
+import { useGateScreenShowing } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 
 import { ConfirmDiscard } from "./ConfirmDiscard";
@@ -13,7 +13,7 @@ import "./capture.css";
 // away from the vehicle still needs to know something is waiting to send.
 export function OutboxIndicator() {
   const entries = useOutbox();
-  const signInScreen = useSignInScreenShowing();
+  const gateShowing = useGateScreenShowing();
 
   useEffect(() => {
     // FR-OFF-009: on app-open, and whenever connectivity returns while the
@@ -37,12 +37,11 @@ export function OutboxIndicator() {
   const waiting = entries.filter((e) => e.state !== "failed");
   const blocked = entries.filter((e) => e.state === "failed");
   const stale = waiting.filter((e) => isStale(e));
-  // Only this driver's held work counts: another driver's waits for them
-  // (U104). Hidden under the sign-in screen, which carries its own count and
-  // button (spec section 4).
+  // U104: only this driver's held work; another driver's waits for them.
+  // Hidden under a gate screen (useGateScreenShowing says why).
   const me = stampSubject();
   const needSignIn =
-    bearerMode() && !signInScreen
+    bearerMode() && !gateShowing
       ? waiting.filter((e) => e.lastStatus === 401 && mayCarry(e, me)).length
       : 0;
 

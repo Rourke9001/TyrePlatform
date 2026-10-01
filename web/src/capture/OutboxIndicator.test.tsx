@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { ActorContext } from "../auth/actorContext";
+import { me } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { db } from "./draft";
 import type { OutboxEntry, OutboxState } from "./outbox";
@@ -205,15 +206,28 @@ describe("the sign-in line", () => {
 
   // The shell mounts the indicator above AuthGate, so the sign-in screen
   // already carries the count and the button (spec section 4).
-  it("stays quiet while the sign-in screen is showing", async () => {
+  it.each(["signed-out", "not-set-up", "tenant-inactive", "unavailable"] as const)(
+    "stays quiet while the %s gate screen is showing",
+    async (failure) => {
+      await outbox().put({ ...entry("u1", "queued"), lastStatus: 401 });
+      render(
+        <ActorContext.Provider value={{ actor: null, settled: true, failure }}>
+          <OutboxIndicator />
+        </ActorContext.Provider>,
+      );
+      await screen.findByText(/1 inspection waiting to send/);
+      expect(screen.queryByText(/Sign in to send/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    },
+  );
+
+  it("still offers the sign-in when the page has an actor and a later 401 holds work", async () => {
     await outbox().put({ ...entry("u1", "queued"), lastStatus: 401 });
     render(
-      <ActorContext.Provider value={{ actor: null, settled: true, failure: "signed-out" }}>
+      <ActorContext.Provider value={{ actor: me(), settled: true, failure: "signed-out" }}>
         <OutboxIndicator />
       </ActorContext.Provider>,
     );
-    await screen.findByText(/1 inspection waiting to send/);
-    expect(screen.queryByText(/Sign in to send/)).toBeNull();
-    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    expect(await screen.findByText("Sign in to send 1 inspection")).toBeInTheDocument();
   });
 });

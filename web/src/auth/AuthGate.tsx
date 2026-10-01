@@ -2,7 +2,7 @@ import { useEffect, type ReactNode } from "react";
 
 import { authChunk, bearerMode, lastKnownSubject } from "../api/token";
 import { AccessScreen } from "./AccessScreen";
-import { useActor, useActorSettled, useAuthFailure } from "./actorContext";
+import { useAuthFailure, useGateScreenShowing } from "./actorContext";
 import { SignInScreen } from "./SignInScreen";
 
 // The sign-in or access screen shows while no GET /api/me has succeeded in
@@ -10,8 +10,7 @@ import { SignInScreen } from "./SignInScreen";
 // (spec section 4). Once an actor is in hand a later 401 keeps the routes and
 // SignInLine offers sign-in beside them, so a capture is never unmounted.
 export function AuthGate({ children }: { children: ReactNode }) {
-  const actor = useActor();
-  const settled = useActorSettled();
+  const gated = useGateScreenShowing();
   const failure = useAuthFailure();
 
   // After the first render, online, with a session stored, so a later renewal
@@ -23,7 +22,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  if (!bearerMode() || actor !== null || !settled || failure === null) return <>{children}</>;
+  if (!gated || failure === null) return <>{children}</>;
   if (failure === "signed-out") return <SignInScreen />;
   return <AccessScreen failure={failure} />;
 }
