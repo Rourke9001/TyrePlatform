@@ -1,10 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E runs against the DEV server on purpose: identity comes from the dev
-// actor headers (src/api/devTenant.ts, import.meta.env.DEV only), since there
-// is no real identity provider yet (FR-AUT-001). The API must be listening on
-// :8080 with APP_DEV_TENANT_HEADER=1 over a seeded database; make e2e checks
-// this first.
+// E2E runs against the DEV server on purpose: in every project but auth,
+// identity is the dev actor headers (src/api/devTenant.ts,
+// import.meta.env.DEV only). The auth project signs in against a stubbed
+// identity provider and swaps the bearer for the Sandbox dev headers on /api
+// (e2e/idp.ts, the one mocking exception web/CLAUDE.md names). The API must
+// be listening on :8080 with APP_DEV_TENANT_HEADER=1 over a seeded database;
+// make e2e checks this first.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -34,7 +36,7 @@ export default defineConfig({
     {
       name: "chromium",
       use: { ...devices["Desktop Chrome"] },
-      testIgnore: /capture\.spec|dashboard\.spec/,
+      testIgnore: /capture\.spec|dashboard\.spec|auth\.spec/,
     },
     // The capture app is judged at phone dimensions or not at all: thumb reach,
     // 44px targets and sunlight legibility are the design, not the styling.
@@ -49,7 +51,8 @@ export default defineConfig({
       name: "android",
       use: { ...devices["Pixel 7"] },
       dependencies: ["bac-readonly"],
-      testIgnore: /admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec/,
+      testIgnore:
+        /admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec|auth\.spec/,
     },
     // iPhone 14 is WebKit, buying the second phone viewport and nothing more:
     // capture.spec.ts is ignored here since FR-INS-038's window is per unit
@@ -60,7 +63,15 @@ export default defineConfig({
       name: "ios",
       use: { ...devices["iPhone 14"] },
       testIgnore:
-        /capture\.spec|admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec/,
+        /capture\.spec|admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec|auth\.spec/,
+    },
+    // Sign-in and sign-out against the stub (TYRE-317). Its own Pixel 7
+    // project so the bearer flag and the route stubs never touch the others,
+    // and so its Sandbox submits run once.
+    {
+      name: "auth",
+      use: { ...devices["Pixel 7"] },
+      testMatch: /auth\.spec/,
     },
   ],
   webServer: {
