@@ -613,6 +613,7 @@ func TestRefusalsCarryTheEnvelope(t *testing.T) {
 
 type meBody struct {
 	UserID       string   `json:"userId"`
+	TenantID     string   `json:"tenantId"`
 	DisplayName  string   `json:"displayName"`
 	Role         string   `json:"role"`
 	Capabilities []string `json:"capabilities"`
@@ -633,6 +634,7 @@ func TestMeReportsTheRoleTheDatabaseHolds(t *testing.T) {
 	var me meBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &me))
 	require.Equal(t, userID.String(), me.UserID)
+	require.Equal(t, tenantID.String(), me.TenantID)
 	require.Equal(t, "CONTROLLER", me.Role)
 	require.Contains(t, me.Capabilities, "ManageAssets")
 	require.NotContains(t, me.Capabilities, "ManageUsers")

@@ -13,7 +13,10 @@ import (
 )
 
 type meJSON struct {
-	UserID       string   `json:"userId"`
+	UserID string `json:"userId"`
+	// The tenant RLS has proven for this request, not the token claim. The
+	// web client keys its branding cache on it (spec section 4).
+	TenantID     string   `json:"tenantId"`
 	DisplayName  string   `json:"displayName"`
 	Role         string   `json:"role"`
 	Capabilities []string `json:"capabilities"`
@@ -50,9 +53,10 @@ func me(s *store.Store) http.HandlerFunc {
 			// In the actor's own transaction, so RLS answers for this tenant
 			// and the row cannot be another's.
 			if err := tx.QueryRow(ctx,
-				`SELECT timezone, display_code_policy FROM app.tenant WHERE id = app.current_tenant_id()`).
-				Scan(&body.Timezone, &body.DisplayCodePolicy); err != nil {
-				return fmt.Errorf("reading tenant timezone and display-code policy: %w", err)
+				`SELECT app.current_tenant_id()::text, timezone, display_code_policy
+				   FROM app.tenant WHERE id = app.current_tenant_id()`).
+				Scan(&body.TenantID, &body.Timezone, &body.DisplayCodePolicy); err != nil {
+				return fmt.Errorf("reading tenant id, timezone and display-code policy: %w", err)
 			}
 			for _, c := range a.Capabilities() {
 				body.Capabilities = append(body.Capabilities, string(c))
