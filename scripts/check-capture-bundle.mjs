@@ -39,7 +39,11 @@ function closures(manifest, entryKey) {
     if (reachable.has(key)) return;
     reachable.add(key);
     const chunk = manifest[key];
-    for (const dep of [...(chunk.imports ?? []), ...(chunk.dynamicImports ?? [])]) visitAll(dep);
+    for (const dep of [
+      ...(chunk.imports ?? []),
+      ...(chunk.dynamicImports ?? []),
+    ])
+      visitAll(dep);
   })(entryKey);
   return { seen, order, reachable };
 }
@@ -47,11 +51,24 @@ function closures(manifest, entryKey) {
 function authChunkFindings(manifest, entryKey, readChunk) {
   const { seen, order, reachable } = closures(manifest, entryKey);
   const out = [];
-  if (seen.has(AUTH_CHUNK)) out.push(`${AUTH_CHUNK} is in the entry's static closure`);
-  if (!reachable.has(AUTH_CHUNK)) out.push(`${AUTH_CHUNK} is not reachable from the entry at all`);
+  if (seen.has(AUTH_CHUNK))
+    out.push(`${AUTH_CHUNK} is in the entry's static closure`);
+  if (!reachable.has(AUTH_CHUNK))
+    out.push(`${AUTH_CHUNK} is not reachable from the entry at all`);
+  // A library bump that renamed the marker would otherwise pass vacuously.
+  if (
+    reachable.has(AUTH_CHUNK) &&
+    !readChunk(manifest[AUTH_CHUNK].file).includes(LIBRARY_MARKER)
+  ) {
+    out.push(
+      `${manifest[AUTH_CHUNK].file} no longer carries "${LIBRARY_MARKER}"; the guard cannot see the library`,
+    );
+  }
   for (const key of order) {
     if (readChunk(manifest[key].file).includes(LIBRARY_MARKER)) {
-      out.push(`${manifest[key].file} carries oidc-client-ts ("${LIBRARY_MARKER}")`);
+      out.push(
+        `${manifest[key].file} carries oidc-client-ts ("${LIBRARY_MARKER}")`,
+      );
     }
   }
   return out;
@@ -60,7 +77,11 @@ function authChunkFindings(manifest, entryKey, readChunk) {
 // A guard that finds nothing has to be shown able to find something (TYRE-49).
 if (process.argv.includes("--self-test")) {
   const lazy = {
-    "index.html": { file: "entry.js", isEntry: true, dynamicImports: [AUTH_CHUNK] },
+    "index.html": {
+      file: "entry.js",
+      isEntry: true,
+      dynamicImports: [AUTH_CHUNK],
+    },
     [AUTH_CHUNK]: { file: "oidc.js" },
   };
   const eager = {
@@ -70,14 +91,45 @@ if (process.argv.includes("--self-test")) {
   const absent = { "index.html": { file: "entry.js", isEntry: true } };
   const text = (files) => (file) => files[file] ?? "";
   const cases = [
-    ["lazy and clean", authChunkFindings(lazy, "index.html", text({ "oidc.js": LIBRARY_MARKER })), 0],
-    ["imported statically", authChunkFindings(eager, "index.html", text({})), 1],
-    ["library bundled into the entry", authChunkFindings(lazy, "index.html", text({ "entry.js": LIBRARY_MARKER })), 1],
+    [
+      "lazy and clean",
+      authChunkFindings(
+        lazy,
+        "index.html",
+        text({ "oidc.js": LIBRARY_MARKER }),
+      ),
+      0,
+    ],
+    [
+      "imported statically",
+      authChunkFindings(
+        eager,
+        "index.html",
+        text({ "oidc.js": LIBRARY_MARKER }),
+      ),
+      2,
+    ],
+    [
+      "library bundled into the entry",
+      authChunkFindings(
+        lazy,
+        "index.html",
+        text({ "entry.js": LIBRARY_MARKER, "oidc.js": LIBRARY_MARKER }),
+      ),
+      1,
+    ],
+    [
+      "library marker gone from the auth chunk",
+      authChunkFindings(lazy, "index.html", text({})),
+      1,
+    ],
     ["never reached", authChunkFindings(absent, "index.html", text({})), 1],
   ];
   for (const [name, found, want] of cases) {
     if (found.length !== want) {
-      console.error(`self-test: ${name}: expected ${want} finding(s), got ${JSON.stringify(found)}`);
+      console.error(
+        `self-test: ${name}: expected ${want} finding(s), got ${JSON.stringify(found)}`,
+      );
       process.exit(1);
     }
   }
@@ -87,7 +139,9 @@ if (process.argv.includes("--self-test")) {
 
 let manifest;
 try {
-  manifest = JSON.parse(readFileSync(resolve(dist, ".vite/manifest.json"), "utf8"));
+  manifest = JSON.parse(
+    readFileSync(resolve(dist, ".vite/manifest.json"), "utf8"),
+  );
 } catch (err) {
   console.error(
     `no manifest at web/dist/.vite/manifest.json; run "npm run build" in web/ first (${err.message})`,
@@ -136,7 +190,8 @@ const chunks = order.map((key) => {
 const total = chunks.reduce((sum, c) => sum + c.gzipBytes, 0);
 
 console.log(`entry closure: ${chunks.length} chunks, ${total} gzip bytes`);
-for (const c of chunks) console.log(`  ${c.gzipBytes.toString().padStart(8)}  ${c.file}`);
+for (const c of chunks)
+  console.log(`  ${c.gzipBytes.toString().padStart(8)}  ${c.file}`);
 
 if (record) {
   const budget = {
@@ -153,7 +208,9 @@ let budget;
 try {
   budget = JSON.parse(readFileSync(budgetPath, "utf8"));
 } catch {
-  console.error("no web/bundle-budget.json; run with --record on a known-good tree first");
+  console.error(
+    "no web/bundle-budget.json; run with --record on a known-good tree first",
+  );
   process.exit(2);
 }
 if (total > budget.entryClosureGzipBytes) {
@@ -163,4 +220,6 @@ if (total > budget.entryClosureGzipBytes) {
   );
   process.exit(1);
 }
-console.log(`OK: within budget ${budget.entryClosureGzipBytes} (recorded ${budget.recordedAt})`);
+console.log(
+  `OK: within budget ${budget.entryClosureGzipBytes} (recorded ${budget.recordedAt})`,
+);

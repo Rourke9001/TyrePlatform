@@ -3,7 +3,7 @@
 // import.meta.env.DEV (web/src/api/client.ts, devTenant.ts, token.ts). This
 // reads the built artefact, not the source, because a guard that does not
 // fold away at build time still ships the string.
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,11 +40,16 @@ if (process.argv.includes("--self-test")) {
   process.exit(0);
 }
 
+const dist = resolve(root, "web/dist");
+if (!existsSync(dist)) {
+  console.error('no web/dist; run "npm run build" in web/ first');
+  process.exit(2);
+}
 let found;
 try {
-  found = findings(resolve(root, "web/dist"));
+  found = findings(dist);
 } catch (err) {
-  console.error(`no web/dist; run "npm run build" in web/ first (${err.message})`);
+  console.error(`could not read web/dist: ${err.message}`);
   process.exit(2);
 }
 if (found.length > 0) {

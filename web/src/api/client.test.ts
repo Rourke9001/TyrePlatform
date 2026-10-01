@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../auth/oidc", () => ({
+  renew: vi.fn(),
+  signIn: vi.fn(),
+  completeSignIn: vi.fn(),
+  signOut: vi.fn(),
+}));
+
 import { AUTH_HEADER, ApiError, apiGet, apiPatch, apiPost } from "./client";
 import { clearDevActorId, clearDevTenantId, setDevActorId, setDevTenantId } from "./devTenant";
 import { sentBody } from "../test/fixtures";
@@ -168,13 +175,6 @@ describe("apiPatch", () => {
   });
 });
 
-vi.mock("../auth/oidc", () => ({
-  renew: vi.fn(),
-  signIn: vi.fn(),
-  completeSignIn: vi.fn(),
-  signOut: vi.fn(),
-}));
-
 describe("the bearer path", () => {
   beforeEach(() => {
     vi.unstubAllGlobals();
@@ -215,8 +215,22 @@ describe("the bearer path", () => {
     await get("/api/me");
 
     const headers = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers);
-    expect(headers.get(AUTH_HEADER)).toBe("Bearer at-1");
+    expect(AUTH_HEADER).toBe("Authorization");
+    expect(headers.get("Authorization")).toBe("Bearer at-1");
     expect(headers.get("X-User-ID")).toBeNull();
+  });
+
+  // U104: the outbox sends under the credential it compared the stamp against.
+  it("sends apiPostAs under the given token, not the mirror's", async () => {
+    const { apiPostAs: post } = await freshClient();
+    mirror(Date.now() - 5 * 60_000);
+    vi.stubGlobal("fetch", vi.fn());
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+
+    await post("/api/inspections", {}, { accessToken: "at-other", subject: "oid-b" });
+
+    const headers = new Headers(vi.mocked(fetch).mock.calls[0][1]?.headers);
+    expect(headers.get("Authorization")).toBe("Bearer at-other");
   });
 
   it("clears the mirror on a 401 for an older token, and the refusal stays a 401", async () => {
