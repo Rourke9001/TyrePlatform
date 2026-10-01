@@ -295,8 +295,9 @@ the same way and fails if it contains `X-Tenant-ID` or `X-User-ID`.
 ### Logging a refusal
 
 Every refusal is logged at warn with the reason and the client address
-(`clientAddress`, `api/internal/httpapi/ratelimit.go`). The token is never
-logged.
+(`clientAddress`, `api/internal/httpapi/ratelimit.go`), except a discovery
+issuer mismatch, which logs at error because it is a configuration failure
+that answers 503 to every call until redeployed. The token is never logged.
 
 - **Refusals at steps 4 to 10.** The signature has verified, so the log line
   adds the `oid`, the tenant claim and the session id.
