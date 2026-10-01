@@ -13,8 +13,9 @@ import (
 )
 
 // NFR-SEC-007: rate-limit submission per account and per source address.
-// Submission is the only endpoint this slice adds; authentication has none
-// yet (FR-AUT-001 is still the dev header resolver). Two independent
+// Submission is the only endpoint this slice adds; authentication
+// endpoints belong to Entra, which rate-limits them itself (spec section 1,
+// Rate limit). Two independent
 // counters, not a composite key, because a key of account+address lets one
 // account rotating N addresses get N times the account limit
 // (submitRateLimit refuses if EITHER counter refuses). The account limit
@@ -79,8 +80,9 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 // submitRateLimit composes the two counters into NFR-SEC-007's one
 // middleware, built once at router construction and closed over here (see
 // New). Keyed on the identity requireActor resolved through accountKey,
-// never a raw header, because HeaderActorResolver is DEV ONLY. requireActor's r.Use ordering guarantee is
-// TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
+// never a raw header, because the header resolver is dev only and compiled
+// out of the release binary (U103). requireActor's r.Use ordering guarantee
+// is TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
 func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
