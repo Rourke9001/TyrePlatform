@@ -14,8 +14,8 @@ export function ActorProvider({ children }: { children: ReactNode }) {
     staleTime: 5 * 60 * 1000,
     // A 401 or a 403 answers the same on the next attempt, and a signed-out
     // driver must not wait through three retries to see the sign-in screen.
-    // auth_unavailable is thrown locally (latched or unconfigured, token.ts),
-    // so a retry only keeps the screen blank.
+    // auth_unavailable is not retried: the unavailable screen's Try again
+    // reloads, and a retry only keeps the main area blank meanwhile.
     retry: (failures, error) =>
       failures < 3 &&
       !(
@@ -42,7 +42,9 @@ export function ActorProvider({ children }: { children: ReactNode }) {
   const value = useMemo(
     () => ({
       actor: query.data ?? null,
-      settled: !query.isPending,
+      // A refetch of an errored query reads pending again, so a held failure
+      // stays settled.
+      settled: !query.isPending || held !== null,
       failure: named ?? held,
     }),
     [query.data, query.isPending, named, held],

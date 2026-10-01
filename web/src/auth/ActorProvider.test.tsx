@@ -63,7 +63,8 @@ describe("ActorProvider failure", () => {
     expect(fetchMeMock).toHaveBeenCalledTimes(1);
   });
 
-  // credential() throws this locally, so a retry cannot change the answer.
+  // The unavailable screen's Try again reloads, so a retry only keeps the
+  // main area blank while credential() or the API answers the same.
   it("does not retry an unavailable sign-in", async () => {
     fetchMeMock.mockRejectedValue(new ApiError(503, "x", "auth_unavailable"));
     mount();
@@ -80,6 +81,12 @@ describe("ActorProvider failure", () => {
     vi.useFakeTimers();
     fetchMeMock.mockRejectedValue(new TypeError("Failed to fetch"));
     void client.refetchQueries({ queryKey: ["me"] });
+    // Mid-refetch the query reads pending again, with no error.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    expect(screen.queryByText("the routes")).toBeNull();
     // Three retries back off for 1, 2 and 4 seconds.
     await act(async () => {
       await vi.advanceTimersByTimeAsync(10_000);

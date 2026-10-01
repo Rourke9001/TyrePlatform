@@ -6,9 +6,9 @@ import { useActor, useActorSettled, useAuthFailure } from "./actorContext";
 import { SignInScreen } from "./SignInScreen";
 
 // The sign-in or access screen shows while no GET /api/me has succeeded in
-// this page load and the provider holds a failure (spec section 4). Once an
-// actor is in hand a later 401 keeps the routes and SignInLine offers sign-in
-// beside them, so a capture is never unmounted.
+// this page load and the provider holds a failure, through any refetch
+// (spec section 4). Once an actor is in hand a later 401 keeps the routes and
+// SignInLine offers sign-in beside them, so a capture is never unmounted.
 export function AuthGate({ children }: { children: ReactNode }) {
   const actor = useActor();
   const settled = useActorSettled();
