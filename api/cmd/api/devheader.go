@@ -3,8 +3,11 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"net/http"
 
+	"tyreplatform/api/internal/bearer"
 	"tyreplatform/api/internal/httpapi"
 )
 
@@ -30,5 +33,20 @@ func devResolver(lookup func(string) (string, bool), bearerResolver httpapi.Acto
 		return bearerResolver
 	}
 	logger.Warn("X-Tenant-ID/X-User-ID header resolver enabled; anyone who can send a header is anyone")
-	return httpapi.HeaderActorResolver{}
+	if bearerResolver == nil {
+		return httpapi.HeaderActorResolver{}
+	}
+	return routedResolver{bearer: bearerResolver, header: httpapi.HeaderActorResolver{}}
+}
+
+// routedResolver lets one dev API serve both a token session and a
+// header-driven one: a request that carries a token is the bearer resolver's
+// to judge (spec section 1, Composing the resolvers).
+type routedResolver struct{ bearer, header httpapi.ActorResolver }
+
+func (r routedResolver) Identify(ctx context.Context, req *http.Request) (httpapi.Identity, error) {
+	if req.Header.Get(bearer.HeaderName) != "" {
+		return r.bearer.Identify(ctx, req)
+	}
+	return r.header.Identify(ctx, req)
 }

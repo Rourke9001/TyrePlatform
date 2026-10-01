@@ -8,13 +8,19 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
+	"tyreplatform/api/internal/bearer"
 	"tyreplatform/api/internal/httpapi"
 	"tyreplatform/api/internal/store"
 )
@@ -34,6 +40,108 @@ func trustedProxyHops(getenv func(string) string) (int, error) {
 		return 0, fmt.Errorf("TRUSTED_PROXY_HOPS must be a positive integer, got %q", raw)
 	}
 	return n, nil
+}
+
+// authVars are ADR-0016's six settings for the bearer resolver.
+var authVars = []string{
+	"AUTH_DISCOVERY_URL", "AUTH_ISSUER", "AUTH_TENANT_ID",
+	"AUTH_AUDIENCE", "AUTH_CLIENT_ID", "AUTH_TENANT_CLAIM",
+}
+
+// authConfig reads ADR-0016's AUTH_* variables. All set wires the bearer
+// resolver and none set wires none; a partial set is a deploy mistake and
+// stops startup, as a malformed TRUSTED_PROXY_HOPS does. A variable counts as
+// set when it is non-empty.
+func authConfig(getenv func(string) string) (bearer.Config, bool, error) {
+	set := 0
+	for _, name := range authVars {
+		if getenv(name) != "" {
+			set++
+		}
+	}
+	switch set {
+	case 0:
+		return bearer.Config{}, false, nil
+	case len(authVars):
+	default:
+		return bearer.Config{}, false, fmt.Errorf("%d of the %d AUTH_* variables are set; set all of them or none", set, len(authVars))
+	}
+	cfg := bearer.Config{TenantClaim: getenv("AUTH_TENANT_CLAIM")}
+	if strings.ContainsAny(cfg.TenantClaim, " \t\r\n") {
+		return bearer.Config{}, false, fmt.Errorf("AUTH_TENANT_CLAIM must be a claim name, got %q", cfg.TenantClaim)
+	}
+	var err error
+	if cfg.DiscoveryURL, err = authURL(getenv, "AUTH_DISCOVERY_URL"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.Issuer, err = authURL(getenv, "AUTH_ISSUER"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.TenantID, err = authUUID(getenv, "AUTH_TENANT_ID"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.Audience, err = authUUID(getenv, "AUTH_AUDIENCE"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.ClientID, err = authUUID(getenv, "AUTH_CLIENT_ID"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	// Without ?appid= naming tyre-api, Entra's discovery document lists keys
+	// that never sign these tokens, so every token reads as an unknown kid and
+	// a configuration failure would answer 401 (spec section 1, Configuration).
+	if err := checkDiscoveryAppID(cfg.DiscoveryURL, cfg.Audience); err != nil {
+		return bearer.Config{}, false, err
+	}
+	return cfg, true, nil
+}
+
+func checkDiscoveryAppID(discoveryURL, audience string) error {
+	u, err := url.Parse(discoveryURL)
+	if err != nil {
+		return fmt.Errorf("AUTH_DISCOVERY_URL: %w", err)
+	}
+	raw := u.Query().Get("appid")
+	if raw == "" {
+		return fmt.Errorf("AUTH_DISCOVERY_URL must carry ?appid=<AUTH_AUDIENCE>, got %q", discoveryURL)
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil || id.String() != audience {
+		return fmt.Errorf("AUTH_DISCOVERY_URL appid %q must equal AUTH_AUDIENCE", raw)
+	}
+	return nil
+}
+
+// authURL takes an absolute https URL, or http on a loopback host so a test
+// identity provider can serve one. It returns the value unchanged, because
+// AUTH_ISSUER is compared with iss byte for byte.
+func authURL(getenv func(string) string, name string) (string, error) {
+	raw := getenv(name)
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" {
+		return "", fmt.Errorf("%s must be an absolute URL, got %q", name, raw)
+	}
+	if u.Scheme == "https" || (u.Scheme == "http" && isLoopback(u.Hostname())) {
+		return raw, nil
+	}
+	return "", fmt.Errorf("%s must be https (http only on a loopback host), got %q", name, raw)
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// authUUID returns the canonical form, which is how Entra writes tid, aud
+// and azp.
+func authUUID(getenv func(string) string, name string) (string, error) {
+	id, err := uuid.Parse(getenv(name))
+	if err != nil {
+		return "", fmt.Errorf("%s must be a uuid, got %q", name, getenv(name))
+	}
+	return id.String(), nil
 }
 
 func main() {
@@ -63,6 +171,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	authCfg, haveAuth, err := authConfig(os.Getenv)
+	if err != nil {
+		logger.Error("reading AUTH_* configuration", "err", err)
+		os.Exit(1)
+	}
+
 	s, err := store.New(ctx, dsn)
 	if err != nil {
 		logger.Error("connecting to database", "err", err)
@@ -70,9 +184,14 @@ func main() {
 	}
 	defer s.Close()
 
-	// The bearer resolver is wired by a later task; until then only a devheader
-	// build can have a resolver. A nil resolver answers 503 (ADR-0016).
+	// A typed nil must not reach the interface, or requireActor would call
+	// it instead of answering 503.
 	var bearerResolver httpapi.ActorResolver
+	if haveAuth {
+		br := bearer.New(authCfg)
+		defer br.Close()
+		bearerResolver = br
+	}
 	resolver := devResolver(os.LookupEnv, bearerResolver, logger)
 	if resolver == nil {
 		logger.Error("no identity resolver is configured; every /api call answers 503 auth_unavailable until AUTH_* is set (ADR-0016)")
