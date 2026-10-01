@@ -13,14 +13,22 @@ function startSignIn(): Promise<void> {
 
 export function SignInButton({ label }: { label: string }) {
   const [failed, setFailed] = useState(false);
+  // A second tap on weak signal would start a second redirect, so the button
+  // stays disabled until the start fails; a started one leaves the page.
+  const [pending, setPending] = useState(false);
   return (
     <>
       <button
         type="button"
         className="auth-primary"
+        disabled={pending}
         onClick={() => {
           setFailed(false);
-          startSignIn().catch(() => setFailed(true));
+          setPending(true);
+          startSignIn().catch(() => {
+            setPending(false);
+            setFailed(true);
+          });
         }}
       >
         {label}

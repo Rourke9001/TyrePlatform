@@ -21,6 +21,14 @@
   border-color: var(--primary-pressed);
 }
 
+/* Disabled says so in shape as well as tone (NFR-USE-009). */
+.auth-primary:disabled {
+  border-color: var(--line);
+  background: var(--surface-sunken);
+  color: var(--ink-muted);
+  cursor: default;
+}
+
 .auth-secondary {
   display: flex;
   align-items: center;

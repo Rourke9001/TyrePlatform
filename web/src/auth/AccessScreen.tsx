@@ -21,11 +21,13 @@ const COPY = {
 export function AccessScreen({ failure }: { failure: keyof typeof COPY }) {
   const copy = COPY[failure];
   return (
-    <section className="auth-screen" role="alert" aria-labelledby="access-heading">
+    <section className="auth-screen" aria-labelledby="access-heading">
       <h1 id="access-heading" className="auth-title">
         {copy.title}
       </h1>
-      <p className="auth-body">{copy.body}</p>
+      <p role="alert" className="auth-body">
+        {copy.body}
+      </p>
       {failure === "unavailable" && (
         <button type="button" className="auth-secondary" onClick={() => window.location.reload()}>
           Try again
