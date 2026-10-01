@@ -113,15 +113,13 @@ func checkDiscoveryAppID(discoveryURL, audience string) error {
 }
 
 // authURL takes an absolute https URL, or http on a loopback host so a test
-// identity provider can serve one. It returns the value unchanged, because
-// AUTH_ISSUER is compared with iss byte for byte.
+// identity provider can serve one. The value is returned unchanged.
 func authURL(getenv func(string) string, name string) (string, error) {
 	raw := getenv(name)
 	u, err := url.Parse(raw)
-	// The value is compared with iss byte for byte, so it is refused rather
-	// than trimmed or lower-cased when it is not already exact. url.Parse
-	// lower-cases the scheme, so the scheme is read from raw. Userinfo is
-	// refused so a secret is never echoed in an error.
+	// Compared with iss byte for byte (ADR-0016), so a non-exact value is
+	// refused, not normalised. url.Parse lower-cases the scheme, hence the
+	// check on raw. Userinfo is refused so a secret never reaches an error.
 	if err != nil || raw != strings.TrimSpace(raw) || !u.IsAbs() || u.Hostname() == "" ||
 		u.User != nil || u.Fragment != "" || strings.Contains(raw, "#") {
 		return "", fmt.Errorf("%s must be an absolute URL with a host, no userinfo, fragment or surrounding space", name)
@@ -197,6 +195,10 @@ func main() {
 		br := bearer.New(authCfg)
 		defer br.Close()
 		bearerResolver = br
+		logger.Info("bearer resolver wired",
+			"AUTH_DISCOVERY_URL", authCfg.DiscoveryURL, "AUTH_ISSUER", authCfg.Issuer,
+			"AUTH_TENANT_ID", authCfg.TenantID, "AUTH_AUDIENCE", authCfg.Audience,
+			"AUTH_CLIENT_ID", authCfg.ClientID, "AUTH_TENANT_CLAIM", authCfg.TenantClaim)
 	}
 	resolver := devResolver(os.LookupEnv, bearerResolver, logger)
 	if resolver == nil {

@@ -14,8 +14,9 @@ import (
 
 type meJSON struct {
 	UserID string `json:"userId"`
-	// The tenant RLS has proven for this request, not the token claim. The
-	// web client keys its branding cache on it (spec section 4).
+	// The tenant this request's RLS lookup proved, so a caller learns only a
+	// tenant it belongs to. Spec section 4 keys the web client's branding
+	// cache on it.
 	TenantID     string   `json:"tenantId"`
 	DisplayName  string   `json:"displayName"`
 	Role         string   `json:"role"`

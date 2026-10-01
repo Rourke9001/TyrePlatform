@@ -308,8 +308,8 @@ func TestInActorTxRefusesAKeyWithBothOrNeitherIdentity(t *testing.T) {
 	}
 }
 
-// app.session_id is what TYRE-201's trigger will read and
-// app.record_session_start() reads (FR-AUD-002, FR-AUD-004). A dev-resolver key carries none.
+// app.session_id is bound per transaction (FR-AUD-002, FR-AUD-004): the
+// binding must die with its transaction, not ride the pooled connection.
 func TestInActorTxSessionIDDoesNotLeakIntoTheNextTransaction(t *testing.T) {
 	ctx := context.Background()
 	_, admin, a, _ := openFixtures(t, ctx)

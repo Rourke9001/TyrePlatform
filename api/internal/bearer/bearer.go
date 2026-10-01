@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
@@ -22,9 +23,9 @@ import (
 	"tyreplatform/api/internal/httpapi"
 )
 
-// HeaderName is where the token travels. It is one constant on each side
-// because the Static Web App's linked backend may not forward it, and the
-// recorded fallback is a second name (ADR-0016, TYRE-51).
+// HeaderName is where the token travels. It lives in one constant so a switch
+// to a second header, if the Static Web App's linked backend will not forward
+// this one, is a one-line change (ADR-0016, TYRE-51).
 const HeaderName = "Authorization"
 
 const (
@@ -35,9 +36,8 @@ const (
 	// holds a request for seconds rather than jwkset's default minute (spec
 	// section 1, Loading the keys).
 	fetchTimeout = 5 * time.Second
-	// unknownKIDWait bounds an unknown kid's refetch (spec section 1, step 2).
-	// jwkset spends one deadline on the limiter wait and the fetch together
-	// (jwkset v0.11.3 http.go, KeyRead), so a slow Entra refuses within it.
+	// unknownKIDWait bounds an unknown kid's refetch, limiter wait and fetch
+	// together, so a slow Entra refuses within it (spec section 1, step 2).
 	unknownKIDWait  = time.Second
 	unknownKIDEvery = 5 * time.Minute
 	refreshEvery    = time.Hour
@@ -134,9 +134,8 @@ func (r *Resolver) Identify(ctx context.Context, req *http.Request) (httpapi.Ide
 		return httpapi.Identity{}, &refusal{kind: httpapi.ErrUnauthenticated, reason: "algorithm is not RS256",
 			attrs: []any{"kid", loggedKID(head)}}
 	}
-	// A token must name its kid (spec section 1, step 2). keyfunc tries every
-	// key in the set when it names none (keyfunc v3.8.0 KeyfuncCtx), so the
-	// check runs here, before any lookup.
+	// keyfunc tries every key in the set when the token names no kid, so the
+	// check runs here, before any lookup (spec section 1, step 2).
 	if kid, _ := head.Header["kid"].(string); kid == "" {
 		return httpapi.Identity{}, &refusal{kind: httpapi.ErrUnauthenticated, reason: "no kid"}
 	}
@@ -270,7 +269,7 @@ func (r *Resolver) fetch() (keyfunc.Keyfunc, context.CancelFunc, error) {
 	// cannot help (spec section 1, step 3).
 	if doc.Issuer != r.cfg.Issuer {
 		return nil, nil, &refusal{kind: httpapi.ErrAuthUnavailable, reason: "discovery issuer does not match AUTH_ISSUER",
-			attrs: []any{"discovery_issuer", doc.Issuer, "configured_issuer", r.cfg.Issuer}}
+			attrs: []any{"discovery_issuer", doc.Issuer, "configured_issuer", r.cfg.Issuer}, misconfigured: true}
 	}
 	life, stop := context.WithCancel(context.Background())
 	noErrorOnFirstFetch := false
@@ -283,8 +282,8 @@ func (r *Resolver) fetch() (keyfunc.Keyfunc, context.CancelFunc, error) {
 		RefreshUnknownKID:         rate.NewLimiter(rate.Every(unknownKIDEvery), 1),
 	})
 	if err != nil {
-		// jwkset starts its refresh goroutine before its first fetch (jwkset
-		// v0.11.3 storage.go, NewStorageFromHTTP), so a failed load must end it.
+		// The key set starts its refresh goroutine before its first fetch, so a
+		// failed load must end it (spec section 1, Loading the keys).
 		stop()
 		return nil, nil, &refusal{kind: httpapi.ErrAuthUnavailable, reason: "key set unreachable",
 			attrs: []any{"err", err.Error()}}
@@ -328,6 +327,9 @@ type refusal struct {
 	kind   error
 	reason string
 	attrs  []any
+	// misconfigured marks a failure no caller can fix, which every request
+	// meets until the deploy changes.
+	misconfigured bool
 }
 
 func (e *refusal) Error() string { return e.reason }
@@ -337,6 +339,15 @@ func (e *refusal) Unwrap() error { return e.kind }
 // the reason and the kid alone, after it the verified claims, and never the
 // token (spec section 1, Logging a refusal).
 func (e *refusal) LogAttrs() []any { return append([]any{"reason", e.reason}, e.attrs...) }
+
+// LogLevel is Error for a configuration failure and Warn for everything a
+// caller or an outage can cause (spec section 1, step 3).
+func (e *refusal) LogLevel() slog.Level {
+	if e.misconfigured {
+		return slog.LevelError
+	}
+	return slog.LevelWarn
+}
 
 // bearerToken reads the scheme case-insensitively (RFC 7235 section 2.1).
 func bearerToken(r *http.Request) (string, bool) {
@@ -386,8 +397,17 @@ func sessionID(c jwt.MapClaims) string {
 	return ""
 }
 
+// verifiedAttrs names the person "subject" and the tenant in canonical form,
+// as withActor's log does, so one person reads the same in both lines. An
+// unparseable tenant claim is logged as sent: the signature has verified.
 func verifiedAttrs(c jwt.MapClaims, tenantClaim string) []any {
-	return []any{"oid", c["oid"], "tenant", c[tenantClaim], "session", sessionID(c)}
+	tenant := c[tenantClaim]
+	if text, _ := tenant.(string); text != "" {
+		if id, err := uuid.Parse(text); err == nil {
+			tenant = id.String()
+		}
+	}
+	return []any{"subject", c["oid"], "tenant", tenant, "session", sessionID(c)}
 }
 
 func loggedKID(t *jwt.Token) string {

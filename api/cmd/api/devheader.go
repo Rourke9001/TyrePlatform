@@ -11,13 +11,10 @@ import (
 	"tyreplatform/api/internal/httpapi"
 )
 
-// devHeaderEnabled decides whether the trust-any-header resolver may exist in
-// this process. Container Apps injects CONTAINER_APP_NAME into every deployed
-// revision, so its PRESENCE vetoes the flag. Presence, not value, because a
-// stray --set-env-vars CONTAINER_APP_NAME= would read as absent through
-// os.Getenv and switch the dev path on in staging (TYRE-160). The accessor is
-// injected so the table test can say "present and empty". It is the second
-// layer: the release binary does not contain the resolver at all (U103).
+// CONTAINER_APP_NAME is injected into every Container Apps revision, so its
+// presence vetoes the flag. Presence, not value: an empty
+// --set-env-vars CONTAINER_APP_NAME= reads as absent through os.Getenv
+// (TYRE-160). Second layer behind the build tag (U103).
 func devHeaderEnabled(lookup func(string) (string, bool)) bool {
 	if _, inContainerApps := lookup("CONTAINER_APP_NAME"); inContainerApps {
 		return false
