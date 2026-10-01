@@ -3,6 +3,11 @@
 // sign-in library's storage format, so the library loads only when a
 // renewal, a sign-in or a sign-out needs it.
 
+import { ApiError } from "./apiError";
+import { getDevActorId } from "./devTenant";
+import { suppressReloadWhile } from "../shell/chunkReload";
+import type * as AuthChunk from "../auth/oidc";
+
 export const MIRROR_KEY = "tyre.auth.mirror";
 // The last driver who signed in on this phone. Held inspections are stamped
 // from it (U104), so only signOut() clears it: a 401 clears the mirror and
@@ -105,4 +110,124 @@ export function authConfigured(): boolean {
     import.meta.env.VITE_AUTH_CLIENT_ID &&
     import.meta.env.VITE_AUTH_API_SCOPE,
   );
+}
+
+// The one dynamic import of the sign-in library (ADR-0016). A failed import
+// is a network failure the outbox retries, never a reload (chunkReload.ts).
+export function authChunk(): Promise<typeof AuthChunk> {
+  return suppressReloadWhile(import("../auth/oidc"));
+}
+
+export interface Sender {
+  accessToken: string | null;
+  subject: string | null;
+}
+
+// Renewed first when this close to expiry, so none expires in flight.
+const EXPIRY_SKEW_MS = 60_000;
+// A 401 on a token obtained this recently means the API refuses every valid
+// token (a wrong AUTH_AUDIENCE, AUTH_CLIENT_ID or scope). Renewing cannot
+// help, so the store stops until a reload.
+const FRESH_MS = 60_000;
+
+let latched = false;
+let renewing: Promise<Mirror | null> | null = null;
+let lapsed = false;
+const lapseListeners = new Set<() => void>();
+
+// Screens word this themselves (AccessScreen); the message is diagnostic.
+export function authUnavailable(): ApiError {
+  return new ApiError(503, "sign-in is unavailable", "auth_unavailable");
+}
+
+export function sessionLapsed(): boolean {
+  return lapsed;
+}
+
+export function onLapse(listener: () => void): () => void {
+  lapseListeners.add(listener);
+  return () => {
+    lapseListeners.delete(listener);
+  };
+}
+
+// The chunk never writes the mirror (spec section 4), so the store does. A
+// full or blocked store must not turn a renewed token into an error: the call
+// still gets it, and the next one renews again.
+function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mirror | null {
+  if (tokens === null) {
+    clearMirror();
+    return null;
+  }
+  const previous = readMirror();
+  const mirror: Mirror = {
+    ...tokens,
+    obtainedAt: Date.now(),
+    tenantId: previous?.subject === tokens.subject ? previous.tenantId : null,
+  };
+  try {
+    writeMirror(mirror);
+    rememberSubject(mirror.subject);
+  } catch {
+    // Storage refused the write.
+  }
+  return mirror;
+}
+
+// One renewal in flight: refresh tokens may rotate, so two concurrent
+// renewals would spend the same one twice.
+function renewOnce(): Promise<Mirror | null> {
+  renewing ??= authChunk()
+    .then((auth) => auth.renew())
+    .then(mirrorRenewed)
+    .finally(() => {
+      renewing = null;
+    });
+  return renewing;
+}
+
+export async function credential(): Promise<{ accessToken: string; subject: string }> {
+  // Before the import: a build without VITE_AUTH_* cannot sign anyone in.
+  if (latched || !authConfigured()) throw authUnavailable();
+  const mirror = readMirror();
+  if (mirror !== null && mirror.expiresAt - EXPIRY_SKEW_MS > Date.now()) {
+    return { accessToken: mirror.accessToken, subject: mirror.subject };
+  }
+  const renewed = await renewOnce();
+  if (renewed === null) {
+    if (!lapsed) {
+      lapsed = true;
+      lapseListeners.forEach((listener) => listener());
+    }
+    throw new ApiError(401, "signed out", "signed_out");
+  }
+  return { accessToken: renewed.accessToken, subject: renewed.subject };
+}
+
+// U104: who a held inspection is stamped with and sent under. Under the DEV
+// header path the dev actor stands in (vite dev, vitest and every e2e project
+// but auth); a production build keeps only the bearer branch.
+export function sender(): Promise<Sender> {
+  if (import.meta.env.DEV && !bearerMode()) {
+    return Promise.resolve({ accessToken: null, subject: getDevActorId() });
+  }
+  return credential();
+}
+
+export function stampSubject(): string | null {
+  if (import.meta.env.DEV && !bearerMode()) return getDevActorId();
+  return lastKnownSubject();
+}
+
+// send() calls this on a 401 from the API. True when the refusal latched the
+// store: every later call then answers 503 without touching the API.
+export function refused(accessToken: string): boolean {
+  const mirror = readMirror();
+  if (mirror?.accessToken === accessToken && Date.now() - mirror.obtainedAt < FRESH_MS) {
+    if (!latched) console.error("API refused a fresh token (ADR-0016)");
+    latched = true;
+    return true;
+  }
+  clearMirror();
+  return false;
 }
