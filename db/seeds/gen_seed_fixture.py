@@ -106,11 +106,13 @@ L.append(
     "INSERT INTO app.depot (id,tenant_id,name,type) VALUES (md5('depot1')::uuid,'%s','Johannesburg','DEPOT');"
     % T
 )
+# driver1 and driver2 carry a sign-in subject so suite section 68 can prove a
+# subject resolves only in its own tenant (TYRE-317).
 L.append(
-    "INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES"
+    "INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role,subject) VALUES"
 )
 L.append(
-    "  (md5('driver1')::uuid,'%s','melusi@example.invalid','Melusi','EMP-0001','DRIVER');"
+    "  (md5('driver1')::uuid,'%s','melusi@example.invalid','Melusi','EMP-0001','DRIVER',md5('subject-driver1')::uuid);"
     % T
 )
 L.append(
@@ -151,10 +153,10 @@ L.append(
     % T2
 )
 L.append(
-    "INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role) VALUES"
+    "INSERT INTO app.app_user (id,tenant_id,email,display_name,staff_number,role,subject) VALUES"
 )
 L.append(
-    "  (md5('driver2')::uuid,'%s','thabo@example.invalid','Thabo','EMP-2001','DRIVER');"
+    "  (md5('driver2')::uuid,'%s','thabo@example.invalid','Thabo','EMP-2001','DRIVER',md5('subject-driver2')::uuid);"
     % T2
 )
 L.append(
