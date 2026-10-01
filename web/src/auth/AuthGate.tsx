@@ -5,9 +5,10 @@ import { AccessScreen } from "./AccessScreen";
 import { useAuthFailure, useGateScreenShowing } from "./actorContext";
 import { SignInScreen } from "./SignInScreen";
 
-// The sign-in or access screen shows while no GET /api/me has succeeded in
-// this page load and the provider holds a failure, through any refetch
-// (spec section 4). Once an actor is in hand a later 401 keeps the routes and
+// The sign-in or access screen shows while the actor query holds no actor and
+// the provider names a failure, through any refetch (spec section 4). A
+// sign-out cache reset empties the actor, so the screen can show after an
+// earlier success. Once an actor is in hand a later 401 keeps the routes and
 // SignInLine offers sign-in beside them, so a capture is never unmounted.
 export function AuthGate({ children }: { children: ReactNode }) {
   const gated = useGateScreenShowing();

@@ -53,7 +53,7 @@ export function SignOutButton() {
         // Rejected after the local clear, so signed out locally.
       }
       // Settled with the page still here, so the cached actor goes and
-      // /api/me is asked again (spec section 4, Cached state).
+      // /api/me is asked again (spec section 4, Signing out).
       void queryClient.resetQueries();
     } finally {
       setPending(false);
