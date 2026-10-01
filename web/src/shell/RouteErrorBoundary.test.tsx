@@ -31,6 +31,8 @@ function queued(clientUuid: string): OutboxEntry {
     lastCode: null,
     lastError: null,
     fleetNumber: null,
+    driverSubject: "oid-driver-1",
+    legacy: false,
   };
 }
 

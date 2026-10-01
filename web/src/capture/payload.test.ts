@@ -37,6 +37,8 @@ function draftWith(
     ),
     warnings: [],
     absentSpares: [],
+    driverSubject: "oid-driver-1",
+    legacy: false,
   };
 }
 
@@ -90,6 +92,8 @@ const draft: Draft = {
   },
   warnings: [{ code: "FR-INS-033", enteredValue: "412500", response: "CONFIRMED" }],
   absentSpares: [],
+  driverSubject: "oid-driver-1",
+  legacy: false,
 };
 
 describe("toSubmitPayload", () => {

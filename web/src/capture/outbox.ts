@@ -1,4 +1,5 @@
-import { ApiError, apiPost } from "../api/client";
+import { ApiError, apiPostAs } from "../api/client";
+import { sender, type Sender } from "../api/token";
 import { clearDraft, db, loadDraft } from "./draft";
 import type { SubmitMeta, SubmitPayload } from "./payload";
 import { toSubmitPayload } from "./payload";
@@ -25,6 +26,10 @@ export interface OutboxEntry {
   // vehicle on the cab, not a buried UUID, is what a driver recognises a
   // refused inspection by.
   fleetNumber: string | null;
+  // U104, copied from the draft: who captured it, and whether it predates
+  // the stamp.
+  driverSubject: string | null;
+  legacy: boolean;
 }
 
 // FR-OFF-012's ceiling. Thirty minutes, not "about half an hour": the
@@ -53,6 +58,15 @@ export function classify(error: unknown): "permanent" | "retryable" {
     // cures: the same payload lands once the server clock passes the
     // stamped instant, so it is the one 422 that retries.
     if (error.code === "TY021") return "retryable";
+    // A tenant's state and a missing tenant claim are put right away from
+    // the phone, and failing either would fail every queued inspection in the
+    // fleet at once (TYRE-376). A plain forbidden stays permanent (PD-S1).
+    if (
+      error.status === 403 &&
+      (error.code === "tenant_inactive" || error.code === "not_provisioned")
+    ) {
+      return "retryable";
+    }
     if ([400, 403, 409, 422].includes(error.status)) return "permanent";
     return "retryable";
   }
@@ -70,7 +84,12 @@ export async function listOutbox(): Promise<OutboxEntry[]> {
   // TYRE-167: an entry written before fleetNumber existed has no such column
   // in its stored row, so Dexie hands it back as undefined, not null. One
   // normalisation here rather than an `?? null` at every consumer.
-  return entries.map((e) => ({ ...e, fleetNumber: e.fleetNumber ?? null }));
+  return entries.map((e) => ({
+    ...e,
+    fleetNumber: e.fleetNumber ?? null,
+    driverSubject: e.driverSubject ?? null,
+    legacy: e.legacy ?? false,
+  }));
 }
 
 // TYRE-167/FR-OFF-013: only a FAILED entry may go; queued and sending are
@@ -115,6 +134,8 @@ export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
       lastCode: null,
       lastError: null,
       fleetNumber: draft.fleetNumber ?? null,
+      driverSubject: draft.driverSubject,
+      legacy: draft.legacy,
     };
     await table().put(entry);
     // Through the module that owns the key, not a second copy of the string:
@@ -125,42 +146,100 @@ export async function queueDraft(meta: SubmitMeta): Promise<OutboxEntry> {
   });
 }
 
-export async function attemptSend(
-  clientUuid: string,
-  opts: { force?: boolean } = {},
-): Promise<void> {
+export interface SendOptions {
+  force?: boolean;
+  // The flush after a sign-in: queued and 401-held entries go now, whatever
+  // their backoff. A failed one keeps its own recovery action.
+  ignoreBackoff?: boolean;
+}
+
+// U104: an entry sends only under the driver who captured it; a legacy row
+// under whoever is signed in; a row with neither, never.
+export function mayCarry(
+  entry: Pick<OutboxEntry, "driverSubject" | "legacy">,
+  subject: string | null,
+): boolean {
+  if (entry.legacy) return true;
+  return entry.driverSubject !== null && entry.driverSubject === subject;
+}
+
+async function recordFailure(entry: OutboxEntry, error: unknown): Promise<void> {
+  const attempts = entry.attempts + 1;
+  const permanent = classify(error) === "permanent";
+  await table().update(entry.clientUuid, {
+    state: permanent ? "failed" : "queued",
+    attempts,
+    nextAttemptAt: permanent ? 0 : Date.now() + backoffMs(attempts),
+    lastStatus: error instanceof ApiError ? error.status : null,
+    lastCode: error instanceof ApiError ? error.code : null,
+    lastError: error instanceof Error ? error.message : String(error),
+  });
+}
+
+export async function attemptSend(clientUuid: string, opts: SendOptions = {}): Promise<void> {
   const entry = await table().get(clientUuid);
   if (!entry) return;
   if (entry.state === "failed" && !opts.force) return;
-  if (!opts.force && Date.now() < entry.nextAttemptAt) return;
+  if (!opts.force && !opts.ignoreBackoff && Date.now() < entry.nextAttemptAt) return;
+
+  let who: Sender;
+  try {
+    // Throws while the token store is latched or unconfigured, so a refused
+    // credential never reaches the API from here (ADR-0016).
+    who = await sender();
+  } catch (error) {
+    // Signed out (401) or no network to renew: recorded like a refused send,
+    // so the indicator can say which.
+    await recordFailure(entry, error);
+    return;
+  }
+  // Against the credential about to be attached, never a mirror read again,
+  // and under force too. A refusal leaves state, attempts and backoff as
+  // they were (U104).
+  const stamp = { driverSubject: entry.driverSubject ?? null, legacy: entry.legacy ?? false };
+  if (!mayCarry(stamp, who.subject)) return;
 
   await table().update(clientUuid, { state: "sending" });
   try {
     // FR-OFF-011: 201 first time, 200 on replay, and the outbox treats them
     // identically. The server has the inspection either way, which is the
     // only question the queue is asking.
-    await apiPost<{ inspectionId: string }>("/api/inspections", entry.payload);
+    await apiPostAs<{ inspectionId: string }>("/api/inspections", entry.payload, who);
     await table().delete(clientUuid);
   } catch (error) {
-    const attempts = entry.attempts + 1;
-    const permanent = classify(error) === "permanent";
-    await table().update(clientUuid, {
-      state: permanent ? "failed" : "queued",
-      attempts,
-      nextAttemptAt: permanent ? 0 : Date.now() + backoffMs(attempts),
-      lastStatus: error instanceof ApiError ? error.status : null,
-      lastCode: error instanceof ApiError ? error.code : null,
-      lastError: error instanceof Error ? error.message : String(error),
-    });
+    await recordFailure(entry, error);
   }
 }
 
 // FR-OFF-009: on app-open and whenever connectivity returns while the app is
 // open. Never Background Sync. iOS Safari does not have it and ADR-0009
 // settled that this design does not depend on it.
-export async function flushOutbox(opts: { force?: boolean } = {}): Promise<void> {
+export async function flushOutbox(opts: SendOptions = {}): Promise<void> {
   for (const entry of await listOutbox()) {
     await attemptSend(entry.clientUuid, opts);
+  }
+}
+
+// U104: the drivers whose work is held on this phone. Legacy rows send under
+// whoever signs in, so they are not anyone's. A failed read is nothing held
+// (owner decision 4); the send guard never relies on this.
+export async function heldStamps(): Promise<string[]> {
+  try {
+    const [draft, entries] = await Promise.all([loadDraft(), listOutbox()]);
+    const rows = [...(draft ? [draft] : []), ...entries];
+    return rows.flatMap((r) => (!r.legacy && r.driverSubject !== null ? [r.driverSubject] : []));
+  } catch {
+    return [];
+  }
+}
+
+// PD-S3: a draft and every outbox entry, whatever its state.
+export async function heldCount(): Promise<number> {
+  try {
+    const [draft, entries] = await Promise.all([loadDraft(), table().count()]);
+    return (draft ? 1 : 0) + entries;
+  } catch {
+    return 0;
   }
 }
 

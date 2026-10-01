@@ -99,6 +99,8 @@ describe("CaptureReview", () => {
       positions,
       warnings: [],
       absentSpares: [],
+      driverSubject: "oid-driver-1",
+      legacy: false,
     };
 
     render(

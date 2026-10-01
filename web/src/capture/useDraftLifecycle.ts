@@ -4,6 +4,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { CaptureContext } from "./captureContext";
 import type { Draft, RecordedWarning } from "./draft";
 import { clearDraft, loadDraft, saveHeader, startDraft } from "./draft";
+import { stampSubject } from "../api/token";
 import { halfEnteredCell } from "./payload";
 
 export type Screen = "start" | "capture" | "review" | "done";
@@ -82,6 +83,8 @@ export function useDraftLifecycle(
   ) {
     try {
       await startDraft({
+        // Empty is refused by startDraft: no subject, no draft (U104).
+        driverSubject: stampSubject() ?? "",
         vehicleId,
         taskId,
         // Rule 6: stored UTC. The tenant's timezone is applied on the way
