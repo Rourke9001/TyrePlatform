@@ -93,6 +93,17 @@ export async function capturePosition(page: Page, treads: string[][] = TREADS) {
   await expect(sheet).toBeHidden();
 }
 
+export async function captureAll(page: Page, first: string[][] = TREADS): Promise<number> {
+  await expect(page.locator("[data-position-id]").first()).toBeVisible();
+  const total = await page.locator("[data-position-id]").count();
+  // The only diagram tap in the walk. Every position after this one is opened
+  // by the position before it finishing.
+  await page.locator("[data-position-id]").first().click();
+  await capturePosition(page, first);
+  for (let i = 1; i < total; i++) await capturePosition(page);
+  return total;
+}
+
 // Scoped to a heading, not just role, because OutboxIndicator and other
 // banners also render role=status/alert under <main>; without the filter two
 // elements can match and strict mode blames the product, not the spec.
@@ -101,6 +112,7 @@ export const done = (page: Page) =>
     .locator("main")
     .getByRole("status")
     .filter({ has: page.getByRole("heading") });
+
 export async function submit(page: Page) {
   await page.getByRole("button", { name: /review and submit/i }).click();
   await page.getByRole("button", { name: /submit inspection/i }).click();
