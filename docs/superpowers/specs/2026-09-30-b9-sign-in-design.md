@@ -681,7 +681,7 @@ or 403, so a signed-out driver is not kept waiting through retries.
 
 | `failure` | When | What the app shows |
 | --- | --- | --- |
-| `signed-out` | 401 | The sign-in screen replaces the routes on a 401 while no `/api/me` has succeeded in this page load. A settled failure is held through a later refetch until `/api/me` returns data. The screen has one sentence, one "Email me a sign-in code" button at 56 to 64px (NFR-USE-004), and the count of inspections waiting. The button calls `signIn()`, a top-level redirect to Entra. |
+| `signed-out` | 401 | The sign-in screen replaces the routes on a 401 while the actor query holds no actor, which is also so after the sign-out cache reset below. A settled failure is held through a later refetch until `/api/me` returns data. The screen has one sentence, one "Email me a sign-in code" button at 56 to 64px (NFR-USE-004), and the count of inspections waiting. The button calls `signIn()`, a top-level redirect to Entra. |
 | `not-set-up` | 403 `forbidden` or `not_provisioned` | A screen saying the account is not set up and to contact the fleet office (PD-S1). |
 | `tenant-inactive` | 403 `tenant_inactive` | A screen with `msgTenantInactive`. |
 | `unavailable` | 503 `auth_unavailable` | A screen saying sign-in is unavailable right now. It never shows the sign-in button. The query does not retry it, and the screen's "Try again" reloads. |
@@ -807,7 +807,9 @@ once one the office has refused is removed.
 
 **When sign-out goes ahead,** it:
 
-1. clears the mirror, the last-known subject and every `tyre.branding.*` key;
+1. clears the mirror, the last-known subject, every `tyre.branding.*` key and
+   the token the store holds in memory when storage refused a write
+   (`clearSession()`);
 2. calls the library's `signoutRedirect()`, which sends `id_token_hint` to
    Entra's end-session endpoint and removes the stored user itself. Clearing
    the library's store first would drop the hint, and Entra could then show
@@ -823,7 +825,10 @@ once one the office has refused is removed.
 ### Cached state
 
 The query cache lives in memory, and every change of identity reloads the
-page, whether by redirect or by the dev switcher.
+page, whether by redirect or by the dev switcher. The one exception is a
+sign-out the page outlives, meaning a rejected `signOut()` or a back-forward
+restore. It drops the query cache instead, so `/api/me` is asked again and the
+sign-in screen shows.
 
 The one persisted cache is `ThemeProvider`'s branding. Its key is
 `tyre.branding.${getDevTenantId() ?? "default"}`, which in production is the
@@ -1197,7 +1202,8 @@ say so. The reasons:
   `session_id`.
 - ADR-0009: amended in PR B, the change that puts tokens in storage, citing
   U102. Decision 2, the consequences and action item 6 say that session
-  tokens are held in `localStorage` for at most 24 hours.
+  tokens are valid for at most 24 hours and are removed at the next refused
+  renewal or at sign-out.
 
 **Updated in the PR that makes them false:**
 

@@ -236,7 +236,7 @@ describe("SignOutButton (PD-S3)", () => {
   });
 });
 
-// Spec section 4, Cached state: a rejected sign-out, or a back-forward restore
+// Spec section 4, Signing out: a rejected sign-out, or a back-forward restore
 // of its navigation, leaves the page in place with the old actor cached.
 describe("a sign-out the page outlives", () => {
   it("asks /api/me again and shows the sign-in screen, not the old actor", async () => {

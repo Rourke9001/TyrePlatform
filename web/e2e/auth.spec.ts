@@ -238,4 +238,7 @@ test("the outbox band does not overflow a 360px viewport with the sign-in failur
       .filter({ hasText: "Could not start sign-in. Find signal and try again." }),
   ).toBeVisible();
   expect(await band.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(
+    true,
+  );
 });
