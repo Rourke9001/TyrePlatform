@@ -233,6 +233,27 @@ describe("the bearer path", () => {
     expect(headers.get("Authorization")).toBe("Bearer at-other");
   });
 
+  // Spec section 4, A fresh token refused: a latch set after the caller took
+  // its credential must still stop the send.
+  it("refuses apiPostAs without fetching once the store has latched", async () => {
+    const { apiGet: get, apiPostAs: post } = await freshClient();
+    mirror(Date.now());
+    stubFetch(401, { code: "unauthorized", message: "x" });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    await get("/api/me").catch((e: unknown) => e);
+    vi.mocked(fetch).mockClear();
+
+    const err = (await post(
+      "/api/inspections",
+      {},
+      { accessToken: "at-1", subject: "oid-a" },
+    ).catch((e: unknown) => e)) as ApiError;
+
+    expect(err.status).toBe(503);
+    expect(err.code).toBe("auth_unavailable");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("clears the mirror on a 401 for an older token, and the refusal stays a 401", async () => {
     const { apiGet: get, ApiError: Err } = await freshClient();
     mirror(Date.now() - 5 * 60_000);

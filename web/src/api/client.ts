@@ -3,7 +3,7 @@
 
 import { getDevActorId, getDevTenantId } from "./devTenant";
 import { ApiError } from "./apiError";
-import { authUnavailable, refused, sender, type Sender } from "./token";
+import { authUnavailable, isLatched, refused, sender, type Sender } from "./token";
 
 export { ApiError } from "./apiError";
 
@@ -34,6 +34,8 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
 async function send<T>(method: string, path: string, body?: unknown, as?: Sender): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  // A latch set after the caller took its credential still stops the send.
+  if (as !== undefined && isLatched()) throw authUnavailable();
   const who = as ?? (await sender());
   if (who.accessToken !== null) {
     headers[AUTH_HEADER] = `Bearer ${who.accessToken}`;

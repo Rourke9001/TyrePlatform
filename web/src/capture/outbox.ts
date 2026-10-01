@@ -185,7 +185,7 @@ export async function attemptSend(clientUuid: string, opts: SendOptions = {}): P
   let who: Sender;
   try {
     // Throws while the token store is latched or unconfigured, so a refused
-    // credential never reaches the API from here (ADR-0016).
+    // credential never reaches the API from here (spec section 4, A fresh token refused).
     who = await sender();
   } catch (error) {
     // Signed out (401) or no network to renew: recorded like a refused send,
@@ -222,7 +222,7 @@ export async function flushOutbox(opts: SendOptions = {}): Promise<void> {
 
 // U104: the drivers whose work is held on this phone. Legacy rows send under
 // whoever signs in, so they are not anyone's. A failed read is nothing held
-// (owner decision 4); the send guard never relies on this.
+// (spec section 4, TYRE-317); the send guard never relies on this.
 export async function heldStamps(): Promise<string[]> {
   try {
     const [draft, entries] = await Promise.all([loadDraft(), listOutbox()]);

@@ -2,6 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/client";
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
+import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
+import { bearerSession } from "../test/bearerSession";
 import { clearDraft, db, loadDraft, savePosition, startDraft } from "./draft";
 import {
   attemptSend,
@@ -31,6 +33,9 @@ beforeEach(async () => {
 
 afterEach(() => {
   clearDevActorId();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+  window.localStorage.clear();
   vi.unstubAllGlobals();
   // Belt-and-braces: fake timers left active by a prior failure would
   // otherwise hang db.open() in every following beforeEach, misattributing
@@ -460,7 +465,7 @@ describe("the driver stamp (U104)", () => {
   });
 
   // A latched or unconfigured store throws from the credential before the
-  // send; the entry is held for retry and nothing reaches the API (ADR-0016).
+  // send; the entry is held for retry and nothing reaches the API (spec section 4, A fresh token refused).
   it("does not reach the API when the token store refuses a credential", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
@@ -476,6 +481,89 @@ describe("the driver stamp (U104)", () => {
     const after = (await listOutbox())[0];
     expect(after.state).toBe("queued");
     expect(after.lastCode).toBe("auth_unavailable");
+  });
+});
+
+// The dev path makes the credential's subject, the last-known subject and
+// X-User-ID one value, so only a bearer session tells them apart (U104).
+describe("the driver stamp under a bearer session", () => {
+  beforeEach(() => {
+    clearDevActorId();
+    bearerSession();
+    window.localStorage.setItem(
+      MIRROR_KEY,
+      JSON.stringify({
+        accessToken: "at-a",
+        subject: "oid-a",
+        expiresAt: Date.now() + 3_600_000,
+        obtainedAt: Date.now() - 600_000,
+        tenantId: null,
+      }),
+    );
+    window.localStorage.setItem(SUBJECT_KEY, "oid-b");
+  });
+
+  async function entryStampedFor(subject: string) {
+    const entry = await queueOne();
+    await db.table("outbox").update(entry.clientUuid, { driverSubject: subject });
+    return entry;
+  }
+
+  it("compares with the credential it attaches, not the last-known subject", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await entryStampedFor("oid-b");
+    const before = (await listOutbox())[0];
+
+    await attemptSend(entry.clientUuid, { force: true });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await listOutbox())[0]).toEqual(before);
+  });
+
+  it("sends an entry stamped for the credential's subject under that bearer", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await entryStampedFor("oid-a");
+
+    // The mirror changes after the compare (another tab renewed or signed
+    // in); the send must still carry the credential the compare used.
+    const table = db.table("outbox");
+    const original = table.update.bind(table);
+    vi.spyOn(table, "update").mockImplementation(((key: string, changes: object) => {
+      window.localStorage.setItem(
+        MIRROR_KEY,
+        JSON.stringify({
+          accessToken: "at-b",
+          subject: "oid-b",
+          expiresAt: Date.now() + 3_600_000,
+          obtainedAt: Date.now() - 600_000,
+          tenantId: null,
+        }),
+      );
+      return original(key, changes);
+    }) as typeof table.update);
+
+    await attemptSend(entry.clientUuid);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
+    const headers = init.headers;
+    expect(headers.Authorization).toBe("Bearer at-a");
+    expect(await listOutbox()).toEqual([]);
+  });
+});
+
+describe("heldStamps and heldCount when storage fails (spec section 4)", () => {
+  it("read as nothing held", async () => {
+    await queueOne();
+    vi.spyOn(db.table("outbox"), "toArray").mockRejectedValue(new Error("blocked"));
+    vi.spyOn(db.table("outbox"), "count").mockRejectedValue(new Error("blocked"));
+
+    expect(await heldStamps()).toEqual([]);
+    expect(await heldCount()).toBe(0);
   });
 });
 
