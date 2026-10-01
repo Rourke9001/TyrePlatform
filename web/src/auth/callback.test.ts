@@ -177,19 +177,36 @@ describe("completeRedirect", () => {
     expect(oidc.completeSignIn).toHaveBeenCalledTimes(1);
   });
 
-  // A full or blocked store costs the mirror, not the sign-in: the library
-  // holds the user and the next call renews from it (ADR-0016).
-  it("keeps a good sign-in whose mirror cannot be written", async () => {
-    const { callback, oidc } = await fresh();
+  // The library stored its user before the write failed; left there, the
+  // next load would renew it and never show the sign-in screen (spec
+  // section 6).
+  it("reports a sign-in whose mirror cannot be written as not finished, and removes the library's user", async () => {
+    const { callback, oidc, token } = await fresh();
     vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("full", "QuotaExceededError");
     });
 
-    await expect(callback.completeRedirect()).resolves.toBe("signed-in");
-    expect(callback.signInDidNotFinish()).toBe(false);
-    expect(oidc.discardUser).not.toHaveBeenCalled();
-    expect(window.location.pathname).toBe("/capture/v1");
+    await expect(callback.completeRedirect()).resolves.toBe("failed");
+    expect(callback.signInDidNotFinish()).toBe(true);
+    expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(token.readMirror()).toBeNull();
+  });
+
+  it("fails the same way when only the last-known subject cannot be written", async () => {
+    const { callback, oidc, token } = await fresh();
+    vi.mocked(oidc.completeSignIn).mockResolvedValue(SIGNED_IN);
+    const store = window.localStorage;
+    const real = store.setItem.bind(store);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation((key: string, value: string) => {
+      if (key === token.SUBJECT_KEY) throw new DOMException("full", "QuotaExceededError");
+      real(key, value);
+    });
+
+    await expect(callback.completeRedirect()).resolves.toBe("failed");
+    expect(callback.signInDidNotFinish()).toBe(true);
+    expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(token.readMirror()).toBeNull();
   });
 });
 
