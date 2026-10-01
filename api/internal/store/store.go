@@ -27,7 +27,8 @@ import (
 const defaultMaxConns = 10
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	sessions *sessionSet
 }
 
 func New(ctx context.Context, dsn string) (*Store, error) {
@@ -59,7 +60,7 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, sessions: newSessionSet(sessionLimit)}, nil
 }
 
 func (s *Store) Close() {
@@ -200,11 +201,25 @@ func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, aut
 	}
 	actor.DepotIDs = depots
 
+	// Keyed on the tenant too, as the unique index is (000052).
+	sessionKey := key.TenantID.String() + "/" + key.SessionID
+	recordSession := key.SessionID != "" && !s.sessions.has(sessionKey)
+	if recordSession {
+		if _, err := tx.Exec(ctx, `SELECT app.record_session_start()`); err != nil {
+			return fmt.Errorf("recording session start: %w", err)
+		}
+	}
+
 	if err := fn(tx, actor); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing actor transaction: %w", err)
+	}
+	// Remembered only once committed, so a rolled-back request cannot lose
+	// the event (spec section 3, FR-AUD-004).
+	if recordSession {
+		s.sessions.add(sessionKey)
 	}
 	return nil
 }

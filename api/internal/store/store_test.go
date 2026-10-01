@@ -529,3 +529,90 @@ func TestInActorTxHidesTheTenantStateFromAnUnknownUser(t *testing.T) {
 	require.ErrorIs(t, err, store.ErrNoSuchActor)
 	require.NotErrorIs(t, err, store.ErrTenantInactive)
 }
+
+// countSessionStarts names the tenant in its WHERE on the admin connection,
+// so the count cannot read empty for want of a binding (docs/lessons.md,
+// 2026-09-19).
+func countSessionStarts(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, session string) int {
+	t.Helper()
+	var n int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.audit_log
+		  WHERE tenant_id = $1 AND session_id = $2 AND action = 'SESSION_START'`,
+		tenantID, session).Scan(&n))
+	return n
+}
+
+func noop(pgx.Tx, auth.Actor) error { return nil }
+
+// FR-AUD-004: a session's first use is recorded once. With the row removed
+// behind the store's back, a second request writes nothing, which shows the
+// store remembered the session instead of calling the function again.
+func TestASessionStartIsWrittenOncePerSession(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	key := store.ActorKey{TenantID: a.id, Subject: linkSubject(t, ctx, admin, userID), SessionID: "sid:" + uuid.NewString()}
+
+	require.NoError(t, s.InActorTx(ctx, key, noop))
+	require.Equal(t, 1, countSessionStarts(t, ctx, admin, a.id, key.SessionID), "the first request records the start")
+
+	_, err := admin.Exec(ctx, `DELETE FROM app.audit_log WHERE tenant_id = $1 AND session_id = $2`, a.id, key.SessionID)
+	require.NoError(t, err)
+	require.NoError(t, s.InActorTx(ctx, key, noop))
+	require.Zero(t, countSessionStarts(t, ctx, admin, a.id, key.SessionID))
+}
+
+// A second replica has not seen the session, so it calls the function; the
+// unique index makes that a no-op (000052). The deleted row shows the call
+// happened, since only the replica could have written it back.
+func TestASecondReplicaDoesNotDuplicateASessionStart(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	appURL, _ := testURLs(t)
+	replica, err := store.New(ctx, appURL)
+	require.NoError(t, err)
+	t.Cleanup(replica.Close)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	key := store.ActorKey{TenantID: a.id, Subject: linkSubject(t, ctx, admin, userID), SessionID: "sid:" + uuid.NewString()}
+
+	require.NoError(t, s.InActorTx(ctx, key, noop))
+	require.NoError(t, replica.InActorTx(ctx, key, noop))
+	require.Equal(t, 1, countSessionStarts(t, ctx, admin, a.id, key.SessionID), "the index absorbed the repeat")
+
+	_, err = admin.Exec(ctx, `DELETE FROM app.audit_log WHERE tenant_id = $1 AND session_id = $2`, a.id, key.SessionID)
+	require.NoError(t, err)
+	third, err := store.New(ctx, appURL)
+	require.NoError(t, err)
+	t.Cleanup(third.Close)
+	require.NoError(t, third.InActorTx(ctx, key, noop))
+	require.Equal(t, 1, countSessionStarts(t, ctx, admin, a.id, key.SessionID), "a replica that has not seen the session records it")
+}
+
+// A request that rolls back loses its session start with it, and must not
+// mark the session recorded, or the event would never be written.
+func TestARolledBackRequestNeitherRecordsNorRemembersItsSession(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	key := store.ActorKey{TenantID: a.id, Subject: linkSubject(t, ctx, admin, userID), SessionID: "sid:" + uuid.NewString()}
+
+	err := s.InActorTx(ctx, key, func(pgx.Tx, auth.Actor) error { return errors.New("handler refused") })
+	require.Error(t, err)
+	require.Zero(t, countSessionStarts(t, ctx, admin, a.id, key.SessionID))
+
+	require.NoError(t, s.InActorTx(ctx, key, noop))
+	require.Equal(t, 1, countSessionStarts(t, ctx, admin, a.id, key.SessionID))
+}
+
+func TestADevKeyRecordsNoSessionStart(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, noop))
+	var n int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.audit_log WHERE tenant_id = $1 AND action = 'SESSION_START'`, a.id).Scan(&n))
+	require.Zero(t, n)
+}
