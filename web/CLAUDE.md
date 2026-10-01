@@ -49,6 +49,10 @@ Online-first with a durable submit outbox — not an offline sync engine.
 - Each inspection carries a client-generated UUID; the server treats
   submission as idempotent, so replaying the outbox is safe.
 - Photos queue separately from readings.
+- Each draft and outbox entry is stamped with the capturing driver's Entra
+  `oid` and sends only under that driver's session; a sign-in by anyone else
+  is undone while one is held, and sign-out is refused while anything is
+  (U104, PD-S3, ADR-0016).
 - A render error on any route, capture included, leaves the shell and the
   outbox indicator mounted and offers "Try again" (`RouteErrorBoundary`,
   U54; its `retry` says which routes remount in place and which reload).
@@ -59,6 +63,21 @@ Online-first with a durable submit outbox — not an offline sync engine.
   the warning about them (TYRE-339). `/my` remounts against its query
   cache: offline the query pauses, so it shows the list it last loaded,
   or "Loading…" once that has been dropped, until the signal returns.
+
+## Sign-in (ADR-0016)
+
+`src/api/token.ts` is the token store and sits in the entry: it reads a
+mirror of the access token from its own `localStorage` key, never the
+library's storage format. `src/auth/oidc.ts` is the only file that imports
+oidc-client-ts, reached only through the store's `authChunk()`, so the
+library stays out of the capture budget. Under vite dev and vitest the dev
+headers remain the default; `localStorage["tyre.dev.auth"] = "bearer"`
+opts a session into the bearer path. On the dev header path the dev actor id
+stands in as the U104 stamp, and only under `import.meta.env.DEV`. A
+production build has only the bearer path, `scripts/check-dist-dev-strings.mjs`
+(in `make web-bundle` and CI) fails a build that still names the dev headers
+or keys, and `scripts/check-capture-bundle.mjs` fails one whose entry carries
+oidc-client-ts.
 
 ## Browser tests (e2e/)
 

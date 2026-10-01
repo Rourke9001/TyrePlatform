@@ -216,6 +216,9 @@ is the one in-progress inspection.
 
 - Reads (vehicle lists, configuration) are fetched online; nothing replicates
   the register to the phone.
+- Each held inspection is stamped with the driver who captured it and sends
+  only under that driver's session (U104, ADR-0016). The session's tokens sit
+  in `localStorage` for at most 24 hours (U102).
 - The in-progress inspection is durably held on-device until the server
   acknowledges it — a submit outbox, with an explicit "Sync now" and a
   stale-queue warning, never a background-sync dependency (iOS Safari has no

@@ -118,3 +118,27 @@ A secondary benefit worth recording: **this decision de-risks an unanswered ques
 6. Amend the NFR-PRV-006 notice to describe what is held on-device: one in-progress form, nothing else
 7. Put the reimbursed-data-allowance suggestion to the sponsor
 8. Close OI-07; close OI-08 as _"signal generally available at inspection time — unverified, and no longer load-bearing"_
+
+## Amendment, 2026-09-30 (U102, U104, TYRE-317, ADR-0016)
+
+Decision 2 said reference data is not stored at rest and the phone holds
+almost no personal information. Sign-in changes what the phone holds, not
+what it replicates:
+
+- **Session tokens.** The access, refresh and ID tokens are held in
+  `localStorage` for the session's life, 24 hours at most, with a mirror of
+  the access token beside them (U102). The ID token carries the person's name
+  and email address. A refused renewal or a sign-out removes all of them.
+- **The capturing driver.** Each draft and outbox entry records the Entra
+  `oid` of the driver who captured it, and the phone keeps the last driver's
+  `oid` to stamp the next draft (U104).
+
+**Consequences, amended.** The privacy notice's claim widens from one
+in-progress form to that form, the session's tokens and the capturing
+driver's id. Any script on the origin can read the tokens; the mitigations
+are no third-party scripts, self-hosted fonts and the web CSP that TYRE-51
+adds.
+
+**Action item 6, amended.** The NFR-PRV-006 notice names one in-progress
+inspection per phone, the session's tokens for at most 24 hours, and the
+capturing driver's id on each held inspection. TYRE-373 carries the erratum.
