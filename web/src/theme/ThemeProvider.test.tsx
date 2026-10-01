@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { QueryClientProvider } from "@tanstack/react-query";
 
+import { useEffect, useState } from "react";
 import { ThemeProvider } from "./ThemeProvider";
 import { useBranding } from "./themeContext";
 import { ActorContext } from "../auth/actorContext";
@@ -90,18 +91,34 @@ describe("the branding cache key", () => {
     expect(brandingKeys()).toEqual([]);
   });
 
+  // Only the actor changes: ThemeProvider is not recreated and the mirror
+  // stays unknown, so the move can come only from ThemeProvider reading the
+  // actor (ADR-0016).
   it("moves to the tenant when /api/me answers, without a reload", async () => {
     window.localStorage.setItem("tyre.dev.auth", "bearer");
     stubAuthEnv();
     setMirror(null);
-    const view = mount();
+    let setActor: (actor: ReturnType<typeof me>) => void = () => undefined;
+    function Parent() {
+      const [actor, set] = useState<ReturnType<typeof me> | null>(null);
+      useEffect(() => {
+        setActor = set;
+      }, [set]);
+      return (
+        <QueryClientProvider client={client}>
+          <ActorContext.Provider value={{ actor, settled: actor !== null }}>
+            <ThemeProvider>
+              <Name />
+            </ThemeProvider>
+          </ActorContext.Provider>
+        </QueryClientProvider>
+      );
+    }
+    render(<Parent />);
     await screen.findByText("Acme");
     expect(brandingKeys()).toEqual([]);
 
-    // What fetchMe does on success: the mirror learns the tenant, then the
-    // actor arrives.
-    setMirror("t-9");
-    view.rerender(tree(me({ tenantId: "t-9" })));
+    act(() => setActor(me({ tenantId: "t-9" })));
     await waitFor(() => expect(window.localStorage.getItem("tyre.branding.t-9")).not.toBeNull());
   });
 
