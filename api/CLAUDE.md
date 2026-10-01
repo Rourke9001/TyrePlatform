@@ -65,12 +65,13 @@ who can send a header is anyone, in any tenant, so the capability gate is
 decorative in development: a development convenience with the blast radius
 of an authentication bypass. It is compiled only with `-tags devheader`
 (U103). `make api-test`, `make api-run`, vet, staticcheck and CI all pass
-the tag; the release image does not, and `scripts/check-release-binary.sh`
-(`make api-release-check`) fails `make lint` and CI if the release binary
-names either header. The `CONTAINER_APP_NAME` veto in `devHeaderEnabled`
-stays as a second layer, on the variable's presence, not its value; ADR-0011
-records why. Give your editor the `devheader` build tag, or it will not see
-the tests.
+the tag; the release image does not. The Dockerfile's build stage runs
+`scripts/check-release-binary.sh` on the binary the image ships, so the
+image does not build if that binary names either header, and `make
+api-release-check` (in `make lint`) and CI build that stage. The
+`CONTAINER_APP_NAME` veto in `devHeaderEnabled` stays as a second layer, on
+the variable's presence, not its value; ADR-0011 records why. Give your
+editor the `devheader` build tag, or it will not see the tests.
 
 ## Money over the wire
 

@@ -12,6 +12,10 @@ COPY . .
 # CGO off makes the binary fully static so it runs on distroless/static.
 # No -tags devheader: the release binary has no dev header resolver (U103).
 RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api
+# U103: the image does not build if the binary it ships names a dev header.
+# The control is the devheader build, kept out of /out.
+RUN CGO_ENABLED=0 go build -tags devheader -trimpath -ldflags='-s -w' -o /tmp/control ./cmd/api \
+ && sh scripts/check-release-binary.sh /out/api /tmp/control
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/api /api
