@@ -10276,5 +10276,187 @@ END $$;
 DROP FUNCTION pg_temp.names_tenant(text, text, text);
 DROP FUNCTION pg_temp.sans_comments(text);
 
+\echo '== 68. A sign-in subject links one app_user row, only the owning role writes it, and a session start is recorded once (TYRE-317, ADR-0016, FR-AUD-004)'
+-- The app role writes every app_user column except subject, so no handler
+-- can re-link a login to another person's row (ADR-0016 decision 6).
+
+\echo '== 68a. the app login holds INSERT and UPDATE on every app_user column except subject'
+DO $$
+DECLARE bad text; n int;
+BEGIN
+  -- Control: the sweep reads the live column list, so a column added later
+  -- enrols itself. With too few columns the sweep below would be vacuous.
+  SELECT count(*) INTO n FROM pg_attribute
+   WHERE attrelid = 'app.app_user'::regclass AND attnum > 0 AND NOT attisdropped
+     AND attname <> 'subject';
+  IF n < 11 THEN
+    RAISE EXCEPTION 'FAIL 68a: app.app_user has only % columns besides subject; the sweep would prove nothing', n;
+  END IF;
+  SELECT string_agg(a.attname || ' ' || p.priv, ', ' ORDER BY a.attnum, p.priv) INTO bad
+    FROM pg_attribute a
+   CROSS JOIN (VALUES ('INSERT'), ('UPDATE')) AS p(priv)
+   WHERE a.attrelid = 'app.app_user'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+     AND a.attname <> 'subject'
+     AND NOT has_column_privilege(current_user, 'app.app_user', a.attname, p.priv);
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 68a: the app login cannot write app_user %; createUser needs every column but subject', bad;
+  END IF;
+  IF has_column_privilege(current_user, 'app.app_user', 'subject', 'INSERT')
+     OR has_column_privilege(current_user, 'app.app_user', 'subject', 'UPDATE') THEN
+    RAISE EXCEPTION 'FAIL 68a: the app login can write app_user.subject, so a handler could re-link a login';
+  END IF;
+  RAISE NOTICE 'PASS  68a the app login writes every app_user column except subject';
+END $$;
+
+\echo '== 68b. an UPDATE or INSERT that names subject is refused for privilege (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE err text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  -- Control: the same row takes an UPDATE of a granted column, so the
+  -- refusal below is the grant, not RLS and not a missing row.
+  UPDATE app.app_user SET display_name = display_name WHERE id = md5('driver1')::uuid;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 68b: the control UPDATE matched no row, so the refusal below would prove nothing';
+  END IF;
+  BEGIN
+    UPDATE app.app_user SET subject = md5('probe-68b')::uuid WHERE id = md5('driver1')::uuid;
+  EXCEPTION WHEN insufficient_privilege THEN err := SQLERRM;
+  END;
+  IF err IS NULL THEN
+    RAISE EXCEPTION 'FAIL 68b: the app login re-linked driver1 to another subject';
+  END IF;
+  err := NULL;
+  BEGIN
+    INSERT INTO app.app_user (tenant_id, email, display_name, role, subject)
+    VALUES ('11111111-1111-1111-1111-111111111111', 'probe-68b@example.invalid', 'Probe', 'DRIVER',
+            md5('probe-68b')::uuid);
+  EXCEPTION WHEN insufficient_privilege THEN err := SQLERRM;
+  END;
+  IF err IS NULL THEN
+    RAISE EXCEPTION 'FAIL 68b: the app login inserted a user that already carries a subject';
+  END IF;
+  RAISE NOTICE 'PASS  68b only the owning role writes app_user.subject';
+END $$;
+ROLLBACK;
+
+\echo '== 68c. the subject key and the session-start key are unique, partial and lead with tenant_id'
+DO $$
+DECLARE def text;
+BEGIN
+  SELECT pg_get_indexdef(i.indexrelid) INTO def
+    FROM pg_index i
+   WHERE i.indexrelid = to_regclass('app.app_user_tenant_subject_key') AND i.indisunique;
+  IF def IS NULL OR def !~ '\(tenant_id, subject\) WHERE \(subject IS NOT NULL\)' THEN
+    RAISE EXCEPTION 'FAIL 68c: app_user_tenant_subject_key is missing or not unique on (tenant_id, subject) WHERE subject IS NOT NULL: %', def;
+  END IF;
+  SELECT pg_get_indexdef(i.indexrelid) INTO def
+    FROM pg_index i
+   WHERE i.indexrelid = to_regclass('app.audit_log_session_start_key') AND i.indisunique;
+  IF def IS NULL OR def !~ '\(tenant_id, session_id\) WHERE \(action = ''SESSION_START''::text\)' THEN
+    RAISE EXCEPTION 'FAIL 68c: audit_log_session_start_key is missing or not unique on (tenant_id, session_id) WHERE action = SESSION_START: %', def;
+  END IF;
+  RAISE NOTICE 'PASS  68c both keys are unique, partial and lead with tenant_id';
+END $$;
+
+\echo '== 68d. a subject resolves only inside its own tenant (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE n int;
+BEGIN
+  -- Control: Second Fleet's subject exists and resolves with its own tenant
+  -- bound, so the zero below is the boundary and not a missing seed
+  -- (docs/lessons.md, 2026-09-19).
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT count(*) INTO n FROM app.app_user WHERE subject = md5('subject-driver2')::uuid;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 68d: Second Fleet''s seeded subject found % rows with Second Fleet bound; the control needs exactly one', n;
+  END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT count(*) INTO n FROM app.app_user WHERE subject = md5('subject-driver1')::uuid;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 68d: BAC''s seeded subject found % rows with BAC bound; the control needs exactly one', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.app_user WHERE subject = md5('subject-driver2')::uuid;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 68d: Second Fleet''s seeded subject is visible with BAC bound';
+  END IF;
+  RAISE NOTICE 'PASS  68d a subject resolves only inside its own tenant';
+END $$;
+ROLLBACK;
+
+\echo '== 68e. app.record_session_start() writes one row per session, only its tenant sees it, and it refuses an unbound session or actor (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE n int; err text;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
+  PERFORM set_config('app.session_id', 'sid:probe-68e-one', true);
+  PERFORM app.record_session_start();
+  PERFORM app.record_session_start();
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE action = 'SESSION_START' AND session_id = 'sid:probe-68e-one';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 68e: two calls for one session left % rows, not 1', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE session_id = 'sid:probe-68e-one' AND tenant_id = '11111111-1111-1111-1111-111111111111'
+     AND actor_id = md5('driver1')::uuid AND entity_type = 'app_user' AND entity_id = md5('driver1')::uuid
+     AND before IS NULL AND after IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 68e: the session-start row does not name the tenant, the actor and the actor''s own row';
+  END IF;
+  PERFORM set_config('app.session_id', 'sid:probe-68e-two', true);
+  PERFORM app.record_session_start();
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE action = 'SESSION_START' AND session_id IN ('sid:probe-68e-one', 'sid:probe-68e-two');
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 68e: a second session left % rows in all, not 2', n;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE session_id IN ('sid:probe-68e-one', 'sid:probe-68e-two');
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 68e: Second Fleet sees % of BAC''s session starts', n;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  PERFORM set_config('app.session_id', '', true);
+  BEGIN
+    PERFORM app.record_session_start();
+  EXCEPTION WHEN raise_exception THEN err := SQLERRM;
+  END;
+  IF err IS NULL THEN
+    RAISE EXCEPTION 'FAIL 68e: a call with no session bound returned instead of raising';
+  END IF;
+  err := NULL;
+  PERFORM set_config('app.session_id', 'sid:probe-68e-three', true);
+  PERFORM set_config('app.actor_id', '', true);
+  BEGIN
+    PERFORM app.record_session_start();
+  EXCEPTION WHEN raise_exception THEN err := SQLERRM;
+  END;
+  IF err IS NULL THEN
+    RAISE EXCEPTION 'FAIL 68e: a call with no actor bound returned instead of raising';
+  END IF;
+  -- A session start never lands outside a tenant: the function refuses
+  -- before RLS would, so the owning role cannot write one either.
+  err := NULL;
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
+  PERFORM set_config('app.tenant_id', '', true);
+  BEGIN
+    PERFORM app.record_session_start();
+  EXCEPTION WHEN raise_exception THEN err := SQLERRM;
+  END;
+  IF err IS NULL THEN
+    RAISE EXCEPTION 'FAIL 68e: a call with no tenant bound wrote a session start';
+  END IF;
+  RAISE NOTICE 'PASS  68e one session-start row per session, visible only to its tenant, never unattributed';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
