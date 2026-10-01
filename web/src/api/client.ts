@@ -2,20 +2,9 @@
 // than a fetch belongs server-side (docs/architecture.md).
 
 import { getDevActorId, getDevTenantId } from "./devTenant";
+import { ApiError } from "./apiError";
 
-// status is the outbox's decision (FR-OFF-012 vs FR-OFF-013); code is the
-// refusal reason a 409 alone cannot carry (FR-INS-038, ADR-0012); message is
-// the envelope's text, or a diagnostic when absent (ADR-0013).
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly code: string | null = null,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+export { ApiError } from "./apiError";
 
 // An unreadable body yields nulls, not a throw (ADR-0012): failing to parse
 // a refusal must not lose the inspection the outbox is holding. Both fields

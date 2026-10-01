@@ -14,6 +14,19 @@ const STAMP_KEY = "chunkReloadAt";
 // recovers.
 const RELOAD_GUARD_WINDOW_MS = 10_000;
 
+// The token store's import of the sign-in library (ADR-0016) fails like any
+// chunk and dispatches the same event. In a dead zone that is a network
+// failure the outbox retries, never a reason to reload. Vite dispatches the
+// event before the import rejects, so the count is still held when it fires.
+let suppressed = 0;
+
+export function suppressReloadWhile<T>(pending: Promise<T>): Promise<T> {
+  suppressed += 1;
+  return pending.finally(() => {
+    suppressed -= 1;
+  });
+}
+
 export interface ChunkReloadDeps {
   reload: () => void;
   storage: Pick<Storage, "getItem" | "setItem">;
@@ -27,6 +40,7 @@ export function installChunkReload(deps: Partial<ChunkReloadDeps> = {}): () => v
   const now = deps.now ?? Date.now;
 
   function handlePreloadError() {
+    if (suppressed > 0) return;
     // Blocked storage (private mode, quota, or a SecurityError merely
     // reading window.sessionStorage: all cookies blocked, a sandboxed
     // iframe) means no guard is possible; reloading without one risks

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { installChunkReload } from "./chunkReload";
+import { installChunkReload, suppressReloadWhile } from "./chunkReload";
 
 // A fake store: same get/set/throw contract as sessionStorage, without
 // touching jsdom's real one, so the "blocked storage" case can be forced.
@@ -133,5 +133,27 @@ describe("installChunkReload", () => {
     dispatchPreloadError();
 
     expect(reload).not.toHaveBeenCalled();
+  });
+
+  // The token store imports the sign-in library on its own behalf; failing
+  // in a dead zone is a network failure the outbox retries, never a reload.
+  it("does not reload while a suppressed import is pending, and does once it settles", async () => {
+    const reload = vi.fn();
+    const storage = fakeStorage();
+    uninstall = installChunkReload({ reload, storage, now: () => 1_000 });
+
+    let settle: () => void = () => undefined;
+    const pending = suppressReloadWhile(
+      new Promise<void>((resolve) => {
+        settle = resolve;
+      }),
+    );
+    dispatchPreloadError();
+    expect(reload).not.toHaveBeenCalled();
+
+    settle();
+    await pending;
+    dispatchPreloadError();
+    expect(reload).toHaveBeenCalledTimes(1);
   });
 });
