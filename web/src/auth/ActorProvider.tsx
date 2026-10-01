@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
-import { ActorContext, failureOf } from "./actorContext";
+import { ActorContext, failureOf, type AuthFailure } from "./actorContext";
 import { fetchMe } from "./me";
 import { ApiError } from "../api/apiError";
 import { getDevTenantId } from "../api/devTenant";
@@ -14,10 +14,27 @@ export function ActorProvider({ children }: { children: ReactNode }) {
     staleTime: 5 * 60 * 1000,
     // A 401 or a 403 answers the same on the next attempt, and a signed-out
     // driver must not wait through three retries to see the sign-in screen.
+    // auth_unavailable is thrown locally (latched or unconfigured, token.ts),
+    // so a retry only keeps the screen blank.
     retry: (failures, error) =>
       failures < 3 &&
-      !(error instanceof ApiError && (error.status === 401 || error.status === 403)),
+      !(
+        error instanceof ApiError &&
+        (error.status === 401 || error.status === 403 || error.code === "auth_unavailable")
+      ),
   });
+
+  // Spec section 4: a failure that settled with no actor holds until /api/me
+  // returns data. A later refetch that fails on the network is not an answer,
+  // and must not drop the sign-in screen onto routes with no actor. Adjusted
+  // during render, the documented way to derive state from a changing value.
+  const named = failureOf(query.error);
+  const [held, setHeld] = useState<AuthFailure>(null);
+  if (query.data !== undefined) {
+    if (held !== null) setHeld(null);
+  } else if (named !== null && named !== held) {
+    setHeld(named);
+  }
 
   // !isPending, not isSuccess: a failed GET /api/me is settled too, and an
   // actor that cannot be resolved must still stop blocking a one-shot
@@ -26,9 +43,9 @@ export function ActorProvider({ children }: { children: ReactNode }) {
     () => ({
       actor: query.data ?? null,
       settled: !query.isPending,
-      failure: failureOf(query.error),
+      failure: named ?? held,
     }),
-    [query.data, query.isPending, query.error],
+    [query.data, query.isPending, named, held],
   );
 
   return <ActorContext value={value}>{children}</ActorContext>;

@@ -5,9 +5,10 @@ import { AccessScreen } from "./AccessScreen";
 import { useActor, useActorSettled, useAuthFailure } from "./actorContext";
 import { SignInScreen } from "./SignInScreen";
 
-// The routes give way only when this page load has no actor at all. A later
-// 401 keeps the screen in hand and SignInLine offers sign-in beside it, so a
-// capture is never unmounted (spec section 4).
+// The sign-in or access screen shows while no GET /api/me has succeeded in
+// this page load and the provider holds a failure (spec section 4). Once an
+// actor is in hand a later 401 keeps the routes and SignInLine offers sign-in
+// beside them, so a capture is never unmounted.
 export function AuthGate({ children }: { children: ReactNode }) {
   const actor = useActor();
   const settled = useActorSettled();

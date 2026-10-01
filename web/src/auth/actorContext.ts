@@ -6,6 +6,7 @@ import type { Me } from "./me";
 // Context and hook live apart from the provider component: exporting a
 // component and a non-component from one module kills Vite fast refresh
 // (react-refresh/only-export-components).
+
 // What stopped GET /api/me, named as the screen a person needs (ADR-0016).
 export type AuthFailure = "signed-out" | "not-set-up" | "tenant-inactive" | "unavailable" | null;
 

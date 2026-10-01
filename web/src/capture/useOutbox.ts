@@ -10,7 +10,7 @@ import { listOutbox } from "./outbox";
 const NONE: OutboxEntry[] = [];
 
 // Dexie's own liveQuery via useSyncExternalStore, not a one-shot read:
-// nothing else connects queueDraft/attemptSend to this component.
+// nothing else connects queueDraft/attemptSend to a component.
 // dexie-react-hooks is not used because its types pull in optional peers
 // (y-dexie, yjs) this project's tsconfig checks for real (tsconfig.e2e.json
 // says why).
