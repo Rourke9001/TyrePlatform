@@ -165,7 +165,7 @@ test("a sign-in by another driver while an entry is held is undone, and the entr
     page.getByRole("alert").filter({ hasText: /captured by another driver/ }),
   ).toBeVisible();
   await expect(page.getByText(/1 inspection waiting to send/)).toBeVisible();
-  // main.tsx renders only after the compare: the new subject's token never
+  // main.tsx renders only after the compare, so the new subject's token never
   // reached the API at all, not /api/me and not the flush.
   expect(stub.apiBearers.filter((b) => b.includes("e2e-oid-b"))).toEqual([]);
   expect(stub.submitBearers.filter((b) => b.includes("e2e-oid-b"))).toEqual([]);

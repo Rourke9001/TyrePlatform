@@ -9,11 +9,9 @@ import { listOutbox } from "./outbox";
 // getSnapshot returns a fresh object each time.
 const NONE: OutboxEntry[] = [];
 
-// Dexie's own liveQuery via useSyncExternalStore, not a one-shot read:
-// nothing else connects queueDraft/attemptSend to a component.
-// dexie-react-hooks is not used because its types pull in optional peers
-// (y-dexie, yjs) this project's tsconfig checks for real (tsconfig.e2e.json
-// says why).
+// Dexie's own liveQuery via useSyncExternalStore, not a one-shot read,
+// because nothing else connects queueDraft/attemptSend to a component.
+// ADR-0009's 2026-09-30 amendment says why not dexie-react-hooks.
 export function useOutbox(): OutboxEntry[] {
   const held = useRef<OutboxEntry[]>(NONE);
   const subscribe = useCallback((changed: () => void) => {

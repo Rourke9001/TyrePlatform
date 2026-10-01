@@ -23,8 +23,9 @@ export function isRedirectCallback(url: URL): boolean {
 
 // Only the state id goes to the identity provider; returnTo stays in the
 // local state store. The same-origin check is defence in depth for a value
-// read back from storage. It tests the parsed path, because new URL() turns
-// "/..//evil.test" into "//evil.test", which a browser reads as another host.
+// read back from storage (ADR-0016, spec section 4). It tests the parsed path,
+// because new URL() turns "/..//evil.test" into "//evil.test", which a
+// browser reads as another host.
 export function safeReturnPath(value: unknown): string {
   if (typeof value !== "string" || !value.startsWith("/")) return "/";
   try {
@@ -44,8 +45,7 @@ async function othersHeld(subject: string): Promise<boolean> {
 
 // U104: sign the newcomer out through the full signOut(), marker first. A
 // rejection (end-session metadata unreachable offline) still counts as signed
-// out: oidc.ts signOut clears the entry's keys first, and the library's own
-// removeUser runs before it navigates.
+// out, because signOut() clears local state before it can reject (oidc.ts).
 async function undoSignIn(): Promise<void> {
   try {
     window.sessionStorage.setItem(OTHER_DRIVER_KEY, "1");
@@ -55,7 +55,7 @@ async function undoSignIn(): Promise<void> {
   try {
     await (await authChunk()).signOut();
   } catch {
-    // Signed out locally; see above.
+    // Best effort.
   }
 }
 
@@ -101,7 +101,7 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     try {
       await (await authChunk()).discardUser();
     } catch {
-      // Nothing more to remove from here; the sign-in still did not finish.
+      // Best effort.
     }
     didNotFinish = true;
     return "failed";

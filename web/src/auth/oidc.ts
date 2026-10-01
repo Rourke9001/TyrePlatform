@@ -36,7 +36,7 @@ export interface Auth {
   completeSignIn(url: string): Promise<SignedIn>;
   renew(): Promise<Tokens | null>;
   signOut(): Promise<void>;
-  // Removes the library's stored user without ending the Entra session: the
+  // Removes the library's stored user without ending the Entra session. The
   // callback uses it when the mirror cannot be written (callback.ts).
   discardUser(): Promise<void>;
 }
@@ -150,8 +150,9 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
         if (renewed === null) throw new Error("no user after renewal");
         return tokensOf(renewed);
       } catch {
-        // A refreshed session with no oid cannot stamp or compare anything
-        // (U104). It is a lapse: removed, and the driver signs in again.
+        // A renewal that returns no user, or one with no oid, cannot stamp or
+        // compare anything (U104). It is a lapse, so the user is removed and
+        // the driver signs in again.
         await manager.removeUser();
         return null;
       }

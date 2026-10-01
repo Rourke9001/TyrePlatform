@@ -16,8 +16,9 @@ const COPY = {
   },
 } as const;
 
-// No sign-in button on any of these: signing in again cannot help (FR-TEN-009,
-// ADR-0016). A reload is the retry, and it clears the store's latch.
+// No sign-in button on any of these, because signing in again cannot help
+// (FR-TEN-009, ADR-0016). A reload is the retry, and it clears the store's
+// latch.
 export function AccessScreen({ failure }: { failure: keyof typeof COPY }) {
   const copy = COPY[failure];
   return (

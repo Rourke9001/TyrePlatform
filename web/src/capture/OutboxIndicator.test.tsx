@@ -215,7 +215,7 @@ describe("the sign-in line", () => {
     expect(status).not.toContainElement(failure);
   });
 
-  // One 401-held entry each for this driver and another: the line counts only
+  // One 401-held entry each for this driver and another. The line counts only
   // this driver's (U104).
   it("counts only this driver's held work", async () => {
     await outbox().put({ ...entry("u1", "queued"), lastStatus: 401 });

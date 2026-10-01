@@ -717,8 +717,8 @@
   margin: 0;
 }
 
-/* The start refusal's sign-in prompt: the storage alert's layout, its own
-   class so a change to one cannot move the other. */
+/* The start refusal's sign-in prompt. It has the storage alert's layout
+   under its own class, so a change to one cannot move the other. */
 .cap-signin {
   display: flex;
   flex-direction: column;

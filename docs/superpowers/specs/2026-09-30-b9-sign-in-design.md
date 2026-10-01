@@ -591,7 +591,9 @@ expires in flight.
   promise.
 - **No refresh token stored.** `renew()` returns null without calling
   `signinSilent`. Otherwise the library would fall back to a hidden iframe on
-  `/`, because `silent_redirect_uri` defaults to `redirect_uri`.
+  `/`, because `silent_redirect_uri` defaults to `redirect_uri`. It removes
+  any stored user first, because a session that cannot renew is over and its
+  ID token names the person (section 6).
 - **The identity provider refuses the refresh token.** This covers
   `invalid_grant`, when the 24-hour refresh token has lapsed. `renew()` calls
   `removeUser()`, clears the mirror and returns null. The ID token carries the
@@ -659,8 +661,10 @@ The `UserManager` is configured as follows:
 - `automaticSilentRenew: false`, set explicitly because the library defaults
   it to true;
 - no session-monitor iframe and no userinfo call;
-- `requestTimeoutInSeconds: 10`, so a stalled discovery, key or token request
-  cannot leave the page waiting.
+- `requestTimeoutInSeconds: 10`, so a stalled discovery, key or code-exchange
+  request cannot leave the page waiting. The setting does not reach renewal,
+  so `renew()` passes `silentRequestTimeoutInSeconds: 10` to `signinSilent()`
+  on every call (`docs/lessons.md`, 2026-10-01).
 
 The chunk exports `signIn()`, `completeSignIn()`, `renew()`, `signOut()`
 and `discardUser()`, which removes the library's stored user when a sign-in
@@ -701,9 +705,9 @@ inspection to whoever sends it, so the client makes sure that is the driver
 who captured it. The stamp fails closed:
 
 - **Its source.** The stamp is taken from its own `localStorage` key, the
-  last-known subject, not from the mirror. The token store writes that key at
-  every sign-in and renewal, and only `signOut()` clears it. A 401, which
-  clears the mirror, leaves it alone.
+  last-known subject, not from the mirror. The redirect callback writes that
+  key at every sign-in and the token store at every renewal, and only
+  `signOut()` clears it. A 401, which clears the mirror, leaves it alone.
 - **No subject, no draft.** A draft cannot start without a known subject. The
   capture start refuses and asks the driver to sign in.
 - **Rows from before this change.** A Dexie version bump (version 2) marks
@@ -785,8 +789,10 @@ chunk's `signOut` lazily.
 
 A `signOut()` that rejects after the local clear counts as signed out
 locally, and its resolve is not completion: it is a navigation that a
-back-forward cache restore can undo. A failed import of the auth chunk shows
-a short line and leaves the driver signed in.
+back-forward cache restore can undo. When it settles with the page still in
+place, the button drops the query cache, so `/api/me` is asked again and the
+sign-in screen shows rather than the old actor. A failed import of the auth
+chunk shows a short line and leaves the driver signed in.
 
 The PD-S3 guard lives on this button, not in `signOut()`. `signOut()` itself
 is unconditional, because the U104 undo has to sign a person out while
@@ -794,10 +800,10 @@ another driver's inspections are held.
 
 **When sign-out is refused.** It is refused while a draft or any outbox entry
 exists, whether queued, sending or failed (PD-S3). A storage read that fails
-at this guard reads as nothing held, so sign-out goes ahead. The refusal renders inline
-beneath the button, with a role of status. It says how many inspections are
-waiting and that sign-out comes back once they have sent, or once one the
-office has refused is removed.
+at this guard reads as nothing held, so sign-out goes ahead. The refusal
+renders inline beneath the button, with a role of status. It says how many
+inspections are waiting and that sign-out comes back once they have sent, or
+once one the office has refused is removed.
 
 **When sign-out goes ahead,** it:
 
@@ -842,7 +848,7 @@ production builds" testable for the web.
 The rise is measured after each task that grows the entry and recorded in
 that task's commit, with `npm run bundle:check -- --record`, so every
 commit's gate is green. The PR reports one net rise with its reason
-(`scripts/check-capture-bundle.mjs:100`).
+(`scripts/check-capture-bundle.mjs`).
 
 ### Development and e2e
 

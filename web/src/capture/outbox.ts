@@ -185,10 +185,11 @@ export async function attemptSend(clientUuid: string, opts: SendOptions = {}): P
   let who: Sender;
   try {
     // Throws while the token store is latched or unconfigured, so a refused
-    // credential never reaches the API from here (spec section 4, A fresh token refused).
+    // credential never reaches the API from here (spec section 4, A fresh
+    // token refused).
     who = await sender();
   } catch (error) {
-    // Signed out (401) or no network to renew: recorded like a refused send,
+    // Signed out (401) or no network to renew, recorded like a refused send
     // so the indicator can say which.
     await recordFailure(entry, error);
     return;

@@ -5,8 +5,8 @@ import { useActor } from "./actorContext";
 import { SignInButton } from "./SignInButton";
 import "./auth.css";
 
-// Non-blocking: shown when a renewal found no session after the page already
-// had an actor. Nothing redirects on its own (spec section 4).
+// Non-blocking. The line shows when a renewal found no session after the page
+// already had an actor, and nothing redirects on its own (spec section 4).
 export function SignInLine() {
   const lapsed = useSyncExternalStore(onLapse, sessionLapsed, () => false);
   const actor = useActor();
