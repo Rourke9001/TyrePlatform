@@ -29,6 +29,8 @@ import (
 // different things about the same vehicle.
 const (
 	codeUnauthorized      = "unauthorized"
+	codeNotProvisioned    = "not_provisioned"
+	codeAuthUnavailable   = "auth_unavailable"
 	codeForbidden         = "forbidden"
 	codeTenantInactive    = "tenant_inactive"
 	codeVehicleNotVisible = "TY007"
@@ -62,6 +64,8 @@ const (
 	msgInvalidSubmission = "the submission was refused as invalid"
 	msgConflict          = "the submission conflicts with data already recorded"
 	msgUnauthorized      = "the request does not identify a user"
+	msgAuthUnavailable   = "sign-in is unavailable right now; try again shortly"
+	msgNotProvisioned    = "this account is not set up for a company yet; contact your fleet office"
 	msgForbidden         = "this action is not permitted for this role"
 	msgTenantInactive    = "this company's account is not active; contact your fleet office"
 	msgVehicleNotVisible = "vehicle not visible"
@@ -235,7 +239,7 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		writeError(ctx, w, http.StatusUnauthorized, codeUnauthorized, msgUnauthorized)
 		return false
 	}
-	err := s.InActorTx(ctx, store.ActorKey{TenantID: id.TenantID, UserID: id.UserID}, fn)
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: id.TenantID, UserID: id.UserID, Subject: id.Subject, SessionID: id.SessionID}, fn)
 	pgRef, isClient := refusalForPgError(err)
 	var ref refusalError
 	switch {
@@ -243,12 +247,12 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		return true
 	case errors.Is(err, store.ErrNoSuchActor):
 		// Deliberately indistinguishable to the client: whether the user is
-		// deactivated or simply not in this tenant is not theirs to learn.
-		slog.WarnContext(ctx, "refusing unresolvable actor", "tenant", id.TenantID, "user", id.UserID)
+		// deactivated, unlinked or simply not in this tenant is not theirs to learn.
+		slog.WarnContext(ctx, "refusing unresolvable actor", actorAttrs(id)...)
 		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
 		return false
 	case errors.Is(err, store.ErrTenantInactive):
-		slog.WarnContext(ctx, "refusing actor of a tenant that is not active", "tenant", id.TenantID, "user", id.UserID)
+		slog.WarnContext(ctx, "refusing actor of a tenant that is not active", actorAttrs(id)...)
 		writeError(ctx, w, http.StatusForbidden, codeTenantInactive, msgTenantInactive)
 		return false
 	case errors.Is(err, errForbidden):

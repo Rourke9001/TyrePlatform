@@ -555,12 +555,12 @@ func TestVehiclesWithoutTenantIsUnauthorized(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, get(t, h, "/api/vehicles", "not-a-uuid", "").Code)
 }
 
-func TestVehiclesWithNoResolverIsUnauthorized(t *testing.T) {
-	// nil resolver is the production default until the identity provider
-	// lands: no way to name anyone means no scoped route answers.
+// No resolver configured is a deployment that cannot name anyone yet: 503,
+// never a 401 that sends drivers to a sign-in that cannot help (ADR-0016).
+func TestVehiclesWithNoResolverIsUnavailable(t *testing.T) {
 	h := httpapi.New(nil, nil)
 
-	require.Equal(t, http.StatusUnauthorized, get(t, h, "/api/vehicles", uuid.NewString(), "").Code)
+	require.Equal(t, http.StatusServiceUnavailable, get(t, h, "/api/vehicles", uuid.NewString(), "").Code)
 }
 
 func TestHealthzNeedsNoTenant(t *testing.T) {
@@ -573,25 +573,25 @@ func TestHealthzNeedsNoTenant(t *testing.T) {
 // registers handlers. That is a contract every later endpoint inherits, and
 // it must not ship with two exceptions to it.
 func TestRefusalsCarryTheEnvelope(t *testing.T) {
-	h := httpapi.New(nil, nil)
-
 	tests := []struct {
 		name       string
+		resolver   httpapi.ActorResolver
 		method     string
 		path       string
 		wantStatus int
 		wantCode   string
 	}{
 		// Outside /api deliberately: requireActor is mounted on that group and
-		// answers 401 before an unrouted path ever reaches chi's NotFound.
-		{"an unrouted path", http.MethodGet, "/nothing-here", http.StatusNotFound, "not_found"},
-		{"a wrong method on a real route", http.MethodDelete, "/healthz", http.StatusMethodNotAllowed, "method_not_allowed"},
-		// A nil resolver names nobody, which is the production default.
-		{"a request naming no user", http.MethodGet, "/api/me", http.StatusUnauthorized, "unauthorized"},
+		// answers before an unrouted path ever reaches chi's NotFound.
+		{"an unrouted path", nil, http.MethodGet, "/nothing-here", http.StatusNotFound, "not_found"},
+		{"a wrong method on a real route", nil, http.MethodDelete, "/healthz", http.StatusMethodNotAllowed, "method_not_allowed"},
+		{"a request naming no user", httpapi.HeaderActorResolver{}, http.MethodGet, "/api/me", http.StatusUnauthorized, "unauthorized"},
+		{"no resolver configured", nil, http.MethodGet, "/api/me", http.StatusServiceUnavailable, "auth_unavailable"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			h := httpapi.New(nil, tt.resolver)
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
 

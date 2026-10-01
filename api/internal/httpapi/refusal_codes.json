@@ -3,12 +3,22 @@
   "unauthorized": {
     "source": "go",
     "httpStatus": 401,
-    "meaning": "the request does not identify a user"
+    "meaning": "the request does not identify a user: no bearer token, or one the API refuses (expired, a bad signature, an unknown key, or the wrong issuer, audience, client, version, tenant or scope)"
+  },
+  "not_provisioned": {
+    "source": "go",
+    "httpStatus": 403,
+    "meaning": "a valid access token with no usable platform tenant claim: an Entra account with no platform access yet (ADR-0016). The capture outbox holds a submit refused with it, because one Entra configuration slip would otherwise fail every driver's queue"
+  },
+  "auth_unavailable": {
+    "source": "go",
+    "httpStatus": 503,
+    "meaning": "no identity resolver is configured, or the identity provider's key set has not loaded, its discovery document is unreachable, or its issuer does not match AUTH_ISSUER (ADR-0016). Never a 401, because a sign-in cannot help"
   },
   "forbidden": {
     "source": "go",
     "httpStatus": 403,
-    "meaning": "the actor is known but the role lacks the capability the route requires, names a user this tenant cannot resolve, or asks for something outside the actor's scope (a depot-scoped actor moving a unit's home depot, a capture read of a vehicle the actor cannot reach)"
+    "meaning": "the actor is known but the role lacks the capability the route requires, names a user this tenant cannot resolve (an unlinked or inactive user), or asks for something outside the actor's scope (a depot-scoped actor moving a unit's home depot, a capture read of a vehicle the actor cannot reach)"
   },
   "tenant_inactive": {
     "source": "go",
