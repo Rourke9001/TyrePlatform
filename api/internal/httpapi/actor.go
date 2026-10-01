@@ -3,7 +3,6 @@ package httpapi
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 
@@ -37,24 +36,6 @@ var (
 // logAttrs is a resolver error that says what may be logged about it: the
 // kid alone before the signature verifies, the verified claims after.
 type logAttrs interface{ LogAttrs() []any }
-
-// HeaderActorResolver trusts X-Tenant-ID and X-User-ID verbatim. DEV ONLY:
-// anyone who can send a header is anyone, in any tenant, so wiring this into
-// a deployed environment is both a cross-tenant breach and an authentication
-// bypass by construction (ADR-0011). A nil UUID names no one.
-type HeaderActorResolver struct{}
-
-func (HeaderActorResolver) Identify(_ context.Context, r *http.Request) (Identity, error) {
-	tenantID, err := uuid.Parse(r.Header.Get("X-Tenant-ID"))
-	if err != nil || tenantID == uuid.Nil {
-		return Identity{}, fmt.Errorf("%w: X-Tenant-ID names no tenant", ErrUnauthenticated)
-	}
-	userID, err := uuid.Parse(r.Header.Get("X-User-ID"))
-	if err != nil || userID == uuid.Nil {
-		return Identity{}, fmt.Errorf("%w: X-User-ID names no user", ErrUnauthenticated)
-	}
-	return Identity{TenantID: tenantID, UserID: userID}, nil
-}
 
 type identityKey struct{}
 

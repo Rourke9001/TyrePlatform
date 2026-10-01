@@ -142,10 +142,11 @@ GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
 # No -race locally: the race detector needs cgo and a C toolchain, which
 # golang:*-alpine does not carry. CI's ubuntu runner adds `-race`, so a data
 # race is the one failure a green `make check` can still hand to CI.
+# -tags devheader on every Go command but the release image: the dev header resolver and every test that drives it exist only under it (U103).
 .PHONY: api-test
 api-test: ## Go tests (docker; needs db-up for the integration tests)
 	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
-	$(GO_DOCKER) go test ./...
+	$(GO_DOCKER) go test -tags devheader ./...
 
 # --env-file keeps the credentials out of the Makefile and out of git; the
 # file's own comments say what belongs in it. Module cache volume means the
@@ -154,7 +155,13 @@ api-test: ## Go tests (docker; needs db-up for the integration tests)
 api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
 	$(GO_RUN) --network tyreplatform_default --env-file .env -p 8080:8080 \
-	  $(GO_IMAGE) go run ./cmd/api
+	  $(GO_IMAGE) go run -tags devheader ./cmd/api
+
+# U103: the release binary carries no dev header resolver. The script builds
+# both variants, so its control proves the grep can fire.
+.PHONY: api-release-check
+api-release-check: ## The release binary names no dev header (U103)
+	$(GO_RUN) $(GO_IMAGE) sh scripts/check-release-binary.sh
 
 .PHONY: web-test
 web-test: ## Frontend tests
@@ -238,8 +245,9 @@ fmt: py-tools-check ## Format everything
 .PHONY: lint
 lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths, bundle
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
-	$(GO_RUN) $(GO_IMAGE) go vet ./...
-	$(GO_RUN) $(GO_IMAGE) go tool staticcheck ./...
+	$(GO_RUN) $(GO_IMAGE) go vet -tags devheader ./...
+	$(GO_RUN) $(GO_IMAGE) go tool staticcheck -tags devheader ./...
+	$(MAKE) api-release-check
 	cd web && npm run format:check && npm run lint && npm run typecheck
 	$(RUFF) format --check db/seeds
 	$(RUFF) check db/seeds

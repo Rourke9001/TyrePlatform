@@ -157,10 +157,11 @@ jobs:
           node scripts/check-money-types.mjs
           cd api
           gofmt -l . | tee /tmp/fmt && [ ! -s /tmp/fmt ] || { echo "::error::run gofmt"; exit 1; }
-          go vet ./...
-          go tool staticcheck ./...
-          go build ./...
-          go test -race ./...
+          go vet -tags devheader ./...
+          go tool staticcheck -tags devheader ./...
+          go build -tags devheader ./...
+          go test -tags devheader -race ./...
+          sh scripts/check-release-binary.sh
 
   web:
     name: Frontend
@@ -259,13 +260,14 @@ jobs:
       # APP_DEV_TENANT_HEADER is safe here for the same reason it is safe on a
       # laptop: this API exists for minutes, listens on the runner's loopback,
       # and CONTAINER_APP_NAME vetoes the flag in any deployed revision.
+      # -tags devheader: the release binary has no header resolver (U103).
       - name: Start the API
         env:
           DATABASE_URL: postgres://app_login:ci@localhost:5433/tyre?sslmode=disable
           APP_DEV_TENANT_HEADER: '1'
         run: |
           cd api
-          go run ./cmd/api &
+          go run -tags devheader ./cmd/api &
           for i in $(seq 1 60); do
             curl -s -o /dev/null http://localhost:8080/api/me && exit 0
             sleep 1
