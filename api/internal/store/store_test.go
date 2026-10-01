@@ -221,6 +221,21 @@ func plantDepotFor(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID,
 	return depotID
 }
 
+// singleConnStore pins the pool to one connection so a follow-up transaction
+// runs where the previous one did, which is what a leak test needs.
+func singleConnStore(t *testing.T, ctx context.Context) *store.Store {
+	t.Helper()
+	appURL, _ := testURLs(t)
+	sep := "?"
+	if strings.Contains(appURL, "?") {
+		sep = "&"
+	}
+	s, err := store.New(ctx, appURL+sep+"pool_max_conns=1")
+	require.NoError(t, err)
+	t.Cleanup(s.Close)
+	return s
+}
+
 // linkSubject gives a planted user an Entra subject the way the provisioning
 // runbook does, through the admin connection: the app role cannot write the
 // column (000052).
@@ -241,12 +256,14 @@ func TestInActorTxResolvesASubjectToItsUser(t *testing.T) {
 	subject := linkSubject(t, ctx, admin, userID)
 
 	var got auth.Actor
+	var boundActor string
 	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, Subject: subject},
-		func(_ pgx.Tx, actor auth.Actor) error {
+		func(tx pgx.Tx, actor auth.Actor) error {
 			got = actor
-			return nil
+			return tx.QueryRow(ctx, `SELECT current_setting('app.actor_id', true)`).Scan(&boundActor)
 		}))
 	require.Equal(t, userID, got.UserID)
+	require.Equal(t, userID.String(), boundActor, "app.actor_id is the id the lookup found, not key.UserID")
 	require.Equal(t, a.id, got.TenantID)
 	require.Equal(t, auth.RoleDriver, got.Role)
 }
@@ -291,9 +308,9 @@ func TestInActorTxRefusesAKeyWithBothOrNeitherIdentity(t *testing.T) {
 	}
 }
 
-// app.session_id is what TYRE-201's trigger and app.record_session_start()
-// read (FR-AUD-002, FR-AUD-004). A dev-resolver key carries none.
-func TestInActorTxBindsTheSessionIDOnlyWhenTheKeyCarriesOne(t *testing.T) {
+// app.session_id is what TYRE-201's trigger will read and
+// app.record_session_start() reads (FR-AUD-002, FR-AUD-004). A dev-resolver key carries none.
+func TestInActorTxSessionIDDoesNotLeakIntoTheNextTransaction(t *testing.T) {
 	ctx := context.Background()
 	_, admin, a, _ := openFixtures(t, ctx)
 	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
@@ -301,14 +318,7 @@ func TestInActorTxBindsTheSessionIDOnlyWhenTheKeyCarriesOne(t *testing.T) {
 
 	// One connection, so the second transaction runs where the first bound a
 	// session: the Nil below then proves the binding died with it.
-	appURL, _ := testURLs(t)
-	sep := "?"
-	if strings.Contains(appURL, "?") {
-		sep = "&"
-	}
-	s, err := store.New(ctx, appURL+sep+"pool_max_conns=1")
-	require.NoError(t, err)
-	t.Cleanup(s.Close)
+	s := singleConnStore(t, ctx)
 
 	var bound *string
 	readSession := func(tx pgx.Tx, _ auth.Actor) error {
@@ -392,7 +402,7 @@ func TestInActorTxRefusesUnknownUser(t *testing.T) {
 // into the next request.
 func TestActorContextDoesNotLeakAcrossTransactions(t *testing.T) {
 	ctx := context.Background()
-	appURL, adminURL := testURLs(t)
+	_, adminURL := testURLs(t)
 
 	admin, err := pgx.Connect(ctx, adminURL)
 	require.NoError(t, err)
@@ -401,13 +411,7 @@ func TestActorContextDoesNotLeakAcrossTransactions(t *testing.T) {
 	userID := plantUser(t, ctx, admin, a.id, auth.RoleTechnician, true)
 	plantDepotFor(t, ctx, admin, a.id, userID)
 
-	sep := "?"
-	if strings.Contains(appURL, "?") {
-		sep = "&"
-	}
-	s, err := store.New(ctx, appURL+sep+"pool_max_conns=1")
-	require.NoError(t, err)
-	t.Cleanup(s.Close)
+	s := singleConnStore(t, ctx)
 
 	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, func(_ pgx.Tx, actor auth.Actor) error {
 		require.Len(t, actor.DepotIDs, 1, "the actor must see their own depot inside the transaction")
