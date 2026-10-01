@@ -10327,6 +10327,11 @@ BEGIN
   IF err IS NULL THEN
     RAISE EXCEPTION 'FAIL 68b: the app login re-linked driver1 to another subject';
   END IF;
+  -- insufficient_privilege is also an RLS WITH CHECK failure; the message
+  -- tells the grant from a policy.
+  IF err NOT LIKE 'permission denied%' THEN
+    RAISE EXCEPTION 'FAIL 68b: the UPDATE was refused, but not by the column grant (%)', err;
+  END IF;
   err := NULL;
   BEGIN
     INSERT INTO app.app_user (tenant_id, email, display_name, role, subject)
@@ -10336,6 +10341,9 @@ BEGIN
   END;
   IF err IS NULL THEN
     RAISE EXCEPTION 'FAIL 68b: the app login inserted a user that already carries a subject';
+  END IF;
+  IF err NOT LIKE 'permission denied%' THEN
+    RAISE EXCEPTION 'FAIL 68b: the INSERT was refused, but not by the column grant (%)', err;
   END IF;
   RAISE NOTICE 'PASS  68b only the owning role writes app_user.subject';
 END $$;
@@ -10386,7 +10394,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 68e. app.record_session_start() writes one row per session, only its tenant sees it, and it refuses an unbound session or actor (as BAC, rolled back)'
+\echo '== 68e. app.record_session_start() writes one row per session, only its tenant sees it, and it refuses an unbound session, actor or tenant (as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE n int; err text;
@@ -10442,8 +10450,8 @@ BEGIN
   IF err IS NULL THEN
     RAISE EXCEPTION 'FAIL 68e: a call with no actor bound returned instead of raising';
   END IF;
-  -- A session start never lands outside a tenant: the function refuses
-  -- before RLS would, so the owning role cannot write one either.
+  -- With no tenant bound the function refuses (FR-AUD-004) instead of
+  -- writing a row no tenant can read (ADR-0014).
   err := NULL;
   PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
   PERFORM set_config('app.tenant_id', '', true);
