@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
 import { useActor } from "../auth/actorContext";
+import { SignInLine } from "../auth/SignInLine";
 import { OutboxIndicator } from "../capture/OutboxIndicator";
 import { DevBar } from "../shell/DevBar";
 import { navItemsFor } from "../shell/navigation";
@@ -62,6 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           inspection is waiting to send and which one needs a person
           (FR-OFF-010/013). */}
       <OutboxIndicator />
+      <SignInLine />
       <MainNav />
       <main className="shell-main">{children}</main>
       <DevBar />
