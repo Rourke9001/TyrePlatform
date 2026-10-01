@@ -47,16 +47,26 @@ type HeaderActorResolver struct{}
 func (HeaderActorResolver) Identify(_ context.Context, r *http.Request) (Identity, error) {
 	tenantID, err := uuid.Parse(r.Header.Get("X-Tenant-ID"))
 	if err != nil || tenantID == uuid.Nil {
-		return Identity{}, fmt.Errorf("%w: X-Tenant-ID is not a uuid", ErrUnauthenticated)
+		return Identity{}, fmt.Errorf("%w: X-Tenant-ID names no tenant", ErrUnauthenticated)
 	}
 	userID, err := uuid.Parse(r.Header.Get("X-User-ID"))
 	if err != nil || userID == uuid.Nil {
-		return Identity{}, fmt.Errorf("%w: X-User-ID is not a uuid", ErrUnauthenticated)
+		return Identity{}, fmt.Errorf("%w: X-User-ID names no user", ErrUnauthenticated)
 	}
 	return Identity{TenantID: tenantID, UserID: userID}, nil
 }
 
 type identityKey struct{}
+
+// clientKey carries the client address to withActor, whose refusals are
+// logged with it like requireActor's (FR-AUD-004) without threading the proxy
+// hop count through every handler.
+type clientKey struct{}
+
+func clientFrom(ctx context.Context) string {
+	c, _ := ctx.Value(clientKey{}).(string)
+	return c
+}
 
 // requireActor refuses any request it cannot attribute to a user in a
 // tenant. A nil resolver is a deployment with no AUTH_* configured: 503, not
@@ -65,7 +75,9 @@ type identityKey struct{}
 func requireActor(resolver ActorResolver, trustedProxyHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			ctx := r.Context()
+			client := clientAddress(r, trustedProxyHops)
+			ctx := context.WithValue(r.Context(), clientKey{}, client)
+			r = r.WithContext(ctx)
 			if resolver == nil {
 				writeError(ctx, w, http.StatusServiceUnavailable, codeAuthUnavailable, msgAuthUnavailable)
 				return
@@ -75,9 +87,10 @@ func requireActor(resolver ActorResolver, trustedProxyHops int) func(http.Handle
 				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, identityKey{}, id)))
 				return
 			}
-			attrs := []any{"client", clientAddress(r, trustedProxyHops)}
+			attrs := []any{"client", client}
 			var la logAttrs
-			if errors.As(err, &la) {
+			hasAttrs := errors.As(err, &la)
+			if hasAttrs {
 				attrs = append(attrs, la.LogAttrs()...)
 			} else {
 				attrs = append(attrs, "err", err.Error())
@@ -93,6 +106,11 @@ func requireActor(resolver ActorResolver, trustedProxyHops int) func(http.Handle
 				slog.WarnContext(ctx, "identity provider unavailable", attrs...)
 				writeError(ctx, w, http.StatusServiceUnavailable, codeAuthUnavailable, msgAuthUnavailable)
 			default:
+				// A 500 is a resolver bug, not a refused token, so what failed is safe
+				// to log even beside the resolver's own attributes.
+				if hasAttrs {
+					attrs = append(attrs, "err", err.Error())
+				}
 				slog.ErrorContext(ctx, "identity resolver failed", attrs...)
 				writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)
 			}
@@ -105,8 +123,9 @@ func identityFrom(ctx context.Context) (Identity, bool) {
 	return id, ok
 }
 
-// actorAttrs names the actor in a refusal log: the subject, or the user id
-// under the dev resolver, with the tenant and the session (spec section 1).
-func actorAttrs(id Identity) []any {
-	return []any{"tenant", id.TenantID, "subject", id.Subject, "user", id.UserID, "session", id.SessionID}
+// actorAttrs names the actor in a refusal log: the client address, the
+// subject or the user id under the dev resolver, the tenant and the session
+// (spec section 1, Logging a refusal).
+func actorAttrs(ctx context.Context, id Identity) []any {
+	return []any{"client", clientFrom(ctx), "tenant", id.TenantID, "subject", id.Subject, "user", id.UserID, "session", id.SessionID}
 }

@@ -1,10 +1,12 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/md5"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1193,4 +1195,23 @@ func TestATenantThatIsNotActiveIsRefusedWithItsOwnCode(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 	require.Equal(t, "tenant_inactive", body.Code)
 	require.Equal(t, "this company's account is not active; contact your fleet office", body.Message)
+}
+
+// FR-AUD-004: a refusal withActor makes is logged with the client address
+// like one requireActor makes (spec section 1, Logging a refusal).
+func TestWithActorRefusalLogsTheClientAddress(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenant, _ := plantTenantWithVehicle(t, ctx, admin, "client-log")
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	rec := get(t, h, "/api/vehicles", tenant.String(), uuid.NewString())
+
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	require.Contains(t, buf.String(), `"client":"192.0.2.1"`)
 }

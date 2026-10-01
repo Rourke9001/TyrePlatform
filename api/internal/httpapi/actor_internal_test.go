@@ -52,7 +52,7 @@ func captureLog(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// ADR-0016's refusal table. 401 sends the client to sign in, so a missing
+// The refusal table in spec section 1, The seam. 401 sends the client to sign in, so a missing
 // resolver or an unreachable identity provider must never be one.
 func TestRequireActorMapsEachRefusalToItsStatus(t *testing.T) {
 	cases := []struct {
@@ -95,8 +95,9 @@ func TestRequireActorLogsTheRefusalButNeverTheToken(t *testing.T) {
 	req.NotContains(t, line, "secret-token-text")
 }
 
-// A nil UUID parses but names no one; letting it through would hand
-// InActorTx a key with neither identity set and answer 500 (spec section 1).
+// A nil UUID parses but names no one. A nil user would reach InActorTx with
+// neither identity set, and a nil tenant could only end in a lookup that
+// finds nobody, so both are refused as a missing header is.
 func TestHeaderResolverRefusesANilUUID(t *testing.T) {
 	nilID := uuid.Nil.String()
 	good := uuid.NewString()
@@ -112,4 +113,14 @@ func TestHeaderResolverRefusesANilUUID(t *testing.T) {
 			req.ErrorIs(t, err, ErrUnauthenticated)
 		})
 	}
+}
+
+// A 500 is a resolver bug: the log says what failed as well as the
+// resolver's own attributes.
+func TestRequireActorLogsWhatFailedOnA500(t *testing.T) {
+	buf := captureLog(t)
+	rec := serveThrough(stubResolver{err: loggedRefusal{kind: errors.New("resolver bug")}}, "")
+	req.Equal(t, http.StatusInternalServerError, rec.Code)
+	req.Contains(t, buf.String(), `"err":"refused"`)
+	req.Contains(t, buf.String(), `"kid":"key-1"`)
 }
