@@ -10,6 +10,11 @@
     "httpStatus": 403,
     "meaning": "the actor is known but the role lacks the capability the route requires, names a user this tenant cannot resolve, or asks for something outside the actor's scope (a depot-scoped actor moving a unit's home depot, a capture read of a vehicle the actor cannot reach)"
   },
+  "tenant_inactive": {
+    "source": "go",
+    "httpStatus": 403,
+    "meaning": "the actor resolved but their tenant is not ACTIVE: SUSPENDED or CLOSED (FR-TEN-009), or PROVISIONING (TYRE-376). The capture outbox holds a submit refused with it, because the state is temporary"
+  },
   "bad_request": {
     "source": "go",
     "httpStatus": 400,

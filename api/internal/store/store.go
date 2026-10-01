@@ -110,6 +110,11 @@ func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.
 // distinguishable only in the log (FR-AUT-011, ADR-0011).
 var ErrNoSuchActor = errors.New("actor not found or inactive")
 
+// ErrTenantInactive means the actor resolved but their tenant is not ACTIVE.
+// FR-TEN-009 names SUSPENDED and CLOSED; a PROVISIONING tenant is refused
+// too, because its users are not yet meant to sign in (TYRE-376).
+var ErrTenantInactive = errors.New("tenant is not active")
+
 // ActorKey names who a request acts as. Exactly one of UserID and Subject is
 // set (spec section 2, ADR-0016).
 type ActorKey struct {
@@ -176,6 +181,17 @@ func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, aut
 
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.actor_id', $1, true)`, actor.UserID.String()); err != nil {
 		return fmt.Errorf("binding actor context: %w", err)
+	}
+
+	// Checked after the actor resolves, so only a linked user learns the
+	// tenant's state (TYRE-376). tenant_self shows a session its own row.
+	var state string
+	if err := tx.QueryRow(ctx,
+		`SELECT state::text FROM app.tenant WHERE id = app.current_tenant_id()`).Scan(&state); err != nil {
+		return fmt.Errorf("reading tenant state: %w", err)
+	}
+	if state != "ACTIVE" {
+		return ErrTenantInactive
 	}
 
 	depots, err := actorDepots(ctx, tx)

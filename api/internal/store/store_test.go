@@ -46,7 +46,7 @@ func plantTenant(t *testing.T, ctx context.Context, admin *pgx.Conn, label strin
 
 	var tenantID uuid.UUID
 	err := admin.QueryRow(ctx,
-		`INSERT INTO app.tenant (name, subdomain) VALUES ($1, $2) RETURNING id`,
+		`INSERT INTO app.tenant (name, subdomain, state) VALUES ($1, $2, 'ACTIVE') RETURNING id`,
 		"store-test-"+label, "store-test-"+suffix,
 	).Scan(&tenantID)
 	require.NoError(t, err)
@@ -487,4 +487,45 @@ func TestMaxConnsHonoursDSNOverride(t *testing.T) {
 	t.Cleanup(s.Close)
 
 	require.EqualValues(t, 3, s.MaxConns())
+}
+
+func setTenantState(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, state string) {
+	t.Helper()
+	_, err := admin.Exec(ctx, `UPDATE app.tenant SET state = $2::app.tenant_state WHERE id = $1`, tenantID, state)
+	require.NoError(t, err)
+}
+
+// FR-TEN-009 (TYRE-376): a user of a tenant that is not ACTIVE is refused,
+// PROVISIONING included, and an ACTIVE tenant still resolves.
+func TestInActorTxRefusesATenantThatIsNotActive(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	key := store.ActorKey{TenantID: a.id, UserID: userID}
+
+	require.NoError(t, s.InActorTx(ctx, key, func(pgx.Tx, auth.Actor) error { return nil }),
+		"control: an ACTIVE tenant resolves")
+	for _, state := range []string{"SUSPENDED", "CLOSED", "PROVISIONING"} {
+		t.Run(state, func(t *testing.T) {
+			setTenantState(t, ctx, admin, a.id, state)
+			err := s.InActorTx(ctx, key, func(pgx.Tx, auth.Actor) error {
+				t.Fatal("fn must not run for a tenant that is not ACTIVE")
+				return nil
+			})
+			require.ErrorIs(t, err, store.ErrTenantInactive)
+		})
+	}
+}
+
+// Only a linked user learns the tenant's state: anyone else gets the
+// ordinary refusal (TYRE-376).
+func TestInActorTxHidesTheTenantStateFromAnUnknownUser(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	setTenantState(t, ctx, admin, a.id, "SUSPENDED")
+
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: uuid.New()},
+		func(pgx.Tx, auth.Actor) error { return nil })
+	require.ErrorIs(t, err, store.ErrNoSuchActor)
+	require.NotErrorIs(t, err, store.ErrTenantInactive)
 }
