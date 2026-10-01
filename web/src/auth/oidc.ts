@@ -41,6 +41,8 @@ export interface Auth {
   discardUser(): Promise<void>;
 }
 
+const TRANSIENT_CODES = new Set(["server_error", "temporarily_unavailable"]);
+
 function tokensOf(user: User): Tokens {
   const oid = user.profile.oid;
   if (typeof oid !== "string" || user.expires_at === undefined) {
@@ -61,13 +63,15 @@ function forgetIdentity(): void {
   const storage = window.localStorage;
   storage.removeItem(MIRROR_KEY);
   storage.removeItem(SUBJECT_KEY);
-  for (let i = storage.length - 1; i >= 0; i--) {
+  const branded: string[] = [];
+  for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
-    if (key?.startsWith(BRANDING_PREFIX)) storage.removeItem(key);
+    if (key?.startsWith(BRANDING_PREFIX)) branded.push(key);
   }
+  branded.forEach((key) => storage.removeItem(key));
 }
 
-export function createAuth(settings: AuthSettings, navigator?: INavigator): Auth {
+export function createAuth(settings: AuthSettings, redirectNavigator?: INavigator): Auth {
   const manager = new UserManager(
     {
       authority: settings.authority,
@@ -85,7 +89,7 @@ export function createAuth(settings: AuthSettings, navigator?: INavigator): Auth
       loadUserInfo: false,
       ...(settings.metadata ? { metadata: settings.metadata } : {}),
     },
-    navigator,
+    redirectNavigator,
   );
 
   return {
@@ -113,18 +117,22 @@ export function createAuth(settings: AuthSettings, navigator?: INavigator): Auth
       try {
         renewed = await manager.signinSilent();
       } catch (error) {
-        // invalid_grant is the 24-hour refresh token lapsing (U102). Any
-        // other refusal (temporarily_unavailable, server_error) and a
-        // TypeError or ErrorTimeout go through: the outbox reads them as
-        // offline and keeps the session.
-        if (error instanceof ErrorResponse && error.error === "invalid_grant") {
-          await manager.removeUser();
-          return null;
+        // Spec section 4 "Renewal": a refused refresh token ends the
+        // session, so any ErrorResponse lapses except the provider's own
+        // transient codes. A TypeError, ErrorTimeout or plain Error (a
+        // captive portal's HTML) is offline, not a refusal, and goes through.
+        if (error instanceof ErrorResponse) {
+          if (!TRANSIENT_CODES.has(error.error ?? "")) {
+            await manager.removeUser();
+            return null;
+          }
+          // form is the refresh POST body, refresh_token included.
+          throw Object.assign(new Error(error.message), { error: error.error });
         }
         throw error;
       }
-      if (renewed === null) return null;
       try {
+        if (renewed === null) throw new Error("no user after renewal");
         return tokensOf(renewed);
       } catch {
         // A refreshed session with no oid cannot stamp or compare anything
