@@ -16,6 +16,7 @@ import (
 
 	"tyreplatform/api/internal/auth"
 	"tyreplatform/api/internal/httpapi"
+	"tyreplatform/api/internal/store"
 )
 
 type axleConfigBody struct {
@@ -251,7 +252,7 @@ func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
 	// from a genuine tenant-B insert being the tenant_id smuggled in above.
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
 	userB := plantUser(t, ctx, admin, tenantB, auth.RoleOrgAdmin)
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind, created_by)
 			 VALUES ($1, 'SMUGGLED', $2, 'HORSE', $3)`,
@@ -368,7 +369,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_AppUser(t *testing.T) {
 
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
 	userB := plantUser(t, ctx, admin, tenantB, auth.RoleOrgAdmin)
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.app_user (tenant_id, email, display_name, role, created_by)
 			 VALUES ($1, 'smuggled@example.invalid', 'Smuggled', 'DRIVER'::app.user_role, $2)`,
@@ -535,7 +536,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver(t *testing.T) {
 	// need only be a genuine tenant-B row, and one suffices for that.
 	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
 
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, created_by)
 			 VALUES ($1, $2, $3, '2026-01-01', $4)`,

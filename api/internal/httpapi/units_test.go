@@ -99,7 +99,7 @@ func int64Ptr(v int64) *int64 { return &v }
 func fitTyreViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID, actorID, tyreID, vehicleID, positionID uuid.UUID, treadMm, orientation string, odometer *int64) uuid.UUID {
 	t.Helper()
 	var fitmentID uuid.UUID
-	require.NoError(t, s.InActorTx(ctx, tenantID, actorID, func(tx pgx.Tx, _ auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: actorID}, func(tx pgx.Tx, _ auth.Actor) error {
 		return tx.QueryRow(ctx,
 			`SELECT fitment_id FROM app.fit_tyre($1, $2, $3, $4::numeric, $5::app.mount_orientation, $6)`,
 			tyreID, vehicleID, positionID, treadMm, orientation, odometer,
@@ -116,7 +116,7 @@ func fitTyreViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID
 func fitTyreAtViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID, actorID, tyreID, vehicleID, positionID uuid.UUID, treadMm, orientation string, odometer *int64, occurredAt time.Time, reason string) uuid.UUID {
 	t.Helper()
 	var fitmentID uuid.UUID
-	require.NoError(t, s.InActorTx(ctx, tenantID, actorID, func(tx pgx.Tx, _ auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: actorID}, func(tx pgx.Tx, _ auth.Actor) error {
 		return tx.QueryRow(ctx,
 			`SELECT fitment_id FROM app.fit_tyre($1, $2, $3, $4::numeric, $5::app.mount_orientation, $6, $7, $8)`,
 			tyreID, vehicleID, positionID, treadMm, orientation, odometer, occurredAt, reason,
@@ -130,7 +130,7 @@ func fitTyreAtViaActor(t *testing.T, ctx context.Context, s *store.Store, tenant
 // distance; a non-nil odometer at or above the fitted one produces MEASURED.
 func removeTyreViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID, actorID, fitmentID uuid.UUID, reason, treadMm string, odometer *int64) {
 	t.Helper()
-	require.NoError(t, s.InActorTx(ctx, tenantID, actorID, func(tx pgx.Tx, _ auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: actorID}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`SELECT app.remove_tyre($1, $2, $3::numeric, $4)`,
 			fitmentID, reason, treadMm, odometer)
@@ -1003,7 +1003,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleTag(t *testing.T) {
 		tenantB, "SMUGGLED-"+uuid.NewString()[:8],
 	).Scan(&tagB))
 
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES ($1, $2, $3)`,
 			tenantB, mineB, tagB)
@@ -1063,7 +1063,7 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 	generate := func(offsetDays int) int {
 		t.Helper()
 		var n int
-		require.NoError(t, s.InActorTx(ctx, tenantID, controller, func(tx pgx.Tx, _ auth.Actor) error {
+		require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: controller}, func(tx pgx.Tx, _ auth.Actor) error {
 			return tx.QueryRow(ctx,
 				`SELECT app.generate_inspection_tasks(current_date + $1::int)`, offsetDays).Scan(&n)
 		}))

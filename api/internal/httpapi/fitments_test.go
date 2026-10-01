@@ -17,6 +17,7 @@ import (
 
 	"tyreplatform/api/internal/auth"
 	"tyreplatform/api/internal/httpapi"
+	"tyreplatform/api/internal/store"
 )
 
 type fitWarningBody struct {
@@ -716,7 +717,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_Fitment(t *testing.T) {
 	userB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
 	tyreB := plantTyre(t, ctx, admin, tenantB, "SMUGGLED-FIT-"+uuid.NewString()[:8], nil)
 
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
 			                          fitted_odometer, fitted_tread_mm, mount_orientation, created_by)
