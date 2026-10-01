@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { User, type INavigator, type NavigateParams } from "oidc-client-ts";
+import { User, UserManager, type INavigator, type NavigateParams } from "oidc-client-ts";
 
 import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
 import { createAuth } from "./oidc";
@@ -151,9 +151,11 @@ describe("renew", () => {
     const fetchSpy = vi.fn();
     vi.stubGlobal("fetch", fetchSpy);
     storeUser({ id_token: idToken("oid-a") });
+    const before = document.body.querySelectorAll("iframe").length;
 
     await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
+    expect(document.body.querySelectorAll("iframe")).toHaveLength(before);
   });
 
   it("uses the refresh token and returns the new access token", async () => {
@@ -199,27 +201,62 @@ describe("renew", () => {
     expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
   });
 
-  // postForm throws ErrorResponse for any error body (oidc-client-ts 3.5.0,
-  // 798-802). Only invalid_grant is the lapse; Entra being briefly down must
-  // not sign the driver out.
-  it("keeps the session on any refusal other than invalid_grant", async () => {
-    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+  // Spec section 4 "Renewal": a refused refresh token ends the session; only
+  // the provider's own transient codes keep it.
+  function refusal(error: string, status: number): void {
     vi.stubGlobal(
       "fetch",
       vi.fn(() =>
         Promise.resolve(
-          new Response(JSON.stringify({ error: "temporarily_unavailable" }), {
-            status: 503,
+          new Response(JSON.stringify({ error }), {
+            status,
             headers: { "Content-Type": "application/json" },
           }),
         ),
       ),
     );
+  }
 
-    await expect(createAuth(SETTINGS).renew()).rejects.toMatchObject({
-      error: "temporarily_unavailable",
-    });
+  it.each([
+    ["invalid_grant", 400],
+    ["invalid_client", 401],
+  ])("removes the stored user and returns null on %s", async (code, status) => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    refusal(code, status);
+
+    await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
+    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+  });
+
+  it.each([
+    ["server_error", 500],
+    ["temporarily_unavailable", 503],
+  ])("keeps the session and rethrows on %s", async (code, status) => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    refusal(code, status);
+
+    await expect(createAuth(SETTINGS).renew()).rejects.toMatchObject({ error: code });
     expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+  });
+
+  // ErrorResponse.form is the refresh POST body, refresh_token included.
+  it("rethrows a transient refusal without the request form", async () => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    refusal("server_error", 500);
+
+    const thrown: unknown = await createAuth(SETTINGS)
+      .renew()
+      .catch((e: unknown) => e);
+    expect(thrown).toBeInstanceOf(Error);
+    expect(JSON.stringify(thrown, Object.getOwnPropertyNames(thrown))).not.toContain("rt-old");
+    expect(thrown).not.toHaveProperty("form");
+  });
+
+  it("does not start the library's own renewal timer", () => {
+    const start = vi.spyOn(UserManager.prototype, "startSilentRenew");
+    createAuth(SETTINGS);
+    expect(start).not.toHaveBeenCalled();
+    start.mockRestore();
   });
 
   // ADR-0016 again, on the refresh path.
