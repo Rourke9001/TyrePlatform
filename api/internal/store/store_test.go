@@ -565,7 +565,7 @@ func TestASessionStartIsWrittenOncePerSession(t *testing.T) {
 
 // A second replica has not seen the session, so it calls the function; the
 // unique index makes that a no-op (000052). The deleted row shows the call
-// happened, since only the replica could have written it back.
+// happened, since only that third store could have written it back.
 func TestASecondReplicaDoesNotDuplicateASessionStart(t *testing.T) {
 	ctx := context.Background()
 	s, admin, a, _ := openFixtures(t, ctx)
