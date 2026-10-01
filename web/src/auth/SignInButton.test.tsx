@@ -18,5 +18,5 @@ it("says so when the sign-in chunk cannot load", async () => {
   expect(await screen.findByRole("alert")).toHaveTextContent(
     "Could not start sign-in. Find signal and try again.",
   );
-  expect(screen.getByRole("button", { name: "Sign in" })).toBeEnabled();
+  expect(screen.getByRole("button", { name: "Sign in" })).toHaveAttribute("aria-disabled", "false");
 });

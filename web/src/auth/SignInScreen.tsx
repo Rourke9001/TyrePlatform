@@ -38,9 +38,7 @@ export function SignInScreen() {
           here to send them before anyone else can use it.
         </p>
       ) : (
-        <p className="auth-body">
-          Sign in with your work email to see your inspections and send them.
-        </p>
+        <p className="auth-body">Sign in with the email address your fleet office has for you.</p>
       )}
       {signInDidNotFinish() && (
         <p role="alert" className="auth-body">

@@ -11,14 +11,10 @@ import {
   type AxleConfiguration,
 } from "./sandbox";
 
-// Sign-in against a stubbed identity provider (spec section 7). The submit
-// cases write Sandbox Fleet (TYRE-80), each on a unit of its own, so
-// FR-INS-038's window is never shared. Setup goes through page.request as the
-// Sandbox controller, which page.route never sees.
-//
-// Serial for load, not isolation: parallel, the three position walks run
-// beside the other projects' specs and starve their 5s expect budgets (the
-// ios smoke spec missed its heading in a full run).
+// Sign-in against a stubbed identity provider (spec section 7). Submit cases
+// write Sandbox Fleet (TYRE-80), one unit each, so FR-INS-038's window is
+// never shared. Serial for load, because parallel position walks starve the
+// other projects' 5s expect budgets.
 test.describe.configure({ mode: "serial" });
 
 const RUN = Date.now().toString().slice(-6);
@@ -37,6 +33,8 @@ test.afterEach(() => {
   expect(stub.withDevHeaders, "a bearer call also carried dev actor headers").toEqual([]);
 });
 
+// Through page.request as the Sandbox controller, which page.route never
+// sees, so setup is outside the bearer checks.
 async function unitForDriver(page: Page, label: string): Promise<string> {
   const configs = (await apiGet(page, "/api/axle-configurations")) as AxleConfiguration[];
   const id = await createUnit(page, `AU${label}-${RUN}`, "HORSE", configFor(configs, "HORSE_6X4"));
@@ -49,10 +47,16 @@ async function signIn(page: Page) {
   await expect(page.getByText(SIGNED_IN_AS)).toBeVisible();
 }
 
-// The cases that hold a submit capture every position of a unit (about 25s),
-// which is past Playwright's 30s default on a loaded CI box. Each step still
-// has its own 5s expect budget, so a regression fails at its step.
+// A submit case walks every position of a unit, which can pass Playwright's
+// 30s default on a loaded CI box. Each step keeps its own 5s expect budget, so
+// a regression fails at its step.
 const WALK_TIMEOUT_MS = 120_000;
+
+// The outbox band. Only its lines carry the status role, so the actions are
+// reached through the lines' parent.
+function outboxBand(page: Page) {
+  return page.getByRole("status").filter({ hasText: "Sign in to send 1 inspection" }).locator("..");
+}
 
 // A submit a stubbed 401 holds, stamped for whoever is signed in.
 async function holdOneSubmit(page: Page, vehicleId: string) {
@@ -136,11 +140,7 @@ test("a submit refused with 401 is held, asks for a sign-in, and sends after it"
     (r) =>
       r.request().method() === "POST" && new URL(r.url()).pathname === "/api/inspections" && r.ok(),
   );
-  await page
-    .getByRole("status")
-    .filter({ hasText: "Sign in to send 1 inspection" })
-    .getByRole("button", { name: "Sign in" })
-    .click();
+  await outboxBand(page).getByRole("button", { name: "Sign in" }).click();
   await accepted;
 });
 
@@ -204,14 +204,38 @@ test("the sign-in controls are at least 56px tall at a 390px viewport", async ({
   const vehicleId = await unitForDriver(page, "V");
   await page.goto("/");
   const signInButton = page.getByRole("button", { name: "Email me a sign-in code" });
+  await expect(signInButton).toBeVisible();
   expect((await signInButton.boundingBox())?.height).toBeGreaterThanOrEqual(56);
 
   await signIn(page);
   await holdOneSubmit(page, vehicleId);
   await expect(page.getByText("Sign in to send 1 inspection")).toBeVisible();
-  const outboxSignIn = page
-    .getByRole("status")
-    .filter({ hasText: "Sign in to send 1 inspection" })
-    .getByRole("button", { name: "Sign in" });
+  const outboxSignIn = outboxBand(page).getByRole("button", { name: "Sign in" });
+  await expect(outboxSignIn).toBeVisible();
   expect((await outboxSignIn.boundingBox())?.height).toBeGreaterThanOrEqual(56);
+});
+
+// The band keeps to one row of the phone with its sign-in action and that
+// action's failure line both showing, so nothing scrolls sideways.
+test("the outbox band does not overflow a 360px viewport with the sign-in failure line showing", async ({
+  page,
+}) => {
+  test.setTimeout(WALK_TIMEOUT_MS);
+  await page.setViewportSize({ width: 360, height: 780 });
+  const vehicleId = await unitForDriver(page, "N");
+  await page.goto("/");
+  await signIn(page);
+  await holdOneSubmit(page, vehicleId);
+
+  // No signal for the identity provider. This page has not yet loaded its
+  // metadata, so the start fails before it can leave the page.
+  await page.route("https://idp.test/.well-known/openid-configuration", (route) => route.abort());
+  const band = outboxBand(page);
+  await band.getByRole("button", { name: "Sign in" }).click();
+  await expect(
+    band
+      .getByRole("alert")
+      .filter({ hasText: "Could not start sign-in. Find signal and try again." }),
+  ).toBeVisible();
+  expect(await band.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
 });

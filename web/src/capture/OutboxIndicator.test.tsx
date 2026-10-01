@@ -36,6 +36,11 @@ function entry(
 
 const outbox = () => db.table<OutboxEntry, string>("outbox");
 
+// A start that fails, as it does with no signal, so the failure line shows.
+vi.mock("../auth/oidc", () => ({
+  signIn: vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+}));
+
 beforeEach(async () => {
   await db.open();
   await outbox().clear();
@@ -192,6 +197,22 @@ describe("the sign-in line", () => {
     render(<OutboxIndicator />);
     expect(await screen.findByText("Sign in to send 1 inspection")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  // The band's lines are read on every change. Inside them, the action's
+  // label would be read with each one and its alert nested in the status.
+  it("keeps the sign-in action and its failure line outside the band's live region", async () => {
+    await outbox().put({ ...entry("u1", "queued"), lastStatus: 401 });
+    render(<OutboxIndicator />);
+    await screen.findByText("Sign in to send 1 inspection");
+    const button = screen.getByRole("button", { name: "Sign in" });
+    await userEvent.setup().click(button);
+    const failure = await screen.findByText("Could not start sign-in. Find signal and try again.");
+
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Sign in to send 1 inspection");
+    expect(status).not.toContainElement(button);
+    expect(status).not.toContainElement(failure);
   });
 
   // One 401-held entry each for this driver and another: the line counts only

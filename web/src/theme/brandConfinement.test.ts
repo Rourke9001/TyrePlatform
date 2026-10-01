@@ -25,7 +25,8 @@ const BRAND_ALLOWED = new Set([
   ".cap-primary:active",
   ".cap-check",
   ".auth-primary",
-  ".auth-primary:active",
+  '.auth-primary:hover:not([aria-disabled="true"])',
+  '.auth-primary:active:not([aria-disabled="true"])',
 ]);
 
 const BRAND_VAR = /var\(--(?:on-)?primary(?:-hover|-pressed)?\)/;

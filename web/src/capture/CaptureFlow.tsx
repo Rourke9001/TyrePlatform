@@ -145,9 +145,12 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
-          An inspection another driver started is open on this phone. They need to sign in here to
-          finish it before anyone else can use it.
+          Another driver has an inspection open on this phone. They need to sign in here and finish
+          it before anyone else can start one.
         </p>
+        <a className="cap-secondary" href="/my">
+          My inspections
+        </a>
       </section>
     );
   } else if (held) {
@@ -320,8 +323,10 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         </div>
       )}
       {lifecycle.signInNeeded && (
-        <div role="alert" className="cap-alert cap-alert--stop cap-signin">
-          <p className="cap-signin-msg">Sign in before you start an inspection.</p>
+        <div className="cap-alert cap-alert--stop cap-signin">
+          <p role="alert" className="cap-signin-msg">
+            Sign in before you start an inspection.
+          </p>
           {bearerMode() && <SignInButton label="Sign in" />}
         </div>
       )}

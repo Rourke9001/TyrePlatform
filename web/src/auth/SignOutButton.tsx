@@ -6,9 +6,9 @@ import { heldCount } from "../capture/outbox";
 import "./auth.css";
 
 function stillHeld(n: number): string {
-  const what = n === 1 ? "1 inspection is" : `${n} inspections are`;
-  const when = n === 1 ? "it has" : "they have";
-  return `${what} still on this phone. You can sign out once ${when} sent, or once you remove one the office refused.`;
+  return n === 1
+    ? "You can't sign out yet. 1 inspection is still on this phone. Sign out once it has sent, or remove it if the office refused it."
+    : `You can't sign out yet. ${n} inspections are still on this phone. Sign out once they have sent, or remove any the office refused.`;
 }
 
 // PD-S3: refused while anything is held, a draft or an outbox entry in any
@@ -69,9 +69,9 @@ export function SignOutButton() {
         aria-disabled={pending}
         onClick={() => void onClick()}
       >
-        Sign out
+        {pending ? "Signing out…" : "Sign out"}
       </button>
-      <p role="status" className="auth-note">
+      <p role="status" className="auth-note auth-live">
         {held !== null ? stillHeld(held) : ""}
       </p>
       {failed && (

@@ -14,15 +14,23 @@
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
 }
 
-.auth-primary:active {
+/* Guarded, so a pending button keeps its disabled look under the pointer.
+   Active comes after hover, so a press shows on a desktop too. */
+.auth-primary:hover:not([aria-disabled="true"]) {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+}
+
+.auth-primary:active:not([aria-disabled="true"]) {
   background: var(--primary-pressed);
   border-color: var(--primary-pressed);
 }
 
 /* Disabled says so in shape as well as tone (NFR-USE-009). */
-.auth-primary:disabled {
+.auth-primary[aria-disabled="true"] {
   border-color: var(--line);
   background: var(--surface-sunken);
   color: var(--ink-muted);
@@ -42,6 +50,12 @@
   color: var(--ink);
   font: inherit;
   cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.auth-secondary:hover:not([aria-disabled="true"]),
+.auth-secondary:active:not([aria-disabled="true"]) {
+  background: var(--surface-sunken);
 }
 
 .auth-screen {
@@ -55,6 +69,7 @@
   margin: 0;
   font-family: var(--font-display);
   font-size: var(--text-title);
+  text-wrap: balance;
 }
 
 .auth-body,
@@ -66,6 +81,23 @@
   font-size: var(--text-small);
 }
 
+.auth-action {
+  display: grid;
+  gap: var(--space-2);
+  justify-items: start;
+}
+
+.auth-screen .auth-action {
+  justify-items: stretch;
+}
+
+/* The failure line wraps at the button's width, so it cannot widen a row
+   such as the outbox band. */
+.auth-action .auth-note {
+  width: 0;
+  min-width: 100%;
+}
+
 .auth-line {
   display: flex;
   flex-wrap: wrap;
@@ -75,10 +107,16 @@
   border-bottom: 1px solid var(--line);
 }
 
+/* In the header row a refusal appears without moving the button, and wraps
+   to a measure. dashboard.css puts it back on the start edge where the
+   header stacks. */
 .auth-signout {
+  position: relative;
   display: grid;
   gap: var(--space-2);
-  justify-items: start;
+  justify-items: end;
+  max-width: 22rem;
+  text-align: end;
 }
 
 /* aria-disabled keeps keyboard focus; the shape says so as well as the tone
@@ -90,6 +128,12 @@
   cursor: default;
 }
 
-.auth-signout .auth-note:empty {
-  display: none;
+/* An empty live region stays in the accessibility tree, so its first
+   message is an update a screen reader announces, not an insertion. */
+.auth-live:empty {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
