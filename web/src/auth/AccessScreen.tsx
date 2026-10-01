@@ -3,7 +3,7 @@ import "./auth.css";
 const COPY = {
   "not-set-up": {
     title: "Your account is not set up",
-    body: "This account is not set up for a company yet. Contact your fleet office.",
+    body: "Ask your fleet office to set up your account.",
   },
   // FR-TEN-009's explanatory message.
   "tenant-inactive": {

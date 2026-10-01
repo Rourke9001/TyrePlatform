@@ -46,8 +46,10 @@ export function OutboxIndicator() {
       : 0;
 
   return (
-    <div className="cap-outbox" role="status">
-      <div className="cap-outbox-lines">
+    <div className="cap-outbox">
+      {/* Only the lines are live, so the actions beside them, and the sign-in
+          action's own alert, are not read into every status change. */}
+      <div className="cap-outbox-lines" role="status">
         {/* NFR-USE-009: the count is in words, not only a coloured badge. */}
         {waiting.length > 0 && (
           <span className="cap-outbox-line">
@@ -87,7 +89,7 @@ export function OutboxIndicator() {
         )}
         {needSignIn > 0 && (
           <span className="cap-outbox-line">
-            Sign in to send {needSignIn} inspection{needSignIn === 1 ? "" : "s"}
+            Sign in to send {needSignIn}&nbsp;inspection{needSignIn === 1 ? "" : "s"}
           </span>
         )}
         {stale.length > 0 && (

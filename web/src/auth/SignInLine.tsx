@@ -10,11 +10,17 @@ import "./auth.css";
 export function SignInLine() {
   const lapsed = useSyncExternalStore(onLapse, sessionLapsed, () => false);
   const actor = useActor();
-  if (!bearerMode() || !lapsed || actor === null) return null;
+  if (!bearerMode()) return null;
+  const shown = lapsed && actor !== null;
+  // The status stays mounted while empty, so the lapse is an update a screen
+  // reader announces. The button sits outside it, so its label is not read
+  // as part of the message.
   return (
-    <div className="auth-line" role="status">
-      <p className="auth-body">Your sign-in has run out. Sign in to carry on.</p>
-      <SignInButton label="Sign in" />
+    <div className={shown ? "auth-line" : undefined}>
+      <p role="status" className="auth-body auth-live">
+        {shown ? "Your sign-in has run out. Sign in to carry on." : ""}
+      </p>
+      {shown && <SignInButton label="Sign in" />}
     </div>
   );
 }

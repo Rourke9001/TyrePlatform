@@ -72,4 +72,20 @@ describe("CaptureFlow in bearer mode", () => {
     expect(await screen.findByText("Sign in before you start an inspection.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
+
+  // Around the button, the alert would read the button's label with its
+  // message and nest the button's own failure alert inside it.
+  it("puts the start refusal's alert on its message, not around the sign-in action", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(unit) })),
+    );
+    renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />);
+    await userEvent.setup().click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    const message = await screen.findByText("Sign in before you start an inspection.");
+    expect(message).toHaveAttribute("role", "alert");
+    const button = screen.getByRole("button", { name: "Sign in" });
+    for (const alert of screen.getAllByRole("alert")) expect(alert).not.toContainElement(button);
+  });
 });

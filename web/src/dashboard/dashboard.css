@@ -146,6 +146,12 @@
     align-items: flex-start;
     gap: var(--space-2);
   }
+  /* Stacked, the header reads from the start edge (auth.css aligns sign-out
+     to the end for the desktop row). */
+  .shell-header .auth-signout {
+    justify-items: start;
+    text-align: start;
+  }
   .shell-nav {
     flex-wrap: wrap;
     gap: 0 var(--space-2);

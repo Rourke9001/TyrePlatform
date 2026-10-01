@@ -10,6 +10,7 @@ import { SignOutButton } from "./SignOutButton";
 import { ApiError } from "../api/apiError";
 import { clearDraft, db, startDraft } from "../capture/draft";
 import { me } from "../test/fixtures";
+import authCss from "./auth.css?raw";
 
 vi.mock("./oidc", () => ({
   signOut: vi.fn(() => Promise.resolve()),
@@ -83,7 +84,7 @@ describe("SignOutButton (PD-S3)", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "1 inspection is still on this phone. You can sign out once it has sent, or once you remove one the office refused.",
+      "You can't sign out yet. 1 inspection is still on this phone. Sign out once it has sent, or remove it if the office refused it.",
     );
     const oidc = await import("./oidc");
     expect(oidc.signOut).not.toHaveBeenCalled();
@@ -94,7 +95,7 @@ describe("SignOutButton (PD-S3)", () => {
     renderButton();
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "2 inspections are still on this phone. You can sign out once they have sent, or once you remove one the office refused.",
+      "You can't sign out yet. 2 inspections are still on this phone. Sign out once they have sent, or remove any the office refused.",
     );
   });
 
@@ -147,7 +148,12 @@ describe("SignOutButton (PD-S3)", () => {
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
     const oidc = await import("./oidc");
     await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(screen.getByRole("button", { name: "Sign out" })).toBeEnabled());
+    await vi.waitFor(() =>
+      expect(screen.getByRole("button", { name: "Sign out" })).toHaveAttribute(
+        "aria-disabled",
+        "false",
+      ),
+    );
   });
 
   it("keeps keyboard focus while the guard reads, and ignores a second tap", async () => {
@@ -185,6 +191,21 @@ describe("SignOutButton (PD-S3)", () => {
     expect(screen.getByRole("status")).toHaveTextContent("");
   });
 
+  // Vitest loads no stylesheet, so this one is put in the document. A region
+  // that leaves the accessibility tree while empty is inserted, not updated,
+  // by its first message, and screen readers announce that unreliably.
+  it("keeps the empty live region in the accessibility tree under auth.css", () => {
+    const style = document.createElement("style");
+    style.textContent = authCss;
+    document.head.append(style);
+    try {
+      renderButton();
+      expect(screen.getByRole("status")).toHaveTextContent("");
+    } finally {
+      style.remove();
+    }
+  });
+
   it("empties the live region before a repeat refusal so it is announced again", async () => {
     await db.table("outbox").put(heldEntry("u1", "failed"));
     renderButton();
@@ -206,10 +227,12 @@ describe("SignOutButton (PD-S3)", () => {
     renderButton();
     const user = userEvent.setup();
     await user.click(screen.getByRole("button", { name: "Sign out" }));
-    await screen.findByRole("status");
+    await screen.findByText(/still on this phone/);
     await db.table("outbox").clear();
     await user.click(screen.getByRole("button", { name: "Sign out" }));
-    await vi.waitFor(() => expect(screen.getByRole("status")).toHaveTextContent(""));
+    const oidc = await import("./oidc");
+    await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent("");
   });
 });
 

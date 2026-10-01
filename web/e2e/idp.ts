@@ -123,9 +123,9 @@ export async function stubIdentityProvider(page: Page): Promise<IdpStub> {
     });
   });
 
-  // A predicate, not the glob "**/api/**": Playwright 1.62.1 matches a glob
-  // against the whole URL, so that one also catches Vite's own
-  // /src/api/client.ts, token.ts and friends, and main.tsx never runs.
+  // A predicate, not the glob "**/api/**". Playwright matches a glob against
+  // the whole URL, so that glob also catches Vite's own /src/api/client.ts,
+  // token.ts and friends, and main.tsx never runs.
   await page.route(
     (url) => url.origin === ORIGIN && url.pathname.startsWith("/api/"),
     (route) => {

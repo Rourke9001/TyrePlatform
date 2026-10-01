@@ -748,9 +748,11 @@ describe("sign-in inside capture", () => {
     renderFlow();
 
     expect(
-      await screen.findByText(/another driver started is open on this phone/),
+      await screen.findByText(/Another driver has an inspection open on this phone/),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start inspection|discard/i })).toBeNull();
+    // A way off the screen for whoever holds the phone.
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
     expect((await loadDraft())?.driverSubject).toBe("oid-other");
   });
 });

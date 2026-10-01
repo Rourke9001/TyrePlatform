@@ -731,6 +731,17 @@
   margin: 0;
 }
 
+/* The sign-in action's failure line takes the alert's width; the button
+   keeps its own. */
+.cap-signin .auth-action {
+  align-self: stretch;
+}
+
+/* Full width, as the "Reload vehicle" button beside it is. */
+.cap-screen .auth-action {
+  justify-items: stretch;
+}
+
 /* A refusal or a dead connection, in the same accent-bar grammar as the entry
    sheet's warnings. Not a tread band: the below-removal colour is borrowed for
    its stopping power, and the band modifiers stay keyed to band names. */

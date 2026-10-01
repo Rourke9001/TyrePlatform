@@ -61,7 +61,7 @@ describe("AuthGate", () => {
 
   it("says the account is not set up, and the company's account is not active", () => {
     const first = gate("not-set-up");
-    expect(screen.getByText(/not set up for a company yet/)).toBeInTheDocument();
+    expect(screen.getByText(/Ask your fleet office to set up your account/)).toBeInTheDocument();
     first.unmount();
     gate("tenant-inactive");
     expect(screen.getByText(/^This company's account is not active/)).toBeInTheDocument();
