@@ -1,9 +1,13 @@
 package main
 
 import (
+	"io"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"tyreplatform/api/internal/httpapi"
 )
 
 // The harness answers (value, present) like os.LookupEnv, because the
@@ -30,6 +34,20 @@ func TestDevHeaderResolverGating(t *testing.T) {
 			require.Equal(t, tt.want, devHeaderEnabled(lookup))
 		})
 	}
+}
+
+func TestDevResolverWiring(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	lookup := func(env map[string]string) func(string) (string, bool) {
+		return func(k string) (string, bool) { v, ok := env[k]; return v, ok }
+	}
+
+	require.Nil(t, devResolver(lookup(map[string]string{}), nil, logger),
+		"off by default, and nothing configured")
+	require.Equal(t, httpapi.HeaderActorResolver{},
+		devResolver(lookup(map[string]string{"APP_DEV_TENANT_HEADER": "1"}), nil, logger))
+	require.Nil(t, devResolver(lookup(map[string]string{"APP_DEV_TENANT_HEADER": "1", "CONTAINER_APP_NAME": "ca-api-staging"}), nil, logger),
+		"the veto still holds in a devheader build")
 }
 
 // TestTrustedProxyHopsParsing pins the absent-vs-invalid distinction

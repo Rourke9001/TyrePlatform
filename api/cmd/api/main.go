@@ -19,20 +19,6 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// devHeaderEnabled decides whether the trust-any-header resolver may exist in
-// this process. Container Apps injects CONTAINER_APP_NAME into every deployed
-// revision, so its PRESENCE vetoes the flag. Presence, not value, because a
-// stray --set-env-vars CONTAINER_APP_NAME= would read as absent through
-// os.Getenv and switch the dev path on in staging (TYRE-160). The accessor is
-// injected so the table test can say "present and empty".
-func devHeaderEnabled(lookup func(string) (string, bool)) bool {
-	if _, inContainerApps := lookup("CONTAINER_APP_NAME"); inContainerApps {
-		return false
-	}
-	v, _ := lookup("APP_DEV_TENANT_HEADER")
-	return v == "1"
-}
-
 // trustedProxyHops parses TRUSTED_PROXY_HOPS for NFR-SEC-007's per-source
 // rate limit (httpapi.WithTrustedProxyHops). Absent defaults to 1
 // (infra/main.bicep's documented default); present but not a positive
@@ -84,14 +70,12 @@ func main() {
 	}
 	defer s.Close()
 
-	// Identity has no production source until the identity provider lands
-	// (FR-AUT-001); the dev header resolver must be asked for by name and
-	// defaults to off. httpapi.requireActor documents what a nil resolver
-	// means.
-	var resolver httpapi.ActorResolver
-	if devHeaderEnabled(os.LookupEnv) {
-		logger.Warn("X-Tenant-ID/X-User-ID header resolver enabled; anyone who can send a header is anyone")
-		resolver = httpapi.HeaderActorResolver{}
+	// The bearer resolver is wired by a later task; until then only a devheader
+	// build can have a resolver. A nil resolver answers 503 (ADR-0016).
+	var bearerResolver httpapi.ActorResolver
+	resolver := devResolver(os.LookupEnv, bearerResolver, logger)
+	if resolver == nil {
+		logger.Error("no identity resolver is configured; every /api call answers 503 auth_unavailable until AUTH_* is set (ADR-0016)")
 	}
 
 	srv := &http.Server{
