@@ -183,7 +183,11 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
             : "Could not load this vehicle. Find signal and try again."}
         </p>
         {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-        <button type="button" className="cap-primary" onClick={() => void motive.refetch()}>
+        <button
+          type="button"
+          className={signedOut ? "cap-secondary" : "cap-primary"}
+          onClick={() => void motive.refetch()}
+        >
           Reload vehicle
         </button>
       </section>
@@ -316,8 +320,8 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
         </div>
       )}
       {lifecycle.signInNeeded && (
-        <div role="alert" className="cap-alert cap-alert--stop cap-storage">
-          <p className="cap-storage-msg">Sign in before you start an inspection.</p>
+        <div role="alert" className="cap-alert cap-alert--stop cap-signin">
+          <p className="cap-signin-msg">Sign in before you start an inspection.</p>
           {bearerMode() && <SignInButton label="Sign in" />}
         </div>
       )}

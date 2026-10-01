@@ -754,3 +754,21 @@ describe("sign-in inside capture", () => {
     expect((await loadDraft())?.driverSubject).toBe("oid-other");
   });
 });
+
+describe("a held 401 inside capture", () => {
+  // Passing null for lastStatus would leave the signal wording here.
+  it("tells the driver to sign in to send it when the submit is refused with 401", async () => {
+    const user = newUser();
+    stubApi(401, [context], "unauthorized");
+    renderFlow();
+
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+    await capturePosition(user);
+    await user.click(screen.getByRole("button", { name: /review and submit/i }));
+    await user.click(screen.getByRole("button", { name: /submit inspection/i }));
+
+    expect(await screen.findByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
+    expect(screen.getByText("Sign in to send it.")).toBeInTheDocument();
+    expect(await db.table("outbox").count()).toBe(1);
+  });
+});
