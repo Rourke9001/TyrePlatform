@@ -10,7 +10,7 @@ import type * as AuthChunk from "../auth/oidc";
 
 export const MIRROR_KEY = "tyre.auth.mirror";
 // The last driver who signed in on this phone. Held inspections are stamped
-// from it (U104), so only signOut() clears it: a 401 clears the mirror and
+// from it (U104), so only signOut() clears it. A 401 clears the mirror and
 // leaves this alone.
 export const SUBJECT_KEY = "tyre.auth.subject";
 export const BRANDING_PREFIX = "tyre.branding.";
@@ -83,7 +83,7 @@ export function rememberTenant(tenantId: string): void {
   try {
     writeMirror({ ...mirror, tenantId });
   } catch {
-    // The next /api/me tries again.
+    // Best effort.
   }
 }
 
@@ -102,7 +102,7 @@ export function bearerMode(): boolean {
 }
 
 // Stage 1 builds carry no VITE_AUTH_* values (ADR-0016), and a build without
-// them cannot sign anyone in: that is "unavailable", not "signed out". Each
+// them cannot sign anyone in. That is "unavailable", not "signed out". Each
 // read is written in full so the build folds it to a constant.
 export function authConfigured(): boolean {
   return Boolean(
@@ -133,8 +133,8 @@ const EXPIRY_SKEW_MS = 60_000;
 const FRESH_MS = 60_000;
 
 let latched = false;
-// The last renewed token, kept beside the mirror: a blocked store cannot hold
-// it, and the latch and the renewal count both depend on remembering it.
+// The last renewed token, kept beside the mirror, because a blocked store
+// cannot hold it and the latch and the renewal count both depend on it.
 let held: Mirror | null = null;
 let renewing: Promise<Mirror | null> | null = null;
 let lapsed = false;
@@ -201,7 +201,7 @@ function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mir
   return mirror;
 }
 
-// One renewal in flight: refresh tokens may rotate, so two concurrent
+// One renewal in flight, because refresh tokens may rotate and two concurrent
 // renewals would spend the same one twice.
 function renewOnce(): Promise<Mirror | null> {
   renewing ??= authChunk()
@@ -214,7 +214,8 @@ function renewOnce(): Promise<Mirror | null> {
 }
 
 export async function credential(): Promise<{ accessToken: string; subject: string }> {
-  // Before the import: a build without VITE_AUTH_* cannot sign anyone in.
+  // Checked before the import, since a build without VITE_AUTH_* cannot sign
+  // anyone in.
   if (latched || !authConfigured()) throw authUnavailable();
   const usable = (m: Mirror | null) => m !== null && m.expiresAt - EXPIRY_SKEW_MS > Date.now();
   const mirror = readMirror();
@@ -226,9 +227,8 @@ export async function credential(): Promise<{ accessToken: string; subject: stri
   return { accessToken: current.accessToken, subject: current.subject };
 }
 
-// U104: who a held inspection is stamped with and sent under. Under the DEV
-// header path the dev actor stands in (vite dev, vitest and every e2e project
-// but auth); a production build keeps only the bearer branch.
+// U104: who a held inspection is stamped with and sent under. On the DEV
+// header path the dev actor stands in (bearerMode() says when).
 export function sender(): Promise<Sender> {
   if (import.meta.env.DEV && !bearerMode()) {
     return Promise.resolve({ accessToken: null, subject: getDevActorId() });
@@ -242,7 +242,7 @@ export function stampSubject(): string | null {
 }
 
 // send() calls this on a 401 from the API. True when this refusal, or an earlier
-// one, latched the store: every call then answers 503 without touching the API.
+// one, latched the store. Every call then answers 503 without touching the API.
 export function refused(accessToken: string): boolean {
   if (latched) return true;
   const mirror = readMirror();

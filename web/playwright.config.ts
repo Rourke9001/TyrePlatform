@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E runs against the DEV server on purpose: in every project but auth,
-// identity is the dev actor headers (src/api/devTenant.ts,
+// E2E runs against the DEV server on purpose, because in every project but
+// auth identity is the dev actor headers (src/api/devTenant.ts,
 // import.meta.env.DEV only). The auth project signs in against a stubbed
 // identity provider and swaps the bearer for the Sandbox dev headers on /api
 // (e2e/idp.ts, the one mocking exception web/CLAUDE.md names). The API must

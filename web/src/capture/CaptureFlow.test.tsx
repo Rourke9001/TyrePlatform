@@ -735,8 +735,8 @@ describe("sign-in inside capture", () => {
   });
 
   // U104: callback.ts lets a sign-in through when the stamp read fails, so the
-  // draft itself must not resume under anyone else. Nothing is discarded: that
-  // is an explicit act (FR-OFF-014).
+  // draft itself must not resume under anyone else. Nothing is discarded,
+  // because that is an explicit act (FR-OFF-014).
   it("does not resume a draft another driver started, and discards nothing", async () => {
     await startDraft({
       driverSubject: "oid-other",

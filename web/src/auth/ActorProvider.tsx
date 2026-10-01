@@ -13,9 +13,10 @@ export function ActorProvider({ children }: { children: ReactNode }) {
     queryFn: fetchMe,
     staleTime: 5 * 60 * 1000,
     // A 401 or a 403 answers the same on the next attempt, and a signed-out
-    // driver must not wait through three retries to see the sign-in screen.
-    // auth_unavailable is not retried: the unavailable screen's Try again
-    // reloads, and a retry only keeps the main area blank meanwhile.
+    // driver must not wait through three retries to see the sign-in screen
+    // (spec section 4). auth_unavailable is not retried either, because the
+    // unavailable screen's Try again reloads and a retry only keeps the main
+    // area blank meanwhile.
     retry: (failures, error) =>
       failures < 3 &&
       !(

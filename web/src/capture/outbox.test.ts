@@ -465,7 +465,8 @@ describe("the driver stamp (U104)", () => {
   });
 
   // A latched or unconfigured store throws from the credential before the
-  // send; the entry is held for retry and nothing reaches the API (spec section 4, A fresh token refused).
+  // send. The entry is held for retry and nothing reaches the API (spec
+  // section 4, A fresh token refused).
   it("does not reach the API when the token store refuses a credential", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

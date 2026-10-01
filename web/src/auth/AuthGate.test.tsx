@@ -53,7 +53,7 @@ describe("AuthGate", () => {
     await vi.waitFor(() => expect(oidc.signIn).toHaveBeenCalledWith("/"));
   });
 
-  // The prompt never interrupts a capture: a later 401 keeps the screen.
+  // The prompt never interrupts a capture, so a later 401 keeps the screen.
   it("keeps the routes when an actor is already in hand", () => {
     gate("signed-out", me());
     expect(screen.getByText("the routes")).toBeInTheDocument();

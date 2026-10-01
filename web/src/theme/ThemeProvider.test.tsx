@@ -91,7 +91,7 @@ describe("the branding cache key", () => {
     expect(brandingKeys()).toEqual([]);
   });
 
-  // Only the actor changes: ThemeProvider is not recreated and the mirror
+  // Only the actor changes. ThemeProvider is not recreated and the mirror
   // stays unknown, so the move can come only from ThemeProvider reading the
   // actor (ADR-0016).
   it("moves to the tenant when /api/me answers, without a reload", async () => {

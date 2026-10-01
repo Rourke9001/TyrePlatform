@@ -3,7 +3,7 @@ import { type Page } from "@playwright/test";
 import config from "../playwright.config";
 import { DRIVER_ACTOR } from "./sandbox";
 
-// The one e2e file that mocks (web/CLAUDE.md): the identity provider cannot
+// The one e2e file that mocks (web/CLAUDE.md). The identity provider cannot
 // be reached from CI, and the Go half of sign-in is proved by its own tests
 // (spec section 7). The stub answers idp.test, web/.env.development's
 // authority, and on /api swaps the bearer for the Sandbox driver's dev
@@ -25,7 +25,7 @@ export interface IdpStub {
   // listed in withoutBearer.
   apiBearers: string[];
   withoutBearer: string[];
-  // A bearer-mode call that also carried the dev actor headers: identity must
+  // A bearer-mode call that also carried the dev actor headers. Identity must
   // come from the token alone.
   withDevHeaders: string[];
   submitBearers: string[];
@@ -74,8 +74,8 @@ export async function stubIdentityProvider(page: Page): Promise<IdpStub> {
     }),
   );
 
-  // RegExp, not a glob: whether "?" in a glob is literal has changed across
-  // Playwright releases.
+  // RegExp, not a glob, because whether "?" in a glob is literal has changed
+  // across Playwright releases.
   await page.route(/^https:\/\/idp\.test\/authorize\?/, (route) => {
     const url = new URL(route.request().url());
     stub.authorizeUrls.push(url);

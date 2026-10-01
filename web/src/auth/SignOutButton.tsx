@@ -20,10 +20,8 @@ export function SignOutButton() {
   const [held, setHeld] = useState<number | null>(null);
   const [failed, setFailed] = useState(false);
   // signOut() clears everything local before it can reject, and its resolve
-  // is a navigation that a bfcache restore can undo, so neither is the end of
-  // sign-out (TYRE-317): the button settles on either and the next render
-  // re-reads the subject. aria-disabled, not disabled, so a focused button
-  // keeps keyboard focus while the guard reads storage.
+  // is a navigation a bfcache restore can undo, so the button settles on
+  // either and the next render re-reads the subject (TYRE-317).
   const [pending, setPending] = useState(false);
   if (!bearerMode() || lastKnownSubject() === null) return null;
 
@@ -44,14 +42,15 @@ export function SignOutButton() {
       try {
         chunk = await authChunk();
       } catch {
-        // No signal for the lazy chunk: still signed in, say so.
+        // With no signal for the lazy chunk the driver stays signed in, and
+        // the line says so.
         setFailed(true);
         return;
       }
       try {
         await chunk.signOut();
       } catch {
-        // Rejected after the local clear: signed out locally.
+        // Rejected after the local clear, so signed out locally.
       }
       // Settled with the page still here, so the cached actor goes and
       // /api/me is asked again (spec section 4, Cached state).
@@ -63,6 +62,8 @@ export function SignOutButton() {
 
   return (
     <div className="auth-signout">
+      {/* aria-disabled, so a focused button keeps keyboard focus while the
+          guard reads storage. */}
       <button
         type="button"
         className="auth-secondary"

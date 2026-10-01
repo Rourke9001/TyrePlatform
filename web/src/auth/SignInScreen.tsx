@@ -22,7 +22,7 @@ export function SignInScreen() {
     try {
       window.sessionStorage.removeItem(OTHER_DRIVER_KEY);
     } catch {
-      // Nothing to clear.
+      // Best effort.
     }
   }, []);
   const waiting = useOutbox().filter((e) => e.state !== "failed").length;

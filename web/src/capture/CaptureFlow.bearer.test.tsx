@@ -7,7 +7,7 @@ import { CaptureFlow } from "./CaptureFlow";
 import { clearDraft, db } from "./draft";
 
 // credential() throws before any fetch without a stored session, so the
-// bearer path is faked at the token store: the subject is the one thing each
+// bearer path is faked at the token store. The subject is the one thing each
 // case varies.
 const who = vi.hoisted(() => ({ subject: null as string | null }));
 vi.mock("../api/token", async (original) => ({
