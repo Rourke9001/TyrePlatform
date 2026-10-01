@@ -14,7 +14,9 @@ function startSignIn(): Promise<void> {
 export function SignInButton({ label }: { label: string }) {
   const [failed, setFailed] = useState(false);
   // A second tap on weak signal would start a second redirect, so the button
-  // stays disabled until the start fails; a started one leaves the page.
+  // stays disabled while a start is in flight. Back from the identity provider
+  // the library's navigation resolves on pageshow (a bfcache restore), so the
+  // button re-enables when the start settles either way.
   const [pending, setPending] = useState(false);
   return (
     <>
@@ -25,10 +27,9 @@ export function SignInButton({ label }: { label: string }) {
         onClick={() => {
           setFailed(false);
           setPending(true);
-          startSignIn().catch(() => {
-            setPending(false);
-            setFailed(true);
-          });
+          startSignIn()
+            .catch(() => setFailed(true))
+            .finally(() => setPending(false));
         }}
       >
         {label}
