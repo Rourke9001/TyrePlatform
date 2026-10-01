@@ -239,7 +239,9 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		writeError(ctx, w, http.StatusUnauthorized, codeUnauthorized, msgUnauthorized)
 		return false
 	}
-	err := s.InActorTx(ctx, store.ActorKey{TenantID: id.TenantID, UserID: id.UserID, Subject: id.Subject, SessionID: id.SessionID}, fn)
+	// A conversion, not a field copy: a field added to Identity and not to
+	// store.ActorKey then fails to compile instead of being dropped (TYRE-317).
+	err := s.InActorTx(ctx, store.ActorKey(id), fn)
 	pgRef, isClient := refusalForPgError(err)
 	var ref refusalError
 	switch {
