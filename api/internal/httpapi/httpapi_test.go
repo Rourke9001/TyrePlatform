@@ -600,10 +600,7 @@ func TestRefusalsCarryTheEnvelope(t *testing.T) {
 			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
 			require.Equal(t, "application/json", rec.Header().Get("Content-Type"))
 
-			var body struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-			}
+			var body refusalBody
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
 			require.Equal(t, tt.wantCode, body.Code)
 			require.NotEmpty(t, body.Message)
@@ -1190,11 +1187,8 @@ func TestATenantThatIsNotActiveIsRefusedWithItsOwnCode(t *testing.T) {
 
 	rec := get(t, h, "/api/me", tenantID.String(), userID.String())
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
-	var body struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	var body refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
 	require.Equal(t, "tenant_inactive", body.Code)
 	require.Equal(t, "this company's account is not active; contact your fleet office", body.Message)
 }
