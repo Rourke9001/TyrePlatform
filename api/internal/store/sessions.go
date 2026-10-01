@@ -5,7 +5,7 @@ import (
 	"sync"
 )
 
-// sessionLimit bounds the sessions one replica remembers (ADR-0016). A
+// sessionLimit bounds the sessions one replica remembers (spec section 3). A
 // forgotten session costs one more call, which the unique index absorbs.
 const sessionLimit = 10_000
 
