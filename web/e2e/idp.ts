@@ -1,14 +1,15 @@
 import { type Page } from "@playwright/test";
 
-import { SANDBOX_DRIVER, TENANT } from "./sandbox";
+import config from "../playwright.config";
+import { DRIVER_ACTOR } from "./sandbox";
 
 // The one e2e file that mocks (web/CLAUDE.md): the identity provider cannot
 // be reached from CI, and the Go half of sign-in is proved by its own tests
 // (spec section 7). The stub answers idp.test, web/.env.development's
 // authority, and on /api swaps the bearer for the Sandbox driver's dev
 // headers, since `make api-run` has no AUTH_* configuration to validate it.
-export const IDP = "https://idp.test";
-const ORIGIN = "http://localhost:5173";
+const IDP = "https://idp.test";
+const ORIGIN = new URL(config.use?.baseURL ?? "").origin;
 const CLIENT_ID = "e2e-pwa";
 const SCOPE = "openid profile offline_access api://e2e-api/access_as_user";
 const CORS = { "Access-Control-Allow-Origin": ORIGIN };
@@ -20,9 +21,13 @@ export interface IdpStub {
   refuseSubmits: boolean;
   authorizeUrls: URL[];
   endSessionUrls: URL[];
-  // The bearer each /api call carried; a call with none is refused and listed.
+  // "<path> <bearer>" for each /api call; a call with no bearer is refused and
+  // listed in withoutBearer.
   apiBearers: string[];
   withoutBearer: string[];
+  // A bearer-mode call that also carried the dev actor headers: identity must
+  // come from the token alone.
+  withDevHeaders: string[];
   submitBearers: string[];
 }
 
@@ -52,6 +57,7 @@ export async function stubIdentityProvider(page: Page): Promise<IdpStub> {
     endSessionUrls: [],
     apiBearers: [],
     withoutBearer: [],
+    withDevHeaders: [],
     submitBearers: [],
   };
 
@@ -130,7 +136,11 @@ export async function stubIdentityProvider(page: Page): Promise<IdpStub> {
         stub.withoutBearer.push(`${request.method()} ${path}`);
         return route.fulfill({ status: 401, json: { code: "unauthorized", message: "no bearer" } });
       }
-      stub.apiBearers.push(bearer);
+      stub.apiBearers.push(`${path} ${bearer}`);
+      const sent = request.headers();
+      if (sent["x-tenant-id"] !== undefined || sent["x-user-id"] !== undefined) {
+        stub.withDevHeaders.push(`${request.method()} ${path}`);
+      }
       if (request.method() === "POST" && path === "/api/inspections") {
         stub.submitBearers.push(bearer);
         if (stub.refuseSubmits) {
@@ -143,7 +153,7 @@ export async function stubIdentityProvider(page: Page): Promise<IdpStub> {
       const headers = { ...request.headers() };
       delete headers["authorization"];
       return route.continue({
-        headers: { ...headers, "x-tenant-id": TENANT, "x-user-id": SANDBOX_DRIVER },
+        headers: { ...headers, ...DRIVER_ACTOR },
       });
     },
   );

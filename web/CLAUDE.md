@@ -67,12 +67,12 @@ vite.config.ts) and they never mock — they drive the real dev stack in
 headless browsers. One exception: the `auth` project stubs the identity
 provider with `page.route` and, on `/api`, swaps the bearer for the Sandbox dev
 headers (`e2e/idp.ts`), because the provider cannot be reached from CI and the
-Go half of sign-in is proved by its own tests (TYRE-317). Five projects: `bac-readonly` (Desktop Chrome,
-`dashboard.spec.ts` only, the web leg of the three-way agreement, which
-`android` depends on so no BAC write races a BAC read), `chromium` at a
-desktop viewport, `android` (Pixel 7), `ios` (iPhone 14, WebKit) and `auth` (Pixel 7,
-`auth.spec.ts` only). The
-capture app is judged at phone dimensions, so `reach.spec.ts` runs on the
+Go half of sign-in is proved by its own tests (TYRE-317). Five projects:
+`bac-readonly` (Desktop Chrome, `dashboard.spec.ts` only, the web leg of the
+three-way agreement, which `android` depends on so no BAC write races a BAC
+read), `chromium` at a desktop viewport, `android` (Pixel 7), `ios` (iPhone 14,
+WebKit) and `auth` (Pixel 7, `auth.spec.ts` only). The capture app is judged
+at phone dimensions, so `reach.spec.ts` runs on the
 three device projects and `capture.spec.ts` on `android` alone — FR-INS-038's
 duplicate window is tenant state in one shared database, and the same vehicle
 submitted from a second project is refused by the first.
@@ -88,10 +88,10 @@ on reconnect, and files every reading against the unit that owns the position.
 Run with `make e2e`, which reseeds and requires `make api-run` in another
 terminal; CI's "Browser smoke" job builds that stack itself on every PR. The
 reseed is not optional: `capture.spec.ts` submits, so a second run against the
-same seed is refused at the first spec. Identity is the dev actor headers everywhere but `auth`, so
-specs run against `vite dev`, never a production build (playwright.config.ts
-says why). Assert on roles and visible text, not CSS — with one deliberate
-exception: a requirement id may be reached through a `data-` attribute
+same seed is refused at the first spec. Identity is the dev actor headers
+everywhere but `auth`, so specs run against `vite dev`, never a production
+build (playwright.config.ts says why). Assert on roles and visible text, not
+CSS — with one deliberate exception: a requirement id may be reached through a `data-` attribute
 (`data-position-id`, `data-warning-code`), because CR-010 keeps those ids out
 of driver-facing wording and a spec keyed on the friendly name would fail on
 the next copy edit.

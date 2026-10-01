@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { actAsDriver, assignedVehicle, HEADERS } from "./driver";
-import { TREADS, capturePosition, done, startInspection, submit } from "./captureSteps";
+import { captureAll, capturePosition, done, startInspection, submit } from "./captureSteps";
 
 // FR-INS-038's duplicate window is tenant state in one shared database: a
 // second submit of the same vehicle is refused regardless of worker, so this
@@ -13,17 +13,7 @@ test.beforeEach(async ({ page }) => {
   await actAsDriver(page);
 });
 
-async function captureAll(page: Page, first: string[][] = TREADS): Promise<number> {
-  await expect(page.locator("[data-position-id]").first()).toBeVisible();
-  const total = await page.locator("[data-position-id]").count();
-  // The only diagram tap in the walk. Every position after this one is opened
-  // by the position before it finishing.
-  await page.locator("[data-position-id]").first().click();
-  await capturePosition(page, first);
-  for (let i = 1; i < total; i++) await capturePosition(page);
-  return total;
-}
-
+// The failed-submit banner; scoped like done() in captureSteps.ts.
 const failed = (page: Page) =>
   page
     .locator("main")
