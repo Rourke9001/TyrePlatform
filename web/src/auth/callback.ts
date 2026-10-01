@@ -2,6 +2,7 @@ import {
   OTHER_DRIVER_KEY,
   authChunk,
   bearerMode,
+  clearMirror,
   rememberSubject,
   writeMirror,
 } from "../api/token";
@@ -78,8 +79,6 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
     return "undone";
   }
 
-  // A full or blocked store costs the mirror, not the sign-in: the library
-  // holds the user, and the first call renews from it (ADR-0016).
   try {
     writeMirror({
       accessToken: signedIn.accessToken,
@@ -88,13 +87,16 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
       subject: signedIn.subject,
       tenantId: null,
     });
-  } catch {
-    // Renewal covers it.
-  }
-  try {
     rememberSubject(signedIn.subject);
   } catch {
-    // Without it no capture can start; the screen asks for sign-in again.
+    // The library has stored its user. Left beside an empty mirror or no
+    // last-known subject, the next load would renew a session the entry
+    // cannot track and no draft could start (U104; spec section 6). Both go,
+    // so that load shows the sign-in screen.
+    clearMirror();
+    await (await authChunk()).discardUser().catch(() => undefined);
+    didNotFinish = true;
+    return "failed";
   }
   window.history.replaceState(null, "", safeReturnPath(signedIn.returnTo));
   void flushOutbox({ ignoreBackoff: true });
