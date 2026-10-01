@@ -1,0 +1,270 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { User, type INavigator, type NavigateParams } from "oidc-client-ts";
+
+import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
+import { createAuth } from "./oidc";
+
+const ORIGIN = "http://localhost:5173";
+const IDP = "https://idp.test";
+const SCOPE = "api://tyre-api/access_as_user";
+const SETTINGS = {
+  authority: `${IDP}/`,
+  clientId: "pwa",
+  apiScope: SCOPE,
+  origin: ORIGIN,
+  // Supplied so no discovery request is made; the e2e project covers that.
+  metadata: {
+    issuer: `${IDP}/`,
+    authorization_endpoint: `${IDP}/authorize`,
+    token_endpoint: `${IDP}/token`,
+    end_session_endpoint: `${IDP}/logout`,
+  },
+};
+// oidc-client-ts 3.5.0: "oidc." + user:${authority}:${client_id}.
+const USER_KEY = `oidc.user:${IDP}/:pwa`;
+
+function b64url(value: unknown): string {
+  return btoa(JSON.stringify(value)).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+function idToken(oid: string | null): string {
+  const now = Math.floor(Date.now() / 1000);
+  const claims: Record<string, unknown> = {
+    iss: `${IDP}/`,
+    aud: "pwa",
+    sub: "pairwise-1",
+    iat: now,
+    exp: now + 3600,
+  };
+  if (oid !== null) claims.oid = oid;
+  return `${b64url({ alg: "RS256", typ: "JWT" })}.${b64url(claims)}.c2ln`;
+}
+
+function tokenResponse(id: string): Response {
+  return new Response(
+    JSON.stringify({
+      access_token: "at-new",
+      id_token: id,
+      refresh_token: "rt-new",
+      token_type: "Bearer",
+      expires_in: 3600,
+      scope: `openid profile offline_access ${SCOPE}`,
+    }),
+    { status: 200, headers: { "Content-Type": "application/json" } },
+  );
+}
+
+function storeUser(fields: { id_token?: string; refresh_token?: string }): void {
+  const user = new User({
+    access_token: "at-old",
+    token_type: "Bearer",
+    profile: { sub: "pairwise-1", iss: `${IDP}/`, aud: "pwa", exp: 0, iat: 0, oid: "oid-a" },
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    ...fields,
+  });
+  window.localStorage.setItem(USER_KEY, user.toStorageString());
+}
+
+// Captures where the library would navigate. The promise never settles, as a
+// real redirect never returns to the page that started it.
+function capturing(onNavigate: () => void = () => undefined) {
+  const urls: string[] = [];
+  const navigator: INavigator = {
+    prepare: () =>
+      Promise.resolve({
+        navigate: (params: NavigateParams) => {
+          urls.push(params.url);
+          onNavigate();
+          return new Promise(() => undefined);
+        },
+        close: () => undefined,
+      }),
+    callback: () => Promise.resolve(),
+  };
+  return { navigator, urls };
+}
+
+beforeEach(() => {
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe("signIn", () => {
+  it("asks for an authorization code with PKCE, the client, the scopes and the redirect /", async () => {
+    const { navigator, urls } = capturing();
+    void createAuth(SETTINGS, navigator).signIn("/capture/v1");
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+
+    const url = new URL(urls[0]);
+    expect(`${url.origin}${url.pathname}`).toBe(`${IDP}/authorize`);
+    expect(url.searchParams.get("response_type")).toBe("code");
+    expect(url.searchParams.get("client_id")).toBe("pwa");
+    expect(url.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/`);
+    expect(url.searchParams.get("scope")).toBe(`openid profile offline_access ${SCOPE}`);
+    expect(url.searchParams.get("code_challenge_method")).toBe("S256");
+    expect(url.searchParams.get("code_challenge")).toBeTruthy();
+  });
+});
+
+describe("completeSignIn", () => {
+  async function callbackFor(id: string) {
+    const { navigator, urls } = capturing();
+    const auth = createAuth(SETTINGS, navigator);
+    void auth.signIn("/capture/v1");
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+    const state = new URL(urls[0]).searchParams.get("state") ?? "";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenResponse(id))),
+    );
+    return auth.completeSignIn(`${ORIGIN}/?code=c1&state=${state}`);
+  }
+
+  it("returns the oid, the expiry and the path signIn stored, and keeps the user in localStorage", async () => {
+    const signedIn = await callbackFor(idToken("oid-a"));
+
+    expect(signedIn.subject).toBe("oid-a");
+    expect(signedIn.accessToken).toBe("at-new");
+    expect(signedIn.returnTo).toBe("/capture/v1");
+    expect(signedIn.expiresAt).toBeGreaterThan(Date.now());
+    // U102: the library's default is sessionStorage, which dies with the browser.
+    expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  // ADR-0016: an Entra configuration slip that drops oid must not
+  // produce a session with no subject to stamp or compare, and must not leave
+  // the library's user behind for the next load to renew.
+  it("refuses a sign-in whose ID token carries no oid, and removes the stored user", async () => {
+    await expect(callbackFor(idToken(null))).rejects.toThrow(/oid/);
+    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+  });
+});
+
+describe("renew", () => {
+  // With no refresh token the library would open a hidden iframe on "/".
+  it("returns null without any request when no refresh token is stored", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+    storeUser({ id_token: idToken("oid-a") });
+
+    await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("uses the refresh token and returns the new access token", async () => {
+    const id = idToken("oid-a");
+    storeUser({ id_token: id, refresh_token: "rt-old" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenResponse(id))),
+    );
+
+    const tokens = await createAuth(SETTINGS).renew();
+    expect(tokens?.accessToken).toBe("at-new");
+    expect(tokens?.subject).toBe("oid-a");
+  });
+
+  // U102: the 24-hour refresh token has lapsed. Nothing outlives the session.
+  it("removes the stored user and returns null on invalid_grant", async () => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "invalid_grant" }), {
+            status: 400,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
+    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+  });
+
+  it("lets a network failure through as itself and keeps the stored user", async () => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.reject(new TypeError("Failed to fetch"))),
+    );
+
+    await expect(createAuth(SETTINGS).renew()).rejects.toBeInstanceOf(TypeError);
+    expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+  });
+
+  // postForm throws ErrorResponse for any error body (oidc-client-ts 3.5.0,
+  // 798-802). Only invalid_grant is the lapse; Entra being briefly down must
+  // not sign the driver out.
+  it("keeps the session on any refusal other than invalid_grant", async () => {
+    storeUser({ id_token: idToken("oid-a"), refresh_token: "rt-old" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ error: "temporarily_unavailable" }), {
+            status: 503,
+            headers: { "Content-Type": "application/json" },
+          }),
+        ),
+      ),
+    );
+
+    await expect(createAuth(SETTINGS).renew()).rejects.toMatchObject({
+      error: "temporarily_unavailable",
+    });
+    expect(window.localStorage.getItem(USER_KEY)).not.toBeNull();
+  });
+
+  // ADR-0016 again, on the refresh path.
+  it("treats a refreshed session with no oid as a lapse and removes the stored user", async () => {
+    const withoutOid = idToken(null);
+    storeUser({ id_token: withoutOid, refresh_token: "rt-old" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(tokenResponse(withoutOid))),
+    );
+
+    await expect(createAuth(SETTINGS).renew()).resolves.toBeNull();
+    expect(window.localStorage.getItem(USER_KEY)).toBeNull();
+  });
+});
+
+describe("signOut", () => {
+  // The e2e identity stub cannot see the id_token_hint, so this unit test does.
+  it("clears the entry's keys first, then sends id_token_hint and lets the library remove its user", async () => {
+    const id = idToken("oid-a");
+    storeUser({ id_token: id, refresh_token: "rt-old" });
+    window.localStorage.setItem(MIRROR_KEY, "{}");
+    window.localStorage.setItem(SUBJECT_KEY, "oid-a");
+    window.localStorage.setItem("tyre.branding.t-1", "{}");
+    window.localStorage.setItem("tyre.branding.default", "{}");
+    window.localStorage.setItem("tyre.dev.tenant-id", "kept");
+
+    let atNavigate: Record<string, string | null> = {};
+    const { navigator, urls } = capturing(() => {
+      atNavigate = {
+        mirror: window.localStorage.getItem(MIRROR_KEY),
+        subject: window.localStorage.getItem(SUBJECT_KEY),
+        branding: window.localStorage.getItem("tyre.branding.t-1"),
+        user: window.localStorage.getItem(USER_KEY),
+      };
+    });
+    void createAuth(SETTINGS, navigator).signOut();
+    await vi.waitFor(() => expect(urls).toHaveLength(1));
+
+    const url = new URL(urls[0]);
+    expect(`${url.origin}${url.pathname}`).toBe(`${IDP}/logout`);
+    expect(url.searchParams.get("id_token_hint")).toBe(id);
+    expect(url.searchParams.get("post_logout_redirect_uri")).toBe(`${ORIGIN}/`);
+    expect(atNavigate).toEqual({ mirror: null, subject: null, branding: null, user: null });
+    expect(window.localStorage.getItem("tyre.branding.default")).toBeNull();
+    expect(window.localStorage.getItem("tyre.dev.tenant-id")).toBe("kept");
+  });
+});
