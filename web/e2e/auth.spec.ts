@@ -195,3 +195,23 @@ test("sign-out is refused while an entry is held, and goes ahead once the outbox
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
   expect(await page.evaluate(() => window.localStorage.getItem("tyre.auth.mirror"))).toBeNull();
 });
+
+// NFR-USE-004: the keypad and tiles sit at 56 to 64px for gloves, and the
+// sign-in controls are tapped the same way.
+test("the sign-in controls are at least 56px tall at a 390px viewport", async ({ page }) => {
+  test.setTimeout(WALK_TIMEOUT_MS);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const vehicleId = await unitForDriver(page, "V");
+  await page.goto("/");
+  const signInButton = page.getByRole("button", { name: "Email me a sign-in code" });
+  expect((await signInButton.boundingBox())?.height).toBeGreaterThanOrEqual(56);
+
+  await signIn(page);
+  await holdOneSubmit(page, vehicleId);
+  await expect(page.getByText("Sign in to send 1 inspection")).toBeVisible();
+  const outboxSignIn = page
+    .getByRole("status")
+    .filter({ hasText: "Sign in to send 1 inspection" })
+    .getByRole("button", { name: "Sign in" });
+  expect((await outboxSignIn.boundingBox())?.height).toBeGreaterThanOrEqual(56);
+});
