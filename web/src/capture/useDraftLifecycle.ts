@@ -5,6 +5,7 @@ import type { CaptureContext } from "./captureContext";
 import type { Draft, RecordedWarning } from "./draft";
 import { clearDraft, loadDraft, saveHeader, startDraft } from "./draft";
 import { stampSubject } from "../api/token";
+import { mayCarry } from "./outbox";
 import { halfEnteredCell } from "./payload";
 
 export type Screen = "start" | "capture" | "review" | "done";
@@ -37,6 +38,9 @@ export function useDraftLifecycle(
   // Bumped by the retry to re-run the draft load (FR-OFF-013): a recovery
   // action is only real if something re-attempts.
   const [storageAttempt, setStorageAttempt] = useState(0);
+  // U104: no subject, no draft; and another driver's draft never resumes here.
+  const [signInNeeded, setSignInNeeded] = useState(false);
+  const [otherDriverHeld, setOtherDriverHeld] = useState(false);
 
   // FR-OFF-006 / NFR-USE-011: a remount is a reload, such as a killed browser,
   // a phone call, or a driver returning after lunch, and it has to find the work.
@@ -45,7 +49,11 @@ export function useDraftLifecycle(
     void loadDraft().then(
       (existing) => {
         if (dropped) return;
-        if (existing?.vehicleId === vehicleId) {
+        if (existing && !mayCarry(existing, stampSubject())) {
+          // U104: held for its own driver, never resumed or offered for
+          // discard under another (FR-OFF-014).
+          setOtherDriverHeld(true);
+        } else if (existing?.vehicleId === vehicleId) {
           setDraft(existing);
           setAttachedIds(
             existing.observedMemberVehicleIds.length > 0
@@ -81,10 +89,16 @@ export function useDraftLifecycle(
       warnings: RecordedWarning[];
     },
   ) {
+    const driverSubject = stampSubject();
+    if (driverSubject === null) {
+      // U104: a draft stamped for nobody could never be sent (mayCarry).
+      setSignInNeeded(true);
+      return;
+    }
+    setSignInNeeded(false);
     try {
       await startDraft({
-        // Empty is refused by startDraft: no subject, no draft (U104).
-        driverSubject: stampSubject() ?? "",
+        driverSubject,
         vehicleId,
         taskId,
         // Rule 6: stored UTC. The tenant's timezone is applied on the way
@@ -142,6 +156,8 @@ export function useDraftLifecycle(
     setScreen,
     storageFault,
     setStorageFault,
+    signInNeeded,
+    otherDriverHeld,
     startDraftAndAdvance,
     retryStorage,
     discardHeld,

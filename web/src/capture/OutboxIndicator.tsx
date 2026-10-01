@@ -1,7 +1,11 @@
 import { useEffect } from "react";
 
+import { bearerMode, stampSubject } from "../api/token";
+import { useSignInScreenShowing } from "../auth/actorContext";
+import { SignInButton } from "../auth/SignInButton";
+
 import { ConfirmDiscard } from "./ConfirmDiscard";
-import { discardEntry, flushOutbox, isStale, startOutboxHeartbeat } from "./outbox";
+import { discardEntry, flushOutbox, isStale, mayCarry, startOutboxHeartbeat } from "./outbox";
 import { useOutbox } from "./useOutbox";
 import "./capture.css";
 
@@ -9,6 +13,7 @@ import "./capture.css";
 // away from the vehicle still needs to know something is waiting to send.
 export function OutboxIndicator() {
   const entries = useOutbox();
+  const signInScreen = useSignInScreenShowing();
 
   useEffect(() => {
     // FR-OFF-009: on app-open, and whenever connectivity returns while the
@@ -32,6 +37,14 @@ export function OutboxIndicator() {
   const waiting = entries.filter((e) => e.state !== "failed");
   const blocked = entries.filter((e) => e.state === "failed");
   const stale = waiting.filter((e) => isStale(e));
+  // Only this driver's held work counts: another driver's waits for them
+  // (U104). Hidden under the sign-in screen, which carries its own count and
+  // button (spec section 4).
+  const me = stampSubject();
+  const needSignIn =
+    bearerMode() && !signInScreen
+      ? waiting.filter((e) => e.lastStatus === 401 && mayCarry(e, me)).length
+      : 0;
 
   return (
     <div className="cap-outbox" role="status">
@@ -73,12 +86,18 @@ export function OutboxIndicator() {
             later. Check the time.
           </span>
         )}
+        {needSignIn > 0 && (
+          <span className="cap-outbox-line">
+            Sign in to send {needSignIn} inspection{needSignIn === 1 ? "" : "s"}
+          </span>
+        )}
         {stale.length > 0 && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
             Waiting over two days. Please find signal and sync.
           </span>
         )}
       </div>
+      {needSignIn > 0 && <SignInButton label="Sign in" />}
       {/* FR-OFF-010 */}
       <button
         type="button"

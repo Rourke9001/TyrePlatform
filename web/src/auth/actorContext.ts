@@ -44,6 +44,14 @@ export function useAuthFailure(): AuthFailure {
   return useContext(ActorContext).failure ?? null;
 }
 
+// True while AuthGate is showing the sign-in screen (spec section 4). That
+// screen carries its own waiting count and sign-in button, so the outbox
+// indicator above it must not offer a second one.
+export function useSignInScreenShowing(): boolean {
+  const { actor, settled, failure } = useContext(ActorContext);
+  return actor === null && settled && failure === "signed-out";
+}
+
 export function useActorSettled(): boolean {
   return useContext(ActorContext).settled;
 }

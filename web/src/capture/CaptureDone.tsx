@@ -17,9 +17,11 @@ function BackToWork() {
 export function CaptureDone({
   state,
   lastCode,
+  lastStatus,
 }: {
   state: "sent" | "queued" | "failed";
   lastCode: string | null;
+  lastStatus: number | null;
 }) {
   if (state === "sent") {
     return (
@@ -44,7 +46,9 @@ export function CaptureDone({
         </p>
         <h1 className="cap-done-title">Inspection saved</h1>
         <p className="cap-done-body">
-          It will send by itself when you have signal. You can close the app.
+          {lastStatus === 401
+            ? "Sign in to send it."
+            : "It will send by itself when you have signal. You can close the app."}
         </p>
         <BackToWork />
       </section>

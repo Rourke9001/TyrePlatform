@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
+import { ActorContext } from "../auth/actorContext";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { db } from "./draft";
 import type { OutboxEntry, OutboxState } from "./outbox";
@@ -173,5 +174,46 @@ describe("OutboxIndicator", () => {
     const [remaining] = await outbox().toArray();
     expect(remaining.clientUuid).toBe("u-202");
     expect(screen.getByRole("button", { name: /the office has bac 202/i })).toBeInTheDocument();
+  });
+});
+
+describe("the sign-in line", () => {
+  beforeEach(() => {
+    window.localStorage.setItem("tyre.dev.auth", "bearer");
+    window.localStorage.setItem("tyre.auth.subject", "oid-driver-1");
+  });
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("asks this driver to sign in to send what a 401 is holding", async () => {
+    await outbox().put({ ...entry("u1", "queued"), lastStatus: 401 });
+    render(<OutboxIndicator />);
+    expect(await screen.findByText("Sign in to send 1 inspection")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
+  // One 401-held entry each for this driver and another: the line counts only
+  // this driver's (U104).
+  it("counts only this driver's held work", async () => {
+    await outbox().put({ ...entry("u1", "queued"), lastStatus: 401 });
+    await outbox().put({ ...entry("u2", "queued"), lastStatus: 401, driverSubject: "oid-other" });
+    render(<OutboxIndicator />);
+    await screen.findByText(/2 inspections waiting to send/);
+    expect(screen.getByText("Sign in to send 1 inspection")).toBeInTheDocument();
+  });
+
+  // The shell mounts the indicator above AuthGate, so the sign-in screen
+  // already carries the count and the button (spec section 4).
+  it("stays quiet while the sign-in screen is showing", async () => {
+    await outbox().put({ ...entry("u1", "queued"), lastStatus: 401 });
+    render(
+      <ActorContext.Provider value={{ actor: null, settled: true, failure: "signed-out" }}>
+        <OutboxIndicator />
+      </ActorContext.Provider>,
+    );
+    await screen.findByText(/1 inspection waiting to send/);
+    expect(screen.queryByText(/Sign in to send/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 });

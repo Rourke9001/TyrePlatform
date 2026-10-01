@@ -703,3 +703,54 @@ describe("CaptureFlow", () => {
     expectNothingForbiddenSpoken(container, /0 of 1 done/);
   });
 });
+
+describe("sign-in inside capture", () => {
+  // "No subject, no draft" (U104).
+  it("refuses to start without a known driver and asks for a sign-in", async () => {
+    clearDevActorId();
+    stubApi();
+    const user = newUser();
+    renderFlow();
+    await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+
+    expect(await screen.findByText("Sign in before you start an inspection.")).toBeInTheDocument();
+    expect(await loadDraft()).toBeUndefined();
+    expect(screen.queryByText(/not letting the app save/)).toBeNull();
+  });
+
+  it("says to sign in, not to find signal, when loading the vehicle answers 401", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status: 401,
+          json: () => Promise.resolve({ code: "unauthorized", message: "x" }),
+        }),
+      ),
+    );
+    renderFlow();
+    expect(await screen.findByText("Sign in to load this vehicle.")).toBeInTheDocument();
+    expect(screen.queryByText(/Find signal/)).toBeNull();
+  });
+
+  // U104: callback.ts lets a sign-in through when the stamp read fails, so the
+  // draft itself must not resume under anyone else. Nothing is discarded: that
+  // is an explicit act (FR-OFF-014).
+  it("does not resume a draft another driver started, and discards nothing", async () => {
+    await startDraft({
+      driverSubject: "oid-other",
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-09-30T06:00:00Z",
+    });
+    stubApi();
+    renderFlow();
+
+    expect(
+      await screen.findByText(/another driver started is open on this phone/),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start inspection|discard/i })).toBeNull();
+    expect((await loadDraft())?.driverSubject).toBe("oid-other");
+  });
+});
