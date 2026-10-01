@@ -30,6 +30,8 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
+  vi.useRealTimers();
 });
 
 describe("the mirror", () => {
@@ -245,6 +247,34 @@ describe("credential", () => {
     } finally {
       full.mockRestore();
     }
+  });
+
+  // Another tab's sign-out clears the shared mirror; this tab must not keep
+  // answering with the old identity.
+  it("renews, and so signs out, when another tab cleared the mirror", async () => {
+    const { token, oidc } = await fresh();
+    vi.mocked(oidc.renew).mockResolvedValueOnce(RENEWED).mockResolvedValueOnce(null);
+    await expect(token.credential()).resolves.toMatchObject({ accessToken: "at-2" });
+
+    token.clearMirror();
+    await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+    expect(oidc.renew).toHaveBeenCalledTimes(2);
+  });
+
+  // An old refusal drops the held token, so the next call renews.
+  it("drops a held token on a refusal past the fresh window", async () => {
+    const { token, oidc } = await fresh();
+    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    await token.credential();
+
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(Date.now() + 61_000);
+    expect(token.refused("at-2")).toBe(false);
+    await token.credential();
+    expect(oidc.renew).toHaveBeenCalledTimes(2);
   });
 
   it("answers 503 auth_unavailable, without the chunk, when the build carries no VITE_AUTH_* values", async () => {
