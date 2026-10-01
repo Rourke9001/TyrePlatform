@@ -279,3 +279,26 @@ func TestSubmitRateLimitGivesEachSubjectItsOwnBucket(t *testing.T) {
 	}
 	req.Equal(t, []int{http.StatusOK, http.StatusOK}, codes)
 }
+
+// A subject is unique only within a tenant (000052), so the same subject
+// under a second tenant is a different account and a different bucket.
+func TestSubmitRateLimitKeysTheSubjectPerTenant(t *testing.T) {
+	limiter := submitRateLimit(newRateLimiter(1), newRateLimiter(100), 1)
+	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	subject := uuid.New()
+	var codes []int
+	for _, id := range []Identity{
+		{TenantID: uuid.New(), Subject: subject, SessionID: "sid:a"},
+		{TenantID: uuid.New(), Subject: subject, SessionID: "sid:b"},
+		{TenantID: uuid.New(), Subject: subject, SessionID: "sid:c"},
+	} {
+		hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
+		hreq = hreq.WithContext(context.WithValue(hreq.Context(), identityKey{}, id))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, hreq)
+		codes = append(codes, rec.Code)
+	}
+	req.Equal(t, []int{http.StatusOK, http.StatusOK, http.StatusOK}, codes)
+}

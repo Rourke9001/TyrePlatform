@@ -248,11 +248,11 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 	case errors.Is(err, store.ErrNoSuchActor):
 		// Deliberately indistinguishable to the client: whether the user is
 		// deactivated, unlinked or simply not in this tenant is not theirs to learn.
-		slog.WarnContext(ctx, "refusing unresolvable actor", actorAttrs(id)...)
+		slog.WarnContext(ctx, "refusing unresolvable actor", actorAttrs(ctx, id)...)
 		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
 		return false
 	case errors.Is(err, store.ErrTenantInactive):
-		slog.WarnContext(ctx, "refusing actor of a tenant that is not active", actorAttrs(id)...)
+		slog.WarnContext(ctx, "refusing actor of a tenant that is not active", actorAttrs(ctx, id)...)
 		writeError(ctx, w, http.StatusForbidden, codeTenantInactive, msgTenantInactive)
 		return false
 	case errors.Is(err, errForbidden):
