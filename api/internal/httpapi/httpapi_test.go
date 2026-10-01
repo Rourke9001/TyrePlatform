@@ -52,7 +52,7 @@ func plantTenant(t *testing.T, ctx context.Context, admin *pgx.Conn, label strin
 
 	var tenantID uuid.UUID
 	err := admin.QueryRow(ctx,
-		`INSERT INTO app.tenant (name, subdomain) VALUES ($1, $2) RETURNING id`,
+		`INSERT INTO app.tenant (name, subdomain, state) VALUES ($1, $2, 'ACTIVE') RETURNING id`,
 		name, "httpapi-test-"+suffix,
 	).Scan(&tenantID)
 	require.NoError(t, err)
@@ -1167,4 +1167,30 @@ func TestPlantDepotFixtureYieldsOneRowPerDepot(t *testing.T) {
 	require.Equal(t, "300.00", atRiskValue)
 
 	require.Equal(t, "14fc2c61-398c-3508-084e-d61e615e695e", seedID("controller1").String())
+}
+
+// FR-TEN-009's explanatory message, on its own code so the outbox can hold
+// a capture through a suspension instead of failing it (TYRE-376, spec
+// section 4).
+func TestATenantThatIsNotActiveIsRefusedWithItsOwnCode(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "inactive")
+	userID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	require.Equal(t, http.StatusOK, get(t, h, "/api/me", tenantID.String(), userID.String()).Code,
+		"control: the same user resolves while the tenant is ACTIVE")
+	_, err := admin.Exec(ctx, `UPDATE app.tenant SET state = 'SUSPENDED' WHERE id = $1`, tenantID)
+	require.NoError(t, err)
+
+	rec := get(t, h, "/api/me", tenantID.String(), userID.String())
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	var body struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "tenant_inactive", body.Code)
+	require.Equal(t, "this company's account is not active; contact your fleet office", body.Message)
 }

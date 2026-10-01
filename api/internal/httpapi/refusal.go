@@ -30,6 +30,7 @@ import (
 const (
 	codeUnauthorized      = "unauthorized"
 	codeForbidden         = "forbidden"
+	codeTenantInactive    = "tenant_inactive"
 	codeVehicleNotVisible = "TY007"
 	codeBadRequest        = "bad_request"
 	codeMalformedJSON     = "malformed_json"
@@ -62,6 +63,7 @@ const (
 	msgConflict          = "the submission conflicts with data already recorded"
 	msgUnauthorized      = "the request does not identify a user"
 	msgForbidden         = "this action is not permitted for this role"
+	msgTenantInactive    = "this company's account is not active; contact your fleet office"
 	msgVehicleNotVisible = "vehicle not visible"
 	msgInternal          = "internal error"
 
@@ -244,6 +246,10 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		// deactivated or simply not in this tenant is not theirs to learn.
 		slog.WarnContext(ctx, "refusing unresolvable actor", "tenant", id.TenantID, "user", id.UserID)
 		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
+		return false
+	case errors.Is(err, store.ErrTenantInactive):
+		slog.WarnContext(ctx, "refusing actor of a tenant that is not active", "tenant", id.TenantID, "user", id.UserID)
+		writeError(ctx, w, http.StatusForbidden, codeTenantInactive, msgTenantInactive)
 		return false
 	case errors.Is(err, errForbidden):
 		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
