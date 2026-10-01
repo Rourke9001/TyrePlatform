@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
+import { clearDevActorId, setDevActorId } from "../api/devTenant";
 import { renderWithActor } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
@@ -12,6 +13,8 @@ import { listOutbox } from "./outbox";
 // CaptureFlow uses useCaptureContext -> useQuery, so an unwrapped render
 // throws before any assertion runs. retry:false matters too: the default
 // three retries would make the "refuses to start" test wait them out.
+const DRIVER = "oid-driver-1";
+
 function renderFlow() {
   return renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />);
 }
@@ -217,9 +220,11 @@ beforeEach(async () => {
   // A permanently refused entry is left in the queue on purpose (FR-OFF-013),
   // so without this the 409 test's own leftover decides the next test's count.
   await db.table("outbox").clear();
+  setDevActorId(DRIVER);
 });
 
 afterEach(async () => {
+  clearDevActorId();
   vi.unstubAllGlobals();
   // The storage-failure tests spy on Dexie's own methods; a leaked spy would
   // fail the next block somewhere with no connection to its cause.
@@ -596,6 +601,7 @@ describe("CaptureFlow", () => {
     const user = newUser();
     stubApi();
     await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v-wrong",
       taskId: null,
       startedAt: new Date().toISOString(),
@@ -645,6 +651,7 @@ describe("CaptureFlow", () => {
     const user = newUser();
     stubApi(201, [spareOnly]);
     await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v1",
       taskId: null,
       startedAt: new Date().toISOString(),

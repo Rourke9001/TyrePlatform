@@ -65,6 +65,12 @@ export interface Draft {
   // TYRE-155/FR-INS-066: spares the driver said this unit does not carry;
   // see markSpareAbsent below.
   absentSpares: { vehicleId: string; positionId: string }[];
+  // U104: the Entra oid of the driver who captured this, taken from the
+  // last-known subject at start. Null only on a legacy row.
+  driverSubject: string | null;
+  // Written before the stamp existed; version 2 marked it. Only such a row
+  // sends under whoever is signed in.
+  legacy: boolean;
 }
 
 // The single row's fixed key. One in-progress inspection, whose lifetime is
@@ -80,6 +86,26 @@ const database = new Dexie("tyre-capture") as Dexie & {
   drafts: EntityTable<DraftRow, "key">;
 };
 database.version(1).stores({ drafts: "key", outbox: "clientUuid, state" });
+// U104: rows written before the driver stamp carry no subject. Marked once,
+// here, so only they send under whoever is signed in. Dexie runs this only
+// on a database older than version 2, never on a new phone.
+database
+  .version(2)
+  .stores({ drafts: "key", outbox: "clientUuid, state" })
+  .upgrade(async (tx) => {
+    await tx
+      .table<DraftRow, string>("drafts")
+      .toCollection()
+      .modify((row) => {
+        row.draft = { ...row.draft, legacy: true };
+      });
+    await tx
+      .table<{ legacy?: boolean }, string>("outbox")
+      .toCollection()
+      .modify((entry) => {
+        entry.legacy = true;
+      });
+  });
 
 export const db = database;
 
@@ -106,6 +132,8 @@ function normalise(draft: Draft): Draft {
     fleetNumber: draft.fleetNumber ?? null,
     positions: byCell(draft.positions),
     absentSpares: draft.absentSpares ?? [],
+    driverSubject: draft.driverSubject ?? null,
+    legacy: draft.legacy ?? false,
   };
 }
 
@@ -116,6 +144,7 @@ export async function loadDraft(): Promise<Draft | undefined> {
 }
 
 export async function startDraft(init: {
+  driverSubject: string;
   vehicleId: string;
   taskId: string | null;
   startedAt: string;
@@ -123,6 +152,7 @@ export async function startDraft(init: {
   combinationId?: string | null;
   observedMemberVehicleIds?: string[];
 }): Promise<Draft> {
+  if (init.driverSubject === "") throw new Error("No driver is signed in on this phone.");
   const existing = await loadDraft();
   if (existing) {
     // FR-OFF-014: never silently discard. The caller decides: finish it,
@@ -146,6 +176,8 @@ export async function startDraft(init: {
     positions: {},
     warnings: [],
     absentSpares: [],
+    driverSubject: init.driverSubject,
+    legacy: false,
   };
   await db.drafts.put({ key: DRAFT_KEY, draft });
   return draft;

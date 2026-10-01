@@ -27,6 +27,8 @@ function entry(
     lastCode: null,
     lastError: null,
     fleetNumber,
+    driverSubject: "oid-driver-1",
+    legacy: false,
   };
 }
 
