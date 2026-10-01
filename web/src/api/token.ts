@@ -157,7 +157,8 @@ export function onLapse(listener: () => void): () => void {
 }
 
 // The chunk never writes the mirror (spec section 4), so the store does. A
-// blocked store must not fail a renewed token, so `held` is set first.
+// blocked store must not fail a renewed token, so only then is `held` kept;
+// a working store stays the one source, which another tab's sign-out clears.
 function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mirror | null {
   if (tokens === null) {
     held = null;
@@ -170,12 +171,12 @@ function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mir
     obtainedAt: Date.now(),
     tenantId: previous?.subject === tokens.subject ? previous.tenantId : null,
   };
-  held = mirror;
   try {
     writeMirror(mirror);
     rememberSubject(mirror.subject);
+    held = null;
   } catch {
-    // Kept in `held` only.
+    held = mirror;
   }
   return mirror;
 }
@@ -227,8 +228,8 @@ export function stampSubject(): string | null {
   return lastKnownSubject();
 }
 
-// send() calls this on a 401 from the API. True when the refusal latched the
-// store: every later call then answers 503 without touching the API.
+// send() calls this on a 401 from the API. True when this refusal, or an earlier
+// one, latched the store: every call then answers 503 without touching the API.
 export function refused(accessToken: string): boolean {
   if (latched) return true;
   const mirror = readMirror();
