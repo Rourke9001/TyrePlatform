@@ -134,8 +134,9 @@ func (r *Resolver) Identify(ctx context.Context, req *http.Request) (httpapi.Ide
 		return httpapi.Identity{}, &refusal{kind: httpapi.ErrUnauthenticated, reason: "algorithm is not RS256",
 			attrs: []any{"kid", loggedKID(head)}}
 	}
-	// keyfunc tries every key in the set when a token names no kid (keyfunc
-	// v3.8.0 KeyfuncCtx), so the kid is required here, before any lookup.
+	// A token must name its kid (spec section 1, step 2). keyfunc tries every
+	// key in the set when it names none (keyfunc v3.8.0 KeyfuncCtx), so the
+	// check runs here, before any lookup.
 	if kid, _ := head.Header["kid"].(string); kid == "" {
 		return httpapi.Identity{}, &refusal{kind: httpapi.ErrUnauthenticated, reason: "no kid"}
 	}
@@ -178,6 +179,9 @@ func (r *Resolver) identity(c jwt.MapClaims) (httpapi.Identity, error) {
 	attrs := verifiedAttrs(c, r.cfg.TenantClaim)
 	refuse := func(kind error, reason string) (httpapi.Identity, error) {
 		return httpapi.Identity{}, &refusal{kind: kind, reason: reason, attrs: attrs}
+	}
+	if !soleAudience(c["aud"], r.cfg.Audience) {
+		return refuse(httpapi.ErrUnauthenticated, "aud is not tyre-api alone")
 	}
 	if azp, _ := c["azp"].(string); azp != r.cfg.ClientID {
 		return refuse(httpapi.ErrUnauthenticated, "azp is not tyre-pwa")
@@ -342,6 +346,20 @@ func bearerToken(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return token, true
+}
+
+// soleAudience wants aud to equal AUTH_AUDIENCE (spec section 1, step 5).
+// golang-jwt's WithAudience accepts any array that contains it. One audience
+// may still travel as a one-element array (RFC 7519 section 4.1.3).
+func soleAudience(v any, want string) bool {
+	switch aud := v.(type) {
+	case string:
+		return aud == want
+	case []any:
+		return len(aud) == 1 && aud[0] == want
+	default:
+		return false
+	}
 }
 
 // hasScope wants the scope as a whole element, so "access_as_user_admin" is

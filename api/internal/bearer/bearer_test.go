@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,6 +35,32 @@ func request(token string) *http.Request {
 		r.Header.Set("Authorization", "Bearer "+token)
 	}
 	return r
+}
+
+// syncBuffer holds a captured log. keyfunc's refresh error handler writes
+// through slog.Default from its own goroutine, which can outlive the test
+// that started it.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) Reset() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.buf.Reset()
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 func logAttrs(t *testing.T, err error) string {
@@ -86,12 +113,17 @@ func TestIdentifyRefusesEachBadTokenWith401(t *testing.T) {
 		{"signed by another key under the set's kid", idp.MintWith(t, jwt.SigningMethodRS256, idp.OtherKey(), kid, valid())},
 		{"wrong iss", idp.Mint(t, with("iss", "https://someone-else.example/v2.0"))},
 		{"wrong aud", idp.Mint(t, with("aud", uuid.NewString()))},
+		{"an aud array that also names another API", idp.Mint(t, with("aud", []string{bearertest.Audience, uuid.NewString()}))},
 		{"wrong azp", idp.Mint(t, with("azp", uuid.NewString()))},
 		{"v1 token", idp.Mint(t, with("ver", "1.0"))},
 		{"wrong tid", idp.Mint(t, with("tid", uuid.NewString()))},
 		{"a scope that only starts with access_as_user", idp.Mint(t, with("scp", "access_as_user_admin"))},
 		{"no access_as_user scope", idp.Mint(t, with("scp", "openid profile"))},
 		{"expired past the leeway", idp.Mint(t, with("exp", now.Add(-3*time.Minute).Unix()))},
+		// Ten seconds past two minutes, so a leeway wider than step 8's
+		// bound fails here and not only at three minutes.
+		{"expired just past two minutes", idp.Mint(t, with("exp", now.Add(-2*time.Minute-10*time.Second).Unix()))},
+		{"nbf just past two minutes ahead", idp.Mint(t, with("nbf", now.Add(2*time.Minute+10*time.Second).Unix()))},
 		{"no exp", idp.Mint(t, without("exp"))},
 		{"nbf beyond the leeway", idp.Mint(t, with("nbf", now.Add(3*time.Minute).Unix()))},
 		{"malformed oid", idp.Mint(t, with("oid", "not-a-uuid"))},
@@ -120,6 +152,17 @@ func TestIdentifyAllowsTwoMinutesOfClockSkew(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// RFC 7519 section 4.1.3 lets one audience travel as a string or a
+// one-element array, and both name tyre-api alone (spec section 1, step 5).
+func TestIdentifyAcceptsAOneElementAudienceArray(t *testing.T) {
+	idp := bearertest.New(t)
+	r := newResolver(t, idp)
+	c := idp.Claims(uuid.New(), uuid.New())
+	c["aud"] = []string{bearertest.Audience}
+	_, err := r.Identify(context.Background(), request(idp.Mint(t, c)))
+	require.NoError(t, err)
 }
 
 func TestIdentifyAcceptsAccessAsUserAmongOtherScopes(t *testing.T) {
@@ -349,7 +392,9 @@ func TestAFailedKeyLoadStopsItsRefreshGoroutine(t *testing.T) {
 	require.ErrorIs(t, err, httpapi.ErrAuthUnavailable)
 	hits := idp.JWKSHits.Load()
 	time.Sleep(200 * time.Millisecond)
-	require.Equal(t, hits, idp.JWKSHits.Load())
+	// jwkset refreshes one at a time and Go's transport never dials for a
+	// cancelled context, so only a refresh already on the wire can land.
+	require.LessOrEqual(t, idp.JWKSHits.Load(), hits+1, "at most the one refresh on the wire when the load failed")
 }
 
 // jwkset replaces its keys only on a good fetch. The control shows the
@@ -403,7 +448,7 @@ func TestTheRefusalLogLineNamesOnlyVerifiedClaimsAndNeverTheToken(t *testing.T) 
 	idp := bearertest.New(t)
 	// A refused request never reaches a handler, so no store is needed.
 	h := httpapi.New(nil, newResolver(t, idp))
-	var buf bytes.Buffer
+	var buf syncBuffer
 	prev := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
 	t.Cleanup(func() { slog.SetDefault(prev) })
