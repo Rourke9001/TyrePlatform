@@ -1,0 +1,153 @@
+# Provision a person for sign-in
+
+The stage 1 draft of the sign-in design's runbook
+(`docs/superpowers/specs/2026-09-30-b9-sign-in-design.md`, section 5;
+ADR-0016). Items marked **stage 2** are filled in once checks a, b, c and c2
+on TYRE-317 have passed. Every step is an owner action: CI cannot reach the
+Entra tenant, and the app cannot write the link.
+
+## Before any SQL
+
+- Connect as the database's owning role: `postgres` locally, the Flexible
+  Server admin `tyreadmin` in Azure. The app role cannot write
+  `app.app_user.subject` (migration 000052).
+- Run each SQL step in its own transaction that binds the tenant first:
+
+  ```sql
+  BEGIN;
+  SELECT set_config('app.tenant_id', '<tenant id>', true);
+  -- the step
+  COMMIT;
+  ```
+
+- Each step says how many rows it expects. Any other count: `ROLLBACK;` and
+  stop. In Azure the owning role is not a superuser, so RLS binds it, and a
+  step run without the `set_config` line updates 0 rows with no error.
+  Locally `postgres` bypasses RLS, so the same mistake goes unseen there. The
+  row count is the check.
+
+## Entra settings, once
+
+Owner actions, recorded on Confluence page 10682399.
+
+**tyre-api**
+
+- Single-tenant. Microsoft warns against `acceptMappedClaims` on a
+  multi-tenant app.
+- Requested access token version 2 (check a).
+- `acceptMappedClaims` set to true. Microsoft accepts it only when the
+  requested audience is the app's GUID or an identifier URI on a verified
+  domain; otherwise sign-in fails with `AADSTS501461`. The fix is the
+  identifier URI `https://<tenant>.onmicrosoft.com/tyre-api`, with
+  `VITE_AUTH_API_SCOPE` changed to match. That is configuration, not a
+  failure of U101.
+- The `access_as_user` scope.
+- `sid` as an optional claim on the access token. Without it every hourly
+  token counts as a new session, and FR-AUD-002's `session_id` cannot tie a
+  day's work together. Check c2 confirms it arrives.
+- The tenant claim: a custom user attribute for the platform tenant, added
+  in the enterprise app under Attributes and Claims with source "Directory
+  schema extension". The name it arrives under is `AUTH_TENANT_CLAIM`.
+  **Stage 2:** the name from check c2.
+- No Microsoft Graph application permission (TYRE-378).
+
+**The user flow** (a46a2c2f-4cc0-4422-877e-533ba4c92060)
+
+- Self-service sign-up is off.
+- The tenant attribute is not collected on the sign-up page. Only the owner
+  sets it, by Graph. Anyone who could set it could name any tenant.
+
+**tyre-pwa**
+
+- SPA redirect URIs `http://localhost:5173/` and the Static Web App's
+  origin followed by `/`, and nothing else. Remove `https://jwt.ms` and any
+  implicit-grant setting added for checks b and c.
+- Admin consent to tyre-api's `access_as_user`.
+
+## Provision a person
+
+1. **Confirm the tenant is ACTIVE.** A tenant in any other state has every
+   sign-in refused (TYRE-376).
+
+   ```sql
+   SELECT state FROM app.tenant WHERE id = '<tenant id>';
+   ```
+
+   Expect one row: `ACTIVE`.
+2. **Create the person in Entra.** Use the External ID admin center or
+   Graph, in the shape check b proved works with the passcode flow.
+   **Stage 2:** that shape. Then set their tenant attribute by Graph, as
+   your own delegated session (Graph Explorer or `az rest`), never as
+   tyre-api:
+
+   ```http
+   PATCH https://graph.microsoft.com/v1.0/users/{oid}
+   {"extension_<b2c-extensions-app id without hyphens>_<name>": "<tenant id>"}
+   ```
+
+   **Stage 2:** the exact extension name, also recorded on page 10682399.
+3. **Read their object id** (`oid`) in the admin center.
+4. **Create their app user** through the app's admin screen, with the same
+   email address. A tenant's first `ORG_ADMIN` has nobody to invite them and
+   is inserted instead:
+
+   ```sql
+   INSERT INTO app.app_user (tenant_id, email, display_name, role)
+   VALUES ('<tenant id>', '<email>', '<name>', 'ORG_ADMIN');
+   ```
+
+   Expect `INSERT 0 1`.
+5. **Link the subject.**
+
+   ```sql
+   UPDATE app.app_user SET subject = '<oid>'
+    WHERE lower(email) = lower('<email>') AND subject IS NULL
+   RETURNING id;
+   ```
+
+   Expect exactly one row.
+6. **Check the link.** Have the person sign in once before their first
+   field day and confirm the app greets them by name. A linking mistake then
+   shows before any inspection exists (PD-S1).
+
+## A rehire with a new Entra account
+
+An admin first reactivates the user in the app. `createUser` reactivates by
+email and keeps the old subject. Then:
+
+```sql
+UPDATE app.app_user SET subject = '<new oid>'
+ WHERE lower(email) = lower('<email>') AND subject = '<old oid>';
+```
+
+Expect `UPDATE 1`.
+
+Inspections the rehire left unsent on a phone under their old account stay
+blocked: each is stamped with the old `oid`, and the new account cannot send
+them (U104). The leaver step below exists so that never happens.
+
+## A leaver
+
+1. **Confirm their phone holds nothing unsent.** Ask them to open the app
+   while still signed in and tap "Sync now" until the outbox shows nothing
+   waiting. A disabled account can never send its held inspections, and the
+   U104 stamp keeps anyone else from sending them.
+2. **Deactivate their app user.** Until TYRE-377 adds the admin action,
+   find the id and deactivate by it:
+
+   ```sql
+   SELECT id FROM app.app_user WHERE lower(email) = lower('<email>');
+   UPDATE app.app_user SET active = false WHERE id = '<user id>';
+   ```
+
+   Expect `UPDATE 1`. It bites on their next request (ADR-0011).
+3. **Disable their Entra account.** An access token the API has already
+   accepted lapses within 90 minutes; the deactivation above is what stops
+   it sooner.
+
+## Not covered here
+
+- Deactivating from the app: TYRE-377.
+- An audit row for the subject link: `app.app_user` writes are unaudited
+  until TYRE-98.
+- A person who needs two tenants needs two Entra accounts (ADR-0016).
