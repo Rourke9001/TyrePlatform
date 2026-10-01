@@ -3,7 +3,7 @@
 
 import { getDevActorId, getDevTenantId } from "./devTenant";
 import { ApiError } from "./apiError";
-import { authUnavailable, bearerMode, refused, sender, type Sender } from "./token";
+import { authUnavailable, refused, sender, type Sender } from "./token";
 
 export { ApiError } from "./apiError";
 
@@ -29,16 +29,12 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
   }
 }
 
-const devSender: Sender = { accessToken: null, subject: null };
-
 // One implementation of identity attribution, refusal shaping and 204
 // handling; apiGet/Post/Patch delegate here so they cannot drift apart.
 async function send<T>(method: string, path: string, body?: unknown, as?: Sender): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  // No await on the DEV header path: fetch starts in the caller's own tick,
-  // which tests that hold the response open rely on.
-  const who = as ?? (import.meta.env.DEV && !bearerMode() ? devSender : await sender());
+  const who = as ?? (await sender());
   if (who.accessToken !== null) {
     headers[AUTH_HEADER] = `Bearer ${who.accessToken}`;
   } else if (import.meta.env.DEV) {

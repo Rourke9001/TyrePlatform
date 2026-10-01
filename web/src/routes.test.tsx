@@ -197,9 +197,10 @@ describe("AppRoutes", () => {
     // Deliberately not resolved yet: the assertion below is that nothing has
     // navigated while it is outstanding.
     let release!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => (release = resolve));
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => new Promise<Response>((resolve) => (release = resolve))),
+      vi.fn(() => pending),
     );
 
     render(
