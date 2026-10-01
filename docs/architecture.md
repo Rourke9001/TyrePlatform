@@ -15,16 +15,16 @@ the ADRs say why each was chosen and what it costs.
    │  Azure Static Web Apps              │   React + Vite
    │  capture app  │  manager dashboard  │
    └──────────────────┬──────────────────┘
-                      │  HTTPS. Target: JWT from Entra External ID
-                      │  (FR-AUT-001). Today: the dev header actor
-                      │  resolver is the only one built (ADR-0011)
+                      │  HTTPS. An Entra External ID access token as
+                      │  a bearer (ADR-0016). The dev header resolver
+                      │  exists only in -tags devheader builds (U103)
                       ▼
    ┌─────────────────────────────────────┐
    │  Azure Container Apps  (Go)         │   scale-to-zero
    │  auth → actor context → handlers    │
    └──────────────────┬──────────────────┘
                       │  pgx, one transaction per request
-                      │  SET LOCAL app.tenant_id + app.actor_id
+                      │  set_config app.tenant_id + app.actor_id
                       │  role read from app_user, never from a claim
                       ▼
    ┌─────────────────────────────────────┐
@@ -71,18 +71,27 @@ Every scoped request, without exception:
 
 ```go
 // Transaction-local, so a pooled connection cannot carry one tenant's context
-// into the next request — a session-scoped SET here is a cross-tenant data
+// into the next request: a session-scoped SET here is a cross-tenant data
 // leak that will pass every test you write. set_config with is_local => true,
 // not SET LOCAL: SET cannot take a bind parameter, and interpolating an id
 // into SQL is forbidden on this path.
-tx, err := pool.Begin(ctx)
+tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 defer tx.Rollback(ctx)
 _, err = tx.Exec(ctx,
-    "SELECT set_config('app.tenant_id', $1, true), set_config('app.actor_id', $2, true)",
-    identity.TenantID, identity.UserID)
-// role, active and depot scope are read back from app.app_user /
-// app.v_actor_depot under RLS in the same transaction — never taken from the
-// caller, so a stale token or a forged header cannot grant anything.
+    "SELECT set_config('app.tenant_id', $1, true)", key.TenantID)
+// app.session_id is bound the same way, only when the key carries one (a
+// bearer request); a dev header request has none.
+// The tenant is the token's claim, a hint: the user is found by subject (the
+// Entra oid) under RLS, so a wrong tenant finds no row (ADR-0016). A dev
+// build finds the user by id instead.
+err = tx.QueryRow(ctx,
+    "SELECT id, display_name, role::text, active FROM app.app_user WHERE subject = $1",
+    key.Subject).Scan(&userID, &name, &role, &active)
+_, err = tx.Exec(ctx, "SELECT set_config('app.actor_id', $1, true)", userID)
+// A tenant that is not ACTIVE is refused (FR-TEN-009). Role, active and depot
+// scope come from app.app_user / app.v_actor_depot, never from the caller, so
+// a stale token or a forged header cannot grant anything. A session's first
+// use is recorded once (FR-AUD-004).
 // ... all queries on tx ...
 tx.Commit(ctx)
 ```
@@ -262,3 +271,4 @@ Go rather than a raw Postgres error.
 | [0013](adr/0013-write-surface-contract.md) | The write-surface contract | Accepted |
 | [0014](adr/0014-audit-mechanism.md) | How mutations are audited | Accepted |
 | [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Proposed |
+| [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Proposed |

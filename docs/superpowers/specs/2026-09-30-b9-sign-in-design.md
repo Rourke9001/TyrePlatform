@@ -137,7 +137,10 @@ Six non-secret environment variables configure the bearer resolver.
   and `AUTH_CLIENT_ID` must be UUIDs. The two URLs must be absolute `https`,
   except that a loopback `http` URL is accepted for tests. A malformed value
   stops startup, as a malformed `TRUSTED_PROXY_HOPS` does
-  (`api/cmd/api/main.go:41`). `main` then wires the bearer resolver.
+  (`api/cmd/api/main.go:41`). The discovery URL's `appid` query parameter
+  must equal `AUTH_AUDIENCE`, or startup is refused, since otherwise every
+  token would be an unknown kid and get 401. `main` then wires the bearer
+  resolver.
 - **None set:** `main` wires no bearer resolver.
 - **Some set:** startup is refused, because a partial configuration is a
   mistake.

@@ -52,13 +52,25 @@ If you find yourself querying `pool` directly inside a request, stop. That
 query runs with no tenant context and returns nothing — which looks like a
 data bug and is actually a missing transaction.
 
-## The dev header resolver
+## Who a request is: the bearer resolver and the dev header resolver
+
+A request names its user through `httpapi.ActorResolver`. Production has one
+implementation, `internal/bearer`: it validates the Entra External ID access
+token and hands `withActor` a subject and a tenant claim, which
+`store.InActorTx` proves under RLS (ADR-0016). With no `AUTH_*` set there is
+no resolver and every `/api` call answers 503 `auth_unavailable`.
 
 The dev resolver supplies a **user** as well as a tenant. Locally, anyone
 who can send a header is anyone, in any tenant, so the capability gate is
-decorative in development — it is a development convenience with the blast
-radius of an authentication bypass. The `CONTAINER_APP_NAME` veto in
-`devHeaderEnabled` is the whole safety story, and it is on the variable's presence, not its value; ADR-0011 records why.
+decorative in development: a development convenience with the blast radius
+of an authentication bypass. It is compiled only with `-tags devheader`
+(U103). `make api-test`, `make api-run`, vet, staticcheck and CI all pass
+the tag; the release image does not, and `scripts/check-release-binary.sh`
+(`make api-release-check`) fails `make lint` and CI if the release binary
+names either header. The `CONTAINER_APP_NAME` veto in `devHeaderEnabled`
+stays as a second layer, on the variable's presence, not its value; ADR-0011
+records why. Give your editor the `devheader` build tag, or it will not see
+the tests.
 
 ## Money over the wire
 
