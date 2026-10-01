@@ -19,9 +19,8 @@ import (
 // refuses if EITHER counter refuses). The account limit (60/min) is far above
 // human capture rate and far below a retry loop's; the address limit is 10x
 // that because a depot's drivers share one NAT egress address. Both are Go
-// constants: rule 5 governs tenant policy, and a rate
-// limit is an operational transport control, built once at router
-// construction with no tenant in scope.
+// constants: rule 5 governs tenant policy, and a rate limit is an operational
+// transport control, built once at router construction with no tenant in scope.
 const (
 	accountSubmitsPerMinute = 60
 	addressSubmitsPerMinute = 10 * accountSubmitsPerMinute
@@ -78,8 +77,8 @@ func (l *rateLimiter) allow(key string, now time.Time) bool {
 // submitRateLimit composes the two counters into NFR-SEC-007's one
 // middleware, built once at router construction and closed over here (see
 // New). Keyed on the identity requireActor resolved through accountKey, never
-// a raw header, because a raw header is unauthenticated input. requireActor's r.Use ordering guarantee
-// is TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
+// a raw header, which is unauthenticated input. requireActor's r.Use ordering
+// guarantee is TestRequireActorRunsBeforeInlineRateLimitMiddleware's.
 func submitRateLimit(account, address *rateLimiter, trustedProxyHops int) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

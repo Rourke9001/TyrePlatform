@@ -341,7 +341,7 @@ func (e *refusal) Unwrap() error { return e.kind }
 func (e *refusal) LogAttrs() []any { return append([]any{"reason", e.reason}, e.attrs...) }
 
 // LogLevel is Error for a configuration failure and Warn for everything a
-// caller or an outage can cause (spec section 1, step 3).
+// caller or an outage can cause (spec section 1, Logging a refusal).
 func (e *refusal) LogLevel() slog.Level {
 	if e.misconfigured {
 		return slog.LevelError

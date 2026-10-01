@@ -423,11 +423,15 @@ func TestARefusalSaysOnlyWhatMayBeLogged(t *testing.T) {
 	ctx := context.Background()
 	subject := uuid.New()
 
-	forged := idp.MintWith(t, jwt.SigningMethodRS256, idp.OtherKey(), map[string]any{"kid": bearertest.Kid}, idp.Claims(subject, uuid.New()))
+	forgedTenant := uuid.New()
+	forgedClaims := idp.Claims(subject, forgedTenant)
+	forged := idp.MintWith(t, jwt.SigningMethodRS256, idp.OtherKey(), map[string]any{"kid": bearertest.Kid}, forgedClaims)
 	_, err := r.Identify(ctx, request(forged))
 	attrs := logAttrs(t, err)
 	require.Contains(t, attrs, bearertest.Kid)
 	require.NotContains(t, attrs, subject.String(), "a forged token's claims are the caller's choice")
+	require.NotContains(t, attrs, forgedTenant.String(), "nor is its tenant claim")
+	require.NotContains(t, attrs, forgedClaims["sid"], "nor its session id")
 	require.NotContains(t, attrs, forged)
 	// requireActor logs Error() as well on its 500 path.
 	require.NotContains(t, err.Error(), subject.String())
@@ -466,12 +470,17 @@ func TestTheRefusalLogLineNamesOnlyVerifiedClaimsAndNeverTheToken(t *testing.T) 
 	}
 	subject := uuid.New()
 
-	line := refuse(idp.MintWith(t, jwt.SigningMethodRS256, idp.OtherKey(), map[string]any{"kid": bearertest.Kid}, idp.Claims(subject, uuid.New())))
+	forgedTenant := uuid.New()
+	forgedClaims := idp.Claims(subject, forgedTenant)
+	line := refuse(idp.MintWith(t, jwt.SigningMethodRS256, idp.OtherKey(), map[string]any{"kid": bearertest.Kid}, forgedClaims))
 	require.Contains(t, line, bearertest.Kid)
 	require.NotContains(t, line, subject.String(), "a forged token's oid is the caller's choice")
+	require.NotContains(t, line, forgedTenant.String(), "nor is its tenant claim")
+	require.NotContains(t, line, forgedClaims["sid"], "nor its session id")
 
 	tenant := uuid.New()
 	c := idp.Claims(subject, tenant)
+	c[bearertest.TenantClaim] = strings.ToUpper(tenant.String())
 	c["azp"] = uuid.NewString()
 	line = refuse(idp.Mint(t, c))
 	require.Contains(t, line, subject.String(), "a token refused at step 5 has verified, so its oid is logged")
@@ -482,7 +491,7 @@ func TestTheRefusalLogLineNamesOnlyVerifiedClaimsAndNeverTheToken(t *testing.T) 
 
 // A discovery issuer mismatch answers 503 to every call until someone fixes
 // the deploy, so it is an Error; a token refused or an identity provider
-// that is merely unreachable stays a Warn (spec section 1, step 3).
+// that is merely unreachable stays a Warn (spec section 1, Logging a refusal).
 func TestAConfigurationFailureLogsAtErrorAndAnOutageAtWarn(t *testing.T) {
 	idp := bearertest.New(t)
 	h := httpapi.New(nil, newResolver(t, idp))
