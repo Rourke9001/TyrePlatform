@@ -921,16 +921,21 @@ commit's gate is green. The PR reports one net rise with its reason
 
 Every SQL step runs as the owning role (section 2), inside
 `BEGIN; SELECT set_config('app.tenant_id', '<tenant>', true); ...; COMMIT;`.
-Each step expects the stated row count and otherwise runs `ROLLBACK` and
-stops. Each statement scopes itself with `app.current_tenant_id()`, because
-email is unique only per tenant and the role may bypass RLS (section 2: the
-link works whether or not it does).
+Each step says what it expects. Anything else, a count or a value: `ROLLBACK`
+and stop, before `COMMIT`. Each statement scopes itself with
+`app.current_tenant_id()`, because email is unique only per tenant and the
+role may bypass RLS (section 2: the link works whether or not it does).
+Without the binding, a `SELECT` or `UPDATE` matches no row, and the `INSERT`
+fails, because a row with no tenant breaks the `platform_admin_has_no_tenant`
+check. Under a role that does not bypass RLS, the RLS policy refuses it
+first.
 
 1. **Confirm the tenant.** `SELECT id, name, state FROM app.tenant WHERE id = app.current_tenant_id()` returns one row.
    The operator confirms the name is the fleet they mean, because a wrong
    but ACTIVE tenant id passes every row count. The state is `ACTIVE`,
-   because TYRE-376 refuses `PROVISIONING`. A `PROVISIONING` tenant stops
-   here, because no procedure makes a tenant ACTIVE yet (TYRE-387).
+   because TYRE-376 refuses `PROVISIONING`. Any other name or state:
+   `ROLLBACK` and stop. A `PROVISIONING` tenant stops here, because no
+   procedure makes a tenant ACTIVE yet (TYRE-387).
 2. **Create the person in the External ID admin center,** or by Graph, in
    whatever shape check b proves works with the passcode flow. Then set their
    tenant attribute by Graph:
@@ -955,30 +960,47 @@ link works whether or not it does).
    up before any capture exists (PD-S1).
 
 **A rehire with a new Entra account.** An admin first reactivates the user in
-the app; `createUser` reactivates by email and keeps the old subject. Then:
+the app; `createUser` reactivates by email and keeps the old subject. Then, in
+one transaction, run step 1's `SELECT` with its stop, followed by:
 
-`UPDATE app.app_user SET subject = '<new oid>' WHERE lower(email) = lower('<email>') AND subject = '<old oid>' AND tenant_id = app.current_tenant_id()`,
+`UPDATE app.app_user SET subject = '<new oid>' WHERE lower(email) = lower('<email>') AND subject = '<old oid>' AND tenant_id = app.current_tenant_id() RETURNING id, tenant_id, display_name`,
 
-expecting one row.
+expecting exactly one row that shows the tenant step 1 confirmed and the
+rehire's name.
 
 **A leaver.** First, on each phone they used, the person signs in as
-themselves and leaves nothing held. They submit or discard any inspection in
-progress. The office takes the readings of each refused ("needs the office")
-entry, and the person then removes it. They tap "Sync now" until nothing is
-waiting. A successful sign-out is the check, because PD-S3 refuses sign-out
-while a draft or any outbox entry is held. A disabled account can never send
-its held entries, and the U104 stamp keeps anyone else from sending them or
-discarding its draft. Until they are gone, every other driver's sign-in on
-that phone is undone. The same holds for a rehire who gets a new Entra
-account: their old held entries carry the old `oid`. If the person is not
-available, the phone stays blocked until its site data is cleared by hand
-(TYRE-317 comment 13450). That also deletes other drivers' unsent entries,
-so the runbook has the operator check the phone's outbox lines first. Then,
-until TYRE-377 lands, deactivate in one statement keyed on the email, with
-no id copied by hand:
+themselves and leaves nothing held. They open any inspection in progress the
+way it was started: its task on "My inspections", or the vehicle's capture
+address if it was started off the vehicle alone. Any listed task also leads
+to it, through "Go to it" when the task is for another vehicle. Failing
+both, the capture address of any vehicle they drive leads to it the same way,
+in the browser the app was used in. An app added to the home screen has no
+address bar for it, and TYRE-390 adds a way back in the app. They
+submit or discard it. The office takes the readings of each refused ("needs
+the office") entry, and the person then removes it. They tap "Sync now" until
+nothing is waiting. Then they sign out. The check is the "Sign in" screen with
+no "waiting to send" or "needs the office" line above it, because PD-S3
+refuses sign-out while a draft or any outbox entry is held. The check holds
+only while the phone can read its storage, because a failed read counts as
+nothing held (section 4, Signing out). If a line went away without being sent
+or removed, the operator reloads and looks again before deactivating. A
+disabled account can never send its held entries, and the U104 stamp keeps
+anyone else from sending them or discarding its draft. Until that work is
+gone, every other driver's sign-in on that phone is undone. The same holds
+for a rehire who gets a new Entra account: their old held entries carry the
+old `oid`. If the person is not available, the phone stays blocked until its
+site data is cleared by hand (TYRE-317 comment 13450). That also deletes
+other drivers' unsent entries, so the runbook has the operator check the
+phone's outbox lines first. Then, until TYRE-377 lands, deactivate in one
+transaction keyed on the email, with no id copied by hand. Step 1's `SELECT`
+runs first and stops on any name but the leaver's fleet, in any state. Then
 `UPDATE app.app_user SET active = false WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id() RETURNING id, tenant_id, display_name, active`,
-expecting exactly one row that shows the leaver's tenant and name. Then
-disable the Entra account.
+expecting exactly one row that shows the tenant the `SELECT` showed, the
+leaver's name and `active` false. Then disable the Entra account. If their
+work turns up on a phone later, nothing is wiped. An admin reactivates them
+(`createUser` reactivates by email and keeps the subject), the owner
+re-enables the Entra account, and the leaver signs in, clears the work and
+signs out. Then they are deactivated and their Entra account disabled again.
 
 ### Entra settings
 
