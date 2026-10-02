@@ -76,8 +76,8 @@ right.
 | 9 | W2: TYRE-156, 157, 159, 141, 115, 116, 186 F12, 187 (which takes TYRE-140 items 1 and 4), 274, the rest of TYRE-275 (Dialog focus, and the chart tooltip's Escape and `aria-hidden`, WCAG 1.4.13, comment 13401), and TYRE-335 (focus after an in-place retry) | |
 | 10 | B7.4: TYRE-240, the redesign, carrying TYRE-119, 132, 176, 182, 278, 281, 291, 327, 328, 330, 345 and 359. Behind the pilot items (U99) | |
 
-TYRE-317 took migration 000052 and suite section 68, so the next database
-branch, TYRE-299, takes 000053 and section 69.
+TYRE-317 took migration 000052 and suite section 68. The next free pair is
+000053 and section 69, taken by whichever database branch is cut first.
 
 The database lane runs one PR after another because each takes the next
 migration number and suite section, not because the function bodies overlap.
