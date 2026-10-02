@@ -1,19 +1,17 @@
 import { useEffect } from "react";
 
-import { bearerMode, stampSubject } from "../api/token";
-import { useGateScreenShowing } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 
 import { ConfirmDiscard } from "./ConfirmDiscard";
-import { discardEntry, flushOutbox, isStale, mayCarry, startOutboxHeartbeat } from "./outbox";
-import { useOutbox } from "./useOutbox";
+import { discardEntry, flushOutbox, isStale, startOutboxHeartbeat } from "./outbox";
+import { useOutbox, useSignInToSend } from "./useOutbox";
 import "./capture.css";
 
 // Mounted in the app shell rather than inside capture: a driver who has walked
 // away from the vehicle still needs to know something is waiting to send.
 export function OutboxIndicator() {
   const entries = useOutbox();
-  const gateShowing = useGateScreenShowing();
+  const needSignIn = useSignInToSend(entries);
 
   useEffect(() => {
     // FR-OFF-009: on app-open, and whenever connectivity returns while the
@@ -37,13 +35,6 @@ export function OutboxIndicator() {
   const waiting = entries.filter((e) => e.state !== "failed");
   const blocked = entries.filter((e) => e.state === "failed");
   const stale = waiting.filter((e) => isStale(e));
-  // U104: only this driver's held work; another driver's waits for them.
-  // Hidden under a gate screen (useGateScreenShowing says why).
-  const me = stampSubject();
-  const needSignIn =
-    bearerMode() && !gateShowing
-      ? waiting.filter((e) => e.lastStatus === 401 && mayCarry(e, me)).length
-      : 0;
 
   return (
     <div className="cap-outbox">

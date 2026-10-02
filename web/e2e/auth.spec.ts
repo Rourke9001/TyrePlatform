@@ -157,7 +157,10 @@ test("a sign-in by another driver while an entry is held is undone, and the entr
   stub.refuseSubmits = false;
   stub.subject = "e2e-oid-b";
   await page.goto("/");
-  await expect(page.getByText("1 inspection is waiting to send on this phone.")).toBeVisible();
+  // One waiting count beside the sign-in screen, the outbox band's (U107).
+  await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
+  await expect(page.getByText(/1 inspection waiting to send/)).toBeVisible();
+  await expect(page.getByText(/waiting to send/)).toHaveCount(1);
   await page.getByRole("button", { name: "Email me a sign-in code" }).click();
 
   await expect.poll(() => stub.endSessionUrls.length).toBe(1);

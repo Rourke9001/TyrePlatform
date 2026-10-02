@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 
 import { OTHER_DRIVER_KEY } from "../api/token";
-import { useOutbox } from "../capture/useOutbox";
 import { signInDidNotFinish } from "./callback";
 import { SignInButton } from "./SignInButton";
 import "./auth.css";
@@ -16,6 +15,8 @@ function readMarker(): boolean {
   }
 }
 
+// No waiting count here. The outbox band above the gate carries the one count,
+// beside the Remove action for each refused inspection (U107).
 export function SignInScreen() {
   const [otherDriver] = useState(readMarker);
   useEffect(() => {
@@ -25,7 +26,6 @@ export function SignInScreen() {
       // Best effort.
     }
   }, []);
-  const waiting = useOutbox().filter((e) => e.state !== "failed").length;
 
   return (
     <section className="auth-screen" aria-labelledby="sign-in-heading">
@@ -43,12 +43,6 @@ export function SignInScreen() {
       {signInDidNotFinish() && (
         <p role="alert" className="auth-body">
           Sign-in did not finish. Try again.
-        </p>
-      )}
-      {!otherDriver && waiting > 0 && (
-        <p className="auth-body">
-          {waiting} {waiting === 1 ? "inspection is" : "inspections are"} waiting to send on this
-          phone.
         </p>
       )}
       <SignInButton label="Email me a sign-in code" />

@@ -696,7 +696,7 @@ or 403, so a signed-out driver is not kept waiting through retries.
 
 | `failure` | When | What the app shows |
 | --- | --- | --- |
-| `signed-out` | 401 | The sign-in screen replaces the routes on a 401 while the actor query holds no actor, which is also so after the sign-out cache reset below. A settled failure is held through a later refetch until `/api/me` returns data. The screen has one sentence, one "Email me a sign-in code" button at 56 to 64px (NFR-USE-004), and the count of inspections waiting. The button calls `signIn()`, a top-level redirect to Entra. |
+| `signed-out` | 401 | The sign-in screen replaces the routes on a 401 while the actor query holds no actor, which is also so after the sign-out cache reset below. A settled failure is held through a later refetch until `/api/me` returns data. The screen has one sentence and one "Email me a sign-in code" button at 56 to 64px (NFR-USE-004). It shows no count of its own. The outbox band above it carries the one count of inspections waiting, beside the Remove action for each refused inspection (U107). The button calls `signIn()`, a top-level redirect to Entra. |
 | `not-set-up` | 403 `forbidden` or `not_provisioned` | A screen saying the account is not set up and to contact the fleet office (PD-S1). |
 | `tenant-inactive` | 403 `tenant_inactive` | A screen with `msgTenantInactive`. |
 | `unavailable` | 503 `auth_unavailable` | A screen saying sign-in is unavailable right now. It never shows the sign-in button. The query does not retry it, and the screen's "Try again" reloads. |
@@ -705,6 +705,10 @@ or 403, so a signed-out driver is not kept waiting through retries.
 
 - A later 401, from a refetch or any other call, keeps the current screen. The
   shell shows a non-blocking line with a "Sign in" button.
+- A lapsed session shows one "Sign in" (U107). While the outbox band offers
+  "Sign in to send N", the shell's line is hidden, because the band's line
+  names the work the sign-in unblocks and sits beside it. A lapsed driver with
+  nothing held on a 401 still gets the shell's line.
 - On `/capture/*`, a 401 never unmounts `CaptureFlow`. A capture that fails to
   submit goes to the outbox, as today. When loading a vehicle fails with 401,
   the message is "Sign in to load this vehicle", not the signal message.
@@ -754,10 +758,10 @@ attributable to the person who made them.
   the sign-in screen reads the marker, clears it, and says: "Inspections
   captured by another driver are waiting on this phone. They need to sign in
   here to send them before anyone else can use it." Without the marker, the
-  screen shows only its neutral count of waiting inspections, because a
-  driver whose own session lapsed must not be told the work is someone
-  else's. The message names nobody, because the phone keeps the other
-  driver's id, not their name.
+  screen shows only its neutral sentence, and the outbox band above it shows
+  the count of inspections waiting (U107), because a driver whose own session
+  lapsed must not be told the work is someone else's. The message names
+  nobody, because the phone keeps the other driver's id, not their name.
 - As a second guard, `attemptSend` takes the credential it is about to use
   from the token store as one pair, `{ accessToken, subject }`, and compares
   the entry's stamp with that subject, never with a separately read mirror.
@@ -791,7 +795,8 @@ The backoff stays as it is. The outbox tests gain a case per row.
 
 - **`OutboxIndicator`.** When any waiting entry for the current driver has
   `lastStatus` 401, it adds a line, "Sign in to send N", with a "Sign in"
-  button beside "Sync now".
+  button beside "Sync now". The shell's sign-in line is hidden while this one
+  shows (U107, Signing in).
 - **`CaptureDone`.** `CaptureFlow` passes `lastStatus` to `CaptureDone`,
   whose queued state reads "Inspection saved. Sign in to send it." when the
   status is 401. Signal does not clear a hold on `auth_unavailable`,
@@ -1111,8 +1116,10 @@ been removed.
 - a sign-in as a different subject, with a held entry or draft, is undone
   through `signOut()`, and the screen shows the waiting message only when the
   one-shot marker is present, clearing it on first render;
-- a lapsed driver whose own entries are held sees the neutral count, not the
-  waiting message;
+- a lapsed driver whose own entries are held sees the neutral sentence, not
+  the waiting message, and one waiting count, the outbox band's (U107);
+- the shell's sign-in line is hidden while the outbox band offers "Sign in to
+  send N", and shows when nothing of the driver's is held on a 401 (U107);
 - `attemptSend` refuses an entry stamped for another subject, under `force`
   too, and leaves its state, attempts and backoff untouched;
 - a draft cannot start without a last-known subject, and a 401 does not clear
