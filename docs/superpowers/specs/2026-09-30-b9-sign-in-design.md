@@ -794,7 +794,11 @@ The backoff stays as it is. The outbox tests gain a case per row.
   button beside "Sync now".
 - **`CaptureDone`.** `CaptureFlow` passes `lastStatus` to `CaptureDone`,
   whose queued state reads "Inspection saved. Sign in to send it." when the
-  status is 401.
+  status is 401. Signal does not clear a hold on `auth_unavailable`,
+  `tenant_inactive` or `not_provisioned`, so for those the queued state
+  shows the body of the matching access screen (unavailable, inactive, not
+  set up) instead of promising a send. Any other hold keeps the signal
+  sentence.
 
 ### Signing out
 
@@ -1117,7 +1121,8 @@ been removed.
 - `classify()` holds on 403 `tenant_inactive` and `not_provisioned`, and fails
   on 403 `forbidden`;
 - the post-sign-in flush skips failed entries;
-- the 401 copy in `OutboxIndicator` and `CaptureDone`.
+- the 401 copy in `OutboxIndicator` and `CaptureDone`, and `CaptureDone`'s
+  copy for the holds that signal does not clear.
 
 **Sign-out:** refused while any entry or the draft exists, and when it goes
 ahead, it clears the branding keys.

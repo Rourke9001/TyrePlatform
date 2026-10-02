@@ -1,26 +1,11 @@
+import { ACCESS_COPY } from "./actorContext";
 import "./auth.css";
-
-const COPY = {
-  "not-set-up": {
-    title: "Your account is not set up",
-    body: "Ask your fleet office to set up your account.",
-  },
-  // FR-TEN-009's explanatory message.
-  "tenant-inactive": {
-    title: "Your company's account is not active",
-    body: "This company's account is not active. Contact your fleet office.",
-  },
-  unavailable: {
-    title: "Sign-in is unavailable",
-    body: "Sign-in is unavailable right now. Try again shortly.",
-  },
-} as const;
 
 // No sign-in button on any of these, because signing in again cannot help
 // (FR-TEN-009, ADR-0016). A reload is the retry, and it clears the store's
 // latch.
-export function AccessScreen({ failure }: { failure: keyof typeof COPY }) {
-  const copy = COPY[failure];
+export function AccessScreen({ failure }: { failure: keyof typeof ACCESS_COPY }) {
+  const copy = ACCESS_COPY[failure];
   return (
     <section className="auth-screen" aria-labelledby="access-heading">
       <h1 id="access-heading" className="auth-title">
