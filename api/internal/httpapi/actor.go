@@ -42,9 +42,9 @@ type logLevel interface{ LogLevel() slog.Level }
 
 type identityKey struct{}
 
-// clientKey carries the client address to withActor, whose refusals are
-// logged with it like requireActor's (FR-AUD-004) without threading the proxy
-// hop count through every handler.
+// clientKey carries the client address to withActor's refusal log
+// (FR-AUD-004) and submitRateLimit's address counter (NFR-SEC-007), so
+// neither re-derives it from the proxy hop count.
 type clientKey struct{}
 
 func clientFrom(ctx context.Context) string {

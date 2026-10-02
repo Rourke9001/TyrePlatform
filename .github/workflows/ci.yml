@@ -161,8 +161,8 @@ jobs:
           go tool staticcheck -tags devheader ./...
           go build -tags devheader ./...
           go test -tags devheader -race ./...
-      # U103: api/Dockerfile's build stage checks the binary the image ships,
-      # and deploy.yml builds that same stage (make api-release-check).
+      # U103: api/Dockerfile's build stage checks the binary the image ships.
+      # deploy.yml's image build runs the same stage.
       - name: Release binary names no dev header
         run: docker build --target build api
 

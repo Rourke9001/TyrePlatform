@@ -157,9 +157,9 @@ api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 	$(GO_RUN) --network tyreplatform_default --env-file .env -p 8080:8080 \
 	  $(GO_IMAGE) go run -tags devheader ./cmd/api
 
-# U103: api/Dockerfile's build stage checks the binary the image ships, so
-# this builds that stage rather than a copy of its go build line. cacheonly
-# keeps the stage from being exported as an image on every lint.
+# U103: the check runs in api/Dockerfile's build stage, on the binary the
+# image ships. cacheonly keeps the stage from being exported as an image on
+# every lint.
 .PHONY: api-release-check
 api-release-check: ## The release binary names no dev header (U103)
 	docker build --target build --output type=cacheonly api
