@@ -22,6 +22,24 @@ export function failureOf(error: unknown): AuthFailure {
   return null;
 }
 
+// The access screens' words (AccessScreen). CaptureDone shows the same body
+// for an inspection that refusal holds, so the two never say different things.
+export const ACCESS_COPY = {
+  "not-set-up": {
+    title: "Your account is not set up",
+    body: "Ask your fleet office to set up your account.",
+  },
+  // FR-TEN-009's explanatory message.
+  "tenant-inactive": {
+    title: "Your company's account is not active",
+    body: "This company's account is not active. Contact your fleet office.",
+  },
+  unavailable: {
+    title: "Sign-in is unavailable",
+    body: "Sign-in is unavailable right now. Try again shortly.",
+  },
+} as const;
+
 export interface ActorState {
   actor: Me | null;
   // Whether GET /api/me has finished, either way. A capability check cannot

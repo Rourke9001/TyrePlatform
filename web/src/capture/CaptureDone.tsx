@@ -1,4 +1,16 @@
+import { ACCESS_COPY } from "../auth/actorContext";
 import "./capture.css";
+
+// A 401 waits for a sign-in. A latched store and a held 403 do not clear with
+// signal, so they say what their access screen says instead of promising a
+// send (spec section 4, The indicator).
+function waitingOn(lastStatus: number | null, lastCode: string | null): string {
+  if (lastStatus === 401) return "Sign in to send it.";
+  if (lastCode === "auth_unavailable") return ACCESS_COPY.unavailable.body;
+  if (lastCode === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
+  if (lastCode === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
+  return "It will send by itself when you have signal. You can close the app.";
+}
 
 // A plain anchor, not a router Link: the draft is gone, the outbox wants a
 // flush on app-open (FR-OFF-009), and the task list has just changed
@@ -45,11 +57,7 @@ export function CaptureDone({
           ✓
         </p>
         <h1 className="cap-done-title">Inspection saved</h1>
-        <p className="cap-done-body">
-          {lastStatus === 401
-            ? "Sign in to send it."
-            : "It will send by itself when you have signal. You can close the app."}
-        </p>
+        <p className="cap-done-body">{waitingOn(lastStatus, lastCode)}</p>
         <BackToWork />
       </section>
     );
