@@ -444,7 +444,7 @@ describe("the driver stamp (U104)", () => {
     expect(mayCarry({ driverSubject: DRIVER, legacy: false }, null)).toBe(false);
   });
 
-  it("lists the stamps held, legacy rows aside, and counts drafts and every entry", async () => {
+  it("lists the stamps held, legacy rows aside, and reports the draft apart from every entry", async () => {
     await queueOne();
     await db.table("outbox").put({
       ...(await listOutbox())[0],
@@ -461,7 +461,8 @@ describe("the driver stamp (U104)", () => {
     });
 
     expect((await heldStamps()).sort()).toEqual([DRIVER, "oid-other"].sort());
-    expect(await heldCount()).toBe(3);
+    // U108: a draft never sends by itself, so the sign-out refusal names it apart.
+    expect(await heldCount()).toEqual({ draft: true, entries: 2 });
   });
 
   // A latched or unconfigured store throws from the credential before the
@@ -558,13 +559,19 @@ describe("the driver stamp under a bearer session", () => {
 });
 
 describe("heldStamps and heldCount when storage fails (spec section 4)", () => {
-  it("read as nothing held", async () => {
+  it("read as nothing held, a draft that did read included", async () => {
     await queueOne();
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v9",
+      taskId: null,
+      startedAt: "2026-09-30T06:00:00Z",
+    });
     vi.spyOn(db.table("outbox"), "toArray").mockRejectedValue(new Error("blocked"));
     vi.spyOn(db.table("outbox"), "count").mockRejectedValue(new Error("blocked"));
 
     expect(await heldStamps()).toEqual([]);
-    expect(await heldCount()).toBe(0);
+    expect(await heldCount()).toEqual({ draft: false, entries: 0 });
   });
 });
 
