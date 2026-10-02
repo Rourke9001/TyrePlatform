@@ -974,11 +974,11 @@ account: their old held entries carry the old `oid`. If the person is not
 available, the phone stays blocked until its site data is cleared by hand
 (TYRE-317 comment 13450). That also deletes other drivers' unsent entries,
 so the runbook has the operator check the phone's outbox lines first. Then,
-until
-TYRE-377 lands, run
-`SELECT id, tenant_id, display_name, active FROM app.app_user WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id()` (expecting one row) and then
-`UPDATE app.app_user SET active = false WHERE id = '<id>' AND tenant_id = app.current_tenant_id()`, expecting one
-row, and disable the Entra account.
+until TYRE-377 lands, deactivate in one statement keyed on the email, with
+no id copied by hand:
+`UPDATE app.app_user SET active = false WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id() RETURNING id, tenant_id, display_name, active`,
+expecting exactly one row that shows the leaver's tenant and name. Then
+disable the Entra account.
 
 ### Entra settings
 
