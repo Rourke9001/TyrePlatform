@@ -20,14 +20,17 @@ Entra tenant, and the app cannot write the link.
   COMMIT;
   ```
 
-- Each step says how many rows it expects. Any other count: `ROLLBACK;` and
-  stop.
+- Each step says what it expects. Anything else, a count or a value:
+  `ROLLBACK;` and stop, before `COMMIT`.
 - The binding scopes each statement through its WHERE clause
   (`app.current_tenant_id()`), so the step is correct whether or not the
   role bypasses RLS. Email is unique only per tenant, and a bypassing role
   would otherwise reach another tenant's row at the expected count. A missing
-  `set_config` gives 0 rows under either kind of role. To see which kind the
-  Azure role is:
+  `set_config` gives 0 rows from a `SELECT` or an `UPDATE`. The `INSERT`
+  fails with an error instead, because a row with no tenant breaks the
+  `platform_admin_has_no_tenant` check (migration 000001). Under a role that
+  does not bypass RLS, the RLS policy refuses the row first. To see which
+  kind the Azure role is:
 
   ```sql
   SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
@@ -89,7 +92,7 @@ Owner actions, recorded on Confluence page 10682399.
    passes every row count below, so the name is what shows the binding is
    right. Any other name or state: `ROLLBACK;` and stop. A `PROVISIONING`
    tenant stops here, because no procedure makes a tenant ACTIVE yet. The
-   owner decides one on TYRE-387.
+   owner's decision on one is TYRE-387.
 2. **Create the person in Entra.** Use the External ID admin center or
    Graph, in the shape check b proved works with the passcode flow.
    **Stage 2:** that shape. Then set their tenant attribute by Graph, as
@@ -132,15 +135,19 @@ Owner actions, recorded on Confluence page 10682399.
 ## A rehire with a new Entra account
 
 An admin first reactivates the user in the app. `createUser` reactivates by
-email and keeps the old subject. Then:
+email and keeps the old subject. Then, in one transaction, run the `SELECT`
+from step 1 of "Provision a person", and stop where that step says to stop.
+Then:
 
 ```sql
 UPDATE app.app_user SET subject = '<new oid>'
  WHERE lower(email) = lower('<email>') AND subject = '<old oid>'
-   AND tenant_id = app.current_tenant_id();
+   AND tenant_id = app.current_tenant_id()
+RETURNING id, tenant_id, display_name;
 ```
 
-Expect `UPDATE 1`.
+Expect exactly one row: the tenant id the `SELECT` showed and the rehire's
+name.
 
 Inspections the rehire left unsent on a phone under their old account stay
 blocked: each is stamped with the old `oid`, and the new account cannot send
@@ -149,30 +156,48 @@ them (U104). The leaver step below exists so that never happens.
 ## A leaver
 
 1. **Clear their work off every phone they used.** A disabled account can
-   never send its held inspections. The U104 stamp keeps anyone else from
-   sending them, or from discarding one the leaver left open. While any of
-   them is on a phone, every other driver's sign-in there is undone. So
-   before step 2, the leaver opens the app on each phone, signed in as
-   themselves (they sign in again if it asks), and works through these in
-   order:
+   never send the inspections it left on a phone. The U104 stamp keeps
+   anyone else from sending those inspections, and from discarding an
+   inspection the leaver left open. While any of the leaver's work is on a
+   phone, every other driver's sign-in there is undone. So before step 2,
+   the leaver opens the app on each phone, signed in as themselves (they
+   sign in again if it asks), and works through these in order:
 
-   - **An inspection in progress.** They open it from "My inspections". If
-     the app says "An inspection for another vehicle is still open on this
-     phone", they tap "Go to it". Then either "Review and submit ›" and
-     "Submit inspection", or "Discard this inspection" and "Discard".
+   - **An inspection in progress.** They open it the way it was started:
+     its task on "My inspections", or the vehicle's capture address,
+     `/capture/<vehicle id>`, if it was started off the vehicle alone. Any
+     task listed on "My inspections" also leads to it. A task for the same
+     vehicle opens it. A task for another vehicle says "An inspection for
+     another vehicle is still open on this phone", and "Go to it" opens it.
+     Then either "Review and submit ›" and "Submit inspection", or "Discard
+     this inspection" and "Discard". On the "another vehicle" screen,
+     "Discard it" and "Discard" do the same without opening it.
+
+     If neither path reaches it, open the capture address of any vehicle
+     they drive, in the browser the app was used in. That address is the
+     vehicle's page under "Units", `/fleet/units/<vehicle id>`, with
+     `fleet/units` changed to `capture`, and it leads to the inspection the
+     same way. An app added to the home screen has no address bar to open
+     it in. TYRE-390 adds a way back to an open inspection in the app.
    - **"1 inspection needs the office"** (or "2 inspections need the
      office"). The office takes those readings by phone first. Then, for
      each one, the leaver taps "The office has <fleet number>" and
-     "Remove".
+     "Remove". An inspection with no fleet number shows "The office has
+     this one" instead.
    - **"1 inspection waiting to send"** (or more). With signal, they tap
-     "Sync now" until the line goes. One the office refuses moves to "needs
-     the office", above.
+     "Sync now" until the line goes. If the office refuses one, its line
+     changes to "needs the office". Deal with it as in the item above.
 
    Then they tap "Sign out". The step passes when the app returns to its
    "Sign in" screen with no "waiting to send" or "needs the office" line
    above it. Sign-out is refused while the phone holds an open inspection
    or anything in the outbox (PD-S3). The refusal starts "You can't sign out
    yet." and says what is left (U108).
+
+   That check holds only while the phone can read the app's storage. A read
+   that fails counts as nothing held, so sign-out goes ahead and the lines
+   go blank with work still on the phone. If a line went away without being
+   sent or removed, reload the app and look again before step 2.
 
    **If the leaver cannot do this** and their work is still on a phone,
    every other driver's sign-in there is undone with "Inspections captured
@@ -185,7 +210,15 @@ them (U104). The leaver step below exists so that never happens.
    it. Ask the drivers who share the phone, and get the office any readings
    it does not have before you clear it.
 2. **Deactivate their app user.** Until TYRE-377 adds the admin action,
-   deactivate by email:
+   deactivate by email, in one transaction. First run the `SELECT` from
+   step 1 of "Provision a person":
+
+   ```sql
+   SELECT id, name, state FROM app.tenant WHERE id = app.current_tenant_id();
+   ```
+
+   Expect one row with the name of the leaver's fleet, in any state. Any
+   other name: `ROLLBACK;` and stop. Then:
 
    ```sql
    UPDATE app.app_user SET active = false
@@ -193,11 +226,18 @@ them (U104). The leaver step below exists so that never happens.
    RETURNING id, tenant_id, display_name, active;
    ```
 
-   Expect exactly one row: their fleet's tenant id, their name and `active`
-   false. It bites on their next request (ADR-0011).
+   Expect exactly one row: the tenant id the `SELECT` showed, their name and
+   `active` false. It bites on their next request (ADR-0011).
 3. **Disable their Entra account.** An access token the API has already
    accepted lapses within 90 minutes; the deactivation above is what stops
    it sooner.
+
+**If their work turns up on a phone later,** nothing needs wiping. An admin
+reactivates them under "Add a user" with the same email, name and role. The
+app offers "Reactivate <email>", and the user keeps their subject, as for a
+rehire above. Re-enable their Entra account. The leaver then signs in on
+that phone, clears the work as in step 1 and signs out. Then deactivate them
+again (step 2) and disable their Entra account (step 3).
 
 ## Not covered here
 
