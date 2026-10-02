@@ -106,7 +106,7 @@ describe("SignOutButton (PD-S3)", () => {
     await user.click(screen.getByRole("button", { name: "Sign out" }));
     await vi.waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
-        "You can't sign out yet. An inspection is still open on this phone. Finish it. 1 more is on this phone too. Sign out once that one has sent, or remove it if the office refused it.",
+        "You can't sign out yet. An inspection is still open on this phone. Finish it. 1 more inspection is on this phone too. Sign out once they have all sent, or remove any the office refused.",
       ),
     );
     unmount();
@@ -116,7 +116,7 @@ describe("SignOutButton (PD-S3)", () => {
     await user.click(screen.getByRole("button", { name: "Sign out" }));
     await vi.waitFor(() =>
       expect(screen.getByRole("status")).toHaveTextContent(
-        "You can't sign out yet. An inspection is still open on this phone. Finish it. 2 more are on this phone too. Sign out once they have sent, or remove any the office refused.",
+        "You can't sign out yet. An inspection is still open on this phone. Finish it. 2 more inspections are on this phone too. Sign out once they have all sent, or remove any the office refused.",
       ),
     );
   });
@@ -150,6 +150,18 @@ describe("SignOutButton (PD-S3)", () => {
     vi.spyOn(db, "table").mockImplementation(() => {
       throw new Error("storage unavailable");
     });
+    renderButton();
+    await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
+    const oidc = await import("./oidc");
+    await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("status")).toHaveTextContent("");
+  });
+
+  // Decision 4: a failed draft read alone reads as nothing held, like the
+  // outbox read and the table failure above.
+  it("signs out when only the draft read fails", async () => {
+    const draft = await import("../capture/draft");
+    vi.spyOn(draft, "loadDraft").mockRejectedValue(new Error("storage unavailable"));
     renderButton();
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
     const oidc = await import("./oidc");

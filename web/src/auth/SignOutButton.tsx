@@ -12,8 +12,8 @@ function stillHeld({ draft, entries }: HeldWork): string {
   if (entries === 0) return `${open} Finish it, then sign out.`;
   if (draft) {
     return entries === 1
-      ? `${open} Finish it. 1 more is on this phone too. Sign out once that one has sent, or remove it if the office refused it.`
-      : `${open} Finish it. ${entries} more are on this phone too. Sign out once they have sent, or remove any the office refused.`;
+      ? `${open} Finish it. 1 more inspection is on this phone too. Sign out once they have all sent, or remove any the office refused.`
+      : `${open} Finish it. ${entries} more inspections are on this phone too. Sign out once they have all sent, or remove any the office refused.`;
   }
   return entries === 1
     ? "You can't sign out yet. 1 inspection is still on this phone. Sign out once it has sent, or remove it if the office refused it."
@@ -30,9 +30,7 @@ export function SignOutButton() {
   const [failed, setFailed] = useState(false);
   // signOut() clears everything local before it can reject, and its resolve
   // is a navigation a bfcache restore can undo, so the button settles on
-  // either and the next render re-reads the subject (TYRE-317). The label
-  // reads "Signing out" only once the guard has passed, since until then the
-  // guard may refuse (U109).
+  // either and the next render re-reads the subject (TYRE-317).
   const [phase, setPhase] = useState<"idle" | "checking" | "signing-out">("idle");
   if (!bearerMode() || lastKnownSubject() === null) return null;
 
@@ -49,6 +47,8 @@ export function SignOutButton() {
         setHeld(work);
         return;
       }
+      // Only now does the label say "Signing out", since until the guard
+      // passes it may still refuse (U109).
       setPhase("signing-out");
       let chunk;
       try {
