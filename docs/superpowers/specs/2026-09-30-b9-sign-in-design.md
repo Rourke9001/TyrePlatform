@@ -797,8 +797,11 @@ The backoff stays as it is. The outbox tests gain a case per row.
 - never resends a failed entry, which keeps its own recovery action.
 
 "Sync now" resends a refused entry only with a credential in hand. When the
-token store has none to give (signed out, latched or offline), the refused
-entry stays exactly as it was, with its refusal and its Remove action.
+token store has none to give (signed out or latched), the refused entry stays
+exactly as it was, with its refusal and its Remove action. Offline is not that
+case when the token has not expired: the store still hands one over, the POST
+fails, and `recordFailure` turns the refused entry queued. The server refuses
+it again on the next send (TYRE-317, code review finding V01).
 
 **The indicator.**
 
@@ -833,8 +836,8 @@ The PD-S3 guard lives on this button, not in `signOut()`. `signOut()` itself
 is unconditional, because the U104 undo has to sign a person out while
 another driver's inspections are held.
 
-While the guard reads storage, the button is disabled and still says "Sign
-out", because the guard may yet refuse. It says "Signing out…" only once the
+While the guard reads storage, the button is `aria-disabled` and still says
+"Sign out", because the guard may yet refuse. It says "Signing out…" only once the
 guard has passed and the auth chunk starts to load (U109).
 
 **When sign-out is refused.** It is refused while a draft or any outbox entry
@@ -849,7 +852,9 @@ draft never sends by itself:
 - For outbox entries, it says how many are on the phone and that sign-out
   comes back once they have sent, or once any the office refused is removed.
 - When both are held it says both: finish the open inspection, and how many
-  more must send or be removed.
+  more inspections are on the phone too, which must all have sent, or any the
+  office refused be removed. The count is of entries, and the finished draft
+  becomes one more that must send.
 
 **When sign-out goes ahead,** it:
 
@@ -1153,8 +1158,14 @@ been removed.
 - the 401 copy in `OutboxIndicator` and `CaptureDone`, and `CaptureDone`'s
   copy for the holds that signal does not clear.
 
-**Sign-out:** refused while any entry or the draft exists, and when it goes
-ahead, it clears the branding keys.
+**Sign-out:**
+
+- refused while any entry or the draft exists, and when it goes ahead, it
+  clears the branding keys;
+- a draft alone is refused with its own copy, which says to finish it (U108);
+- the label stays "Sign out" while the guard reads, and says "Signing out…"
+  only once the guard has passed (U109);
+- a failed draft read alone reads as nothing held (decision 4).
 
 ### Playwright auth project
 
@@ -1203,6 +1214,8 @@ say so. The reasons:
   message, and leaves the entry unsent.
 - Sign-out is refused while an entry is held. Once the outbox is empty,
   sign-out reaches the end-session endpoint and clears the mirror.
+- The held entry's backoff is pushed out first, so only the flush after
+  sign-in can send it (V11).
 
 ### Staging smoke, by hand, in Sandbox Fleet
 
