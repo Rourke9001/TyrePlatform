@@ -28,6 +28,19 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-02 - TanStack Query tells its observers on a later tick, so an assertion straight after `act(refetchQueries)` reads the old render (TYRE-317)
+
+**What happened:** a test that a 401 never unmounts the capture awaited
+`client.refetchQueries()` inside `act()`, then asserted the actor was still
+shown. It passed against a provider changed to drop the actor on a failed
+refetch. query-core 5.101.4's `notifyManager` schedules observer
+notifications with `setTimeout(0)` (`build/modern/notifyManager.js`, line
+3), so the provider had not re-rendered when the assertions ran.
+
+**The rule:** after a refetch, wait for something the provider derives from
+the new result (a `findBy` on the failure it names) before asserting what it
+kept, and run the test once against the mutation it exists to catch.
+
 ## 2026-10-02 - In a git worktree, `make db-up` names its compose project after the folder and collides with `tyre-pg` (TYRE-317)
 
 **What happened:** `make check` in the worktree `tp-fix-92` failed at
