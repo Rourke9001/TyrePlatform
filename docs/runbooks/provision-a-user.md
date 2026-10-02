@@ -99,8 +99,9 @@ Owner actions, recorded on Confluence page 10682399.
    the state `ACTIVE`. A wrong tenant id that names another ACTIVE tenant
    passes every row count below, so the name is what shows the binding is
    right. Any other name or state: `ROLLBACK;` and stop. A `PROVISIONING`
-   tenant stops here, because no procedure makes a tenant ACTIVE yet. The
-   owner's decision on one is TYRE-387.
+   tenant stops here. A platform admin makes it ACTIVE by hand before its
+   first ORG_ADMIN is linked (TYRE-387, option A); the tenant runbook that
+   step belongs in is TYRE-387's to write.
 2. **Create the person in Entra, by Graph only.** A user created in the
    External ID admin center is given a password, and the passcode flow then
    asks for it instead of sending a code (check b). Work as your own
