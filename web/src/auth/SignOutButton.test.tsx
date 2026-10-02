@@ -217,6 +217,28 @@ describe("SignOutButton (PD-S3)", () => {
     expect(outbox.heldCount).toHaveBeenCalledTimes(1);
   });
 
+  // U109: the guard may yet refuse, so the label changes only once it has
+  // passed and the sign-out chunk starts to load.
+  it("says Sign out while the guard reads, and Signing out only once it has passed", async () => {
+    let release: (held: HeldWork) => void = () => undefined;
+    const outbox = await import("../capture/outbox");
+    vi.spyOn(outbox, "heldCount").mockImplementation(
+      () => new Promise<HeldWork>((resolve) => (release = resolve)),
+    );
+    const oidc = await import("./oidc");
+    vi.mocked(oidc.signOut).mockImplementationOnce(() => new Promise(() => undefined));
+    renderButton();
+    const button = screen.getByRole("button", { name: "Sign out" });
+    await userEvent.setup().click(button);
+
+    expect(button).toHaveAttribute("aria-disabled", "true");
+    expect(button).toHaveAccessibleName("Sign out");
+
+    release({ draft: false, entries: 0 });
+    await vi.waitFor(() => expect(button).toHaveAccessibleName("Signing out…"));
+    expect(button).toHaveAttribute("aria-disabled", "true");
+  });
+
   it("keeps the live region mounted while empty", () => {
     renderButton();
     expect(screen.getByRole("status")).toHaveTextContent("");
