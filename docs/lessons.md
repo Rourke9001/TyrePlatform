@@ -28,6 +28,21 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-02 - In a git worktree, `make db-up` names its compose project after the folder and collides with `tyre-pg` (TYRE-317)
+
+**What happened:** `make check` in the worktree `tp-fix-92` failed at
+`make db-up` with a container-name conflict on `tyre-pg`. Docker compose
+names the project after the folder, so the worktree asked for project
+`tp-fix-92`, while the running `tyre-pg` (the fixed `container_name` in
+`docker-compose.yml`) belongs to project `tyreplatform`. With
+`COMPOSE_PROJECT_NAME=tyreplatform` a dry run showed `Container tyre-pg
+Running` and no recreate, and the gate ran.
+
+**The rule:** run gates in a worktree as `COMPOSE_PROJECT_NAME=tyreplatform
+VITEST_MAX_WORKERS=4 make check`. A worktree's gate loads that branch's
+schema into the shared `tyre-pg`, so another checkout runs `make db-reset`
+before it next uses the database.
+
 ## 2026-10-02 - oidc-client-ts's request timeout ends when the headers arrive, not the body (TYRE-317)
 
 **What happened:** the 2026-10-01 fix passed the timeout per call and kept a
