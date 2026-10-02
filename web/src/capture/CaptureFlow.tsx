@@ -6,7 +6,7 @@ import { failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 
 import { CaptureDiagram } from "./CaptureDiagram";
-import { CaptureDone } from "./CaptureDone";
+import { BackToWork, CaptureDone } from "./CaptureDone";
 import { CaptureReview } from "./CaptureReview";
 import { CaptureStart } from "./CaptureStart";
 import { ConfirmDiscard } from "./ConfirmDiscard";
@@ -148,9 +148,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           Another driver has an inspection open on this phone. They need to sign in here and finish
           it before anyone else can start one.
         </p>
-        <a className="cap-secondary" href="/my">
-          My inspections
-        </a>
+        <BackToWork />
       </section>
     );
   } else if (held) {

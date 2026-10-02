@@ -2,7 +2,7 @@ import { useCallback, useRef, useSyncExternalStore } from "react";
 import { liveQuery } from "dexie";
 
 import { bearerMode, stampSubject } from "../api/token";
-import { useGateScreenShowing } from "../auth/actorContext";
+import { useGateFailure } from "../auth/actorContext";
 import type { OutboxEntry } from "./outbox";
 import { listOutbox, mayCarry } from "./outbox";
 
@@ -43,7 +43,7 @@ export function useOutbox(): OutboxEntry[] {
 // Zero under a gate screen, which carries its own sign-in. SignInLine reads it
 // too, so a lapsed session shows one "Sign in" (U107).
 export function useSignInToSend(entries: OutboxEntry[]): number {
-  const gateShowing = useGateScreenShowing();
+  const gateShowing = useGateFailure() !== null;
   if (!bearerMode() || gateShowing) return 0;
   const me = stampSubject();
   return entries.filter((e) => e.state !== "failed" && e.lastStatus === 401 && mayCarry(e, me))

@@ -59,16 +59,13 @@ export function useActor(): Me | null {
   return useContext(ActorContext).actor;
 }
 
-export function useAuthFailure(): AuthFailure {
-  return useContext(ActorContext).failure ?? null;
-}
-
-// True while AuthGate shows a gate screen (sign-in, not set up, inactive or
-// unavailable; spec section 4). Each carries its own action, so nothing
-// mounted above the gate may offer another sign-in.
-export function useGateScreenShowing(): boolean {
+// The failure AuthGate shows a gate screen for (sign-in, not set up, inactive
+// or unavailable; spec section 4), or null while the routes show. Each screen
+// carries its own action, so nothing mounted above the gate may offer another
+// sign-in.
+export function useGateFailure(): AuthFailure {
   const { actor, settled, failure } = useContext(ActorContext);
-  return bearerMode() && actor === null && settled && (failure ?? null) !== null;
+  return bearerMode() && actor === null && settled ? (failure ?? null) : null;
 }
 
 export function useActorSettled(): boolean {

@@ -85,8 +85,11 @@ oidc-client-ts.
 vite.config.ts) and they never mock — they drive the real dev stack in
 headless browsers. One exception: the `auth` project stubs the identity
 provider with `page.route` and, on `/api`, swaps the bearer for the Sandbox dev
-headers (`e2e/idp.ts`), because the provider cannot be reached from CI and the
-Go half of sign-in is proved by its own tests (TYRE-317). Five projects:
+headers or answers 401 itself where a case needs one, such as a call with no
+bearer or a refused submit (`e2e/idp.ts`; spec section 7 of
+`docs/superpowers/specs/2026-09-30-b9-sign-in-design.md`), because the provider
+cannot be reached from CI and the Go half of sign-in is proved by its own tests
+(TYRE-317). Five projects:
 `bac-readonly` (Desktop Chrome, `dashboard.spec.ts` only, the web leg of the
 three-way agreement, which `android` depends on so no BAC write races a BAC
 read), `chromium` at a desktop viewport, `android` (Pixel 7), `ios` (iPhone 14,
