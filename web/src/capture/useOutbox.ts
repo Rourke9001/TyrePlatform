@@ -1,8 +1,10 @@
 import { useCallback, useRef, useSyncExternalStore } from "react";
 import { liveQuery } from "dexie";
 
+import { bearerMode, stampSubject } from "../api/token";
+import { useGateScreenShowing } from "../auth/actorContext";
 import type { OutboxEntry } from "./outbox";
-import { listOutbox } from "./outbox";
+import { listOutbox, mayCarry } from "./outbox";
 
 // One shared empty array, so a snapshot taken before the first emission keeps
 // the same identity across renders. useSyncExternalStore re-renders forever if
@@ -34,4 +36,16 @@ export function useOutbox(): OutboxEntry[] {
     () => held.current,
     () => NONE,
   );
+}
+
+// The N in the outbox band's "Sign in to send N": waiting work held on a 401
+// that this driver can send, since another driver's waits for them (U104).
+// Zero under a gate screen, which carries its own sign-in. SignInLine reads it
+// too, so a lapsed session shows one "Sign in" (U107).
+export function useSignInToSend(entries: OutboxEntry[]): number {
+  const gateShowing = useGateScreenShowing();
+  if (!bearerMode() || gateShowing) return 0;
+  const me = stampSubject();
+  return entries.filter((e) => e.state !== "failed" && e.lastStatus === 401 && mayCarry(e, me))
+    .length;
 }

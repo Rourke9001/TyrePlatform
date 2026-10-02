@@ -50,7 +50,7 @@ async function undoSignIn(): Promise<void> {
   try {
     window.sessionStorage.setItem(OTHER_DRIVER_KEY, "1");
   } catch {
-    // Without the marker the screen shows its neutral count instead.
+    // Without the marker the screen shows its neutral line instead.
   }
   try {
     await (await authChunk()).signOut();

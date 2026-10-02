@@ -6,6 +6,7 @@ import { ActorContext, type AuthFailure } from "./actorContext";
 import { AuthGate } from "./AuthGate";
 import { me } from "../test/fixtures";
 import { db } from "../capture/draft";
+import { OutboxIndicator } from "../capture/OutboxIndicator";
 import { suppressReloadWhile } from "../shell/chunkReload";
 
 vi.mock("./oidc", () => ({
@@ -89,7 +90,9 @@ describe("AuthGate", () => {
   });
 
   // A driver whose own session lapsed is never told the work is someone else's.
-  it("shows only the neutral count without the marker", async () => {
+  // The one waiting count is the outbox band's, mounted above the gate as the
+  // shell does (U107).
+  it("shows the neutral line without the marker, and no count beside the band's", async () => {
     await db.table("outbox").put({
       clientUuid: "u1",
       state: "queued",
@@ -104,9 +107,18 @@ describe("AuthGate", () => {
       driverSubject: "oid-a",
       legacy: false,
     });
-    gate("signed-out");
+    render(
+      <ActorContext.Provider value={{ actor: null, settled: true, failure: "signed-out" }}>
+        <OutboxIndicator />
+        <AuthGate>
+          <p>the routes</p>
+        </AuthGate>
+      </ActorContext.Provider>,
+    );
+    expect(await screen.findByText("1 inspection waiting to send")).toBeInTheDocument();
+    expect(screen.getAllByText(/waiting to send/)).toHaveLength(1);
     expect(
-      await screen.findByText("1 inspection is waiting to send on this phone."),
+      screen.getByText("Sign in with the email address your fleet office has for you."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/another driver/)).toBeNull();
   });
