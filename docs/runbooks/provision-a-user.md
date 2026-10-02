@@ -77,14 +77,19 @@ Owner actions, recorded on Confluence page 10682399.
 
 ## Provision a person
 
-1. **Confirm the tenant is ACTIVE.** A tenant in any other state has every
-   sign-in refused (TYRE-376).
+1. **Confirm the tenant.** A tenant in any state other than ACTIVE has
+   every sign-in refused (TYRE-376).
 
    ```sql
-   SELECT state FROM app.tenant WHERE id = app.current_tenant_id();
+   SELECT id, name, state FROM app.tenant WHERE id = app.current_tenant_id();
    ```
 
-   Expect one row: `ACTIVE`.
+   Expect one row, with the name of the fleet you are provisioning for and
+   the state `ACTIVE`. A wrong tenant id that names another ACTIVE tenant
+   passes every row count below, so the name is what shows the binding is
+   right. Any other name or state: `ROLLBACK;` and stop. A `PROVISIONING`
+   tenant stops here, because no procedure makes a tenant ACTIVE yet. The
+   owner decides one on TYRE-387.
 2. **Create the person in Entra.** Use the External ID admin center or
    Graph, in the shape check b proved works with the passcode flow.
    **Stage 2:** that shape. Then set their tenant attribute by Graph, as
@@ -104,20 +109,22 @@ Owner actions, recorded on Confluence page 10682399.
 
    ```sql
    INSERT INTO app.app_user (tenant_id, email, display_name, role)
-   VALUES (app.current_tenant_id(), '<email>', '<name>', 'ORG_ADMIN');
+   VALUES (app.current_tenant_id(), '<email>', '<name>', 'ORG_ADMIN')
+   RETURNING tenant_id, display_name, role;
    ```
 
-   Expect `INSERT 0 1`.
+   Expect one row: the tenant id step 1 showed, their name and `ORG_ADMIN`.
 5. **Link the subject.**
 
    ```sql
    UPDATE app.app_user SET subject = '<oid>'
     WHERE lower(email) = lower('<email>') AND subject IS NULL
       AND tenant_id = app.current_tenant_id()
-   RETURNING id;
+   RETURNING id, tenant_id, display_name, role;
    ```
 
-   Expect exactly one row.
+   Expect exactly one row: the tenant id step 1 showed, and the person's
+   name and role.
 6. **Check the link.** Have the person sign in once before their first
    field day and confirm the app greets them by name. A linking mistake then
    shows before any inspection exists (PD-S1).
