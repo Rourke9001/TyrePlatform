@@ -356,6 +356,8 @@ describe("signOut", () => {
     bearerSession();
     const id = idToken("oid-a");
     storeUser({ id_token: id, refresh_token: "rt-old" });
+    // The sign-in that stored this user wrote the last-known subject too.
+    window.localStorage.setItem(SUBJECT_KEY, "oid-a");
     vi.stubGlobal(
       "fetch",
       vi.fn((url: string) =>

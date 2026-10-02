@@ -124,8 +124,11 @@ async function fresh() {
 const RENEWED = { accessToken: "at-2", expiresAt: Date.now() + 3_600_000, subject: "oid-a" };
 
 describe("credential", () => {
+  // A driver has signed in on this phone. Without a last-known subject there
+  // is no session to renew (token.chunkfail.test.ts).
   beforeEach(() => {
     bearerSession();
+    rememberSubject("oid-a");
   });
 
   it("hands back a valid mirrored token without loading the auth chunk", async () => {

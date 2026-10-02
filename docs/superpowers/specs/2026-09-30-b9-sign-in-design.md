@@ -585,7 +585,12 @@ MSAL was the obvious choice, and it is rejected:
 **Expiry.** A token counts as expired 60 seconds before `expiresAt`, so none
 expires in flight.
 
-**Renewal.** With no usable token, the store renews:
+**Renewal.** With no usable token and no last-known subject there is no
+session to renew, because every sign-in writes the subject or does not
+finish. The call throws `ApiError(401, code "signed_out")` without importing
+the auth chunk, so a failed import behind a captive portal cannot keep a new
+phone, or one signed out, from the sign-in screen. Otherwise the store
+renews:
 
 - **One attempt at a time.** Concurrent callers share one in-flight renewal
   promise.

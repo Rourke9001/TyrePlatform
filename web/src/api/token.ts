@@ -219,7 +219,16 @@ export async function credential(): Promise<{ accessToken: string; subject: stri
   if (latched || !authConfigured()) throw authUnavailable();
   const usable = (m: Mirror | null) => m !== null && m.expiresAt - EXPIRY_SKEW_MS > Date.now();
   const mirror = readMirror();
-  const current = usable(mirror) ? mirror : usable(held) ? held : await renewOnce();
+  // Every sign-in writes the last-known subject or does not finish, so
+  // without one there is no session to renew, and the chunk is not imported
+  // only to learn that (spec section 4, Renewal).
+  const current = usable(mirror)
+    ? mirror
+    : usable(held)
+      ? held
+      : lastKnownSubject() === null
+        ? null
+        : await renewOnce();
   // Another tab's sign-in writes the shared mirror, which ends this tab's
   // lapse too.
   setLapsed(current === null);
