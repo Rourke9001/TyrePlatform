@@ -246,9 +246,13 @@ export function stampSubject(): string | null {
 export function refused(accessToken: string): boolean {
   if (latched) return true;
   const mirror = readMirror();
-  const recent = [mirror, held].find(
-    (m) => m?.accessToken === accessToken && Date.now() - m.obtainedAt < FRESH_MS,
-  );
+  // A clock corrected backwards leaves obtainedAt in the future, which is not
+  // "earlier" (spec section 4, A fresh token refused).
+  const fresh = (m: Mirror) => {
+    const age = Date.now() - m.obtainedAt;
+    return age >= 0 && age < FRESH_MS;
+  };
+  const recent = [mirror, held].find((m) => m?.accessToken === accessToken && fresh(m));
   if (recent !== undefined) {
     console.error("API refused a fresh token (ADR-0016)");
     latched = true;

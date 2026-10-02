@@ -343,6 +343,22 @@ describe("refused", () => {
     expect(token.refused("at-9")).toBe(true);
   });
 
+  // obtainedAt is device-clock time, so a clock corrected backwards leaves it
+  // in the future, which is not "less than 60 seconds earlier" (spec
+  // section 4, A fresh token refused).
+  it("does not latch on a token whose obtainedAt is ahead of the clock", async () => {
+    const { token, oidc } = await fresh();
+    token.writeMirror({ ...MIRROR, obtainedAt: Date.now() + 2 * 3_600_000 });
+    token.rememberSubject("oid-a");
+    vi.mocked(oidc.renew).mockResolvedValue(RENEWED);
+
+    expect(token.refused("at-1")).toBe(false);
+    expect(token.isLatched()).toBe(false);
+    expect(token.readMirror()).toBeNull();
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
+  });
+
   it("clears the mirror on a 401 for an older token, so the next call renews", async () => {
     const { token } = await fresh();
     token.writeMirror({ ...MIRROR, obtainedAt: Date.now() - 5 * 60_000 });
