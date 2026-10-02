@@ -1,9 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { useContext, useEffect } from "react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { ActorContext, type AuthFailure } from "./actorContext";
+import { ActorContext, useActor, type AuthFailure } from "./actorContext";
+import { ActorProvider } from "./ActorProvider";
 import { AuthGate } from "./AuthGate";
+import { writeMirror } from "../api/token";
+import { bearerSession } from "../test/bearerSession";
 import { me } from "../test/fixtures";
 import { db } from "../capture/draft";
 import { OutboxIndicator } from "../capture/OutboxIndicator";
@@ -121,6 +126,93 @@ describe("AuthGate", () => {
       screen.getByText("Sign in with the email address your fleet office has for you."),
     ).toBeInTheDocument();
     expect(screen.queryByText(/another driver/)).toBeNull();
+  });
+});
+
+// Spec section 4, The prompt never interrupts a capture. The real provider and
+// a real 401 from /api/me, through the token store. The gate's child stands in
+// for the capture route and counts its own mounts.
+describe("a refetch of /api/me answering 401 while an actor is held", () => {
+  let mounts = 0;
+  let unmounts = 0;
+
+  function CaptureInProgress() {
+    useEffect(() => {
+      mounts += 1;
+      return () => {
+        unmounts += 1;
+      };
+    }, []);
+    return <p>capture in progress</p>;
+  }
+
+  // Outside the gate, so it reads the provider whatever the gate shows.
+  function Actor() {
+    const failure = useContext(ActorContext).failure ?? null;
+    return (
+      <p>
+        actor: {useActor()?.displayName ?? "none"}, failure: {String(failure)}
+      </p>
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the actor, and never unmounts the capture", async () => {
+    bearerSession();
+    // Older than the fresh-token window, so the 401 reads as a lapse, not as
+    // an API that refuses every token (token.ts, refused()).
+    writeMirror({
+      accessToken: "at-a",
+      expiresAt: Date.now() + 3_600_000,
+      obtainedAt: Date.now() - 5 * 60_000,
+      subject: "oid-a",
+      tenantId: "t0",
+    });
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(() =>
+        Promise.resolve(new Response(JSON.stringify(me({ displayName: "Driver A" })))),
+      )
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify({ code: "unauthorized", message: "expired" }), {
+            status: 401,
+          }),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    mounts = 0;
+    unmounts = 0;
+    const client = new QueryClient();
+    render(
+      <QueryClientProvider client={client}>
+        <ActorProvider>
+          <Actor />
+          <AuthGate>
+            <CaptureInProgress />
+          </AuthGate>
+        </ActorProvider>
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText("actor: Driver A, failure: null")).toBeInTheDocument();
+
+    await act(async () => {
+      await client.refetchQueries({ queryKey: ["me"] });
+    });
+
+    // The query notifies its observers on a later tick, so this waits until
+    // the provider has named the 401 before judging what it kept.
+    expect(await screen.findByText(/failure: signed-out/)).toHaveTextContent(
+      "actor: Driver A, failure: signed-out",
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByText("capture in progress")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Sign in" })).toBeNull();
+    expect({ mounts, unmounts }).toEqual({ mounts: 1, unmounts: 0 });
   });
 });
 
