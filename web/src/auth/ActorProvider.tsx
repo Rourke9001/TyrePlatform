@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 
 import { ActorContext, failureOf, type AuthFailure } from "./actorContext";
 import { fetchMe } from "./me";
-import { ApiError } from "../api/apiError";
+import { retryQuery } from "../api/apiError";
 import { getDevTenantId } from "../api/devTenant";
 
 export function ActorProvider({ children }: { children: ReactNode }) {
@@ -12,17 +12,7 @@ export function ActorProvider({ children }: { children: ReactNode }) {
     queryKey: ["me", getDevTenantId() ?? "default"],
     queryFn: fetchMe,
     staleTime: 5 * 60 * 1000,
-    // A 401 or a 403 answers the same on the next attempt, and a signed-out
-    // driver must not wait through three retries to see the sign-in screen
-    // (spec section 4). auth_unavailable is not retried either, because the
-    // unavailable screen's Try again reloads and a retry only keeps the main
-    // area blank meanwhile.
-    retry: (failures, error) =>
-      failures < 3 &&
-      !(
-        error instanceof ApiError &&
-        (error.status === 401 || error.status === 403 || error.code === "auth_unavailable")
-      ),
+    retry: retryQuery,
   });
 
   // Spec section 4: a failure that settled with no actor holds until /api/me
