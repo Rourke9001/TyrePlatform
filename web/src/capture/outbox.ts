@@ -176,7 +176,27 @@ async function recordFailure(entry: OutboxEntry, error: unknown): Promise<void> 
   });
 }
 
+// The entries this page load is sending. Held in memory, not read from the
+// stored "sending" state, because a page closed mid-send leaves that state
+// behind and the next load must still send the row (FR-OFF-014).
+const inFlight = new Set<string>();
+
+// The flush after sign-in and the indicator's flush on mount run together,
+// so a send already in flight here is skipped. Sync now still sends
+// (FR-OFF-010), so a stalled POST cannot make it do nothing, and a replay is
+// safe (FR-OFF-011).
 export async function attemptSend(clientUuid: string, opts: SendOptions = {}): Promise<void> {
+  const claimed = !inFlight.has(clientUuid);
+  if (!claimed && !opts.force) return;
+  inFlight.add(clientUuid);
+  try {
+    await sendEntry(clientUuid, opts);
+  } finally {
+    if (claimed) inFlight.delete(clientUuid);
+  }
+}
+
+async function sendEntry(clientUuid: string, opts: SendOptions): Promise<void> {
   const entry = await table().get(clientUuid);
   if (!entry) return;
   if (entry.state === "failed" && !opts.force) return;
