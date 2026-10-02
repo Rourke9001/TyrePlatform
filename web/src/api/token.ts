@@ -101,6 +101,13 @@ export function bearerMode(): boolean {
   return true;
 }
 
+// The DEV header path, where the dev actor and tenant stand in. Led by
+// import.meta.env.DEV so a production build folds every caller's branch away
+// (scripts/check-dist-dev-strings.mjs, TYRE-317).
+export function devHeaderPath(): boolean {
+  return import.meta.env.DEV && !bearerMode();
+}
+
 // Stage 1 builds carry no VITE_AUTH_* values (ADR-0016), and a build without
 // them cannot sign anyone in. That is "unavailable", not "signed out". Each
 // read is written in full so the build folds it to a constant.
@@ -256,17 +263,16 @@ export async function credential(): Promise<{ accessToken: string; subject: stri
   return { accessToken: current.accessToken, subject: current.subject };
 }
 
-// U104: who a held inspection is stamped with and sent under. On the DEV
-// header path the dev actor stands in (bearerMode() says when).
+// U104: who a held inspection is stamped with and sent under.
 export function sender(): Promise<Sender> {
-  if (import.meta.env.DEV && !bearerMode()) {
+  if (devHeaderPath()) {
     return Promise.resolve({ accessToken: null, subject: getDevActorId() });
   }
   return credential();
 }
 
 export function stampSubject(): string | null {
-  if (import.meta.env.DEV && !bearerMode()) return getDevActorId();
+  if (devHeaderPath()) return getDevActorId();
   return lastKnownSubject();
 }
 

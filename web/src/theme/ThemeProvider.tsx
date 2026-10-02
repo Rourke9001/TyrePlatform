@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchBranding, type Branding } from "../api/branding";
 import { getDevTenantId } from "../api/devTenant";
-import { BRANDING_PREFIX, bearerMode, readMirror } from "../api/token";
+import { BRANDING_PREFIX, devHeaderPath, readMirror } from "../api/token";
 import { deriveBrandTheme } from "./derive";
 import { applyCssVars, cssVars, palette } from "./tokens";
 import { useActor } from "../auth/actorContext";
@@ -26,7 +26,7 @@ const PLATFORM_BRANDING: Branding = {
 // for the next person on the phone; unknown means no cache, only the fetch.
 // Under the DEV header path the dev tenant stays the key (TYRE-28).
 function brandingTenantKey(actorTenant: string | null): string | null {
-  if (import.meta.env.DEV && !bearerMode()) return getDevTenantId() ?? "default";
+  if (devHeaderPath()) return getDevTenantId() ?? "default";
   return readMirror()?.tenantId ?? actorTenant;
 }
 

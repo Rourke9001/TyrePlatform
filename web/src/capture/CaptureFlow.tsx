@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 
-import { ApiError } from "../api/client";
 import { bearerMode } from "../api/token";
+import { failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 
 import { CaptureDiagram } from "./CaptureDiagram";
@@ -177,7 +177,7 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     // warning depends on data that must have arrived. The storage-unavailable
     // alert is hoisted so its retry can sit beside this screen's own, each
     // naming its own action.
-    const signedOut = motive.error instanceof ApiError && motive.error.status === 401;
+    const signedOut = failureOf(motive.error) === "signed-out";
     body = (
       <section className="cap-screen">
         <p role="alert" className="cap-alert cap-alert--stop">
