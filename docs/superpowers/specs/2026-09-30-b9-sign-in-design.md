@@ -957,10 +957,20 @@ the app; `createUser` reactivates by email and keeps the old subject. Then:
 
 expecting one row.
 
-**A leaver.** First confirm that the person's phone holds nothing unsent. A
-disabled account can never send its held entries, and the U104 stamp keeps
-anyone else from sending them. The same holds for a rehire who gets a new
-Entra account: their old held entries carry the old `oid`. Then, until
+**A leaver.** First, on each phone they used, the person signs in as
+themselves and leaves nothing held. They submit or discard any inspection in
+progress. The office takes the readings of each refused ("needs the office")
+entry, and the person then removes it. They tap "Sync now" until nothing is
+waiting. A successful sign-out is the check, because PD-S3 refuses sign-out
+while a draft or any outbox entry is held. A disabled account can never send
+its held entries, and the U104 stamp keeps anyone else from sending them or
+discarding its draft. Until they are gone, every other driver's sign-in on
+that phone is undone. The same holds for a rehire who gets a new Entra
+account: their old held entries carry the old `oid`. If the person is not
+available, the phone stays blocked until its site data is cleared by hand
+(TYRE-317 comment 13450). That also deletes other drivers' unsent entries,
+so the runbook has the operator check the phone's outbox lines first. Then,
+until
 TYRE-377 lands, run
 `SELECT id, tenant_id, display_name, active FROM app.app_user WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id()` (expecting one row) and then
 `UPDATE app.app_user SET active = false WHERE id = '<id>' AND tenant_id = app.current_tenant_id()`, expecting one

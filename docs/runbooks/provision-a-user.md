@@ -141,10 +141,42 @@ them (U104). The leaver step below exists so that never happens.
 
 ## A leaver
 
-1. **Confirm their phone holds nothing unsent.** Ask them to open the app
-   while still signed in and tap "Sync now" until the outbox shows nothing
-   waiting. A disabled account can never send its held inspections, and the
-   U104 stamp keeps anyone else from sending them.
+1. **Clear their work off every phone they used.** A disabled account can
+   never send its held inspections. The U104 stamp keeps anyone else from
+   sending them, or from discarding one the leaver left open. While any of
+   them is on a phone, every other driver's sign-in there is undone. So
+   before step 2, the leaver opens the app on each phone, signed in as
+   themselves (they sign in again if it asks), and works through these in
+   order:
+
+   - **An inspection in progress.** They open it from "My inspections". If
+     the app says "An inspection for another vehicle is still open on this
+     phone", they tap "Go to it". Then either "Review and submit ›" and
+     "Submit inspection", or "Discard this inspection" and "Discard".
+   - **"1 inspection needs the office"** (or "2 inspections need the
+     office"). The office takes those readings by phone first. Then, for
+     each one, the leaver taps "The office has <fleet number>" and
+     "Remove".
+   - **"1 inspection waiting to send"** (or more). With signal, they tap
+     "Sync now" until the line goes. One the office refuses moves to "needs
+     the office", above.
+
+   Then they tap "Sign out". The step passes when the app returns to its
+   "Sign in" screen with no "waiting to send" or "needs the office" line
+   above it. Sign-out is refused while the phone holds an open inspection
+   or anything in the outbox (PD-S3). The refusal starts "You can't sign out
+   yet." and says what is left (U108).
+
+   **If the leaver cannot do this** and their work is still on a phone,
+   every other driver's sign-in there is undone with "Inspections captured
+   by another driver are waiting on this phone." It stays that way until
+   someone clears the app's site data by hand in the phone's browser
+   settings (TYRE-317 comment 13450). That deletes everything the app holds
+   on the phone without sending it, other drivers' unsent inspections
+   included. Check first. The "waiting to send" and "needs the office" lines
+   count every submitted inspection still on the phone, whoever captured
+   it. Ask the drivers who share the phone, and get the office any readings
+   it does not have before you clear it.
 2. **Deactivate their app user.** Until TYRE-377 adds the admin action,
    find the id and deactivate by it:
 
