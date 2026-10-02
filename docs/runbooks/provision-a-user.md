@@ -185,18 +185,16 @@ them (U104). The leaver step below exists so that never happens.
    it. Ask the drivers who share the phone, and get the office any readings
    it does not have before you clear it.
 2. **Deactivate their app user.** Until TYRE-377 adds the admin action,
-   find the id and deactivate by it:
+   deactivate by email:
 
    ```sql
-   SELECT id, tenant_id, display_name, active FROM app.app_user
-    WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id();
    UPDATE app.app_user SET active = false
-    WHERE id = '<user id>' AND tenant_id = app.current_tenant_id();
+    WHERE lower(email) = lower('<email>') AND tenant_id = app.current_tenant_id()
+   RETURNING id, tenant_id, display_name, active;
    ```
 
-   Expect one row from the SELECT.
-
-   Expect `UPDATE 1`. It bites on their next request (ADR-0011).
+   Expect exactly one row: their fleet's tenant id, their name and `active`
+   false. It bites on their next request (ADR-0011).
 3. **Disable their Entra account.** An access token the API has already
    accepted lapses within 90 minutes; the deactivation above is what stops
    it sooner.
