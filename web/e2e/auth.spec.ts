@@ -71,6 +71,38 @@ async function holdOneSubmit(page: Page, vehicleId: string) {
   await expect(done(page)).toContainText("Sign in to send it.");
 }
 
+// FR-OFF-012's 30-minute ceiling, so the app-open flush, the online flush and
+// the heartbeat all pass the held entry by inside the test. Only the flush
+// after sign-in ignores the backoff (spec section 4, After sign-in). Returns
+// the rows moved.
+async function backOffHeld(page: Page): Promise<number> {
+  return page.evaluate(async (ms) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open("tyre-capture");
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(new Error("tyre-capture did not open"));
+    });
+    try {
+      return await new Promise<number>((resolve, reject) => {
+        let moved = 0;
+        const tx = db.transaction("outbox", "readwrite");
+        const cursor = tx.objectStore("outbox").openCursor();
+        cursor.onsuccess = () => {
+          const row = cursor.result;
+          if (row === null) return;
+          row.update({ ...(row.value as object), nextAttemptAt: Date.now() + ms });
+          moved += 1;
+          row.continue();
+        };
+        tx.oncomplete = () => resolve(moved);
+        tx.onerror = () => reject(new Error("the outbox write failed"));
+      });
+    } finally {
+      db.close();
+    }
+  }, 30 * 60_000);
+}
+
 test("signed out, the app shows the sign-in screen and asks for a code with PKCE", async ({
   page,
 }) => {
@@ -131,11 +163,14 @@ test("a submit refused with 401 is held, asks for a sign-in, and sends after it"
   await signIn(page);
   await holdOneSubmit(page, vehicleId);
   await expect(page.getByText("Sign in to send 1 inspection")).toBeVisible();
+  // Before the stub stops refusing, so no other flush can send it first.
+  expect(await backOffHeld(page)).toBe(1);
 
   stub.refuseSubmits = false;
   await lapseSession(page);
   // The sign-in is a full navigation, so "hidden" would hold trivially until
-  // the app is back; the server accepting the send is the signal.
+  // the app is back; the server accepting the send is the signal, and with
+  // the backoff above only the flush after sign-in can send it.
   const accepted = page.waitForResponse(
     (r) =>
       r.request().method() === "POST" && new URL(r.url()).pathname === "/api/inspections" && r.ok(),
