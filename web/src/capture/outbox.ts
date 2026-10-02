@@ -189,6 +189,9 @@ export async function attemptSend(clientUuid: string, opts: SendOptions = {}): P
     // token refused).
     who = await sender();
   } catch (error) {
+    // Nothing was sent, so a refused entry keeps its refusal and its Remove
+    // (spec section 4, After sign-in).
+    if (entry.state === "failed") return;
     // Signed out (401) or no network to renew, recorded like a refused send
     // so the indicator can say which.
     await recordFailure(entry, error);

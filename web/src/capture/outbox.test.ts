@@ -568,6 +568,47 @@ describe("heldStamps and heldCount when storage fails (spec section 4)", () => {
   });
 });
 
+// Spec section 4, After sign-in: a refused entry keeps its own recovery
+// action. "Sync now" with no credential to send under sent nothing, so it has
+// nothing new to record.
+describe("Sync now on a refused entry with no credential", () => {
+  it.each([
+    [
+      "signed out (401)",
+      () => {
+        clearDevActorId();
+        bearerSession();
+      },
+    ],
+    [
+      "sign-in unavailable (503)",
+      () => {
+        clearDevActorId();
+        window.localStorage.setItem("tyre.dev.auth", "bearer");
+      },
+    ],
+  ])("leaves the entry exactly as it was when %s", async (_, signedOutState) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await queueOne();
+    await db.table("outbox").update(entry.clientUuid, {
+      state: "failed",
+      attempts: 1,
+      nextAttemptAt: 0,
+      lastStatus: 409,
+      lastCode: "TY003",
+      lastError: "already inspected",
+    });
+    const before = (await listOutbox())[0];
+    signedOutState();
+
+    await attemptSend(entry.clientUuid, { force: true });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await listOutbox())[0]).toEqual(before);
+  });
+});
+
 describe("the flush after sign-in", () => {
   it("sends a queued or 401-held entry whatever its backoff, and leaves a failed one alone", async () => {
     const fetchMock = vi
