@@ -28,6 +28,22 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-02 - `az ad app update --set api.*` fails, and the admin center makes password users (TYRE-317)
+
+**What happened:** during the CIAM checks, `az ad app update --id <tyre-api>
+--set api.acceptMappedClaims=true` failed with "Couldn't find 'api' in ''"
+and changed nothing. Separately, a test user created in the External ID
+admin center ("Create new external user") was asked for its generated
+password by the email passcode flow, never sent a code: the admin center
+always writes a password user (`creationType: LocalAccount`, an
+`emailAddress` identity), and a user keeps the method it was created with.
+
+**The rule:** to change an application's `api` block, GET it with
+`az rest`, edit the whole block and PATCH `{"api": <whole block>}`, then
+read it back. Create a passcode user only through Graph, with no password,
+`creationType` and `passwordPolicies` null and a `federated` / `mail`
+identity (TYRE-317 comment 13468), never in the admin center.
+
 ## 2026-10-02 - TanStack Query tells its observers on a later tick, so an assertion straight after `act(refetchQueries)` reads the old render (TYRE-317)
 
 **What happened:** a test that a 401 never unmounts the capture asserted
