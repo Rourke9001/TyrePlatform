@@ -926,8 +926,11 @@ stops. Each statement scopes itself with `app.current_tenant_id()`, because
 email is unique only per tenant and the role may bypass RLS (section 2: the
 link works whether or not it does).
 
-1. **Confirm the tenant.** `SELECT state FROM app.tenant WHERE id = app.current_tenant_id()` returns `ACTIVE`,
-   because TYRE-376 refuses `PROVISIONING`.
+1. **Confirm the tenant.** `SELECT id, name, state FROM app.tenant WHERE id = app.current_tenant_id()` returns one row.
+   The operator confirms the name is the fleet they mean, because a wrong
+   but ACTIVE tenant id passes every row count. The state is `ACTIVE`,
+   because TYRE-376 refuses `PROVISIONING`. A `PROVISIONING` tenant stops
+   here, because no procedure makes a tenant ACTIVE yet (TYRE-387).
 2. **Create the person in the External ID admin center,** or by Graph, in
    whatever shape check b proves works with the passcode flow. Then set their
    tenant attribute by Graph:
@@ -941,11 +944,12 @@ link works whether or not it does).
    same email address.
    - A tenant's first `ORG_ADMIN` has nobody to invite them. They are
      inserted by SQL instead:
-     `INSERT INTO app.app_user (tenant_id, email, display_name, role) VALUES (app.current_tenant_id(), '<email>', '<name>', 'ORG_ADMIN')`,
-     expecting one row.
+     `INSERT INTO app.app_user (tenant_id, email, display_name, role) VALUES (app.current_tenant_id(), '<email>', '<name>', 'ORG_ADMIN') RETURNING tenant_id, display_name, role`,
+     expecting one row that shows the tenant step 1 confirmed.
 5. **Link the subject:**
-   `UPDATE app.app_user SET subject = '<oid>' WHERE lower(email) = lower('<email>') AND subject IS NULL AND tenant_id = app.current_tenant_id() RETURNING id`,
-   expecting exactly one row.
+   `UPDATE app.app_user SET subject = '<oid>' WHERE lower(email) = lower('<email>') AND subject IS NULL AND tenant_id = app.current_tenant_id() RETURNING id, tenant_id, display_name, role`,
+   expecting exactly one row that shows the tenant step 1 confirmed and the
+   person's name and role.
 6. **Check the link.** Have the person sign in once before their first field
    day, and confirm the app greets them by name. A linking mistake then shows
    up before any capture exists (PD-S1).
