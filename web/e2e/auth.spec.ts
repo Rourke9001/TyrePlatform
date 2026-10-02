@@ -96,6 +96,7 @@ async function backOffHeld(page: Page): Promise<number> {
         };
         tx.oncomplete = () => resolve(moved);
         tx.onerror = () => reject(new Error("the outbox write failed"));
+        tx.onabort = () => reject(new Error("the outbox write aborted"));
       });
     } finally {
       db.close();
