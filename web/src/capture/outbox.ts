@@ -257,13 +257,20 @@ export async function heldStamps(): Promise<string[]> {
   }
 }
 
-// PD-S3: a draft and every outbox entry, whatever its state.
-export async function heldCount(): Promise<number> {
+export interface HeldWork {
+  draft: boolean;
+  entries: number;
+}
+
+// PD-S3: a draft and every outbox entry, whatever its state. The draft is
+// reported apart, because it never sends by itself and the sign-out refusal
+// names a different fix for it (U108).
+export async function heldCount(): Promise<HeldWork> {
   try {
     const [draft, entries] = await Promise.all([loadDraft(), table().count()]);
-    return (draft ? 1 : 0) + entries;
+    return { draft: draft !== undefined, entries };
   } catch {
-    return 0;
+    return { draft: false, entries: 0 };
   }
 }
 

@@ -825,9 +825,16 @@ another driver's inspections are held.
 **When sign-out is refused.** It is refused while a draft or any outbox entry
 exists, whether queued, sending or failed (PD-S3). A storage read that fails
 at this guard reads as nothing held, so sign-out goes ahead. The refusal
-renders inline beneath the button, with a role of status. It says how many
-inspections are waiting and that sign-out comes back once they have sent, or
-once one the office has refused is removed.
+renders inline beneath the button, with a role of status, and names the fix
+(U108). `heldCount()` reports a draft apart from outbox entries, because a
+draft never sends by itself:
+
+- For a draft, the refusal says an inspection is still open on this phone and
+  to finish it, then sign out.
+- For outbox entries, it says how many are on the phone and that sign-out
+  comes back once they have sent, or once any the office refused is removed.
+- When both are held it says both: finish the open inspection, and how many
+  more must send or be removed.
 
 **When sign-out goes ahead,** it:
 

@@ -2,13 +2,22 @@ import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { authChunk, bearerMode, lastKnownSubject } from "../api/token";
-import { heldCount } from "../capture/outbox";
+import { heldCount, type HeldWork } from "../capture/outbox";
 import "./auth.css";
 
-function stillHeld(n: number): string {
-  return n === 1
+// U108: the refusal names the fix. A draft never sends by itself, so for a
+// draft the fix is to finish it.
+function stillHeld({ draft, entries }: HeldWork): string {
+  const open = "You can't sign out yet. An inspection is still open on this phone.";
+  if (entries === 0) return `${open} Finish it, then sign out.`;
+  if (draft) {
+    return entries === 1
+      ? `${open} Finish it. 1 more is on this phone too. Sign out once that one has sent, or remove it if the office refused it.`
+      : `${open} Finish it. ${entries} more are on this phone too. Sign out once they have sent, or remove any the office refused.`;
+  }
+  return entries === 1
     ? "You can't sign out yet. 1 inspection is still on this phone. Sign out once it has sent, or remove it if the office refused it."
-    : `You can't sign out yet. ${n} inspections are still on this phone. Sign out once they have sent, or remove any the office refused.`;
+    : `You can't sign out yet. ${entries} inspections are still on this phone. Sign out once they have sent, or remove any the office refused.`;
 }
 
 // PD-S3: refused while anything is held, a draft or an outbox entry in any
@@ -17,7 +26,7 @@ function stillHeld(n: number): string {
 // read that fails holds nothing, so sign-out goes ahead (heldCount).
 export function SignOutButton() {
   const queryClient = useQueryClient();
-  const [held, setHeld] = useState<number | null>(null);
+  const [held, setHeld] = useState<HeldWork | null>(null);
   const [failed, setFailed] = useState(false);
   // signOut() clears everything local before it can reject, and its resolve
   // is a navigation a bfcache restore can undo, so the button settles on
@@ -33,9 +42,9 @@ export function SignOutButton() {
     // again by the live region.
     setHeld(null);
     try {
-      const count = await heldCount();
-      if (count > 0) {
-        setHeld(count);
+      const work = await heldCount();
+      if (work.draft || work.entries > 0) {
+        setHeld(work);
         return;
       }
       let chunk;

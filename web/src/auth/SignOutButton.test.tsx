@@ -9,6 +9,7 @@ import { fetchMe } from "./me";
 import { SignOutButton } from "./SignOutButton";
 import { ApiError } from "../api/apiError";
 import { clearDraft, db, startDraft } from "../capture/draft";
+import type { HeldWork } from "../capture/outbox";
 import { me } from "../test/fixtures";
 import authCss from "./auth.css?raw";
 
@@ -61,6 +62,15 @@ function heldEntry(clientUuid: string, state: string) {
   };
 }
 
+function openDraft() {
+  return startDraft({
+    driverSubject: "oid-a",
+    vehicleId: "v1",
+    taskId: null,
+    startedAt: "2026-09-30T06:00:00Z",
+  });
+}
+
 describe("SignOutButton (PD-S3)", () => {
   it("is not offered when nobody has signed in on this phone, or under the DEV header path", () => {
     window.localStorage.removeItem("tyre.auth.subject");
@@ -73,21 +83,42 @@ describe("SignOutButton (PD-S3)", () => {
     expect(screen.queryByRole("button", { name: "Sign out" })).toBeNull();
   });
 
-  it("refuses while a draft is held, and says why", async () => {
-    await startDraft({
-      driverSubject: "oid-a",
-      vehicleId: "v1",
-      taskId: null,
-      startedAt: "2026-09-30T06:00:00Z",
-    });
+  // U108: a draft never sends by itself, so the refusal names finishing it.
+  it("refuses while a draft is held, and says to finish it", async () => {
+    await openDraft();
     renderButton();
     await userEvent.setup().click(screen.getByRole("button", { name: "Sign out" }));
 
-    expect(await screen.findByRole("status")).toHaveTextContent(
-      "You can't sign out yet. 1 inspection is still on this phone. Sign out once it has sent, or remove it if the office refused it.",
+    await vi.waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "You can't sign out yet. An inspection is still open on this phone. Finish it, then sign out.",
+      ),
     );
     const oidc = await import("./oidc");
     expect(oidc.signOut).not.toHaveBeenCalled();
+  });
+
+  it("names the draft and the entries when both are held", async () => {
+    await openDraft();
+    await db.table("outbox").put(heldEntry("u1", "queued"));
+    const { unmount } = renderButton();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await vi.waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "You can't sign out yet. An inspection is still open on this phone. Finish it. 1 more is on this phone too. Sign out once that one has sent, or remove it if the office refused it.",
+      ),
+    );
+    unmount();
+
+    await db.table("outbox").put(heldEntry("u2", "failed"));
+    renderButton();
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await vi.waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "You can't sign out yet. An inspection is still open on this phone. Finish it. 2 more are on this phone too. Sign out once they have sent, or remove any the office refused.",
+      ),
+    );
   });
 
   it("counts every held entry and uses the plural", async () => {
@@ -169,10 +200,10 @@ describe("SignOutButton (PD-S3)", () => {
   });
 
   it("marks the button aria-disabled while pending and ignores taps", async () => {
-    let release: (n: number) => void = () => undefined;
+    let release: (held: HeldWork) => void = () => undefined;
     const outbox = await import("../capture/outbox");
     vi.spyOn(outbox, "heldCount").mockImplementation(
-      () => new Promise<number>((resolve) => (release = resolve)),
+      () => new Promise<HeldWork>((resolve) => (release = resolve)),
     );
     renderButton();
     const user = userEvent.setup();
@@ -180,7 +211,7 @@ describe("SignOutButton (PD-S3)", () => {
     await user.click(button);
     expect(button).toHaveAttribute("aria-disabled", "true");
     await user.click(button);
-    release(0);
+    release({ draft: false, entries: 0 });
     const oidc = await import("./oidc");
     await vi.waitFor(() => expect(oidc.signOut).toHaveBeenCalledTimes(1));
     expect(outbox.heldCount).toHaveBeenCalledTimes(1);
