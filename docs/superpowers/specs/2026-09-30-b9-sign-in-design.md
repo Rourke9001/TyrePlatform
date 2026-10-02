@@ -600,7 +600,10 @@ renews:
   reads as offline. The renewal stays the one in flight until it settles, so
   a late refresh never runs beside a second one and spends a rotated refresh
   token twice. A caller that joins it meanwhile gets the same rejection at
-  once, and a late success is mirrored as usual.
+  once, and a late success is mirrored as usual. So until the stuck renewal
+  settles or the page reloads, every `credential()` call rejects at once. A
+  load with no actor yet renders the routes without one, the outbox backs off
+  as it does offline, and a reload is the driver's way out.
 - **No refresh token stored.** `renew()` returns null without calling
   `signinSilent`. Otherwise the library would fall back to a hidden iframe on
   `/`, because `silent_redirect_uri` defaults to `redirect_uri`. It removes
@@ -692,7 +695,9 @@ cannot be recorded.
 `'signed-out' | 'not-set-up' | 'tenant-inactive' | 'unavailable' | null`
 
 It is derived from the `me` query's error. The `me` query does not retry a 401
-or 403, so a signed-out driver is not kept waiting through retries.
+or 403, so a signed-out driver is not kept waiting through retries. The
+capture vehicle load shares this retry rule, `retryQuery` in
+`web/src/api/apiError.ts`.
 
 | `failure` | When | What the app shows |
 | --- | --- | --- |
@@ -791,6 +796,10 @@ The backoff stays as it is. The outbox tests gain a case per row.
 - ignores the backoff for entries that are queued or held on a 401;
 - never resends a failed entry, which keeps its own recovery action.
 
+"Sync now" resends a refused entry only with a credential in hand. When the
+token store has none to give (signed out, latched or offline), the refused
+entry stays exactly as it was, with its refusal and its Remove action.
+
 **The indicator.**
 
 - **`OutboxIndicator`.** When any waiting entry for the current driver has
@@ -803,7 +812,9 @@ The backoff stays as it is. The outbox tests gain a case per row.
   `tenant_inactive` or `not_provisioned`, so for those the queued state
   shows the body of the matching access screen (unavailable, inactive, not
   set up) instead of promising a send. Any other hold keeps the signal
-  sentence.
+  sentence. The unavailable body says to try again shortly, and the done
+  screen's only action is the "My inspections" anchor, a full page load,
+  which clears the latch.
 
 ### Signing out
 
