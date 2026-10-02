@@ -11,7 +11,7 @@ import {
   type User,
 } from "oidc-client-ts";
 
-import { BRANDING_PREFIX, clearSession } from "../api/token";
+import { BRANDING_PREFIX, REQUEST_TIMEOUT_SECONDS, clearSession } from "../api/token";
 
 export interface Tokens {
   accessToken: string;
@@ -42,8 +42,6 @@ export interface Auth {
 }
 
 const TRANSIENT_CODES = new Set(["server_error", "temporarily_unavailable"]);
-// Transport timing, not tenant policy (rule 5).
-const REQUEST_TIMEOUT_SECONDS = 10;
 
 function tokensOf(user: User): Tokens {
   const oid = user.profile.oid;
@@ -88,9 +86,10 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       automaticSilentRenew: false,
       monitorSession: false,
       loadUserInfo: false,
-      // oidc-client-ts sets no request timeout of its own, so a stalled
+      // oidc-client-ts sets no request timeout of its own, and a stalled
       // discovery, key or code-exchange request would leave the page blank
-      // (ADR-0016). Renewal is bounded per call in renew().
+      // (ADR-0016). This one ends once the response headers arrive, so it
+      // does not bound a stalled body (docs/lessons.md, 2026-10-02).
       requestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
       ...(settings.metadata ? { metadata: settings.metadata } : {}),
     },
@@ -126,8 +125,9 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       let renewed: User | null;
       try {
         // The settings' timeout does not reach the refresh request
-        // (docs/lessons.md, 2026-10-01), and one stalled refresh would hold
-        // every caller of the token store's shared renewal.
+        // (docs/lessons.md, 2026-10-01). Passed here it bounds only the wait
+        // for headers, so the token store bounds the whole renewal (spec
+        // section 4, Renewal).
         renewed = await manager.signinSilent({
           silentRequestTimeoutInSeconds: REQUEST_TIMEOUT_SECONDS,
         });

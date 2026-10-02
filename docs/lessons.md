@@ -28,6 +28,23 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-02 - oidc-client-ts's request timeout ends when the headers arrive, not the body (TYRE-317)
+
+**What happened:** the 2026-10-01 fix passed the timeout per call and kept a
+test that the refresh request carries an abort signal, and both the code
+comment and the spec then said the refresh was bounded. In oidc-client-ts
+3.5.0 `fetchWithTimeout` clears its abort timer in a `finally` as soon as
+`fetch()` resolves (`dist/esm/oidc-client-ts.js` 685-706), and `postForm`
+then awaits `response.text()` (784) with no signal, as `getJson` does with
+`response.json()` (739). A response whose headers arrive and whose body stalls
+held the token store's shared renewal, and every API call behind it, until
+a reload.
+
+**The rule:** a library timeout that aborts `fetch()` bounds only the wait
+for headers. Bound the caller's wait yourself (the token store's `bounded()`
+in `web/src/api/token.ts`), and when checking a library's timeout, read
+where its timer is cleared as well as whether a signal is passed.
+
 ## 2026-10-01 - oidc-client-ts sends the refresh POST unbounded unless the timeout is passed per call (TYRE-317)
 
 **What happened:** `renew()` called `signinSilent()` with no arguments, and

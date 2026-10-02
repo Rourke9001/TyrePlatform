@@ -234,6 +234,51 @@ describe("credential", () => {
     }
   });
 
+  // The refresh request's own timeout ends when its headers arrive, so a
+  // stalled body would hold every caller of the one renewal (spec section 4,
+  // Renewal).
+  it("answers as offline once the bound passes, starts no second renewal, and adopts the late one", async () => {
+    const { token, oidc, ApiError } = await fresh();
+    let finish: (tokens: typeof RENEWED) => void = () => undefined;
+    vi.mocked(oidc.renew).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    vi.useFakeTimers();
+    const watch = (call: Promise<unknown>) => {
+      const seen: { value: unknown } = { value: "pending" };
+      void call.then(
+        (value) => {
+          seen.value = value;
+        },
+        (error: unknown) => {
+          seen.value = error;
+        },
+      );
+      return seen;
+    };
+
+    const first = watch(token.credential());
+    await vi.advanceTimersByTimeAsync(token.REQUEST_TIMEOUT_SECONDS * 1000);
+    expect(first.value).toBeInstanceOf(Error);
+    expect(first.value).not.toBeInstanceOf(ApiError);
+    expect(token.sessionLapsed()).toBe(false);
+
+    // Joins the stuck renewal and is answered without waiting out a second
+    // bound.
+    const second = watch(token.credential());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(second.value).toBeInstanceOf(Error);
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
+
+    finish(RENEWED);
+    await vi.advanceTimersByTimeAsync(0);
+    await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
+    expect(oidc.renew).toHaveBeenCalledTimes(1);
+  });
+
   it("renews again after a failed renewal settles", async () => {
     const { token, oidc } = await fresh();
     vi.mocked(oidc.renew)

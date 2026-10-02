@@ -594,6 +594,13 @@ renews:
 
 - **One attempt at a time.** Concurrent callers share one in-flight renewal
   promise.
+- **A stalled renewal.** The library's timeouts end at the response headers
+  (The auth chunk, below), so the store bounds each renewal at the same 10
+  seconds. Past the bound a caller gets a plain `Error`, which the outbox
+  reads as offline. The renewal stays the one in flight until it settles, so
+  a late refresh never runs beside a second one and spends a rotated refresh
+  token twice. A caller that joins it meanwhile gets the same rejection at
+  once, and a late success is mirrored as usual.
 - **No refresh token stored.** `renew()` returns null without calling
   `signinSilent`. Otherwise the library would fall back to a hidden iframe on
   `/`, because `silent_redirect_uri` defaults to `redirect_uri`. It removes
@@ -666,10 +673,13 @@ The `UserManager` is configured as follows:
 - `automaticSilentRenew: false`, set explicitly because the library defaults
   it to true;
 - no session-monitor iframe and no userinfo call;
-- `requestTimeoutInSeconds: 10`, so a stalled discovery, key or code-exchange
-  request cannot leave the page waiting. The setting does not reach renewal,
-  so `renew()` passes `silentRequestTimeoutInSeconds: 10` to `signinSilent()`
-  on every call (`docs/lessons.md`, 2026-10-01).
+- `requestTimeoutInSeconds: 10`, so a discovery, key or code-exchange
+  request that sends no response headers cannot leave the page waiting. The
+  setting does not reach renewal, so `renew()` passes
+  `silentRequestTimeoutInSeconds: 10` to `signinSilent()` on every call
+  (`docs/lessons.md`, 2026-10-01). Each timeout ends once the headers arrive
+  and does not bound a stalled body (`docs/lessons.md`, 2026-10-02), so the
+  token store bounds a renewal itself (Renewal, above).
 
 The chunk exports `signIn()`, `completeSignIn()`, `renew()`, `signOut()`
 and `discardUser()`, which removes the library's stored user when a sign-in

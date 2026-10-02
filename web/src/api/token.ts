@@ -131,6 +131,9 @@ const EXPIRY_SKEW_MS = 60_000;
 // help, so the store stops until a reload (spec section 4, A fresh token
 // refused).
 const FRESH_MS = 60_000;
+// Transport timing, not tenant policy (rule 5). The sign-in library's request
+// timeout (oidc.ts) and the store's bound on a renewal are this one value.
+export const REQUEST_TIMEOUT_SECONDS = 10;
 
 let latched = false;
 // The last renewed token, kept beside the mirror, because a blocked store
@@ -201,15 +204,32 @@ function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mir
   return mirror;
 }
 
-// One renewal in flight, because refresh tokens may rotate and two concurrent
-// renewals would spend the same one twice.
+// The refresh request's timeout ends at its response headers, so a stalled
+// body would hold every caller (spec section 4, Renewal). Past the bound a
+// caller gets a plain Error, which the outbox and the actor query read as
+// offline.
+function bounded<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error("sign-in renewal timed out")),
+      REQUEST_TIMEOUT_SECONDS * 1000,
+    );
+    void work.then(resolve, reject).finally(() => clearTimeout(timer));
+  });
+}
+
+// One renewal in flight until it settles, past the bound too, because
+// refresh tokens may rotate and two concurrent renewals would spend the same
+// one twice. A caller that joins a stuck one gets its rejection at once.
 function renewOnce(): Promise<Mirror | null> {
-  renewing ??= authChunk()
-    .then((auth) => auth.renew())
-    .then(mirrorRenewed)
-    .finally(() => {
-      renewing = null;
-    });
+  renewing ??= bounded(
+    authChunk()
+      .then((auth) => auth.renew())
+      .then(mirrorRenewed)
+      .finally(() => {
+        renewing = null;
+      }),
+  );
   return renewing;
 }
 
