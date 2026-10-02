@@ -1,10 +1,11 @@
 # Provision a person for sign-in
 
-The stage 1 draft of the sign-in design's runbook
+The sign-in design's runbook
 (`docs/superpowers/specs/2026-09-30-b9-sign-in-design.md`, section 5;
-ADR-0016). Items marked **stage 2** are filled in once checks a, b, c and c2
-on TYRE-317 have passed. Every step is an owner action: CI cannot reach the
-Entra tenant, and the app cannot write the link.
+ADR-0016). Checks a, b, c and c2 on TYRE-317 passed on 2 Oct 2026 (comment
+13468), and the values they proved are written in below. Every step is an
+owner action: CI cannot reach the Entra tenant, and the app cannot write the
+link.
 
 ## Before any SQL
 
@@ -47,19 +48,24 @@ Owner actions, recorded on Confluence page 10682399.
 - Requested access token version 2 (check a).
 - `acceptMappedClaims` set to true. Microsoft accepts it only when the
   requested audience is the app's GUID or an identifier URI on a verified
-  domain; otherwise sign-in fails with `AADSTS501461`. Check a records the
-  identifier URI. Only if check c2 returns that error, change the identifier
-  URI to `https://<tenant>.onmicrosoft.com/tyre-api`, change
-  `VITE_AUTH_API_SCOPE` to match, and run c2 again. That is configuration,
-  not a failure of U101.
+  domain; otherwise sign-in fails with `AADSTS501461`. The identifier URI is
+  `api://7804c37b-de70-4e9d-8700-f7f7a70fc988`, and check c2 signed in
+  through it without that error, so it stays. If the error ever appears,
+  change the identifier URI to `https://<tenant>.onmicrosoft.com/tyre-api`,
+  change `VITE_AUTH_API_SCOPE` to match, and sign in again. That is
+  configuration, not a failure of U101.
+- `isFallbackPublicClient` stays false. Microsoft's how-to for mapped claims
+  sets it, but it serves an app that requests tokens itself, and tyre-api
+  only receives them.
 - The `access_as_user` scope.
-- `sid` as an optional claim on the access token. Without it every hourly
-  token counts as a new session, and FR-AUD-002's `session_id` cannot tie a
-  day's work together. Check c2 confirms it arrives.
-- The tenant claim: a custom user attribute for the platform tenant, added
-  in the enterprise app under Attributes and Claims with source "Directory
-  schema extension". Its emitted name goes into `AUTH_TENANT_CLAIM`.
-  **Stage 2:** the name from check c2.
+- `sid` reaches the access token without an optional claim (check c).
+  FR-AUD-002's `session_id` depends on it: without it every hourly token
+  counts as a new session.
+- The tenant claim: the custom user attribute `platformTenantId` (String),
+  stored as `extension_f0b6d011402f4b70b8336c088c46bd97_platformTenantId`
+  on b2c-extensions-app. It is added in the enterprise app under Attributes
+  and Claims with source "Directory schema extension", and emitted as
+  `platformTenantId`, the value of `AUTH_TENANT_CLAIM` (check c2).
 - No Microsoft Graph application permission (TYRE-378).
 
 **The user flow** (a46a2c2f-4cc0-4422-877e-533ba4c92060)
@@ -73,9 +79,11 @@ Owner actions, recorded on Confluence page 10682399.
 **tyre-pwa**
 
 - SPA redirect URIs `http://localhost:5173/` and the Static Web App's
-  origin followed by `/`, and nothing else. Once checks b and c have their
-  results posted, remove `https://jwt.ms` and any implicit-grant setting
-  added for them.
+  origin followed by `/`, and nothing else, with implicit grant off. On
+  2 Oct 2026 the registration held `http://localhost:5173/auth` and
+  `http://localhost:5173`; both are replaced when the Static Web App's
+  origin is added for the first staging sign-in. `https://jwt.ms` and the
+  implicit grant added for checks b and c were removed the same day.
 - Admin consent to tyre-api's `access_as_user`.
 
 ## Provision a person
@@ -93,19 +101,56 @@ Owner actions, recorded on Confluence page 10682399.
    right. Any other name or state: `ROLLBACK;` and stop. A `PROVISIONING`
    tenant stops here, because no procedure makes a tenant ACTIVE yet. The
    owner's decision on one is TYRE-387.
-2. **Create the person in Entra.** Use the External ID admin center or
-   Graph, in the shape check b proved works with the passcode flow.
-   **Stage 2:** that shape. Then set their tenant attribute by Graph, as
-   your own delegated session (Graph Explorer or `az rest`), never as
-   tyre-api:
+2. **Create the person in Entra, by Graph only.** A user created in the
+   External ID admin center is given a password, and the passcode flow then
+   asks for it instead of sending a code (check b). Work as your own
+   delegated session, never as tyre-api:
+   `az login --tenant 9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19 --allow-no-subscriptions`.
+   Save this as `person.json`, with one new GUID in both places marked
+   `<guid>`:
 
-   ```http
-   PATCH https://graph.microsoft.com/v1.0/users/{oid}
-   {"extension_<b2c-extensions-app id without hyphens>_<name>": "<tenant id>"}
+   ```json
+   {
+     "displayName": "<name>",
+     "userType": "Member",
+     "creationType": null,
+     "passwordPolicies": null,
+     "mail": "<email>",
+     "mailNickname": "<guid>",
+     "otherMails": ["<email>"],
+     "identities": [
+       { "signInType": "federated", "issuer": "mail", "issuerAssignedId": "<email>" },
+       {
+         "signInType": "userPrincipalName",
+         "issuer": "tyreplatform.onmicrosoft.com",
+         "issuerAssignedId": "<guid>@tyreplatform.onmicrosoft.com"
+       }
+     ]
+   }
    ```
 
-   **Stage 2:** the exact extension name, also recorded on page 10682399.
-3. **Read their object id** (`oid`) in the admin center.
+   ```sh
+   az rest --method POST --url https://graph.microsoft.com/v1.0/users --body '@person.json' --query id -o tsv
+   ```
+
+   Microsoft does not document creating this shape. It is what the passcode
+   sign-up writes (Microsoft Q&A 5592937; U113, TYRE-317 comment 13469). If
+   the person is asked for a password at step 6, the shape has stopped
+   working: stop and raise it.
+
+   Then set their tenant attribute. Save this as `tenant.json`:
+
+   ```json
+   { "extension_f0b6d011402f4b70b8336c088c46bd97_platformTenantId": "<tenant id>" }
+   ```
+
+   ```sh
+   az rest --method PATCH --url https://graph.microsoft.com/v1.0/users/<oid> --body '@tenant.json'
+   az rest --method GET --url 'https://graph.microsoft.com/v1.0/users/<oid>?$select=displayName,extension_f0b6d011402f4b70b8336c088c46bd97_platformTenantId'
+   ```
+
+   Expect their name and the tenant id step 1 showed.
+3. **Keep their object id** (`oid`): the value the `POST` in step 2 printed.
 4. **Create their app user** through the app's admin screen, with the same
    email address. A tenant's first `ORG_ADMIN` has nobody to invite them and
    is inserted instead:
@@ -134,8 +179,10 @@ Owner actions, recorded on Confluence page 10682399.
 
 ## A rehire with a new Entra account
 
-An admin first reactivates the user in the app. `createUser` reactivates by
-email and keeps the old subject. Then, in one transaction, run the `SELECT`
+Create the new Entra account and set its tenant attribute as in step 2 of
+"Provision a person". An admin then reactivates the user in the app.
+`createUser` reactivates by email and keeps the old subject. Then, in one
+transaction, run the `SELECT`
 from step 1 of "Provision a person", and stop where that step says to stop.
 Then:
 
