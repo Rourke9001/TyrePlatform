@@ -11,3 +11,17 @@ export class ApiError extends Error {
     this.name = "ApiError";
   }
 }
+
+// A query's retry rule. A 401 or 403 answers the same next time, so a
+// signed-out driver is not kept waiting through the retries, and
+// auth_unavailable is the token store's latch, which only a reload clears
+// (spec section 4, Signing in).
+export function retryQuery(failures: number, error: unknown): boolean {
+  return (
+    failures < 3 &&
+    !(
+      error instanceof ApiError &&
+      (error.status === 401 || error.status === 403 || error.code === "auth_unavailable")
+    )
+  );
+}

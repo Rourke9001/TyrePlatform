@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { apiGet } from "../api/client";
-import { ApiError } from "../api/apiError";
+import { retryQuery } from "../api/apiError";
 import { getDevTenantId } from "../api/devTenant";
 
 // Wire shape of GET /api/capture/vehicles/{id}. Every field exists because
@@ -109,11 +109,7 @@ export function captureContextQuery(vehicleId: string) {
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnWindowFocus: false,
-    // A 401 or 403 answers the same on the next attempt (ActorProvider), so a
-    // signed-out driver is not made to wait through three renewals.
-    retry: (failures: number, error: unknown) =>
-      failures < 3 &&
-      !(error instanceof ApiError && (error.status === 401 || error.status === 403)),
+    retry: retryQuery,
   };
 }
 
