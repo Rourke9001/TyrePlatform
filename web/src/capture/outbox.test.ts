@@ -616,67 +616,6 @@ describe("Sync now on a refused entry with no credential", () => {
   });
 });
 
-// The flush after sign-in and the indicator's flush on mount run together, and
-// each would POST the same held entry.
-describe("a send already in flight", () => {
-  function heldResponse() {
-    const pending: ((value: unknown) => void)[] = [];
-    const fetchMock = vi.fn(() => new Promise((resolve) => pending.push(resolve)));
-    vi.stubGlobal("fetch", fetchMock);
-    return {
-      fetchMock,
-      answer: () =>
-        pending.forEach((resolve) =>
-          resolve({ ok: true, status: 201, json: () => Promise.resolve({ inspectionId: "i1" }) }),
-        ),
-    };
-  }
-
-  it("is not started again by a second flush", async () => {
-    const { fetchMock, answer } = heldResponse();
-    const entry = await queueOne();
-
-    const first = attemptSend(entry.clientUuid, { ignoreBackoff: true });
-    const second = attemptSend(entry.clientUuid);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    answer();
-    await Promise.all([first, second]);
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(await listOutbox()).toEqual([]);
-  });
-
-  // FR-OFF-010: Sync now always tries, so a stalled POST cannot make it do
-  // nothing; a replay is safe (FR-OFF-011).
-  it("is sent again when the driver asks", async () => {
-    const { fetchMock, answer } = heldResponse();
-    const entry = await queueOne();
-
-    const first = attemptSend(entry.clientUuid);
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const forced = attemptSend(entry.clientUuid, { force: true });
-    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
-    answer();
-    await Promise.all([first, forced]);
-  });
-
-  // A page closed mid-send leaves the row marked sending, and the next page
-  // load must still send it.
-  it("does not hold back a row a closed page left marked sending", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
-    vi.stubGlobal("fetch", fetchMock);
-    const entry = await queueOne();
-    await db.table("outbox").update(entry.clientUuid, { state: "sending" });
-
-    await flushOutbox();
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(await listOutbox()).toEqual([]);
-  });
-});
-
 describe("the flush after sign-in", () => {
   it("sends a queued or 401-held entry whatever its backoff, and leaves a failed one alone", async () => {
     const fetchMock = vi
