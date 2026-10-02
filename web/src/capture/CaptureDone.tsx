@@ -12,10 +12,11 @@ function waitingOn(lastStatus: number | null, lastCode: string | null): string {
   return "It will send by itself when you have signal. You can close the app.";
 }
 
-// A plain anchor, not a router Link: the draft is gone, the outbox wants a
-// flush on app-open (FR-OFF-009), and the task list has just changed
-// server-side. Also keeps this screen renderable without a Router above it.
-function BackToWork() {
+// A plain anchor, not a router Link. Nothing on a screen that offers it needs
+// keeping in memory, a full load flushes the outbox on app-open (FR-OFF-009),
+// and the task list may have changed server-side. It also renders without a
+// Router above it.
+export function BackToWork() {
   return (
     <a className="cap-secondary" href="/my">
       My inspections

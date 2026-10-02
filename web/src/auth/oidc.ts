@@ -105,9 +105,9 @@ export function createAuth(settings: AuthSettings, redirectNavigator?: INavigato
       try {
         return { ...tokensOf(user), returnTo: returnToOf(user.state) };
       } catch (error) {
-        // The library has already stored this user (_buildUser,
-        // oidc-client-ts 3.5.0). A sign-in the store cannot use must leave
-        // nothing behind, or the next load renews it and fails again.
+        // signinRedirectCallback has already stored this user. A sign-in the
+        // store cannot use must leave nothing behind, or the next load renews
+        // it and fails again (spec section 4, The token store).
         await manager.removeUser();
         throw error;
       }

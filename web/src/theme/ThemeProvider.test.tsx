@@ -6,6 +6,8 @@ import { useEffect, useState } from "react";
 import { ThemeProvider } from "./ThemeProvider";
 import { useBranding } from "./themeContext";
 import { ActorContext } from "../auth/actorContext";
+import { writeMirror } from "../api/token";
+import { bearerSession } from "../test/bearerSession";
 import { me, testQueryClient } from "../test/fixtures";
 
 const BRANDING = { displayName: "Acme", primaryColor: "#123456", logoUrl: null };
@@ -38,23 +40,15 @@ function brandingKeys(): string[] {
   return Object.keys(window.localStorage).filter((k) => k.startsWith("tyre.branding."));
 }
 
-function stubAuthEnv() {
-  vi.stubEnv("VITE_AUTH_AUTHORITY", "https://idp.test/");
-  vi.stubEnv("VITE_AUTH_CLIENT_ID", "pwa");
-  vi.stubEnv("VITE_AUTH_API_SCOPE", "api://tyre-api/access_as_user");
-}
-
-function setMirror(tenantId: string | null) {
-  window.localStorage.setItem(
-    "tyre.auth.mirror",
-    JSON.stringify({
-      accessToken: "at",
-      expiresAt: Date.now() + 3_600_000,
-      obtainedAt: 0,
-      subject: "oid-a",
-      tenantId,
-    }),
-  );
+function signedIn(tenantId: string | null) {
+  bearerSession();
+  writeMirror({
+    accessToken: "at",
+    expiresAt: Date.now() + 3_600_000,
+    obtainedAt: 0,
+    subject: "oid-a",
+    tenantId,
+  });
 }
 
 beforeEach(() => {
@@ -73,9 +67,7 @@ afterEach(() => {
 
 describe("the branding cache key", () => {
   it("is the signed-in tenant the mirror learnt from /api/me", async () => {
-    window.localStorage.setItem("tyre.dev.auth", "bearer");
-    stubAuthEnv();
-    setMirror("t-1");
+    signedIn("t-1");
     mount();
     await waitFor(() => expect(window.localStorage.getItem("tyre.branding.t-1")).not.toBeNull());
   });
@@ -83,9 +75,7 @@ describe("the branding cache key", () => {
   // A key every tenant shares would paint one company's brand for the next
   // person on the phone.
   it("caches nothing while the tenant is unknown", async () => {
-    window.localStorage.setItem("tyre.dev.auth", "bearer");
-    stubAuthEnv();
-    setMirror(null);
+    signedIn(null);
     mount();
     await screen.findByText("Acme");
     expect(brandingKeys()).toEqual([]);
@@ -95,9 +85,7 @@ describe("the branding cache key", () => {
   // stays unknown, so the move can come only from ThemeProvider reading the
   // actor (ADR-0016).
   it("moves to the tenant when /api/me answers, without a reload", async () => {
-    window.localStorage.setItem("tyre.dev.auth", "bearer");
-    stubAuthEnv();
-    setMirror(null);
+    signedIn(null);
     let setActor: (actor: ReturnType<typeof me>) => void = () => undefined;
     function Parent() {
       const [actor, set] = useState<ReturnType<typeof me> | null>(null);

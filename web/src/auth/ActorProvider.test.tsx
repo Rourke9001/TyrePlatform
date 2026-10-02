@@ -1,11 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useContext } from "react";
 import { act, render, screen } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ApiError } from "../api/apiError";
 import { ActorProvider } from "./ActorProvider";
 import { AuthGate } from "./AuthGate";
-import { useAuthFailure } from "./actorContext";
+import { ActorContext } from "./actorContext";
 import { fetchMe } from "./me";
 import { me } from "../test/fixtures";
 
@@ -20,7 +21,7 @@ vi.mock("./oidc", () => ({
 const fetchMeMock = vi.mocked(fetchMe);
 
 function Probe() {
-  return <p>failure: {String(useAuthFailure())}</p>;
+  return <p>failure: {String(useContext(ActorContext).failure ?? null)}</p>;
 }
 
 function mount() {
