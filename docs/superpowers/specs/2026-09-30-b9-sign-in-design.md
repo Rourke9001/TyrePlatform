@@ -822,6 +822,10 @@ The PD-S3 guard lives on this button, not in `signOut()`. `signOut()` itself
 is unconditional, because the U104 undo has to sign a person out while
 another driver's inspections are held.
 
+While the guard reads storage, the button is disabled and still says "Sign
+out", because the guard may yet refuse. It says "Signing out…" only once the
+guard has passed and the auth chunk starts to load (U109).
+
 **When sign-out is refused.** It is refused while a draft or any outbox entry
 exists, whether queued, sending or failed (PD-S3). A storage read that fails
 at this guard reads as nothing held, so sign-out goes ahead. The refusal

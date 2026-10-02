@@ -30,13 +30,15 @@ export function SignOutButton() {
   const [failed, setFailed] = useState(false);
   // signOut() clears everything local before it can reject, and its resolve
   // is a navigation a bfcache restore can undo, so the button settles on
-  // either and the next render re-reads the subject (TYRE-317).
-  const [pending, setPending] = useState(false);
+  // either and the next render re-reads the subject (TYRE-317). The label
+  // reads "Signing out" only once the guard has passed, since until then the
+  // guard may refuse (U109).
+  const [phase, setPhase] = useState<"idle" | "checking" | "signing-out">("idle");
   if (!bearerMode() || lastKnownSubject() === null) return null;
 
   async function onClick() {
-    if (pending) return;
-    setPending(true);
+    if (phase !== "idle") return;
+    setPhase("checking");
     setFailed(false);
     // Emptied first so a repeat refusal with the same count is announced
     // again by the live region.
@@ -47,6 +49,7 @@ export function SignOutButton() {
         setHeld(work);
         return;
       }
+      setPhase("signing-out");
       let chunk;
       try {
         chunk = await authChunk();
@@ -65,7 +68,7 @@ export function SignOutButton() {
       // /api/me is asked again (spec section 4, Signing out).
       void queryClient.resetQueries();
     } finally {
-      setPending(false);
+      setPhase("idle");
     }
   }
 
@@ -76,10 +79,10 @@ export function SignOutButton() {
       <button
         type="button"
         className="auth-secondary"
-        aria-disabled={pending}
+        aria-disabled={phase !== "idle"}
         onClick={() => void onClick()}
       >
-        {pending ? "Signing out…" : "Sign out"}
+        {phase === "signing-out" ? "Signing out…" : "Sign out"}
       </button>
       <p role="status" className="auth-note auth-live">
         {held !== null ? stillHeld(held) : ""}
