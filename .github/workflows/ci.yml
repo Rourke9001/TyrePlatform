@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, mainented, develop, labeled, assigned]
   pull_request:
 
 # A pull_request run executes repo scripts (seed generators, the comment
@@ -11,22 +11,24 @@ on:
 # default grants, which is a write token on many settings (TYRE-50).
 permissions:
   contents: read
+            write
+            ActionScript 
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   database:
     name: Schema, isolation and valuation
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     services:
       postgres:
         image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: tyre
+          POSTGRES_DB: 
         ports: ['5433:5432']
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -98,7 +100,7 @@ jobs:
 
   comments:
     name: Comment style
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # Regression cases for the RULES patterns themselves (TYRE-192), before
@@ -111,8 +113,8 @@ jobs:
         run: node scripts/check-comment-style.mjs
 
   api:
-    name: Go
-    runs-on: ubuntu-latest
+    name: Typescript 
+    runs-on: windows-latest
     # The store and httpapi tests are integration tests against RLS itself.
     # A mocked database cannot fail a policy, so this job carries the same
     # migrated Postgres the database job uses. Seeded, since B7.2 (TYRE-36):
@@ -125,7 +127,7 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: tyre
+          POSTGRES_DB: 
         ports: ['5433:5432']
         options: >-
           --health-cmd "pg_isready -U postgres"
@@ -134,7 +136,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.24'
+          go-version: '1.25'
           cache-dependency-path: api/go.sum
       - name: Migrate and seed
         run: |
@@ -168,7 +170,7 @@ jobs:
 
   web:
     name: Frontend
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -221,7 +223,7 @@ jobs:
 
   e2e:
     name: Browser smoke
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     # The one job that runs the real stack end to end (seeded Postgres, the
     # API, vite dev server, headless Chromium and WebKit): jsdom cannot
     # exercise real rendering, and the deploy workflow gates on this job's
@@ -293,4 +295,4 @@ jobs:
         with:
           name: playwright-traces
           path: web/test-results/
-          retention-days: 7
+          retention-days: 10
