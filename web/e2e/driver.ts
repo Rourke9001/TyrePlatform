@@ -1,27 +1,21 @@
 import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
-// Shared by capture.spec.ts and reach.spec.ts rather than copied into each:
-// these are seed-derived ids and one entry path, and a second copy would drift
-// the moment the fixture's driver or its assignments change.
+import { actAs } from "./admin";
+import { MELUSI_DRIVER, TENANT_BAC } from "./bac";
+
+// Shared by capture.spec.ts and reach.spec.ts, not copied into each: a second
+// copy would drift from the fixture's driver and its assignments.
+// Seed-derived ids and dev actor headers, per admin.ts; the headers exist
+// only under import.meta.env.DEV, hence vite dev, never a build.
 //
-// Seed-derived ids and the dev actor headers, both per admin.ts. The headers
-// exist only under import.meta.env.DEV, hence vite dev, never a build.
-const DRIVER = "b85aef08-6081-80db-9d4d-dad38ae40545";
-const TENANT = "11111111-1111-1111-1111-111111111111";
+// TYRE-80's rule is Sandbox-only; BAC is the one documented exception (TYRE-208
+// F5). capture.spec.ts submits into BAC because its driver, their assignment
+// and the superlink live there, not in Sandbox's fixture. Nothing else may
+// write to BAC: its rows are the Appendix E/J acceptance fixture.
+export const HEADERS = { "X-Tenant-ID": TENANT_BAC, "X-User-ID": MELUSI_DRIVER };
 
-export const HEADERS = { "X-Tenant-ID": TENANT, "X-User-ID": DRIVER };
-
-// The dev actor switcher reads these keys before anything renders, so seeding
-// localStorage ahead of the first script is a real login as far as the app can
-// tell.
 export async function actAsDriver(page: Page): Promise<void> {
-  await page.addInitScript(
-    ([user, tenant]) => {
-      window.localStorage.setItem("tyre.dev.user-id", user);
-      window.localStorage.setItem("tyre.dev.tenant-id", tenant);
-    },
-    [DRIVER, TENANT],
-  );
+  await actAs(page, MELUSI_DRIVER, TENANT_BAC);
 }
 
 export interface AssignedVehicle {
@@ -29,11 +23,9 @@ export interface AssignedVehicle {
   fleetNumber: string;
 }
 
-// The way into a capture. The fixture seeds no inspection_task rows, which is
-// what smoke.spec.ts's "Nothing due." asserts, so DriverHome renders no link
-// to follow and /my cannot be the entry point. FR-AUT-005 scopes this endpoint
-// to the driver's own units, which makes it both the entry point and a check
-// that the scope predicate still holds.
+// The only way into a capture: the fixture seeds no inspection_task rows, so
+// /my has no link to follow. FR-AUT-005 scopes this endpoint to the driver's
+// own units.
 //
 // Selected by fleet number, never by index: the endpoint is ORDER BY
 // fleet_number, so one added unit would silently repoint every spec and with it

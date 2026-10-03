@@ -21,10 +21,9 @@ const ROLES: { value: TenantRole; label: string }[] = [
   { value: "ORG_ADMIN", label: "Organisation admin" },
 ];
 
-// Shared by the create and the assign mutation, so the sentence names the
-// action that was refused: ManageUsers and ManageAssignments are separate
-// capabilities (TYRE-83 narrows the first), and a refusal on the assignment
-// that speaks of adding a user points at the wrong one.
+// Shared by both mutations so the message names the action refused:
+// ManageUsers and ManageAssignments are separate capabilities (TYRE-83); a
+// wrong-action sentence points at the wrong one.
 function refused(error: unknown, action: "add a user" | "assign a unit"): string {
   return refusalMessage(error, {
     speakable: [
@@ -39,11 +38,9 @@ function refused(error: unknown, action: "add a user" | "assign a unit"): string
   });
 }
 
-// FR-AUT-010's invite, gated on ManageUsers or InviteDriver (D9, ADR-0011).
-// The assignment step follows the create rather than living on its own
-// screen: a driver with no assignment reaches no capture (FR-AUT-005,
-// app.v_capture_vehicle), so the two steps are one piece of work even though
-// they are two writes.
+// FR-AUT-010's invite (D9, ADR-0011: ManageUsers or InviteDriver). Assignment
+// follows create, not its own screen: an unassigned driver reaches no
+// capture (FR-AUT-005, app.v_capture_vehicle).
 export function AddDriver() {
   const tenantKey = getDevTenantId() ?? "default";
   const [email, setEmail] = useState("");
@@ -53,19 +50,12 @@ export function AddDriver() {
   const [created, setCreated] = useState<CreatedUser | null>(null);
   const [vehicleId, setVehicleId] = useState("");
   const [assignedTo, setAssignedTo] = useState<string | null>(null);
-  // Tanstack Query v5 clears create.error the instant the Reactivate click
-  // starts its own mutation, so re-deriving the offer's paragraph from
-  // create.error would swap in the generic sentence while that request is
-  // still in flight, announced by the role="alert" live region over a
-  // retry that is in fact succeeding. The server's message is captured once,
-  // when onError first learns it, and outlives the mutation that produced it
-  // (D10).
+  // Tanstack Query v5 clears create.error once Reactivate's mutation starts;
+  // re-deriving from it here would announce the fallback over a retry that
+  // is succeeding. Captured once in onError, kept regardless (D10).
   const [rehire, setRehire] = useState<{ email: string; message: string } | null>(null);
-  // Whether the success sentence says "restored" or "added" (TYRE-95): an
-  // admin who restored someone with years of history must not read that they
-  // added a stranger. Derived from the request that succeeded: a
-  // reactivate: true that matched nobody is refused, never a create, so the
-  // flag cannot lie about which happened.
+  // "restored" vs "added" (TYRE-95): derived from which request succeeded,
+  // so it cannot claim a stranger joined when history came back.
   const [restored, setRestored] = useState(false);
 
   // D9. ManageUsers offers the whole list; InviteDriver alone offers DRIVER.

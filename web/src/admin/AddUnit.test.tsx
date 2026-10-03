@@ -1,17 +1,12 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { AddUnit } from "./AddUnit";
-import { respond, testQueryClient } from "../test/fixtures";
+import { renderWithActor, respond } from "../test/fixtures";
 
 function renderScreen() {
-  return render(
-    <QueryClientProvider client={testQueryClient()}>
-      <AddUnit />
-    </QueryClientProvider>,
-  );
+  return renderWithActor(<AddUnit />);
 }
 
 const CONFIGS = [{ id: "c1", code: "HORSE_6X4", name: "Horse 6x4", version: 1, axleCount: 3 }];

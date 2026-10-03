@@ -7,9 +7,11 @@ import type { Me } from "../auth/me";
 import { me } from "../test/fixtures";
 import {
   formatTenantDate,
+  formatTenantInstant,
   INVALID_INSTANT,
   tenantDateFormatter,
   useTenantDate,
+  useTenantInstant,
 } from "./tenantTime";
 
 // A fixed instant in two zones 25 hours apart. Their civil dates can never
@@ -31,11 +33,9 @@ describe("formatTenantDate", () => {
     expect(formatTenantDate("2026-03-14T22:30:00Z", "America/Los_Angeles")).toBe("14 Mar 2026");
   });
 
-  // formatTenantDate's own comment (tenantTime.ts) says why a calendar date
-  // is formatted in UTC rather than projected through a zone. Pinned against
-  // Pacific/Midway (UTC-11) because a west-of-UTC zone is where projecting
-  // the instant loses a day; east of UTC it rolls forward and reads
-  // correctly anyway.
+  // Pinned against Pacific/Midway (UTC-11), where projecting the instant
+  // loses a day; formatTenantDate's own comment says why a calendar date is
+  // formatted in UTC instead.
   it("formats a bare YYYY-MM-DD date in the date itself, not the instant UTC midnight becomes in the zone", () => {
     expect(formatTenantDate("2026-01-05", "Pacific/Midway")).toBe("05 Jan 2026");
   });
@@ -47,12 +47,10 @@ describe("formatTenantDate", () => {
     expect(formatTenantDate("2026-01-05", "Africa/Johannesburg")).toBe("05 Jan 2026");
   });
 
-  // The date-only branch is gated on a strict YYYY-MM-DD regex; a full ISO
-  // instant must still take the zone-projecting path, which is the one this
-  // module exists for (rule 6) and the case above already pins in both
-  // directions. This is the same assertion restated with the module's
-  // top-level `instant` fixture, so a regex broad enough to swallow instants
-  // fails here even if it happened to agree with the case above by luck.
+  // A full ISO instant must still take the zone-projecting path, not the
+  // date-only regex branch; restated with the module's top-level `instant`
+  // fixture so a too-broad regex fails here even if it agreed with the case
+  // above by luck.
   it("still projects a full ISO instant through the tenant zone, not the date-only path", () => {
     expect(formatTenantDate(instant, "Africa/Johannesburg")).toBe("02 Jan 2026");
   });
@@ -87,11 +85,9 @@ describe("formatTenantDate", () => {
   });
 });
 
-// The cache is keyed per zone; tenantDateFormatter's own comment
-// (tenantTime.ts) says why. Reusing one instance is the optimisation, but
-// the assertion that matters is the second one: a wrong key would render
-// every tenant in the first tenant's zone (rule 6), a far worse defect than the
-// construction cost the cache removes.
+// The cache is keyed per zone (tenantDateFormatter's own comment says why);
+// the assertion that matters is that a wrong key would render every tenant
+// in the first tenant's zone, not the construction cost saved.
 describe("tenantDateFormatter", () => {
   const instant = "2026-01-01T23:00:00Z";
 
@@ -162,5 +158,79 @@ describe("useTenantDate", () => {
     const first = result.current;
     rerender();
     expect(result.current).toBe(first);
+  });
+});
+
+describe("formatTenantInstant", () => {
+  // Africa/Johannesburg is UTC+2 with no daylight time: 07:10Z is 09:10.
+  // The wire's asAt carries six fractional digits (Go's time.Time).
+  it("renders a UTC instant as the tenant's civil date and time", () => {
+    expect(formatTenantInstant("2026-09-22T07:10:45.563568Z", "Africa/Johannesburg")).toMatch(
+      /^22 Sept? 2026 09:10$/,
+    );
+  });
+
+  // Rule 6: the same instant in a zone eleven hours west of UTC is the
+  // previous day, so neither the runner's zone nor the first zone the
+  // cache met can pass for the tenant's.
+  it("renders the same instant on another tenant's day in another zone", () => {
+    expect(formatTenantInstant("2026-09-22T07:10:45.563568Z", "Africa/Johannesburg")).toMatch(
+      /^22 Sept? 2026 09:10$/,
+    );
+    expect(formatTenantInstant("2026-09-22T07:10:45.563568Z", "Pacific/Midway")).toMatch(
+      /^21 Sept? 2026 20:10$/,
+    );
+  });
+
+  // hourCycle h23: some ICU builds write midnight as "24:00" under hour12.
+  it("writes midnight as 00:00", () => {
+    expect(formatTenantInstant("2026-09-21T22:00:00Z", "Africa/Johannesburg")).toMatch(
+      /^22 Sept? 2026 00:00$/,
+    );
+  });
+
+  it("marks an unparseable instant the same way the date formatter does", () => {
+    expect(formatTenantInstant("not a date", "Africa/Johannesburg")).toBe("invalid date");
+  });
+});
+
+describe("useTenantInstant", () => {
+  const instant = "2026-09-22T07:10:45.563568Z";
+
+  const driver = me({
+    userId: "u1",
+    displayName: "Driver",
+    role: "driver",
+    capabilities: ["CaptureInspection"],
+  });
+
+  function withActor(actor: Me | null, settled: boolean) {
+    return function Wrapper({ children }: { children: ReactNode }) {
+      return <ActorContext.Provider value={{ actor, settled }}>{children}</ActorContext.Provider>;
+    };
+  }
+
+  it("renders the tenant's zone once the actor arrives", () => {
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(driver, true) });
+    expect(result.current(instant)).toMatch(/^22 Sept? 2026 09:10$/);
+  });
+
+  it("renders a tenant west of UTC on its own day", () => {
+    const west = me({ ...driver, timezone: "Pacific/Midway" });
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(west, true) });
+    expect(result.current(instant)).toMatch(/^21 Sept? 2026 20:10$/);
+  });
+
+  // Staging 401s everyone until TYRE-2 (TYRE-95): when /api/me has failed
+  // the UTC fallback never lifts, so the instant must say it is provisional
+  // rather than read the time out with full confidence.
+  it("marks the instant provisional once the actor request has errored", () => {
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(null, true) });
+    expect(result.current(instant)).toMatch(/^22 Sept? 2026 07:10 \(UTC\)$/);
+  });
+
+  it("never marks the invalid-instant marker provisional", () => {
+    const { result } = renderHook(() => useTenantInstant(), { wrapper: withActor(null, true) });
+    expect(result.current("not-a-date")).toBe(INVALID_INSTANT);
   });
 });

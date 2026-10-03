@@ -2,17 +2,9 @@ import type { KeyboardEvent } from "react";
 
 import type { UnitPosition } from "../../api/units";
 
-// The vehicle in plan view, drawn from the unit's own positions: axles left
-// to right, LEFT above the chassis line and RIGHT below it, OUTER further
-// from the line than INNER, spares in their own column beside axle 1. Every
-// coordinate is derived from the array, so a superlink and a light vehicle
-// are the same code. A fleet's axle library is tenant data (FR-VEH-002) and
-// a layout that assumed three axles would be wrong for most of it.
-//
-// Occupancy is stated in text, never by colour alone (NFR-USE-009): each
-// position carries its code and either its tyre's display code or the word
-// "empty", and the selected one is marked by aria-pressed and a heavier
-// outline rather than a fill.
+// The unit in plan view, drawn entirely from its positions, so a superlink
+// and a light vehicle run the same code (a fleet's axle library is tenant
+// data, FR-VEH-002). Occupancy is text, never colour alone (NFR-USE-009).
 
 const POS_W = 58;
 const POS_H = 24;
@@ -21,17 +13,13 @@ const SLOT_GAP = 4;
 const BEAM_GAP = 15;
 const AXLE_PITCH = POS_W + 26;
 const PAD = 6;
-// A stroke straddles its path, so half of it falls outside the rect's own
-// box. Without this margin the outermost positions, flush against the top
-// and bottom of the drawing, would have that half clipped by the viewBox,
-// and the selected position's heavier stroke would clip worse than the rest.
+// A stroke straddles its path, so half falls outside the rect's own box;
+// without this margin the outermost positions would clip against the
+// viewBox.
 const STROKE_MARGIN = 2;
-// Two slots deep is app.fitment_slot's maximum (SINGLE, or OUTER/INNER), so
-// the axle stack reaches a fixed distance either side of the chassis line
-// whatever the unit is. The drawing's own height is not fixed: the spare
-// column runs downward from the centre and a fleet's spare count is tenant
-// data (FR-VEH-002), so the viewBox holds whichever of the two stacks is
-// taller.
+// Two slots deep is app.fitment_slot's maximum, so the axle stack reaches
+// a fixed distance either side of the chassis line; the drawing's height
+// is not fixed, since spare count is tenant data (FR-VEH-002).
 const HALF_H = BEAM_GAP + 2 * POS_H + SLOT_GAP + STROKE_MARGIN;
 const AXLE_STACK_H = 2 * HALF_H;
 const CENTRE_Y = HALF_H;

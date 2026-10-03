@@ -19,8 +19,12 @@ isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
 
 A change is a new pair `migrations/NNNNNN_name.up.sql` + `.down.sql` (next
 number in sequence, golang-migrate). Never edit a migration that is already
-on `main` — it has run somewhere and will not run again. Migrations never
-DROP what they did not create; `make db-reset` owns destruction.
+on `develop` — it has run somewhere and will not run again, and a hook
+refuses the edit (TYRE-250). Migrations never DROP what they did not
+create; `make db-reset` owns destruction.
+
+Numbering spans directories because it is load order: migrations, then
+`seeds/002` and `003`, then the suite `tests/004`.
 
 ## Adding a table
 
@@ -35,10 +39,27 @@ That procedure does `ENABLE`, `FORCE`, and a policy with both `USING` and
 the role migrations run as. Without `WITH CHECK`, a caller can *write* rows
 into another tenant even though it cannot read them.
 
+`SELECT` arrives by default on every table `postgres` creates in `app`:
+000001's `ALTER DEFAULT PRIVILEGES IN SCHEMA app GRANT SELECT ON TABLES TO
+app_rw` grants it the moment a table exists, before anyone decides whether
+it is tenant-scoped. A blanket `GRANT ALL` run later (see Append-only,
+below) is a separate, later hazard, not this one. `enable_tenant_rls` is
+what makes the default ACL safe. Check 12 sweeps every table in `app`,
+ordinary and partitioned (`relkind` `r` and `p`), not only tables with a
+`tenant_id` column, so a table missing `ENABLE`/`FORCE` fails the build
+regardless of the default ACL. A partitioned table needs
+`enable_tenant_rls` on the parent as well as on each partition: a query on
+the parent applies only the parent's policies.
+
+The default ACL covers every relation kind, and a materialized view or a
+foreign table cannot carry a policy, so check 12 refuses either one in `app`
+outright. Derived rows that must be stored go in a table with RLS, the way
+`valuation_snapshot` does.
+
 Nothing to add to the isolation test: its sweep reads `pg_class` for every
-table with RLS on and a `tenant_id` column, so a new table enrols itself. If
-it does *not* appear, that is the finding — check 12 fails a tenant-scoped
-table that was never enrolled.
+table (`r` or `p`) with RLS on and a `tenant_id` column, so a new table
+enrols itself. If it does *not* appear, that is the finding — check 12 fails
+a tenant-scoped table that was never enrolled.
 
 ## Adding a view
 
@@ -50,6 +71,29 @@ Not optional. A view without it executes with its **owner's** privileges, so
 RLS is evaluated as the migration role and the view returns every tenant's rows
 to any caller. Check 8b fails the build if you forget, which is the only reason
 this is merely a footgun rather than a breach.
+
+## Adding a function
+
+Invoker rights, always; the one definer is `app.refresh_governing_tread`
+(000004, body since 000050), and a new definer needs a review and a suite
+section before it lands (check 8c). A new function is executable by
+PUBLIC by default, so a definer's migration revokes EXECUTE from PUBLIC and
+app_rw: a caller who can execute it can attach it as a trigger to a table
+of its own (section 67, TYRE-346). Every plpgsql routine pins `SET
+search_path = app, pg_temp`, because plpgsql resolves unqualified names
+when it runs and would otherwise follow the caller's path (TYRE-181). A
+`LANGUAGE sql` table function that a view is built over carries no pin:
+the planner inlines
+those and a SET clause blocks the inlining (000036). Check 8d holds both
+halves. Cite this section from a migration; do not restate it.
+
+Everything the definer reaches, including the snapshot reconcile and
+`app.tyre_valuation_asof`, runs with RLS off. A lookup there that finds its
+rows through a tenant-leading index must name the tenant in its text, or
+the planner cannot use the index and one tenant's submit grows with every
+tenant's history (TYRE-259). A primary-key probe needs no tenant. Suite
+section 65 pins the three predicates in place. The fitment one has no index
+to use yet, and `app.tyre_in_estate_asof` names no tenant (both TYRE-347).
 
 ## Money
 
@@ -75,10 +119,39 @@ a new capture.
 Careful: a blanket `GRANT ALL ON ALL TABLES IN SCHEMA app TO app_rw` in a later
 migration silently undoes those revokes. Check 4 catches it.
 
+Check 4 treats `UPDATE` as deny-by-default: it fails on any table the app
+role can update, at table or column level, that is not on its allow-list.
+A new table the app edits in place goes on that list in the same change;
+everything else stays a record of fact (TYRE-309).
+
+## Loading readings from outside
+
+Never load `reading_measurement` with triggers disabled.
+`session_replication_role = replica`, which is what `pg_restore
+--disable-triggers` and most bulk loaders use, switches off every trigger on
+the table rather than the one being avoided. `reading_measurement_governs`
+goes with it, so `reading.governing_tread_mm` is left NULL and the valuation
+and exception views see nothing (TYRE-254).
+
+Nothing forces that choice. Ordinary `INSERT` and ordinary `COPY` both satisfy
+the ordinal check, and it constrains numbering rather than completeness: one
+measurement is a valid set, so is two. Number ordinals densely from 1 in
+capture order, put the anatomy in `position`, and set `orientation_known =
+false` where the outer/centre/inner convention did not apply (CHG-011). A
+history that cannot be numbered 1..n is a question about what the data means,
+to answer before the load.
+
 ## Seeds
 
 `gen_seed_configurations.py` and `gen_seed_fixture.py` are the **single source
 of truth** for the axle configuration library — SRS Appendix I was produced
 from the same model, so the spec and the seed data cannot drift. Change the
 generator, never the generated SQL. The output is gitignored and CI asserts it
-is deterministic.
+is deterministic. `seed_policy.py` holds the policy literals all three
+generators read.
+
+`gen_seed_volume.py` is the third generator and the odd one out: it writes
+Sandbox Fleet's volume tenant for the dashboard read-path measurement
+(TYRE-247) and is loaded only by `make db-volume`, never by `db-reset`, so
+the verification suite stays defined on the pinned fixture. It is hashed by
+CI like the other two.

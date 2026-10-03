@@ -1,13 +1,7 @@
 -- ============================================================================
---  Privileged negative controls. Run as postgres, through make
---  db-test-privileged, inside BEGIN/ROLLBACK. This file is NOT the
---  verification suite and proves nothing about RLS: a superuser bypasses
---  every policy. It exists for the one class of check app_login cannot stage,
---  a composite foreign key removed for the length of a transaction so that a
---  backstop inside a SECURITY DEFINER chain can be watched refusing the row
---  the key would otherwise make unconstructable (TYRE-38; B7 spec U12;
---  000004's note on why refresh_governing_tread's chain carries backstops at
---  all). Every block ends in ROLLBACK; nothing here may commit.
+-- Privileged negative controls, run as postgres via make db-test-privileged.
+-- Proves nothing about RLS on its own (B7 spec U12); see db/CLAUDE.md.
+-- Every block ends in ROLLBACK (TYRE-38).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -31,12 +25,9 @@ DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
         rd constant uuid := md5('p1rd')::uuid;
         msg text; fired boolean := false;
 BEGIN
-  -- Staging for TYRE-38's backstop, not part of the assertion. The BAC
-  -- inspection is created in THIS transaction: 000040's seal refuses a
-  -- reading on any inspection whose created_at is not this transaction's
-  -- timestamp, so a seeded inspection can never be reached here. Second
-  -- Fleet seeds no tyre, and reading_tyre_id_fkey is composite on
-  -- (tenant_id, tyre_id), so one is planted for the reading to name.
+  -- Staging for TYRE-38: the inspection is created in this transaction so
+  -- 000040's seal does not refuse it; the tyre is planted since
+  -- reading_tyre_id_fkey is composite on (tenant_id, tyre_id).
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
   VALUES (insp, t1, md5('veh1')::uuid, md5('driver1')::uuid, md5('p1cli')::uuid,
           now() - interval '10 minutes', now() - interval '5 minutes', 412600);
@@ -53,12 +44,9 @@ BEGIN
   -- governing_tread_mm, and the AFTER UPDATE trigger runs
   -- snapshot_on_governing_change, whose first act is the tenant check.
   BEGIN
-    -- Three, contiguous from 1: the tenant's tread_reading_count and what a
-    -- real capture writes (CR-011), so the row a superuser plants is shaped
-    -- like the one the FK is there to stop rather than like a shape 000001's
-    -- deferred contiguity trigger would refuse on its own. Only the first
-    -- row's AFTER trigger changes governing_tread_mm, so that is the one the
-    -- backstop is reached from.
+    -- Three readings, contiguous from 1 (CR-011): shaped like a real capture
+    -- so 000001's contiguity trigger does not refuse it before the backstop
+    -- under test is reached.
     INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known, granularity_mm)
     VALUES (t2, rd, 1, 'OUTER', 3.0, true, 1.0),
            (t2, rd, 2, 'CENTRE', 3.0, true, 1.0),
@@ -91,11 +79,9 @@ DECLARE t1 constant uuid := '11111111-1111-1111-1111-111111111111';
         rd constant uuid := md5('p2rd')::uuid;
         msg text; fired boolean := false;
 BEGIN
-  -- The mirror of P1, staging TYRE-38's second backstop: a BAC reading
-  -- naming a Second Fleet tyre. The inspection check passes (same tenant);
-  -- the tyre check inside reconcile_valuation_snapshots (000029) is the one
-  -- reached, on the branch section 20 cannot exercise because RLS is bound
-  -- there.
+  -- Mirror of P1, TYRE-38's second backstop: a BAC reading naming a Second
+  -- Fleet tyre reaches 000029's tyre check, the branch check 20 cannot
+  -- exercise with RLS bound.
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
   VALUES (insp, t1, md5('veh1')::uuid, md5('driver1')::uuid, md5('p2cli')::uuid,
           now() - interval '10 minutes', now() - interval '5 minutes', 412600);

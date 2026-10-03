@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-10 · **Batch:** B7 (`docs/implementation-order.md` §B7) ·
 **Tickets:** TYRE-41, TYRE-211 (resolver half), TYRE-183, TYRE-193, TYRE-38,
-TYRE-36, and new tickets under TYRE-7 for the design system, the dashboard and
+TYRE-252, TYRE-247, TYRE-36, and new tickets under TYRE-7 for the design system, the dashboard and
 the restyle · **Riders:** TYRE-176, TYRE-182, the two capture defects raised by
 this spec · **Authority:** SRS v1.4 §4.10 (FR-VAL-010..013, 020..022, 031),
 §4.11 (FR-ANL-023..028, 044, 045), §4.12.2 (FR-RPT-040, 041), §4.13 and §4.13.1
@@ -33,11 +33,12 @@ are proven only by `db/tests/004_tests.sql`, the API serves no aggregate and no
 exception, and the web app has no dashboard: a manager who logs in lands on the
 unit list.
 
-B7 closes that gap, in four slices:
+B7 closes that gap, in four slices and one substrate slice between the first two:
 
 | Slice | Tickets | One sentence |
 |---|---|---|
 | **B7.1** | TYRE-41, TYRE-211 (resolver), TYRE-183, TYRE-193 (view), TYRE-38 rides | One exception view scoped to each unit's latest inspection, two resolvers, one value-at-risk view, and the suite pins 19, 11 and 9 as numbers through them. |
+| **B7.1.5** | TYRE-252, then TYRE-247 | TYRE-252 first: the measurement-ordinal trigger becomes statement-level (000046). Then a volume tenant in Sandbox Fleet, the dashboard read path measured on it, and the index the measurement warrants (000047), so B7.2 carries no migration (U21). |
 | **B7.2** | TYRE-36, TYRE-193 (endpoint) | Tenant-scoped, depot-scoped read endpoints that relay those views, money as exact decimal strings, cent-exact integration tests. |
 | **B7.3** | new: ADR-0015 and the dashboard, under TYRE-7 | The design system on tokens, plain CSS and Radix primitives, and the manager landing page led by value at risk. |
 | **B7.4** | new: the restyle, under TYRE-7; carries TYRE-176, TYRE-182 and the two capture defects | Every existing fleet and admin screen moves onto the design system; the capture sheet gets defect fixes only. |
@@ -91,7 +92,7 @@ as a design first and as code second.
 | **U8** | **The value-at-risk headline counts running positions only; spares are a disclosed second line.** | BR-RPT-001 excludes spares from tread reporting by default and FR-RPT-005 requires the report to say so. | One filter and one column. |
 | **U9** | **`app.v_spare_tyre_age` is re-created** on the tenant's calendar day (`app.tenant_today`) and the latest reading. | It uses `current_date` (rule 6) and `t.last_tread_at`, the audit column, where the latest reading exists; the spares list (FR-DSH-019) would be wrong on the dashboard. | One view. |
 | **U10** | **`app.target_pressure_for` is extracted, returns NULL for a SPARE unconditionally, and `inflation_compliance` calls it.** B7.2 moves the capture context's inlined copy in Go onto it. | Three pressure-target resolutions exist (000013's LATERAL, `capture.go`'s LATERAL, section 8's axle-only join) and they disagree on the spare: only `capture.go` guards `axle_class <> 'SPARE'`. The exception view would be a fourth. FR-CFG-013 (errata E1) says a spare's pressure is unclassifiable; that rule lives in the one resolver. | None; identical rows, pinned, including a planted tenant-wide row. |
-| **U11** | **The three write-side `threshold_policy` reads (`fit_tyre`, `dispatch_tyre`, `log_retread_return`) stay with TYRE-211's remainder.** B7.1 lands the resolver, moves `removal_threshold_mm_for` onto it, and the new views consume it. | Those three functions were re-created whole in B6.3; reopening them in a read batch widens the blast radius for no dashboard gain. After B7.1 the comparator still lives in four bodies; TYRE-211's remainder moves the three onto the resolver and TYRE-142 (three callers passing `now()` into the exclusive `p_before`) settles the comparator once. | None. |
+| **U11** | **The three write-side `threshold_policy` reads (`fit_tyre`, `dispatch_tyre`, `log_retread_return`) stay with TYRE-211's remainder.** B7.1 lands the resolver, moves `removal_threshold_mm_for` onto it, and the new views consume it. | Those three functions were re-created whole in B6.3; reopening them in a read batch widens the blast radius for no dashboard gain. After B7.1 the comparator still lives in four bodies; TYRE-211's remainder moves the three onto the resolver and TYRE-142 (three callers passing `now()` into the exclusive `p_before`) settles the comparator once. Superseded by U24 (owner, 15 Sep 2026). Migration 000048 (W5a, 24 Sep 2026) moved the three onto the inclusive sibling `app.threshold_policy_in_force`, not onto `app.threshold_policy_for`. | None. |
 | **U12** | **TYRE-38 is proven by a superuser-staged negative file**, `db/tests/005_privileged.sql`, run as `postgres` inside `BEGIN … ROLLBACK` from a new `make db-test-privileged` target that `make test` and CI call after the app_login suite. `make db-test` stays exactly what it is. | The backstop cannot be watched red as `app_login` (dropping a composite FK is a superuser act). A control that ships without ever being seen to fire is worth less than it appears (TYRE-38's own words). The alternative, an accepted-risk note, is the reversal. | One file, one make target, one CI step, and the one-line exception added to the five sentences that say the suite is app_login-only (§Non-ticket deliverables). |
 | **U13** | **B7.1's view also carries FR-EXC-023, 028 and 039**, all POC rules computable from the latest readings, all producing zero rows on the fixture. **FR-EXC-037 is not carried**: Appendix H.2 defers it, so J.2's two axle rows are excluded from the 19 and the view emits none. | Adding rules later means a second migration re-creating the view; pinning their zeros now documents the boundary J.2 states for 039 ("not raised"). FR-EXC-026, 027 and 029 are unit-level and served as their own tiles (§B7.2); FR-EXC-041 is unconstructable under 000030. | Three predicates. |
 | **U14** | **`resolved_by_fitment` is a column of the view, computed.** Open means not resolved. | FR-EXC-010 is in H.1; a dashboard that keeps shouting about a tyre replaced last week is the "permanently-red dashboard that trains users to ignore alerts" §4.13 warns against. Computed from the open fitment, so no write path. | One column. |
@@ -101,6 +102,52 @@ as a design first and as code second.
 | **U18** | **Exception rules are judged at the inspection's `submitted_at`; the register and the value-at-risk hero are judged at today.** The two agree on the fixture and diverge after a policy change or a removal, and the dashboard names which figure comes from which (§B7.3). | FR-EXC-001 evaluates rules against the submitted inspection at receipt, and FR-CFG-051 applies a policy change prospectively; the snapshot trigger prices at the snapshot's date for the same reason. FR-VAL-031 and FR-DSH-004 say "currently", which is the register. Every exception row carries the threshold it was judged against, so it explains itself. Section 59 pins both behaviours with a planted later policy row. | One `bound` expression. |
 | **U19** | **FR-EXC-032 is not a rule row; it is the money attribute of the 020 and 038 rows**, served by `v_tyre_at_risk`. Consequence: it cannot be disabled separately from 020 under FR-EXC-004. TYRE-193's "the FR-EXC-032 rule row" is read as "the rule's figure exists", not as a tenth row. | A row that duplicates 020's subject and predicate with a rand column would be one open exception per subject twice (FR-EXC-006). | One seeded row. |
 | **U20** | **`v_exception`'s subject vocabulary is the table's: TYRE, POSITION_PAIR, VEHICLE**, and a reading with no tyre on record raises no row. 000045 replaces `app.exception.subject_type`'s comment so B8 inherits one vocabulary. | Two vocabularies for one concept is the second-implementation smell. A position with nothing recorded on it has nothing to remove; it surfaces on the register as an unknown position (FR-INS-026), not here. | One CASE. |
+| **U21** | **TYRE-247 is its own DB-only slice, B7.1.5, ahead of B7.2, and B7.2 carries no migration.** Migration 000047 belongs to B7.1.5 if the measurement warrants an index (000046 is TYRE-252's, which lands first); a maintained latest-per-unit relation is a write path and gets its own ticket and an ADR first. | TYRE-247's definition of done is measure-first on representative data, Sandbox Fleet deliberately carries no readings, and no volume generator exists, so the measurement cannot happen inside a read batch without first building one; and the auditors' scope for B7.2 stays read-only. Owner, 15 Sep 2026. | One extra PR. |
+| **U22** | **Representative volume is 60 units, inspected fortnightly, 24 months of history, in Sandbox Fleet only**, from a committed `db/seeds/gen_seed_volume.py` behind an opt-in `make db-volume` that `make db-reset` never runs. Measured on the docker laptop first, again on Azure once TYRE-79 lands. | BAC's rows are the acceptance fixture and must not move; a generator that is committed and deterministic can be re-run for every later measurement instead of re-derived. Owner, 15 Sep 2026. | A seed file and a make target. |
+| **U23** | **TYRE-211's three write sites do not ride B7.2.** The remainder and TYRE-142 are one DB-only PR after B7.2. The B7.2 row in `docs/implementation-order.md` is corrected. | B7.2 stays read-only; the three functions were re-created whole in B6.3; the two tickets share the Appendix E/J pin-run gate and the append-only auditor's scope. Owner, 15 Sep 2026. | A docs row and sequencing. |
+| **U24** | **`p_before` stays exclusive; the callers that mean "in force now" share one inclusive sibling body.** Only `current_removal_threshold_mm` (000006) and `v_removal_forecast` (000013) pass `now()`; the write sites already read `<= now()` inline. | The day-edge callers (`tyre_valuation_asof`, `v_exception` at `submitted_at`) are right as they are; the smaller change is at the two callers, not the resolver. Owner, 15 Sep 2026; taken with U23. | Conditional on U23. |
+| **U25** | **A depot-scoped actor's landing sums across their depot set in SQL**, labelled "across your N depots"; the depot filter lists only theirs. The fixture gains a multi-depot control in Sandbox Fleet for B7.2's integration tests. | DEPOT_MANAGER holds ViewValuation and TECHNICIAN holds ViewFleet, both ScopeDepot (`auth.go`); a manager of two depots asks one question of the page. Composition stays in SQL (ADR-0006 option C). Owner, 15 Sep 2026. | A seed edit. |
+| **U26** | **`GET /api/dashboard` stays one transaction (U17) with a first-call budget of 500 ms server-side on the U22 tenant**, applied to the warm run; the cold run is recorded beside it. A miss is fixed by B7.1.5, never by splitting the call. | A split would break the shared as-at instant U17 exists for. Owner, 15 Sep 2026. | None. |
+| **U27** | **The two casing partitions never share a struct.** Value at risk exposes `estimated_or_audit_count` with `audit_count` nested (D4); the estate exposes the three disjoint `casing_*_count` columns; each keeps its own view's field names. The hero shows the nested share as a footnote ("of which N audit"); no client arithmetic. B7.3's ProvenanceSplit takes named segments. | Both counts are right under their own authority (TYRE-247); a shared shape would force one to lie. Owner, 15 Sep 2026. | A string. |
+| **U28** | **Inflation compliance's default window is a new configuration key, `inflation_compliance_window_days`, seeded per tenant at 30.** A missing key reads as "not configured", never a Go constant. | Rule 5. Seed change, not a migration. Owner, 15 Sep 2026. | One seed line. |
+| **U29** | **`tread_source = 'AUDIT'` is the documented umbrella for "measured outside an inspection"** (onboarding audit, fitment, removal, rotation, retread return), said in those words in the column comment and the B7.3 legend; B7.2 relays it unchanged. TYRE-125 closed on this; TYRE-113 owns the derivable label. | A `FITMENT` label re-creates `tyre_valuation_asof` (000036 is applied) and still misnames a removal-written or retreader-written tread. Owner, 15 Sep 2026. | A legend string; a view change later. |
+| **U30** | **Estate as-at (`asAt=`) aggregates `app.tyre_valuation_asof` with an inline `GROUP BY` in the handler's SQL**, no new function. | ADR-0006 composition; aggregation of a function's rows in one statement is SQL, not a Go recomputation. Planner's default, accepted 15 Sep 2026. | None. |
+| **U31** | **Money on the wire is the exact decimal string** (as `tyres.go`), and the web tier never converts or sums one: a build gate rejects `Number(`, `parseFloat(` and arithmetic on a money field, mirroring the Go money-path `float64` grep. Every total is a SQL column; a figure the page needs that is not a column is a view change, ticketed. | A JSON number is a double in most parsers; a client-side sum reintroduces the rounding the string boundary removed. Owner, 15 Sep 2026. | One lint rule. |
+| **U32** | **The inflation compliance tile and route answer `unavailable: "TENANT_ONLY"` for a `ScopeDepot` actor.** `app.inflation_compliance` counts the tenant's readings and has no depot parameter; giving it one is a function change, so a migration, which U21 keeps out of B7.2. A ticket raises the depot-scoped variant as a DB-only follow-up. | Planner's default, 16 Sep 2026; stands unless vetoed on TYRE-36. Reimplementing the banding in Go is the second implementation this batch exists to avoid; relaying the tenant figure to a depot actor is FR-AUT-006's leak in miniature. | A function parameter, one migration, later. |
+| **U33** | **The two-depot control for the depot-scope tests is planted by the Go tests in a throwaway tenant, not seeded into Sandbox.** U25 said the fixture gains one; the seed pins BAC at exactly one depot-scoped user and Sandbox deliberately carries no tyres or readings, so a seeded control moves what U22 keeps still. `plantDepotFixture` is the control. | Planner's default, 16 Sep 2026; stands unless vetoed on TYRE-36. The Go suite already plants every actor it needs; the CI Go job now also loads the seed so the BAC pins run there, but nothing pinned depends on a planted row. | A seed edit, if a `make db-test` section ever needs the control. |
+| **U34** | **`GET /api/analytics/removal-forecast` and the dashboard take `from=` (YYYY-MM-DD), defaulting in SQL to the tenant's today.** Section 59e pins 6 due within 30 days of 2026-08-01 by filtering the view by hand (`forecast_status = 'FORECAST' AND NOT is_spare`); `app.removal_forecast_within` filters neither, so the endpoint's SQL carries both predicates and a date, and the test pins 6 at 2026-08-01 rather than at the clock. | Planner's default, 16 Sep 2026; stands unless vetoed on TYRE-36. `docs/lessons.md` 2026-09-03: no test derives a tenant-relative date from the browser or CI clock. | None. |
+| **U35** | **The estate endpoint has one path, the as-at aggregation over `app.tyre_valuation_asof` (U30), with `asAt` defaulting to UTC today (the view's own day), and a Go test pins its rows at that default to `app.v_estate_valuation`'s rows for every level.** | Planner's default, 16 Sep 2026; stands unless vetoed on TYRE-36. A depot actor's SIZE/BRAND/PATTERN rows cannot be scoped through the view at all, and the view's DEPOT rows carry no `depot_id`; the function path filters by `depot_id` before grouping and serves every level the same way. The drift test is what keeps the copy honest. | Deleting the drift test and reading the view, later. |
+| **U36** | **Aggregate money fields are `null`, not absent, when hidden or unvalued, and the body carries `moneyVisible`.** `moneyVisible: false` means projection; `moneyVisible: true` with `null` means every member was unvalued, and `unvaluedCount` says how many. A class with no tyre also sends null, and it renders as its empty-set absence, never "Not valued" (TYRE-239 review). | Planner's default, 16 Sep 2026; stands unless vetoed on TYRE-36. `tyres.go`'s `omitempty` drops a hidden field; an aggregate sum is also legitimately NULL (59d), and one tag cannot express both. NFR-PRO-002 and NFR-PRO-003: absence is disclosed, never rendered as 0. | A tag. |
+| **U37** | **The web money gate is a type-aware ESLint rule (`house/money-stays-string`) over a branded `Money` type, not a name-keyed grep.** It fires on `Number()`, `parseFloat()`, `parseInt()`, unary plus and minus, `- * / % **`, `Money + Money`, and the compound forms, on any operand whose type carries the brand. B7.3's client types the dashboard's money fields as `Money`. | Planner's default, 16 Sep 2026; stands unless vetoed on TYRE-36. `Number()` is right for a quantity (`ReceiveTyre.tsx`) and an odometer (`odometer.ts`), so a syntactic ban fails correct code today; a rule that sees types cannot be dodged by a rename. | One rule, two devDependencies. |
+| **U38** | **The U26 measurement over HTTP is a recorded local step against `make db-volume`, in the PR body, not a CI assertion.** B7.2 records its HTTP figure on TYRE-256 and changes nothing to chase it. | Planner's default, 16 Sep 2026; stands unless vetoed on TYRE-36. CI never loads the volume tenant, and a latency assertion on a shared runner flakes. TYRE-247's own measurement already shows U26 missed by two orders of magnitude, ticketed as TYRE-256. | None. |
+| **U39** | **Two PRs from one plan: TYRE-238 first, TYRE-239 cut after it merges.** The mockups (Task 3) come before either, since the components are derived from the one screen they serve. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. The design-system review is about tokens, contrast and keyboard behaviour; the dashboard review is about the three-way agreement and the money rules. One PR would put both in front of the same five lanes at once, and a signature moved by the first review would ripple through the second in the same diff. Part B is written now against Part A's interfaces so the owner sees the whole shape, and Task 18 re-verifies them after the merge. | A rebase. |
+| **U40** | **`BandChart` labels every band from `lowerMm` and `upperExclusiveMm`, never from `bandLabel`:** "0 to under 5 mm", and "14 mm and over" for the open band. `bandLabel` is typed on the wire and never rendered. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. TYRE-270 is the owner's choice between relabelling and re-bounding; under either option the bounds are the truth and the chart follows them, so B7.3 neither waits for the decision nor bakes in the wrong label (NFR-PRO-002). | A string function. |
+| **U41** | **The dashboard ships against the BAC fixture with the U26 miss recorded, not chased.** The dashboard query sets `staleTime: Infinity`, `refetchOnWindowFocus: false`, `retry: 0`; FR-DSH-013's refresh button is the only refetch. Part B's close-out records time-to-figures on BAC and on `make db-volume` in the PR body and on TYRE-256. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. TYRE-256 is a database reshaping with its own ADR; a web slice cannot fix it and must not paper over it. Tanstack's defaults would re-fire a 35 s call on every tab focus and retry it three times, which is how a slow endpoint becomes an outage. | Three query options. |
+| **U42** | **`GET /api/depots` gates on `ViewFleet` instead of `ManageAssets`.** One Go line, one Go test (technician 200, driver 403). The picker lists every active DEPOT and STORE depot (U85) for a tenant-wide actor and only the actor's own for a depot-scoped one, where depot-scoped is `me.scope` from `GET /api/me` (U87). | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. FR-DSH-011's filter is a ViewFleet surface and TECHNICIAN holds nothing else, so without this a technician of two depots cannot name either. The list is names of the tenant's own depots, which every ViewFleet screen already shows on a unit. One of the batch's two API changes, U87 being the other. Narrowed by U90 (30 Sep 2026): the endpoint itself returns only the actor's own depots to an actor without ManageAssets. | One line. |
+| **U43** | **TYRE-242 lands in Part A and closes there; TYRE-240's carried list drops it.** The dev tenant and actor switchers move into a `<details>` dev bar rendered after `<main>`, collapsed by default, DEV only. `reach.spec.ts` is the proof the phone header did not regress. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. TYRE-238's own description already puts the AppShell rework in B7.3; carrying the same change on two tickets is the second-authority smell. | A ticket comment. |
+| **U44** | **TYRE-268 renders as the wire says, disclosed; TYRE-269 is fixed.** The inflation tile renders `unavailable: "TENANT_ONLY"` as "Tenant-wide only. Clear the depot filter to see it." and, for a depot-scoped actor, "Not available for a depot view yet." The estate tile keys its empty state on `tyreCount === 0` and shows "N of M unvalued" beside every figure, the total included. An estate with no valued member reads `totalValue: null` (migration 000049) and renders through the Money rule ("Not valued" with the count), never 0. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. TYRE-268 is a database follow-up with an owner, and migration 000049 (PR #81) fixed TYRE-269; the page must not second-guess a figure (a count is not money, so the disclosure costs no arithmetic). | None. |
+| **U45** | **The bundle gate is the entry chunk's static-import JavaScript closure, gzip bytes, from `dist/.vite/manifest.json`, ratcheted in `web/bundle-budget.json`.** Task 2 records the baseline on the unchanged tree; Task 14 moves every manager page behind `React.lazy`, which drops the figure well below the baseline and absorbs the token growth; the close-out ratchets the budget down to the new figure. `make lint` and the CI web job run it. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. "Must not grow" needs a number and a mechanism, and none exists. Today the capture route ships the whole manager app, so lazy manager routes are the right change for the phone regardless of the gate. | A JSON file. |
+| **U46** | **The tread-band scale is a five-step one-hue ramp keyed by ordinal, mapped onto N configured bands by `round((ordinal - 1) * 4 / max(N - 1, 1))`; the light end clears 2:1 on white and each step is darker than the last, pinned by a vitest through `contrastRatio`.** Severity reuses `statusColor.caution` and `statusColor["below-removal"]` for WARNING and CRITICAL with a new `INFO` step; provenance is `actual`, `estimated`, `audit` and `unvalued` steps, with `unvalued` hatched. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. dataviz: a bucket is ordinal, so one hue with monotone lightness; status colours are reserved and never reused for a series; `tread_bands` is tenant configuration (rule 5) so the band count is a parameter, not 5. The validator's categorical checks fail a one-hue ramp by design; the ordinal checks are monotonicity and the light-end floor, which is what the vitest pins. | Five hex values. |
+| **U47** | **The hero is `valueAtRisk.running.casingValueAtRisk` at 3 rem in Barlow semibold, one per view; the qualifier reads "of which N audit" from `auditCount` (U27) and "N unvalued" from `unvaluedCount`; "from N tyres at or below the removal threshold today" takes N from `belowThreshold.running` (U18); the spare line is `valueAtRisk.spare` in full.** It links to `/at-risk`, a new list page over `GET /api/valuation/at-risk`. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. The spec's "linking to the at-risk list" has no page to link to; the exceptions list is judged at a different clock (U18) and would misstate. A DataTable over an endpoint that exists is one task. dataviz: the hero is at least 48 px in the body sans, never a display face, so it is Barlow, not Archivo. | One route. |
+| **U48** | **The three clocks are named once, in `vocabulary.ts`, from the wire's `judgedAt` codes:** SUBMITTED_AT "as inspected", TODAY "today", TENANT_TODAY "on the tenant's calendar day", LATEST_READING "at the latest reading", PERIOD "for the period". Every tile renders its own `judgedAt` through that map; the exceptions row states that open exceptions are "as inspected" and below-threshold is "today". | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. U18 says the dashboard names which figure comes from which clock; one mapping cannot drift between tiles. | A string each. |
+| **U49** | **The landing is the dashboard rendered at `/`, not a redirect; drivers still redirect to `/my`.** `NAV_ITEMS` gains "Dashboard" (`/`, ViewFleet) first and "Exceptions" (`/exceptions`, ViewFleet); `/exceptions` and `/at-risk` refuse out loud (the `AdminRoute` pattern) since both are destinations. `smoke.spec.ts`'s controller test asserts `/` and the "Dashboard" heading. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. FR-DSH-001; a redirect to `/dashboard` would put a second URL on the one landing. `AppShell.test.tsx` already relies on `end` for every link, so a `/` item costs nothing. | One route element. |
+| **U50** | **The `bac-readonly` Playwright project runs `dashboard.spec.ts` alone (`testMatch`), at Desktop Chrome; `android` lists it in `dependencies`; `chromium`, `android` and `ios` add `dashboard\.spec` to `testIgnore`.** A `bac-readonly` failure therefore skips `android` entirely, which is the point: a BAC write must never start before the read completes. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. `capture.spec.ts` writes BAC on `android` only, so only `android` needs the dependency; `chromium` and `ios` write Sandbox and may run alongside. Without `testMatch` the spec would run four times. | Two config lines. |
+| **U51** | **The spares list (FR-DSH-019) and the two list pages are their own queries; the dashboard body stays one call.** The page reads `GET /api/dashboard` and `GET /api/spares`; `/exceptions` reads `GET /api/exceptions`; `/at-risk` reads `GET /api/valuation/at-risk`. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. U17 makes the tiles share an as-at instant; a list is not a tile. The spares list is on the page because FR-DSH-019 says so, as its own panel under its own clock. | None. |
+| **U52** | **The inflation period is two date inputs in the FilterBar sent as `from` and `to` only when both are set; otherwise the request carries neither and the tile shows the configured window.** No client-side date arithmetic, no "last 90 days" preset. | Planner's default, 21 Sep 2026; posted on TYRE-238 and TYRE-239, no veto. The API 400s on one bound without the other; a preset would derive a tenant-relative date from the browser clock, which `docs/lessons.md` (2026-09-03) forbids in tests and the UI has no reason to do either. Amended by U95 (30 Sep 2026): the pair is sent once the fields hold still for 500 ms, and only as two whole dates with from before to; a misordered pair shows an error on the to field and sends nothing. | A preset, later. |
+| **U53** | **Links, quiet buttons and focus rings inside page content use a fixed platform colour, not the tenant's brand; the brand stays in the header and chrome.** | Owner's answer, 23 Sep 2026 (TYRE-276). Under a red brand a link reads like a CRITICAL severity, and `deriveBrandTheme` checks only text on the brand, so a light brand used as text or a ring falls to 1.6 to 3.5:1. `tokens.ts` already says the brand is confined to chrome. | One token swap in `ui.css`. |
+| **U54** | **The error boundary is one class component, allowed as a named exception to the no-class rule, wrapping the routes inside the shell so the nav and the outbox indicator stay mounted, with a retry.** No `react-error-boundary` dependency. | Owner's answer, 23 Sep 2026 (TYRE-280). React catches render errors only in a class component. The `vite:preloadError` reload from the PR #70 review covers a stale or dropped chunk once; this covers the second failure and any render error. CLAUDE.md and web/CLAUDE.md name the exception when TYRE-280 lands. | One file, and the rule's exception. |
+| **U55** | **Every displayed number groups thousands with a comma, as money does: "1,234 tyres", "416,180 km", "R1,234.00". One grouping helper serves `formatRand`, `formatCount`, `formatPct` and the capture route's kilometres.** | Owner's answer, 23 Sep 2026 (TYRE-282). Money and the accepted mockups already use a comma, and millimetres already avoid en-ZA's decimal comma (TYRE-238 comment 12938); en-ZA's no-break space left counts and kilometres on a second convention. | The helper and the pinned tests. |
+| **U56** | **Above five tread bands, each fill blends between the neighbouring `--band-N` stops (CSS `color-mix`), so every configured band gets its own shade, light to dark.** Up to five bands keep the U46 steps unchanged. | Owner's answer, 23 Sep 2026 (TYRE-275 comment 12980). U46 maps N bands onto five steps with `round`, so seven bands land on 1, 2, 2, 3, 4, 4, 5; the labels still differ (NFR-USE-009), but the ordinal encoding breaks. Capping the band count would be a business rule for a display problem. | The mapping function and its test. |
+| **U83** | **TYRE-259 (database lane, migration 000050) is approved and runs beside Part B, which carries no migration of its own; if TYRE-259 or W5b (TYRE-209) merges into `develop` before Part B's e2e, rebase, run `make db-reset` and recheck the BAC pins first.** | Owner's answer, 28 Sep 2026 (TYRE-239 comment 13337). The two lanes proceed in parallel because blocking one on the other costs more than a rebase, but a merged migration can move the pins the e2e project asserts, so the check runs before the suite, not after a failure. | A rebase and a re-run. |
+| **U84** | **One recorded bundle rise, measured at +622 gzip bytes (135255 to 135877), named to four sources: the lazy-route lines and preload glue in `routes.tsx`, the `navigation.ts` items, the `tenantTime.ts` instant formatter, and the `tokens.ts` exports the lazy dashboard UI consumes (`treadBandStep` and `breakpoint`), which go live in production for the first time. Any other rise is a leaked static import, and the fix is the import, never the budget.** | Owner's answer, 28 Sep 2026 (TYRE-239 comment 13337), for the first three sources. The fourth, the `tokens.ts` exports, is the planner's default under U84, measured since; the owner saw it within the +622 total on TYRE-239 comment 13341. U56's band blend lives in a lazy module beside `BandChart` and adds nothing to the entry itself; it is the token file's own exports, already static, that the dashboard's first production use makes live. | A `bundle-budget.json` edit and a recorded reason. |
+| **U85** | **The dashboard depot filter lists every active DEPOT and STORE depot only.** | Owner's answer, 28 Sep 2026 (TYRE-239 comment 13337). A retreader or breakdown supplier is not a place a manager filters a fleet view by; narrowing the picker is display, not a tyre rule. | A type filter. |
+| **U86** | **The inflation-compliance panel ships as mocked, with its hot, cold and unknown basis; TYRE-46 shapes how compliance confidence is presented, not whether the panel shows.** | Owner's answer, 28 Sep 2026 (TYRE-239 comment 13337). TYRE-46 closed 29 Sep 2026 as a sponsor question handled outside Jira, so it no longer gates the panel; the panel renders against its mocked basis regardless of when, or whether, that question resolves. | None. |
+| **U87** | **`GET /api/me` gains `scope`, `"TENANT"` or `"DEPOT"`, taken from the actor's own scope; the depot filter and the inflation wording read `me.scope`, and TypeScript never derives scope from `role`.** | Owner's answer, 28 Sep 2026 (TYRE-239 comment 13340). `role` varies by tenant configuration and `me.depots` lists a user's depot rows whatever the role, so neither is a scope signal; the second of the batch's two API changes. U96 changes the depot-scoped word. | A Go test and a fixture field. |
+| **U90** | **The depot list is split by purpose. A read filter offers a depot-scoped actor only their own depots; a write that names a destination (dispatch, FR-FIT-011's transfer) offers any ManageAssets holder every active depot; a TECHNICIAN never receives another depot's name.** | Owner's answer, 30 Sep 2026 (TYRE-355 comment 13422). The SRS narrows data by depot (FR-AUT-004, 006, 008) and says nothing of the depot list itself, while FR-FIT-011 needs a destination and D8 keeps depot-manager writes tenant-wide. TYRE-372 carries the change and the SRS row. | A Go test per role. |
+| **U95** | **The planner's defaults U47 to U52 and PD1 to PD9, the four decisions taken during TYRE-239, and the five rulings of its fix wave (8d9f704) stand.** | Owner's answer, 30 Sep 2026 (TYRE-239 comment 13429, TYRE-356 comment 13430). U52 records the period rules above. | None. |
+| **U96** | **`GET /api/me` says `"DEPOTS"`, not `"DEPOT"`, for a depot-scoped actor, the word the dashboard wire's `scope.level` uses for an actor's whole set; `"DEPOT"` there means one chosen depot.** | Owner's answer, 30 Sep 2026 (TYRE-354 comment 13431). One client reads `me.scope` today, so the word changes before a second does. | A wire word and its tests. |
+| **U97** | **The hero keeps U47's tyre count from `belowThreshold`, and a suite pin asserts it equals the at-risk figure's own `running.tyreCount`.** | Owner's answer, 30 Sep 2026 (TYRE-363 comment 13432). The figure and its count come from two views; the pin turns drift between them red. | A suite assertion. |
+| **U98** | **FR-ANL-007's replacement-forecast list is a list page off the Replacement window tile, not a report.** | Owner's answer, 30 Sep 2026 (TYRE-367 comment 13433). FR-ANL-007 asks for a list and its API exists; TYRE-6's reports do not carry it. | A route and a page. |
 
 ## How this batch treats the code it meets
 
@@ -127,12 +174,18 @@ and the browser are thin, one rule lives in one place. Three consequences:
 
 ## Sequencing inside the batch
 
-B7.1 → B7.2 → B7.3 → B7.4, each planned after the previous merges.
+B7.1 → B7.1.5 → B7.2 → B7.3 → B7.4, each planned after the previous merges.
 
 - **B7.1 first** because it is the integrity rule: TYRE-41 says "do this before
   either client computes an exception count, not after", and the ordering rule
   in `docs/implementation-order.md` says an integrity rule is cheap before
   pilot data and expensive after.
+- **B7.1.5 between them** because TYRE-247's index or relation is a
+  migration, and B7.2 is a read-only batch that carries none (U21); the
+  measurement it needs cannot run on the 53-reading fixture. TYRE-252 goes
+  first inside B7.1.5, as its own PR, so the volume load bypasses nothing
+  and the submit path the measurement sees is the real one (owner, 15 Sep
+  2026).
 - **B7.2 before B7.3** because the dashboard's numbers arrive through the API
   and the mockups are reviewed against real responses, not fixtures.
 - **B7.3 before B7.4** because the design system is built once, on the one
@@ -140,6 +193,10 @@ B7.1 → B7.2 → B7.3 → B7.4, each planned after the previous merges.
   without redesigning them a second time.
 
 ## B7.1, the exception view and the pins (TYRE-41, TYRE-211, TYRE-183, TYRE-193, TYRE-38), designed to executable detail
+
+*Landed 15 Sep 2026, PR #55, migration 000045. TYRE-41, TYRE-183 and TYRE-38
+are Done; TYRE-193 and TYRE-211 keep their remaining halves for B7.2, which
+starts from TYRE-247.*
 
 Migration `000045_exception_view`. Suite section 59, section 8 re-written in
 place, and the new privileged file. No new SQLSTATE the app role can meet: the
@@ -470,9 +527,193 @@ are exactly the latest-inspection case TYRE-41 describes, and the 2026-08-25
 capture spec's sentence that the scoping was "invisible while every vehicle
 has exactly one seeded inspection" is stale and gains a one-line pointer here.
 
+## B7.1.5, the dashboard substrate (TYRE-247), designed to executable detail
+
+Planned 15 Sep 2026 after B7.1 merged, on the owner's answers U21, U22, U26
+and U27. Two PRs, both DB-only, in order: **TYRE-252** (S0 below) on branch
+`TYRE-252-ordinal-trigger`, then **TYRE-247** on
+`TYRE-247-dashboard-substrate`, rebased onto develop once the first has
+merged. The slice's job is to measure the dashboard's read path on a tenant
+of representative size and to fix what the measurement shows, so that B7.2
+relays views whose first-call cost is known rather than guessed.
+
+### S0. TYRE-252 first: the measurement-ordinal check becomes statement-level
+
+`reading_measurement_ordinals_contiguous` (000001) is a deferred constraint
+trigger declared `FOR EACH ROW` whose body scans every reading and
+measurement it can see: queued once per row and fired at commit, ninety
+thousand rows is ninety thousand full scans, and a driver's submit over a
+two-year history pays the same scan per measurement. Found at planning,
+raised as TYRE-252, and fixed **before** the volume load exists so the load
+bypasses nothing and the write path the measurement sees is the real one
+(owner, 15 Sep 2026).
+
+Migration `000046_measurement_ordinals_by_statement` drops the constraint
+trigger and re-creates `app.check_measurement_ordinals()` as the body of
+three `AFTER ... FOR EACH STATEMENT` triggers with transition tables
+(`REFERENCING NEW TABLE AS new_rows` on INSERT, `OLD TABLE AS old_rows` on
+DELETE, both on UPDATE), scoped to the readings the statement touched. The
+message and SQLSTATE (P0001) do not change; the check runs at statement end,
+which is what 000001's own comment already claimed. Losing the deferral is
+safe because `app.submit_inspection` (000041) **generates** the ordinal as a
+loop counter rather than reading it from the payload, so its measurements
+arrive one per statement as 1, 2, 3 and every statement leaves the reading
+contiguous from 1. This was the only deferrable object in the schema, so the
+`SET CONSTRAINTS ALL IMMEDIATE` in `submit_inspection` becomes a no-op; that
+statement and the comment above it explaining the deferral are frozen in
+000041, and the 000046 header is where they are answered. UPDATE and DELETE
+stay revoked from the app role (check 4), so the INSERT path is the one that
+matters. Suite section **60** plants an inspection and a reading as BAC
+inside `BEGIN ... ROLLBACK` and proves: a gapped multi-row insert (ordinals 1
+and 3) is refused; a single-row insert of ordinal 2 before 1 is refused; a
+whole position in one statement passes; three single-row statements in order
+pass; and the catalogue holds no deferrable trigger on `reading_measurement`.
+The `append-only-auditor` reviews it (a trigger on an append-only table) and
+the `rls-auditor` has nothing to say. The down file restores 000001's
+function body and constraint trigger, restating 000043's pinned
+`search_path`: `CREATE OR REPLACE` assigns every property the command omits,
+so a copy taken verbatim from 000001, which predates the pin, would revert
+it and fail check 8d.
+
+One case gets stricter rather than only cheaper: 000001 accepted ordinal 2
+and then ordinal 1 as two separate statements, because a check deferred to
+commit saw only the finished set, and 000046 refuses that order. No writer
+does it, since submit_inspection counts upward and the seed fixture emits one
+statement per reading carrying 1, 2, 3, but a writer that cannot order its
+ordinals must build the set in a single statement. The 000046 header carries
+that rationale.
+
+### S1. The volume generator
+
+A third generator, `db/seeds/gen_seed_volume.py`, writes
+`db/seeds/006_seed_volume.sql`: direct inserts in the shape of
+`003_seed_fixture.sql`, one `BEGIN ... COMMIT`, tenant Sandbox Fleet
+(`33333333-3333-3333-3333-333333333333`) only. It never touches BAC or Second
+Fleet, whose rows are the acceptance fixture and the isolation control.
+
+- **Twenty rigs, sixty units.** Each rig is one `HORSE_6X4` and two
+  `TRAILER_2AXLE` units from the configuration library (ten, eight and eight
+  running positions plus a spare each), with a `combination` and its three
+  `combination_member` rows, fleet numbers `SBX-H01`..`SBX-H20` and
+  `SBX-T01`..`SBX-T40`, all on the existing Sandbox Depot, all `ACTIVE`.
+  Horses carry an odometer; trailers carry none (CFL-003).
+- **Reference data of its own.** `tyre_size`, `tyre_brand` and `tyre_pattern`
+  are tenant-scoped, so the file seeds one size, one brand and one pattern for
+  Sandbox before the first tyre.
+- **Tyres and fitments.** Every position, spares included, holds a tyre with
+  an invoice cost, `new_tread_mm` 25.0, `rand_per_mm` derived through
+  `app.rand_per_mm` as the fixture does (rule 2, never a second copy of the
+  arithmetic), a casing value, `cost_source = 'INVOICE'` and an open fitment.
+  History is written directly: a replaced tyre's fitment is inserted already
+  closed (`removed_at`, `removed_tread_mm`, `removal_reason`, and
+  `removed_odometer` on a horse), so the load never takes the UPDATE path
+  `fitment_written_once` bounds. The replaced tyre is `REMOVED`.
+- **Fifty-two fortnightly rig inspections per rig**, anchored to end on
+  2026-09-01 and counting back 24 months, so the file is the same bytes on
+  every run and on every day it is run. Each inspection is on the horse with
+  the rig's `combination_id`, submitted by the Sandbox driver, and its
+  readings are tagged to the member unit that owns the position
+  (FR-INS-061), three measurements per reading at granularity 1.0, as the
+  fixture does. `orientation_known` follows the capture date rather than the
+  fixture: `false` before CHG-010 (22 Aug 2026), which is the fixture's case
+  because its 2021-style sheet stated no convention, and `true` from it. Only
+  the last fortnight falls after the convention, and that is the capture every
+  latest-per-unit read resolves to, so this tenant exercises the directional
+  wear path that a wholly pre-convention fixture cannot.
+- **Wear that varies.** A seeded `random.Random(247)` draws a starting tread
+  and a per-fortnight wear rate per position, drive axles faster than steer
+  and trailer axles between; pressures sit on the axle-class target with a
+  small drawn jitter and a few percent of readings under it, so the pressure
+  rules find rows. When a position's governing reading reaches the tenant's
+  retread threshold at an inspection, the generator closes that fitment at
+  that instant and fits a fresh tyre before the next one, so the estate ends
+  at mixed wear with real fitment history rather than sixty units of scrap.
+  The threshold the generator reads is Sandbox's seeded policy row
+  (`gen_seed_configurations.py`), not a literal.
+- **Size.** About 1,040 inspections, 30,000 readings and 90,000
+  measurements. The output is gitignored beside the other two and the CI
+  determinism step regenerates and hashes all three.
+
+### S2. Loading
+
+`make db-volume` regenerates the file and loads it as the superuser, exactly
+as `db-reset` loads the seeds, then prints that the database is now off the
+pinned state and that `make db-reset` restores it. `db-reset`, `db-test`,
+`test`, `check` and CI never run it; the suite is defined on the pinned
+fixture. The one risk is load time: `reading_measurement_governs` (000001)
+updates the reading's governing depth per measurement and
+`reading_snapshots_governing_change` (000006) reconciles a valuation
+snapshot on each change, so ninety thousand rows may cost minutes. The plan
+records the load time. Over two minutes is a finding about the write path at
+volume and goes on TYRE-252; the one optimisation the generator may take
+is to emit each reading's lowest measurement first, which is load order, not
+data, and leaves the governing MIN and every row identical.
+
+No trigger is bypassed. TYRE-252 (S0) lands before this file can be loaded,
+so every trigger on the path fires, the governing depth, the snapshots, the
+seal and the statement-level ordinal check, and the rows are what a real
+submit would have written. The load time `make db-volume` prints is the
+measured cost of that path at volume.
+
+### S3. The measurement
+
+`db/perf/dashboard.sql` holds the statements `GET /api/dashboard` will issue,
+one per relation in the B7.2 route table (`v_casing_value_at_risk`,
+`v_estate_valuation`, `v_exception`, `v_tyre_at_risk`,
+`v_unit_inspection_status`, `v_inspection_task`, the composition observation
+list, `inflation_compliance`, `v_tread_distribution`, `v_removal_forecast`,
+`v_irregular_wear_ranking`, `v_spare_tyre_age`), inside one transaction as
+`app_login` bound to Sandbox, each under `EXPLAIN (ANALYZE, BUFFERS)`.
+`make db-explain` runs it and prints per-statement and total execution
+time. It is run twice: cold, on a container started immediately before, and
+warm, immediately after. The 500 ms budget (U26) applies to the warm run;
+the cold run is recorded beside it. Both outputs are posted on TYRE-247,
+before and after any migration, and the migration or the ticket carries the
+one-paragraph summary. The raw plans are machine-specific and are not
+committed. B7.2's integration test repeats the measurement over HTTP.
+
+### S4. The decision rule and the migration
+
+Index first. If the plan shows the full-history sort TYRE-247 predicts on
+`app.reading` (which carries `reading_by_tyre (tenant_id, tyre_id)` and the
+unique constraints only, while `app.inspection` already has
+`inspection_by_vehicle (tenant_id, vehicle_id, submitted_at DESC)`),
+migration `000047_reading_by_vehicle` adds
+
+```sql
+CREATE INDEX reading_by_vehicle ON app.reading (tenant_id, vehicle_id, inspection_id);
+```
+
+the candidate that serves both `v_latest_unit_inspection`'s `DISTINCT ON
+(tenant_id, vehicle_id)` and `unit_inspection_status`'s per-unit lateral
+lookup. Plain `CREATE INDEX`: the migration runner wraps a file in a
+transaction, `CONCURRENTLY` cannot run inside one, and the table is small
+at POC scale. If the index alone brings the warm run under budget, that is
+the whole change. If it does not, the latest-per-unit relation TYRE-247
+names is a maintained write path: it becomes its own ticket with an ADR
+and is not built here. If the measurement shows no problem, no migration is
+cut and the ticket records the plan that says so.
+
+### S5. Tests, docs and the proof
+
+- Suite **section 61** pins the index by name and column list through
+  `pg_indexes` (section 34's pattern), so a later migration cannot drop it
+  silently; the section is written only if the index is. Section 60 is
+  TYRE-252's (S0). `make db-test`
+  stays green on the pinned fixture with or without the volume loaded.
+- The `rls-auditor` runs on the migration as convention requires; an index
+  adds no read path, so it should have nothing to say. The
+  `append-only-auditor` should have nothing to say either: the slice writes
+  no history route.
+- `docs/implementation-order.md` gains the B7.1.5 row and the B7.2 row drops
+  TYRE-211's write sites (U23). `db/CLAUDE.md`'s seeds paragraph names the
+  third generator and that `db-volume` is opt-in.
+- TYRE-247's two definition-of-done halves close separately: the measurement
+  and its consequence here; the casing-count payload rule in B7.2 (U27).
+
 ## B7.2, the analytics read API (TYRE-36, TYRE-193), outline
 
-Planned after B7.1 merges. No migration expected. Every handler follows
+Planned after B7.1.5 merges. No migration (U21): the index is B7.1.5's. Every handler follows
 `tyres.go`'s shape: one transaction, `SET LOCAL app.tenant_id` through
 `store.go`, `numeric` scanned as text into `*string`, response structs of its
 own, `require(...)` on the capability.
@@ -600,7 +841,8 @@ The capture sheet's keypad, auto-advance, tiles and review flow are untouched
 - **Forecasting set and cost per kilometre** (FR-ANL-010..015, 040..043):
   Appendix H.2 defers them; `v_removal_forecast` is read, not extended.
 - **Per-axle and per-operating-group threshold resolution at the write
-  sites**: TYRE-211's remainder; the comparator: TYRE-142 (U11).
+  sites**: TYRE-211's remainder; the comparator: TYRE-142 (U11), as one
+  DB-only PR after B7.2 (U23, U24).
 - **Operating-group filtering** (FR-DSH-011's second half): after TYRE-109.
 - **Dark mode** (U15). **Photo capture**, **PWA manifest**: TYRE-152, TYRE-154.
 

@@ -1,10 +1,8 @@
 import { apiGet, apiPost } from "./client";
 
-// Wire shapes of the reconciliation surface
-// (api/internal/httpapi/observations.go). The id is the WARNING's: until a
-// report is resolved there is no other row to name it by, which is also why
-// resolving one removes it from this list rather than changing a field on it
-// (app.inspection_warning is append-only, DR-021).
+// Wire shape of the reconciliation surface. id is the WARNING's; resolving
+// removes it from this list rather than mutating a field, since
+// app.inspection_warning is append-only (DR-021).
 export interface ReportedDifference {
   id: string;
   inspectionId: string;
@@ -14,9 +12,8 @@ export interface ReportedDifference {
   rig: { id: string; motiveFleetNumber: string; members: string[] };
   observed: string[];
   removed: string[];
-  // The offered rig has ended, so applying can only be refused (TY022
-  // "stale"). The server decides this, not the browser: a rig ended between
-  // the fetch and the click is still a refusal the screen renders.
+  // True once the offered rig has ended; applying is then refused
+  // server-side (TY022 "stale"), never pre-checked here.
   stale: boolean;
 }
 

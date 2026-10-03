@@ -38,10 +38,9 @@ export interface SubmitPayload {
   // (db/migrations/000001_init.up.sql). Negative is not clamped, it is
   // omitted. See durationSeconds() below.
   duration_seconds: number | null;
-  // app.inspection.completeness_pct defaults to 100, so a partial
-  // inspection submitted without this is stored as complete, and
-  // FR-INS-047's coverage figure then counts it as one (NFR-PRO-003
-  // forbids exactly that kind of silent flattery).
+  // app.inspection.completeness_pct defaults to 100, so a submit without
+  // this is stored complete, and FR-INS-047's coverage figure counts it as
+  // one (NFR-PRO-003).
   completeness_pct: number;
   comment: string | null;
   defect_report: string | null;
@@ -49,9 +48,9 @@ export interface SubmitPayload {
   app_version: string;
   readings: SubmitReading[];
   warnings: SubmitWarning[];
-  // FR-INS-066 / 000041: spares the driver said the unit does not carry,
-  // recorded as an observation rather than left as a silent gap the review
-  // screen cannot explain (app.inspection_absent_spare).
+  // FR-INS-066/000041: spares the driver said the unit does not carry,
+  // recorded as an observation, not left as a silent gap
+  // (app.inspection_absent_spare).
   absent_spares: { vehicle_id: string; position_id: string }[];
 }
 
@@ -65,12 +64,9 @@ export interface SubmitMeta {
   totalPositions: number;
 }
 
-// NFR-OBS-004 records submit success rate per device, so the id has to be
-// stable across sessions, which means localStorage, and which is NOT a
-// breach of FR-OFF-002: that prohibits caching the fleet REFERENCE DATA on
-// the device, not a random opaque string that identifies nobody. It carries
-// no personal information (NFR-PRV-002) and survives a cleared browser only
-// by being regenerated.
+// NFR-OBS-004 records per-device submit success, so this id must be stable
+// across sessions (localStorage), which is NOT FR-OFF-002: a random opaque
+// string identifies nobody (NFR-PRV-002).
 const DEVICE_KEY = "tyre.device-id";
 
 export function deviceId(): string {
@@ -96,17 +92,12 @@ const wire = (w: RecordedWarning): SubmitWarning => ({
   response: w.response,
 });
 
-// A phone clock that steps backwards mid-inspection, whether from an NTP
-// correction or a driver changing it, makes this negative, which fails the
-// column's CHECK and comes back 422. The outbox reads 422 as permanent, so a
-// completed
-// inspection would be discarded with no retry that could ever fix it.
-//
-// Null rather than a clamp to zero: a zero is a claim (ADR-0010). This is
-// ELAPSED wall clock, and a draft survives a phone call or a lunch break by
-// design (ADR-0009), so it is not the acceptance figure. NFR-USE-001's
-// median is read from the sum of each reading's `seconds` (NFR-OBS-007),
-// via app.v_inspection_timing.active_seconds (000041, TYRE-150).
+// A phone clock stepping backwards mid-inspection fails duration's CHECK
+// and comes back 422 permanent. Null rather than clamped to zero: zero is
+// a claim (ADR-0010). This is elapsed wall clock, not the acceptance
+// figure: a draft survives a phone call or lunch break by design
+// (ADR-0009), and NFR-USE-001's median (NFR-OBS-007) comes from the sum of
+// per-reading seconds instead (000041, TYRE-150).
 function durationSeconds(startedAt: string, submittedAt: string): number | null {
   const elapsed = Math.round(
     (new Date(submittedAt).getTime() - new Date(startedAt).getTime()) / 1000,
@@ -114,29 +105,20 @@ function durationSeconds(startedAt: string, submittedAt: string): number | null 
   return elapsed < 0 ? null : elapsed;
 }
 
-// FR-OFF-005 writes a position on the FIRST digit, so an abandoned position
-// sits in the draft half-entered. Its tread array would fail the configured
-// tread-count check (TY005 -> 422, which the outbox treats as permanent), so it
-// cannot be sent and completeness reports the shortfall instead.
-//
-// Pressure is the opposite case and deliberately not required: 000023 accepts a
-// NULL pressure by design (BR-RPT-001, NFR-PRO-003: absent, never zero).
-// Requiring one here would discard a position whose treads are complete, and
-// the draft is cleared on submit, so those readings would be gone for good.
-//
-// The draft-shaped adapter over treadsRead (warnings.ts), never a second rule.
-// The capture screens count progress with it too (FR-INS-065), through
-// capturedCells below. A second predicate there would let the driver read
-// "10 of 10 done" off one definition while completeness_pct was computed from
-// another.
+// FR-OFF-005 writes on the first digit, so an abandoned position's tread
+// array fails the count check (TY005 -> 422 permanent) and completeness
+// reports the shortfall. Pressure is deliberately not required (000023
+// accepts NULL, BR-RPT-001). The draft-shaped adapter over treadsRead
+// (warnings.ts), which the capture screens also use for FR-INS-065's
+// progress count, is never re-implemented here.
 function isCaptured(position: DraftPosition): boolean {
   return treadsRead(position.treads);
 }
 
-// The positions a submit would actually carry, keyed for the completeness
-// figures the driver sees. By cell, not by position id: on a rig the same
-// position id occurs once per member unit of the same configuration, and a set
-// of bare ids would report two units as one (draft.cellKey).
+// The positions a submit would actually carry. By cell, not position id: on
+// a rig the same position id occurs once per member unit of the same
+// configuration, and bare ids would report two units as one (BR-VEH-003,
+// draft.cellKey).
 export function capturedCells(draft: Draft): Set<string> {
   return new Set(
     Object.values(draft.positions)
@@ -151,16 +133,10 @@ export function absentCells(draft: Draft): Set<string> {
   return new Set(draft.absentSpares.map((s) => cellKey(s.vehicleId, s.positionId)));
 }
 
-// TYRE-148: the position a resume should land in. Half-entered means some
-// treads and not all, the one state the flow cannot have moved on from,
-// since finish() returns early on it. Pressure does not count: it is
-// optional by design (see isCaptured), so a tread-complete position with no
-// pressure is finished, and reopening it on every reload would be the
-// regression this predicate exists to avoid. Two half-entered positions can
-// coexist (partially fill one, close it, partially fill another); find()
-// returns whichever was inserted into draft.positions first, which is a
-// reasonable default because it is where the driver's walk first broke off.
-// The flow's own next-outstanding jump (rig.ts) is what reaches the other.
+// TYRE-148: the resume target is the half-entered position (some but not
+// all treads). Pressure does not count (optional by design). Two
+// half-entered positions can coexist; find() returns the first inserted, a
+// reasonable default for where the walk broke off.
 export function halfEnteredCell(draft: Draft): string | null {
   const p = Object.values(draft.positions).find(
     (x) => x.treads.some((t) => t !== null) && !treadsRead(x.treads),
@@ -172,21 +148,18 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
   const captured = Object.values(draft.positions).filter(isCaptured);
 
   const readings: SubmitReading[] = captured
-    // Object key order is an implementation detail of how the driver happened
-    // to walk the vehicle; the payload should not vary with it. The unit breaks
-    // the tie, which is what makes the comparator total: two member units of
-    // the same axle configuration carry the SAME position ids, so comparing
-    // those alone returns 0 for every such couple, and a stable sort settles a
-    // tie by insertion order, which is the walk order this is here to remove.
+    // Object key order is the walk order, an implementation detail the
+    // payload must not vary with; the unit breaks the tie since two member
+    // units share position ids and a bare comparison returns 0 for them.
     .sort(
       (a, b) =>
         a.positionId.localeCompare(b.positionId, undefined, { numeric: true }) ||
         a.vehicleId.localeCompare(b.vehicleId),
     )
     .map((p) => ({
-      // FR-INS-061 / BR-VEH-003: the unit that owns the position, and its own
-      // position id. The 1..26 a driver sees on a rig is computed for the
-      // diagram and never leaves the display layer.
+      // FR-INS-061/BR-VEH-003: the unit that owns the position, and its own
+      // position id. The driver's 1..26 is computed for the diagram and
+      // never leaves the display layer.
       vehicle_id: p.vehicleId,
       position_id: p.positionId,
       // FR-INS-026/027 with FR-OFF-016: what the driver physically saw. The
@@ -196,10 +169,9 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
       pressure_temperature: p.pressureTemperature,
       damage_flag: p.damageFlag,
       note: p.note,
-      // FR-INS-029a: entry order, left to right in the plan view. Never
-      // sorted, never reversed. The server maps ordinal to
-      // OUTER/CENTRE/INNER by the position's side. No governing value is sent
-      // (CR-011, DR-017); the trigger derives it.
+      // FR-INS-029a: entry order, never sorted or reversed. The server maps
+      // ordinal to OUTER/CENTRE/INNER by side; no governing value is sent
+      // (CR-011/DR-017), the trigger derives it.
       treads: p.treads.filter((t): t is number => t !== null),
       granularity_mm: meta.granularityMm,
       seconds: p.seconds,
@@ -216,10 +188,10 @@ export function toSubmitPayload(draft: Draft, meta: SubmitMeta): SubmitPayload {
     submitted_at: meta.submittedAt,
     odometer_km: draft.odometerKm,
     duration_seconds: durationSeconds(draft.startedAt, meta.submittedAt),
-    // Clamped rather than trusted. A draft survives a restart (FR-OFF-006) but
-    // totalPositions comes from a context fetched after it, so a rig that has
-    // since lost a member unit gives readings > totalPositions, and >100
-    // fails the column's CHECK, which is a 422 the outbox never retries.
+    // Clamped, not trusted: a draft survives a restart (FR-OFF-006), but
+    // totalPositions comes from a context fetched after it, so a rig that
+    // lost a member gives readings > totalPositions, and >100 fails the
+    // CHECK as an unretryable 422.
     completeness_pct:
       meta.totalPositions <= 0
         ? 0

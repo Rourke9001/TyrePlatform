@@ -1,8 +1,6 @@
-// FR-INS-030 / FR-INS-031: hard ranges, rejected rather than warned. They are
-// physical limits of the instrument, not tenant policy, which is why they are
-// constants here and not configuration (CLAUDE.md rule 5 governs thresholds,
-// and these are not thresholds: the database CHECKs carry the same two
-// numbers).
+// FR-INS-030/FR-INS-031: hard physical ranges, rejected not warned, so they are
+// constants here, not tenant configuration (rule 5); the database CHECKs
+// carry the same numbers.
 const TREAD_CEILING_MM = 35;
 const PRESSURE_CEILING_KPA = 1200;
 

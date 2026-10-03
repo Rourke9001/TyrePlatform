@@ -1,0 +1,164 @@
+/* The dashboard, exceptions and at-risk pages (TYRE-239). Custom
+   properties only; component rules live in src/ui/ui.css. */
+
+.dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* A KPI row needs more than the 52rem the shell gives a form. :has(), not a
+   class AppShell sets, because AppShell ships in the capture route's entry
+   chunk and this sheet loads only with these pages (U84). */
+.shell-main:has(.dashboard),
+.shell-main:has(.analytics-page) {
+  max-width: 76rem;
+}
+
+.dashboard-loading {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+/* -------------------------------------------------------------- hero */
+
+.hero {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: 6px solid var(--severity-critical);
+  border-radius: var(--radius-card);
+  box-shadow: var(--elevation-raised);
+  padding: var(--space-5) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.hero-label {
+  margin: 0;
+  font-size: var(--text-small);
+  font-weight: 600;
+  color: var(--ink-muted);
+}
+
+/* dataviz, U47: the hero figure is at least 48px, in the body sans, at
+   every width. */
+.hero-figure {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: var(--text-hero);
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.hero-qualifier {
+  margin: 0;
+  font-size: var(--text-body);
+  color: var(--ink);
+}
+
+.hero-footnote,
+.hero-spare {
+  margin: 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+/* U53: no colour of its own; base.css's a rule gives an in-content link
+   the platform colour, never the tenant's brand. */
+.hero-link {
+  font-weight: 600;
+  align-self: flex-start;
+}
+
+/* ------------------------------------------------------------- grids */
+
+.tile-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-4);
+}
+
+/* A list page's summary tiles keep the filter bar's space above the list,
+   so the last tile does not sit on the table's edge. */
+.analytics-page > .tile-grid {
+  margin-bottom: var(--space-5);
+}
+
+/* Each panel takes its own height: a stretched panel leaves dead space
+   under the shorter of the two. */
+.panel-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  align-items: start;
+  gap: var(--space-5);
+}
+
+/* Two columns below about 1100px scale the band chart's SVG text to about
+   7px, so the grid stacks (TYRE-239 comment 12978). */
+@media (max-width: 1100px) {
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The two tiles that read with the chart stack as one column beside it,
+   rather than taking a row of their own (the accepted mockup). */
+.tile-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.severity-lines {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.severity-lines li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* U53: the link's colour is base.css's, as for .hero-link. */
+.severity-lines a {
+  margin-left: auto;
+  font-size: var(--text-small);
+  font-weight: 600;
+}
+
+.clock-note {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-small);
+  color: var(--ink-muted);
+}
+
+/* 640px is breakpoint.phone (src/theme/tokens.ts); @media cannot read a
+   custom property. The hero keeps its figure's size here (U47). */
+@media (max-width: 640px) {
+  .hero {
+    padding: var(--space-4);
+  }
+}
+
+/* The rule name with its code on a line of its own, in mono (the accepted
+   exceptions mockup). The minimum width keeps a long name from squeezing
+   the other six columns. */
+.cell-rule {
+  display: block;
+  min-width: 15rem;
+}
+
+.rule-code {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: var(--text-small);
+  font-weight: 400;
+  color: var(--ink-muted);
+}

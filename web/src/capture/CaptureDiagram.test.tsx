@@ -54,10 +54,9 @@ const context: CaptureContext = {
   cohortWearRateMmPerMonth: {},
 };
 
-// Every Severity value is represented, so a test that inspects rendered text
-// cannot pass just because the offending band never appeared. See warnings.ts
-// for the type: "roadworthy" included, since CR-010 governs message text,
-// not this internal band identifier.
+// Every Severity value is represented so this cannot pass by omission.
+// "roadworthy" is included: CR-010 governs message text, not this internal
+// band identifier (warnings.ts).
 const SEVERITIES: {
   id: string;
   sequence: number;
@@ -93,12 +92,10 @@ const props = {
 };
 
 describe("CaptureDiagram", () => {
-  // CR-010 / OR-LEG-001: the platform reports the tenant's configured policy
-  // and never asserts roadworthiness. "roadworthy" is a legitimate internal
-  // band name (warnings.ts). This pins that it never reaches a driver,
-  // including through an accessible name, where a bare {severity} would put
-  // it. The fixture above covers all four Severity values, including
-  // "roadworthy" itself, so this cannot pass by omission.
+  // CR-010/OR-LEG-001: the platform reports configured policy, never
+  // asserts roadworthiness. Pins that "roadworthy" (a legitimate internal
+  // band name, warnings.ts) never reaches a driver, including via
+  // accessible name.
   it("puts no compliance language on screen or in an accessible name", () => {
     const { container } = render(<CaptureDiagram {...props} />);
     expectNothingForbiddenSpoken(container, /position 1/);
@@ -129,22 +126,11 @@ describe("CaptureDiagram", () => {
   });
 });
 
-// Two units of two axles each, plus a spare. The fixture above puts every
-// position on one vehicleId and one axleNumber, so groupRig only ever builds
-// one axle group. A unit-band emitted per axle rather than per unit renders
-// identically under it. This fixture has four axle groups across two units,
-// which is the minimum shape that tells the two apart. Each unit carries its
-// own context (own fleetNumber) rather than sharing one: groupRig labels a
-// unit from position.unitLabel ?? context.fleetNumber, so a shared context
-// would print unit B's band as unit A's fleet number and hide cross-wiring.
-//
-// Distinct position ids across the two units here, unlike the flow fixture: the
-// assertions below address cells through data-position-id with querySelector,
-// which answers with the first match. Real units of one axle configuration do
-// share ids, and under that shape those two assertions would silently be about
-// unit A's cell while reading as though they covered the rendering generally.
-// Nothing is lost by keeping them apart. groupRig keys on (vehicleId,
-// axleNumber), so id sharing cannot affect the grouping this block exists for.
+// Two units of two axles plus a spare: the minimum shape that catches a
+// unit-band emitted per axle instead of per unit, and where position ids
+// differ across units so a querySelector's first match cannot mask
+// cross-wiring. groupRig keys on (vehicleId, axleNumber), so id sharing
+// cannot affect it.
 const unitA: CaptureContext = { ...context, vehicleId: "v-horse", fleetNumber: "BAC039SP" };
 const unitB: CaptureContext = { ...context, vehicleId: "v-link", fleetNumber: "BAC040SP" };
 
@@ -246,13 +232,9 @@ describe("CaptureDiagram with multiple units", () => {
   });
 });
 
-// The defect this pins: two member trailers of one ordinary superlink are
-// built from the identical axle CONFIGURATION, so app.position.unit_label
-// ("2-axle trailer" for TRAILER_2AXLE) is the same string for both. A band
-// that showed only that label would render "2-AXLE TRAILER" twice with
-// nothing to tell a driver which section belongs to which unit
-// (BR-VEH-003). Only app.vehicle, CaptureContext.fleetNumber, actually
-// distinguishes them.
+// Pins: two trailers on one axle CONFIGURATION share app.position.unit_label
+// ("2-axle trailer"); only CaptureContext.fleetNumber distinguishes them
+// (BR-VEH-003).
 const link6: CaptureContext = { ...context, vehicleId: "v-link6", fleetNumber: "LINK6" };
 const link12: CaptureContext = { ...context, vehicleId: "v-link12", fleetNumber: "LINK12" };
 
@@ -297,22 +279,19 @@ describe("CaptureDiagram with two units of the same configuration", () => {
       (el) => el.textContent,
     );
     expect(bands).toHaveLength(2);
-    // Both units carry the identical configuration label, so a heading that
-    // merely CONTAINS "2-axle trailer" would pass on both sections even with
-    // the pre-fix bug live. Asserting the two headings differ, and that each
-    // carries its own fleet number, is what actually catches it.
+    // Both units share the configuration label, so a heading merely
+    // containing "2-axle trailer" would pass even with the bug live;
+    // asserting the headings differ and each carries its own fleet number
+    // is what catches it.
     expect(bands[0]).not.toBe(bands[1]);
     expect(bands[0]).toContain("LINK6");
     expect(bands[1]).toContain("LINK12");
   });
 });
 
-// The defect this pins: every axle configuration in the register carries a
-// spare count, so an ordinary superlink has one spare per unit. Drawn in a
-// single band they are identical S cells, and a driver who enters LINK6's
-// spare into LINK12's cell files the reading against the wrong vehicle_id in
-// an append-only table. Nothing refuses it at entry, and nothing in the
-// stored data tells it apart afterwards (BR-VEH-003).
+// Every axle configuration carries a spare count, so an ordinary superlink
+// has one spare per unit; drawn in one band they are identical S cells with
+// nothing to tell them apart after entry (BR-VEH-003).
 const sameConfigSpares: RigPosition[] = [link6, link12].map((unit) => ({
   position: position({
     id: "s1",
@@ -342,11 +321,9 @@ describe("CaptureDiagram with a spare on each unit", () => {
       />,
     );
 
-    // Asserted on the band next to each cell, not on the count of cells: two
-    // spares drawn under one shared heading satisfy "two spare cells exist"
-    // exactly as well as two identified ones do, which is how the defect
-    // survived. Both units carry the identical configuration label too, so
-    // only the fleet number can tell the rows apart.
+    // Asserted on the band next to each cell, not the cell count: two
+    // spares under one heading satisfy "two spare cells exist" too, which
+    // is how the defect survived.
     const rows = Array.from(container.querySelectorAll(".cap-unit")).filter((u) =>
       u.querySelector(".cap-axle--spare"),
     );

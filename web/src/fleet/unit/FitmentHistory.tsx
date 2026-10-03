@@ -1,15 +1,15 @@
 import type { FitmentHistoryRow } from "../../api/units";
 import { useTenantDate } from "../../time/tenantTime";
 import { distanceSourceLabel, orientationLabel } from "./vocabulary";
+import { formatCount } from "../../ui/vocabulary";
 
-// CR-012: a distance and its provenance are one fact, so they are rendered
-// in one cell and never apart. A bare number reads as measured, which for an
-// inferred one is a claim the register never made; an open fitment has run
-// no distance yet and says so instead.
+// CR-012: a distance and its provenance are one fact, rendered in one cell.
+// A bare number reads as measured, which for an inferred one is a claim
+// the register never made.
 function distanceCell(row: FitmentHistoryRow): string {
   if (row.removedAt === null) return "Fitted";
   if (row.distanceKm === null) return distanceSourceLabel(row.distanceSource);
-  return `${row.distanceKm} km (${distanceSourceLabel(row.distanceSource)})`;
+  return `${formatCount(row.distanceKm)} km (${distanceSourceLabel(row.distanceSource)})`;
 }
 
 // FR-FIT's history read, in the server's own order: most recent first is

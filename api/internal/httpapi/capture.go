@@ -146,15 +146,11 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		// be inspected at all (migration 000022).
 		from = `app.v_capture_vehicle cv JOIN app.vehicle v ON v.id = cv.vehicle_id`
 	}
-	// The average is derived from the odometer TIMELINE, the same relation the
-	// last reading above comes from, and not from app.v_removal_forecast's
-	// mean_daily_km: that one is anchored on a tyre's own later reading and
-	// sums inspection odometers, which is the right window for a wear
-	// projection and the wrong one for "how far has this unit gone since
-	// somebody last read the dial". Ninety days matches the forecast's
-	// convention. A unit with one reading, or two on the same day, divides by
-	// zero days and correctly yields no rate at all. FR-INS-020 then has
-	// nothing to project from and the field starts empty.
+	// The average is derived from the odometer timeline (v_removal_forecast's
+	// mean_daily_km is anchored on a tyre's own later reading and is the
+	// wrong window for "how far has this unit gone"). Ninety days matches the
+	// forecast's convention; a unit with one reading, or two on the same day,
+	// correctly yields no rate (FR-INS-020 then starts empty).
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text,
 		       o.odometer_km, o.reading_date, avg_km.km
@@ -181,10 +177,13 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	}
 
 	// One row per position, carrying everything the phone needs to identify
-	// the tyre (FR-INS-026) and to evaluate FR-INS-034/037/031a with no
-	// signal. Target resolution is most-specific-wins: a row naming both
-	// size and axle class beats one naming only the class. That is the
-	// order app.inflation_compliance already resolves in; keep them agreeing.
+	// the tyre (FR-INS-026) and to evaluate FR-INS-034, FR-INS-037 and
+	// FR-INS-031a with no signal. The target is app.target_pressure_for's
+	// answer (000045, spec U10), the one resolution app.inflation_compliance
+	// and v_exception also read, so the phone and the dashboard cannot
+	// disagree about a target. OFFSET 0 fences the LATERAL: five fields come
+	// from one resolved row, and without it the planner re-evaluates the
+	// resolver per reference (000045 header).
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.axle_type::text,
 		       p.side::text, p.axle_number, p.is_spare, p.unit_label, f.tyre_id, t.display_code,
@@ -208,18 +207,10 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		        WHERE r.position_id = p.id AND r.vehicle_id = v.id AND i.state <> 'VOIDED'
 		        ORDER BY i.submitted_at DESC LIMIT 1) prev ON true
 		  LEFT JOIN LATERAL (
-		       SELECT tp.target_kpa, tp.warn_under_pct, tp.critical_under_pct,
-		              tp.warn_over_pct, tp.critical_over_pct
-		         FROM app.target_pressure tp
-		        WHERE tp.tenant_id = v.tenant_id
-		          AND tp.effective_from <= now()
-		          AND p.axle_class <> 'SPARE'
-		          AND (tp.axle_class IS NULL OR tp.axle_class = p.axle_class)
-		          AND (tp.size_id   IS NULL OR tp.size_id   = t.size_id)
-		        ORDER BY (tp.size_id IS NOT NULL) DESC,
-		                 (tp.axle_class IS NOT NULL) DESC,
-		                 tp.effective_from DESC
-		        LIMIT 1) tgt ON true
+		       SELECT tgt.target_kpa, tgt.warn_under_pct, tgt.critical_under_pct,
+		              tgt.warn_over_pct, tgt.critical_over_pct
+		         FROM app.target_pressure_for(v.tenant_id, t.size_id, p.axle_class, now()) tgt
+		       OFFSET 0) tgt ON true
 		 WHERE v.id = $1
 		 ORDER BY p.sequence`, vehicleID)
 	if err != nil {
@@ -355,29 +346,18 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
 			}
-			// FR-AUT-005 on the WRITE path. The read composes v_capture_vehicle;
-			// without the same narrowing here a driver could submit against any
-			// unit in the tenant, which is a wider hole than the read ever was.
-			//
-			// A superlink payload legitimately carries readings against several
-			// vehicle_ids in one submit: the motive unit plus each coupled
-			// trailer (the "108 entries, not 52" case). Checking only the
-			// top-level vehicle_id would let a driver assigned to unit A embed
-			// a reading against unrelated unit B in the same tenant. TY004 in
-			// app.submit_inspection only confirms a position belongs to its own
-			// vehicle's configuration, never that the actor may write to that
-			// vehicle, and that narrowing is deliberately the handler's
-			// (000023_submit_inspection.up.sql's TY007 comment). So every
-			// vehicle_id referenced anywhere in the payload must resolve
-			// through v_capture_vehicle: this one plus every
-			// readings[].vehicle_id, read straight from raw rather than a
-			// second Go-side model. COALESCE guards a missing/non-array
-			// readings key so a malformed payload still gets a refusal here
-			// rather than a raw Postgres error.
-			//
-			// 422 (errVehicleNotVisible), not 403. The sentinel's comment in
-			// httpapi.go says why the two roles must not learn different
-			// things about the same vehicle.
+			// FR-AUT-005 on the write path: without the same v_capture_vehicle
+			// narrowing the read uses, a driver could submit against any unit
+			// in the tenant, wider than the read ever exposed. Every
+			// vehicle_id referenced anywhere in the payload (the top-level
+			// one plus every readings[].vehicle_id) must resolve through it,
+			// because app.submit_inspection's own TY004 confirms a position
+			// belongs to its vehicle's configuration but never that the actor
+			// may write to that vehicle, the same narrowing TY007 states for
+			// the top-level id (000023). Answered 422
+			// (errVehicleNotVisible), not 403; httpapi.go's sentinel says
+			// why. See docs/architecture.md's capture-write section for the
+			// superlink example and the COALESCE walkthrough.
 			if a.Scope() != auth.ScopeTenant {
 				var authorized bool
 				if err := tx.QueryRow(r.Context(), `

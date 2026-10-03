@@ -2,12 +2,8 @@ import { expect, test } from "@playwright/test";
 
 import { actAsOrgAdmin } from "./admin";
 
-// TYRE-91's tyre register, end to end on Sandbox Fleet (never BAC, BAC's
-// rows are the Appendix E/J acceptance fixture, TYRE-80): receive a tyre
-// under Sandbox's GENERATED policy, cost it from the awaiting-cost queue,
-// then scrap it. One continuous test, not several: each step depends on the
-// tyre the previous step just wrote, the same shape as admin.spec.ts's
-// single build-a-tenant-from-nothing test.
+// TYRE-91's tyre register (Jira), walked on Sandbox Fleet, never BAC
+// (TYRE-80).
 test.beforeEach(async ({ page }) => {
   await actAsOrgAdmin(page);
 });
@@ -15,14 +11,11 @@ test.beforeEach(async ({ page }) => {
 test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) => {
   await page.goto("/fleet/tyres/new");
 
-  // D12's UI contract: under GENERATED (Sandbox is seeded GENERATED, prefix
-  // SBX, db/seeds/002_seed_configurations.sql) the screen never offers a
-  // field to hand-type a code into, so a receive can never reach
-  // app.receive_tyres's TY011 hand-typed-code refusal from here. That
-  // refusal stays proven at the SQL/API layer (db/tests/004_tests.sql); what
-  // this spec can prove, on screen, is that the contract it exists to
-  // enforce actually holds: no code field, and the operator told the
-  // platform issues one instead (ReceiveTyre.tsx's AS-014 hint).
+  // D12's UI contract: under GENERATED, the screen offers no field to
+  // hand-type a code, so it cannot reach TY011's refusal from here (that
+  // stays proven at the SQL/API layer, db/tests/004_tests.sql). What this
+  // spec proves is the contract itself: no code field, and the operator told
+  // the platform issues one (AS-014).
   await expect(
     page.getByText(
       /the platform assigns the next code.*mark the sidewall with the code shown after saving/i,
@@ -58,17 +51,15 @@ test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) =
     row.getByRole("button", { name: /^set cost$/i }).click(),
   ]);
 
-  // Costed: the query refetches (invalidation in CostForm's onSuccess), the
-  // awaiting-cost flag flips and the row's cost form, which renders only on
-  // an awaiting-cost row, is gone rather than offering a second submission
-  // (D5/TY013: a correction later is a decision this surface does not take).
+  // Costed: the query refetches, the flag flips, and the cost form is gone
+  // rather than offering a second submission (D5/TY013: a correction later is
+  // a decision this surface does not take).
   await expect(row.getByText("No", { exact: true })).toBeVisible();
   await expect(row.getByLabel(`Purchase price for ${displayCode}`)).toHaveCount(0);
 
-  // Scrap it with a reason (app.dispose_tyre requires one for SCRAPPED) and
-  // see its own state change. There is no "active only" filter in the
-  // landed register, so the row stays visible with its state updated rather
-  // than disappearing from the list.
+  // Scrap with a reason (app.dispose_tyre requires one for SCRAPPED): no
+  // "active only" filter exists yet, so the row stays visible with its state
+  // updated rather than disappearing.
   await row.getByRole("combobox", { name: `Disposal for ${displayCode}` }).selectOption("SCRAPPED");
   await row.getByLabel(`Reason for ${displayCode}`).fill("worn beyond removal threshold");
   await Promise.all([

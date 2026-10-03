@@ -1,13 +1,10 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { FitmentList } from "./FitmentList";
-import { ActorContext } from "../auth/actorContext";
 import type { FleetFitment } from "../api/units";
-import { me, respond, testQueryClient } from "../test/fixtures";
+import { renderWithActor, respond } from "../test/fixtures";
 
 function fitment(overrides: Partial<FleetFitment> & { fitmentId: string }): FleetFitment {
   return {
@@ -26,15 +23,7 @@ function fitment(overrides: Partial<FleetFitment> & { fitmentId: string }): Flee
 }
 
 function renderScreen() {
-  return render(
-    <ActorContext.Provider value={{ actor: me({ capabilities: ["ViewFleet"] }), settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        <MemoryRouter>
-          <FitmentList />
-        </MemoryRouter>
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<FitmentList />, { capabilities: ["ViewFleet"], withRouter: true });
 }
 
 describe("the fitments list", () => {

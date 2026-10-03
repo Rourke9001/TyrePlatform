@@ -1,11 +1,10 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { ReturnToStockButton } from "./ReturnToStockButton";
 import type { Tyre } from "../../api/tyres";
-import { requestedUrl, respond, sentBody, testQueryClient } from "../../test/fixtures";
+import { renderWithActor, requestedUrl, respond, sentBody } from "../../test/fixtures";
 
 function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
   return {
@@ -23,10 +22,8 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
 }
 
 function renderButton(t: Tyre = tyre({ id: "t1" }), onSuccess?: () => void) {
-  return render(
-    <QueryClientProvider client={testQueryClient()}>
-      <ReturnToStockButton tyre={t} tenantKey="tenant-a" onSuccess={onSuccess} />
-    </QueryClientProvider>,
+  return renderWithActor(
+    <ReturnToStockButton tyre={t} tenantKey="tenant-a" onSuccess={onSuccess} />,
   );
 }
 
@@ -38,10 +35,8 @@ describe("returning a tyre to stock", () => {
     vi.unstubAllGlobals();
   });
 
-  // The decoder refuses no body at all (an empty stream), so the button must
-  // send a JSON body of {} rather than nothing. The confirmation itself is a
-  // TyreList-level concern (see TyreList.test.tsx); this only proves the
-  // button calls back rather than swallowing the write.
+  // The decoder refuses no body at all, so the button must send {} rather
+  // than nothing. The confirmation itself is a TyreList-level concern.
   it("posts an empty body and calls onSuccess", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(new Response(null, { status: 204 }));
     const onSuccess = vi.fn();

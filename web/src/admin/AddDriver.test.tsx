@@ -1,23 +1,14 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { AddDriver } from "./AddDriver";
-import { ActorContext } from "../auth/actorContext";
-import { me, respond, sentBody, testQueryClient } from "../test/fixtures";
+import { renderWithActor, respond, sentBody } from "../test/fixtures";
 
 // Capabilities rather than a role name: the screen branches on useCan
 // (ADR-0011), so the test names what the screen reads.
 function renderScreen(capabilities: string[] = ["ManageUsers", "ManageAssignments"]) {
-  const actor = me({ displayName: "Admin", role: "ORG_ADMIN", capabilities });
-  return render(
-    <ActorContext.Provider value={{ actor, settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        <AddDriver />
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<AddDriver />, { capabilities });
 }
 
 const CREATED = {
@@ -70,10 +61,9 @@ describe("adding a driver", () => {
     expect(alert).toHaveTextContent(/already exists/i);
   });
 
-  // TYRE-83: the server names this refusal specifically (a rehire's
-  // preserved staff number colliding with a legitimate reuse). Without this
-  // code in refusalMessage's speakable list, the admin would see only the
-  // generic "could not add a user" sentence and never learn what to fix.
+  // TYRE-83: the server names this refusal specifically (a rehire's staff
+  // number colliding with a legitimate reuse). Without it in speakable, the
+  // admin sees only the generic fallback.
   it("shows the server's message for a staff-number collision, not the generic fallback", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(409, {
@@ -244,11 +234,8 @@ describe("adding a driver", () => {
     await userEvent.click(again);
 
     expect(again).toBeDisabled();
-    // Tanstack Query clears create.error the moment this second mutation
-    // starts, so this alert must still be reading state captured at the
-    // first refusal rather than re-deriving from the (now cleared) error.
-    // Otherwise a live region announces the generic fallback sentence over a
-    // request that is in fact succeeding (D10).
+    // See AddDriver.tsx's D10 capture of create.error before Reactivate
+    // clears it.
     expect(screen.getByRole("alert")).toHaveTextContent(/deactivated/i);
 
     // The reactivate path answers 200 (TYRE-95).

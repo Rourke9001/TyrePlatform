@@ -2,31 +2,19 @@
 // than a fetch belongs server-side (docs/architecture.md).
 
 import { getDevActorId, getDevTenantId } from "./devTenant";
+import { ApiError } from "./apiError";
+import { authUnavailable, isLatched, refused, sender, type Sender } from "./token";
 
-// The status is the outbox's decision (FR-OFF-012 vs FR-OFF-013); the code is
-// the reason, which is what decides the sentence a driver reads. A 409 alone
-// cannot separate FR-INS-038's duplicate window from any other conflict
-// (ADR-0012). The message is the envelope's own text when present (the server's
-// words for rendering a screen refusal); otherwise a diagnostic to absorb an
-// error path that failed while reporting an error (ADR-0013).
-export class ApiError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-    readonly code: string | null = null,
-  ) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+export { ApiError } from "./apiError";
 
-// The refusal envelope, or nothing (ADR-0012). A proxy, a gateway or a
-// browser-generated failure carries none, so an unreadable body yields nulls
-// rather than a throw: an error path that fails while reporting a failure
-// loses the inspection the outbox is holding.
-//
-// Both fields come from one parse because a Response body can only be read
-// once.
+// The one name the bearer travels under here, and one constant in Go
+// (bearer.HeaderName). If Static Web Apps strips it on the linked backend,
+// the fallback header changes in those two places only (ADR-0016, TYRE-51).
+export const AUTH_HEADER = "Authorization";
+
+// An unreadable body yields nulls, not a throw (ADR-0012): failing to parse
+// a refusal must not lose the inspection the outbox is holding. Both fields
+// come from one parse; a Response body reads once.
 async function refusal(res: Response): Promise<{ code: string | null; message: string | null }> {
   const none = { code: null, message: null };
   try {
@@ -41,17 +29,24 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
   }
 }
 
-// The one implementation of identity attribution, refusal shaping and 204
-// handling: apiGet, apiPost and apiPatch differ only in HTTP method and
-// whether a body exists, so every verb below delegates here rather than
-// carrying its own copy of headers/refusal/204 to drift from the others'.
-async function send<T>(method: string, path: string, body?: unknown): Promise<T> {
+// One implementation of identity attribution, refusal shaping and 204
+// handling; apiGet/Post/Patch delegate here so they cannot drift apart.
+async function send<T>(method: string, path: string, body?: unknown, as?: Sender): Promise<T> {
   const headers: Record<string, string> = {};
   if (body !== undefined) headers["Content-Type"] = "application/json";
-  const devTenant = getDevTenantId();
-  const devActor = getDevActorId();
-  if (devTenant) headers["X-Tenant-ID"] = devTenant;
-  if (devActor) headers["X-User-ID"] = devActor;
+  // A latch set after the caller took its credential still stops the send.
+  if (as !== undefined && isLatched()) throw authUnavailable();
+  const who = as ?? (await sender());
+  if (who.accessToken !== null) {
+    headers[AUTH_HEADER] = `Bearer ${who.accessToken}`;
+  } else if (import.meta.env.DEV) {
+    // Inside the DEV guard so a production build names neither header
+    // (scripts/check-dist-dev-strings.mjs holds it, TYRE-317).
+    const devTenant = getDevTenantId();
+    const devActor = getDevActorId();
+    if (devTenant) headers["X-Tenant-ID"] = devTenant;
+    if (devActor) headers["X-User-ID"] = devActor;
+  }
 
   const res = await fetch(path, {
     method,
@@ -59,6 +54,9 @@ async function send<T>(method: string, path: string, body?: unknown): Promise<T>
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
   if (!res.ok) {
+    if (res.status === 401 && who.accessToken !== null && refused(who.accessToken)) {
+      throw authUnavailable();
+    }
     const { code, message } = await refusal(res);
     throw new ApiError(res.status, message ?? `${method} ${path} failed: ${res.status}`, code);
   }
@@ -79,10 +77,15 @@ export function apiPost<T>(path: string, body: unknown): Promise<T> {
   return send<T>("POST", path, body);
 }
 
-// PATCH is the unit's descriptive edit (D5): the fields a plain UPDATE owns
-// because no SQL rule governs them, distinct from the POSTs on this surface
-// that call into a function precisely because one does (ADR-0013 decision
-// 1). The distinction is server-side; this function only carries the verb.
+// U104: the outbox sends under the credential it compared the entry's stamp
+// against, never one read again after the compare.
+export function apiPostAs<T>(path: string, body: unknown, as: Sender): Promise<T> {
+  return send<T>("POST", path, body, as);
+}
+
+// PATCH carries the unit's descriptive fields, ones no SQL rule governs
+// (D5); POSTs on this surface call a function because one does (ADR-0013
+// decision 1). The distinction is server-side.
 export function apiPatch<T>(path: string, body: unknown): Promise<T> {
   return send<T>("PATCH", path, body);
 }

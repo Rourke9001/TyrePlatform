@@ -28,6 +28,385 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-02 - `az ad app update --set api.*` fails, and the admin center makes password users (TYRE-317)
+
+**What happened:** during the CIAM checks, `az ad app update --id <tyre-api>
+--set api.acceptMappedClaims=true` failed with "Couldn't find 'api' in ''"
+and changed nothing. Separately, a test user created in the External ID
+admin center ("Create new external user") was asked for its generated
+password by the email passcode flow, never sent a code: the admin center
+always writes a password user (`creationType: LocalAccount`, an
+`emailAddress` identity), and a user keeps the method it was created with.
+
+**The rule:** to change an application's `api` block, GET it with
+`az rest`, edit the whole block and PATCH `{"api": <whole block>}`, then
+read it back. Create a passcode user only through Graph, with no password,
+`creationType` and `passwordPolicies` null and a `federated` / `mail`
+identity (TYRE-317 comment 13468), never in the admin center.
+
+## 2026-10-02 - TanStack Query tells its observers on a later tick, so an assertion straight after `act(refetchQueries)` reads the old render (TYRE-317)
+
+**What happened:** a test that a 401 never unmounts the capture asserted
+straight after `client.refetchQueries()` in `act()`, and passed against a
+provider changed to drop the actor. query-core 5.101.4's `notifyManager`
+schedules observers with `setTimeout(0)` (`build/modern/notifyManager.js`,
+line 3), so the provider had not re-rendered yet.
+
+**The rule:** the 2026-09-03 entry below holds the general rule. Here, assert
+only after the provider re-renders on the refetch, with a `findBy` on what
+it derives from the new result.
+
+## 2026-10-02 - In a git worktree, `make db-up` names its compose project after the folder and collides with `tyre-pg` (TYRE-317)
+
+**What happened:** `make check` in the worktree `tp-fix-92` failed at
+`make db-up` with a container-name conflict on `tyre-pg`. Docker compose
+names the project after the folder, so the worktree asked for project
+`tp-fix-92`, while the running `tyre-pg` (the fixed `container_name` in
+`docker-compose.yml`) belongs to project `tyreplatform`. With
+`COMPOSE_PROJECT_NAME=tyreplatform` a dry run showed `Container tyre-pg
+Running` and no recreate, and the gate ran.
+
+**The rule:** run gates in a worktree as `COMPOSE_PROJECT_NAME=tyreplatform
+VITEST_MAX_WORKERS=4 make check`. A worktree's gate loads that branch's
+schema into the shared `tyre-pg`, so another checkout runs `make db-reset`
+before it next uses the database.
+
+## 2026-10-02 - oidc-client-ts's request timeout ends when the headers arrive, not the body (TYRE-317)
+
+**What happened:** the 2026-10-01 fix passed the timeout per call and kept a
+test that the refresh request carries an abort signal, and both the code
+comment and the spec then said the refresh was bounded. In oidc-client-ts
+3.5.0 `fetchWithTimeout` clears its abort timer in a `finally` as soon as
+`fetch()` resolves (`dist/esm/oidc-client-ts.js` 685-706), and `postForm`
+then awaits `response.text()` (784) with no signal, as `getJson` does with
+`response.json()` (739). A response whose headers arrive and whose body stalls
+held the token store's shared renewal, and every API call behind it, until
+a reload.
+
+**The rule:** a library timeout that aborts `fetch()` bounds only the wait
+for headers. Bound the caller's wait yourself (the token store's `bounded()`
+in `web/src/api/token.ts`), and when checking a library's timeout, read
+where its timer is cleared as well as whether a signal is passed.
+
+## 2026-10-01 - oidc-client-ts sends the refresh POST unbounded unless the timeout is passed per call (TYRE-317)
+
+**What happened:** `renew()` called `signinSilent()` with no arguments, and
+the plan's library check took `silentRequestTimeoutInSeconds` in the
+settings to bound the refresh. In oidc-client-ts 3.5.0 `signinSilent()`
+destructures that option from its own arguments and passes it on as
+`timeoutInSeconds`; `_useRefreshToken` then spreads those arguments over its
+settings default, so the explicit `undefined` wins and `fetchWithTimeout`
+calls bare `fetch` with no abort signal. A node probe showed no signal with
+the setting alone and a signal only with
+`signinSilent({ silentRequestTimeoutInSeconds: 10 })`. The token store
+shares one renewal, so one stalled refresh would have held every API call on
+the page.
+
+**The rule:** pass `silentRequestTimeoutInSeconds` to `signinSilent()` on
+every call, never rely on the settings for it, and keep a test that the
+refresh request carries an abort signal (`web/src/auth/oidc.test.ts`). On a
+library bump, re-check that a request the design bounds still gets a signal
+before trusting a setting's name.
+
+## 2026-10-01 - vitest's default worker count times out untouched jsdom tests on this host (TYRE-317)
+
+**What happened:** `make check` on a branch that touched no web file failed
+`web-test` three runs in a row with `Test timed out in 5000ms` in
+CaptureFlow, Exceptions and Dashboard tests, a different handful each run,
+plus one Dashboard debounce assertion (3 calls against 2). Vitest 4.1 starts
+about 15 workers on the 16-core host, each building a jsdom environment,
+with about 3.6 GB of RAM free: setup summed 200 s and environment 400 s
+inside an 86 s run. The same three files passed alone in 32 s, and
+`VITEST_MAX_WORKERS=4 make check` passed 837 of 837.
+
+**The rule:** on this host run the gate as `VITEST_MAX_WORKERS=4 make check`.
+When web tests time out in files the branch did not touch, cap the workers
+and re-run before reading the diff for a cause. Never raise a test timeout or
+add `maxWorkers` to `vite.config.ts` to get there: the limit is the host's,
+not the repo's. This differs from 2026-09-24, where workers exited; here they
+ran and were too slow.
+
+## 2026-10-01 - A down-file proof that moves migration files aside through a Windows temp-path glob loses them, and `migrate down 1` then reverts the wrong migration (TYRE-317)
+
+**What happened:** to take a pre-000052 baseline, the migration files were
+moved to `$TMP/hold` and brought back with an unquoted glob on the Windows
+temp path (`C:\Users\ROURKE~1\...`). The glob did not match, so the files
+stayed in scratch, `make db-reset` stopped at the seeds (which already
+named the new column), the database sat at 000051, and `migrate down 1`
+reverted 000051 while the diff still printed "grants restored".
+
+**The rule:** never prove a down file by moving its migration out of
+`db/migrations/`. Take the baseline from a copy of the catalogue taken
+before the up is applied (migrate to the prior version, query, then up); and
+before trusting a `down 1`, read the `NN/d name` line it prints
+and check it is the migration under test.
+
+## 2026-09-30 - `String.replace` turns a SQL `$$` into `$` when splicing a suite section (TYRE-346)
+
+**What happened:** suite section 67 was spliced into `db/tests/004_tests.sql`
+with `node -e` and `String.prototype.replace`. In a replacement string `$$`
+means a literal `$`, so every `DO $$` body lost a dollar sign. The Bash tool
+also halved the section's backslashes (lesson 2026-09-08), so `\echo` came
+out as `echo`. The mangled section reached a commit and had to be rebuilt
+from a clean copy.
+
+**The rule:** never splice SQL through a string `replace` or a quoted `-e`
+script. Write the new section to its own file with the Write tool and join
+the pieces by line number (`head -n`, `cat`, `tail -n +`), or use Edit. Then
+check `git diff` for `$$` and `\echo` before committing.
+
+## 2026-09-29 - a stopped `npm run dev` can leave vite's node child on the port (TYRE-239)
+
+**What happened:** `TaskStop`, and killing the Git Bash shell it ran in, stops
+the shell but leaves vite's `node` child listening on 5173; twice in this
+session it had to be stopped by process id, found with `Get-CimInstance
+Win32_Process` and stopped with `Stop-Process -Id`.
+
+**The rule:** after stopping a dev server, confirm the port is closed
+(`curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/` prints 000)
+before any `npm ci` or `npm install`, and stop a survivor by pid.
+
+## 2026-09-29 - `toContainText` runs sibling block text together with no separator (TYRE-239)
+
+**What happened:** a Playwright `toContainText` reads an element's text
+content, which runs sibling block elements together with no separator: the
+dashboard's open-exceptions tile read "...1911 urgent..." because its value
+`<p>19</p>` sat directly before the qualifier. A digit-guarded regex
+`/(^|\D)11 urgent/`, proved only against a hand-built string starting at
+"11", passed there and failed on the real page.
+
+**The rule:** when an assertion depends on what sits beside a figure, pass
+`{ useInnerText: true }` (rendered text, one line per block) and prove the
+assertion on the real page with a planted wrong value, never against a
+string you wrote.
+
+## 2026-09-29 - `make db-volume` after a suite run can plan its load quadratically (TYRE-348)
+
+**What happened:** a `make db-volume` run straight after `make db-test` on
+a freshly reset database was cancelled at 23 minutes, against 248 s the day
+before. The first suspect was the change under test, a tiebreaker added to
+the register's latest-reading sort. It was not the cause: both sort orders
+planned identically. The suite's rolled-back inserts had set off
+autoanalyze on `reading` and `reading_measurement` 35 seconds before the
+load started, so the load's single transaction planned on statistics that
+said 53 rows. The reconcile's latest-reading lookup then seq-scanned every
+inspection and probed `reading_by_tyre` once for each, so every statement
+cost more than the one before it. Re-run as `make db-reset` then `make
+db-volume` with nothing in between, the same code loaded in 281 s.
+
+**The rule:** load the volume state only as `make db-reset` immediately
+followed by `make db-volume`, with nothing that writes in between: no suite
+run, Go integration test or `make e2e`, since rolled-back inserts count
+toward autoanalyze too. When a load runs long, compare
+`pg_stat_user_tables.last_autoanalyze` with the load's start time, and
+`EXPLAIN` the suspect lookup under both versions on the same state, before
+blaming the change.
+
+## 2026-09-25 — A focused Go test run on an unreset database fails the Appendix E pins (TYRE-269)
+
+**What happened:** during the PR #81 review fixes, a focused `go test -run
+"TestEstate|TestValuation|TestDashboard"` failed `TestEstateRelaysAppendixEToTheCent`
+and `TestDashboardRelaysEveryPinnedFigure`, which read as a valuation
+regression. The database had been written to since its last reset (an
+earlier `make e2e`, whose capture spec submits into the seed, is the likely
+writer). After `make db-reset` the same tests passed unchanged.
+
+**The rule:** before a focused Go or suite run, `make db-reset`. A red pin on
+a database another run has written to says nothing about the change; only
+the reset run counts. `make test` resets first, which is why it is the gate.
+
+## 2026-09-25 — vitest stubs every CSS import to `""`, `?raw` included, unless `test.css.include` matches (TYRE-276)
+
+**What happened:** `brandConfinement.test.ts` reads the app's stylesheets as
+text with `import.meta.glob(..., { query: "?raw" })` to check which
+selectors read a brand custom property. Before `vite.config.ts`'s `test`
+block carried a `css.include` pattern, the glob found all eight sheets but
+every one came back as an empty string, so the test failed on
+`expected [] to include '.shell-wordmark'` rather than on the CSS content.
+
+**The rule:** a test that reads a stylesheet as text needs a guard
+assertion that it saw a known selector, not just that the glob returned
+files. Without that guard, a config gap that stubs every sheet to `""`
+passes silently, because an empty haystack also satisfies "found no
+offenders".
+
+## 2026-09-24 - `gate-not-piped.sh` refuses a `go test -run 'A|B'` because the `|` is inside a quoted regex (TYRE-303)
+
+**What happened:** a lane fixing the refusal registry gate ran
+`go test -run 'TestA|TestB' ./internal/httpapi/` to run two tests, and the
+hook refused it as a piped gate. The hook splits the command on `;`, `&&`
+and `||` and then refuses any gate segment containing a `|`. It does not
+parse quoting, so an alternation inside a `-run` regex reads as a pipe. The
+lane fell back to running the whole package.
+
+**The rule:** to run several Go tests by name, put `set -o pipefail;` first
+(the hook lets any command naming pipefail through), or run the package.
+Do not rewrite the regex to dodge the `|`, and do not weaken the hook to
+parse quotes: a false refusal costs one retry, and a missed pipe costs a
+green gate that never ran.
+
+## 2026-09-24 — vitest's "Worker exited unexpectedly" under host memory pressure is not a test result (TYRE-211)
+
+**What happened:** a `make check` on the W5a branch was left running while
+the session sat idle. The harness then reaped the wrapper for low host
+memory. The orphaned `make` carried on, and its vitest step reported
+`Error: Worker exited unexpectedly`, 58 errors, with only 15 of 73 files run
+and every test that ran passing. The branch touched no web file. The same
+tree passed 702/702 once memory was free.
+
+**The rule:** when vitest fails with worker exits and no assertion failure,
+read it as the host, not the code. Do not debug it and do not re-run it
+while memory is short. Re-run the whole `make check` when the machine is
+quiet, and quote that run as the gate. It recurred on 25 Sep (PR #81): a
+backgrounded `make check` was reaped while the session sat idle. Run it in
+the foreground in two halves, `make fmt lint` then `make test`, each inside
+the tool's 10-minute limit, so an idle session never holds it.
+
+## 2026-09-23 — `npm ci` beside a running dev server deletes `node_modules` and then stops (TYRE-143)
+
+**What happened:** during the sweep close-out, `npm ci` ran in the main
+checkout while a Vite dev server from that same checkout was serving :5173.
+npm deletes `node_modules` before it installs. On Windows the running server
+holds `node_modules/@esbuild/win32-x64/esbuild.exe` open, so the delete
+failed with `EPERM ... unlink` after most of the tree was already gone.
+`make lint` then failed with "'prettier' is not recognized". `npm install`
+repaired it without touching the locked binary.
+
+**The rule:** never run `npm ci` in a checkout whose dev server is running.
+Run gates in a worktree with its own `node_modules`, or stop the server
+first. If it has already happened, run `npm install` (not `npm ci`) to put
+back what was deleted, then confirm `git status` shows no lockfile drift you
+did not mean.
+
+## 2026-09-23 — A silently short `npm ci` reports its own success and fails eslint two steps later (TYRE-180)
+
+**What happened:** `npm ci` in a fresh worktree reported `added 259 packages`
+and exit 0. `make lint` then failed on `web/src/ui/Dialog.tsx` with
+`@typescript-eslint/no-unsafe-call`/`no-unsafe-member-access` on
+`event.preventDefault()` inside a Radix `onCloseAutoFocus` callback, a file
+untouched by the branch. `node_modules/@radix-ui/` did not exist at all,
+though `package-lock.json` names it. A second `npm ci` in the same directory
+reported `added 302 packages` and the whole `@radix-ui` scope appeared; the
+same `make lint` then passed clean. Nothing about the first run's exit code
+or output named a missing package.
+
+**The rule:** when `make lint`'s TypeScript-aware eslint fails on a file the
+branch never touched, check whether the failing import actually resolves
+(`node -e "require('./node_modules/<pkg>/package.json')"`) before reading the
+diff for a cause. If it does not, re-run `npm ci` rather than debugging the
+lint rule; a short-counted `npm ci` is a silent partial install, not a
+reported failure, and a package's absence surfaces as a type-resolution
+error two tools later.
+
+## 2026-09-23 — An agent worktree can start on main, not the branch you are on (TYRE-180)
+
+**What happened:** Agent isolation "worktree" created worktrees at 08c6d2b
+while the session sat on develop 6ce7444. Two of four lanes built on that
+stale tree and reported "cut from develop"; one ran a green `make check`
+against a tree three weeks old.
+
+**The rule:** first thing in any agent worktree, run `git merge-base HEAD
+develop`. If it is not develop's tip, rebuild the branch onto develop before
+editing. The orchestrator re-checks the merge-base before trusting any
+lane's gate.
+
+## 2026-09-23 — A focusable SVG chart mark takes focus on mousedown, so a focus-driven tooltip sticks after a click (TYRE-238)
+
+**What happened:** the PR #70 fix gave BandChart separate hover and focus
+state so a keyboard user's tooltip survives the pointer leaving. A
+`<g tabIndex={0}>` also takes focus when clicked, so a mouse user's tooltip
+then stayed on the clicked bar after they moved away. jsdom does not focus
+on mousedown, so every test passed; the whole-branch review found it.
+
+**The rule:** when a chart mark's tooltip follows focus, suppress pointer
+focus with `onMouseDown={(e) => e.preventDefault()}` on the focusable mark,
+and test that mechanism (`createEvent.mouseDown`, assert `defaultPrevented`),
+since jsdom cannot show the stuck tooltip.
+
+## 2026-09-23 — A review finding about a library's behaviour was written from memory and was wrong for the installed version (TYRE-238)
+
+**What happened:** the PR #70 review said `@radix-ui/react-select` throws on
+an Item with `value=""`. The installed 2.3.7 has no such guard; it treats
+`""` as no selection and shows the placeholder. The fix was still right,
+but the finding claimed the app would blank when it would only mislabel.
+
+**The rule:** before a finding states what a dependency does, grep its
+installed `dist` under `web/node_modules` (or run it) and cite the line.
+Severity follows the behaviour you saw, not the behaviour you remember.
+
+## 2026-09-23 — A dev-only route written as `{x && <Route/>}` survives the production build and fails the capture budget (TYRE-238)
+
+**What happened:** the gallery's `{Gallery && <Route/>}` emitted no chunk, yet
+the minifier kept `null` in the route children and the entry went over budget.
+
+**The rule:** a build-time-false JSX child still leaves a placeholder in the
+children array (`!1`, or a kept `null` const). When a dev-only guard must
+leave nothing, fold it into a sibling that exists anyway, so both branches
+build to the same output. Prove any dev-only guard with
+`npm run bundle:check`, never by a missing chunk.
+
+## 2026-09-19 — A control query on the admin connection reads a tenant-scoped function as empty, and passes (TYRE-36)
+
+**What happened:** B7.2's inflation compliance test compared the endpoint's
+band total against a control query run on the `admin` (postgres) connection:
+`SELECT sum(reading_count) FROM app.inflation_compliance(...)`. The function
+filters on `current_setting('app.tenant_id')`, which the admin connection
+never sets, so the control returned 0 while the endpoint correctly returned
+26. The test only failed because the endpoint was right. Had both been
+broken it would have compared 0 to 0 and passed. The estate and exception
+controls in the same file are safe for a different reason: they read views
+with an explicit `WHERE tenant_id = $1`, and postgres bypasses RLS.
+
+**The rule:** a control that reads a tenant-scoped function binds
+`app.tenant_id` itself, in its own transaction (`set_config(..., true)`,
+rolled back), and asserts the control is non-zero before comparing it to
+what the endpoint returned. A control whose expected value could be the
+empty answer is not a control.
+
+## 2026-09-16 — `gate-not-piped.sh` does not know `gh` is a gate, so the piped-gate trap walks back in (TYRE-252)
+
+**What happened:** `gh pr checks 58 --watch --interval 20 --fail-fast | tail -20`
+was run to decide whether PR #58 could be merged. It ended with
+`Post "https://api.github.com/graphql": ... connection was aborted`, a last
+table still showing `Browser smoke` as `pending`, and a reported exit of 0 —
+which was read as "the watch finished and every check passed". The 0 was
+`tail`'s. A pipeline reports its last stage, so gh's own status never survived
+the pipe; `(exit 3) | tail -1; echo $?` prints `0`, and `set -o pipefail` makes
+the same line print `3`. TYRE-250's hook exists to refuse exactly this, but its
+pattern matches `make`, `npm` and `go test`, so a `gh` invocation is not a gate
+as far as the hook is concerned and the command was allowed.
+
+**The rule:** a gate is anything whose exit code you are about to believe, not
+the four commands the hook can spell. `gh pr checks`, `gh run watch` and
+`gh run view` are gates; never pipe one. Redirect to a file and read the file,
+or put `set -o pipefail` first. Then, whatever the watch reported, re-read
+plain `gh pr checks <n>` before merging and require every row to carry a
+terminal state. A row still saying `pending` means only that the watch stopped
+before that check finished, which `--fail-fast`, a dropped connection and an
+interrupted terminal all produce; the reason does not matter, because in every
+one of them the run was never seen through.
+
+## 2026-09-15 — A down file that copies a function "verbatim" from 000001 reverts every later ALTER FUNCTION (TYRE-252)
+
+**What happened:** TYRE-252's plan told the down file to restore
+`app.check_measurement_ordinals()` from `000001_init.up.sql` verbatim. 000001
+predates 000043, which had pinned `search_path = app, pg_temp` on that exact
+function with `ALTER FUNCTION`. `CREATE OR REPLACE FUNCTION` assigns every
+property the command does not carry, so the verbatim copy would have dropped
+the pin. Proved directly: replacing without a `SET` clause takes `proconfig`
+from `{"search_path=app, pg_temp"}` to `NULL`. It would not have been caught
+by the branch's own gate, because the suite runs at the migrated-up state and
+section 8d only sweeps what is installed there.
+
+**The rule:** a down file restores **the state the up migration found**, which
+is the initial definition plus every `ALTER` since, not the text of the
+migration that first created the object. Before writing one, grep the whole
+migration chain for the object's name and fold in what you find. Prove it by
+catalogue at the down state, not by a suite run: execute `migrate down 1` and
+read back the property the later migration set (`proconfig`, `prosecdef`,
+grants), because the suite cannot run there and a green gate at the up state
+says nothing about it.
+
 ## 2026-09-11 — PostgreSQL pulls up a no-FROM LATERAL and re-runs the resolver at every reference site (TYRE-41)
 
 **What happened:** `app.v_exception` reads a resolved `threshold_policy` row
@@ -138,6 +517,12 @@ check it would have been a false pass reported as verified.
 into. Read the output for the `make: *** … Error` line, or run the gate
 unpiped and let its own status stand. Treat any agent that reports "exit 0"
 for a command containing a pipe as having reported nothing about that gate.
+
+**Recurred 2026-09-15**, in a session with this entry already in context:
+`make check 2>&1 | tail -40` reported exit 0 while docker was down and `fmt`
+had failed. Written down was not enough, so `.claude/hooks/gate-not-piped.sh`
+now refuses the command at PreToolUse (TYRE-250). `set -o pipefail` or an
+explicit `${PIPESTATUS[0]}` read is the way through it.
 
 ## 2026-09-05 — A Python comparison of two identical files reports a moved Appendix E pin (TYRE-101)
 
@@ -1151,3 +1536,115 @@ refusal's message text for the table under test —
 `insufficient_privilege`, because the audit chain answers with the same
 SQLSTATE from a different table.
 
+## 2026-09-16 — A measurement shares the database with whatever else you started (TYRE-247)
+
+**What happened:** the dashboard read-path measurement was taken three
+times before it was taken correctly. The first run appeared to show
+`app.v_exception` failing to finish in ten minutes, and the obvious
+diagnosis, stale statistics after a bulk load, was wrong: comparing the two
+plans showed the `lr` CTE costed identically to the cent before and after
+`ANALYZE`, so the plan had not changed at all. What differed was that a
+backgrounded `make db-explain` was still running and a cancelled query had
+let its warm pass start early, so two passes were competing. Run alone, the
+same statement took 4.9 seconds.
+
+The second attempt repeated it from the other side. Two auditor agents were
+dispatched while `make db-volume` was loading. One of them ran `make
+db-reset`, which queued a `DROP SCHEMA app CASCADE` behind the load's
+transaction and left `public.schema_migrations` dirty at version 1 when it
+was cancelled, because the target fed two statements to psql without
+`ON_ERROR_STOP` (it carries it from TYRE-247 on, so only the rule below
+survives the fix). Every read figure from that window was contaminated.
+
+That run's load time was 977 seconds against the 328 the file had taken
+before, and attributing the gap to the contention was the third wrong
+diagnosis in the same session. Re-run alone, with nothing else on the box,
+the same load took 923 seconds. Contention was real and cost about 50
+seconds of it. The rest was first attributed to migration 000047's index
+being maintained once per `reading_measurement_governs` update; the entry
+below, a day later, measured it and found the cause was the foreign-key
+check's cached plan choosing that index on stale statistics, and that the
+same file takes 524 seconds on a different day of the same box.
+
+**The rule:** nothing else touches the database while `make db-volume` or
+`make db-explain` is in flight, including a suite run, a second measurement
+pass and any subagent. Dispatch auditors before the load or after the
+measurement, never during, and check `ListAgents` before starting a run.
+`db-volume` holds one transaction for its whole load, so a concurrent
+`db-reset` blocks the entire database and then destroys the load when it
+unblocks. When a timing looks pathological, the first question is what else
+was running, not what the planner did: confirm by re-running alone before
+diagnosing, because a plan that is identical cost-for-cost was not the
+thing that changed.
+
+## 2026-09-17 — A load figure is attributed by pg_stat_statements, never by the last migration that landed (TYRE-257)
+
+**What happened:** the volume load's 328 to 923 second delta had been
+attributed, in migration 000047's header and in the entry above, to the
+new index being maintained once per governing update. One instrumented run
+(`ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'`,
+`pg_stat_statements.track = all` so statements nested in plpgsql triggers
+are counted, `track_functions = all`, `log_min_duration_statement = 0`,
+container restarted, all reset afterwards) attributed every second of the
+load in one pass, and the story was wrong twice over. The largest term was
+`refresh_governing_tread`'s MIN() subquery seq-scanning the whole
+measurement table per row, because the function is SECURITY DEFINER and its
+query carries no tenant column (TYRE-259, a production defect). The delta
+itself was the foreign-key check `reading_measurement -> reading`: the RI
+machinery plans it once per session, the load plans it at the top of one
+transaction against an empty, never-analysed table, and on those statistics
+the cached generic plan walks the new index on `tenant_id` alone instead of
+probing the unique key, for all 90,480 checks. On an analysed table the same
+check plans on the primary key. Index maintenance did not register. The
+same file also took 524 seconds alone on the same box a day after it took
+923, so a single figure is not a baseline either.
+
+**The rule:** before attributing a load or a query to a schema change,
+switch on `pg_stat_statements` with `track = all` and `track_functions =
+all`, reset the counters, run once, and read the nested statement totals
+and `pg_stat_user_tables` / `pg_stat_user_indexes`; that one run costs
+less than one wrong diagnosis. Inside a single-transaction bulk load, every
+plan the trigger chain and the RI checks cache is built against the
+statistics the table had when the transaction began, so interleave
+`ANALYZE` of the growing tables in the file (legal inside a transaction)
+before blaming an index. And a delta is only a delta between two runs
+taken back to back on the same box.
+
+## 2026-09-18 — An audit's drafted replacement comment drops requirement IDs (TYRE-260)
+
+**What happened:** the repo-wide comment trim ran as read-only audits that
+drafted replacement text per block, then executors that applied it. Every
+executor, across all six slices, found drafts that had dropped a requirement
+or ticket ID the original carried: about fifteen cases, from `NFR-USE-005`
+in a dashboard test to `TYRE-80` in an e2e header to `BR-VAL-002` in a seed
+generator's emitted comment. The drafts read well and passed the style
+checker; the ID was simply gone, and shorthand such as `FR-INS-030a/030b`
+had also stopped matching the second ID's token. The audits had been told
+to preserve IDs and believed they had.
+
+**The rule:** never accept a comment edit, hand-written or delegated, without
+a per-file diff of the ID set against `HEAD` (the regex is in
+`docs/comments.md`'s ID list plus `TY[0-9]{3}` and bare `D`/`U`/`Q`
+numbers). Run it after the edit and before the gate, per file, because a
+package-level union hides a loss that moved between files. A shorthand
+range is two IDs written out in full.
+
+## 2026-09-19 — A review finding's premise is not evidence, and a self-test proves only the shapes its control carries (TYRE-36)
+
+**What happened:** a review of the analytics API reported that the API
+renormalised the tread distribution because the seeded `tread_bands`
+`[[0,4],[5,7],...]` leave gaps, and named a 4.5 mm tyre as the case.
+The first regression test was written on that sentence and passed before
+the fix, because `app.tread_band_list` takes `upper_exclusive_mm` from
+`lead(lower)`, not from the pair's second element: the seeded bands
+partition [0, infinity) and 4.5 mm lands in band 1. The defect was real
+for another reason (nothing pins the lowest band to zero), so the fix
+stood and only the test was wrong. The same review found the money gate
+blind to a tagged struct field, a shape its own `--self-test` control did
+not contain, so the gate had reported green over it on every run.
+
+**The rule:** before writing the regression test, reproduce the finding's
+premise against the source or the running database, not against the review
+text; a test that passes before the fix is the premise failing, not the
+fix being unnecessary. And a gate's control carries the shape its real
+input has, tags and all, or the run proves only that the control fires.

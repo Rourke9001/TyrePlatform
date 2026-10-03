@@ -1,25 +1,32 @@
 import { apiGet } from "../api/client";
+import { rememberTenant } from "../api/token";
 
-// Wire shape of GET /api/me (api/internal/httpapi). Capabilities are strings
-// rather than a union: the server owns the vocabulary, and a client that
-// cannot represent a capability it has not heard of would break on deploy
-// ordering rather than degrade.
+// Wire shape of GET /api/me. Capabilities are strings, not a union: the
+// server owns the vocabulary, so an unrecognised one degrades instead of
+// breaking on deploy ordering.
 export interface Me {
   userId: string;
   displayName: string;
   role: string;
   capabilities: string[];
   depots: string[];
+  // U87: "TENANT" or "DEPOT", the breadth the server reads for this actor.
+  // A string, as capabilities are, so a new value cannot break this client
+  // on deploy order; nothing here derives it from role.
+  scope: string;
   // The tenant's IANA timezone. Every date a screen shows is formatted in it
   // (rule 6). See web/src/time/tenantTime.ts, which is the only path.
   timezone: string;
-  // D12: "FREE" or "GENERATED". A string rather than a union for the same
-  // deploy-ordering reason as capabilities. The server owns the
-  // vocabulary, and a client built against today's two values must not
-  // break on a third it has not heard of yet.
+  // D12: "FREE" or "GENERATED", kept as a string for the same deploy-ordering
+  // reason as capabilities above; a third value must not break this client.
   displayCodePolicy: string;
+  // The tenant RLS proved for this request (ADR-0016), never the token's
+  // claim. The mirror keeps it for the branding cache key.
+  tenantId: string;
 }
 
-export function fetchMe(): Promise<Me> {
-  return apiGet<Me>("/api/me");
+export async function fetchMe(): Promise<Me> {
+  const me = await apiGet<Me>("/api/me");
+  rememberTenant(me.tenantId);
+  return me;
 }

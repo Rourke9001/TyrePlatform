@@ -16,6 +16,7 @@ import (
 
 	"tyreplatform/api/internal/auth"
 	"tyreplatform/api/internal/httpapi"
+	"tyreplatform/api/internal/store"
 )
 
 type axleConfigBody struct {
@@ -66,6 +67,8 @@ type createdVehicleBody struct {
 	ID           string  `json:"id"`
 	FleetNumber  string  `json:"fleetNumber"`
 	Registration *string `json:"registration"`
+	UnitKind     *string `json:"unitKind"`
+	Status       string  `json:"status"`
 }
 
 type refusalBody struct {
@@ -104,6 +107,12 @@ func TestCreateVehicle(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
 	require.Equal(t, "NEW-1", created.FleetNumber)
 	require.NotEmpty(t, created.ID)
+	// TYRE-180 F4b: the create answers the same projection GET /api/vehicles
+	// does (fleetUnitJSON, ADR-0013 decision 9), so a caller holding the
+	// response has what the list would show without a refetch.
+	require.NotNil(t, created.UnitKind)
+	require.Equal(t, "HORSE", *created.UnitKind)
+	require.Equal(t, "ACTIVE", created.Status)
 
 	// DR-013: created_by is stamped from the bound actor, without the handler
 	// naming it. app.current_actor_id() is the column's default.
@@ -243,7 +252,7 @@ func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
 	// from a genuine tenant-B insert being the tenant_id smuggled in above.
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
 	userB := plantUser(t, ctx, admin, tenantB, auth.RoleOrgAdmin)
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.vehicle (tenant_id, fleet_number, configuration_id, unit_kind, created_by)
 			 VALUES ($1, 'SMUGGLED', $2, 'HORSE', $3)`,
@@ -360,7 +369,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_AppUser(t *testing.T) {
 
 	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
 	userB := plantUser(t, ctx, admin, tenantB, auth.RoleOrgAdmin)
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.app_user (tenant_id, email, display_name, role, created_by)
 			 VALUES ($1, 'smuggled@example.invalid', 'Smuggled', 'DRIVER'::app.user_role, $2)`,
@@ -527,7 +536,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver(t *testing.T) {
 	// need only be a genuine tenant-B row, and one suffices for that.
 	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
 
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, created_by)
 			 VALUES ($1, $2, $3, '2026-01-01', $4)`,
@@ -944,10 +953,8 @@ type userBody struct {
 // wrapper key.
 func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	t.Helper()
-	var body struct {
-		Code string `json:"code"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	var body refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
 	return body.Code
 }
 

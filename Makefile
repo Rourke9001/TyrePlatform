@@ -7,12 +7,10 @@ PG_CONTAINER ?= tyre-pg
 PG_PORT      ?= 5433
 PG_DB        ?= tyre
 
-# psql runs inside the container: the database is the only machine-independent
-# place it is guaranteed to exist (this repo is developed on Windows without a
-# host psql). Override PSQL_SUPER/PSQL_APP to use a host client instead.
-# The suite MUST run as app_login: superusers bypass RLS (DEPLOYMENT NOTE at
-# the end of db/migrations/000001_init.up.sql). The single exception is
-# db-test-privileged, below, which stages rather than tests.
+# psql runs inside the container (no host psql on Windows); override
+# PSQL_SUPER/PSQL_APP for a host client. The suite MUST run as app_login:
+# superusers bypass RLS (000001_init.up.sql DEPLOYMENT NOTE). The one
+# exception is db-test-privileged, which stages rather than tests.
 PSQL_SUPER ?= docker exec -i $(PG_CONTAINER) psql -U postgres -d $(PG_DB)
 PSQL_APP   ?= docker exec -i $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
@@ -25,6 +23,16 @@ MIGRATE ?= MSYS_NO_PATHCONV=1 docker compose run --rm migrate \
 
 # python3 on stock Windows is a Microsoft Store stub that opens a browser.
 PYTHON ?= $(shell python3 -c "print()" >/dev/null 2>&1 && echo python3 || echo python)
+
+# Pinned the same way staticcheck is (api/go.mod's `tool` directive): a
+# version, not a floating latest, so a lint result does not depend on when it
+# ran. db/seeds/ruff.toml carries the rule selection (TYRE-163). Unlike
+# GO_IMAGE's toolchain, ruff runs against the host Python, so fmt/lint must
+# not install into it on every run: that mutates host state and fails
+# outright on a PEP 668 externally-managed host. `make py-tools` is the one
+# place that writes; fmt/lint only assert the pin is already satisfied.
+RUFF_VERSION ?= 0.16.8
+RUFF ?= $(PYTHON) -m ruff
 
 .PHONY: help
 help: ## Show this help
@@ -47,17 +55,61 @@ db-down: ## Stop and remove the database container
 db-seeds: ## Regenerate the machine-generated seed SQL
 	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
 
+# Deliberately NOT in `make check` (needs a second regeneration and a hash
+# compare, doubling db-reset's cost on every run); CI pays for that once per
+# build (ci.yml, `database` job). This target is the same check, on demand,
+# for a contributor auditing a generator change locally (TYRE-188 F6).
+# gen_seed_volume.py is pure Python (random.Random(247), no DB connection,
+# db/CLAUDE.md) and CI hashes all three generators, so this does too.
+.PHONY: db-seeds-check
+db-seeds-check: ## Assert all three seed generators are deterministic (mirrors the CI-only gate)
+	@tmp_a=$$(mktemp) && tmp_b=$$(mktemp) && trap 'rm -f "$$tmp_a" "$$tmp_b"' EXIT && \
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && cd ../.. && \
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql > "$$tmp_a" && \
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && cd ../.. && \
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql > "$$tmp_b" && \
+	diff "$$tmp_a" "$$tmp_b" && echo "seed generation is deterministic"
+
 .PHONY: db-migrate
 db-migrate: db-up ## Apply pending migrations (golang-migrate, versioned in schema_migrations)
 	$(MIGRATE) up
 
 .PHONY: db-reset
 db-reset: db-up db-seeds ## Drop everything, re-run all migrations, load seeds
-	echo "DROP SCHEMA IF EXISTS app CASCADE; DROP TABLE IF EXISTS public.schema_migrations;" | $(PSQL_SUPER) -q
+	@# ON_ERROR_STOP because these are two statements on one connection: without
+	@# it a cancelled DROP SCHEMA still runs the DROP TABLE, and the next
+	@# `migrate up` re-creates schema_migrations dirty at version 1.
+	echo "DROP SCHEMA IF EXISTS app CASCADE; DROP TABLE IF EXISTS public.schema_migrations;" | $(PSQL_SUPER) -v ON_ERROR_STOP=1 -q
 	$(MIGRATE) up
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/002_seed_configurations.sql
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/003_seed_fixture.sql
 	@echo "migrations and seeds applied"
+
+# Opt-in, never part of db-reset, db-test, test or check: the suite stays
+# defined on the pinned fixture. Loads Sandbox Fleet for the dashboard
+# read-path measurement (TYRE-247, B7 spec B7.1.5); BAC and Second Fleet
+# rows never change. One transaction for the whole load, so run nothing
+# else against the database until it returns (docs/lessons.md, 2026-09-16).
+.PHONY: db-volume
+db-volume: db-up ## Load the Sandbox Fleet volume tenant (TYRE-247); db-reset restores the pinned state
+	cd db/seeds && $(PYTHON) gen_seed_volume.py
+	@# set -e, not bare semicolons: a failed load followed by a successful
+	@# echo exits 0 and make reports a load that never happened.
+	@set -e; start=$$(date +%s); \
+	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -q < db/seeds/006_seed_volume.sql; \
+	echo "volume loaded in $$(( $$(date +%s) - start ))s; the database is now off the pinned state, make db-reset restores it"
+	@# autoanalyze is asynchronous, so a measurement run straight after the
+	@# load can plan on pre-load statistics. ANALYZE makes the plan db-explain
+	@# prints a function of the data, not of how long autovacuum happened to
+	@# have been awake.
+	$(PSQL_SUPER) -v ON_ERROR_STOP=1 -qc "ANALYZE;"
+
+# Runs as app_login, not postgres: the plan must carry the RLS predicate the
+# API's connection will carry. Run it cold (container just restarted) and
+# again warm; the 500 ms budget applies to the warm run (B7 spec U26).
+.PHONY: db-explain
+db-explain: ## EXPLAIN (ANALYZE, BUFFERS) the dashboard read path over the volume tenant (TYRE-247)
+	$(PSQL_APP) -v ON_ERROR_STOP=1 < db/perf/dashboard.sql
 
 .PHONY: db-test
 db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
@@ -76,12 +128,10 @@ db-shell: ## Interactive psql as the application role
 
 ## ---------------------------------------------------------------- api / web
 
-# Go runs in docker: this repo is developed on Windows without a host Go
-# toolchain. The container joins the compose network so the integration tests
-# can reach tyre-pg; the module cache volume makes repeat runs fast. The
-# app_login password is local-only (CI sets its own; staging's lives in
-# Key Vault).
-GO_IMAGE ?= golang:1.24-alpine
+# Go runs in docker (no host toolchain on Windows), joined to the compose
+# network so integration tests reach tyre-pg. app_login's password here is
+# local-only; CI sets its own and staging's lives in Key Vault.
+GO_IMAGE ?= golang:1.24-alpine@sha256:8bee1901f1e530bfb4a7850aa7a479d17ae3a18beb6e09064ed54cfd245b7191
 GO_RUN   = MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$(CURDIR)/api:/app" -w /app -v tyre-gomodcache:/go/pkg/mod
 GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
@@ -92,10 +142,11 @@ GO_DOCKER = $(GO_RUN) --network tyreplatform_default \
 # No -race locally: the race detector needs cgo and a C toolchain, which
 # golang:*-alpine does not carry. CI's ubuntu runner adds `-race`, so a data
 # race is the one failure a green `make check` can still hand to CI.
+# -tags devheader on every Go command but the release image (U103).
 .PHONY: api-test
 api-test: ## Go tests (docker; needs db-up for the integration tests)
 	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
-	$(GO_DOCKER) go test ./...
+	$(GO_DOCKER) go test -tags devheader ./...
 
 # --env-file keeps the credentials out of the Makefile and out of git; the
 # file's own comments say what belongs in it. Module cache volume means the
@@ -104,31 +155,33 @@ api-test: ## Go tests (docker; needs db-up for the integration tests)
 api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 	echo "ALTER ROLE app_login PASSWORD 'dev';" | $(PSQL_SUPER) -q
 	$(GO_RUN) --network tyreplatform_default --env-file .env -p 8080:8080 \
-	  $(GO_IMAGE) go run ./cmd/api
+	  $(GO_IMAGE) go run -tags devheader ./cmd/api
+
+# U103: the check runs in api/Dockerfile's build stage, on the binary the
+# image ships. cacheonly keeps the stage from being exported as an image on
+# every lint.
+.PHONY: api-release-check
+api-release-check: ## The release binary names no dev header (U103)
+	docker build --target build --output type=cacheonly api
 
 .PHONY: web-test
 web-test: ## Frontend tests
 	cd web && npm test
 
-# Deliberately NOT in `make test`. The smoke specs need a live stack, API on
-# :8080 (`make api-run` in another terminal, APP_DEV_TENANT_HEADER=1 in .env)
-# over a seeded database (`make db-reset`), and `make check` must stay
-# runnable without one. CI runs this as its own job with the stack it builds
-# itself, so the gate is still real on every PR (TYRE-65).
-#
-# The reseed is mandatory, not advice: the capture specs submit, and
-# FR-INS-038 refuses a second inspection of the same unit inside the tenant's
-# configured window, so a second run against the same seed fails at the first
-# spec, for a reason the failure itself does not explain. CI is safe either way
-# (it builds the stack per job), and a running API survives the schema drop.
-# It is a recipe line rather than a prerequisite so the reachability check
-# runs FIRST: every prerequisite is built before any recipe line, so as a
-# prerequisite it would drop and reseed the database and only then report
-# that the API, the thing actually missing, is not up.
-#
-# webkit as well as chromium: the ios project is iPhone 14, which is WebKit, and
-# a project that cannot launch is a gate that cannot run. The android project is
-# Chromium emulation and needs no extra download.
+.PHONY: web-bundle
+web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk and no dev identity in the build (TYRE-317)
+	node scripts/check-capture-bundle.mjs --self-test
+	cd web && npm run build && npm run bundle:check
+	node scripts/check-dist-dev-strings.mjs --self-test
+	node scripts/check-dist-dev-strings.mjs
+
+# Not in `make test`: needs a live stack (make api-run, make db-reset) and
+# CI runs it as its own job (TYRE-65). Reseed is mandatory: FR-INS-038
+# refuses a second inspection of the same unit in the configured window, so
+# a stale seed fails the first spec for an unrelated reason. db-reset is a
+# recipe line, not a prerequisite, so the API reachability check runs first.
+# webkit as well as chromium: the ios project is iPhone 14 (WebKit); android
+# is Chromium emulation, no extra download.
 .PHONY: e2e
 e2e: ## Browser smoke tests (reseeds first; needs `make api-run` running)
 	@curl -s -o /dev/null http://localhost:8080/api/me \
@@ -146,32 +199,67 @@ deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc windo
 
 ## ---------------------------------------------------------------- aggregate
 
+.PHONY: py-tools
+py-tools: ## Install/upgrade the pinned Python tooling (ruff) for db/seeds
+	$(PYTHON) -m pip install --quiet ruff==$(RUFF_VERSION)
+
+# The one thing fmt/lint check before running ruff, so the failure names the
+# fix instead of a stack trace from a missing or mismatched interpreter tool.
+.PHONY: py-tools-check
+py-tools-check:
+	@v=$$($(PYTHON) -m ruff --version 2>/dev/null | awk '{print $$2}'); \
+	[ "$$v" = "$(RUFF_VERSION)" ] || { \
+	  echo "ruff $(RUFF_VERSION) required, found: $${v:-not installed}. Run: make py-tools"; \
+	  exit 1; \
+	}
+
+# web/package.json's engines field is documentation, not a control: without
+# `engine-strict` (deliberately unset, TYRE-188 F7: CI's e2e job runs `npm ci`
+# on setup-node's bundled npm with no pin step and would break under it), npm
+# only warns and never fails a `npm run`/`npm ci`. web/.npmrc's own comment
+# already names the real risk: an npm below 11.10.0 silently enforces nothing
+# (the 2026-08-20 lesson). This is the same assertion ci.yml's "Release-age
+# gate is active" step runs, so a local make lint on the wrong npm fails the
+# same way CI would.
+.PHONY: npm-release-age-check
+npm-release-age-check:
+	@cd web && age=$$(npm config get min-release-age); \
+	[ "$$age" = "14" ] || { echo "min-release-age is '$$age', expected 14. web/.npmrc not read"; exit 1; }; \
+	have=$$(npm -v); need=11.10.0; \
+	[ "$$(printf '%s\n%s\n' "$$need" "$$have" | sort -V | head -1)" = "$$need" ] \
+	  || { echo "npm $$have ignores min-release-age; need >= $$need. Install a newer npm."; exit 1; }; \
+	echo "min-release-age=$$age enforced by npm $$have"
+
 .PHONY: fmt
-fmt: ## Format everything
+fmt: py-tools-check ## Format everything
 	$(GO_RUN) $(GO_IMAGE) gofmt -w .
 	cd web && npm run format
+	$(RUFF) format db/seeds
 
-# Every line here must be able to fail the target. A gate that swallows its
-# own exit code reports success it did not earn, and the docs then promise a
-# check that never ran (TYRE-49).
+# Every line must be able to fail the target (TYRE-49): a gate that
+# swallows its exit code reports success it did not earn. Same set and
+# order as CI, so a green make lint means a green CI lint. staticcheck is
+# pinned via api/go.mod's tool directive; v0.6.1 is the last release under
+# go 1.24, so a Renovate bump past it needs the toolchain moved first, not
+# the linter unpinned.
 #
-# This is deliberately the same set CI runs, in the same order, so a green
-# `make lint` means a green CI lint, the reason to run it before committing.
-# `fmt` writes; `lint` only reads, which is why both formatters appear here in
-# check mode: `make check` runs fmt first, so locally they are always clean,
-# and on CI they are the drift detector.
-#
-# staticcheck comes from the `tool` directive in api/go.mod, so it is pinned
-# and checksummed like any other dependency. v0.6.1 is the last release that
-# builds under go 1.24; a Renovate bump past it will fail until the toolchain
-# moves, and moving the toolchain is the fix, not unpinning the linter.
+# The money gate runs its self-test first so a run that finds nothing has
+# proven it could have (rule 2, TYRE-36). Its web half is an ESLint rule and
+# rides `npm run lint` above.
 .PHONY: lint
-lint: ## Format check, vet, staticcheck, eslint, tsc, comment standard
+lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths, bundle
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
-	$(GO_RUN) $(GO_IMAGE) go vet ./...
-	$(GO_RUN) $(GO_IMAGE) go tool staticcheck ./...
+	$(GO_RUN) $(GO_IMAGE) go vet -tags devheader ./...
+	$(GO_RUN) $(GO_IMAGE) go tool staticcheck -tags devheader ./...
+	$(MAKE) api-release-check
 	cd web && npm run format:check && npm run lint && npm run typecheck
+	$(RUFF) format --check db/seeds
+	$(RUFF) check db/seeds
+	node scripts/check-comment-style.test.mjs
 	node scripts/check-comment-style.mjs
+	node scripts/check-money-types.mjs --self-test
+	node scripts/check-money-types.mjs
+	$(MAKE) web-bundle
 
 .PHONY: test
 test: db-reset db-test db-test-privileged api-test web-test ## Every test in the repo

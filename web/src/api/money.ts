@@ -1,0 +1,45 @@
+import { groupThousands } from "../format/groupThousands";
+
+// Money over the wire is the exact decimal string the server sent, and it
+// stays one (rule 2; web/CLAUDE.md). The brand makes that a type the lint
+// rule can see, so house/money-stays-string can refuse Number(), arithmetic
+// and the rest on it (spec U31, U37). The brand key is a plain property
+// name because the rule looks it up by name through the type checker.
+export type Money = string & { readonly __money: "rand" };
+
+// A total is a SQL column, never a client sum (U31). Formatting is all the
+// client does to money, and this does it without reading the value as a
+// number: the string is split at the point and the integer part grouped.
+//
+// A short scale is padded and a long one is shown whole. Rounding is a money
+// rule with exactly one implementation, in SQL (rule 2), and dropping a third
+// decimal here would hide a server scale nobody then fixes.
+export function formatRand(m: Money): string {
+  const [whole, cents = "00"] = m.split(".");
+  const negative = whole.startsWith("-");
+  const digits = negative ? whole.slice(1) : whole;
+  const grouped = groupThousands(digits);
+  return `${negative ? "-" : ""}R${grouped}.${cents.padEnd(2, "0")}`;
+}
+
+// U36: moneyVisible false means the actor may not see money, so even a
+// present value is hidden; true with null means no member was valued.
+// Neither renders as a number.
+export function moneyText(value: Money | null, visible: boolean): string {
+  if (!visible) return "Hidden";
+  if (value === null) return "Not valued";
+  return formatRand(value);
+}
+
+// U36, U44: a set with no tyre sends null too, and that null means there is
+// nothing to value, so it reads as the caller's empty-set absence rather
+// than "Not valued". Hidden still wins over it.
+export function moneyOrEmpty(
+  value: Money | null,
+  visible: boolean,
+  tyreCount: number,
+  empty: string,
+): string {
+  if (visible && tyreCount === 0) return empty;
+  return moneyText(value, visible);
+}

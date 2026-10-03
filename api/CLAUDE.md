@@ -44,22 +44,34 @@ When a read's breadth depends on role, choose the source relation from
 default, and `auth.ScopeTenant` is the only thing that widens it — see
 `listVehicles`.
 
-`internal/store.InTenantTx` still exists, for tenant-scoped work with no
-actor to resolve. There is currently none of that: every handler binds an
-actor through `withActor`. Do not reach for `InTenantTx` to skip a capability
-check.
+`internal/store.InTenantTx` is for tenant-scoped work with no actor to
+resolve. No handler does any: every handler binds an actor through
+`withActor`. Do not reach for `InTenantTx` to skip a capability check.
 
 If you find yourself querying `pool` directly inside a request, stop. That
 query runs with no tenant context and returns nothing — which looks like a
 data bug and is actually a missing transaction.
 
-## The dev header resolver
+## Who a request is: the bearer resolver and the dev header resolver
 
-The dev resolver now supplies a **user** as well as a tenant. Locally, anyone
+A request names its user through `httpapi.ActorResolver`. Production has one
+implementation, `internal/bearer`: it validates the Entra External ID access
+token and hands `withActor` a subject and a tenant claim, which
+`store.InActorTx` proves under RLS (ADR-0016). With no `AUTH_*` set there is
+no resolver and every `/api` call answers 503 `auth_unavailable`.
+
+The dev resolver supplies a **user** as well as a tenant. Locally, anyone
 who can send a header is anyone, in any tenant, so the capability gate is
-decorative in development — it is a development convenience with the blast
-radius of an authentication bypass. The `CONTAINER_APP_NAME` veto in
-`devHeaderEnabled` is the whole safety story, and it is on the variable's presence, not its value; ADR-0011 records why.
+decorative in development: a development convenience with the blast radius
+of an authentication bypass. It is compiled only with `-tags devheader`
+(U103). `make api-test`, `make api-run`, vet, staticcheck and CI all pass
+the tag; the release image does not. The Dockerfile's build stage runs
+`scripts/check-release-binary.sh` on the binary the image ships, so the
+image does not build if that binary names either header, and `make
+api-release-check` (in `make lint`) and CI build that stage. The
+`CONTAINER_APP_NAME` veto in `devHeaderEnabled` stays as a second layer, on
+the variable's presence, not its value; ADR-0011 records why. Give your
+editor the `devheader` build tag, or it will not see the tests.
 
 ## Money over the wire
 
@@ -68,6 +80,31 @@ JSON **string**. Never a JSON number: most parsers decode that to an IEEE
 double, and the acceptance gate is cent-exactness. `"1218.78"`, not
 `1218.78`. No decimal library exists in `api/` and none is wanted: Go never
 does arithmetic on money; `tyres.go` is the shape to copy.
+
+## Analytics reads
+
+The B7.2 routes (`exceptions.go`, `valuation.go`, `analytics.go`,
+`dashboard.go`) relay the database's views and never compute a figure:
+every count, sum and percentage is a SQL column, and where an actor's
+depots must be summed it is `sum()` in the same statement (spec U25). Three
+helpers in `scope.go` compose scope the way `unitSource` does: `unitScope`
+for anything keyed by vehicle, `aggregateScope` for the TENANT/DEPOT
+aggregate views, and `depotRowsScope` for the itemised DEPOT reading. All
+three take the optional `?depot=` as `$1`, always, so a caller cannot
+forget it.
+
+Each response says which clock its rows are judged on (`judgedAt`: the
+sheet's `submitted_at` for exceptions, today for the register, the tenant's
+calendar for spares and unit status) and whether money is shown
+(`moneyVisible`). Aggregate money is `null` when hidden, and a sum is
+`null` when no member of the group is valued on that side. The estate's
+`totalValue` is `null` only when neither side has a valued member, that is
+when `unvaluedCount` (tread) and `casingUnvaluedCount` both equal
+`tyreCount`; `moneyVisible` tells hidden from unvalued (spec U36, 000049).
+The one aggregation written in Go's SQL is the estate as-at `GROUP BY` in
+`loadEstate`, and a test pins it to `app.v_estate_valuation` at today, on
+the seed and on a planted tenant with a group for each null case, so the
+copy cannot drift.
 
 ## Conventions
 

@@ -1,0 +1,43 @@
+-- 000047: the dashboard substrate index (TYRE-247, B7 spec B7.1.5 S4).
+--
+-- app.reading carried reading_by_tyre (tenant_id, tyre_id) and its unique
+-- constraints, nothing leading on the owning unit, while every
+-- latest-per-unit read the dashboard makes walks readings by vehicle:
+-- v_latest_unit_inspection's DISTINCT ON (tenant_id, vehicle_id) and
+-- unit_inspection_status's per-unit lateral (000045). inspection_id is the
+-- third column so the join to app.inspection is served from the index entry.
+--
+-- What the measurement showed, on the Sandbox volume tenant (`make
+-- db-volume`, 30,160 readings) through `make db-explain`: the DISTINCT ON
+-- reaches the latest reading per unit by sorting every reading in the
+-- tenant, 30,160 rows quicksorted in 2.6MB, rather than by descending an
+-- index. That sort is what this index removes.
+--
+-- It is not what makes the dashboard slow. Measured over the same tenant,
+-- the composed warm read went from 110,984ms without this index to 98,907ms
+-- with it, a ninth of the cost and still 198 times U26's 500ms budget.
+-- The dominant costs are nested loops the planner chooses because the RLS
+-- tenant predicate is current_setting(), which it cannot fold, so its row
+-- estimates collapse to 1 on tables holding thousands. TYRE-256 carries
+-- that finding and the reshaping it needs; this index is not a fix for it.
+--
+-- It is not free on the load path either, though not for the reason first
+-- assumed. app.reading is updated once per measurement by
+-- reading_measurement_governs (000001), and the volume load went from 328
+-- seconds without this index to 923 with it; the index being maintained
+-- per update is not what moved. Only the non-HOT third of those updates
+-- write an index entry, and that cost does not register. What registered
+-- (TYRE-257, measured with pg_stat_statements) is the foreign-key check
+-- reading_measurement -> reading: it is planned once per session, a bulk
+-- load plans it at the top of one transaction against an empty, unanalysed
+-- table, and on those statistics the cached generic plan walks this index
+-- on tenant_id alone instead of probing the unique (tenant_id, id) key,
+-- for every one of the 90,480 checks. That is a stale-statistics artefact
+-- of a single-transaction load, not a property of the index; TYRE-257
+-- carries the interleaved ANALYZE that removes it. Do not read a per-submit
+-- cost off any load figure: a submit plans against real statistics, and
+-- the same file took 524 seconds alone on the same box the next day.
+--
+-- Plain CREATE INDEX, not CONCURRENTLY: golang-migrate runs a file inside a
+-- transaction and CONCURRENTLY cannot, and at POC scale the table is small.
+CREATE INDEX reading_by_vehicle ON app.reading (tenant_id, vehicle_id, inspection_id);

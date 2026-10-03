@@ -167,7 +167,10 @@ are also permanently NULL under this mechanism: `api/internal/store/store.go:108
 binds only `app.tenant_id` and `app.actor_id` as session GUCs, the two the
 trigger reads, so Option A's request context — actor, session, source IP —
 does not survive the move to a trigger; capturing those two columns would
-need binding them as GUCs of their own, which this decision does not do. The
+need binding them as GUCs of their own, which this decision does not do.
+ADR-0016 binds `app.session_id` and adds `app.record_session_start()`, the one
+writer of this table besides the trigger, for authentication events; TYRE-201
+has the trigger read both GUCs. The
 trigger also says nothing about `DELETE`, so the day a write surface is
 allowed to remove a row, this decision has to be revisited rather than
 assumed to already cover it.

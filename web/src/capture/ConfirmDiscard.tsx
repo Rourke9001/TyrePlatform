@@ -2,16 +2,12 @@ import { useState } from "react";
 
 import "./capture.css";
 
-// The one confirmation in the capture app. It exists for two recovery paths:
-// a wrong-vehicle Start (TYRE-146) and a refused outbox entry the office
-// has taken over the phone (TYRE-167). It exists for nothing on the clean
-// path: web/CLAUDE.md forbids confirmation steps there, and this component
-// renders a single secondary button until it is pressed. Inline, not a
-// modal, for the same reason: nothing here may trap focus or block the sheet
-// behind it.
-//
-// FR-OFF-014 forbids a SILENT discard. What makes this one not silent is the
-// text the caller supplies: which vehicle, and what is lost (ADR-0009).
+// The one confirmation in the capture app: a wrong-vehicle Start (TYRE-146)
+// and a refused outbox entry the office has taken over the phone
+// (TYRE-167). Nothing on the clean path (web/CLAUDE.md bans confirmation
+// steps there). Inline, not a modal, so nothing traps focus. FR-OFF-014
+// forbids a SILENT discard; the caller-supplied text (which vehicle, what
+// is lost, ADR-0009) is what makes this one not silent.
 export function ConfirmDiscard({
   trigger,
   question,

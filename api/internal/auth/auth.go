@@ -61,17 +61,10 @@ const (
 	VoidInspection Capability = "VoidInspection"
 )
 
-// FR-AUT-005..009, carrying erratum D1. DEPOT_MANAGER holds everything
-// CONTROLLER does: FR-AUT-008 narrows it by depot, and that narrowing lives in
-// the scope views, not here. ManageConfig is the one capability with no
-// narrowing to live anywhere. app.configuration is keyed by tenant, not by
-// depot, so a depot manager holding it configures the whole tenant. D1 accepts
-// that breadth deliberately; there is no depot-scoped variant to reach for, and
-// template authoring is held away from it entirely (TYRE-84).
-// PLATFORM_ADMIN holds nothing. Its rows carry a NULL tenant_id and cannot be
-// seen from inside a tenant session, so it is never the actor on a
-// tenant-scoped request (ADR-0011). A role absent from this map holds nothing,
-// which is what makes an unrecognised value fail closed.
+// FR-AUT-005..009, D1. DEPOT_MANAGER holds everything CONTROLLER does;
+// FR-AUT-008's depot narrowing lives in the scope views, not here.
+// ManageConfig has no depot-scoped variant (D1); template authoring is held
+// away from it entirely (TYRE-84).
 var capabilities = map[Role][]Capability{
 	RoleDriver:       {CaptureInspection},
 	RoleTechnician:   {ViewFleet},
@@ -92,7 +85,11 @@ const (
 	// ScopeDepot is the zero value on purpose. A role absent from the table
 	// below reads only its own depots, so a role added later without a scope
 	// entry is under-permissioned and visibly broken rather than silently
-	// handed the whole tenant.
+	// handed the whole tenant. The same absence-fails-closed rule governs
+	// capabilities above: PLATFORM_ADMIN holds none because its rows carry a
+	// NULL tenant_id and are never the actor on a tenant-scoped request
+	// (ADR-0011), so an unrecognised role in either map answers "may do
+	// nothing" rather than "may do everything".
 	ScopeDepot Scope = iota
 	ScopeTenant
 )

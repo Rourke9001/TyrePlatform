@@ -1,11 +1,7 @@
-// DEV ONLY tenant selection, mirroring the API's dev actor resolver: the
-// real tenant arrives with the IdP integration (TYRE-2), and the API ignores
-// X-Tenant-ID and X-User-ID unless APP_DEV_TENANT_HEADER=1. Guarded by
-// import.meta.env.DEV so a production bundle cannot send a chosen tenant or
-// actor even by mistake.
-//
-// localStorage wins over the env default so the tenant switcher (TYRE-28)
-// can flip tenants without a rebuild.
+// DEV ONLY: mirrors the API's dev actor resolver; the real tenant arrives
+// via the IdP (TYRE-2). Guarded by import.meta.env.DEV. localStorage wins
+// over the env default so the switcher (TYRE-28) can flip tenants without a
+// rebuild.
 
 const STORAGE_KEY = "tyre.dev.tenant-id";
 

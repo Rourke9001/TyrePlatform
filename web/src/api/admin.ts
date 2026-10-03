@@ -1,4 +1,7 @@
 import { apiGet, apiPost } from "./client";
+import type { UnitKind, Vehicle } from "./vehicles";
+
+export type { UnitKind };
 
 // Wire shapes of the admin surface (api/internal/httpapi/admin.go). Each
 // mirrors the server's projection exactly, so a screen that just created a
@@ -12,11 +15,6 @@ export interface AxleConfiguration {
   axleCount: number;
 }
 
-// Mirrors app.unit_kind. A union rather than string: the server refuses an
-// unknown kind, and a form that can express one is a form that can send a
-// request it knows will fail.
-export type UnitKind = "HORSE" | "TRAILER" | "RIGID" | "LIGHT";
-
 export interface NewUnit {
   fleetNumber: string;
   registration?: string;
@@ -26,11 +24,9 @@ export interface NewUnit {
   homeDepotId?: string;
 }
 
-export interface CreatedUnit {
-  id: string;
-  fleetNumber: string;
-  registration: string | null;
-}
+// The create answers GET /api/vehicles's own row (ADR-0013 decision 9), so a
+// caller holds what it just wrote without a second round trip.
+export type CreatedUnit = Vehicle;
 
 // PLATFORM_ADMIN is absent deliberately: it is not creatable through a tenant
 // surface (ADR-0011, ADR-0013), and a picker that offers it offers a refusal.

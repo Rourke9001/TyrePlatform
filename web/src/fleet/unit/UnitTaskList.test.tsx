@@ -39,11 +39,9 @@ describe("the unit's open inspections", () => {
     vi.unstubAllGlobals();
   });
 
-  // rule 6: the instant renders in the tenant's own zone. The fixture
-  // straddles: 22:30 UTC is the 4th in UTC and the 5th in me()'s
-  // Africa/Johannesburg, so a render in the browser's zone reads the wrong
-  // day and fails here. The fractional second is the wire's own shape
-  // (000038's due instant carries microseconds) and must not move the day.
+  // rule 6: the fixture straddles a day boundary between UTC and
+  // Africa/Johannesburg; the fractional second is the wire's own shape
+  // (000038) and must not move the day.
   it("lists a task's driver, tenant-zone due date and status", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, [task({ id: "t1", dueAt: "2026-09-04T22:30:00.999999Z" })]),

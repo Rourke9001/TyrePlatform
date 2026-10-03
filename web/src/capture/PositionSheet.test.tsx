@@ -89,16 +89,10 @@ const acknowledged: DraftPosition = {
   warnings: [{ code: "FR-INS-036", enteredValue: "3", response: "ACKNOWLEDGED" }],
 };
 
-// Fake timers, advanced deliberately between fields. On real timers this
-// test passes or fails according to how fast jsdom happens to be today, and
-// the failure mode is a green test over corrupt data.
-//
-// The advance is wrapped in act(): it fires PositionSheet's setTimeout
-// callback directly, outside any testing-library API, so nothing else
-// flushes the resulting setState. An unwrapped advance leaves the DOM
-// showing the pre-timer field and every aria-current read below stale,
-// which would make this helper click Next for every digit regardless of
-// whether the timer actually fired.
+// Fake timers, advanced inside act(): this fires PositionSheet's own
+// setTimeout directly, outside any testing-library API. An unwrapped
+// advance leaves the DOM stale and would click Next regardless of whether
+// the timer fired.
 async function advance(ms: number) {
   await act(async () => {
     await vi.advanceTimersByTimeAsync(ms);
@@ -109,13 +103,9 @@ async function enter(user: UserEvent, treads: string[], pressure: string) {
   for (let i = 0; i < treads.length; i++) {
     await user.click(screen.getByRole("button", { name: treads[i] }));
     await advance(250);
-    // A settling digit (4-9 on an empty field) auto-advances on the timer
-    // above; a non-settling one (0-3) does not, and only then does the Next
-    // key move the sheet on. The field's own aria-current says which case
-    // this was. Clicking Next after the timer already advanced would move a
-    // second field and strand the one just typed, which the auto-advance
-    // guard does not protect against: it only stops the timer's own callback
-    // from re-firing on a field a *click* had already left, not the reverse.
+    // A settling digit (4-9 empty) auto-advances on the timer; a
+    // non-settling one (0-3) needs the Next click. aria-current says which
+    // case ran.
     const stillOnField = screen.getByLabelText(`Tread reading ${i + 1} of ${treads.length}`);
     if (stillOnField.getAttribute("aria-current") === "true") {
       await user.click(screen.getByRole("button", { name: /next ›/i }));
@@ -188,12 +178,9 @@ describe("PositionSheet", () => {
     });
   });
 
-  // The other half of the guard above, and the reason it has to be a guard
-  // rather than an unconditional hold: NFR-USE-001 is the constraint every
-  // other decision in this app is subordinate to, and a Done tap that a clean
-  // position does not need is paid on 27 of them on a superlink. The pair
-  // pins that the hold is CONDITIONAL. Either assertion alone is satisfied by
-  // holding always or by never holding at all.
+  // The hold must be CONDITIONAL, not unconditional: NFR-USE-001 makes an
+  // unnecessary Done tap on 27 positions costly. Either assertion alone is
+  // satisfied by holding always or never.
   it("finishes a position with nothing to flag without a further tap", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn<(p: DraftPosition) => void>();
@@ -226,12 +213,9 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Pressure")).toHaveTextContent("–");
   });
 
-  // NFR-OBS-007: measured, not assumed, and it cannot be added later. This
-  // column feeds NFR-USE-001's three-minute median, so a hardcoded value or a
-  // formula that just happens to never go negative has to fail here, not only
-  // clear a "some number, and it's not negative" bar. enter()'s three settle
-  // ticks plus the trailing pressure tick are exactly 1000ms of fake clock,
-  // so the exact value pins the divisor along with the sign.
+  // NFR-OBS-007: measured, not assumed, feeding NFR-USE-001's median, so a
+  // hardcoded or sign-only-checked value must fail here. enter()'s settle
+  // ticks are exactly 1000ms of fake clock.
   it("records how long the position took", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn<(p: DraftPosition) => void>();
@@ -242,13 +226,9 @@ describe("PositionSheet", () => {
     expect(onDone.mock.calls[0][0].seconds).toBe(1);
   });
 
-  // NFR-PRO-003: a driver who reopens a position must not be credited with
-  // time they did not spend re-entering it. The fresh-position case above is
-  // vacuous here: carried.current is 0 on a fresh mount either way, so this
-  // pins the `carried.current +` term on its own: mount already-complete
-  // (unwarned, so Done needs no acknowledgement first), advance a known
-  // amount, and the total must be the carried seconds plus what elapsed on
-  // this visit, not a restart.
+  // NFR-PRO-003: reopening a position must not credit time not spent
+  // re-entering. Pins the carried.current + elapsed term alone against a
+  // fresh-mount (0) baseline.
   it("adds elapsed time to what was already carried on a reopened position", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn<(p: DraftPosition) => void>();
@@ -275,12 +255,8 @@ describe("PositionSheet", () => {
     expect(onDone.mock.calls[0][0].seconds).toBe(8);
   });
 
-  // entry.ts's settle rule: does another digit still fit? "3" leaves room
-  // (valueOf("30") = 30, under the 35mm ceiling) and must not auto-advance;
-  // "4" does not (valueOf("40") = 40, over) and must. enter()'s tread
-  // sequences elsewhere in this file only ever exercise one side of that
-  // boundary at a time, so this pins both directly against the field's own
-  // aria-current, with no Next press in either case to fall back on if the
+  // entry.ts's settle rule pinned at both edges of the 35mm ceiling
+  // directly against aria-current, with no Next press as a fallback if
   // auto-advance itself is broken.
   it("auto-advances once a digit settles the field", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
@@ -303,12 +279,9 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveAttribute("aria-current", "true");
   });
 
-  // FR-INS-040 asks what the driver DID about a warning, and closing the sheet
-  // is not acknowledging it. Without this the warning that was on screen never
-  // reaches the draft at all, so the review screen's "what the app found" never
-  // mentions it and the audit record loses the one fact it exists to hold.
-  // app.inspection_warning.response is nullable with no CHECK precisely so
-  // absence can be recorded as absence (000022_inspection_warning).
+  // FR-INS-040 asks what the driver DID; closing is not acknowledging.
+  // Without this write the warning never reaches the draft, and the audit
+  // record loses the one fact it exists to hold (000022_inspection_warning).
   it("records an unanswered warning when the position is closed rather than finished", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onChange = vi.fn<(p: DraftPosition) => void>();
@@ -426,20 +399,16 @@ describe("PositionSheet", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/replacement point/i);
   });
 
-  // The clock is frozen at the sheet's own openedAt, the way CaptureFlow,
-  // CaptureStart and CaptureReview each freeze theirs. FR-INS-035's implied
-  // wear rate has elapsed time as its denominator, so a clock read during
-  // render drifts away from the diagram's, and at the boundary the cell bands
-  // Check while the sheet raises nothing and records an empty warnings array,
-  // which is the display warning and the audit record not.
+  // Clock frozen at the sheet's own openedAt, like CaptureFlow/CaptureStart/
+  // CaptureReview: FR-INS-035's rate has elapsed time as its denominator,
+  // and a render-time clock would drift from the diagram's.
   it("bands against the clock the sheet opened with, not the clock at entry", async () => {
     vi.setSystemTime(new Date("2026-08-27T06:00:00Z"));
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const onDone = vi.fn<(p: DraftPosition) => void>();
-    // 5mm gone in the 30 days to mount is 5.07mm a month against a cohort of
-    // 0.8 and a multiple of 3, over the 2.4 trigger. Ninety days later the
-    // same 5mm is 1.69 a month, which is under it, so a clock read at entry
-    // answers the opposite question from a clock read at open.
+    // 5mm in 30 days is 5.07mm/month (over the 2.4 trigger); the same 5mm
+    // at 90 days is 1.69 (under it), so a clock read at entry vs at open
+    // answers opposite questions.
     const wearing = {
       ...position,
       previousGoverningMm: 14,
@@ -529,10 +498,9 @@ describe("PositionSheet", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  // TYRE-148 / NFR-USE-011: the phone call mid-position. A driver back from
-  // it with two of three readings entered expects the next digit to fill the
-  // empty box. Seeding field 0 made that digit restart tread 1, a silent
-  // overwrite of a good reading, or cost two taps to avoid.
+  // TYRE-148/NFR-USE-011: a driver back from a phone call with 2 of 3
+  // readings expects the next digit to fill the empty box, not restart
+  // tread 1.
   it("reopens a half-entered position on its first empty field", () => {
     render(
       <PositionSheet

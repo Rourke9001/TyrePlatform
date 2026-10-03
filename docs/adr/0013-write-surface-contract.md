@@ -103,11 +103,18 @@ database in one place, and Go only names the refusal for a client.
    | `app_user_tenant_email_key` | `email_taken` | 409 |
    | `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 |
 
+   *(Amended 2026-09-23 (TYRE-165) — see the amendment in Consequences below:
+   the map has grown to eight rows.)*
+
    `23P01` is new to the map: nothing before this ADR's surfaces could raise
    it, since `vehicle_driver_no_overlap` is reachable only once an
    assignment endpoint exists. Migration 000027 replaced the original
    `UNIQUE (tenant_id, email)` constraint with the case-folded unique index
-   `app_user_tenant_email_key`; the table names the live object.
+   `app_user_tenant_email_key`; the table names the live object, and the
+   "Constraint" column holds a partial unique index's name wherever the
+   rule is scoped rather than a plain table constraint's, since Postgres
+   raises the same `23505` from either and `pgErr.ConstraintName` names
+   both alike.
 
    Two consequences of this decision are stated here rather than left to be
    discovered:
@@ -182,6 +189,11 @@ database in one place, and Go only names the refusal for a client.
    uses, and no `Location` header: the platform has no
    `GET /api/vehicles/{id}`, and a header pointing at a route that 404s is
    worse than no header at all.
+   *(Amended 2026-09-23 (TYRE-180) and 2026-09-24 (TYRE-306):
+   `POST /api/inspections` answers 201 or 200 and has never answered 202,
+   `GET /api/vehicles/{id}` exists, and only three of the ten writes that
+   answer 201 answer their list endpoint's projection; see the amendment in
+   Consequences below.)*
 
 10. **No idempotency key.** `client_uuid` exists on the capture path because
     a driver's outbox retries a submission with no human present
@@ -231,6 +243,83 @@ retained data, 84 months then pseudonymised, so nothing gates it); a write
 surface needs an update or a delete, which is the point decision 7 stops
 covering; or a client needs to retry a write idempotently, which decision 10
 assumes never happens because a human is always present at an admin form.
+
+**Amended 2026-09-23 (TYRE-165):** decision 3's table named three
+constraints at B4. The live `conflictCodes` map
+(`api/internal/httpapi/refusal.go`) has grown to eight, five without a
+matching edit here: `one_active_staff_number_per_tenant` (B4.5),
+`one_active_display_code_per_tenant` (B5 slice 1),
+`one_open_fitment_per_position` and `one_open_fitment_per_tyre` (B5 slice
+2), and `composition_observation_once` (B6.4, migration 000044). The full
+table, current as of this amendment:
+
+| Constraint | Wire code | Status | Landed |
+| --- | --- | --- | --- |
+| `vehicle_tenant_id_fleet_number_key` | `fleet_number_taken` | 409 | this ADR (B4) |
+| `app_user_tenant_email_key` | `email_taken` | 409 | this ADR (B4) |
+| `vehicle_driver_no_overlap` | `assignment_overlaps` | 409 | this ADR (B4) |
+| `one_active_staff_number_per_tenant` | `staff_number_taken` | 409 | B4.5 |
+| `one_active_display_code_per_tenant` | `display_code_taken` | 409 | B5 slice 1 |
+| `one_open_fitment_per_position` | `position_occupied` | 409 | B5 slice 2 |
+| `one_open_fitment_per_tyre` | `tyre_already_fitted` | 409 | B5 slice 2 |
+| `composition_observation_once` | `observation_resolved` | 409 | B6.4 (migration 000044) |
+
+The map in `api/internal/httpapi/refusal.go` is the source of truth;
+`TestConflictCodesNameLiveSchemaObjects` guards it against the schema, not
+against either table above, so a future row still needs a matching edit
+here.
+
+**Amended 2026-09-23 (TYRE-180) and 2026-09-24 (TYRE-306):** decision 9
+describes one kind of create, and three of its claims do not hold. Ten
+writes answer 201 (`rg -n StatusCreated api --glob '!*_test.go'`). What a
+body carries depends on what the handler does after the write, not on
+whether the write is a plain insert or a SQL function:
+
+- **Five answer the row they wrote.** `createVehicle`,
+  `scheduleInspectionTask` and `createCombination` answer the projection
+  their list endpoint uses. The last two call `app.create_inspection_task`
+  and `app.create_combination` and read the row back, so a function-backed
+  write can answer a projection too. `createUser` and `assignDriver` answer
+  the row they wrote in a shape no list uses. There is no user list, and
+  `GET /api/vehicles/{id}/drivers` answers the derived driver chain, not
+  assignment rows.
+- **Four answer their function's result.** Each tyre-lifecycle function
+  returns something a row projection cannot carry: the display codes
+  `app.receive_tyres` minted, the warnings `app.fit_tyre` raised on a fit
+  that has already landed, one fitment per move from `app.rotate_tyres`,
+  and the retread job `app.dispatch_tyre` opens on the retreader arm only.
+  A client that needs the full row reads it again. The owner kept 201 on
+  both dispatch arms (TYRE-143 decision 8): a client branches on
+  `retreadJobId`, never on the status, and a status that varied with the
+  arm would be a second signal for the same fact.
+- **The inspection answers its id.** `POST /api/inspections` answers 201
+  when `app.submit_inspection` wrote the inspection and 200 when its
+  `client_uuid` matched one already written, which is the outbox's replay
+  (FR-OFF-011, ADR-0009). It has never answered 202. The first submit
+  handler (commit 3302420, 25 Aug 2026) wrote 201 and 200, and no commit
+  under `api/` has written `http.StatusAccepted`.
+
+| Endpoint | Handler | Body | Status |
+| --- | --- | --- | --- |
+| `POST /api/vehicles` | `createVehicle` | `fleetUnitJSON`, as `GET /api/vehicles` lists it | 201 |
+| `POST /api/vehicles/{id}/inspection-tasks` | `scheduleInspectionTask` | `unitTaskJSON`, as `GET /api/vehicles/{id}/inspection-tasks` lists it | 201 |
+| `POST /api/combinations` | `createCombination` | `combinationJSON`, as `GET /api/combinations` lists it | 201 |
+| `POST /api/users` | `createUser` | `userJSON` | 201, or 200 on a reactivation (TYRE-95) |
+| `POST /api/vehicles/{id}/drivers` | `assignDriver` | `assignmentJSON` | 201 |
+| `POST /api/tyres` | `receiveTyres` | `{tyres: [{id, displayCode}]}` | 201 |
+| `POST /api/vehicles/{id}/fitments` | `fitTyre` | `{fitmentId, warnings}` | 201 |
+| `POST /api/vehicles/{id}/rotations` | `rotateTyres` | `{moves: [{tyreId, fitmentId}]}` | 201 |
+| `POST /api/tyres/{id}/dispatch` | `dispatchTyre` | `{retreadJobId}` on the retreader arm, `{}` on the breakdown-supplier arm | 201 on both arms |
+| `POST /api/inspections` | `submitInspection` | `{inspectionId}` | 201, or 200 on a replay |
+
+No create sets a `Location` header, but not for decision 9's reason.
+`GET /api/vehicles/{id}` has existed since TYRE-92 (2 Sep 2026). It is still
+the only by-id read among the resources these ten writes create. Users,
+tasks, rigs, assignments, tyres, fitments, retread jobs and inspections have
+none. Every 201 body above carries the new id, except the breakdown-supplier
+dispatch's `{}`, whose one new row is a tyre event with no read of its own.
+Nothing in `web/` reads a response's `Location`, so a header would serve one
+create out of ten and no reader.
 
 ## Constraints on later work
 

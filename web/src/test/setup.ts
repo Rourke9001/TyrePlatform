@@ -1,5 +1,11 @@
 import { afterEach, vi } from "vitest";
-import { cleanup } from "@testing-library/react";
+import { cleanup, configure } from "@testing-library/react";
+
+// findBy* polls until this ceiling, so raising it changes nothing about what
+// passes, only how long a loaded box may take to get there. The default
+// second is not enough when `make check` runs these beside the Go container
+// and the database.
+configure({ asyncUtilTimeout: 5000 });
 
 // jsdom has no IndexedDB, so the durable-buffer tests would otherwise assert
 // against a store that silently does not exist, which is the one failure mode
@@ -10,15 +16,10 @@ import "fake-indexeddb/auto";
 // sees, not internal state.
 import "@testing-library/jest-dom/vitest";
 
-// @testing-library/react's asyncWrapper drains microtasks after every
-// userEvent/waitFor call through a real setTimeout(resolve, 0), advancing a
-// fake clock to fire it immediately if it detects one, but its detection
-// (@testing-library/react/dist/pure.js) only checks for a `jest` global.
-// Vitest has none, so under vi.useFakeTimers() that advance is silently
-// skipped and the very first userEvent call after enabling fake timers hangs
-// forever: the promise it awaits has nothing left to resolve it. Satisfying
-// the detection is the fix, not widening which timers are faked. The
-// pending call is real regardless of toFake, and only this shim reaches it.
+// @testing-library/react's asyncWrapper only advances a fake clock if it
+// detects a `jest` global; vitest has none, so under vi.useFakeTimers() the
+// first userEvent call hangs forever. This shim satisfies that detection;
+// widening which timers are faked would not fix it.
 interface JestShim {
   advanceTimersByTime: (ms: number) => void;
 }
@@ -29,3 +30,31 @@ interface JestShim {
 // Without this a component from one test is still mounted during the next,
 // and queries match the wrong tree.
 afterEach(cleanup);
+
+// jsdom has no matchMedia, and usePhone() calls it on every render. The stub
+// answers false, the desktop width, so every test renders the desktop form
+// unless it forces the phone with forceMatchMedia (src/test/media.ts).
+import { TestMediaQueryList } from "./media";
+// lint/moneyStaysString.test.ts runs in node, where there is no window.
+if (typeof window !== "undefined") {
+  (window as { matchMedia?: Window["matchMedia"] }).matchMedia ??= (query) =>
+    new TestMediaQueryList(query, false);
+}
+
+// Radix Select reads pointer capture and scrolls the highlighted item into
+// view; jsdom implements neither, and without these three every Select
+// test fails on "hasPointerCapture is not a function" before it asserts
+// anything (ADR-0015, consequences).
+if (typeof Element !== "undefined") {
+  // Cast to property syntax, matching the matchMedia stub above: lib.dom's
+  // method shorthand ties an implicit `this` that the unbound-method rule
+  // objects to on a bare read, and these stubs never call `this`.
+  const proto = Element.prototype as unknown as {
+    hasPointerCapture?: Element["hasPointerCapture"];
+    releasePointerCapture?: Element["releasePointerCapture"];
+    scrollIntoView?: Element["scrollIntoView"];
+  };
+  proto.hasPointerCapture ??= () => false;
+  proto.releasePointerCapture ??= () => undefined;
+  proto.scrollIntoView ??= () => undefined;
+}

@@ -7,17 +7,12 @@
 package httpapi
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -34,14 +29,11 @@ type axleConfigurationJSON struct {
 	AxleCount int    `json:"axleCount"`
 }
 
-// listAxleConfigurations serves the library a unit is created against
-// (FR-CFG-001..007). Gated on ManageAssets rather than ViewFleet: the list is
-// only useful to someone who may create a unit with it, and D8 puts that on
-// ManageAssets.
-//
-// Authoring a configuration is not here and must not arrive here. D8 reserves
-// it for ManageTemplates, ORG_ADMIN alone (TYRE-84), because a wrong template
-// silently corrupts every position on every unit that uses it.
+// listAxleConfigurations serves the create-unit library (FR-CFG-001..007),
+// gated on ManageAssets rather than ViewFleet. Authoring a configuration is
+// not here: D8 reserves it for ManageTemplates, ORG_ADMIN alone (TYRE-84),
+// because a wrong template silently corrupts every position on every unit
+// that uses it.
 func listAxleConfigurations(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -77,183 +69,6 @@ func listAxleConfigurations(s *store.Store) http.HandlerFunc {
 		}
 		writeJSON(ctx, w, configs)
 	}
-}
-
-// maxWriteBytes caps every write body: a create, a PATCH, a fitment write.
-// It is a transport limit, not a policy one: the largest of these requests is
-// a handful of short strings.
-const maxWriteBytes = 16 << 10
-
-// maxTextLen caps every free-text field on a create. A transport limit for the
-// same reason. The columns are unbounded text, and the database is not the
-// place to discover that a client sent a megabyte of description. text()
-// counts it in runes (TYRE-72 D7); the other sites that check it count bytes.
-const maxTextLen = 200
-
-// maxTagsPerPatch caps how many tags one edit may name. A transport limit like
-// the two above, not a rule about fleets: how a tenant labels its units is its
-// own business (rule 5), and nothing in the schema bounds the set. What is
-// bounded here is the work one request may ask for. A tag replacement is a
-// delete and an insert per name inside the row lock patchUnit holds.
-const maxTagsPerPatch = 50
-
-// invalidError is a request that is malformed as a request: a missing field,
-// an unparseable id, a value outside an enum. It is answered 422 with this
-// message forwarded verbatim. That is safe because the message is ours:
-// written here, naming the request field and never a schema object
-// (ADR-0013). A message Postgres wrote is canned, and that distinction is the
-// whole of ADR-0012.
-type invalidError struct {
-	field, why string
-}
-
-func (e invalidError) Error() string { return e.field + " " + e.why }
-
-func invalid(field, why string) error {
-	return invalidError{field: field, why: why}
-}
-
-// decodeJSON answers the refusal itself when a body cannot be read. Validation
-// runs before any transaction opens (ADR-0013): a malformed request has no
-// business reaching the database, and opening a transaction to reject one is
-// work a caller can ask for freely.
-func decodeJSON(w http.ResponseWriter, r *http.Request, into any) bool {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBytes))
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "body too large or unreadable")
-		return false
-	}
-	if err := json.Unmarshal(raw, into); err != nil {
-		if field, named := typeErrorField(err); named {
-			writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, field+" is the wrong type")
-			return false
-		}
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	return true
-}
-
-// decodeJSONStrict is decodeJSON for a body whose unknown keys are a refusal
-// rather than something to ignore. "Unknown" is whatever encoding/json failed
-// to match, and it matches a key to a json tag case-insensitively, so
-// "DESCRIPTION" is a known key and only a name no tag spells at all is
-// refused. The unit PATCH is the one caller, and refusing an unknown key
-// here, before a transaction opens, is what keeps TY008 unreachable from the
-// API (units.go's patchUnitRequest).
-//
-// The decoder's own error text is never forwarded, because ADR-0012 keeps a
-// message a library or Postgres wrote off the wire. The key it names is the
-// caller's own input, bounded by maxWriteBytes, and a refusal that withholds
-// it leaves a form with nothing to point at.
-func decodeJSONStrict(w http.ResponseWriter, r *http.Request, into any) bool {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxWriteBytes))
-	if err != nil {
-		writeError(r.Context(), w, http.StatusBadRequest, codeBadRequest, "body too large or unreadable")
-		return false
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(into); err != nil {
-		if field, found := unknownJSONField(err); found {
-			// A byte clip, not text()'s rune bound: the key is caller text,
-			// and maxWriteBytes alone would let a refusal message carry
-			// kilobytes of it back out.
-			if len(field) > maxTextLen {
-				field = strings.ToValidUTF8(field[:maxTextLen], "")
-			}
-			writeError(r.Context(), w, http.StatusUnprocessableEntity, codeInvalidSubmission,
-				field+" is not a field of this request")
-			return false
-		}
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	// Two bodies Decode accepts and json.Unmarshal does not, and this decoder
-	// must not be the laxer of the pair: a literal null, which fills the
-	// target with nothing at all and would read as an edit naming no field,
-	// and anything after the first value, which Decode simply stops before.
-	//
-	// The second is asked as "does another Decode reach io.EOF", not as
-	// dec.More(): More() reports whether another *element* follows within an
-	// array or object, so a closing delimiter answers false and a body ending
-	// `}}` or `}]` reads as finished. A second Decode instead takes whatever
-	// remains as a value in its own right, so a stray delimiter is a syntax
-	// error and a second object is a value. Only a body that truly ended
-	// gives io.EOF.
-	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		writeError(r.Context(), w, http.StatusBadRequest, codeMalformedJSON, "malformed json")
-		return false
-	}
-	return true
-}
-
-// unknownFieldPrefix is encoding/json's own wording. The error it comes from
-// is an untyped errors.errorString, so the key has to be recovered from the
-// text; should that wording ever change, the caller degrades to the generic
-// malformed-json refusal rather than to a confidently wrong field name.
-const unknownFieldPrefix = `json: unknown field `
-
-func unknownJSONField(err error) (string, bool) {
-	msg := err.Error()
-	if !strings.HasPrefix(msg, unknownFieldPrefix) {
-		return "", false
-	}
-	name, unquoteErr := strconv.Unquote(strings.TrimPrefix(msg, unknownFieldPrefix))
-	if unquoteErr != nil {
-		return "", false
-	}
-	return name, true
-}
-
-// typeErrorField names the field whose value was of a type this request
-// cannot read. The decoder's own text is never forwarded, because ADR-0012
-// keeps a message a library wrote off the wire. The field name is safe to
-// send, and a refusal that withholds it leaves a form with nothing to point
-// at: the reasoning decodeJSONStrict already applies to an unknown key.
-//
-// No length bound is needed here, unlike there: encoding/json builds this
-// path out of the json tag names of this package's own types, never out of a
-// key the caller sent.
-func typeErrorField(err error) (string, bool) {
-	var typeErr *json.UnmarshalTypeError
-	if !errors.As(err, &typeErr) || typeErr.Field == "" {
-		return "", false
-	}
-	return typeErr.Field, true
-}
-
-// refuseInvalid answers a validation failure and reports whether it did, so a
-// handler reads as a straight line of guard clauses.
-func refuseInvalid(w http.ResponseWriter, r *http.Request, err error) bool {
-	if err == nil {
-		return false
-	}
-	writeError(r.Context(), w, http.StatusUnprocessableEntity, codeInvalidSubmission, err.Error())
-	return true
-}
-
-// text trims and length-checks an optional free-text field, answering nil for
-// an absent or blank one so the column holds NULL rather than an empty string.
-// maxTextLen bounds runes, not bytes: a multibyte description (the rig
-// descriptor, TYRE-72) is text a controller typed, not wire size to police.
-// maxWriteBytes already does that (TYRE-72 D7).
-func text(field string, in *string) (*string, error) {
-	if in == nil {
-		return nil, nil
-	}
-	trimmed := strings.TrimSpace(*in)
-	if trimmed == "" {
-		return nil, nil
-	}
-	if utf8.RuneCountInString(trimmed) > maxTextLen {
-		return nil, invalid(field, "is too long")
-	}
-	return &trimmed, nil
 }
 
 type createVehicleRequest struct {
@@ -345,7 +160,11 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		var created vehicleJSON
+		// ADR-0013 decision 9: a create answers the list's own projection
+		// (fleetUnitJSON) so a caller holds what it just wrote without a
+		// second round trip; unitKind and status are both known at insert
+		// time (TYRE-180 F4b).
+		var created fleetUnitJSON
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssets); err != nil {
 				return err
@@ -385,10 +204,10 @@ func createVehicle(s *store.Store) http.HandlerFunc {
 				   (tenant_id, fleet_number, registration, description,
 				    configuration_id, unit_kind, home_depot_id)
 				 VALUES (app.current_tenant_id(), $1, $2, $3, $4, $5::app.unit_kind, $6)
-				 RETURNING id, fleet_number, registration`,
+				 RETURNING id, fleet_number, registration, unit_kind::text, status::text`,
 				ins.fleetNumber, ins.registration, ins.description,
 				ins.configurationID, ins.unitKind, ins.homeDepotID).
-				Scan(&id, &created.FleetNumber, &created.Registration)
+				Scan(&id, &created.FleetNumber, &created.Registration, &created.UnitKind, &created.Status)
 			if err != nil {
 				return fmt.Errorf("creating vehicle: %w", err)
 			}
@@ -524,17 +343,12 @@ func createUser(s *store.Store) http.HandlerFunc {
 				return err
 			}
 
-			// Classify the collision before inserting, because the unique
-			// index spans inactive rows and Postgres cannot say which kind it
-			// caught. RLS scopes this lookup, so another tenant's address is
-			// simply not here: a plain create proceeds, and a reactivate is
-			// refused, the honest answers for this tenant, and identical
-			// whether the address lives elsewhere or nowhere.
-			//
-			// lower() on both sides matches 000027's index, 000026's one
-			// email comparison rule in the schema, not two. The stored
-			// address keeps the case the admin typed; only comparison folds,
-			// here and in the reactivate UPDATE below.
+			// Classify the collision before inserting: the unique index spans
+			// inactive rows and Postgres cannot say which kind it caught. RLS
+			// already scopes the lookup to this tenant. lower() on both sides
+			// matches 000027's index and 000026's one comparison rule (the
+			// stored address keeps the admin's casing; only comparison
+			// folds).
 			var existingActive bool
 			lookup := tx.QueryRow(ctx,
 				`SELECT active FROM app.app_user WHERE lower(email) = lower($1)`,
@@ -546,16 +360,13 @@ func createUser(s *store.Store) http.HandlerFunc {
 			case lookup == nil && !ins.reactivate:
 				return refusalError{refusal{http.StatusConflict, codeEmailInactive, msgEmailInactive}}
 			case lookup == nil:
-				// A rehire is the same person: updating in place keeps the id
-				// their inspections are attributed through (FR-VEH-008).
-				// UPDATE is granted on app_user and only DELETE was revoked
-				// (000002, 000018), because a person is not an event.
-				//
-				// staff_number: an absent field means "not supplied",
-				// because the reactivate form never pre-fills it and
-				// FR-AUT-022's identifier must survive a rehire that omits
-				// it. An explicitly blank one means "clear it". The clear
-				// flag carries the difference COALESCE alone cannot see.
+				// A rehire is the same person: updating in place keeps the
+				// id their inspections are attributed through (FR-VEH-008).
+				// UPDATE is granted and only DELETE was revoked (000002,
+				// 000018), because a person is not an event. staff_number:
+				// absent keeps a rehire's number (FR-AUT-022 survives an
+				// omitting form); explicitly blank clears it, a distinction
+				// COALESCE alone cannot see.
 				status = http.StatusOK
 				err := tx.QueryRow(ctx,
 					`UPDATE app.app_user
@@ -635,21 +446,11 @@ type assignmentJSON struct {
 	FromDate  string `json:"fromDate"`
 }
 
-// isoDate is the only date format the API accepts or emits. A locale-sensitive
-// parse is a defect waiting for a tenant in another timezone (rule 6).
-const isoDate = "2006-01-02"
-
-// assignDriver opens a driver-to-unit assignment (FR-VEH-007). It is what
-// app.v_capture_vehicle reads, so it is the step between a created driver and
-// a capture they can reach.
-//
-// The assignee's role is deliberately unchecked: no constraint says an
-// assignment names a DRIVER, and asserting it here would put a rule in Go that
-// the schema does not hold (ADR-0013). Every assignable role already holds
-// CaptureInspection, so the gap grants nothing.
-//
-// to_date is left NULL, an open assignment. Closing one is a different
-// action and does not belong on a create.
+// assignDriver opens a driver-to-unit assignment (FR-VEH-007), the step
+// v_capture_vehicle reads. The assignee's role is unchecked: no constraint
+// says an assignment names a DRIVER, and every assignable role already holds
+// CaptureInspection, so asserting it here would add a Go-side rule the
+// schema does not hold (ADR-0013).
 func assignDriver(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()

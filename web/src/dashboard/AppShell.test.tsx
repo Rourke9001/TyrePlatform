@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,17 +16,19 @@ const branding = { displayName: "Sandbox Fleet", primaryColor: "#E2202A", logoUr
 // network. That is the same stub that OutboxIndicator's own suite uses.
 function renderShellAt(path: string, capabilities: string[]) {
   return render(
-    <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
-      <ActorContext
-        value={{ actor: me({ displayName: "Controller", capabilities }), settled: true }}
-      >
-        <MemoryRouter initialEntries={[path]}>
-          <AppShell>
-            <p>screen</p>
-          </AppShell>
-        </MemoryRouter>
-      </ActorContext>
-    </ThemeContext>,
+    <QueryClientProvider client={new QueryClient()}>
+      <ThemeContext value={{ branding, theme: deriveBrandTheme(branding.primaryColor) }}>
+        <ActorContext
+          value={{ actor: me({ displayName: "Controller", capabilities }), settled: true }}
+        >
+          <MemoryRouter initialEntries={[path]}>
+            <AppShell>
+              <p>screen</p>
+            </AppShell>
+          </MemoryRouter>
+        </ActorContext>
+      </ThemeContext>
+    </QueryClientProvider>,
   );
 }
 
@@ -41,12 +44,9 @@ afterEach(() => {
 });
 
 describe("the shell's main nav", () => {
-  // NAV_ITEMS' paths nest, so NavLink's default prefix match marks every
-  // ancestor current too: /fleet/tyres/retreads would read as Units, Tyres and
-  // Retreads all at once, and "you are here" naming three places tells a
-  // reader nothing (NFR-USE-005). The deepest path in the registry is the case
-  // that catches it, an actor holding all three capabilities so all three
-  // links render and a prefix match has something to over-claim.
+  // NAV_ITEMS nest, so NavLink's prefix match marks every ancestor current
+  // too; the deepest path an actor with all capabilities can reach is what
+  // over-claims if the guard is missing (NFR-USE-005).
   it("marks exactly one link current on the deepest nested path", () => {
     renderShellAt("/fleet/tyres/retreads", ["ViewFleet", "ManageAssets", "LogRetread"]);
 
@@ -57,5 +57,19 @@ describe("the shell's main nav", () => {
     // this, a nav that dropped them entirely would satisfy the count above.
     expect(screen.getByRole("link", { name: "Units" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Tyres" })).toBeInTheDocument();
+  });
+
+  it("offers the dashboard and the exceptions to a fleet viewer", () => {
+    renderShellAt("/", ["ViewFleet"]);
+    expect(screen.getByRole("link", { name: "Dashboard", current: "page" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Exceptions" })).toHaveAttribute("href", "/exceptions");
+  });
+
+  // TYRE-242: the switchers must not sit in the header a driver sees first.
+  it("keeps the dev switchers out of the header", () => {
+    renderShellAt("/my", ["CaptureInspection"]);
+    const header = screen.getByRole("banner");
+    expect(header.querySelector("select")).toBeNull();
+    expect(screen.getByText(/^Dev:/)).toBeInTheDocument();
   });
 });

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Mock } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 
@@ -9,6 +9,7 @@ import { ActorProvider } from "./auth/ActorProvider";
 import { AppRoutes, UnitRoute } from "./routes";
 import type { Me } from "./auth/me";
 import {
+  dashboardBody,
   fitmentRow,
   me,
   requestedUrl,
@@ -21,21 +22,33 @@ import {
 const actor = (capabilities: string[]): Me =>
   me({ userId: "00000000-0000-0000-0000-000000000001", capabilities });
 
-// DriverHome and VehicleList both fetch through TanStack Query. `fetch` is
-// stubbed with a real Response so every route can be driven to a specific
-// status without a network call. Returning the mock lets a test assert on
-// what apiGet actually sent, not just what it rendered.
-//
-// A fresh Response per call, not one shared instance: a Response body can
-// only be read once, and /fleet/rigs drives two concurrent queries
-// (ReportedDifferences beside RigList, TYRE-75). A shared instance's
-// second .json() throws, which the second query renders as its own load
-// failure rather than the empty list this mock promises every caller.
+// fetch is stubbed with a real Response so every route can be driven to a
+// specific status; a fresh Response per call, since a body can only be read
+// once and /fleet/rigs drives two concurrent queries (TYRE-75).
 function mockFetchJson(status: number, body: unknown): Mock<typeof fetch> {
   const mock: Mock<typeof fetch> = vi.fn();
   mock.mockImplementation(() => Promise.resolve(respond(status, body)));
   vi.stubGlobal("fetch", mock);
   return mock;
+}
+
+// The two list pages each expect their own body; any other read (the
+// depots behind a depot name) answers an empty list.
+function mockListsByPath(): void {
+  const scope = dashboardBody().scope;
+  const mock: Mock<typeof fetch> = vi.fn();
+  mock.mockImplementation((input: RequestInfo | URL) => {
+    const url = requestedUrl(input);
+    if (url.startsWith("/api/exceptions")) {
+      return Promise.resolve(respond(200, { scope, judgedAt: "SUBMITTED_AT", exceptions: [] }));
+    }
+    if (url.startsWith("/api/valuation/at-risk")) {
+      const { running, spare } = dashboardBody().valueAtRisk;
+      return Promise.resolve(respond(200, { scope, judgedAt: "TODAY", running, spare, tyres: [] }));
+    }
+    return Promise.resolve(respond(200, []));
+  });
+  vi.stubGlobal("fetch", mock);
 }
 
 const DEV_ACTOR_STORAGE_KEY = "tyre.dev.user-id";
@@ -64,10 +77,49 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("heading", { name: /my inspections/i })).toBeDefined();
   });
 
-  it("lands a ViewFleet holder on the fleet view rather than the driver view", () => {
-    mockFetchJson(200, []);
+  it("lands a ViewFleet holder on the dashboard rather than the driver view", async () => {
+    // The dashboard page also reads /api/spares and /api/depots, which
+    // expect their own shapes; a one-body mock would hand them the
+    // dashboard body and crash the filters, so this mock answers by path.
+    const mock: Mock<typeof fetch> = vi.fn();
+    mock.mockImplementation((input: RequestInfo | URL) => {
+      const url = requestedUrl(input);
+      if (url.startsWith("/api/dashboard")) return Promise.resolve(respond(200, dashboardBody()));
+      if (url.startsWith("/api/spares")) {
+        return Promise.resolve(
+          respond(200, { scope: dashboardBody().scope, judgedAt: "TENANT_TODAY", spares: [] }),
+        );
+      }
+      return Promise.resolve(respond(200, []));
+    });
+    vi.stubGlobal("fetch", mock);
     renderAt("/", actor(["ViewFleet"]));
-    expect(screen.getByRole("heading", { name: /units/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeDefined();
+  });
+
+  // D7: a destination refuses out loud.
+  it("refuses /at-risk out loud without ViewValuation", async () => {
+    mockFetchJson(200, []);
+    renderAt("/at-risk", actor(["ViewFleet"]));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission");
+  });
+
+  it("refuses /exceptions out loud without ViewFleet", async () => {
+    mockFetchJson(200, []);
+    renderAt("/exceptions", actor(["CaptureInspection"]));
+    expect(await screen.findByRole("alert")).toHaveTextContent("You do not have permission");
+  });
+
+  // Each list's gate is the one capability its API checks: ViewFleet for
+  // /exceptions (exceptions.go), ViewValuation for /at-risk (valuation.go).
+  it("opens /exceptions for ViewFleet alone and /at-risk with ViewValuation beside it", async () => {
+    mockListsByPath();
+    renderAt("/exceptions", actor(["ViewFleet"]));
+    expect(await screen.findByRole("heading", { level: 1, name: "Exceptions" })).toBeDefined();
+    cleanup();
+    mockListsByPath();
+    renderAt("/at-risk", actor(["ViewFleet", "ViewValuation"]));
+    expect(await screen.findByRole("heading", { level: 1, name: "Value at risk" })).toBeDefined();
   });
 
   it("renders a not-found view for an unknown path", () => {
@@ -75,13 +127,16 @@ describe("AppRoutes", () => {
     expect(screen.getByText(/not found/i)).toBeDefined();
   });
 
-  // The landing redirect keeps a driver off /fleet, but the route itself must
-  // refuse the same actor if they land here another way, a pasted link or a
-  // bookmark, not just an offered nav link. RequireCapability hides silently,
-  // so "refused" reads as the heading never appearing rather than an error.
+  // A pasted link or bookmark must be refused the same as the landing
+  // redirect, not just hidden from the nav; RequireCapability hides
+  // silently, so "refused" reads as the heading never appearing.
   it("shows nothing at /fleet for an actor who can only capture inspections", () => {
     renderAt("/fleet", actor(["CaptureInspection"]));
     expect(screen.queryByRole("heading", { name: /units/i })).toBeNull();
+    // VehicleList is lazy, so with the guard gone and its chunk not yet
+    // loaded this render shows only the Suspense fallback, and the heading
+    // check alone would pass. The same holds for the two hidden pages below.
+    expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // GET /api/my/tasks returns 200 with [] for an unassigned driver. An empty
@@ -122,19 +177,17 @@ describe("AppRoutes", () => {
     expect(new Headers(init?.headers).get("X-User-ID")).toBe(devActorId);
   });
 
-  // /capture is the one route that refuses out loud. A menu item may hide
-  // silently, but somebody who followed a link to a destination and got a blank
-  // screen has no way to tell refusal from a broken app (NFR-USE-005). The
-  // server re-checks the capability regardless (NFR-SEC-006).
+  // /capture is the one route that refuses out loud: a link followed to a
+  // blank screen has no way to tell refusal from a broken app (NFR-USE-005);
+  // the server re-checks regardless (NFR-SEC-006).
   it("explains a refusal at /capture rather than rendering nothing", () => {
     renderAt("/capture/11111111-1111-1111-1111-111111111111", actor(["ViewFleet"]));
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
   });
 
-  // The redirect is one-shot, so a decision taken before GET /api/me answers
-  // is never revised. Mounting the real provider is the only way to exercise
-  // that: renderAt injects the actor synchronously and cannot see this class
-  // of bug.
+  // The redirect is one-shot and never revised after GET /api/me answers;
+  // mounting the real provider is the only way to exercise that, since
+  // renderAt injects the actor synchronously.
   it("waits for the actor before choosing a landing view", async () => {
     const controller = me({
       userId: "u1",
@@ -144,9 +197,10 @@ describe("AppRoutes", () => {
     // Deliberately not resolved yet: the assertion below is that nothing has
     // navigated while it is outstanding.
     let release!: (value: Response) => void;
+    const pending = new Promise<Response>((resolve) => (release = resolve));
     vi.stubGlobal(
       "fetch",
-      vi.fn(() => new Promise<Response>((resolve) => (release = resolve))),
+      vi.fn(() => pending),
     );
 
     render(
@@ -160,10 +214,14 @@ describe("AppRoutes", () => {
     );
 
     expect(screen.queryByRole("heading", { name: /inspections/i })).toBeNull();
-    expect(screen.queryByRole("heading", { name: /units/i })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Dashboard" })).toBeNull();
+    // Dashboard is lazy: rendered before the actor settles, this first
+    // render shows the Suspense fallback, and the heading check alone
+    // would pass whenever no earlier test had loaded the chunk.
+    expect(screen.queryByText(/loading/i)).toBeNull();
 
     release(new Response(JSON.stringify(controller), { status: 200 }));
-    expect(await screen.findByRole("heading", { name: /units/i })).toBeDefined();
+    expect(await screen.findByRole("heading", { level: 1, name: "Dashboard" })).toBeDefined();
   });
 
   it("tells an actor without the capability, rather than blanking the screen", () => {
@@ -187,17 +245,17 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
   });
 
-  it("renders the add-a-user screen for an actor holding ManageUsers", () => {
+  it("renders the add-a-user screen for an actor holding ManageUsers", async () => {
     renderAt("/admin/users/new", actor(["ManageUsers"]));
-    expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /add a user/i })).toBeInTheDocument();
   });
 
   // D9 split the invite: a CONTROLLER or DEPOT_MANAGER holds InviteDriver and
   // not ManageUsers, and the whole point of the split is that they reach this
   // screen anyway (ADR-0011).
-  it("renders the add-a-user screen for an actor holding InviteDriver alone", () => {
+  it("renders the add-a-user screen for an actor holding InviteDriver alone", async () => {
     renderAt("/admin/users/new", actor(["InviteDriver"]));
-    expect(screen.getByRole("heading", { name: /add a user/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /add a user/i })).toBeInTheDocument();
   });
 
   it("tells an actor without the capability, rather than blanking the screen, at /fleet/tyres", () => {
@@ -216,9 +274,9 @@ describe("AppRoutes", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
   });
 
-  it("renders the receive-tyre screen for an actor holding ManageAssets", () => {
+  it("renders the receive-tyre screen for an actor holding ManageAssets", async () => {
     renderAt("/fleet/tyres/new", actor(["ViewFleet", "ManageAssets"]));
-    expect(screen.getByRole("heading", { name: /receive tyres/i })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: /receive tyres/i })).toBeInTheDocument();
   });
 
   it("renders the unit screen at /fleet/units/:unitId for a ViewFleet holder", async () => {
@@ -235,10 +293,9 @@ describe("AppRoutes", () => {
           );
         if (url === "/api/vehicles/u9/fitments")
           return Promise.resolve(respond(200, [fitmentRow({ fitmentId: "f1" })]));
-        // The schedule panel and the task list are part of the screen this
-        // route renders, so their reads are stubbed too: unstubbed, they
-        // would render as failed queries under a heading assertion that
-        // still passed.
+        // The schedule panel and task list are part of this screen, so
+        // their reads are stubbed too, or they'd render as failed queries
+        // under a heading assertion that still passed.
         if (url === "/api/vehicles/u9/drivers") return Promise.resolve(respond(200, []));
         if (url === "/api/vehicles/u9/inspection-tasks") return Promise.resolve(respond(200, []));
         throw new Error(`unstubbed ${url}`);
@@ -255,10 +312,9 @@ describe("AppRoutes", () => {
     renderAt("/fleet/units/u9", actor(["CaptureInspection"]));
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
     expect(screen.queryByRole("heading", { name: "HORSE-1" })).toBeNull();
-    // renderAt is synchronous: with the guard gone, UnitDetail would still
-    // mount and its query would still be pending on this first render, so the
-    // assertions above could pass on a screen that had merely not loaded yet.
-    // This is the one that separates a refusal from a slow read.
+    // UnitDetail is lazy: with the guard gone this first synchronous render
+    // shows the Suspense fallback, or UnitDetail's own pending read once an
+    // earlier test has loaded the chunk, and both say "Loading".
     expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
@@ -292,6 +348,7 @@ describe("AppRoutes", () => {
     // Distinguishes RequireCapability's silent hide from the catch-all
     // NotFound route: the route must exist and hide, not be absent.
     expect(screen.queryByText(/not found/i)).toBeNull();
+    expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // "Rigs", exact: /rigs/i would also match the list's own "Open rigs" and
@@ -309,6 +366,7 @@ describe("AppRoutes", () => {
     expect(screen.queryByRole("heading", { name: "Rigs" })).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText(/not found/i)).toBeNull();
+    expect(screen.queryByText(/loading/i)).toBeNull();
   });
 
   // U2/D5: RigsScreen itself, not the route, gates Set a rig on

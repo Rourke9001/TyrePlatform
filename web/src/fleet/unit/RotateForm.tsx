@@ -16,15 +16,10 @@ import { useFormMutation } from "../useFormMutation";
 import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
 import { openFitmentsKey, rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 
-// app.rotate_tyres refuses the whole set or none of it, and the codes it can
-// reach are TY009, TY012 and TY014. No occupancy code, because a rotation's
-// targets are freed inside the same statement. TY009 arrives from the fitment
-// rows this write closes, not the ones it opens: app.rotate_tyres closes every
-// row in the set before opening any, and 000025's
-// fitment_odometer_matches_unit_kind is BEFORE INSERT OR UPDATE (FR-FIT-002).
-// That is why the odometers below are asked for rather than offered. TY014
-// also carries the "not on this unit or its rig" refusal, whose wording is the
-// server's and is spoken verbatim rather than matched on.
+// app.rotate_tyres refuses the whole set or none, reaching TY009/TY012/
+// TY014, no occupancy code since targets are freed in the same statement.
+// TY009 arrives from the rows the write closes (FR-FIT-002), which is why
+// odometers are asked for rather than offered.
 const ROTATE_WORDING = {
   speakable: ["TY009", "TY012", "TY014"],
   forbidden: "You do not have permission to rotate tyres.",
@@ -35,17 +30,15 @@ const TOO_FEW =
   "Pick at least two positions: a rotation moves tyres between positions of this unit or its rig.";
 const INCOMPLETE = "Every picked position needs a target and a tread reading.";
 
-// Position ids belong to an axle configuration rather than to a unit, so the
-// two links of an ordinary superlink share every one of them (docs/lessons.md,
-// 26 Aug 2026). Every occupancy answer here is therefore on the pair, which is
-// also the pair app.rotate_tyres checks (U18).
+// BR-VEH-003/cellKey pattern: see cellKey in capture/draft.ts. Every occupancy
+// answer here is on the pair, which is also the pair app.rotate_tyres
+// checks (U18).
 function pairKey(unitId: string, positionId: string): string {
   return `${unitId} ${positionId}`;
 }
 
-// FR-FIT-010: one set of moves across the units of one open rig, applied whole
-// or not at all. A tread is asked per tyre because each is measured where it
-// comes off, and an odometer per unit because the reading belongs to the unit
+// FR-FIT-010: one set of moves across one open rig, all or nothing. A
+// tread per tyre (measured where it comes off), an odometer per unit
 // (U20), never the same value twice (NFR-USE-006).
 export function RotateForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
@@ -58,20 +51,18 @@ export function RotateForm({ unit }: { unit: Unit }) {
   const [odometers, setOdometers] = useState<Record<string, string>>({});
   const [refused, setRefused] = useState("");
 
-  // rigsKey is already paired with fetchRigs() by RigForm and RigList, so the
-  // open ones are picked out here rather than asked for: one key answered by
-  // two different fetchers hands whichever screen mounts second a list it did
-  // not ask for.
+  // rigsKey is already paired with fetchRigs() by RigForm/RigList; one key
+  // answered by two fetchers would hand whichever screen mounts second a
+  // list it did not ask for.
   const rigs = useQuery({ queryKey: rigsKey(tenantKey), queryFn: () => fetchRigs() });
   const openRig = (rigs.data ?? []).find(
     (r) => r.effectiveTo === null && r.members.some((m) => m.vehicleId === unit.id),
   );
   const siblings = openRig?.members.filter((m) => m.vehicleId !== unit.id) ?? [];
 
-  // useQueries, not a useQuery per member: how many units a rig holds is data,
-  // and a hook inside a map breaks the rules of hooks. The reads are the ones
-  // UnitDetail already makes, under the same key, so a sibling screen and this
-  // picker never disagree about what is fitted where.
+  // useQueries, not a useQuery per member (rules of hooks), under the same
+  // key UnitDetail already reads, so this picker and that screen never
+  // disagree about what is fitted where.
   const siblingReads = useQueries({
     queries: siblings.map((m) => ({
       queryKey: unitKey(m.vehicleId),
@@ -121,10 +112,9 @@ export function RotateForm({ unit }: { unit: Unit }) {
     return destinations[positionId] ?? unit.id;
   }
 
-  // TYRE-127: a target is offerable when it is empty, or emptied by this same
-  // set of moves. app.rotate_tyres closes every row in the set before opening
-  // any, so a position another picked row leaves is free by the time this move
-  // lands on it.
+  // TYRE-127: a target is offerable when empty, or emptied by this same
+  // set of moves, since app.rotate_tyres closes every row before opening
+  // any.
   const vacated = new Set(chosen.map((p) => pairKey(unit.id, p.id)));
 
   function targetsFor(unitId: string): UnitPosition[] {

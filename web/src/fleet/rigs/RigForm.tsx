@@ -9,10 +9,9 @@ import { useFormMutation } from "../useFormMutation";
 import { rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
 
-// app.create_combination's refusals that a controller can still hit after
-// the client narrows the option lists (D2's table: kind, retirement and
-// duplicate checks are pre-filtered below, but a second controller can win
-// the race) plus the not-visible read.
+// Refusals a controller can still hit after the client narrows the option
+// lists (D2's kind/retirement/duplicate checks), plus the not-visible read,
+// in case a second controller wins the race.
 const CREATE_WORDING = {
   speakable: ["TY017", "TY012"],
   forbidden: "You do not have permission to set a rig.",
@@ -28,11 +27,9 @@ interface TowedRow {
   descriptor: string;
 }
 
-// D5: a motive select, an ordered towed list built from a trailer select
-// with Add/Up/Down/Remove, and an effective-from date the browser never
-// supplies a value for (rule 6). What may actually be coupled stays
-// app.create_combination's alone (D2); this only keeps the common refusal
-// from round-tripping.
+// D5: a motive select, an ordered towed list with Add/Up/Down/Remove, and
+// an effective-from date the browser never supplies (rule 6). What may
+// actually couple is app.create_combination's alone (D2).
 export function RigForm() {
   const tenantKey = getDevTenantId() ?? "default";
 
@@ -55,10 +52,9 @@ export function RigForm() {
     },
   });
 
-  // U5/INV-4: a unit already coupled in an open rig cannot join another one
-  // until that rig ends, app.combination_member_in_order's own rule
-  // (D1.2), narrowed here so the option lists never offer a choice the
-  // server would only refuse.
+  // U5/INV-4: a unit already in an open rig cannot join another until that
+  // one ends (D1.2), narrowed here so the option lists never offer a choice
+  // the server would refuse.
   const inOpenRig = new Set(
     (rigs.data ?? [])
       .filter((r) => r.effectiveTo === null)

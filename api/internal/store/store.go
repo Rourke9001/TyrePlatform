@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -18,8 +19,16 @@ import (
 	"tyreplatform/api/internal/auth"
 )
 
+// defaultMaxConns is applied only when the DSN carries no pool_max_conns of
+// its own (store_test.go's =1 override for connection-identity tests must
+// keep working). The arithmetic it satisfies, replicas x pool + headroom <=
+// the server's max_connections, is recorded once in ADR-0005 next to the
+// scale block rather than here (TYRE-184 F8).
+const defaultMaxConns = 10
+
 type Store struct {
-	pool *pgxpool.Pool
+	pool     *pgxpool.Pool
+	sessions *sessionSet
 }
 
 func New(ctx context.Context, dsn string) (*Store, error) {
@@ -38,6 +47,11 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 		cfg.ConnConfig.RuntimeParams = map[string]string{}
 	}
 	cfg.ConnConfig.RuntimeParams["timezone"] = "UTC"
+	// pgxpool.ParseConfig already applied a DSN's own pool_max_conns, if it
+	// named one; only an unsized pool falls back to the recorded default.
+	if !strings.Contains(dsn, "pool_max_conns") {
+		cfg.MaxConns = defaultMaxConns
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating connection pool: %w", err)
@@ -46,11 +60,18 @@ func New(ctx context.Context, dsn string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, sessions: newSessionSet(sessionLimit)}, nil
 }
 
 func (s *Store) Close() {
 	s.pool.Close()
+}
+
+// MaxConns reports the pool's configured ceiling: defaultMaxConns unless the
+// DSN named its own pool_max_conns (TYRE-184 F8). Exported so a test can
+// prove the default actually took effect, not only that New succeeded.
+func (s *Store) MaxConns() int32 {
+	return s.pool.Config().MaxConns
 }
 
 // Pool is for tenant-free work only. Nothing on the request path takes it;
@@ -61,18 +82,10 @@ func (s *Store) Pool() *pgxpool.Pool {
 	return s.pool
 }
 
-// InTenantTx runs fn inside a transaction with app.tenant_id bound for RLS.
-//
-// set_config(..., is_local => true) is the parameterisable form of SET LOCAL:
-// the binding dies with the transaction, so a pooled connection cannot carry
-// one tenant's context into the next request. SET LOCAL itself cannot take a
-// bind parameter, and string-interpolating the tenant id is exactly the kind
-// of shortcut rule 1 exists to forbid.
-//
-// Unlike InActorTx, no isolation level is pinned here: nothing routes through
-// this today, so no handler's refusal shape leans on one. A future
-// read-then-write here whose behaviour differs under REPEATABLE READ must
-// carry the same pin, for the reasons InActorTx states.
+// InTenantTx runs fn with app.tenant_id bound for RLS via set_config(...,
+// true), the parameterisable SET LOCAL: the binding dies with the
+// transaction so a pooled connection cannot carry one tenant's context into
+// the next request (rule 1).
 func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.Tx) error) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -92,10 +105,27 @@ func (s *Store) InTenantTx(ctx context.Context, tenantID uuid.UUID, fn func(pgx.
 	return nil
 }
 
-// ErrNoSuchActor means the request named a user this tenant cannot see, or
-// one that has been deactivated. The two are the same refusal to a client and
+// ErrNoSuchActor means the key resolved to no user this tenant can see, or to
+// one that has been deactivated: an unknown or wrong-tenant user id, or a
+// subject linked to no visible user. All are the same refusal to a client and
 // distinguishable only in the log (FR-AUT-011, ADR-0011).
 var ErrNoSuchActor = errors.New("actor not found or inactive")
+
+// ErrTenantInactive means the actor resolved but their tenant is not ACTIVE.
+// FR-TEN-009 names SUSPENDED and CLOSED; a PROVISIONING tenant is refused
+// too, because its users are not yet meant to sign in (TYRE-376).
+var ErrTenantInactive = errors.New("tenant is not active")
+
+// ActorKey names who a request acts as. Exactly one of UserID and Subject is
+// set (spec section 2, ADR-0016).
+type ActorKey struct {
+	TenantID  uuid.UUID
+	UserID    uuid.UUID
+	Subject   uuid.UUID
+	SessionID string
+}
+
+var errActorKeyShape = errors.New("actor key must set exactly one of UserID and Subject")
 
 // InActorTx runs fn inside a transaction with app.tenant_id and app.actor_id
 // both bound, having first resolved the actor from app.app_user under RLS.
@@ -104,36 +134,41 @@ var ErrNoSuchActor = errors.New("actor not found or inactive")
 // can be forged; app.app_user is the register of record, and reading it here
 // is what makes deactivation bite on the next request rather than at token
 // expiry (ADR-0011, NFR-SEC-006).
-func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn func(pgx.Tx, auth.Actor) error) error {
-	// READ COMMITTED is pinned, not assumed: createUser's reactivate race is
-	// a 409 only because the losing UPDATE re-evaluates its WHERE against the
-	// winner's committed row and matches nothing. Under REPEATABLE READ the
-	// same interleaving raises 40001, which submitStatus does not map, so a
-	// form would see a 500. default_transaction_isolation is a server
-	// parameter a DBA can flip with no test failing; a guarantee handlers
-	// lean on is stated here, the way append-only is enforced by revoked
-	// grants rather than convention (TYRE-95).
+func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, auth.Actor) error) error {
+	if (key.UserID == uuid.Nil) == (key.Subject == uuid.Nil) {
+		return errActorKeyShape
+	}
+	// READ COMMITTED is pinned: submitStatus maps createUser's reactivate
+	// race to a 409 only because the loser's UPDATE re-evaluates its WHERE
+	// against the winner's committed row. Under REPEATABLE READ the same
+	// interleaving raises 40001, which submitStatus does not map (TYRE-95).
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
 		return fmt.Errorf("beginning actor transaction: %w", err)
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
 
+	// app.session_id is bound only for a bearer request; TYRE-201's trigger
+	// will read it, and app.record_session_start() does (FR-AUD-002, FR-AUD-004).
 	if _, err := tx.Exec(ctx,
-		`SELECT set_config('app.tenant_id', $1, true), set_config('app.actor_id', $2, true)`,
-		tenantID.String(), userID.String()); err != nil {
-		return fmt.Errorf("binding actor context: %w", err)
+		`SELECT set_config('app.tenant_id', $1::text, true),
+		        CASE WHEN $2::text <> '' THEN set_config('app.session_id', $2::text, true) END`,
+		key.TenantID.String(), key.SessionID); err != nil {
+		return fmt.Errorf("binding tenant context: %w", err)
 	}
 
-	actor := auth.Actor{UserID: userID, TenantID: tenantID}
+	lookup, arg := `SELECT id, display_name, role::text, active FROM app.app_user WHERE id = $1`, key.UserID
+	if key.Subject != uuid.Nil {
+		lookup, arg = `SELECT id, display_name, role::text, active FROM app.app_user WHERE subject = $1`, key.Subject
+	}
+	actor := auth.Actor{TenantID: key.TenantID}
 	var roleName string
 	var active bool
-	// The tenant_isolation policy does the tenant check: a user belonging to
-	// another tenant is not visible here, so a wrong tenant needs no branch.
-	// role is cast to text because the enum's OID is not in pgx's type map.
-	err = tx.QueryRow(ctx,
-		`SELECT display_name, role::text, active FROM app.app_user WHERE id = $1`, userID).
-		Scan(&actor.DisplayName, &roleName, &active)
+	// The tenant_isolation policy does the tenant check: a user of another
+	// tenant, or a subject claimed for the wrong one, is not visible here, so
+	// a wrong or forged tenant needs no branch (ADR-0016 decision 5). role is
+	// cast to text because the enum's OID is not in pgx's type map.
+	err = tx.QueryRow(ctx, lookup, arg).Scan(&actor.UserID, &actor.DisplayName, &roleName, &active)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return ErrNoSuchActor
 	}
@@ -145,17 +180,46 @@ func (s *Store) InActorTx(ctx context.Context, tenantID, userID uuid.UUID, fn fu
 	}
 	actor.Role = auth.Role(roleName)
 
+	if _, err := tx.Exec(ctx, `SELECT set_config('app.actor_id', $1, true)`, actor.UserID.String()); err != nil {
+		return fmt.Errorf("binding actor context: %w", err)
+	}
+
+	// Checked after the actor resolves, so only a linked user learns the
+	// tenant's state (TYRE-376). tenant_self shows a session its own row.
+	var state string
+	if err := tx.QueryRow(ctx,
+		`SELECT state::text FROM app.tenant WHERE id = app.current_tenant_id()`).Scan(&state); err != nil {
+		return fmt.Errorf("reading tenant state: %w", err)
+	}
+	if state != "ACTIVE" {
+		return ErrTenantInactive
+	}
+
 	depots, err := actorDepots(ctx, tx)
 	if err != nil {
 		return err
 	}
 	actor.DepotIDs = depots
 
+	// Keyed on the tenant too, as the unique index is (000052).
+	sessionKey := key.TenantID.String() + "/" + key.SessionID
+	recordSession := key.SessionID != "" && !s.sessions.has(sessionKey)
+	if recordSession {
+		if _, err := tx.Exec(ctx, `SELECT app.record_session_start()`); err != nil {
+			return fmt.Errorf("recording session start: %w", err)
+		}
+	}
+
 	if err := fn(tx, actor); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("committing actor transaction: %w", err)
+	}
+	// Remembered only once committed, so a rolled-back request cannot lose
+	// the event (spec section 3, FR-AUD-004).
+	if recordSession {
+		s.sessions.add(sessionKey)
 	}
 	return nil
 }

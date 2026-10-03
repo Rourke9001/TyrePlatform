@@ -486,6 +486,37 @@ func TestReceiveTyresOutOfRangeQuantityIsRefusedNotCoerced(t *testing.T) {
 	}
 }
 
+// TYRE-180 F3: displayCode is copied into a row every register, fit picker
+// and dispatch screen renders, so it is bounded by maxTextLen like every
+// free-text field on a write.
+func TestReceiveTyresDisplayCodeTooLongIsRefused(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-code-len")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	tooLong := strings.Repeat("A", 201)
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		`{"displayCode":"`+tooLong+`"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Equal(t, "displayCode is too long", ref.Message)
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.tyre WHERE tenant_id = $1`, tenantID).Scan(&landed))
+	require.Zero(t, landed, "a refused receive must not have minted a tyre")
+
+	// control: exactly at the bound is accepted.
+	atBound := strings.Repeat("B", 200)
+	rec = post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		`{"displayCode":"`+atBound+`"}`)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
 // FR-TYR-041: costing discharges the awaiting-cost backlog CFL-002 names.
 func TestSetTyreCostHappyPath(t *testing.T) {
 	ctx := context.Background()
@@ -592,6 +623,62 @@ func TestDisposeTyreSaleFromInStockIsRefused(t *testing.T) {
 	require.Equal(t, "a tyre is sold from REMOVED only; this one is IN_STOCK (Appendix C)", ref.Message)
 }
 
+// A disposal's reason lands in append-only tyre_event.reason, so it carries
+// the maxTextLen cap, counted in runes (TYRE-307). The TECHNICIAN holds no
+// ManageAssets, so its 422 rather than 403 is what proves the cap runs
+// before withActor opens a transaction (ADR-0013).
+func TestDisposeTyreReasonIsLengthCapped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "dispose-reason-cap")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+
+	tests := []struct {
+		name       string
+		actor      uuid.UUID
+		reason     string
+		wantStatus int
+		wantState  string
+	}{
+		{"one over the cap is refused", controller, strings.Repeat("x", 201), http.StatusUnprocessableEntity, "IN_STOCK"},
+		{"one over the cap is refused before the capability check", technician, strings.Repeat("x", 201), http.StatusUnprocessableEntity, "IN_STOCK"},
+		{"exactly at the cap lands", controller, strings.Repeat("x", 200), http.StatusNoContent, "SCRAPPED"},
+		{"the cap counts runes, not bytes", controller, strings.Repeat("é", 200), http.StatusNoContent, "SCRAPPED"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tyreID := plantTyre(t, ctx, admin, tenantID, "DISPOSE-CAP-"+uuid.NewString()[:8], nil)
+			rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispose", tenantID.String(), tt.actor.String(),
+				fmt.Sprintf(`{"disposal":"SCRAPPED","reason":%q}`, tt.reason))
+			require.Equal(t, tt.wantStatus, rec.Code, rec.Body.String())
+			if tt.wantStatus == http.StatusUnprocessableEntity {
+				var ref refusalBody
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+				require.Equal(t, "invalid_submission", ref.Code)
+				require.Equal(t, "reason is too long", ref.Message)
+			}
+
+			var state string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+			require.Equal(t, tt.wantState, state)
+
+			rows, err := admin.Query(ctx,
+				`SELECT reason FROM app.tyre_event WHERE tyre_id = $1 AND type = 'SCRAPPED'`, tyreID)
+			require.NoError(t, err)
+			reasons, err := pgx.CollectRows(rows, pgx.RowTo[string])
+			require.NoError(t, err)
+			if tt.wantState == "SCRAPPED" {
+				require.Equal(t, []string{tt.reason}, reasons)
+			} else {
+				require.Empty(t, reasons, "a refused disposal wrote no history")
+			}
+		})
+	}
+}
+
 // U7: a path id that does not even parse as a uuid is a malformed request,
 // not an invalid submission, so it never reaches app.set_tyre_cost or
 // app.dispose_tyre (pathID, TYRE-92).
@@ -684,7 +771,7 @@ func TestTyreWriteCrossTenantIsInvisible(t *testing.T) {
 	// is unsatisfiable across tenants, and answer 23503.
 	t.Run("dispatch", func(t *testing.T) {
 		removedA := plantRemovedTyre(t, ctx, admin, tenantA, "XTEN-DISPATCH-"+uuid.NewString()[:8])
-		plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2)
+		plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2, "4.0")
 		retreaderB, _ := plantDepotOfType(t, ctx, admin, tenantB, "RETREADER")
 
 		rec := post(t, h, "/api/tyres/"+removedA.String()+"/dispatch", tenantB.String(), controllerB.String(),
@@ -751,22 +838,26 @@ func plantRemovedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenant
 	return tyreID
 }
 
-// plantFleetRetreadPolicy plants the tenant-wide cap app.dispatch_tyre and
-// app.log_retread_return both resolve (U5: a REMOVED casing has no axle
+// plantFleetRetreadPolicy plants the tenant-wide policy row app.dispatch_tyre
+// and app.log_retread_return both resolve (U5: a REMOVED casing has no axle
 // class, so the per-class rows cannot govern it). A Go-planted tenant has no
-// threshold_policy row at all, and an absent cap is TY015 rather than
-// unlimited, so every dispatch fixture needs this one.
+// threshold_policy row, and an absent cap is TY015 rather than unlimited, so
+// every dispatch and Log Retread fixture needs this one. The threshold is
+// always named so a test can tell the policy's value from any other source
+// (rule 5, TYRE-308); retread_at_or_above_scrap (000012) keeps it at or above
+// scrap_threshold_mm's default of 4.0.
 //
 // effective_from is backdated for plantRetreadPolicy's reason: both
 // resolvers require effective_from <= now(), and a row stamped by its own
 // DEFAULT now() in an earlier statement is not reliably earlier than the
 // now() the handler's transaction reads.
-func plantFleetRetreadPolicy(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, maxRetreads int) {
+func plantFleetRetreadPolicy(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, maxRetreads int, retreadThresholdMm string) {
 	t.Helper()
 	_, err := admin.Exec(ctx,
-		`INSERT INTO app.threshold_policy (tenant_id, operating_group_id, axle_class, max_retreads, effective_from)
-		 VALUES ($1, NULL, NULL, $2, now() - interval '1 hour')`,
-		tenantID, maxRetreads)
+		`INSERT INTO app.threshold_policy
+		   (tenant_id, operating_group_id, axle_class, max_retreads, retread_threshold_mm, effective_from)
+		 VALUES ($1, NULL, NULL, $2, $3::numeric, now() - interval '1 hour')`,
+		tenantID, maxRetreads, retreadThresholdMm)
 	require.NoError(t, err)
 }
 
@@ -806,7 +897,7 @@ func TestDispatchToRetreaderOpensAJob(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "dispatch-opens-job")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 	retreader, retreaderName := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
 	tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DISPATCH-"+uuid.NewString()[:8])
 
@@ -832,66 +923,6 @@ func TestDispatchToRetreaderOpensAJob(t *testing.T) {
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
 	require.Equal(t, "AT_RETREADER", state)
-}
-
-// U2: Appendix C lists no dispatch out of stock, so a casing still in the
-// store is refused by the transition table rather than by anything here. The
-// cap is planted so that state refusal is the only one this request can meet,
-// without it an unconfigured policy would answer TY015 and the test would
-// pass for the wrong reason.
-func TestDispatchFromInStockIsTY012(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "dispatch-in-stock")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
-	tyreID := plantTyre(t, ctx, admin, tenantID, "IN-STOCK-"+uuid.NewString()[:8], nil)
-
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispatch", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "TY012", ref.Code)
-	require.Equal(t, "this tyre is IN_STOCK; a dispatch is from REMOVED only", ref.Message)
-
-	var jobs int
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT count(*) FROM app.retread_job WHERE tyre_id = $1`, tyreID).Scan(&jobs))
-	require.Zero(t, jobs, "a refused dispatch opens no job")
-}
-
-// BR-FIT-009 on the way out, and the fail-without-it test for TY015's entry
-// in submitStatus: remove that entry and this answers 500. The message is
-// pinned as well as the code because "no retread policy is configured for
-// this fleet" is also TY015, a code-only assertion would pass against a
-// tenant that merely has no policy row, which is the opposite claim.
-func TestDispatchAtCapIsTY015(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "dispatch-at-cap")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 0)
-	retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
-	tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "AT-CAP-"+uuid.NewString()[:8])
-
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispatch", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "TY015", ref.Code)
-	require.Equal(t,
-		"this casing has been retreaded 0 time(s), at a cap of 0; at its cap it is a purchase, not a retread candidate",
-		ref.Message)
-
-	var state string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
-	require.Equal(t, "REMOVED", state, "a casing at its cap did not leave the workshop")
 }
 
 // FR-FIT-013's receipt back, over the round trip a breakdown supplier makes.
@@ -937,68 +968,233 @@ func TestReturnToStockFromBreakdownSupplier(t *testing.T) {
 	require.Zero(t, jobs)
 }
 
-// sentOn is parsed in Go before the transaction opens, the way listTyres
-// parses its on, for the reason instantField's note gives (fitments.go).
-func TestDispatchRefusesMalformedSentOn(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "dispatch-bad-date")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
-	tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "BAD-DATE-"+uuid.NewString()[:8])
+// TYRE-208 F6: the app.return_tyre_to_stock refusals pinned here (000033),
+// not every one it raises: a state that is neither REMOVED nor
+// AT_BREAKDOWN_SUPPLIER, and a depot naming something that is not an active
+// DEPOT or STORE.
+func TestReturnTyreToStockRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// plantTyre plants the tyre in the state this case needs and returns
+		// its id.
+		plantTyre func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID
+		// depot plants the depot to name and returns its id and its name,
+		// the second needed to pin TY014's message (000033:744-745).
+		depot       func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (id, name string)
+		wantCode    string
+		wantMessage string
+		wantState   string
+	}{
+		{
+			name: "from IN_STOCK is TY012",
+			plantTyre: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID {
+				return plantTyre(t, ctx, admin, tenantID, "RET-INSTOCK-"+uuid.NewString()[:8], nil)
+			},
+			depot: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (string, string) {
+				storeDepot, name := plantDepotOfType(t, ctx, admin, tenantID, "STORE")
+				return storeDepot.String(), name
+			},
+			wantCode:    "TY012",
+			wantMessage: "this tyre is IN_STOCK; only a removed or returned casing is restocked here",
+			wantState:   "IN_STOCK",
+		},
+		{
+			name: "to a depot that is not an active store is TY014",
+			plantTyre: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) uuid.UUID {
+				return plantRemovedTyre(t, ctx, admin, tenantID, "RET-BADDEPOT-"+uuid.NewString()[:8])
+			},
+			depot: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (string, string) {
+				retreader, name := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+				return retreader.String(), name
+			},
+			wantCode:  "TY014",
+			wantState: "REMOVED",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, admin := testStore(t, ctx)
+			tenantID, _ := plantTenant(t, ctx, admin, "return-refusal")
+			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+			h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispatch", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q,"sentOn":"yesterday"}`, retreader))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "invalid_submission", ref.Code)
-	require.Contains(t, ref.Message, "sentOn")
+			tyreID := tc.plantTyre(t, ctx, admin, tenantID)
+			depotID, depotName := tc.depot(t, ctx, admin, tenantID)
+			if tc.wantMessage == "" {
+				tc.wantMessage = fmt.Sprintf("%s is not an active depot or store", depotName)
+			}
+			rec := post(t, h, "/api/tyres/"+tyreID.String()+"/return", tenantID.String(), controller.String(),
+				fmt.Sprintf(`{"depotId":%q}`, depotID))
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, tc.wantCode, ref.Code)
+			require.Equal(t, tc.wantMessage, ref.Message)
 
-	var state string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
-	require.Equal(t, "REMOVED", state, "the refusal never reached the database")
+			var state string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+			require.Equal(t, tc.wantState, state, "a refused return must not have moved the casing")
+		})
+	}
 }
 
-// Which states are a dispatch destination is app.dispatch_tyre's list and
-// app.tyre_state's, never a second one kept in step in Go (ADR-0013 d.5), so
-// the two ways of getting it wrong arrive by two different routes: a real
-// tyre state that is not a destination reaches the function and comes back
-// as its own TY012 naming both destinations, while a value outside the enum
-// never survives the cast and arrives as 22P02, canned as invalid_submission
-// because the message Postgres wrote is not ours to forward (ADR-0012).
-func TestDispatchRefusesADestinationThatIsNotOne(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "dispatch-destination")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
-	tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DEST-"+uuid.NewString()[:8])
+// TYRE-208 F6: the dispatch refusals pinned here, not every refusal
+// app.dispatch_tyre raises (its in-force body is 000048's). Two rows never
+// reach the function: sentOn is refused in Go and an unknown destination at
+// the enum cast. Each case needs its own fixture (a shared one would not
+// distinguish an IN_STOCK casing from one AT_RETREADER already), so the
+// table carries a setup closure per case and a checkAfter closure for the
+// tyre's own post-condition (a job count, or its state).
+func TestDispatchTyreRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// setup plants whatever this case needs and returns the tyre under
+		// test and the request body to send.
+		setup    func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (tyreID uuid.UUID, body string)
+		wantCode string
+		// wantMessage empty means no message assertion: 22P02's own text is
+		// Postgres's canned wording, not a pinned sentence (ADR-0012). exact
+		// false means Contains rather than Equal, for the one case whose
+		// message is Go's own field-naming prefix.
+		wantMessage string
+		exact       bool
+		checkAfter  func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID)
+	}{
+		{
+			// U2: Appendix C lists no dispatch out of stock, so a casing
+			// still in the store is refused by the transition table rather
+			// than by anything here. The cap is planted so that state
+			// refusal is the only one this request can meet, without it an
+			// unconfigured policy would answer TY015 and the test would pass
+			// for the wrong reason.
+			name: "from in stock is TY012",
+			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
+				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+				tyreID := plantTyre(t, ctx, admin, tenantID, "IN-STOCK-"+uuid.NewString()[:8], nil)
+				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader)
+			},
+			wantCode:    "TY012",
+			wantMessage: "this tyre is IN_STOCK; a dispatch is from REMOVED only",
+			exact:       true,
+			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
+				var jobs int
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT count(*) FROM app.retread_job WHERE tyre_id = $1`, tyreID).Scan(&jobs))
+				require.Zero(t, jobs, "a refused dispatch opens no job")
+			},
+		},
+		{
+			// BR-FIT-009 on the way out, and the fail-without-it test for
+			// TY015's entry in submitStatus: remove that entry and this
+			// answers 500. The message is pinned as well as the code because
+			// "no retread policy is configured for this fleet" is also
+			// TY015, a code-only assertion would pass against a tenant that
+			// merely has no policy row, which is the opposite claim.
+			name: "at the retread cap is TY015",
+			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 0, "4.0")
+				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "AT-CAP-"+uuid.NewString()[:8])
+				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q}`, retreader)
+			},
+			wantCode: "TY015",
+			wantMessage: "this casing has been retreaded 0 time(s), at a cap of 0; " +
+				"at its cap it is a purchase, not a retread candidate",
+			exact: true,
+			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
+				var state string
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+				require.Equal(t, "REMOVED", state, "a casing at its cap did not leave the workshop")
+			},
+		},
+		{
+			// sentOn is parsed in Go before the transaction opens, the way
+			// listTyres parses its on, for the reason instantField's note
+			// gives (fitments.go).
+			name: "malformed sentOn",
+			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
+				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "BAD-DATE-"+uuid.NewString()[:8])
+				return tyreID, fmt.Sprintf(`{"destination":"AT_RETREADER","depotId":%q,"sentOn":"yesterday"}`, retreader)
+			},
+			wantCode:    "invalid_submission",
+			wantMessage: "sentOn",
+			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
+				var state string
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+				require.Equal(t, "REMOVED", state, "the refusal never reached the database")
+			},
+		},
+		{
+			// Which states are a dispatch destination is app.dispatch_tyre's
+			// list and app.tyre_state's, never a second one kept in step in
+			// Go (ADR-0013 d.5): a real tyre state that is not a destination
+			// reaches the function and comes back as its own TY012 naming
+			// both destinations.
+			name: "a destination that is a real state but not one",
+			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
+				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DEST-"+uuid.NewString()[:8])
+				return tyreID, fmt.Sprintf(`{"destination":"FITTED","depotId":%q}`, retreader)
+			},
+			wantCode:    "TY012",
+			wantMessage: "a dispatch is to the retreader or to the breakdown supplier",
+			exact:       true,
+			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
+				var state string
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+				require.Equal(t, "REMOVED", state, "the refusal did not move the casing")
+			},
+		},
+		{
+			// The other half of the pair above: a value outside the enum
+			// never survives the cast and arrives as 22P02, canned as
+			// invalid_submission because the message Postgres wrote is not
+			// ours to forward (ADR-0012).
+			name: "a destination outside the enum entirely",
+			setup: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, string) {
+				plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
+				retreader, _ := plantDepotOfType(t, ctx, admin, tenantID, "RETREADER")
+				tyreID := plantRemovedTyre(t, ctx, admin, tenantID, "DEST2-"+uuid.NewString()[:8])
+				return tyreID, fmt.Sprintf(`{"destination":"THE MOON","depotId":%q}`, retreader)
+			},
+			wantCode: "invalid_submission",
+			checkAfter: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tyreID uuid.UUID) {
+				var state string
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+				require.Equal(t, "REMOVED", state, "neither refusal moved the casing")
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, admin := testStore(t, ctx)
+			tenantID, _ := plantTenant(t, ctx, admin, "dispatch-refusal")
+			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+			h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	path := "/api/tyres/" + tyreID.String() + "/dispatch"
-
-	inEnum := post(t, h, path, tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"destination":"FITTED","depotId":%q}`, retreader))
-	require.Equal(t, http.StatusUnprocessableEntity, inEnum.Code, inEnum.Body.String())
-	var enumRef refusalBody
-	require.NoError(t, json.Unmarshal(inEnum.Body.Bytes(), &enumRef))
-	require.Equal(t, "TY012", enumRef.Code)
-	require.Equal(t, "a dispatch is to the retreader or to the breakdown supplier", enumRef.Message)
-
-	outsideEnum := post(t, h, path, tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"destination":"THE MOON","depotId":%q}`, retreader))
-	require.Equal(t, http.StatusUnprocessableEntity, outsideEnum.Code, outsideEnum.Body.String())
-	var castRef refusalBody
-	require.NoError(t, json.Unmarshal(outsideEnum.Body.Bytes(), &castRef))
-	require.Equal(t, "invalid_submission", castRef.Code)
-
-	var state string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
-	require.Equal(t, "REMOVED", state, "neither refusal moved the casing")
+			tyreID, body := tc.setup(t, ctx, admin, tenantID)
+			rec := post(t, h, "/api/tyres/"+tyreID.String()+"/dispatch", tenantID.String(), controller.String(), body)
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, tc.wantCode, ref.Code)
+			if tc.wantMessage != "" {
+				if tc.exact {
+					require.Equal(t, tc.wantMessage, ref.Message)
+				} else {
+					require.Contains(t, ref.Message, tc.wantMessage)
+				}
+			}
+			tc.checkAfter(t, ctx, admin, tyreID)
+		})
+	}
 }

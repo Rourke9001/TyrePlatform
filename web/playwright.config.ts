@@ -1,11 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// E2E runs against the DEV server on purpose: identity comes from the dev
-// actor headers (src/api/devTenant.ts), which exist only when
-// import.meta.env.DEV is true. There is no real identity provider yet
-// (FR-AUT-001), so a production build has no way to be anyone. The API must
-// already be listening on :8080 with APP_DEV_TENANT_HEADER=1 over a seeded
-// database; `make e2e` checks that before it launches anything.
+// E2E runs against the DEV server on purpose, because in every project but
+// auth identity is the dev actor headers (src/api/devTenant.ts,
+// import.meta.env.DEV only). The auth project signs in against a stubbed
+// identity provider and swaps the bearer for the Sandbox dev headers on /api
+// (e2e/idp.ts, the one mocking exception web/CLAUDE.md names). The API must
+// be listening on :8080 with APP_DEV_TENANT_HEADER=1 over a seeded database;
+// make e2e checks this first.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
@@ -19,36 +20,58 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [
+    // dashboard.spec.ts reads BAC and asserts the pinned 19, 11, 9 and
+    // R16,537.50 (CLAUDE.md, the three-way agreement). capture.spec.ts
+    // writes BAC on android, and fullyParallel would let that write land
+    // mid-read, so android depends on this project (U50).
+    {
+      name: "bac-readonly",
+      use: { ...devices["Desktop Chrome"] },
+      testMatch: /dashboard\.spec/,
+    },
     // capture.spec.ts submits, and FR-INS-038's duplicate window is tenant
-    // state in one shared database: the same vehicle captured on a second
-    // project is refused by the first project's submit. It runs on one project
-    // only, gated here rather than skipped inside the file. A skip still has
-    // Playwright launch a browser and build a context per project to decide it.
-    { name: "chromium", use: { ...devices["Desktop Chrome"] }, testIgnore: /capture\.spec/ },
+    // state in one shared database: a second project's submit is refused by
+    // the first's. Gated here, not skipped inside the file: a skip still
+    // launches a browser and builds a context per project.
+    {
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      testIgnore: /capture\.spec|dashboard\.spec|auth\.spec/,
+    },
     // The capture app is judged at phone dimensions or not at all: thumb reach,
     // 44px targets and sunlight legibility are the design, not the styling.
     // Pixel 7 and iPhone 14 bracket the sizes a driver actually carries.
     //
-    // admin.spec.ts, tyres.spec.ts, fitments.spec.ts and rotation.spec.ts each
-    // create/dispose rows per run. Rows, not just reads, so they run on one
-    // project only, like capture.spec.ts and for a related reason: a second
-    // project repeats the writes rather than the assertions. rotation.spec.ts
-    // also drives a manager screen, which is judged at desktop size.
+    // admin.spec.ts, tyres.spec.ts, fitments.spec.ts and rotation.spec.ts
+    // each create/dispose rows per run, so, like capture.spec.ts, they run on
+    // one project only: a second project would repeat the writes, not the
+    // assertions. rotation.spec.ts also drives a manager screen, judged at
+    // desktop size.
     {
       name: "android",
       use: { ...devices["Pixel 7"] },
-      testIgnore: /admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec/,
+      dependencies: ["bac-readonly"],
+      testIgnore:
+        /admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec|auth\.spec/,
     },
-    // iPhone 14 is WebKit, which `make e2e` and CI install alongside chromium.
-    // It buys the second phone viewport and nothing more: capture.spec.ts is
-    // ignored here because FR-INS-038's window is per unit in one shared
-    // database and the fixture has no unit a second project could consume,
-    // so the outbox runs on android alone. TYRE-227 gives ios its own units;
-    // until it lands, FR-OFF-020's WebKit storage eviction is unexercised.
+    // iPhone 14 is WebKit, buying the second phone viewport and nothing more:
+    // capture.spec.ts is ignored here since FR-INS-038's window is per unit
+    // and the fixture has no spare unit for a second project, so the outbox
+    // runs on android alone. TYRE-227 gives ios its own units; until then
+    // FR-OFF-020's WebKit storage eviction is unexercised.
     {
       name: "ios",
       use: { ...devices["iPhone 14"] },
-      testIgnore: /capture\.spec|admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec/,
+      testIgnore:
+        /capture\.spec|admin\.spec|tyres\.spec|fitments\.spec|rotation\.spec|dashboard\.spec|auth\.spec/,
+    },
+    // Sign-in and sign-out against the stub (TYRE-317). Its own Pixel 7
+    // project so the bearer flag and the route stubs never touch the others,
+    // and so its Sandbox submits run once.
+    {
+      name: "auth",
+      use: { ...devices["Pixel 7"] },
+      testMatch: /auth\.spec/,
     },
   ],
   webServer: {

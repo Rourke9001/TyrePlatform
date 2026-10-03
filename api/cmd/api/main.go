@@ -8,41 +8,28 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/google/uuid"
+
+	"tyreplatform/api/internal/bearer"
 	"tyreplatform/api/internal/httpapi"
 	"tyreplatform/api/internal/store"
 )
 
-// devHeaderEnabled decides whether the trust-any-header resolver may exist in
-// this process. Container Apps injects CONTAINER_APP_NAME into every deployed
-// revision, so its PRESENCE vetoes the flag. Presence, not value, because a
-// stray --set-env-vars CONTAINER_APP_NAME= would read as absent through
-// os.Getenv and switch the dev path on in staging (TYRE-160). The accessor is
-// injected so the table test can say "present and empty".
-func devHeaderEnabled(lookup func(string) (string, bool)) bool {
-	if _, inContainerApps := lookup("CONTAINER_APP_NAME"); inContainerApps {
-		return false
-	}
-	v, _ := lookup("APP_DEV_TENANT_HEADER")
-	return v == "1"
-}
-
-// trustedProxyHops parses TRUSTED_PROXY_HOPS (infra/main.bicep documents the
-// operational default) for NFR-SEC-007's per-source-address rate limit
-// (httpapi.WithTrustedProxyHops). getenv-injected like devHeaderEnabled
-// above, so parsing is unit-testable without touching the process
-// environment. Absent is the documented default of 1 and is not a deploy
-// mistake. Every environment that has not added an L7 hop in front of the
-// ingress leaves this unset. Present but not a positive integer IS a
-// mistake worth failing loudly for: silently falling back to 1 on a typo
-// would collapse the per-address limit into one bucket shared by every
-// client on the internet with nothing in the logs to explain why.
+// trustedProxyHops parses TRUSTED_PROXY_HOPS for NFR-SEC-007's per-source
+// rate limit (httpapi.WithTrustedProxyHops). Absent defaults to 1
+// (infra/main.bicep's documented default); present but not a positive
+// integer fails loudly rather than silently collapsing every client into
+// one bucket.
 func trustedProxyHops(getenv func(string) string) (int, error) {
 	raw := getenv("TRUSTED_PROXY_HOPS")
 	if raw == "" {
@@ -53,6 +40,112 @@ func trustedProxyHops(getenv func(string) string) (int, error) {
 		return 0, fmt.Errorf("TRUSTED_PROXY_HOPS must be a positive integer, got %q", raw)
 	}
 	return n, nil
+}
+
+// authVars are ADR-0016's six settings for the bearer resolver.
+var authVars = []string{
+	"AUTH_DISCOVERY_URL", "AUTH_ISSUER", "AUTH_TENANT_ID",
+	"AUTH_AUDIENCE", "AUTH_CLIENT_ID", "AUTH_TENANT_CLAIM",
+}
+
+// authConfig reads ADR-0016's AUTH_* variables. All set wires the bearer
+// resolver and none set wires none; a partial set is a deploy mistake and
+// stops startup, as a malformed TRUSTED_PROXY_HOPS does. A variable counts as
+// set when it is non-empty.
+func authConfig(getenv func(string) string) (bearer.Config, bool, error) {
+	var unset []string
+	for _, name := range authVars {
+		if getenv(name) == "" {
+			unset = append(unset, name)
+		}
+	}
+	set := len(authVars) - len(unset)
+	switch set {
+	case 0:
+		return bearer.Config{}, false, nil
+	case len(authVars):
+	default:
+		return bearer.Config{}, false, fmt.Errorf("%d of the %d AUTH_* variables are set; set all of them or none (unset: %s)", set, len(authVars), strings.Join(unset, ", "))
+	}
+	cfg := bearer.Config{TenantClaim: getenv("AUTH_TENANT_CLAIM")}
+	if strings.ContainsAny(cfg.TenantClaim, " \t\r\n") {
+		return bearer.Config{}, false, fmt.Errorf("AUTH_TENANT_CLAIM must be a claim name, got %q", cfg.TenantClaim)
+	}
+	var err error
+	if cfg.DiscoveryURL, err = authURL(getenv, "AUTH_DISCOVERY_URL"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.Issuer, err = authURL(getenv, "AUTH_ISSUER"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.TenantID, err = authUUID(getenv, "AUTH_TENANT_ID"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.Audience, err = authUUID(getenv, "AUTH_AUDIENCE"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	if cfg.ClientID, err = authUUID(getenv, "AUTH_CLIENT_ID"); err != nil {
+		return bearer.Config{}, false, err
+	}
+	// Without ?appid= naming tyre-api, Entra's discovery document lists keys
+	// that never sign these tokens, so every token reads as an unknown kid and
+	// a configuration failure would answer 401 (spec section 1, Configuration).
+	if err := checkDiscoveryAppID(cfg.DiscoveryURL, cfg.Audience); err != nil {
+		return bearer.Config{}, false, err
+	}
+	return cfg, true, nil
+}
+
+func checkDiscoveryAppID(discoveryURL, audience string) error {
+	u, err := url.Parse(discoveryURL)
+	if err != nil {
+		return fmt.Errorf("AUTH_DISCOVERY_URL: %w", err)
+	}
+	raw := u.Query().Get("appid")
+	if raw == "" {
+		return fmt.Errorf("AUTH_DISCOVERY_URL must carry ?appid=<AUTH_AUDIENCE>, got %q", discoveryURL)
+	}
+	id, err := uuid.Parse(raw)
+	if err != nil || id.String() != audience {
+		return fmt.Errorf("AUTH_DISCOVERY_URL appid %q must equal AUTH_AUDIENCE", raw)
+	}
+	return nil
+}
+
+// authURL takes an absolute https URL, or http on a loopback host so a test
+// identity provider can serve one. The value is returned unchanged.
+func authURL(getenv func(string) string, name string) (string, error) {
+	raw := getenv(name)
+	u, err := url.Parse(raw)
+	// Compared with iss byte for byte (ADR-0016), so a non-exact value is
+	// refused, not normalised. url.Parse lower-cases the scheme, hence the
+	// check on raw. Userinfo is refused so a secret never reaches an error.
+	if err != nil || raw != strings.TrimSpace(raw) || !u.IsAbs() || u.Hostname() == "" ||
+		u.User != nil || u.Fragment != "" || strings.Contains(raw, "#") {
+		return "", fmt.Errorf("%s must be an absolute URL with a host, no userinfo, fragment or surrounding space", name)
+	}
+	if strings.HasPrefix(raw, "https://") || (strings.HasPrefix(raw, "http://") && isLoopback(u.Hostname())) {
+		return raw, nil
+	}
+	return "", fmt.Errorf("%s must be lower-case https (http only on a loopback host)", name)
+}
+
+func isLoopback(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// authUUID returns the canonical form, which is how Entra writes tid, aud
+// and azp.
+func authUUID(getenv func(string) string, name string) (string, error) {
+	id, err := uuid.Parse(getenv(name))
+	if err != nil {
+		return "", fmt.Errorf("%s must be a uuid, got %q", name, getenv(name))
+	}
+	return id.String(), nil
 }
 
 func main() {
@@ -82,6 +175,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	authCfg, haveAuth, err := authConfig(os.Getenv)
+	if err != nil {
+		logger.Error("reading AUTH_* configuration", "err", err)
+		os.Exit(1)
+	}
+
 	s, err := store.New(ctx, dsn)
 	if err != nil {
 		logger.Error("connecting to database", "err", err)
@@ -89,14 +188,21 @@ func main() {
 	}
 	defer s.Close()
 
-	// Identity has no production source until the identity provider lands
-	// (FR-AUT-001); the dev header resolver must be asked for by name and
-	// defaults to off. httpapi.requireActor documents what a nil resolver
-	// means.
-	var resolver httpapi.ActorResolver
-	if devHeaderEnabled(os.LookupEnv) {
-		logger.Warn("X-Tenant-ID/X-User-ID header resolver enabled; anyone who can send a header is anyone")
-		resolver = httpapi.HeaderActorResolver{}
+	// A typed nil must not reach the interface, or requireActor would call
+	// it instead of answering 503 (ADR-0016).
+	var bearerResolver httpapi.ActorResolver
+	if haveAuth {
+		br := bearer.New(authCfg)
+		defer br.Close()
+		bearerResolver = br
+		logger.Info("bearer resolver wired",
+			"AUTH_DISCOVERY_URL", authCfg.DiscoveryURL, "AUTH_ISSUER", authCfg.Issuer,
+			"AUTH_TENANT_ID", authCfg.TenantID, "AUTH_AUDIENCE", authCfg.Audience,
+			"AUTH_CLIENT_ID", authCfg.ClientID, "AUTH_TENANT_CLAIM", authCfg.TenantClaim)
+	}
+	resolver := devResolver(os.LookupEnv, bearerResolver, logger)
+	if resolver == nil {
+		logger.Error("no identity resolver is configured; every /api call answers 503 auth_unavailable until AUTH_* is set (ADR-0016)")
 	}
 
 	srv := &http.Server{

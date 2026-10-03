@@ -1,17 +1,10 @@
 import type { ReactNode } from "react";
 import { NavLink } from "react-router";
-import {
-  DEV_ACTORS,
-  DEV_TENANTS,
-  clearDevActorId,
-  clearDevTenantId,
-  getDevActorId,
-  getDevTenantId,
-  setDevActorId,
-  setDevTenantId,
-} from "../api/devTenant";
 import { useActor } from "../auth/actorContext";
+import { SignOutButton } from "../auth/SignOutButton";
+import { SignInLine } from "../auth/SignInLine";
 import { OutboxIndicator } from "../capture/OutboxIndicator";
+import { DevBar } from "../shell/DevBar";
 import { navItemsFor } from "../shell/navigation";
 import { useBranding } from "../theme/themeContext";
 import "./dashboard.css";
@@ -24,72 +17,6 @@ function BrandMark() {
     return <img className="shell-logo" src={branding.logoUrl} alt={branding.displayName} />;
   }
   return <span className="shell-wordmark">{branding.displayName}</span>;
-}
-
-// Dev stand-in for real tenant context until the IdP slice (TYRE-2); the
-// API only honours the header behind APP_DEV_TENANT_HEADER=1. Reload on
-// change: theme, cache keys and every query re-enter cleanly for the new
-// tenant, which is exactly the from-scratch state worth demonstrating.
-function DevTenantSwitcher() {
-  if (!import.meta.env.DEV) return null;
-  const current = getDevTenantId() ?? "";
-  return (
-    <label className="shell-tenant">
-      Tenant (dev)
-      <select
-        value={current}
-        onChange={(e) => {
-          if (e.target.value) {
-            setDevTenantId(e.target.value);
-          } else {
-            clearDevTenantId();
-          }
-          window.location.reload();
-        }}
-      >
-        <option value="">Platform default</option>
-        {DEV_TENANTS.map((t) => (
-          <option key={t.id} value={t.id}>
-            {t.name}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-// Dev stand-in for real user identity until the IdP slice (TYRE-2). Switching
-// actor also switches that actor's tenant, since a driver on tenant B does
-// not exist under tenant A's rows. Reload for the same from-scratch reason
-// as DevTenantSwitcher.
-function DevActorSwitcher() {
-  if (!import.meta.env.DEV) return null;
-  const current = getDevActorId() ?? "";
-  return (
-    <label className="shell-tenant">
-      Actor (dev)
-      <select
-        value={current}
-        onChange={(e) => {
-          const actor = DEV_ACTORS.find((a) => a.id === e.target.value);
-          if (actor) {
-            setDevActorId(actor.id);
-            setDevTenantId(actor.tenant);
-          } else {
-            clearDevActorId();
-          }
-          window.location.reload();
-        }}
-      >
-        <option value="">No user (every request 401s)</option>
-        {DEV_ACTORS.map((a) => (
-          <option key={a.id} value={a.id}>
-            {a.name}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
 }
 
 // Never the security boundary (NFR-SEC-006): the server re-checks every
@@ -105,14 +32,9 @@ function ActorBadge() {
   );
 }
 
-// navItemsFor has already filtered against the registry (../shell/navigation,
-// which holds the one-list rationale), so no per-link gating here.
-//
-// end on every link: the registry's paths nest (/fleet, /fleet/tyres,
-// /fleet/tyres/retreads), and NavLink's default prefix match would mark all
-// three current at once, so "you are here" would name three places. The cost
-// is that a path with no item of its own, such as /fleet/tyres/new, a unit,
-// marks nothing current, which is honest: none of them is a menu destination.
+// navItemsFor already filtered against the registry, so no per-link gating
+// here. `end` on every link: paths nest, and NavLink's default prefix match
+// would mark all ancestors current at once.
 function MainNav() {
   const actor = useActor();
   const items = navItemsFor(actor?.capabilities ?? []);
@@ -137,16 +59,16 @@ export function AppShell({ children }: { children: ReactNode }) {
           <BrandMark />
           <ActorBadge />
         </div>
-        <DevTenantSwitcher />
-        <DevActorSwitcher />
+        <SignOutButton />
       </header>
-      {/* Above the nav and outside the routes: a driver who has navigated away
-          from capture still has to be told that an inspection is waiting to
-          send, and which one needs a person (FR-OFF-010/013). It renders
-          nothing when the queue is empty. */}
+      {/* A driver who navigated away from capture still needs to know an
+          inspection is waiting to send and which one needs a person
+          (FR-OFF-010/013). */}
       <OutboxIndicator />
+      <SignInLine />
       <MainNav />
       <main className="shell-main">{children}</main>
+      <DevBar />
     </div>
   );
 }

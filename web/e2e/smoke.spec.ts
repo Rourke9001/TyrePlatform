@@ -1,37 +1,31 @@
 import { expect, test } from "@playwright/test";
 
-// Seed constants, not fetched: src/api/devTenant.ts carries the same ids for
-// the same reason: a cross-tenant listing endpoint deliberately does not
-// exist. Seed-derived ids, stable across reseeds (admin.ts).
-const TENANT_BAC = "11111111-1111-1111-1111-111111111111";
-const NOMSA_CONTROLLER = "14fc2c61-398c-3508-084e-d61e615e695e";
-const MELUSI_DRIVER = "b85aef08-6081-80db-9d4d-dad38ae40545";
+import { actAs } from "./admin";
+import { MELUSI_DRIVER, NOMSA_CONTROLLER, TENANT_BAC } from "./bac";
 
-// The dev actor switcher reads these keys before anything renders, so
-// seeding localStorage ahead of the first script is a real login as far as
-// the app can tell.
-async function actAs(page: import("@playwright/test").Page, userId: string) {
-  await page.addInitScript(
-    ([tenant, user]) => {
-      window.localStorage.setItem("tyre.dev.tenant-id", tenant);
-      window.localStorage.setItem("tyre.dev.user-id", user);
-    },
-    [TENANT_BAC, userId],
-  );
-}
-
-test("a controller lands on the fleet and sees seeded vehicles", async ({ page }) => {
-  await actAs(page, NOMSA_CONTROLLER);
+test("a controller lands on the dashboard and reaches the units from it", async ({ page }) => {
+  await actAs(page, NOMSA_CONTROLLER, TENANT_BAC);
   await page.goto("/");
-  // FR-DSH-001: the landing view follows the role.
+  // FR-DSH-001, U49: the dashboard is the landing, rendered at "/". The URL
+  // is read once the page has rendered, so a redirect would have moved it.
+  await expect(page.getByRole("heading", { level: 1, name: "Dashboard" })).toBeVisible();
+  await expect(page).toHaveURL(/^https?:\/\/[^/]+\/$/);
+  // The API sends asAt with six fractional digits (Go's time.Time); this
+  // spec also runs on ios, which is WebKit, where a Date that refused them
+  // would render the invalid-instant marker (rule 6).
+  const asAt = page.getByText(/^As at /);
+  await expect(asAt).toBeVisible();
+  await expect(asAt).not.toContainText("invalid date");
+  // The dashboard has its own "Units" panel and a "Stale units" tile, so
+  // the click is proved by the URL and the exact h1, not a loose name.
+  await page.getByRole("link", { name: "Units", exact: true }).click();
   await expect(page).toHaveURL(/\/fleet$/);
-  await expect(page.getByRole("heading", { name: "Units" })).toBeVisible();
-  // Seeded fixture fleet numbers (db/seeds/gen_seed_fixture.py).
+  await expect(page.getByRole("heading", { level: 1, name: "Units", exact: true })).toBeVisible();
   await expect(page.getByText("HORSE", { exact: true }).first()).toBeVisible();
 });
 
 test("a driver lands on their own work, never the fleet", async ({ page }) => {
-  await actAs(page, MELUSI_DRIVER);
+  await actAs(page, MELUSI_DRIVER, TENANT_BAC);
   await page.goto("/");
   // FR-DSH-012: a driver's landing view is their own outstanding work.
   await expect(page).toHaveURL(/\/my$/);
@@ -42,7 +36,7 @@ test("a driver lands on their own work, never the fleet", async ({ page }) => {
 });
 
 test("the capability guard hides the fleet from a driver", async ({ page }) => {
-  await actAs(page, MELUSI_DRIVER);
+  await actAs(page, MELUSI_DRIVER, TENANT_BAC);
   const settled = page.waitForResponse("**/api/me");
   await page.goto("/fleet");
   await settled;

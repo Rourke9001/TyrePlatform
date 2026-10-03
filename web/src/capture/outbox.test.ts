@@ -1,17 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/client";
+import { clearDevActorId, setDevActorId } from "../api/devTenant";
+import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
+import { bearerSession } from "../test/bearerSession";
 import { clearDraft, db, loadDraft, savePosition, startDraft } from "./draft";
 import {
   attemptSend,
   backoffMs,
   classify,
   discardEntry,
+  flushOutbox,
+  heldCount,
+  heldStamps,
   isStale,
   listOutbox,
+  mayCarry,
   queueDraft,
   startOutboxHeartbeat,
 } from "./outbox";
+
+const DRIVER = "oid-driver-1";
 
 const meta = { granularityMm: 1.0, deviceId: "device-1", appVersion: "0.0.0", totalPositions: 1 };
 
@@ -19,19 +28,24 @@ beforeEach(async () => {
   await db.open();
   await clearDraft();
   await db.table("outbox").clear();
+  setDevActorId(DRIVER);
 });
 
 afterEach(() => {
+  clearDevActorId();
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+  window.localStorage.clear();
   vi.unstubAllGlobals();
-  // Belt-and-braces against the heartbeat test: fake timers left active by a
-  // failure before its own vi.useRealTimers() would otherwise hang db.open()
-  // in every beforeEach that follows, misattributing the break to whatever
-  // test happens to run next.
+  // Belt-and-braces: fake timers left active by a prior failure would
+  // otherwise hang db.open() in every following beforeEach, misattributing
+  // the break.
   vi.useRealTimers();
 });
 
 async function queueOne(opts: { fleetNumber?: string | null } = {}) {
   await startDraft({
+    driverSubject: DRIVER,
     vehicleId: "v1",
     taskId: null,
     startedAt: "2026-08-25T06:12:00Z",
@@ -256,16 +270,10 @@ describe("the outbox", () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
     const stop = startOutboxHeartbeat(1000);
     await vi.advanceTimersByTimeAsync(backoffMs(1) + 2000);
-    // The heartbeat's flushOutbox is fire-and-forget, and fake-indexeddb
-    // completes a request on a real (unfaked) timer tick, so the fake clock
-    // advance above does not itself wait for it to finish. Landing the
-    // retry takes several real ticks (a Dexie read, the fetch, a Dexie
-    // write). One tick is enough to cover that on an idle machine and not
-    // under a loaded full-suite run, so the wait has to bound itself on the
-    // condition rather than a fixed tick count: vi.waitFor polls on its own
-    // real (unfaked) timer regardless of the fake clock installed above,
-    // giving those real ticks room to land until the retry shows up or the
-    // poll's own timeout is reached.
+    // The heartbeat's flushOutbox is fire-and-forget on a real (unfaked)
+    // timer tick, so the fake clock advance does not wait for it. vi.waitFor
+    // polls its own real timer regardless of the fake clock installed,
+    // giving the real ticks room to land.
     await vi.waitFor(() => {
       if (fetchMock.mock.calls.length <= 1) throw new Error("heartbeat retry has not landed yet");
     });
@@ -288,12 +296,12 @@ describe("the outbox", () => {
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
-  // 000023 refuses an empty readings array (TY005 -> 422), which the
-  // classifier reads as permanent, so queueing one would strand a draft the
-  // driver can still finish in a queue that can never drain (FR-OFF-014,
-  // SRS Appendix H).
+  // 000023 refuses an empty readings array (TY005 -> 422, permanent), so
+  // queueing one would strand a finishable draft in a queue that can never
+  // drain (FR-OFF-014, SRS Appendix H).
   it("refuses to queue an inspection with nothing completed, and keeps the draft", async () => {
     await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v-horse",
       taskId: null,
       startedAt: "2026-08-25T06:12:00Z",
@@ -381,5 +389,252 @@ describe("isStale", () => {
   it("is stale at exactly the threshold", () => {
     const now = Date.now();
     expect(isStale({ queuedAt: now - 172_800_000 }, now)).toBe(true);
+  });
+});
+
+describe("classify, by code (TYRE-376, PD-S1)", () => {
+  it("holds a tenant that is not active and a token with no tenant claim", () => {
+    expect(classify(new ApiError(403, "x", "tenant_inactive"))).toBe("retryable");
+    expect(classify(new ApiError(403, "x", "not_provisioned"))).toBe("retryable");
+  });
+
+  it("still fails an unlinked or inactive user", () => {
+    expect(classify(new ApiError(403, "x", "forbidden"))).toBe("permanent");
+  });
+});
+
+describe("the driver stamp (U104)", () => {
+  it("stamps the entry with the draft's driver", async () => {
+    const entry = await queueOne();
+    expect(entry.driverSubject).toBe(DRIVER);
+    expect(entry.legacy).toBe(false);
+  });
+
+  // Compared with the credential about to be attached, under force too
+  // ("Sync now"), and the entry is left exactly as it was.
+  it("refuses to send an entry stamped for another driver, even when forced", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await queueOne();
+    const before = (await listOutbox())[0];
+    setDevActorId("oid-someone-else");
+
+    await attemptSend(entry.clientUuid);
+    await attemptSend(entry.clientUuid, { force: true });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const after = (await listOutbox())[0];
+    expect({
+      state: after.state,
+      attempts: after.attempts,
+      nextAttemptAt: after.nextAttemptAt,
+    }).toEqual({
+      state: before.state,
+      attempts: before.attempts,
+      nextAttemptAt: before.nextAttemptAt,
+    });
+  });
+
+  it("sends a legacy row under whoever is signed in, and never a row with neither stamp nor mark", () => {
+    expect(mayCarry({ driverSubject: null, legacy: true }, "anyone")).toBe(true);
+    expect(mayCarry({ driverSubject: null, legacy: false }, "anyone")).toBe(false);
+    expect(mayCarry({ driverSubject: DRIVER, legacy: false }, DRIVER)).toBe(true);
+    expect(mayCarry({ driverSubject: DRIVER, legacy: false }, null)).toBe(false);
+  });
+
+  it("lists the stamps held, legacy rows aside, and reports the draft apart from every entry", async () => {
+    await queueOne();
+    await db.table("outbox").put({
+      ...(await listOutbox())[0],
+      clientUuid: "legacy-1",
+      driverSubject: null,
+      legacy: true,
+      state: "failed",
+    });
+    await startDraft({
+      driverSubject: "oid-other",
+      vehicleId: "v9",
+      taskId: null,
+      startedAt: "2026-09-30T06:00:00Z",
+    });
+
+    expect((await heldStamps()).sort()).toEqual([DRIVER, "oid-other"].sort());
+    // U108: a draft never sends by itself, so the sign-out refusal names it apart.
+    expect(await heldCount()).toEqual({ draft: true, entries: 2 });
+  });
+
+  // A latched or unconfigured store throws from the credential before the
+  // send. The entry is held for retry and nothing reaches the API (spec
+  // section 4, A fresh token refused).
+  it("does not reach the API when the token store refuses a credential", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await queueOne();
+    window.localStorage.setItem("tyre.dev.auth", "bearer");
+    try {
+      await attemptSend(entry.clientUuid);
+    } finally {
+      window.localStorage.removeItem("tyre.dev.auth");
+    }
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    const after = (await listOutbox())[0];
+    expect(after.state).toBe("queued");
+    expect(after.lastCode).toBe("auth_unavailable");
+  });
+});
+
+// The dev path makes the credential's subject, the last-known subject and
+// X-User-ID one value, so only a bearer session tells them apart (U104).
+describe("the driver stamp under a bearer session", () => {
+  beforeEach(() => {
+    clearDevActorId();
+    bearerSession();
+    window.localStorage.setItem(
+      MIRROR_KEY,
+      JSON.stringify({
+        accessToken: "at-a",
+        subject: "oid-a",
+        expiresAt: Date.now() + 3_600_000,
+        obtainedAt: Date.now() - 600_000,
+        tenantId: null,
+      }),
+    );
+    window.localStorage.setItem(SUBJECT_KEY, "oid-b");
+  });
+
+  async function entryStampedFor(subject: string) {
+    const entry = await queueOne();
+    await db.table("outbox").update(entry.clientUuid, { driverSubject: subject });
+    return entry;
+  }
+
+  it("compares with the credential it attaches, not the last-known subject", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await entryStampedFor("oid-b");
+    const before = (await listOutbox())[0];
+
+    await attemptSend(entry.clientUuid, { force: true });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await listOutbox())[0]).toEqual(before);
+  });
+
+  it("sends an entry stamped for the credential's subject under that bearer", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await entryStampedFor("oid-a");
+
+    // The mirror changes after the compare (another tab renewed or signed
+    // in); the send must still carry the credential the compare used.
+    const table = db.table("outbox");
+    const original = table.update.bind(table);
+    vi.spyOn(table, "update").mockImplementation(((key: string, changes: object) => {
+      window.localStorage.setItem(
+        MIRROR_KEY,
+        JSON.stringify({
+          accessToken: "at-b",
+          subject: "oid-b",
+          expiresAt: Date.now() + 3_600_000,
+          obtainedAt: Date.now() - 600_000,
+          tenantId: null,
+        }),
+      );
+      return original(key, changes);
+    }) as typeof table.update);
+
+    await attemptSend(entry.clientUuid);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const init = fetchMock.mock.calls[0][1] as { headers: Record<string, string> };
+    const headers = init.headers;
+    expect(headers.Authorization).toBe("Bearer at-a");
+    expect(await listOutbox()).toEqual([]);
+  });
+});
+
+describe("heldStamps and heldCount when storage fails (spec section 4)", () => {
+  it("read as nothing held, a draft that did read included", async () => {
+    await queueOne();
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v9",
+      taskId: null,
+      startedAt: "2026-09-30T06:00:00Z",
+    });
+    vi.spyOn(db.table("outbox"), "toArray").mockRejectedValue(new Error("blocked"));
+    vi.spyOn(db.table("outbox"), "count").mockRejectedValue(new Error("blocked"));
+
+    expect(await heldStamps()).toEqual([]);
+    expect(await heldCount()).toEqual({ draft: false, entries: 0 });
+  });
+});
+
+// Spec section 4, After sign-in: a refused entry keeps its own recovery
+// action. "Sync now" with no credential to send under sent nothing, so it has
+// nothing new to record.
+describe("Sync now on a refused entry with no credential", () => {
+  it.each([
+    [
+      "signed out (401)",
+      () => {
+        clearDevActorId();
+        bearerSession();
+      },
+    ],
+    [
+      "sign-in unavailable (503)",
+      () => {
+        clearDevActorId();
+        window.localStorage.setItem("tyre.dev.auth", "bearer");
+      },
+    ],
+  ])("leaves the entry exactly as it was when %s", async (_, signedOutState) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await queueOne();
+    await db.table("outbox").update(entry.clientUuid, {
+      state: "failed",
+      attempts: 1,
+      nextAttemptAt: 0,
+      lastStatus: 409,
+      lastCode: "TY003",
+      lastError: "already inspected",
+    });
+    const before = (await listOutbox())[0];
+    signedOutState();
+
+    await attemptSend(entry.clientUuid, { force: true });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect((await listOutbox())[0]).toEqual(before);
+  });
+});
+
+describe("the flush after sign-in", () => {
+  it("sends a queued or 401-held entry whatever its backoff, and leaves a failed one alone", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue({ ok: true, status: 201, json: () => Promise.resolve({}) });
+    vi.stubGlobal("fetch", fetchMock);
+    const held = await queueOne();
+    await db.table("outbox").update(held.clientUuid, {
+      lastStatus: 401,
+      attempts: 3,
+      nextAttemptAt: Date.now() + 600_000,
+    });
+    const failed = await queueOne();
+    await db.table("outbox").update(failed.clientUuid, { state: "failed", lastStatus: 409 });
+
+    await flushOutbox({ ignoreBackoff: true });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const left = await listOutbox();
+    expect(left.map((e) => e.clientUuid)).toEqual([failed.clientUuid]);
   });
 });

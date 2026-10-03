@@ -15,23 +15,19 @@ import { useFormMutation } from "../useFormMutation";
 import { observationsKey, rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
 
-// The codes these two writes can actually raise, and no others (api/refusal.ts:
-// a code that cannot arrive is a claim the next reader has to disprove).
-// TY022 is the resolution's own refusals: already resolved, stale, voided,
-// a report the register cannot be moved to. TY017 arrives from inside
-// app.create_combination_at when a unit the driver saw has since been
-// disposed or coupled elsewhere. TY012 is a report outside what a controller
-// can see; a depot manager gets not_found instead, which falls to the fallback.
+// The codes these writes can actually raise: TY022 is the resolution's own
+// refusals, TY017 arrives when a seen unit has since been disposed/coupled
+// elsewhere, TY012 is an out-of-view report (falls to the fallback for a
+// depot manager).
 const WORDING = {
   speakable: ["TY022", "TY017", "TY012"],
   forbidden: "You do not have permission to action a reported difference.",
   fallback: "The report could not be actioned. Refresh and retry.",
 };
 
-// The driver's sentence, in the words a controller would use in the yard. The
-// date is the CAPTURE's, not the submit's: ADR-0009's outbox can deliver a
-// walk-around hours later, and what the controller is being asked about is
-// when the coupling was seen.
+// The driver's sentence in yard words. The date is the CAPTURE's, not the
+// submit's: ADR-0009's outbox can deliver hours later, and the controller
+// is being asked about when the coupling was seen.
 function sentence(row: ReportedDifference, asDate: (instant: string) => string): string {
   const missing = row.removed.join(", ");
   const verb = row.removed.length === 1 ? "was" : "were";

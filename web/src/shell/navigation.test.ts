@@ -57,10 +57,9 @@ describe("navItemsFor", () => {
     expect(navItemsFor(["CaptureInspection"]).map((i) => i.to)).toEqual(["/my"]);
   });
 
-  // D9 split the invite in two: CONTROLLER and DEPOT_MANAGER hold
-  // InviteDriver and not ManageUsers, and the whole point of the split is
-  // that they see "Add a user" too, without also seeing "Add a unit"
-  // (ADR-0011).
+  // D9 split the invite: CONTROLLER/DEPOT_MANAGER hold InviteDriver, not
+  // ManageUsers, and the point is they see "Add a user" without "Add a
+  // unit" (ADR-0011).
   it("offers add-a-user, but not add-a-unit, to an actor holding InviteDriver alone", () => {
     const items = navItemsFor(["InviteDriver"]).map((i) => i.to);
     expect(items).toContain("/admin/users/new");
@@ -100,13 +99,12 @@ describe("navItemsFor", () => {
     expect(driver).not.toContain("/fleet/tyres");
   });
 
-  // D7: Fitments is a ViewFleet read like Units, not gated on ManageAssets.
-  // A reader who cannot manage a tyre can still see what is fitted where.
-  // TYRE-72: Rigs joins them as a third ViewFleet read, between Tyres and
-  // Fitments in registry order.
-  it("gives a ViewFleet holder Units, Rigs and Fitments, and nothing else", () => {
+  // D7: Fitments is a ViewFleet read like Units, not ManageAssets. TYRE-72:
+  // Rigs joins between Tyres and Fitments in registry order. U49: the
+  // dashboard and the exceptions list lead it.
+  it("gives a ViewFleet holder the dashboard, the exceptions, Units, Rigs and Fitments, and nothing else", () => {
     const labels = navItemsFor(["ViewFleet"]).map((i) => i.label);
-    expect(labels).toEqual(["Units", "Rigs", "Fitments"]);
+    expect(labels).toEqual(["Dashboard", "Exceptions", "Units", "Rigs", "Fitments"]);
   });
 
   // U2: rig reads gate on ViewFleet like the rest of the fleet register.

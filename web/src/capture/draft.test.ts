@@ -1,3 +1,4 @@
+import Dexie from "dexie";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { Draft, DraftPosition } from "./draft";
@@ -13,6 +14,8 @@ import {
   unmarkSpareAbsent,
 } from "./draft";
 
+const DRIVER = "oid-driver-1";
+
 beforeEach(async () => {
   await db.open();
   await clearDraft();
@@ -25,6 +28,7 @@ afterEach(async () => {
 describe("the draft buffer", () => {
   it("generates the client uuid when the inspection starts, not when it is sent", async () => {
     const draft = await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v1",
       taskId: "t1",
       startedAt: "2026-08-25T06:00:00Z",
@@ -38,7 +42,12 @@ describe("the draft buffer", () => {
 
   // FR-OFF-005: incrementally, per entry, not on a debounce, not at the end.
   it("persists a position the moment it is entered", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
     await savePosition({
       positionId: "p1",
       vehicleId: "v1",
@@ -62,7 +71,12 @@ describe("the draft buffer", () => {
   // FR-OFF-006 / NFR-USE-011. The store is the source of truth, not a mirror
   // of React state, so a reload finds the work rather than an empty form.
   it("survives a reload with every entry intact", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
     await savePosition({
       positionId: "p1",
       vehicleId: "v1",
@@ -84,7 +98,12 @@ describe("the draft buffer", () => {
   });
 
   it("keeps the header fields the review screen collects", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
     await saveHeader({ odometerKm: 412500, comment: "7/8 need replacing", defectReport: null });
 
     const reloaded = await loadDraft();
@@ -97,9 +116,19 @@ describe("the draft buffer", () => {
   // buffered inspection under any circumstance, so the caller has to deal with
   // it rather than the store deciding.
   it("refuses to start a second inspection over an unfinished one", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
     await expect(
-      startDraft({ vehicleId: "v2", taskId: null, startedAt: "2026-08-25T07:00:00Z" }),
+      startDraft({
+        driverSubject: DRIVER,
+        vehicleId: "v2",
+        taskId: null,
+        startedAt: "2026-08-25T07:00:00Z",
+      }),
     ).rejects.toThrow(/in progress/i);
   });
 
@@ -117,6 +146,7 @@ describe("the draft buffer", () => {
   // header counting it done, and would send a re-entered wheel twice.
   it("reads a draft filed under superseded keys back by unit and position", async () => {
     const draft = await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v1",
       taskId: null,
       startedAt: "2026-08-25T06:00:00Z",
@@ -213,7 +243,12 @@ describe("the draft buffer", () => {
   });
 
   it("reports no draft once cleared", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
     await clearDraft();
     expect(await loadDraft()).toBeUndefined();
   });
@@ -225,7 +260,12 @@ describe("the draft buffer", () => {
   // stored. Asserting the exact key set, not a subset, is what catches a
   // field added to the persisted shape later without anyone deciding to.
   it("persists exactly the in-progress inspection and nothing else", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-08-25T06:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-08-25T06:00:00Z",
+    });
     await savePosition({
       positionId: "p1",
       vehicleId: "v1",
@@ -256,6 +296,8 @@ describe("the draft buffer", () => {
         "positions",
         "warnings",
         "absentSpares",
+        "driverSubject",
+        "legacy",
       ].sort(),
     );
   });
@@ -266,12 +308,14 @@ describe("the draft buffer", () => {
   // "already in progress" guard above.
   it("frees the slot for a new inspection once cleared", async () => {
     const first = await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v1",
       taskId: null,
       startedAt: "2026-08-25T06:00:00Z",
     });
     await clearDraft();
     const second = await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v2",
       taskId: null,
       startedAt: "2026-08-25T09:00:00Z",
@@ -284,18 +328,25 @@ describe("the draft buffer", () => {
   // it a wrong-vehicle Start locks the phone out of capture for good.
   it("starts a second inspection once the first is discarded", async () => {
     await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v-wrong",
       taskId: null,
       startedAt: "2026-08-25T06:00:00Z",
       fleetNumber: "BAC711TR",
     });
     await expect(
-      startDraft({ vehicleId: "v-right", taskId: null, startedAt: "2026-08-25T06:00:00Z" }),
+      startDraft({
+        driverSubject: DRIVER,
+        vehicleId: "v-right",
+        taskId: null,
+        startedAt: "2026-08-25T06:00:00Z",
+      }),
     ).rejects.toThrow(/already in progress/);
 
     await clearDraft();
 
     const second = await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v-right",
       taskId: null,
       startedAt: "2026-08-25T06:00:00Z",
@@ -309,6 +360,7 @@ describe("the draft buffer", () => {
   // context has not been fetched.
   it("keeps the fleet number so a held inspection can be named", async () => {
     await startDraft({
+      driverSubject: DRIVER,
       vehicleId: "v1",
       taskId: null,
       startedAt: "2026-08-25T06:00:00Z",
@@ -320,7 +372,12 @@ describe("the draft buffer", () => {
   // TYRE-155 / FR-INS-066: the observation the driver records instead of a
   // reading when a unit does not carry the spare it is configured for.
   it("records and forgets an absent spare by unit and position", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-09-06T08:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-09-06T08:00:00Z",
+    });
     await markSpareAbsent("v1", "s1");
     expect((await loadDraft())?.absentSpares).toEqual([{ vehicleId: "v1", positionId: "s1" }]);
     await markSpareAbsent("v1", "s1");
@@ -335,7 +392,12 @@ describe("the draft buffer", () => {
   // behind by the mark would lose the whole capture, not just one cell. The
   // tap IS the driver saying there is nothing to read.
   it("discards a spare's draft position when it is marked absent", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-09-06T08:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-09-06T08:00:00Z",
+    });
     await savePosition({
       positionId: "s1",
       vehicleId: "v1",
@@ -362,7 +424,12 @@ describe("the draft buffer", () => {
   // draft holds both and app.submit_inspection refuses the whole capture
   // (TY005, 000041) with a permanent outbox failure.
   it("clears the absent mark when a reading is entered for that cell", async () => {
-    await startDraft({ vehicleId: "v1", taskId: null, startedAt: "2026-09-06T08:00:00Z" });
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt: "2026-09-06T08:00:00Z",
+    });
     await markSpareAbsent("v1", "s1");
     expect((await loadDraft())?.absentSpares).toEqual([{ vehicleId: "v1", positionId: "s1" }]);
 
@@ -382,5 +449,82 @@ describe("the draft buffer", () => {
     const reloaded = await loadDraft();
     expect(reloaded?.positions[cellKey("v1", "s1")]).toBeDefined();
     expect(reloaded?.absentSpares).toEqual([]);
+  });
+});
+
+describe("the version 2 upgrade (U104)", () => {
+  it("marks every row that existed before it legacy, and nothing written after", async () => {
+    db.close();
+    await Dexie.delete("tyre-capture");
+    const v1 = new Dexie("tyre-capture");
+    v1.version(1).stores({ drafts: "key", outbox: "clientUuid, state" });
+    await v1.open();
+    await v1.table("drafts").put({
+      key: "current",
+      draft: {
+        clientUuid: "d-old",
+        vehicleId: "v1",
+        fleetNumber: null,
+        combinationId: null,
+        observedMemberVehicleIds: [],
+        taskId: null,
+        startedAt: "2026-09-01T06:00:00Z",
+        odometerKm: null,
+        comment: null,
+        defectReport: null,
+        positions: {},
+        warnings: [],
+        absentSpares: [],
+      },
+    });
+    await v1.table("outbox").put({
+      clientUuid: "e-old",
+      state: "queued",
+      payload: {},
+      queuedAt: 0,
+      attempts: 0,
+      nextAttemptAt: 0,
+      lastStatus: null,
+      lastCode: null,
+      lastError: null,
+      fleetNumber: null,
+    });
+    v1.close();
+
+    await db.open();
+
+    const draft = await loadDraft();
+    expect(draft?.legacy).toBe(true);
+    expect(draft?.driverSubject).toBeNull();
+    const rows = await db.table<{ legacy?: boolean }, string>("outbox").toArray();
+    expect(rows.map((r) => r.legacy)).toEqual([true]);
+
+    await clearDraft();
+    const fresh = await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v2",
+      taskId: null,
+      startedAt: "2026-09-30T06:00:00Z",
+    });
+    expect(fresh.legacy).toBe(false);
+    expect(fresh.driverSubject).toBe(DRIVER);
+
+    // Reopening is not an upgrade, so the new row stays unmarked.
+    db.close();
+    await db.open();
+    expect((await loadDraft())?.legacy).toBe(false);
+  });
+
+  // "No subject, no draft" at the storage layer too.
+  it("refuses to start a draft with an empty subject", async () => {
+    await expect(
+      startDraft({
+        driverSubject: "",
+        vehicleId: "v1",
+        taskId: null,
+        startedAt: "2026-09-30T06:00:00Z",
+      }),
+    ).rejects.toThrow(/signed in/);
+    expect(await loadDraft()).toBeUndefined();
   });
 });

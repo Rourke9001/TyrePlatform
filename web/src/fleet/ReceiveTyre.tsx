@@ -21,14 +21,9 @@ const RECEIVE_WORDING = {
   fallback: "The tyres could not be received. Try again, or call support if it keeps happening.",
 };
 
-// FR-TYR-040, gated on ManageAssets (at the route in routes.tsx, not here) and policy-aware
-// (D12): under GENERATED a hand-typed code is refused server-side
-// (app.receive_tyres's own TY011), so this screen never offers the field at
-// all rather than offering it and losing the submission to a refusal the
-// operator could not have predicted. Under FREE the platform mints nothing,
-// so the code is the one thing this form must collect, and a bulk receive
-// makes no sense against one hand-typed code (the function's own rule).
-// quantity is a GENERATED-only control for the same reason.
+// FR-TYR-040, gated on ManageAssets, policy-aware (D12): under GENERATED a
+// hand-typed code is refused server-side (TY011), so the field is never
+// offered at all; under FREE the code is the one thing the form must collect.
 export function ReceiveTyre() {
   const actor = useActor();
   // A policy value this client has not heard of yet defaults to the safer

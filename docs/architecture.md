@@ -15,16 +15,16 @@ the ADRs say why each was chosen and what it costs.
    │  Azure Static Web Apps              │   React + Vite
    │  capture app  │  manager dashboard  │
    └──────────────────┬──────────────────┘
-                      │  HTTPS. Target: JWT from Entra External ID
-                      │  (FR-AUT-001). Today: the dev header actor
-                      │  resolver is the only one built (ADR-0011)
+                      │  HTTPS. An Entra External ID access token as
+                      │  a bearer (ADR-0016). The dev header resolver
+                      │  exists only in -tags devheader builds (U103)
                       ▼
    ┌─────────────────────────────────────┐
    │  Azure Container Apps  (Go)         │   scale-to-zero
    │  auth → actor context → handlers    │
    └──────────────────┬──────────────────┘
                       │  pgx, one transaction per request
-                      │  SET LOCAL app.tenant_id + app.actor_id
+                      │  set_config app.tenant_id + app.actor_id
                       │  role read from app_user, never from a claim
                       ▼
    ┌─────────────────────────────────────┐
@@ -35,6 +35,10 @@ the ADRs say why each was chosen and what it costs.
                       │
               Blob Storage (photos)
 ```
+
+The manager dashboard reads `GET /api/dashboard`, one composed call in one
+transaction, and renders every figure as the wire sends it; the web leg of
+the three-way agreement is `web/e2e/dashboard.spec.ts`.
 
 ## Where logic lives, and why
 
@@ -67,18 +71,27 @@ Every scoped request, without exception:
 
 ```go
 // Transaction-local, so a pooled connection cannot carry one tenant's context
-// into the next request — a session-scoped SET here is a cross-tenant data
+// into the next request: a session-scoped SET here is a cross-tenant data
 // leak that will pass every test you write. set_config with is_local => true,
 // not SET LOCAL: SET cannot take a bind parameter, and interpolating an id
 // into SQL is forbidden on this path.
-tx, err := pool.Begin(ctx)
+tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 defer tx.Rollback(ctx)
 _, err = tx.Exec(ctx,
-    "SELECT set_config('app.tenant_id', $1, true), set_config('app.actor_id', $2, true)",
-    identity.TenantID, identity.UserID)
-// role, active and depot scope are read back from app.app_user /
-// app.v_actor_depot under RLS in the same transaction — never taken from the
-// caller, so a stale token or a forged header cannot grant anything.
+    "SELECT set_config('app.tenant_id', $1, true)", key.TenantID)
+// app.session_id is bound the same way, only when the key carries one (a
+// bearer request); a dev header request has none.
+// The tenant is the token's claim, a hint: the user is found by subject (the
+// Entra oid) under RLS, so a wrong tenant finds no row (ADR-0016). A dev
+// build finds the user by id instead.
+err = tx.QueryRow(ctx,
+    "SELECT id, display_name, role::text, active FROM app.app_user WHERE subject = $1",
+    key.Subject).Scan(&userID, &name, &role, &active)
+_, err = tx.Exec(ctx, "SELECT set_config('app.actor_id', $1, true)", userID)
+// A tenant that is not ACTIVE is refused (FR-TEN-009). Role, active and depot
+// scope come from app.app_user / app.v_actor_depot, never from the caller, so
+// a stale token or a forged header cannot grant anything. A session's first
+// use is recorded once (FR-AUD-004).
 // ... all queries on tx ...
 tx.Commit(ctx)
 ```
@@ -97,10 +110,104 @@ fails closed the same way: an identity naming no visible, active
 indistinguishable from an ordinary refusal (ADR-0011). **The system fails
 closed.**
 
+## The refusal vocabulary (ADR-0012)
+
+`httpapi.refusalForPgError` sorts every SQLSTATE `submitInspection` can see
+into three groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
+SQL where a rule is evaluated, forwarded verbatim because the message is
+ours), the standard integrity violations (`23502`, `23503`, `23514`,
+`22P02`, `22023`, `22007`, `22008`, canned as 422 so a client mistake never
+reads as a 500 the outbox retries forever, ADR-0009), and everything else
+(defaults to 500, the honest answer for an invariant breach). A blanket
+`23503` is safe across every write path because the message is canned: a
+foreign-key violation means the request named something that does not
+exist, and 422 with no schema object in it is the honest answer wherever it
+is raised. `TY001`/`TY002` (DR-020 odometer plausibility) never reach the
+map: both are trapped inside `app.submit_inspection`'s own exception block
+and turned into an `app.inspection_warning` row. `TY010` (no tenant/actor
+bound) is also absent, because that is a genuine invariant breach, not a
+client mistake.
+
+The TY code ledger, migration by migration. It is a summary and nothing
+checks it; each code's meaning of record is its entry in
+`api/internal/httpapi/refusal_codes.json`, whose keys the tests hold to the
+live schema (ADR-0012):
+
+| TY code | Migration | What it refuses |
+| --- | --- | --- |
+| TY003 | 000023 | a duplicate submit inside the tenant's configured window (FR-INS-038) |
+| TY004 | 000023 | a reading naming a position outside its vehicle's configuration |
+| TY005 | 000023 | a payload shape `app.submit_inspection` can name directly (missing/empty arrays, out-of-range values) |
+| TY006 | 000023 | a reading that submits `governing_tread_mm`, which is derived as the MIN and never accepted (CR-011) |
+| TY007 | 000023 | an unrecognised or cross-tenant `vehicle_id` |
+| TY008 | 000024 (widened 000028) | a configuration or unit-kind change on a unit with history; no route can reach it, so no `submitStatus` entry exists |
+| TY009 | 000025 | `fitment_odometer_matches_unit_kind`, on every fitment write |
+| TY011-013 | 000031 | the tyre lifecycle's refusals |
+| TY014 | 000032 | a fitment write refused |
+| TY015 | 000033 | the retread cap |
+| TY016 | 000035 | a unit status transition refused |
+| TY017 | 000037 | a rig write refused |
+| TY018 | 000038 | an inspection task refused |
+| TY019 | 000040 | an inspection write refused, including the void's own refusals |
+| TY020 | 000040 | a reading offered to a sealed inspection; no route can reach it, so no entry exists |
+| TY021 | 000041 | the future-skew refusal |
+| TY022 | 000044 | a composition observation refused |
+
+`httpapi.unitSource` is the one place a fleet handler chooses its relation
+for a unit, by `auth.Actor.Scope` and never by role name (ADR-0006). Every
+caller composes it: the unit read, its PATCH and status write, its
+fitment/driver/task lists, the four unit-path writes (`fitTyre`,
+`rotateTyres`, `assignDriver`, `scheduleInspectionTask`), and the two
+composition-report writes (`observations.go`), which reach the unit through
+the report's inspection (FR-AUT-008, TYRE-162, TYRE-226).
+
+`patchUnit`'s UPDATE always runs, even naming no column, because it is
+doing two further jobs beyond the edit itself. It is the existence check,
+where RLS is what makes "no such unit" and "another tenant's unit" the same
+404 (ADR-0011), and its row lock is what serialises two concurrent tag
+replacements on one unit, which a bare SELECT in its place would not. A
+tags-only edit therefore still touches the vehicle row, and writes no audit
+entry for it: `app.audit_row_change` returns early when an UPDATE leaves
+the row identical, so nothing is logged that claims a column moved when
+none did. The tag map rows it does change are not audited, because
+`vehicle_audited` is on `app.vehicle` alone (000035). The UPDATE's scope
+predicate is `unitSource`'s (FR-AUT-008); the read-back is through
+`app.vehicle` deliberately, because the write was authorised against the
+row as it stood, so the editor reads back what they wrote.
+
+## Rate limiting (NFR-SEC-007)
+
+`ratelimit.clientAddress` resolves the per-address counter's key by reading
+the `trustedProxyHops`-th trusted hop's own observation out of
+`X-Forwarded-For`, never `RemoteAddr` directly. Each trusted L7 hop in front
+of the process appends the address of the peer it received the request
+from, so the Nth trusted hop's own observation sits N entries from the
+right of the full forwarded chain, never at a fixed position a caller can
+predict and prepend forged entries in front of. The chain is flattened
+across every `X-Forwarded-For` header line, not read from the first line
+alone: RFC 7230 treats repeated header lines as equivalent to one
+comma-joined line, so a conformant hop may append its observation as a
+separate line rather than extend the caller's.
+
+Today's topology is one hop: Azure Container Apps' own ingress terminates
+every connection and forwards over its internal hop, so `RemoteAddr` is
+always the ingress's own address, never the caller's. Keying the counter on
+`RemoteAddr` there would collapse every client into one bucket, turning the
+limiter meant to stop a hostile client into a way for one to lock out every
+driver. `infra/main.bicep`'s `TRUSTED_PROXY_HOPS` defaults to 1 for exactly
+this hop; adding a second hop in front of it (a CDN, WAF or gateway) moves
+the trusted observation one entry further from the right, which is what
+raising the option tracks. If the flattened chain has fewer entries than
+`trustedProxyHops`, the header does not match the topology the process was
+told to expect, and `clientAddress` falls back to `RemoteAddr` rather than
+trust anything closer to the caller than the Nth hop would be; the same
+fallback covers a header absent or blank (local/dev, `httptest`).
+
 ## Capture and the network
 
-The hypothesis the POC exists to test is that a driver captures a full vehicle
-in under three minutes. Everything about the capture path is subordinate.
+The capture path is designed to a UX target of about three minutes per
+vehicle (CLAUDE.md, The capture target). It is a target, not an acceptance
+criterion.
 
 Per ADR-0009 (client platform and on-device data): the client is
 **online-first with a durable submit outbox**, not an offline-first sync
@@ -109,6 +216,9 @@ is the one in-progress inspection.
 
 - Reads (vehicle lists, configuration) are fetched online; nothing replicates
   the register to the phone.
+- Each held inspection is stamped with the driver who captured it and sends
+  only under that driver's session (U104, ADR-0016). The session's tokens sit
+  in `localStorage` for at most 24 hours (U102).
 - The in-progress inspection is durably held on-device until the server
   acknowledges it — a submit outbox, with an explicit "Sync now" and a
   stale-queue warning, never a background-sync dependency (iOS Safari has no
@@ -118,6 +228,24 @@ is the one in-progress inspection.
   no-op and an uncertain network is safe.
 - Photos queue separately from readings. A slow photo upload must never hold up
   a completed inspection.
+
+`submitInspection` re-applies FR-AUT-005's narrowing on the write path: the
+read composes `app.v_capture_vehicle`, and without the same check on the
+write a driver could submit against any unit in the tenant, wider than the
+read ever exposed. A superlink payload legitimately carries readings
+against several `vehicle_id`s in one submit: the motive unit plus each
+coupled trailer, so a completed sheet is 108 numeric entries, not 52 (`CLAUDE.md`,
+The capture target). Checking only
+the top-level `vehicle_id` would let a driver assigned to unit A embed a
+reading against unrelated unit B in the same tenant: `TY004` in
+`app.submit_inspection` only confirms a position belongs to its own
+vehicle's configuration, never that the actor may write to that vehicle.
+So every `vehicle_id` referenced anywhere in the payload must resolve
+through `v_capture_vehicle`: the top-level one plus every
+`readings[].vehicle_id`, read straight from the raw JSON rather than a
+second Go-side model. The `COALESCE` around the `readings` key guards a
+missing or non-array value so a malformed payload still gets a refusal in
+Go rather than a raw Postgres error.
 
 ## Environments
 
@@ -133,8 +261,8 @@ is the one in-progress inspection.
 |---|---|---|
 | [0001](adr/0001-stack.md) | Platform stack — Azure, Go API, React PWA, PostgreSQL | Proposed |
 | [0002](adr/0002-region-and-data-residency.md) | Azure region and POPIA data residency | Accepted |
-| [0003](adr/0003-tenancy-model.md) | Tenancy model | Proposed — blocked on sponsor acceptance (OI-29 / TYRE-13) |
-| [0004](adr/0004-branching-strategy.md) | Branching — develop integrates, main mirrors production | Proposed |
+| [0003](adr/0003-tenancy-model.md) | Tenancy model: a tenant is a fleet; the marketplace is post-POC | Accepted |
+| [0004](adr/0004-branching-strategy.md) | Branching — develop integrates, main mirrors production | Accepted |
 | [0005](adr/0005-environments-and-hosting.md) | Environments — staging is production for the pilot | Accepted |
 | [0006](adr/0006-role-depot-scoping-enforcement.md) | Where role and depot scoping is enforced | Accepted |
 | [0007](adr/0007-unit-centric-fleet-model.md) | Unit-centric fleet model | Accepted |
@@ -145,3 +273,5 @@ is the one in-progress inspection.
 | [0012](adr/0012-api-error-envelope.md) | The API error envelope | Accepted |
 | [0013](adr/0013-write-surface-contract.md) | The write-surface contract | Accepted |
 | [0014](adr/0014-audit-mechanism.md) | How mutations are audited | Accepted |
+| [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Proposed |
+| [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Proposed |

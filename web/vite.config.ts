@@ -1,12 +1,10 @@
 import { configDefaults, defineConfig } from "vitest/config";
 import react from "@vitejs/plugin-react";
 
-// No service worker and no PWA plugin here. ADR-0009 settled the sync design as
-// online-first with a durable submit outbox, so what protects an in-progress
-// inspection is IndexedDB and the outbox's own retry, never a cache and never
-// Background Sync, which iOS Safari does not have. An installable manifest
-// would add reach, not durability, and nothing in the capture flow waits on
-// one.
+// No service worker or PWA plugin: ADR-0009 protects an in-progress
+// inspection with IndexedDB and the outbox's own retry, never a cache or
+// Background Sync, which iOS Safari lacks. An installable manifest would add
+// reach, not durability.
 export default defineConfig({
   plugins: [react()],
   // Stamped from package.json so a deployed bundle traces back to a release
@@ -22,11 +20,17 @@ export default defineConfig({
       "/api": "http://localhost:8080",
     },
   },
+  // The bundle gate reads which chunks the entry statically imports; nothing
+  // else needs the manifest (TYRE-238, ADR-0015).
+  build: { manifest: true },
   test: {
     // Components could not be rendered in a test before this: Vitest defaults
     // to the node environment, which has no document.
     environment: "jsdom",
     setupFiles: ["./src/test/setup.ts"],
+    // brandConfinement.test.ts reads the stylesheets as text (U53); vitest
+    // stubs a CSS import to "" unless it is listed here, ?raw included.
+    css: { include: [/\.css\?raw$/] },
     // e2e/ belongs to Playwright, whose specs need a live stack; vitest
     // matching *.spec.ts would try to run them in jsdom and fail on import.
     exclude: [...configDefaults.exclude, "e2e/**"],

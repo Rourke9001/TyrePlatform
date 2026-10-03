@@ -3,12 +3,15 @@
 React + Vite. **One application, one deployment** (IR-UI-001): a
 mobile-optimised capture interface and a desktop-optimised management
 interface, reached by role-appropriate routes within it. They share components
-but not priorities — see the three-minute constraint below.
+but not priorities — see the capture target below.
 
-## The capture app answers to one number
+## The capture target
 
 > A trained driver completes a ten-position vehicle in a median of **3 minutes**
 > (NFR-USE-001), and a 26-position combination in **7 minutes** (NFR-USE-001a).
+
+These are UX targets the capture app is designed to, not acceptance criteria
+or KPIs (CLAUDE.md, The capture target).
 
 Three tread readings per position means a superlink is **108 numeric entries**.
 Every interaction decision follows from that arithmetic:
@@ -26,12 +29,12 @@ Every interaction decision follows from that arithmetic:
 
 **Before adding anything to the capture flow, count the taps it costs.** A
 feature that improves the dashboard and adds three seconds per position adds
-over a minute to a superlink, and the POC fails on adoption.
+over a minute to a superlink, and slow capture costs adoption.
 
-`docs/prototypes/driver_capture_prototype.html` is the reference for the
-interaction model — a gitignored working mirror. The authority is Confluence:
-*Driver Capture Prototype v1.0* (pageId 13238274, under *UI Prototypes v1.0*
-in the Specification tree).
+The reference for the interaction model is the Confluence page *Driver
+Capture Prototype v1.0* (pageId 13238274, under *UI Prototypes v1.0* in the
+Specification tree). `docs/prototypes/driver_capture_prototype.html` is a
+gitignored working copy of it and may be stale.
 
 ## The network (ADR-0009)
 
@@ -46,40 +49,79 @@ Online-first with a durable submit outbox — not an offline sync engine.
 - Each inspection carries a client-generated UUID; the server treats
   submission as idempotent, so replaying the outbox is safe.
 - Photos queue separately from readings.
+- Each draft and outbox entry is stamped with the capturing driver's Entra
+  `oid` and sends only under that driver's session; a sign-in by anyone else
+  is undone while one is held, and sign-out is refused while anything is
+  (U104, PD-S3, ADR-0016).
+- A render error on any route, capture included, leaves the shell and the
+  outbox indicator mounted and offers "Try again" (`RouteErrorBoundary`,
+  U54; its `retry` says which routes remount in place and which reload).
+  On capture, `useDraftLifecycle` restores every entry already written to
+  the draft, so a remount loses only the keystroke whose render threw and
+  any review text not yet submitted. Entries after a "degraded" storage
+  fault were never written, so they are not kept, and the remount clears
+  the warning about them (TYRE-339). `/my` remounts against its query
+  cache: offline the query pauses, so it shows the list it last loaded,
+  or "Loading…" once that has been dropped, until the signal returns.
+
+## Sign-in (ADR-0016)
+
+`src/api/token.ts` is the token store and sits in the entry: it reads a
+mirror of the access token from its own `localStorage` key, never the
+library's storage format. `src/auth/oidc.ts` is the only file that imports
+oidc-client-ts, reached only through the store's `authChunk()`, so the
+library stays out of the capture budget. Under vite dev and vitest the dev
+headers remain the default; `localStorage["tyre.dev.auth"] = "bearer"`
+opts a session into the bearer path. On the dev header path the dev actor id
+stands in as the U104 stamp, and only under `import.meta.env.DEV`. A
+production build has only the bearer path, `scripts/check-dist-dev-strings.mjs`
+(in `make web-bundle` and CI) fails a build that still names the dev headers
+or keys, and `scripts/check-capture-bundle.mjs` fails one whose entry carries
+oidc-client-ts.
 
 ## Browser tests (e2e/)
 
 `e2e/` holds Playwright specs; vitest never runs them (excluded in
 vite.config.ts) and they never mock — they drive the real dev stack in
-headless browsers. Three projects: `chromium` at a desktop viewport,
-`android` (Pixel 7) and `ios` (iPhone 14, WebKit). The capture app is judged
-at phone dimensions, so `reach.spec.ts` runs on all three and
-`capture.spec.ts` on `android` alone — FR-INS-038's duplicate window is
-tenant state in one shared database, and the same vehicle submitted from a
-second project is refused by the first.
+headless browsers. One exception: the `auth` project stubs the identity
+provider with `page.route` and, on `/api`, swaps the bearer for the Sandbox dev
+headers or answers 401 itself where a case needs one, such as a call with no
+bearer or a refused submit (`e2e/idp.ts`; spec section 7 of
+`docs/superpowers/specs/2026-09-30-b9-sign-in-design.md`), because the provider
+cannot be reached from CI and the Go half of sign-in is proved by its own tests
+(TYRE-317). Five projects:
+`bac-readonly` (Desktop Chrome, `dashboard.spec.ts` only, the web leg of the
+three-way agreement, which `android` depends on so no BAC write races a BAC
+read), `chromium` at a desktop viewport, `android` (Pixel 7), `ios` (iPhone 14,
+WebKit) and `auth` (Pixel 7, `auth.spec.ts` only). The capture app is judged
+at phone dimensions, so `reach.spec.ts` runs on the
+three device projects and `capture.spec.ts` on `android` alone — FR-INS-038's
+duplicate window is tenant state in one shared database, and the same vehicle
+submitted from a second project is refused by the first.
 
-**A green `make e2e` does not prove the three-minute constraint.** The M2
+**A green `make e2e` says nothing about the capture target.** The M2
 airplane-mode run was performed against **emulated** evidence — the Pixel 7
 project with `setOffline(true)`, no real handset — and Playwright taps as fast
 as the browser accepts. **NFR-USE-001's three minutes and NFR-USE-001a's seven
-remain unmeasured**; they need a trained driver on a real phone, with gloves, in
-the sun. What these specs do establish is that the flow completes offline, syncs
+remain unmeasured**; measuring them takes a trained driver on a real phone,
+with gloves, in the sun. What these specs do establish is that the flow completes offline, syncs
 on reconnect, and files every reading against the unit that owns the position.
 
 Run with `make e2e`, which reseeds and requires `make api-run` in another
 terminal; CI's "Browser smoke" job builds that stack itself on every PR. The
 reseed is not optional: `capture.spec.ts` submits, so a second run against the
-same seed is refused at the first spec. Identity is the dev actor headers, so
-specs run against `vite dev`, never a production build (playwright.config.ts
-says why). Assert on roles and visible text, not CSS — with one deliberate
-exception: a requirement id may be reached through a `data-` attribute
+same seed is refused at the first spec. Identity is the dev actor headers
+everywhere but `auth`, so specs run against `vite dev`, never a production
+build (playwright.config.ts says why). Assert on roles and visible text, not
+CSS — with one deliberate exception: a requirement id may be reached through a `data-` attribute
 (`data-position-id`, `data-warning-code`), because CR-010 keeps those ids out
 of driver-facing wording and a spec keyed on the friendly name would fail on
 the next copy edit.
 
 ## Conventions
 
-- Function components and hooks. `strict: true`. No `any`.
+- Function components and hooks, except `src/shell/RouteErrorBoundary.tsx`,
+  the one class (U54). `strict: true`. No `any`.
 - Tanstack Query for server state; `useState`/`useReducer` for local. No Redux.
 - Money arrives from the API as a **string**. Keep it a string. Format for
   display, never `Number()` it — JavaScript has no decimal type and this is the
@@ -88,13 +130,78 @@ the next copy edit.
   natural order, not lexicographic (NFR-USE-012) — `POS2` before `POS10`.
 - Colours and type live in `src/theme/tokens.ts` only, consumed through CSS
   custom properties (TYRE-27). A hex or font literal in a component is a bug.
-  Tread band colours are fixed and keyed to band *names*; the mm thresholds
-  that assign a band are tenant configuration and never reach this codebase
-  (rule 5). Fonts are self-hosted @fontsource — no CDN: the capture app must
-  render on a flaky depot connection, and a font fetch is a third-party
-  dependency the driver's flow must never wait on (ADR-0009).
+  The capture app's per-reading status colours are fixed and keyed to state
+  *names*; the dashboard's tread bands take a one-hue ramp keyed to band
+  *ordinal* (`treadBandRamp`, `treadBandStep`), since the band count is
+  tenant configuration; above five bands each fill blends the neighbouring
+  stops (`src/ui/bandFill.ts`, U56), in a lazy module so the capture route
+  does not carry it; the mm thresholds that assign either are tenant
+  configuration and never reach this codebase (rule 5). Fonts are
+  self-hosted @fontsource — no CDN: the capture app must render on a flaky
+  depot connection, and a font fetch is a third-party dependency the
+  driver's flow must never wait on (ADR-0009).
 - Tenant branding (display name, primary colour, nullable logo) is tenant
   configuration in the database (`app.configuration` key `branding`), served
   by `GET /api/org/branding` and applied by `src/theme/ThemeProvider.tsx`,
   which derives hover/pressed shades and a contrast-safe on-primary from the
   one colour a tenant picks (TYRE-26/27).
+
+## The design system (ADR-0015)
+
+The design skills advise, `tokens.ts` and ADR-0015 decide; the accepted mockups
+are fixed.
+
+`src/ui/` is the component set: PageHeader, StatTile, SeverityBadge,
+ProvenanceSplit, DataTable, Panel, EmptyState, FormField, Button, Select and
+Dialog (Radix), FilterBar, BandChart. `/dev/design` renders all of them
+with example values under `vite dev` and is where a change is looked at
+before it is reviewed. Rules that are not visible in the code:
+
+- Every wire code becomes words in `src/ui/vocabulary.ts` and nowhere
+  else: severity, `judgedAt`, `unavailable`, tread source, band range. A
+  band is labelled from its bounds, never from `bandLabel` (TYRE-270).
+- Select and Dialog import Radix, so a screen that uses them loads behind
+  `React.lazy` in `routes.tsx`. The capture route's JavaScript is gated:
+  `npm run bundle:check` (also in `make lint` and CI) fails when the entry
+  chunk's static closure exceeds `bundle-budget.json`, or when any module under
+  `src/capture/` or `src/driver/` is reachable from the entry only through a
+  dynamic import (ADR-0009, rule 7). The budget only ratchets down; a rise
+  needs `--record` and a reason in the PR.
+- The word "roadworthy" appears in no label, legend or aria text; the
+  platform reports the tenant's configured thresholds (CLAUDE.md).
+- A money figure is `Money` (`src/api/money.ts`) and rendered only by
+  `formatRand`. An absent one (`null` on the wire) must read "Hidden" or "Not
+  valued" with the unvalued count beside it, never 0 (U36, NFR-PRO-002/003).
+- The dev tenant and actor switchers live in the collapsed dev bar after
+  the content (`src/shell/DevBar.tsx`), never in the header (TYRE-242).
+- Below `breakpoint.phone` (640px, `src/theme/tokens.ts`) `DataTable` renders
+  one card per row and `BandChart` renders one row per band, chosen by
+  `usePhone()` (`src/ui/useMediaQuery.ts`), not by CSS: a table set to
+  `display: block` loses its semantics for a screen reader, and an SVG column
+  chart cannot be turned by CSS (TYRE-238 comment 12938). A CSS rule that
+  switches at the same width writes 640px and cites the constant.
+- A measurement always shows one decimal with a point (`formatMm`, "4.0 mm");
+  millimetres never go through `Intl`'s en-ZA format, whose decimal separator
+  is a comma.
+- Every displayed number groups thousands with a comma, as money does:
+  "1,234 tyres", "416,180 km", "R1,234.00" (U55). The separator is written
+  once, in `groupThousands` (`src/format/groupThousands.ts`), which
+  `formatRand`, `formatCount`, `formatPct` and the capture route's
+  kilometres all call. eslint refuses `Intl.NumberFormat`, whose en-ZA
+  grouping is a no-break space.
+- Inflation band identifiers become words in `vocabulary.ts`
+  (`inflationBandLabel`, TYRE-271), relative to the tenant's configured target
+  pressure.
+- The dashboard (`src/dashboard/Dashboard.tsx`) is one `GET /api/dashboard`
+  call with `staleTime: Infinity`, no refetch on focus and no retry; the
+  Refresh button is the only refetch (FR-DSH-013). Every figure is a wire
+  field; the page names the clock each one is judged at from `judgedAt`
+  ("as inspected" for exceptions, "today" for the register and value at
+  risk), or, for the three panels whose wire carries none (estate, tread
+  depth, inflation), from the code the page names beside them. The spares,
+  exceptions and at-risk lists are their own queries. A link off a depot
+  view carries the depot, and a list that cannot narrow to a depot (the
+  rigs) is not linked from a depot view. Whether the actor is depot-scoped
+  is `me.scope` from `GET /api/me` (U87), never derived from `role` or from
+  `me.depots`, which lists a user's depot rows whatever their role. The
+  depot filter offers DEPOT and STORE depots only (U85).

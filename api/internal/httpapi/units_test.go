@@ -99,7 +99,7 @@ func int64Ptr(v int64) *int64 { return &v }
 func fitTyreViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID, actorID, tyreID, vehicleID, positionID uuid.UUID, treadMm, orientation string, odometer *int64) uuid.UUID {
 	t.Helper()
 	var fitmentID uuid.UUID
-	require.NoError(t, s.InActorTx(ctx, tenantID, actorID, func(tx pgx.Tx, _ auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: actorID}, func(tx pgx.Tx, _ auth.Actor) error {
 		return tx.QueryRow(ctx,
 			`SELECT fitment_id FROM app.fit_tyre($1, $2, $3, $4::numeric, $5::app.mount_orientation, $6)`,
 			tyreID, vehicleID, positionID, treadMm, orientation, odometer,
@@ -116,7 +116,7 @@ func fitTyreViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID
 func fitTyreAtViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID, actorID, tyreID, vehicleID, positionID uuid.UUID, treadMm, orientation string, odometer *int64, occurredAt time.Time, reason string) uuid.UUID {
 	t.Helper()
 	var fitmentID uuid.UUID
-	require.NoError(t, s.InActorTx(ctx, tenantID, actorID, func(tx pgx.Tx, _ auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: actorID}, func(tx pgx.Tx, _ auth.Actor) error {
 		return tx.QueryRow(ctx,
 			`SELECT fitment_id FROM app.fit_tyre($1, $2, $3, $4::numeric, $5::app.mount_orientation, $6, $7, $8)`,
 			tyreID, vehicleID, positionID, treadMm, orientation, odometer, occurredAt, reason,
@@ -130,7 +130,7 @@ func fitTyreAtViaActor(t *testing.T, ctx context.Context, s *store.Store, tenant
 // distance; a non-nil odometer at or above the fitted one produces MEASURED.
 func removeTyreViaActor(t *testing.T, ctx context.Context, s *store.Store, tenantID, actorID, fitmentID uuid.UUID, reason, treadMm string, odometer *int64) {
 	t.Helper()
-	require.NoError(t, s.InActorTx(ctx, tenantID, actorID, func(tx pgx.Tx, _ auth.Actor) error {
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: actorID}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`SELECT app.remove_tyre($1, $2, $3::numeric, $4)`,
 			fitmentID, reason, treadMm, odometer)
@@ -292,12 +292,7 @@ func TestGetUnitIsTenantScoped(t *testing.T) {
 
 	rec := get(t, h, "/api/vehicles/"+vehicleA.String(), tenantB.String(), userB.String())
 	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
-
-	var body struct {
-		Code string `json:"code"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-	require.Equal(t, "not_found", body.Code)
+	require.Equal(t, "not_found", errorCode(t, rec))
 }
 
 type fitmentHistoryBody struct {
@@ -476,6 +471,33 @@ func TestDepotsFilterByType(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
 	require.Equal(t, "invalid_submission", ref.Code,
 		"TYRE-128 decision 7: the enum cast answers 22P02, mapped in submitStatus; Go holds no copy")
+}
+
+// FR-DSH-011, U42: the dashboard's depot filter is a ViewFleet surface and
+// a TECHNICIAN holds nothing else, so the list answers them; a driver
+// still cannot read it.
+func TestDepotsListForAnyFleetViewer(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "depots-viewfleet")
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.depot (tenant_id, name, type, active) VALUES ($1, 'Yard One', 'DEPOT'::app.depot_type, true)`,
+		tenantID)
+	require.NoError(t, err)
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/depots", tenantID.String(), technician.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var depots []depotBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &depots))
+	require.Len(t, depots, 1)
+	require.Equal(t, "Yard One", depots[0].Name)
+
+	rec = get(t, h, "/api/depots", tenantID.String(), driver.String())
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 }
 
 // A DRIVER holds CaptureInspection alone, never ViewFleet, so the unit read
@@ -976,7 +998,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleTag(t *testing.T) {
 		tenantB, "SMUGGLED-"+uuid.NewString()[:8],
 	).Scan(&tagB))
 
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES ($1, $2, $3)`,
 			tenantB, mineB, tagB)
@@ -1036,7 +1058,7 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 	generate := func(offsetDays int) int {
 		t.Helper()
 		var n int
-		require.NoError(t, s.InActorTx(ctx, tenantID, controller, func(tx pgx.Tx, _ auth.Actor) error {
+		require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: controller}, func(tx pgx.Tx, _ auth.Actor) error {
 			return tx.QueryRow(ctx,
 				`SELECT app.generate_inspection_tasks(current_date + $1::int)`, offsetDays).Scan(&n)
 		}))

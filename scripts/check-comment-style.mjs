@@ -1,16 +1,9 @@
 #!/usr/bin/env node
-// TYRE-22. Deterministic half of the comment standard (docs/comments.md).
-//
-// Only the mechanically detectable violations live here: history-narration
-// phrasing, review-process residue, untracked TODOs, and the prose tells the
-// standard's "Prose" section bans (TYRE-237). Judgement calls (why vs what,
-// bloat) belong to the /comment-audit pass. A regex guessing at those would
-// either miss everything or block legitimate comments, and this check
-// blocks, so precision beats recall throughout.
-//
-// Runs three ways off the same rule set: per-file from the Claude Code edit
-// hook (pass file paths as args), across all tracked files from `make lint`
-// and CI (no args). One implementation so the hook and CI cannot disagree.
+// TYRE-22. Deterministic half of the comment standard (docs/comments.md):
+// history-narration, review residue, untracked TODOs, and the Prose bans
+// (TYRE-237). Judgement calls go to /comment-audit; precision beats recall
+// since this check blocks. Runs off one rule set from the hook, make lint
+// and CI, so none of the three can disagree.
 
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
@@ -45,14 +38,26 @@ const CURLY = String.fromCharCode(0x2018, 0x2019, 0x201c, 0x201d);
 // lone U+2014 is a display glyph for an absent value, not prose.
 const RULES = [
   {
+    // Up to three words may sit between "the old" and the noun, so a
+    // modifier cannot hide the phrase (TYRE-192).
     name: 'change-narration',
-    re: /\b(previously|used to (be|do|have|use|call|run|return)|the old (way|version|code|implementation|behaviou?r)|renamed from|moved here from|refactored (from|out of)|instead of the old|(as|like) before|no longer(?! than)|the (new|previous) (version|implementation))\b/i,
+    re: /\b(previously|used to (be|do|have|use|call|run|return)|the old(?:\s+\S+){0,3}\s+(way|version|code|implementation|behaviou?r)|renamed from|moved here from|refactored (from|out of)|instead of the old|(as|like) before|no longer(?! than)|the (new|previous) (version|implementation)|is what (made|caused|allowed|forced)|before this (file|change|commit|pr|fix|refactor|patch|branch))\b/i,
     advice: 'narrates code history; state the constraint the current code satisfies (git holds the history)',
   },
   {
     name: 'process-residue',
     re: /\b(as discussed|per (the )?review|addressing (review )?feedback|review comment)\b/i,
     advice: 'references a conversation the reader cannot see; keep the conclusion, drop the process',
+  },
+  {
+    // Case-sensitive: lowercase "task" is ordinary domain/infra vocabulary
+    // (a scheduled inspection task, a background task) and must stay legal;
+    // capitalised "Task <n>", plural or letter-suffixed, is specifically the
+    // plan-step numbering from a gitignored implementation plan (TYRE-192,
+    // TYRE-311).
+    name: 'plan-step-reference',
+    re: /\bTasks? \d+[a-z]?\b/,
+    advice: 'cites a plan-step number from an untracked plan doc; state the constraint directly',
   },
   {
     name: 'untracked-todo',

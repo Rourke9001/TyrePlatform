@@ -83,10 +83,9 @@ describe("the unit plan", () => {
     expect(onSelect).toHaveBeenCalledWith("p6");
   });
 
-  // How many spares a unit carries is tenant data (FR-VEH-002), and the spare
-  // column runs downward past the axle stack: a height fixed to the axles
-  // draws the fourth spare outside the viewBox, where it is invisible and
-  // unclickable.
+  // Spare count is tenant data (FR-VEH-002); the spare column runs
+  // downward past the axle stack, and a height fixed to the axles would
+  // draw the fourth spare outside the viewBox.
   it("holds every spare inside the viewBox, however many there are", () => {
     const spares = [1, 2, 3, 4].map((n) =>
       unitPosition({

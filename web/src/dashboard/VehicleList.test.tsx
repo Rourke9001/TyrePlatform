@@ -1,22 +1,11 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { screen } from "@testing-library/react";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { VehicleList } from "./VehicleList";
-import { ActorContext } from "../auth/actorContext";
-import { me, respond, testQueryClient } from "../test/fixtures";
+import { renderWithActor, respond } from "../test/fixtures";
 
 function renderList(capabilities: string[] = ["ViewFleet", "ManageAssets"]) {
-  return render(
-    <ActorContext.Provider value={{ actor: me({ capabilities }), settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        <MemoryRouter>
-          <VehicleList />
-        </MemoryRouter>
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<VehicleList />, { capabilities, withRouter: true });
 }
 
 describe("the unit list", () => {
@@ -57,10 +46,9 @@ describe("the unit list", () => {
     expect(screen.queryByText(/upcoming release/)).toBeNull();
   });
 
-  // The screen behind that link is AdminRoute'd on ManageAssets, so offering
-  // it to a reader who does not hold the capability is an invitation to a
-  // refusal (ADR-0013 decision 4). The empty state itself still shows: what
-  // the fleet holds is ViewFleet's to see.
+  // The screen behind the link is AdminRoute'd on ManageAssets, so a reader
+  // who lacks it is invited into a refusal (ADR-0013 decision 4); the empty
+  // state still shows, since what the fleet holds is ViewFleet's.
   it("offers the link only to a reader who can add a unit", async () => {
     vi.mocked(fetch).mockResolvedValue(respond(200, []));
     renderList(["ViewFleet"]);

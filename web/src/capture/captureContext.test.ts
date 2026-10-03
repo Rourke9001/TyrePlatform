@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ApiError } from "../api/apiError";
 import type { CaptureContext } from "./captureContext";
-import { fetchCaptureContext } from "./captureContext";
+import { captureContextQuery, fetchCaptureContext } from "./captureContext";
 
 const body: CaptureContext = {
   vehicleId: "11111111-1111-1111-1111-111111111111",
@@ -97,5 +98,26 @@ describe("fetchCaptureContext", () => {
     );
 
     await expect(fetchCaptureContext(body.vehicleId)).rejects.toThrow(/403/);
+  });
+});
+
+describe("captureContextQuery retry", () => {
+  // A 401 or 403 answers the same on the next attempt (retryQuery, shared
+  // with ActorProvider), so a signed-out driver is not made to wait through
+  // three renewals.
+  it("does not retry a 401 or a 403 but retries a network failure", () => {
+    const { retry } = captureContextQuery("v1");
+    expect(retry(0, new ApiError(401, "x"))).toBe(false);
+    expect(retry(0, new ApiError(403, "x"))).toBe(false);
+    expect(retry(0, new TypeError("Failed to fetch"))).toBe(true);
+    expect(retry(3, new TypeError("Failed to fetch"))).toBe(false);
+  });
+
+  // The token store's latch answers every call at once until a reload, so
+  // retrying it only shows "Loading" for the length of the retries.
+  it("does not retry the latched store's 503 but retries any other 503", () => {
+    const { retry } = captureContextQuery("v1");
+    expect(retry(0, new ApiError(503, "x", "auth_unavailable"))).toBe(false);
+    expect(retry(0, new ApiError(503, "x"))).toBe(true);
   });
 });

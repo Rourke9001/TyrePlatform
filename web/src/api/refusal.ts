@@ -1,8 +1,6 @@
-// Turning a refusal into a sentence a person reads. One implementation, so
-// the rule about *which* messages may be rendered lives in one place: our own
-// validation and conflict messages are safe to show (ADR-0012/ADR-0013), and
-// anything else gets the screen's general sentence rather than a wrong
-// specific one. The wording stays per-screen. That is content, not logic.
+// One implementation of which refusal codes may be shown verbatim
+// (ADR-0012/ADR-0013); anything else gets the screen's fallback. Wording is
+// per-screen; this is the rule alone.
 
 import { ApiError } from "./client";
 

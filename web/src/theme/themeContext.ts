@@ -1,7 +1,6 @@
-// The context and its hook live apart from the provider component because a
-// module that exports both a component and a non-component loses Vite's fast
-// refresh for the whole file. Every branding edit would remount the tree
-// instead of hot-swapping it (TYRE-49, react-refresh/only-export-components).
+// Context and hook live apart from the provider: a module exporting both a
+// component and a non-component loses Vite fast refresh for the whole file
+// (TYRE-49, react-refresh/only-export-components).
 
 import { createContext, useContext } from "react";
 import type { Branding } from "../api/branding";

@@ -75,8 +75,8 @@ the API boundary where the SRS verifies it.
 tenant, and only the API integration tests catch it. Discipline lives in
 review plus tests, not in the database.
 
-**Revisit when:** a scoping bug reaches staging; OI-29 lands a second party
-type (seller visibility is *cross*-tenant by design, which Option C cannot
+**Revisit when:** a scoping bug reaches staging; the post-POC marketplace
+(ADR-0003) lands a second party type (seller visibility is *cross*-tenant by design, which Option C cannot
 express and RLS must); or the P3 offline sync endpoints are built and the
 sync payload needs server-side scoping guarantees stronger than per-handler
 composition.

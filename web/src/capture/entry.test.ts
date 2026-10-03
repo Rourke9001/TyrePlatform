@@ -23,10 +23,9 @@ describe("applyKey at whole-millimetre granularity", () => {
     expect(state.treads[0]).toBe(13);
   });
 
-  // The rule is one sentence: settle when appending any further digit would
-  // exceed the ceiling. At 1.0mm that means 4..9 settle on the first press
-  // (40 and up are past the 35mm limit) while 1, 2 and 3 wait, because
-  // 10-35mm are real readings.
+  // Settle rule: settle when another digit would exceed the ceiling. At
+  // 1.0mm, 4-9 settle on the first press; 1-3 wait, since 10-35mm are real
+  // readings.
   it("settles a first digit that cannot grow", () => {
     const r = applyKey(newEntryState(3), { type: "digit", digit: "7" }, whole);
     expect(r.state.treads[0]).toBe(7);
@@ -183,12 +182,10 @@ describe("applyKey at other granularities (FR-CFG-027)", () => {
     expect(r.settled).toBe(false);
   });
 
-  // Guards the isPressure half of the half case's first check: without it,
-  // indexing the treads array at the pressure field's index yields
-  // undefined, which is not === null, so Math.floor(undefined) writes NaN
-  // into a slot past the end of the treads array. That write lands in
-  // treads, not pressureKpa, so it is the settled assertion below, not the
-  // pressureKpa one, that discriminates the guard being removed.
+  // Guards the isPressure branch of the half case: without it, indexing
+  // treads at the pressure index yields undefined, and Math.floor(undefined)
+  // writes NaN past the array's end, discriminated by the settled
+  // assertion, not the pressureKpa one.
   it("ignores the half key while focused on the pressure field", () => {
     const atPressure = { ...newEntryState(3), field: 3 };
     const r = applyKey(atPressure, { type: "half" }, halves);

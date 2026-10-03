@@ -124,21 +124,6 @@ func TestRetreadJobDaysOutIsTenantLocal(t *testing.T) {
 	}
 }
 
-// plantRemovalThreshold plants rule 5's removal threshold, the configuration
-// key app.current_removal_threshold_mm resolves. A Go-planted tenant has no
-// such row, and app.log_retread_return refuses an accepted return without
-// one (TY014) rather than storing a NULL rate, so every Log Retread fixture
-// plants it. Backdated for plantRemovalReasons' reason: the resolver reads
-// effective_from <= now() inside a later transaction.
-func plantRemovalThreshold(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, mm string) {
-	t.Helper()
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.configuration (tenant_id, key, value, effective_from)
-		 VALUES ($1, 'removal_threshold_mm', to_jsonb($2::numeric), now() - interval '1 hour')`,
-		tenantID, mm)
-	require.NoError(t, err)
-}
-
 // retreadReturnBody is the Log Retread request every test below sends, so a
 // wire field changing name breaks in one place. Money is a string end to end
 // (rule 2): nothing in Go or in a test parses one.
@@ -157,13 +142,17 @@ func retreadReturnBody(returnedOn, reportReference, retreadCost, postTreadMm, ca
 // numeric(12,2) rounding lands on a different number from one derived after
 // it (lesson 2026-09-01: a parameter's numeric(p,s) is discarded, only a
 // local rounds).
+//
+// The policy's threshold is 5.0, not the column default, and the expected
+// rate names that 5.0 rather than asking the resolver, so a return rated
+// from any other threshold source fails here (rule 5, TYRE-308).
 func TestLogRetreadReturnPropagates(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "retread-return")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+	const retreadThresholdMm = "5.0"
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, retreadThresholdMm)
 	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 3)
 
 	const retreadCost, postTreadMm, casingValue = "2500.005", "12.0", "800.00"
@@ -174,15 +163,13 @@ func TestLogRetreadReturnPropagates(t *testing.T) {
 			retreadCost, postTreadMm, casingValue))
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 
-	// The same function, on the same inputs, inside the tenant's own session
-	// so app.current_removal_threshold_mm resolves, never arithmetic here.
+	// The same function on the same inputs, never arithmetic here.
+	// app.rand_per_mm is IMMUTABLE and reads no tenant state, so the admin
+	// connection is enough.
 	var expectedRate string
-	require.NoError(t, s.InActorTx(ctx, tenantID, controller, func(tx pgx.Tx, _ auth.Actor) error {
-		return tx.QueryRow(ctx,
-			`SELECT app.rand_per_mm($1::numeric(12,2), $2::numeric(4,1),
-			                        app.current_removal_threshold_mm())::text`,
-			retreadCost, postTreadMm).Scan(&expectedRate)
-	}))
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT app.rand_per_mm($1::numeric(12,2), $2::numeric(4,1), $3::numeric)::text`,
+		retreadCost, postTreadMm, retreadThresholdMm).Scan(&expectedRate))
 
 	listRec := get(t, h, "/api/tyres", tenantID.String(), controller.String())
 	require.Equal(t, http.StatusOK, listRec.Code, listRec.Body.String())
@@ -232,8 +219,7 @@ func TestLogRetreadRequiresLogRetread(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "retread-return-gate")
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 	jobID, _, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
 	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
 
@@ -261,8 +247,7 @@ func TestRetreadReturnCrossTenantIsInvisible(t *testing.T) {
 	jobA, tyreA, _ := plantOpenRetreadJob(t, ctx, admin, tenantA, 2)
 
 	tenantB, _ := plantTenant(t, ctx, admin, "retread-xten-b")
-	plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantB, "4.0")
+	plantFleetRetreadPolicy(t, ctx, admin, tenantB, 2, "4.0")
 	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -288,64 +273,71 @@ func TestRetreadReturnCrossTenantIsInvisible(t *testing.T) {
 	require.Zero(t, retreadCount)
 }
 
-// returnedOn is parsed in Go before the transaction opens, like the
-// dispatch's sentOn, for the reason instantField's note gives (fitments.go).
-func TestLogRetreadReturnRefusesMalformedReturnedOn(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "retread-bad-date")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
-	jobID, _, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
+// TYRE-208 F6: logRetreadReturn's two shape refusals, one row each. Both are
+// shape refusals ADR-0013 decision 5 puts in Go before a transaction opens,
+// so each case carries the request body it needs; the job stays open in
+// either case, and the absent-decision case additionally pins the tyre's
+// state, since an absent decision must never reach the bare bool's false,
+// which is the rejection that scraps the casing.
+func TestLogRetreadReturnShapeRefusals(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// body builds the request from the job's fixture, so a case that
+		// needs tenantToday can read it.
+		body            func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string
+		wantMessagePart string
+		checkTyreState  bool
+	}{
+		{
+			// returnedOn is parsed in Go before the transaction opens, like
+			// the dispatch's sentOn, for the reason instantField's note
+			// gives (fitments.go).
+			name: "malformed returnedOn",
+			body: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string {
+				return retreadReturnBody("31-12-2026", "RPT-BAD", "1000.00", "12.0", "500.00")
+			},
+			wantMessagePart: "returnedOn",
+		},
+		{
+			name: "absent casingAccepted",
+			body: func(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) string {
+				return fmt.Sprintf(`{"returnedOn":%q,"reportReference":"RPT-NODEC"}`,
+					tenantToday(t, ctx, admin, tenantID))
+			},
+			wantMessagePart: "casingAccepted",
+			checkTyreState:  true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			s, admin := testStore(t, ctx)
+			tenantID, _ := plantTenant(t, ctx, admin, "retread-shape-refusal")
+			controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+			plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
+			jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
 
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(),
-		retreadReturnBody("31-12-2026", "RPT-BAD", "1000.00", "12.0", "500.00"))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "invalid_submission", ref.Code)
-	require.Contains(t, ref.Message, "returnedOn")
+			h := httpapi.New(s, httpapi.HeaderActorResolver{})
+			rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(),
+				tc.body(t, ctx, admin, tenantID))
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Contains(t, ref.Message, tc.wantMessagePart)
 
-	var returnedAt *string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT returned_at::text FROM app.retread_job WHERE id = $1`, jobID).Scan(&returnedAt))
-	require.Nil(t, returnedAt, "the refusal never reached the database")
-}
+			var returnedAt *string
+			require.NoError(t, admin.QueryRow(ctx,
+				`SELECT returned_at::text FROM app.retread_job WHERE id = $1`, jobID).Scan(&returnedAt))
+			require.Nil(t, returnedAt, "the refusal never reached the database")
 
-// The presence check the handler owns (ADR-0013 d.5): whether the key is
-// there is the request's shape, and its absence must never reach the bare
-// bool's false, which is the rejection that scraps the casing. Refused
-// before any transaction opens, in the same vocabulary as the two required
-// strings beside it.
-func TestLogRetreadReturnRequiresTheCasingDecision(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "retread-no-decision")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
-	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 1)
-
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"returnedOn":%q,"reportReference":"RPT-NODEC"}`,
-			tenantToday(t, ctx, admin, tenantID)))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "invalid_submission", ref.Code)
-	require.Contains(t, ref.Message, "casingAccepted")
-
-	var returnedAt *string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT returned_at::text FROM app.retread_job WHERE id = $1`, jobID).Scan(&returnedAt))
-	require.Nil(t, returnedAt, "the refused request closed nothing")
-	var state string
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
-	require.Equal(t, "AT_RETREADER", state, "an absent decision scrapped nothing")
+			if tc.checkTyreState {
+				var state string
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+				require.Equal(t, "AT_RETREADER", state, "an absent decision scrapped nothing")
+			}
+		})
+	}
 }
 
 // U9, FR-TYR-009, BR-VAL-004: the rejection is the other half of D3 and the
@@ -359,8 +351,7 @@ func TestLogRetreadReturnRejectedCasingIsScrapped(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "retread-rejected")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2)
-	plantRemovalThreshold(t, ctx, admin, tenantID, "4.0")
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
 	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 2)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})

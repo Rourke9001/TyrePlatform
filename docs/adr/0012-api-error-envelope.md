@@ -203,3 +203,40 @@ row and an endpoint test that reaches it. The same edit brings the row into
 line with `TY021` (000041), which had an entry and a test from the day it was
 raised but was never named here. `TY008`, `TY010` and `TY020` stay out on the
 reasoning already recorded above.
+
+**Amended 2026-09-23 (TYRE-153, TYRE-212):** the Consequences section above
+named a control, "tests keep the vocabulary aligned," that did not exist; the
+review sweep caught it 2.75x past the "roughly a dozen codes" revisit trigger.
+The control now exists as one file, `api/internal/httpapi/refusal_codes.json`,
+naming every code `writeError` can emit and every TY code any app-schema
+function raises whether or not a route can reach it. Three tests hold it to
+account from the three places that need to agree, and each checks something
+different (clarified 2026-09-24, TYRE-303):
+`TestRefusalCodesRegistryCoversGoWireVocabulary` (this package) checks set
+equality between the named (non-TY) `code` constants Go declares and the
+registry's named keys, so a rename shows up as clearly as an addition. On
+the TY side it requires every TY-shaped Go constant to be a registry key with
+a non-null `httpStatus`, and it holds `submitStatus`'s TY entries equal to the
+registry's reachable TY keys, status included.
+`TestEveryTYCodeRaisedInSchemaIsRegistered` (this package) checks set
+equality between the TY codes live app-schema functions raise (an `ERRCODE`
+or `RAISE ... SQLSTATE` site, not a `WHEN SQLSTATE` handler) and the
+registry's TY keys. `web/lint/refusal.test.ts` checks one direction only:
+every code a screen speaks is a registry key, and a TY-shaped one has a
+non-null `httpStatus`. A registry key no screen speaks is not a failure.
+The TypeScript half lives under `web/lint/`, not `web/src/api/`, because
+`tsconfig.e2e.json` already carries the node types it needs; giving
+`web/tsconfig.json` those types would apply them program-wide, where Vite
+polyfills neither `process` nor `Buffer` for browser code. It reads
+`src/api/refusal.ts` as text for the same reason: an import would pull that
+file's dependency graph, down to `import.meta.env`, into a program without
+the `vite/client` types (TYRE-184). The registry file is also TYRE-191 F2's
+canonical home for the per-code meanings that had
+drifted into four wordings across seven frozen migration preambles: a future
+migration's SQLSTATE preamble cites this file instead of restating a code's
+meaning from memory. `docs/architecture.md`'s TY code ledger (added by
+TYRE-260) is the narrative summary for a reader who wants prose, not a JSON
+key; it names the same 22 codes and is not machine-checked against the
+schema, so a drift between the two shows up as a documentation review
+finding, not a test failure, until it cites this file instead of repeating
+its own copy.

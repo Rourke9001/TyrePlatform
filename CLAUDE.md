@@ -6,21 +6,30 @@ get a live dashboard of condition, value and cost-per-kilometre.
 
 Read this file before doing anything.
 
-**The specification is not in this repo.** The SRS, POC scope and agreement,
-project brief, axle configuration reference and capture sheet analysis live in
-Confluence. `.mcp.json` ships the Atlassian server, so fetch them from there —
-`docs/spec/` may hold an untracked local mirror for grepping, but it is a
-cache, never the authority. Read the project brief before substantive design
-work. Search the SRS; do not read it end to end.
+**Jira is the current state of the work; Confluence is the authority.** The
+SRS, POC scope and agreement, project brief, axle configuration reference and
+capture sheet analysis live in Confluence, and `.mcp.json` ships the Atlassian
+server. Read a ticket from Jira and the requirements it cites from Confluence,
+never from a local copy: anything under `docs/spec/` is untracked and may be
+stale. Read the project brief before substantive design work. Search the SRS;
+do not read it end to end.
 
-## The one constraint everything is subordinate to
+A problem found along the way, whether a defect, a requirement that does not
+fit or a better approach than the SRS describes, is checked against the SRS
+and raised as a new Jira ticket. Where the SRS is wrong or the other approach
+wins, that ticket proposes the SRS change, and the SRS is updated rather than
+worked around (owner, 29 Sep 2026).
 
-> A driver must capture a full vehicle in under three minutes, on a phone, in
-> the sun, with gloves on.
+## The capture target
 
+> A driver captures a vehicle in about three minutes, on a phone, in the sun,
+> with gloves on.
+
+This is the UX target capture is designed to, not a rule, an acceptance
+criterion or a KPI (owner, 29 Sep 2026); web/CLAUDE.md carries the SRS figures.
 A completed sheet carries **three tread readings per position**, so a superlink
-is 108 numeric entries, not 52. If a change makes capture slower it is wrong,
-however good it looks on the dashboard. Adoption is the whole game.
+is 108 numeric entries, not 52, and a change that adds taps or seconds per
+position needs a reason that outweighs them. Adoption is the whole game.
 
 ## Non-negotiable rules
 
@@ -79,8 +88,8 @@ See `docs/architecture.md` and the ADRs in `docs/adr/`. In short:
 - `db/` — PostgreSQL 16. The business rules live here: valuation functions,
   exception views, RLS policies. This is deliberate, not laziness.
 - `api/` — Go. Thin. Auth, tenant context, transport, sync reconciliation.
-- `web/` — React + Vite. Two apps: the driver capture PWA and the manager
-  dashboard.
+- `web/` — React + Vite. One application (IR-UI-001): the driver capture PWA
+  and the manager dashboard, reached by role-appropriate routes.
 - `infra/` — Bicep. Azure.
 
 **Where logic belongs:** if it is a business rule about tyres, it goes in SQL
@@ -101,7 +110,9 @@ acceptance gate rests on there being exactly one implementation.
 - `context.Context` is the first parameter, always.
 
 **TypeScript / React**
-- Function components, hooks. No class components.
+- Function components, hooks. No class components, with one named
+  exception: `web/src/shell/RouteErrorBoundary.tsx`, because React catches
+  a render error only in a class (U54). eslint refuses any other.
 - `strict: true`. No `any` — if you reach for it, the type is wrong.
   `@typescript-eslint/no-explicit-any` is an error, not a warning.
 - Tanstack Query for server state, plain `useState`/`useReducer` for local.
@@ -112,16 +123,53 @@ acceptance gate rests on there being exactly one implementation.
   `eslint-config-prettier` last, so exactly one tool has an opinion about any
   given line.
 
+**UI design skills advise; this file and ADR-0015 decide.** `ui-ux-pro-max`
+(project plugin) is for design direction: palette, type, layout, UX rules.
+`web-design-guidelines` (`.claude/skills/`) is a `file:line` audit for
+accessibility, forms, focus and motion; run it over changed UI files before a
+PR. Where either one contradicts the repo, the repo wins:
+
+- ADR-0015 is the one styling system: `tokens.ts` and plain CSS, Radix for the
+  hard controls, inline SVG charts. No Tailwind, shadcn, GSAP or component
+  library, whatever a search result recommends. Fonts stay self-hosted
+  (`web/src/theme/fonts.ts`), never a CDN.
+- Never run `ui-ux-pro-max` with `--persist`. The token file is the design
+  authority, and a `design-system/MASTER.md` would be a second one.
+- Copy stays straight-quoted and sentence case (`/unslop`), not curly quotes
+  or Title Case.
+- Dates render through `web/src/time/tenantTime.ts` (rule 6) and money through
+  `formatRand` in `web/src/api/money.ts` (rule 2), never through `Intl`
+  directly.
+- The capture route is designed to the three-minute target and held to its
+  bundle budget first. NFR-USE-004 floors its targets at 44px, and the keypad and tiles sit
+  at 56 to 64px for gloves. A skill's 44px is that floor, not a size to
+  shrink to.
+
+The same precedence holds for `frontend-design` and `dataviz`.
+- The dashboard and exceptions mockups accepted at the TYRE-238 gate are
+  fixed. The rest of the web app is redesigned in B7.4 (TYRE-240).
+
 **Formatting and linting are not advisory.** Every command in `make lint`
 can fail the build, and `make lint` runs the same set as CI in the same
 order. If a gate cannot run, fix the gate — do not let it pass silently.
+
+Two hooks in `.claude/hooks/` refuse the edit or command rather than warn
+after it, because both rules had already been written down and neither held
+(TYRE-250). `gate-not-piped.sh` blocks a gate piped into anything, since the
+status you read back is the pipe's; `set -o pipefail` is the way through.
+`migration-immutable.sh` blocks an edit to a migration already on
+`origin/develop` — a migration on a feature branch stays editable, an applied
+one is replaced by a new pair.
 
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.
 Comment *why*, never *what*. `// increment i` is noise. Never narrate a
 change or compare to the old code — git holds the history. One rationale
-lives in one place; other files cite it. `TODO` needs a ticket ID on the
-same line. Comments and user-facing strings follow `/unslop`: no em dashes,
+lives in one place; other files cite it. **One constraint per comment, in
+a few lines, with its ID.** Measurements, rejected alternatives and
+cross-file storytelling go to `docs/lessons.md`, the ADR or the spec, and
+the comment cites the path. A header that needs a page is a doc not yet
+written (TYRE-260). `TODO` needs a ticket ID on the same line. Comments and user-facing strings follow `/unslop`: no em dashes,
 straight quotes, plain words (the `Prose` section of `docs/comments.md`).
 A hook, `make lint` and CI all run `scripts/check-comment-style.mjs`; run
 `/comment-audit` when closing out a branch. The comments worth writing here
@@ -143,8 +191,9 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
   positions below the removal threshold**. The database computes them through
   one view, `app.v_exception` (migration 000045), judged at each unit's latest
   inspection; `db/tests/004_tests.sql` §59 pins the numbers and §8 the
-  position sets. The API will relay that view (B7.2) and the dashboard's e2e
-  will assert the rendered counts against it (B7.3), once both land. The
+  position sets. The API relays that view (B7.2, `GET /api/exceptions`), and the
+  dashboard's e2e asserts the rendered counts against it
+  (`web/e2e/dashboard.spec.ts`, in the `bac-readonly` project). The
   capture app's leg never reads the view and, being online-first, never
   will: it warns per vehicle at entry from its own independent
   implementation of the same thresholds (`web/src/capture/warnings.ts`).
@@ -180,20 +229,20 @@ Do not drift into any of these. They come up repeatedly.
 - **Not a compliance system.** The platform reports the tenant's *configured
   policy* thresholds. It does not determine roadworthiness or legal minimums
   and must never be described as doing so.
-- **Not a marketplace.** The tyre-seller marketplace is out of scope pending
-  OI-29. It implies a second customer type, which is a tenancy decision, not a
+- **Not a marketplace.** The tyre-seller marketplace is post-POC (ADR-0003).
+  It implies a second customer type, which is a tenancy decision, not a
   feature. Do not build toward it without an explicit decision.
 - Out of scope: telematics/TPMS, native apps (PWA only), ML tread reading from
   photos, procurement and accounting integration.
 
-## Open questions that block work
+## Questions outside the codebase
 
-`docs/open-issues.md` is the live register, mirrored in Jira under TYRE-11.
-Nothing blocks code today: the sponsor's 22 Aug 2026 answers closed the old
-blockers (OI-28's answer — tread positions are outer/centre/inner relative to
-the vehicle centreline — is CHG-010, and pre-convention captures carry
-`orientation_known = false`). The open items that shape upcoming work are
-OI-29 (tenancy, sponsor acceptance of ADR-0003) and OI-31/32/33.
+Sponsor, commercial, IP and legal questions are handled by the team outside
+the project, and Jira carries codebase and infrastructure work only (owner,
+29 Sep 2026). The answers already given are recorded in Confluence. One shapes
+the schema throughout: tread positions are outer/centre/inner relative to the
+vehicle centreline (CHG-010), and pre-convention captures carry
+`orientation_known = false`.
 
 ## Working with me
 

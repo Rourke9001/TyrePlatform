@@ -17,6 +17,7 @@ import (
 
 	"tyreplatform/api/internal/auth"
 	"tyreplatform/api/internal/httpapi"
+	"tyreplatform/api/internal/store"
 )
 
 type fitWarningBody struct {
@@ -716,7 +717,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_Fitment(t *testing.T) {
 	userB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
 	tyreB := plantTyre(t, ctx, admin, tenantB, "SMUGGLED-FIT-"+uuid.NewString()[:8], nil)
 
-	err := s.InActorTx(ctx, tenantA, userA, func(tx pgx.Tx, _ auth.Actor) error {
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
 		_, err := tx.Exec(ctx,
 			`INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at,
 			                          fitted_odometer, fitted_tread_mm, mount_orientation, created_by)
@@ -812,7 +813,7 @@ func TestFitmentTextFieldsAreLengthCapped(t *testing.T) {
 //
 // The TECHNICIAN rows are what make the ManageAssets ones discriminate. That
 // role holds ViewFleet and nothing else (auth.go's capabilities map), so the
-// same actor is admitted to the two ViewFleet reads and refused the three
+// same actor is admitted to the three ViewFleet reads and refused the two
 // ManageAssets surfaces, the gate under test is the capability itself, not
 // tenant membership and not the route.
 func TestFitmentSurfaceEndpointsAreCapabilityGated(t *testing.T) {
@@ -839,12 +840,11 @@ func TestFitmentSurfaceEndpointsAreCapabilityGated(t *testing.T) {
 		actor  uuid.UUID
 		want   int
 	}{
-		// units.go listDepots: require(a, auth.ManageAssets). Of these five
-		// it is the one read gated on a write capability, a depot list is
-		// the dispatch and return forms' picker, so a role that may not act
-		// on it has no use for it. The TECHNICIAN row is what proves the gate
-		// is ManageAssets and not ViewFleet.
-		{"depots refuse a technician", http.MethodGet, "/api/depots", "", technician, http.StatusForbidden},
+		// units.go listDepots: require(a, auth.ViewFleet), since the
+		// dashboard's depot filter is a read a TECHNICIAN must reach
+		// (FR-DSH-011, U42). The TECHNICIAN row proves the gate is ViewFleet
+		// and not ManageAssets.
+		{"depots admit a technician", http.MethodGet, "/api/depots", "", technician, http.StatusOK},
 		{"depots refuse a driver", http.MethodGet, "/api/depots", "", driver, http.StatusForbidden},
 
 		// units.go listOpenFitments: require(a, auth.ViewFleet). open=true is

@@ -23,7 +23,9 @@ reviews:
         canonical home in another file, or is longer than its load-bearing
         content. A comment stating a domain rule about tyres, valuation,
         inspections or tenancy must cite a requirement ID (FR-, NFR-, CR-,
-        BR-, DR-) or a ticket (TYRE-, OI-); the IDs come from the SRS in
+        BR-, DR-), a sponsor change or clarification (CHG-, CFL-, both of
+        which carry the same weight as an FR- and are used throughout
+        db/migrations) or a ticket (TYRE-, OI-); the IDs come from the SRS in
         Confluence, so treat an ID that does not look like one already used
         in the repo as suspect. Prose in comments and user-facing strings
         follows the Prose section: no em dashes, straight quotes, plain

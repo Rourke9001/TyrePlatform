@@ -7,12 +7,10 @@ import { completenessByUnit, rigPositions } from "./rig";
 import type { WarningCode } from "./warnings";
 import "./capture.css";
 
-// Short driver-facing names for what was flagged. The full sentence was shown
-// at the position and acted on there (FR-INS-040); this list is the index back
-// to it, not a second telling. A Record over the closed WarningCode union
-// rather than a lookup with a fallback: adding a code without a name here is a
-// compile error, which is the only thing that keeps the two from drifting.
-// CR-010 / OR-LEG-001 governs every string in it.
+// Short driver-facing names for what was flagged; the full sentence was shown
+// and acted on at the position (FR-INS-040). A Record over the closed
+// WarningCode union, not a lookup with a fallback, so a new code without a
+// name is a compile error (CR-010/OR-LEG-001 governs every string).
 const WARNING_NAME: Record<WarningCode, string> = {
   "FR-INS-031a": "Pressure well off target",
   "FR-INS-033": "Big jump on the odometer",
@@ -23,13 +21,9 @@ const WARNING_NAME: Record<WarningCode, string> = {
   "FR-INS-041": "Uneven wear across the tyre",
 };
 
-// NFR-USE-001's budget, made visible while the driver can still see what it
-// bought. The value is frozen at the moment the review opens rather than
-// ticking: this is a summary of the walk-around, not a stopwatch, and a
-// re-rendering clock on every keystroke in the comment box is noise.
-// The figure is elapsed time, which is what a driver standing at the truck
-// recognises; the acceptance median is measured from the per-position
-// seconds instead (payload.ts, TYRE-150).
+// NFR-USE-001's budget, frozen at review-open rather than ticking (a
+// summary, not a stopwatch). Elapsed time here; the acceptance median is
+// measured from per-position seconds instead (payload.ts, TYRE-150).
 function elapsedWords(fromIso: string, to: number): string {
   const seconds = Math.max(0, Math.round((to - Date.parse(fromIso)) / 1000));
   const minutes = Math.floor(seconds / 60);
@@ -50,9 +44,8 @@ export function CaptureReview({
   // filters on, so the count the driver reads and the completeness_pct the
   // server stores cannot disagree.
   doneCells: ReadonlySet<string>;
-  // TYRE-155: off the denominator here the same way it is on the diagram, so
-  // a unit with no spare reads "all done" at the last screen before submit
-  // too, not just on the walk-around.
+  // TYRE-155: off the denominator here too, so a unit with no spare reads
+  // "all done" at the last screen before submit, not just on the walk-around.
   absentCells: ReadonlySet<string>;
   // The shortfall above is only useful if the driver can act on it while they
   // are still standing at the vehicle.
@@ -67,12 +60,10 @@ export function CaptureReview({
   const done = units.reduce((n, u) => n + u.done, 0);
   const total = units.reduce((n, u) => n + u.total, 0);
 
-  // The same projection the diagram numbers from, so a driver reading
-  // "Position 7" here walks to the wheel they were just standing at. The
-  // fleet number rides along because a spare carries no walk-around number:
-  // every unit in a rig has one (BR-VEH-003), so two flagged spares would
-  // otherwise be two identical rows at the moment the driver decides whether
-  // to submit. Named the way the diagram cell and the position sheet name it.
+  // The same projection the diagram numbers from, so "Position 7" here is
+  // the wheel just stood at. The fleet number rides along since a spare
+  // carries no walk-around number and every unit in a rig has one
+  // (BR-VEH-003), or two flagged spares would render as identical rows.
   const whereOf = useMemo(() => {
     const map = new Map<string, string>();
     for (const r of rigPositions(contexts)) {
@@ -135,12 +126,9 @@ export function CaptureReview({
         <p className="cap-hint">Nothing to flag.</p>
       ) : (
         <ul className="cap-flags">
-          {/* The requirement id as a data attribute, never as rendered text or
-              an accessible name: CR-010 and OR-LEG-001 govern what a driver
-              sees, and the code is not it. A browser test keyed on the friendly
-              name above would fail on the next wording change and report a copy
-              edit as a broken agreement check. data-position-id on the diagram
-              cells is the same trade for the same reason. */}
+          {/* The requirement id as a data attribute, never rendered text:
+              CR-010/OR-LEG-001 govern what a driver sees. A test keyed on
+              the friendly name would fail on the next copy edit. */}
           {flagged.map((f) => (
             <li key={f.key} className="cap-flag" data-warning-code={f.code}>
               <span className="cap-flag-where">{f.where}</span>
@@ -151,10 +139,9 @@ export function CaptureReview({
         </ul>
       )}
 
-      {/* FR-INS-030a and FR-INS-030b are different fields with different
-          destinations: the defect report goes to the workshop queue, not to
-          the tyre controller, and the label has to say so or drivers will use
-          whichever box is nearer. */}
+      {/* FR-INS-030a/FR-INS-030b are different fields with different destinations
+          (workshop queue vs tyre controller); the label must say which or
+          drivers use whichever box is nearer. */}
       <label className="cap-field">
         <span className="cap-field-label">Comments about the tyres</span>
         <textarea
@@ -179,8 +166,8 @@ export function CaptureReview({
         type="button"
         className="cap-primary"
         // 000023 refuses an empty readings array, and the outbox reads that
-        // refusal as permanent (outbox.ts), so an inspection sent with nothing
-        // captured could never drain from the queue.
+        // refusal as permanent, so an inspection sent with nothing captured
+        // could never drain from the queue.
         disabled={done === 0}
         onClick={() => onSubmit({ comment: comment || null, defectReport: defect || null })}
       >

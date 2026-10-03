@@ -1,9 +1,8 @@
 import { apiGet, apiPost } from "./client";
 
-// Wire shapes of the inspection-task surface (api/internal/httpapi/tasks.go,
-// TYRE-90). UnitTask is a superset of DriverHome's own inline task type: a
-// shared shape is not widened for one consumer (spec U13's reasoning), so
-// the driver's list keeps its own type.
+// Wire shapes of the inspection-task surface (TYRE-90). UnitTask is a
+// superset of DriverHome's inline task type; not widened for one consumer
+// (U13).
 export interface UnitDriver {
   userId: string;
   displayName: string;

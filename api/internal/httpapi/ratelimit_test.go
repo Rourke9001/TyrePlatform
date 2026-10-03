@@ -154,16 +154,16 @@ func TestClientAddressUsesRightmostForwardedForHop(t *testing.T) {
 }
 
 // TestSubmitRateLimitKeysAddressOnRightmostForwardedForHop drives the same
-// scenario through submitRateLimit's actual address counter, not just
-// clientAddress in isolation: a forged leftmost entry must not buy a fresh
-// address bucket, and a genuinely different rightmost hop must land in a
-// different one. The account limiter is set high enough that only the
-// address axis can trip in this test.
+// scenario through requireActor and submitRateLimit's actual address
+// counter, as New wires them, not just clientAddress in isolation: a forged
+// leftmost entry must not buy a fresh address bucket, and a genuinely
+// different rightmost hop must land in a different one. The account limiter
+// is set high enough that only the address axis can trip in this test.
 func TestSubmitRateLimitKeysAddressOnRightmostForwardedForHop(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(100), newRateLimiter(2), 1)
-	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	limiter := submitRateLimit(newRateLimiter(100), newRateLimiter(2))
+	h := requireActor(HeaderActorResolver{}, 1)(limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-	}))
+	})))
 
 	send := func(forwardedFor string) int {
 		hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
@@ -171,8 +171,8 @@ func TestSubmitRateLimitKeysAddressOnRightmostForwardedForHop(t *testing.T) {
 		if forwardedFor != "" {
 			hreq.Header.Set("X-Forwarded-For", forwardedFor)
 		}
-		id := Identity{TenantID: uuid.New(), UserID: uuid.New()}
-		hreq = hreq.WithContext(context.WithValue(hreq.Context(), identityKey{}, id))
+		hreq.Header.Set("X-Tenant-ID", uuid.NewString())
+		hreq.Header.Set("X-User-ID", uuid.NewString())
 		rec := httptest.NewRecorder()
 		h.ServeHTTP(rec, hreq)
 		return rec.Code
@@ -187,12 +187,38 @@ func TestSubmitRateLimitKeysAddressOnRightmostForwardedForHop(t *testing.T) {
 		"a genuinely different rightmost hop is a fresh address bucket")
 }
 
+// The address counter keys on the client requireActor bound, so the limiter
+// and the refusal log (FR-AUD-004) name one address, derived once.
+func TestSubmitRateLimitKeysAddressOnTheBoundClient(t *testing.T) {
+	limiter := submitRateLimit(newRateLimiter(100), newRateLimiter(1))
+	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	send := func(client, remoteAddr string) int {
+		hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
+		hreq.RemoteAddr = remoteAddr
+		ctx := context.WithValue(hreq.Context(), clientKey{}, client)
+		id := Identity{TenantID: uuid.New(), UserID: uuid.New()}
+		hreq = hreq.WithContext(context.WithValue(ctx, identityKey{}, id))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, hreq)
+		return rec.Code
+	}
+
+	req.Equal(t, http.StatusOK, send("203.0.113.1", "10.0.0.4:443"))
+	req.Equal(t, http.StatusOK, send("203.0.113.2", "10.0.0.4:443"),
+		"a different bound client is a different bucket, over the same socket")
+	req.Equal(t, http.StatusTooManyRequests, send("203.0.113.1", "10.0.0.5:443"),
+		"the same bound client is the same bucket, over a different socket")
+}
+
 // TestSubmitRateLimitMiddlewareRefusesOverLimit exercises submitRateLimit
 // itself (not just the underlying counters), asserting the full sequence of
 // four requests rather than only the last: asserting only the last would
 // also pass if the first had been wrongly refused.
 func TestSubmitRateLimitMiddlewareRefusesOverLimit(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(2), newRateLimiter(100), 1)
+	limiter := submitRateLimit(newRateLimiter(2), newRateLimiter(100))
 	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -219,7 +245,7 @@ func TestSubmitRateLimitMiddlewareRefusesOverLimit(t *testing.T) {
 // identity bound is TY010's invariant breach, not a client mistake, so the
 // honest answer is 500 rather than 401 or 429.
 func TestSubmitRateLimitRefusesWithoutIdentity(t *testing.T) {
-	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10), 1)
+	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10))
 	h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
@@ -241,9 +267,9 @@ func TestSubmitRateLimitRefusesWithoutIdentity(t *testing.T) {
 // no-op handler below ever ran.
 func TestRequireActorRunsBeforeInlineRateLimitMiddleware(t *testing.T) {
 	router := chi.NewRouter()
-	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10), 1)
+	limiter := submitRateLimit(newRateLimiter(10), newRateLimiter(10))
 	router.Route("/api", func(r chi.Router) {
-		r.Use(requireActor(HeaderActorResolver{}))
+		r.Use(requireActor(HeaderActorResolver{}, 1))
 		r.With(limiter).Post("/inspections", func(w http.ResponseWriter, _ *http.Request) {
 			w.WriteHeader(http.StatusOK)
 		})
@@ -256,4 +282,46 @@ func TestRequireActorRunsBeforeInlineRateLimitMiddleware(t *testing.T) {
 	router.ServeHTTP(rec, hreq)
 
 	req.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+}
+
+// Each case is a set of accounts at a one-per-minute account limit, so a
+// second request landing in an earlier account's bucket would be refused.
+func TestSubmitRateLimitGivesEachBearerAccountItsOwnBucket(t *testing.T) {
+	tenant, subject := uuid.New(), uuid.New()
+	tests := []struct {
+		name string
+		ids  []Identity
+	}{
+		// Bearer identities carry no user id, so keying on UserID alone would
+		// put every signed-in person in one bucket (spec section 1, Rate limit).
+		{"each subject in one tenant", []Identity{
+			{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:a"},
+			{TenantID: tenant, Subject: uuid.New(), SessionID: "sid:b"},
+		}},
+		// A subject is unique only within a tenant (000052), so the same
+		// subject under a second tenant is a different account.
+		{"one subject in each tenant", []Identity{
+			{TenantID: uuid.New(), Subject: subject, SessionID: "sid:a"},
+			{TenantID: uuid.New(), Subject: subject, SessionID: "sid:b"},
+			{TenantID: uuid.New(), Subject: subject, SessionID: "sid:c"},
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			limiter := submitRateLimit(newRateLimiter(1), newRateLimiter(100))
+			h := limiter(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusOK)
+			}))
+			var codes, want []int
+			for _, id := range tt.ids {
+				hreq := httptest.NewRequest(http.MethodPost, "/api/inspections", nil)
+				hreq = hreq.WithContext(context.WithValue(hreq.Context(), identityKey{}, id))
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, hreq)
+				codes = append(codes, rec.Code)
+				want = append(want, http.StatusOK)
+			}
+			req.Equal(t, want, codes)
+		})
+	}
 }

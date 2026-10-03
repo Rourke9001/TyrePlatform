@@ -1,13 +1,10 @@
-import { QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { RigList } from "./RigList";
-import { ActorContext } from "../../auth/actorContext";
 import type { Rig } from "../../api/combinations";
-import { me, respond, testQueryClient } from "../../test/fixtures";
+import { renderWithActor, respond } from "../../test/fixtures";
 
 function rig(overrides: Partial<Rig> & { id: string }): Rig {
   return {
@@ -37,15 +34,7 @@ function rig(overrides: Partial<Rig> & { id: string }): Rig {
 }
 
 function renderList(capabilities: string[] = ["ViewFleet"]) {
-  return render(
-    <ActorContext.Provider value={{ actor: me({ capabilities }), settled: true }}>
-      <QueryClientProvider client={testQueryClient()}>
-        <MemoryRouter>
-          <RigList />
-        </MemoryRouter>
-      </QueryClientProvider>
-    </ActorContext.Provider>,
-  );
+  return renderWithActor(<RigList />, { capabilities, withRouter: true });
 }
 
 describe("the rigs list", () => {
@@ -56,10 +45,8 @@ describe("the rigs list", () => {
     vi.unstubAllGlobals();
   });
 
-  // D5: the motive is a link to its unit, and the composition renders in
-  // walk order with each descriptor in parentheses. The pinned
-  // text ("HORSE-1 › LINK-A (front) › LINK-B") is what the e2e also asserts
-  // on, so the render must produce it byte for byte, wrapper spans aside.
+  // D5: the pinned composition text ("HORSE-1 › LINK-A (front) › LINK-B")
+  // is what the e2e also asserts, so it must render byte for byte.
   it("links the motive to its unit and reads the composition in walk order", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(200, [rig({ id: "r1" })]));
     renderList();
@@ -129,9 +116,8 @@ describe("the rigs list", () => {
       expect.objectContaining({ method: "POST" }),
     );
     await screen.findByRole("heading", { name: "Ended rigs" });
-    // en-ZA's short month for September is "Sept", not "Sep" (Aug/Jul stay
-    // three letters elsewhere in this file, which is why only this one
-    // assertion needs the longer form).
+    // en-ZA's short month for September is "Sept", not "Sep" (unlike
+    // Aug/Jul elsewhere in this file).
     expect(await screen.findByText(/03 Sept 2026/)).toBeInTheDocument();
     expect(await screen.findByRole("status")).toHaveTextContent("Rig ended for HORSE-1.");
     // The refetched list carries only the now-ended rig, so Open rigs falls

@@ -1,0 +1,12 @@
+-- ============================================================================
+--  No caller can attach the governing-tread definer to a table (TYRE-346)
+--  Implements: FR-TEN-004; rule 1
+-- ============================================================================
+-- app_login could attach the definer to a temp table of its own and fire it
+-- with any reading id: it runs as its owner with RLS off, so its tenant check
+-- told the caller which ids were another tenant's readings. PostgreSQL checks
+-- EXECUTE on a trigger function at CREATE TRIGGER, not when it fires, so
+-- reading_measurement_governs keeps materialising the MIN (CR-011) without
+-- the grant. The two grants are PUBLIC's default and 000001's schema-wide one
+-- to app_rw. Suite section 67 holds this.
+REVOKE EXECUTE ON FUNCTION app.refresh_governing_tread() FROM PUBLIC, app_rw;

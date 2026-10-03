@@ -1,10 +1,8 @@
 import { apiGet, apiPost } from "./client";
 import type { UnitKind } from "./admin";
 
-// Wire shapes of the rig surface (api/internal/httpapi/combinations.go, D3).
-// The motive unit is always member sequence 1 with a null descriptor (U7),
-// mirrored here rather than special-cased: the server enforces the order,
-// this module only carries what it sends.
+// Wire shapes of the rig surface (D3). Motive is always member sequence 1
+// with a null descriptor (U7), enforced server-side; this only mirrors it.
 export interface RigMember {
   vehicleId: string;
   fleetNumber: string;

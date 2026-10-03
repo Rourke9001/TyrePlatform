@@ -1,54 +1,17 @@
-import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
-import { liveQuery } from "dexie";
+import { useEffect } from "react";
+
+import { SignInButton } from "../auth/SignInButton";
 
 import { ConfirmDiscard } from "./ConfirmDiscard";
-import type { OutboxEntry } from "./outbox";
-import { discardEntry, flushOutbox, isStale, listOutbox, startOutboxHeartbeat } from "./outbox";
+import { discardEntry, flushOutbox, isStale, startOutboxHeartbeat } from "./outbox";
+import { useOutbox, useSignInToSend } from "./useOutbox";
 import "./capture.css";
-
-// One shared empty array, so a snapshot taken before the first emission keeps
-// the same identity across renders. useSyncExternalStore re-renders forever if
-// getSnapshot returns a fresh object each time.
-const NONE: OutboxEntry[] = [];
-
-// Dexie's own liveQuery, subscribed through useSyncExternalStore. Not a
-// one-shot read: queueDraft and attemptSend run inside CaptureFlow with
-// nothing connecting them to this component, so a mount-time read would show
-// a stale count for the whole session.
-//
-// dexie-react-hooks packages this same subscription, but its type declarations
-// import y-dexie and yjs, optional peers that would have to be installed and
-// carried purely to satisfy a declaration file, and this project checks library
-// declarations on purpose (tsconfig.json sets no skipLibCheck; tsconfig.e2e.json
-// says why that exception exists and why it is one).
-function useOutbox(): OutboxEntry[] {
-  const held = useRef<OutboxEntry[]>(NONE);
-  const subscribe = useCallback((changed: () => void) => {
-    const subscription = liveQuery(() => listOutbox()).subscribe(
-      (entries) => {
-        held.current = entries;
-        changed();
-      },
-      () => {
-        // A dead IndexedDB is not an empty queue, but there is nothing here a
-        // driver can act on and no count that would be honest to show.
-        held.current = NONE;
-        changed();
-      },
-    );
-    return () => subscription.unsubscribe();
-  }, []);
-  return useSyncExternalStore(
-    subscribe,
-    () => held.current,
-    () => NONE,
-  );
-}
 
 // Mounted in the app shell rather than inside capture: a driver who has walked
 // away from the vehicle still needs to know something is waiting to send.
 export function OutboxIndicator() {
   const entries = useOutbox();
+  const needSignIn = useSignInToSend(entries);
 
   useEffect(() => {
     // FR-OFF-009: on app-open, and whenever connectivity returns while the
@@ -74,8 +37,10 @@ export function OutboxIndicator() {
   const stale = waiting.filter((e) => isStale(e));
 
   return (
-    <div className="cap-outbox" role="status">
-      <div className="cap-outbox-lines">
+    <div className="cap-outbox">
+      {/* Only the lines are live, so the actions beside them, and the sign-in
+          action's own alert, are not read into every status change. */}
+      <div className="cap-outbox-lines" role="status">
         {/* NFR-USE-009: the count is in words, not only a coloured badge. */}
         {waiting.length > 0 && (
           <span className="cap-outbox-line">
@@ -91,12 +56,10 @@ export function OutboxIndicator() {
           // ConfirmDiscard renders block content (section/p) once opened, which a
           // <span>, phrasing content only, cannot legally contain.
           <div key={e.clientUuid} className="cap-outbox-line cap-outbox-line--stop">
-            {/* TYRE-167 / FR-OFF-013: the recovery action once the office has
-                taken the readings over the phone. Confirmed, never automatic.
-                Named by vehicle so two refused entries get two distinguishable
-                buttons: this one permanently deletes a never-synced
-                inspection, and a duplicate accessible name is a mis-click
-                away from deleting the wrong one. */}
+            {/* TYRE-167/FR-OFF-013: the recovery action once the office has
+                taken the readings by phone, confirmed, never automatic.
+                Named by vehicle so two failed entries get two
+                distinguishable delete buttons. */}
             <ConfirmDiscard
               trigger={
                 e.fleetNumber ? `The office has ${e.fleetNumber}` : "The office has this one"
@@ -115,12 +78,18 @@ export function OutboxIndicator() {
             later. Check the time.
           </span>
         )}
+        {needSignIn > 0 && (
+          <span className="cap-outbox-line">
+            Sign in to send {needSignIn}&nbsp;inspection{needSignIn === 1 ? "" : "s"}
+          </span>
+        )}
         {stale.length > 0 && (
           <span className="cap-outbox-line cap-outbox-line--stop" role="alert">
             Waiting over two days. Please find signal and sync.
           </span>
         )}
       </div>
+      {needSignIn > 0 && <SignInButton label="Sign in" />}
       {/* FR-OFF-010 */}
       <button
         type="button"

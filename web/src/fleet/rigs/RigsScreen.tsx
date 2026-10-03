@@ -4,11 +4,10 @@ import { RigForm } from "./RigForm";
 import { RigList } from "./RigList";
 import "../fleet.css";
 
-// D5: the whole register on one screen. The form renders only for a
-// controller who can write it (ManageAssignments, U2). The route itself
-// gates the read at ViewFleet, so the list below always renders. The reported
-// differences come first: a report is about the rigs listed underneath, and
-// acting on one changes them (TYRE-75).
+// D5: the whole register on one screen. The write form renders only for
+// ManageAssignments (U2); the read gates at ViewFleet. Reported differences
+// come first since acting on one changes the rigs listed underneath
+// (TYRE-75).
 export function RigsScreen() {
   const canAssign = useCan("ManageAssignments");
 
