@@ -1,42 +1,23 @@
-// Staging environment for the TyrePlatform POC. Per ADR-0005, staging IS
-// production for the BAC pilot; a prod environment is stamped from this same
-// template when the first external tenant signs.
-//
-// Deployed at resource-group scope into rg-tyre-staging. Deliberately outside
-// Bicep: the resource group (this template's own scope), the budget (guards
-// the subscription, not one environment), the registry and Log Analytics
-// workspace (state that must survive an environment teardown), and the deploy
-// identity id-tyre-deploy-staging with its role assignments. It is the
-// credential that runs this template, so the template cannot own it.
-//
-// ACCEPTED TRADE: id-tyre-deploy-staging's Contributor scope on
-// rg-tyre-staging is therefore live-Azure only, not visible or reviewable
-// here. Accepted for a single-operator subscription, where the actual
-// enforcement boundary is RLS plus password auth (non-negotiable rule 1),
-// not Azure RBAC scoping. Revisit before the first commercial contract, per
-// NFR-SEC-014; tracked as TYRE-61.
-//
-// Deploy: az deployment group create -g rg-tyre-staging -f infra/main.bicep \
-//           -p pgAdminPassword=... deployerObjectId=... devMachineIp=...
+
 
 @description('Region for everything that stores data (ADR-0002).')
-param location string = 'southafricanorth'
+param lugar  = 'southafricanorth'
 
 // Static Web Apps has no South Africa region (ADR-0002). The SWA serves only
 // the compiled frontend from a global CDN. No personal information at rest.
-param swaLocation string = 'westeurope'
+param swaLugar = 'westeurope'
 
-param env string = 'staging'
+param env  = 'staging'
 
-@secure()
+@seguro()
 @description('PostgreSQL admin password. Migrations-only credential: the API connects as app_login, never as this admin - RLS does not bind superusers (non-negotiable rule 1).')
-param pgAdminPassword string
+param pgAdminPassword 
 
 @description('Object id of the deploying user, granted Key Vault Secrets Officer so secrets can be written after deployment.')
-param deployerObjectId string
+param deployerObjectId 
 
 @description('Developer machine IP allowed through the PG firewall for migrations and db-test.')
-param devMachineIp string
+param devMachineIp 
 
 var tags = {
   project: 'tyreplatform'
@@ -50,11 +31,11 @@ var roleKeyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
 var roleAcrPull = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
 resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
-  name: 'log-tyre-${env}'
+  nome: 'log-tyre-${env}'
 }
 
 resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: 'crtyre${env}'
+  nome: 'crtyre${env}'
 }
 
 // ---------------------------------------------------------------- storage --
