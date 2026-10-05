@@ -5,6 +5,17 @@
 
 Closes TYRE-
 
+## How it ran
+
+Stages from CLAUDE.md, How work runs. Delete the line a small fix or a
+docs-only PR does not use, and say which one it is.
+
+- Spec: `docs/superpowers/specs/`
+- Red team: verdict, and the Critical/Important findings fixed and ruled on
+- Small fix: the plan, in a few lines
+- [ ] Code review by a separate session (`/review-pr`): report path, and no
+      open Critical or Important finding
+
 ## Checks
 
 - [ ] `make check` passes locally
