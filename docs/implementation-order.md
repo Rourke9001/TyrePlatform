@@ -1,7 +1,7 @@
 # Implementation order
 
-Re-verified **2 Oct 2026** against `develop` @ `437bdff` and the board, at
-the close-out of sign-in's three PRs (#92 to #94, TYRE-317 and TYRE-376).
+Re-verified **5 Oct 2026** against `develop` @ `d009609` and the board, at
+the close-out of #95 (TYRE-317's runbook stage 2).
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -167,7 +167,8 @@ when a gap appears.
   unused Graph grant) and 379 (the Go 1.24 pin). TYRE-380, a dashboard test
   that races its debounce under load, belongs with gates and tooling.
 - **Gates and tooling:** TYRE-62, 110, 130, 138, 255, 264, 266, 267, 279, 293,
-  311 (U72), 313 (U73), 315, 331, 361, and the lint and confinement gaps from
+  311 (U72), 313 (U73), 315, 331, 361, 395 (CI holds a code PR until its
+  separate review is recorded, TYRE-394), and the lint and confinement gaps from
   the rider PR's review: TYRE-336, 343 and 344. TYRE-262 waits for W5e;
   TYRE-263 carries TYRE-192's leftover pattern under the applied-migration
   exemption.
