@@ -205,6 +205,38 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
 - Do not weaken a test to make it pass. If a test is wrong, say so and explain
   why before changing it.
 
+## How work runs
+
+Every ticket runs these five stages in order, and no stage starts until the
+one before it is done (owner, 5 Oct 2026, TYRE-394). `/ticket` walks them.
+
+1. **Spec.** `superpowers:brainstorming` writes
+   `docs/superpowers/specs/<date>-<topic>-design.md`, which is committed. It
+   cites SRS IDs from Confluence and never copies the requirement text. If a
+   requirement does not fit, the stage stops and a ticket proposing the SRS
+   change is raised.
+2. **Plan.** `superpowers:writing-plans` writes
+   `docs/superpowers/plans/<date>-<topic>.md`, which is gitignored.
+3. **Red team.** Dispatch the `plan-red-team` agent on the spec and the plan.
+   Each Critical or Important finding is either fixed in the plan or put to the
+   owner, and the agent runs again until it returns no Critical. The verdict
+   and the count of findings fixed and ruled on go in the PR body, because the
+   plan itself is not committed.
+4. **Implement.** Use `superpowers:subagent-driven-development` against the
+   plan. Run `make check` and open the PR.
+5. **Code review.** A separate Claude session, not a subagent of the one that
+   wrote the code, runs `/review-pr <n>`. A subagent cannot collect
+   `/code-review`, which launches as a background fork, and a reviewer that
+   shares the author's context shares its blind spots. The owner merges only
+   once the report shows no open Critical or Important finding.
+   `/code-review ultra` is the owner's to launch.
+
+**Small fixes** skip stages 1 and 3 and keep a short plan in the PR body. A
+small fix is one defect with a regression test, no migration, no new endpoint,
+route or screen, and no change to a non-negotiable rule. When in doubt, it is
+not a small fix. Stage 5 applies to every PR that touches `api/`, `db/`,
+`web/` or `infra/`. A PR that only touches docs is exempt.
+
 ## Repo etiquette
 
 - Branches: `develop` is the integration branch; `main` mirrors what
