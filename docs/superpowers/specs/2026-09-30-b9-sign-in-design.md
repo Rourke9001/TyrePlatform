@@ -614,7 +614,14 @@ renews:
   `removeUser()`, clears the mirror and returns null. The ID token carries the
   person's name and email address, so nothing then outlives the session
   (U102).
-- **`renew()` returns null,** for either reason. The call throws
+- **A renewal for another driver (U111 B, TYRE-396).** Only the redirect
+  callback changes the last-known subject. A renewal whose subject differs
+  from it, including one that settles after another tab's sign-out cleared
+  it, means a stored session never passed the U104 compare. The store asks
+  the chunk to discard that user, clears the mirror and treats the renewal
+  as null, so the next sign-in runs the compare as usual. A driver whose
+  subject write failed during sign-in is asked to sign in again.
+- **`renew()` returns null,** for any of these reasons. The call throws
   `ApiError(401, code "signed_out")` without touching the API.
 - **Renewal fails for want of a network.** The call throws the network
   error, so the outbox reads it as offline. The app does not claim the driver
@@ -729,9 +736,8 @@ inspection to whoever sends it, so the client makes sure that is the driver
 who captured it. The stamp fails closed:
 
 - **Its source.** The stamp is taken from its own `localStorage` key, the
-  last-known subject, not from the mirror. The redirect callback writes that
-  key at every sign-in and the token store at every renewal, and only
-  `signOut()` clears it. A 401, which clears the mirror, leaves it alone.
+  last-known subject, not from the mirror. Only the redirect callback writes
+  that key, at every sign-in (U111 B), and only `signOut()` clears it. A 401, which clears the mirror, leaves it alone.
 - **No subject, no draft.** A draft cannot start without a known subject. The
   capture start refuses and asks the driver to sign in.
 - **Rows from before this change.** A Dexie version bump (version 2) marks
