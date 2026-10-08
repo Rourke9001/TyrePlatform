@@ -104,6 +104,7 @@ vi.mock("../auth/oidc", () => ({
   signIn: vi.fn(),
   completeSignIn: vi.fn(),
   signOut: vi.fn(),
+  discardUser: vi.fn(() => Promise.resolve()),
 }));
 vi.mock("../shell/chunkReload", async (original) => ({
   ...(await original<typeof import("../shell/chunkReload")>()),
@@ -179,6 +180,51 @@ describe("credential", () => {
     expect(token.lastKnownSubject()).toBe("oid-a");
     expect(token.sessionLapsed()).toBe(true);
     expect(lapsed).toHaveBeenCalledTimes(1);
+  });
+
+  // U111 B: only the redirect callback changes the last-known subject, so a
+  // stored user it never recorded is dropped at renewal, not adopted.
+  it("drops a renewal that returns another subject, and keeps the last-known one", async () => {
+    const { token, oidc, ApiError } = await fresh();
+    token.writeMirror({ ...MIRROR, expiresAt: 0 });
+    vi.mocked(oidc.renew).mockResolvedValue({ ...RENEWED, subject: "oid-b" });
+
+    const error = await token.credential().catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ApiError);
+    expect((error as InstanceType<typeof ApiError>).status).toBe(401);
+    expect((error as InstanceType<typeof ApiError>).code).toBe("signed_out");
+    expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(token.readMirror()).toBeNull();
+    expect(token.lastKnownSubject()).toBe("oid-a");
+  });
+
+  // Another tab's sign-out clears the subject while this tab's renewal is in
+  // flight; the renewal must not write it back (U111 B).
+  it("drops a renewal that settles after the last-known subject was cleared", async () => {
+    const { token, oidc } = await fresh();
+    token.writeMirror({ ...MIRROR, expiresAt: 0 });
+    vi.mocked(oidc.renew).mockImplementation(() => {
+      window.localStorage.removeItem(SUBJECT_KEY);
+      return Promise.resolve(RENEWED);
+    });
+
+    await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+    expect(oidc.discardUser).toHaveBeenCalledTimes(1);
+    expect(token.lastKnownSubject()).toBeNull();
+    expect(token.readMirror()).toBeNull();
+  });
+
+  // Discarding is best effort; the mirror is cleared and the call refused
+  // whether or not the chunk could remove its stored user.
+  it("refuses the renewal even when the stored user cannot be discarded", async () => {
+    const { token, oidc } = await fresh();
+    token.writeMirror({ ...MIRROR, expiresAt: 0 });
+    vi.mocked(oidc.renew).mockResolvedValue({ ...RENEWED, subject: "oid-b" });
+    vi.mocked(oidc.discardUser).mockRejectedValueOnce(new Error("storage"));
+
+    await expect(token.credential()).rejects.toMatchObject({ status: 401, code: "signed_out" });
+    expect(token.readMirror()).toBeNull();
+    expect(token.lastKnownSubject()).toBe("oid-a");
   });
 
   // Another tab's sign-in writes the shared mirror. This tab's calls then

@@ -186,10 +186,12 @@ function setLapsed(value: boolean): void {
   lapseListeners.forEach((listener) => listener());
 }
 
+type Renewed = Awaited<ReturnType<typeof AuthChunk.renew>>;
+
 // The chunk never writes the mirror (spec section 4), so the store does. A
 // blocked store must not fail a renewed token, so only then is `held` kept;
 // a working store stays the one source, which another tab's sign-out clears.
-function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mirror | null {
+function mirrorRenewed(tokens: Renewed): Mirror | null {
   if (tokens === null) {
     held = null;
     clearMirror();
@@ -203,12 +205,24 @@ function mirrorRenewed(tokens: Awaited<ReturnType<typeof AuthChunk.renew>>): Mir
   };
   try {
     writeMirror(mirror);
-    rememberSubject(mirror.subject);
     held = null;
   } catch {
     held = mirror;
   }
   return mirror;
+}
+
+// U111 B: only the redirect callback changes the last-known subject, so a
+// renewal for anyone else, or for a subject cleared while it ran, ends that
+// session rather than adopting it.
+async function sameDriver(tokens: Renewed): Promise<Renewed> {
+  if (tokens === null || tokens.subject === lastKnownSubject()) return tokens;
+  try {
+    await (await authChunk()).discardUser();
+  } catch {
+    // Best effort; mirrorRenewed clears the mirror either way.
+  }
+  return null;
 }
 
 // The refresh request's timeout ends at its response headers, so a stalled
@@ -232,6 +246,7 @@ function renewOnce(): Promise<Mirror | null> {
   renewing ??= bounded(
     authChunk()
       .then((auth) => auth.renew())
+      .then(sameDriver)
       .then(mirrorRenewed)
       .finally(() => {
         renewing = null;
