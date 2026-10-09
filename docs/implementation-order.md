@@ -1,7 +1,7 @@
 # Implementation order
 
-Re-verified **8 Oct 2026** against `develop` @ `b4ee483` and the board, at
-the board prune that closed TYRE-392 (U115).
+Re-verified **9 Oct 2026** against `develop` @ `2d14d2d` and the board, at
+the close-out of #101 (TYRE-396) and #100 (the 8 Oct board prune).
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -102,8 +102,8 @@ that no batch owned before 24 Sep.
 
 | Slice | Tickets | Why it gates the pilot |
 |---|---|---|
-| Login | TYRE-317, the only open child of TYRE-2, with TYRE-376 closing alongside. The design is `docs/superpowers/specs/2026-09-30-b9-sign-in-design.md` with ADR-0016 (PR #90), from U91 and U100 to U104: a bearer token validated in Go; the tenant as an Entra claim, proven by the RLS lookup by `oid`; the dev header resolver compiled out; held inspections stamped with their driver. Its three PRs **merged** 2 Oct 2026 (#92 database and API, #93 web, #94 the runbook draft) and TYRE-376 is Done. TYRE-317 stays open for its first real sign-in, which waits on the Staging slice below. The owner's CIAM checks a, b, c and c2 passed on 2 Oct 2026 (comment 13468, Confluence page 10682399) and the runbook carries their values. The owner ruled U110 A and U111, U112 B (comment 13472), U113 A (a passcode user is created by Graph, comment 13469) and TYRE-387 A (a platform admin makes a tenant ACTIVE before its first ORG_ADMIN). TYRE-373 carries the SRS changes. The code review's residuals are TYRE-381 to 391 except 387; TYRE-388 follows U111, which lands as TYRE-396, and TYRE-393 is new; 389 comes before any send dedupe. U112 B and TYRE-392 (U114) were dropped on 8 Oct 2026: phones are personally owned, so the U104 undo at sign-in stays (U115) | FR-AUT-001 and 016; milestones M1 and M6. Staging answers 401 to everyone until stage 2 is done and `main` is promoted |
-| Staging | TYRE-79, then TYRE-51 on the Standard SKU with a linked backend (U75), which also carries NFR-SEC-010's web headers from TYRE-205 and carries TYRE-341's `navigationFallback` in the same config file; TYRE-79 carries TYRE-53; TYRE-305's pool of 7 (U71); TYRE-203's Bicep half; TYRE-368, the migration runbook with `btree_gist` allow-listed (U94); TYRE-374, the reset and the pilot tenants (U92); the owner's TYRE-63 | Every demo is a laptop until this lands. Staging's database was last migrated by hand on 21 Aug |
+| Login | TYRE-317, the only open child of TYRE-2, with TYRE-376 closing alongside. The design is `docs/superpowers/specs/2026-09-30-b9-sign-in-design.md` with ADR-0016 (PR #90), from U91 and U100 to U104: a bearer token validated in Go; the tenant as an Entra claim, proven by the RLS lookup by `oid`; the dev header resolver compiled out; held inspections stamped with their driver. Its three PRs **merged** 2 Oct 2026 (#92 database and API, #93 web, #94 the runbook draft) and TYRE-376 is Done. TYRE-317 stays open for its first real sign-in, which waits on the Staging slice below. The owner's CIAM checks a, b, c and c2 passed on 2 Oct 2026 (comment 13468, Confluence page 10682399) and the runbook carries their values. The owner ruled U110 A and U111, U112 B (comment 13472), U113 A (a passcode user is created by Graph, comment 13469) and TYRE-387 A (a platform admin makes a tenant ACTIVE before its first ORG_ADMIN). TYRE-373 carries the SRS changes. The code review's residuals are TYRE-381 to 391 except 387; U111 B landed as TYRE-396 (#101, 9 Oct 2026), so TYRE-388 is narrowed to bounding the redirect callback's wait, and TYRE-393 is new; 389 comes before any send dedupe. U112 B and TYRE-392 (U114) were dropped on 8 Oct 2026: phones are personally owned, so the U104 undo at sign-in stays (U115) | FR-AUT-001 and 016; milestones M1 and M6. Staging answers 401 to everyone until stage 2 is done and `main` is promoted |
+| Staging | TYRE-79, then TYRE-51 on the Standard SKU with a linked backend (U75), which also carries NFR-SEC-010's web headers from TYRE-205 and carries TYRE-341's `navigationFallback` in the same config file; TYRE-79 carries TYRE-53; TYRE-305's pool of 7 (U71); TYRE-203's Bicep half; TYRE-368, the migration runbook with `btree_gist` allow-listed (U94); TYRE-374, the reset and the pilot tenants (U92). TYRE-63 is done: the vault's Administrator assignment is gone, and the deployer's Secrets Officer grant (`infra/main.bicep`) arrives with the next Bicep deployment | Every demo is a laptop until this lands. Staging's database was last migrated by hand on 21 Aug |
 | Onboarding and the catalogue | TYRE-318 first, carrying TYRE-370, then TYRE-369 (the tenant's catalogue, per-size casing estimates and price list), TYRE-286, 288, 102, 283 and 99, and TYRE-322 with TYRE-168 (U99) | H.1 builds the pilot register through first inspections (U93). A tyre received before TYRE-318 records no size or new tread and can never be rated, so no real tyre is received before it |
 | Driver self-start and schedules | TYRE-319 first (U74, carrying TYRE-390's way back to a task-less draft), then TYRE-133 on TYRE-371's job runner, with TYRE-284's compliance read (U99) | A driver reaches capture only through a task; H.3 criterion 4 needs schedules and a count of tasks done on time |
 | What a manager sees | TYRE-325, 324 and 326 | Since #87 the dashboard reflects submits in aggregate, but no screen shows an inspection or its readings, and the unit screen's "Last tread" ignores inspections |
@@ -111,10 +111,11 @@ that no batch owned before 24 Sep.
 
 ## Constraints every branch carries
 
-The capture route's entry closure budget is 139228 gzip bytes in
-`web/bundle-budget.json`, recorded 2 Oct 2026 by TYRE-317's web PR (#93, U100:
-the token store, the driver stamp and the gate screens; the identity client
-loads in a lazy chunk). The gate only lets that figure go down. Every
+The capture route's entry closure budget is 139268 gzip bytes in
+`web/bundle-budget.json`, recorded 8 Oct 2026 by TYRE-396 (#101, +40 for the
+renewal's subject check). The token store, the driver stamp and the gate
+screens sit in the entry (TYRE-317, #93, U100); the identity client loads in a
+lazy chunk. The gate only lets that figure go down. Every
 capture-route change in the queue adds bytes: the W3 PR, photos and the
 manifest. Each such PR re-records
 the budget in its own commit and says why, so the growth is a decision, not an
@@ -168,8 +169,9 @@ when a gap appears.
   pin), 365, 366 (after TYRE-109) and 367 (U98's list page).
 - **Sign-in residuals** from the code review of #92 to #94: TYRE-381, 382,
   384, 385, 386, 389 (which bounds the request before any send dedupe) and
-  391. TYRE-388 follows U111, and TYRE-383 rides database step 4. U111 B
-  (TYRE-317 comment 13472) lands as TYRE-396, a small web fix; U112 B and
+  391. TYRE-388 is narrowed to bounding the callback's wait, and TYRE-383
+  rides database step 4. U111 B (TYRE-317 comment 13472) landed as
+  TYRE-396 (#101); U112 B and
   TYRE-392 were dropped (U115). TYRE-393, an invite that creates the
   Entra account, comes before a second customer onboards. From
   sign-in's planning: TYRE-377 (no endpoint deactivates a user), 378 (the
@@ -194,9 +196,9 @@ when a gap appears.
 **The owner:** once staging can sign anyone in, run
 sign-in's check d (TYRE-317 comment 13440), TYRE-381's device check and the
 `tyreadmin` role query (comment 13462); run the U94 read-only query on staging (TYRE-368, comment 13436)
-before its reset; switch Mend's Renovate from Silent to Interactive so it
-opens PRs (TYRE-304, comment 13489); remove the Key Vault Administrator
-assignment (TYRE-63); decide whether the live pressure entry groups thousands
+before its reset; close TYRE-304 once Renovate's first non-silent run opens
+the Dependency Dashboard issue (Silent mode was switched off 8 Oct, comment
+13564); decide whether the live pressure entry groups thousands
 (TYRE-342); and, once the staging query is in, decide whether the
 governing-tread definer runs as an owner that RLS binds (TYRE-350). TYRE-51
 and TYRE-154 need the platform domain, which the team registers outside Jira.
