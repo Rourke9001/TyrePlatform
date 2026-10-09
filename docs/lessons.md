@@ -28,6 +28,20 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-09 - Azure CLI flags drift, and a ticket's "staging is at N" was never read (TYRE-79)
+
+**What happened:** a check script for the owner used `az postgres
+flexible-server firewall-rule show -n <server> --rule-name <rule>`, written
+from memory. The installed CLI takes `-s <server> -n <rule>`, and refused
+the command. In the same pass, TYRE-368 said staging held migrations up to
+000008. Reading `schema_migrations` showed version 1, because 000002 to
+000008 reached git after the 21 Aug hand migration.
+
+**The rule:** take every `az` flag for a script or runbook from `az <command>
+-h` on the installed CLI, never from memory or an older doc. Read the live
+state of an environment (`schema_migrations`, firewall rules, secrets)
+before a spec plans around it, and record what was read on the ticket.
+
 ## 2026-10-02 - `az ad app update --set api.*` fails, and the admin center makes password users (TYRE-317)
 
 **What happened:** during the CIAM checks, `az ad app update --id <tyre-api>

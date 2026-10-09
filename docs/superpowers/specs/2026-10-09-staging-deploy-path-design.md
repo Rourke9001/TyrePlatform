@@ -51,8 +51,10 @@ Three causes sit under that one symptom:
 - **The gate cannot tell revisions apart.** `/healthz` touches nothing, and
   it is not unique to any build.
 
-TYRE-368 adds the database. Staging was migrated once by hand, to 000008,
-and head is 000052. The next run stops at 000026 because `btree_gist` is not
+TYRE-368 adds the database. Staging was migrated once by hand, on 21 Aug,
+and head is 000052. The owner read `schema_migrations` on 9 Oct: **version
+1, not dirty** (TYRE-368 comment 13572). 000002 to 000008 reached git after
+that migration, and 000001 has since been restyled. The next run stops at 000026 because `btree_gist` is not
 allow-listed. Nothing records which schema runs beside which image.
 
 ## Scope
@@ -392,8 +394,12 @@ cost a session before.
    fallback:
    - staging's August data is disposable (U116), and TYRE-374's reset is
      sequenced anyway;
-   - a run interrupted in 000026 may already have left `schema_migrations`
-     dirty.
+   - its schema is at version 1, which was applied before 000001's later
+     edits. Migrating forward from there would build on a schema nobody has
+     tested since August.
+
+   For production (TYRE-397), the database is new and empty, so this step
+   is only the migrate.
 
    As `tyreadmin`, drop and recreate the `tyre` database, with the collation
    `platform.bicep` declares. `app_login` and `app_rw` are cluster roles and
