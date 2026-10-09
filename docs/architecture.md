@@ -263,7 +263,7 @@ Go rather than a raw Postgres error.
 | [0002](adr/0002-region-and-data-residency.md) | Azure region and POPIA data residency | Accepted |
 | [0003](adr/0003-tenancy-model.md) | Tenancy model: a tenant is a fleet; the marketplace is post-POC | Accepted |
 | [0004](adr/0004-branching-strategy.md) | Branching — develop integrates, main mirrors production | Accepted |
-| [0005](adr/0005-environments-and-hosting.md) | Environments — staging is production for the pilot | Accepted |
+| [0005](adr/0005-environments-and-hosting.md) | Environments — staging is production for the pilot | Superseded by 0017 |
 | [0006](adr/0006-role-depot-scoping-enforcement.md) | Where role and depot scoping is enforced | Accepted |
 | [0007](adr/0007-unit-centric-fleet-model.md) | Unit-centric fleet model | Accepted |
 | [0008](adr/0008-tyre-identity-and-display-codes.md) | Tyre identity and display codes | Accepted |
@@ -275,3 +275,4 @@ Go rather than a raw Postgres error.
 | [0014](adr/0014-audit-mechanism.md) | How mutations are audited | Accepted |
 | [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Proposed |
 | [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Proposed |
+| [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Proposed |
