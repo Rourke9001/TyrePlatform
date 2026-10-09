@@ -177,7 +177,8 @@ when a gap appears.
   sign-in's planning: TYRE-377 (no endpoint deactivates a user), 378 (the
   unused Graph grant) and 379 (the Go 1.24 pin). TYRE-380, a dashboard test
   that races its debounce under load, belongs with gates and tooling.
-- **Gates and tooling:** TYRE-62 (carrying 249), 130, 138, 255, 293, 311
+- **Gates and tooling:** TYRE-304 (Renovate runs, but its two regex
+  managers detect nothing), TYRE-62 (carrying 249), 130, 138, 255, 293, 311
   (U72), 313 (U73), 315, 361 (carrying 331), 395 (CI holds a code PR until
   its separate review is recorded, TYRE-394), and the lint and confinement
   gaps from the rider PR's review: TYRE-343 (carrying 336) and 344. TYRE-263
