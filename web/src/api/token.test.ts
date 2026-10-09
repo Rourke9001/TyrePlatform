@@ -148,7 +148,7 @@ describe("credential", () => {
 
     await expect(token.credential()).resolves.toEqual({ accessToken: "at-2", subject: "oid-a" });
     expect(token.readMirror()).toMatchObject({ accessToken: "at-2", tenantId: "t-1" });
-    expect(token.lastKnownSubject()).toBe("oid-a");
+    expect(oidc.discardUser).not.toHaveBeenCalled();
   });
 
   it("shares one renewal between three concurrent callers", async () => {

@@ -737,7 +737,8 @@ who captured it. The stamp fails closed:
 
 - **Its source.** The stamp is taken from its own `localStorage` key, the
   last-known subject, not from the mirror. Only the redirect callback writes
-  that key, at every sign-in (U111 B), and only `signOut()` clears it. A 401, which clears the mirror, leaves it alone.
+  that key, at every sign-in (U111 B), and only `signOut()` clears it. A
+  401, which clears the mirror, leaves it alone.
 - **No subject, no draft.** A draft cannot start without a known subject. The
   capture start refuses and asks the driver to sign in.
 - **Rows from before this change.** A Dexie version bump (version 2) marks
