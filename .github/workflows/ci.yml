@@ -274,7 +274,7 @@ jobs:
         run: |
           cd api
           go run -tags devheader ./cmd/api &
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             curl -s -o /dev/null http://localhost:8080/api/me && exit 0
             sleep 1
           done
