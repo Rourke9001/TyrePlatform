@@ -19,6 +19,8 @@ type Option func(*options)
 
 type options struct {
 	trustedProxyHops int
+	buildSHA         string
+	revision         string
 }
 
 // WithTrustedProxyHops sets how many trusted L7 hops sit between the caller
@@ -26,13 +28,25 @@ type options struct {
 // (ratelimit.go's clientAddress) to read the address the outermost trusted
 // hop actually observed rather than one a caller can forge. Every call site
 // that does not name one defaults to 1: today's single Azure Container Apps
-// ingress hop, infra/main.bicep's TRUSTED_PROXY_HOPS.
+// ingress hop, infra/app.bicep's TRUSTED_PROXY_HOPS.
 func WithTrustedProxyHops(n int) Option {
 	return func(o *options) { o.trustedProxyHops = n }
 }
 
+// WithBuildSHA names the commit this binary was built from, for /readyz
+// (TYRE-79). Unset, the route reports "dev".
+func WithBuildSHA(sha string) Option {
+	return func(o *options) { o.buildSHA = sha }
+}
+
+// WithRevision names the Container Apps revision this process runs in, for
+// /readyz (TYRE-79). Unset, locally, the route reports "".
+func WithRevision(name string) Option {
+	return func(o *options) { o.revision = name }
+}
+
 func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
-	o := options{trustedProxyHops: 1}
+	o := options{trustedProxyHops: 1, buildSHA: "dev"}
 	for _, opt := range opts {
 		opt(&o)
 	}
@@ -50,6 +64,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		writeError(r.Context(), w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "that method is not allowed on this endpoint")
 	})
 	r.Get("/healthz", healthz)
+	r.Get("/readyz", readyz(s, o.buildSHA, o.revision))
 	r.Route("/api", func(r chi.Router) {
 		r.Use(requireActor(resolver, o.trustedProxyHops))
 		r.Get("/me", me(s))

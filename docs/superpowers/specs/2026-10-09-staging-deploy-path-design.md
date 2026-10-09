@@ -257,9 +257,10 @@ Only then is the old credential deleted. Until TYRE-397, nothing deploys
 
 **Rollback** (NFR-MNT-006) is a dispatch with `image_sha` set to an earlier
 commit. The job skips the build, checks that the tag exists in the
-registry, and runs steps 1, 3 and 4 against it. The gate's SHA check then
-expects that earlier commit. It needs no traffic shifting and no
-multiple-revision mode: the earlier image becomes a new revision.
+registry, and runs steps 1, 3 and 4 against it. The gate then expects that
+earlier commit's SHA and the new revision's name. It needs no traffic
+shifting and no multiple-revision mode: the earlier image becomes a new
+revision.
 
 A rollback rolls back the image, not the template: `app.bicep` comes from
 the dispatched ref, `develop`'s head. A template change that has to be
@@ -277,8 +278,12 @@ So the workflow carries two values where today it has one (`DEPLOY_SHA`):
 Each deploy needs a fresh suffix. A rollback to an earlier SHA, or a
 re-run of the same workflow run, would otherwise reuse a suffix whose
 revision already exists. The suffix is
-`r<run_number>-<run_attempt>-<first 7 of the SHA>`. It starts with a letter,
-is lower case and is well under the length limit.
+`<c|d><run_number>-<run_attempt>-<first 7 of IMAGE_SHA>`:
+
+- `c` is a CI deploy and `d` is a rollback dispatch. The two count runs
+  separately, so without the letter a CI run and a dispatch could share a
+  number and, on the same commit, a suffix.
+- It starts with a letter, is lower case and is well under the length limit.
 
 The plan verifies the suffix rules against
 learn.microsoft.com/azure/container-apps/revisions-manage before relying on
@@ -286,32 +291,47 @@ them.
 
 ### The gate (`scripts/deploy-gate.sh`)
 
-**Inputs:** resource group, app name, revision name
-(`<app>--<suffix>`), expected SHA, and a timeout (default 10 minutes).
+**Inputs:** resource group, app name, revision **suffix**, expected SHA, and
+a timeout (default 10 minutes). The gate forms the revision name
+`<app>--<suffix>` itself, so the workflow and the gate cannot disagree about
+it.
 
-1. **Revision state.** Poll `az containerapp revision show` every 10
-   seconds, for the new revision's name only. An old revision's state never
-   reaches the gate, so a poisoned old revision cannot fail a deploy.
+**One polling loop.** Every 10 seconds until the timeout, each pass checks
+the new revision's state and then `/readyz`. The loop passes on the first
+pass where both hold.
+
+1. **Revision state.** `az containerapp revision show` for the new
+   revision's name. An old revision's state never reaches the gate, so a
+   poisoned old revision cannot fail a deploy.
    - Fail at once only on `provisioningState` Failed or `runningState`
      Failed.
    - Degraded and Unhealthy are transient during a cold start with a fresh
      database connection, so they wait out the timeout instead.
-   - Pass to step 2 when `runningState` is Running and `trafficWeight` is
+   - The state holds when `runningState` is Running and `trafficWeight` is
      100.
 
    The fields and their values are from the ARM revision model
    (learn.microsoft.com/javascript/api/@azure/arm-appcontainers/revision).
-2. **The build is serving.** Poll `GET https://<public fqdn>/readyz` until
-   it answers 200 with body `sha` equal to the expected SHA.
-   - An image without `/readyz` never gets this far. It fails readiness, so
-     its revision never takes traffic, and step 1 times out.
-   - Step 2 guards a different failure: an image that activates but is not
-     the expected commit, such as a wrong tag or a stale `latest`.
-   - The request also starts a replica when the app has scaled to zero. The
-     docs are silent on how readiness counts a revision with no replicas, so
-     step 1 alone is not trusted.
-3. **Timeout.** Either step timing out fails the job. The message names the
-   last state or the last response.
+2. **The build is serving.** `GET https://<public fqdn>/readyz` holds when
+   it answers 200, with `sha` equal to the expected SHA and `revision` equal
+   to `<app>--<suffix>`.
+   - The gate needs both fields, because a SHA cannot tell an old revision
+     from a new one serving the same commit. A re-run, or a rollback to the
+     commit already serving, would otherwise pass against the revision it
+     was meant to replace.
+   - An image without `/readyz` never holds here. It fails readiness, so
+     its revision never takes traffic, and the loop times out.
+   - The `sha` check guards a different failure: an image that activates
+     but is not the expected commit, such as a wrong tag or a stale
+     `latest`.
+   - The request runs on every pass, not after the state check passes. With
+     `minReplicas: 0`, only a request wakes a replica (red team I2), so a
+     gate that waited on the state first could wait on a revision with no
+     replica until the timeout. The docs are silent on how readiness counts a
+     revision with no replicas, so the state alone is not trusted.
+
+**Timeout.** A loop that times out fails the job. The message names the last
+state and the last response.
 
 Every failure exits non-zero. The workflow does not pipe the script.
 
@@ -334,12 +354,20 @@ The web job:
 no actor.
 
 - **Ready.** It calls the store's pool `Ping` with a 2-second context, and
-  answers 200 with `{"status":"ready","sha":"<sha>"}`.
-- **Not ready.** It answers 503 with `{"status":"unready","sha":"<sha>"}`,
-  and never includes the error text.
+  answers 200 with
+  `{"status":"ready","sha":"<sha>","revision":"<revision>"}`.
+- **Not ready.** It answers 503 with
+  `{"status":"unready","sha":"<sha>","revision":"<revision>"}`, and never
+  includes the error text.
 - **The SHA.** It is set at link time by `-ldflags "-X main.buildSHA=..."`,
   from the Dockerfile's `ARG BUILD_SHA`. It defaults to `dev`. The repo is
   public, so exposing the SHA discloses nothing.
+- **The revision.** It is `CONTAINER_APP_REVISION`, which Container Apps
+  sets in every container
+  (learn.microsoft.com/azure/container-apps/environment-variables), for
+  example `ca-api-staging--c7-1-0123456`. It is empty locally. The gate
+  requires it to equal the revision it deployed, because a SHA cannot tell an
+  old revision from a new one serving the same commit.
 - **Headers.** The security headers apply, as they do to every route.
 
 It answers NFR-OBS-005 for the one critical dependency the API has today.
@@ -407,13 +435,17 @@ cost a session before.
    For production (TYRE-397), the database is new and empty, so this step
    is only the migrate.
 
-   **Drop.** As `tyreadmin`, run `DROP DATABASE tyre WITH (FORCE)`.
-   Crash-looping replicas of the old image may hold connections, and
-   `FORCE` ends them.
+   **Drop.** Run `az postgres flexible-server db delete -g rg-tyre-staging
+   -s psql-tyre-staging -n tyre`, which asks for confirmation. Crash-looping
+   replicas of the old image may hold connections, and the command's help is
+   silent on them. If the delete refuses, stop and post the error on
+   TYRE-368.
 
-   **Recreate.** Re-apply `platform.bicep`, which declares the `tyre`
-   database, so the collation and owner match what Bicep declares. Never
-   use hand-typed `CREATE DATABASE`.
+   **Recreate.** Run the whole of step 4 again, not only the template apply:
+   the admin password read from the vault, the current public IP, the
+   `platform.bicep` apply and the `azure.extensions` check. The template
+   declares the `tyre` database, so the collation and owner match what Bicep
+   declares. Never use hand-typed `CREATE DATABASE`.
 
    `app_login` and `app_rw` are cluster roles and survive the drop, and
    000001 creates them only `IF NOT EXISTS`. Then
@@ -451,6 +483,14 @@ cost a session before.
    - the `schema_migrations` version and its dirty flag;
    - who ran it.
 
+**When to migrate.** A PR that carries a migration is migrated on staging
+straight after its merge's deploy, never before. Migrations stay editable on
+their branch (`migration-immutable.sh` refuses an edit only once the file is
+on `origin/develop`), so one applied earlier could be edited afterwards and
+leave staging on a version that git no longer holds. The new image may run
+briefly against the old schema. Staging holds no real data (ADR-0017), so
+that window is accepted.
+
 The runbook never weakens a migration to get past existing rows. On
 staging, the answer to data that will not migrate is the reset in bring-up
 step 5.
@@ -465,19 +505,20 @@ pre-reset step, not to this runbook.
 
 ### In `make check`
 
-- **Go, `httpapi`.** `/readyz` answers 200 with the SHA when the ping
-  succeeds, and 503 with no error text when it fails. The test uses a fake
-  pinger behind a small consumer-side interface.
+- **Go, `httpapi`.** `/readyz` answers 200 with the SHA and revision when
+  the ping succeeds, and 503 with no error text when it fails. The 503 test
+  uses a real store closed before the request.
 - **Go, integration.** Against the real Postgres, `/readyz` answers 200.
 - **Go, the no-actor table.** The route table in
   `api/internal/httpapi/security_test.go` gains a `/readyz` row beside
   `/healthz`: no actor needed, and the security headers present.
 - **The gate.** `scripts/deploy-gate.test.sh` runs the gate with stub `az`
   and `curl` on `PATH`. Its cases:
-  - Running and 100 with the right SHA passes;
+  - Running and 100 with the right SHA and revision passes;
   - Failed, Degraded or Unhealthy fails;
   - an old revision answering 404 on `/readyz` fails;
   - the wrong SHA fails;
+  - the right SHA from a different revision fails;
   - a timeout fails.
 
   Each failing case asserts a non-zero exit, and one passing case is the
@@ -495,8 +536,9 @@ pre-reset step, not to this runbook.
 ### After merge, posted on TYRE-79
 
 1. **Green.** The merge's own deploy:
-   - revision `ca-api-staging--r<n>-<sha7>` is Running with 100% traffic;
-   - `/readyz` names the commit;
+   - revision `ca-api-staging--c<n>-<attempt>-<sha7>` is Running with 100%
+     traffic;
+   - `/readyz` names the commit and that revision;
    - `az containerapp show` lists the `DATABASE_URL` secretRef;
    - `/api/me` answers 401, not 503 and not 404, because the `AUTH_*`
      settings are live.
@@ -505,9 +547,14 @@ pre-reset step, not to this runbook.
    - Its revision fails readiness and never takes traffic, so the run fails
      before the image serves anything. That may happen at the apply, if ARM
      blocks until the revision provisions and then times out, or at the
-     gate's step 1 timeout. Either is a pass for the proof.
+     gate's loop timing out. Either is a pass for the proof.
    - The merge's revision keeps serving throughout.
-   - Re-dispatching with the merge's SHA then proves rollback.
+   - Re-dispatching with a SHA other than the one serving then proves
+     rollback. The image must have `/readyz` and exist in the registry, for
+     example the merge's commit once a later deploy has replaced it.
+   - A re-dispatch with the SHA already serving is meaningful too, because
+     the gate also compares the revision name, so it passes only once a new
+     revision is the one answering.
 3. **TYRE-53.** The web job's log carries no unexpected-input warning.
 4. **TYRE-368.** The first runbook run's version (000052) is posted on
    TYRE-368, and the release table holds its first row.
@@ -542,5 +589,5 @@ pre-reset step, not to this runbook.
   CLI version. If it does not, the overrides move into the param file
   through `readEnvironmentVariable()`.
 - **Whether `az deployment group create` waits for the revision.** If ARM
-  blocks until the revision provisions or fails, the gate's step 1 mostly
-  confirms what ARM already said, and that is harmless.
+  blocks until the revision provisions or fails, the gate's state check
+  mostly confirms what ARM already said, and that is harmless.
