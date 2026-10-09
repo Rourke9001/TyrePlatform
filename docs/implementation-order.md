@@ -196,9 +196,7 @@ when a gap appears.
 **The owner:** once staging can sign anyone in, run
 sign-in's check d (TYRE-317 comment 13440), TYRE-381's device check and the
 `tyreadmin` role query (comment 13462); run the U94 read-only query on staging (TYRE-368, comment 13436)
-before its reset; close TYRE-304 once Renovate's first non-silent run opens
-the Dependency Dashboard issue (Silent mode was switched off 8 Oct, comment
-13564); decide whether the live pressure entry groups thousands
+before its reset; decide whether the live pressure entry groups thousands
 (TYRE-342); and, once the staging query is in, decide whether the
 governing-tread definer runs as an owner that RLS binds (TYRE-350). TYRE-51
 and TYRE-154 need the platform domain, which the team registers outside Jira.
