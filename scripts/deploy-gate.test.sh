@@ -77,7 +77,7 @@ ok=$'Provisioned\nRunning\n100'
 ok_body="{\"status\":\"ready\",\"sha\":\"$sha\",\"revision\":\"$rev\"}"
 case_run "control: running, 100, right sha and revision" 0 "$ok" 200 "$ok_body"
 case_run "spaced json still parses" 0 "$ok" 200 "{\"status\": \"ready\", \"sha\": \"$sha\", \"revision\": \"$rev\"}"
-case_run "activating until the request wakes it still passes" 0 $'Provisioned\nActivating\n100' 200 "$ok_body"
+case_run "activating state passes once the new revision answers" 0 $'Provisioned\nActivating\n100' 200 "$ok_body"
 case_run "degraded is not a failure" 0 $'Provisioned\nDegraded\n100' 200 "$ok_body"
 case_run "provisioning failed stops at once" 1 $'Failed\nProcessing\n100' 200 "$ok_body"
 case_run "running state failed stops at once" 1 $'Provisioned\nFailed\n100' 200 "$ok_body"

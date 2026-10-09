@@ -1,6 +1,6 @@
 # The staging deploy (ADR-0017). ci.yml's deploy-staging job calls it once
 # every gate job has passed on a push to develop; a dispatch from develop
-# rolls back to an image staging already ran (NFR-MNT-006). Not on
+# rolls back to an image already in the registry (NFR-MNT-006). Not on
 # workflow_run: that event runs as the default branch, main, which the
 # staging environment's branch rule refuses (TYRE-79).
 #
@@ -49,7 +49,7 @@ jobs:
     environment: staging
     # The red proof makes ARM wait on a revision that never readies; this
     # bounds the run rather than leaving it to GitHub's six-hour default.
-    # Budget: up to 10 min starting the database, a build, 10 min of gate.
+    # Budget: at least 10 min starting the database, a build, 10 min of gate.
     timeout-minutes: 45
     # Job level, so a dispatch and a CI deploy also exclude each other; the
     # caller job in ci.yml carries its own group for the CI path.
@@ -68,9 +68,9 @@ jobs:
         with:
           ref: ${{ env.TEMPLATE_SHA }}
 
-      # The old ref:main credential is deleted only once this prints the
-      # environment subject the new credential names, byte for byte
-      # (spec section 2). The token itself is never printed.
+      # Prints the token's subject claim, which id-tyre-deploy-staging's
+      # federated credential must match byte for byte (runbook, bring-up
+      # step 3). The token itself is never printed.
       - name: OIDC subject
         run: |
           tok=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
@@ -125,7 +125,9 @@ jobs:
           kind=c; [ -n "$ROLLBACK_SHA" ] && kind=d
           suffix="${kind}${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${IMAGE_SHA:0:7}"
           echo "REVISION_SUFFIX=$suffix" >> "$GITHUB_ENV"
-          # The runner's own Bicep is unpinned; this one matches make infra-lint.
+          # The runner's own Bicep is unpinned; this version matches
+          # infra/bicep.Dockerfile and the Makefile's BICEP_IMAGE tag, and all
+          # three are bumped together (TYRE-304).
           az config set bicep.use_binary_from_path=false
           az bicep install --version v0.47.16
           API_IMAGE="$ACR.azurecr.io/tyre-api:$IMAGE_SHA" REVISION_SUFFIX="$suffix" \
@@ -141,6 +143,9 @@ jobs:
     needs: api
     runs-on: ubuntu-latest
     environment: staging
+    # A hung upload would otherwise hold deploy-staging-web, and develop CI
+    # behind it, for six hours.
+    timeout-minutes: 20
     concurrency:
       group: deploy-staging-web
       cancel-in-progress: false

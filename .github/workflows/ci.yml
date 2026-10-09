@@ -7,8 +7,9 @@ on:
 
 # A pull_request run executes repo scripts (seed generators, the comment
 # checker, npm lifecycle) against the token it is handed. Read-only is all any
-# job here needs; without this block the run inherits whatever the repository
-# default grants, which is a write token on many settings (TYRE-50).
+# job here needs, except deploy-staging, which grants its own id-token: write
+# for OIDC (TYRE-79). Without this block the run inherits whatever the
+# repository default grants, which is a write token on many settings (TYRE-50).
 permissions:
   contents: read
 
@@ -319,8 +320,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    # GitHub's reusable-workflow docs do not say whether the called
-    # workflow's own concurrency applies, so the guarantee sits here too.
+    # This group keeps CI deploys single. A dispatch is kept apart by
+    # deploy.yml's job-level groups, which GitHub's docs do not say are
+    # honoured inside a called workflow; the first runs confirm it (TYRE-79).
     concurrency:
       group: deploy-staging
       cancel-in-progress: false

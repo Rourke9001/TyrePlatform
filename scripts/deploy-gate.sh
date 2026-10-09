@@ -3,7 +3,8 @@
 # replica of the revision this deploy created answers /readyz with the
 # expected commit and its own revision name; /healthz answering through the
 # FQDN proves neither, because the old revision keeps traffic when a new
-# one fails, and a weight of 100 was seen on a crash-looping revision.
+# one fails, and a traffic weight of 100 does not prove a replica serves
+# (TYRE-79).
 set -euo pipefail
 [ "$#" -ge 4 ] || { echo "usage: $0 RESOURCE_GROUP APP REVISION_SUFFIX EXPECTED_SHA [TIMEOUT_SECONDS]" >&2; exit 2; }
 rg=$1 app=$2 suffix=$3 want=$4 timeout=${5:-600}
