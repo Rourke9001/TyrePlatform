@@ -12,6 +12,7 @@ and `db/migrations` paths are relative, and later blocks use the `ENV`,
 `RG`, `PG` and `KV` the first one sets. That block also exports
 `MSYS_NO_PATHCONV=1`, because Git Bash otherwise rewrites the `-v` mount,
 `-path=/migrations` and `/subscriptions/...` arguments into Windows paths.
+In a new shell, run **Before anything** again first.
 
 ## Before anything
 
@@ -36,6 +37,15 @@ staging (ADR-0017). Production's server is never stopped.
 
 In this order, before the TYRE-79 merge (staging) or the first production
 release (TYRE-397).
+
+Before the TYRE-79 merge, bring-up runs on the TYRE-79 branch, because
+step 4 needs `infra/platform.bicep` and only that branch has it until the
+merge. Each release says to migrate from `develop`, and the rule still
+holds because TYRE-79 adds no migration, so bring-up applies only
+migrations already on `develop`. Before step 5 runs Each release step 2,
+run `git fetch`, then confirm that
+`git diff --stat origin/develop -- db/migrations` prints nothing. If it
+prints anything, stop.
 
 1. **Read access to the vault.** Until step 4 lands the Secrets Officer
    grant, give yourself Secrets User (a different role, so the two do not
@@ -173,13 +183,6 @@ release (TYRE-397).
    Then **Each release** below, from step 2. Production's database is new and
    empty, so production skips the drop. Tenants come from TYRE-374.
 
-   Each release says to migrate from `develop`, and this runs before the
-   TYRE-79 merge, so bring-up runs on the TYRE-79 branch, where
-   `infra/platform.bicep` already exists. The rule still holds because TYRE-79
-   adds no migration: bring-up applies only migrations already on `develop`.
-   Before Each release step 2, run `git fetch`, then confirm that
-   `git diff --stat origin/develop -- db/migrations` prints nothing.
-
 6. **Merge TYRE-79.** The merge is the new pipeline's first run. Do not apply
    `infra/app.bicep` by hand first: the 21 Aug image has no `/readyz` and
    would never pass readiness.
@@ -189,7 +192,8 @@ release (TYRE-397).
 Run it from the repo root on a clean checkout of `develop` that includes the
 merge commit, never from a feature branch: the migrate reads that checkout's
 `db/migrations`, and step 3's check of the highest migration number reads
-it too. Bring-up step 5 is the one exception, and says why.
+it too. Bring-up before the TYRE-79 merge is the one exception, and the
+top of One-time bring-up says why.
 
 **When to migrate.** Every merge to `develop` deploys staging, and the
 migrate is a manual step (U94). Run **Each release** straight after a merge
@@ -279,7 +283,9 @@ environment (TYRE-374, U92).
 ## Roll back
 
 From the repo's Actions tab, run **Deploy staging** from `develop` with
-`image_sha` set to the full SHA of an image staging ran before. It
-redeploys that image under today's template; a template change that must be
-undone is a revert on `develop`. A rollback runs no down migration, so the
-schema stays at head, and an old image must tolerate it.
+`image_sha` set to the full SHA of a commit this pipeline deployed after
+the TYRE-79 merge (earlier images have no `/readyz` and fail the gate). It
+redeploys that image under today's template, and rebuilds the web from that
+commit too; a template change that must be undone is a revert on `develop`.
+A rollback runs no down migration, so the schema stays at head, and an old
+image must tolerate it.
