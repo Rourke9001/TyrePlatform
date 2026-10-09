@@ -25,9 +25,14 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
+// buildSHA is set at link time by api/Dockerfile from the deploy's commit
+// (-X main.buildSHA); /readyz reports it so the deploy gate can tell this
+// build from the one it replaces (TYRE-79).
+var buildSHA = "dev"
+
 // trustedProxyHops parses TRUSTED_PROXY_HOPS for NFR-SEC-007's per-source
 // rate limit (httpapi.WithTrustedProxyHops). Absent defaults to 1
-// (infra/main.bicep's documented default); present but not a positive
+// (infra/app.bicep's documented default); present but not a positive
 // integer fails loudly rather than silently collapsing every client into
 // one bucket.
 func trustedProxyHops(getenv func(string) string) (int, error) {
@@ -159,7 +164,7 @@ func main() {
 
 	// Locally DATABASE_URL is set directly; in staging it is a Container Apps
 	// secret that references kv-tyre-staging via the API's managed identity
-	// (infra/main.bicep), so the credential never lives in this repo or CI.
+	// (infra/app.bicep), so the credential never lives in this repo or CI.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -206,8 +211,11 @@ func main() {
 	}
 
 	srv := &http.Server{
-		Addr:              ":" + port,
-		Handler:           httpapi.New(s, resolver, httpapi.WithTrustedProxyHops(hops)),
+		Addr: ":" + port,
+		Handler: httpapi.New(s, resolver, httpapi.WithTrustedProxyHops(hops),
+			httpapi.WithBuildSHA(buildSHA),
+			// Set by Container Apps in every container; empty locally.
+			httpapi.WithRevision(os.Getenv("CONTAINER_APP_REVISION"))),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

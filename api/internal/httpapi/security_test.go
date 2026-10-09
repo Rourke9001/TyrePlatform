@@ -24,6 +24,7 @@ func TestSecurityHeadersOnEveryResponse(t *testing.T) {
 		wantStatus int
 	}{
 		{"healthz, no actor needed", "/healthz", http.StatusOK},
+		{"readyz, no actor needed", "/readyz", http.StatusOK},
 		{"an unauthenticated request", "/api/me", http.StatusUnauthorized},
 		// requireActor is registered on the /api sub-router (New), which
 		// wraps that whole mount including its own routing miss, so an

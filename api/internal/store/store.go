@@ -67,6 +67,12 @@ func (s *Store) Close() {
 	s.pool.Close()
 }
 
+// Ping reports whether the database answers. /readyz calls it on every
+// readiness probe (NFR-OBS-005, TYRE-79).
+func (s *Store) Ping(ctx context.Context) error {
+	return s.pool.Ping(ctx)
+}
+
 // MaxConns reports the pool's configured ceiling: defaultMaxConns unless the
 // DSN named its own pool_max_conns (TYRE-184 F8). Exported so a test can
 // prove the default actually took effect, not only that New succeeded.
