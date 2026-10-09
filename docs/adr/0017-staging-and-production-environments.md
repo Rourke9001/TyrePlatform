@@ -129,7 +129,16 @@ The parts of the decision, each with the alternative not taken:
   Each identity trusts one GitHub environment through a federated credential
   with subject `environment:staging` or `environment:production`. GitHub's
   deployment-branch rule restricts `staging` to `develop` and `production` to
-  `main`. Adding `environment:` to a job changes the OIDC subject, so the
+  `main`.
+
+  That rule is checked against the run's ref. A `workflow_run` trigger
+  always runs as the default branch (`main`), so a staging deploy on
+  `workflow_run` would be refused every time. Each deploy therefore runs as
+  a job in CI's own run for the pushed branch, calling a reusable deploy
+  workflow
+  (docs.github.com/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+
+  Adding `environment:` to a job changes the OIDC subject, so the
   credential must exist before the workflow changes
   (docs.github.com/actions/reference/security/oidc). *Not taken:* one
   identity with both credentials, which would give either branch the right
