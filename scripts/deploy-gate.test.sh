@@ -91,6 +91,8 @@ case_run "old revision serving the same sha" 1 "$ok" 200 "{\"status\":\"ready\",
 case_run "unready" 1 "$ok" 503 "{\"status\":\"unready\",\"sha\":\"$sha\",\"revision\":\"$rev\"}"
 case_run "curl fails (timeout, 000)" 1 "$ok" 000 "" 28
 case_run "a body-less 200 after an unready answer does not pass" 1 "$ok" 503 "{\"status\":\"unready\",\"sha\":\"$sha\",\"revision\":\"$rev\"}" 0 200 18
+case_run "a clean body-less 200 after an unready answer does not pass" 1 "$ok" 503 "{\"status\":\"unready\",\"sha\":\"$sha\",\"revision\":\"$rev\"}" 0 200 0
+case_run "a 200 with the right body but a failed transfer does not pass" 1 "$ok" 200 "$ok_body" 18
 
 [ "$fails" -eq 0 ] || { echo "$fails deploy-gate case(s) failed"; exit 1; }
 echo "deploy-gate: all cases pass"
