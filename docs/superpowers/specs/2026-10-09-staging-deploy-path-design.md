@@ -156,11 +156,18 @@ Confluence page 10682399, Identity section.
 - probes, which it declares because it has none today, and portal-only TCP
   defaults do not apply to a template deploy
   (learn.microsoft.com/azure/container-apps/health-probes):
-  - **startup** and **readiness** on HTTP `/readyz`, port 8080;
-  - **liveness** on HTTP `/healthz`.
+  - **startup** and **liveness** on HTTP `/healthz`, port 8080;
+  - **readiness** on HTTP `/readyz`.
 
   A readiness probe that pings the database is correct here: a replica
-  without its database cannot serve any `/api` route.
+  without its database cannot serve any `/api` route. Startup stays on
+  `/healthz`, so a passing database blip never turns into a restart loop.
+
+**While staging's database is stopped, the API is down.** `store.New` pings
+the database at startup and exits if it cannot reach it
+(`api/cmd/api/main.go`). A request that wakes a replica in that window gets
+a crash-looping replica, until scale-to-zero reaps it. That is accepted for
+staging (ADR-0017), and the runbook says so.
 
 The deploy identity (Contributor on `rg-tyre-staging`) can apply this file.
 It writes no role assignments, and Contributor allows reading the vault's
@@ -170,21 +177,61 @@ URI and the environment's id.
 
 ### Trigger and environment
 
-`deploy.yml` runs on `workflow_run` of CI, completed, branch `develop`,
-event `push`, conclusion `success`. It also runs on `workflow_dispatch`.
+**Why the deploy is not on `workflow_run`.** For a `workflow_run` event,
+`GITHUB_REF` is the repository's default branch, which here is `main`
+(docs.github.com/actions/reference/workflows-and-actions/events-that-trigger-workflows).
+An environment's deployment-branch rule is checked against that ref. So a
+`workflow_run` deploy restricted to `develop` would be refused on every run.
 
-Both jobs set `environment: staging`. The GitHub environment `staging` has:
+**The shape.** `deploy.yml` becomes a reusable workflow (`on: workflow_call`
+and `workflow_dispatch`). `ci.yml` gains a `deploy-staging` job that:
+
+- `uses: ./.github/workflows/deploy.yml`;
+- `needs:` every gate job;
+- runs only when `github.event_name == 'push' && github.ref ==
+  'refs/heads/develop'`;
+- grants `id-token: write` at job level.
+
+A called workflow sees the caller's `github` context, so the ref is
+genuinely `develop`. The race that `deploy.yml`'s header comment exists to
+dodge, where the deploy starts before the suite finishes, goes away with
+the `workflow_run` trigger. The deploy now waits on the suite by `needs:`.
+
+**Concurrency.** CI's workflow-level concurrency cancels an in-progress run
+on the same ref. On `develop` that could kill a deploy mid-rollout, so it
+becomes `cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}`. A
+second push to `develop` waits behind the running one, and GitHub keeps only
+the newest of any waiting runs. Pull request and feature-branch runs still
+cancel.
+
+**The GitHub environment.** Both deploy jobs set `environment: staging`. The
+GitHub environment `staging` has:
 
 - a deployment-branch rule allowing `develop` only;
 - no required reviewer.
 
-The federated credential on `id-tyre-deploy-staging` gains subject
+A `workflow_dispatch` (rollback) must be dispatched from `develop`, or the
+same rule refuses it.
+
+**For TYRE-397.** Production can call the same reusable workflow from CI's
+push to `main`. A `workflow_run` trigger would also happen to work for
+`main`, but only because `main` is the default branch. TYRE-397 should not
+rely on that.
+
+**The federated credential.** `id-tyre-deploy-staging` gains subject
 `repo:Rourke9001@92760271/TyrePlatform@1340948199:environment:staging`.
 Adding `environment:` changes the token's subject
 (docs.github.com/actions/reference/security/oidc), so the credential exists
-before this merges. The old `ref:refs/heads/main` credential is deleted once
-the first staging deploy is green. Until TYRE-397, nothing deploys `main`,
-which is U89.
+before this merges.
+
+The old `ref:refs/heads/main` credential stays until two things are true:
+
+- a run's diagnostic step has printed the token's `sub` claim, decoded from
+  the payload with the token itself never printed;
+- that claim matches the new subject byte for byte.
+
+Only then is the old credential deleted. Until TYRE-397, nothing deploys
+`main`, which is U89.
 
 ### The API job
 
@@ -193,8 +240,8 @@ which is U89.
    holds `start/action`). Starting is idempotent. The workflow never stops
    the server: the owner stops it after a session (ADR-0017).
 2. **Image.** Skipped when the dispatch input `image_sha` is set. Otherwise
-   build with `--build-arg BUILD_SHA=$DEPLOY_SHA` and push
-   `crtyrestaging.azurecr.io/tyre-api:$DEPLOY_SHA`, as today.
+   build with `--build-arg BUILD_SHA=$IMAGE_SHA` and push
+   `crtyrestaging.azurecr.io/tyre-api:$IMAGE_SHA`, as today.
 3. **Apply.** Run `az deployment group create -g rg-tyre-staging -f
    infra/app.bicep -p infra/app.staging.bicepparam -p apiImage=...
    revisionSuffix=...`.
@@ -209,6 +256,13 @@ multiple-revision mode: the earlier image becomes a new revision.
 A rollback rolls back the image, not the template: `app.bicep` comes from
 the dispatched ref, `develop`'s head. A template change that has to be
 undone is a revert on `develop`, which deploys normally.
+
+So the workflow carries two values where today it has one (`DEPLOY_SHA`):
+
+- **`TEMPLATE_SHA`**, the commit checked out for `infra/`. That is the CI
+  run's commit on a push, and the dispatched ref's head on a rollback.
+- **`IMAGE_SHA`**, the tag deployed and the SHA the gate expects. That is
+  `TEMPLATE_SHA` on a push, and the `image_sha` input on a rollback.
 
 ### The revision suffix
 
@@ -228,9 +282,12 @@ them.
 (`<app>--<suffix>`), expected SHA, and a timeout (default 10 minutes).
 
 1. **Revision state.** Poll `az containerapp revision show` every 10
-   seconds.
-   - Fail at once on `runningState` Failed or Degraded, on `healthState`
-     Unhealthy, or on `provisioningState` Failed.
+   seconds, for the new revision's name only. An old revision's state never
+   reaches the gate, so a poisoned old revision cannot fail a deploy.
+   - Fail at once only on `provisioningState` Failed or `runningState`
+     Failed.
+   - Degraded and Unhealthy are transient during a cold start with a fresh
+     database connection, so they wait out the timeout instead.
    - Pass to step 2 when `runningState` is Running and `trafficWeight` is
      100.
 
@@ -238,8 +295,10 @@ them.
    (learn.microsoft.com/javascript/api/@azure/arm-appcontainers/revision).
 2. **The build is serving.** Poll `GET https://<public fqdn>/readyz` until
    it answers 200 with body `sha` equal to the expected SHA.
-   - Only the new image has `/readyz` and knows its SHA, so the old revision
-     cannot pass.
+   - An image without `/readyz` never gets this far. It fails readiness, so
+     its revision never takes traffic, and step 1 times out.
+   - Step 2 guards a different failure: an image that activates but is not
+     the expected commit, such as a wrong tag or a stale `latest`.
    - The request also starts a replica when the app has scaled to zero. The
      docs are silent on how readiness counts a revision with no replicas, so
      step 1 alone is not trusted.
@@ -307,18 +366,44 @@ cost a session before.
    - Grant yourself **Key Vault Secrets User** on `kv-tyre-staging` by hand.
      It is a different role from the Officer grant the template declares,
      so the two do not collide with `RoleAssignmentExists`.
-   - Remove the grant after step 3 lands the Officer grant.
-2. **The federated credential.** Create the `environment:staging` credential
+   - Remove the grant after step 4 lands the Officer grant.
+2. **Prove the vault secrets.** List the vault's secrets. All three must
+   exist:
+   - `psql-admin-password`;
+   - `pg-app-login-password`;
+   - `database-url`.
+
+   Then connect from the developer machine with the stored `database-url`
+   (`sslmode=require`, dockerised `psql`). `SELECT current_user` must
+   return `app_login`, and `rolbypassrls` must be false for it.
+
+   If `database-url` is missing or does not connect, the revision cannot
+   activate: `main.bicep`'s own comment warns of this. Write or correct the
+   secret after step 4 lands the Officer grant, and repeat this step.
+3. **The federated credential.** Create the `environment:staging` credential
    on `id-tyre-deploy-staging`, and create the GitHub environment `staging`
    with its deployment-branch rule.
-3. **The platform template.** Apply `platform.bicep`, passing
-   `psql-admin-password` read from the vault. Confirm that `SHOW
-   azure.extensions` lists both extensions.
-4. **Migrate staging to head** (below). The live image does not apply
-   `app.bicep` by hand: the 21 Aug image has no `/readyz`, so its revision
-   would never pass the new readiness probe. The first `app.bicep` apply is
-   the pipeline's, with an image that has the route.
-5. **Merge TYRE-79.** The merge is the first run of the new pipeline. Watch
+4. **The platform template.** Apply `platform.bicep`, passing
+   `psql-admin-password` read from the vault and the developer machine's
+   current public IP, read at apply time. A stale `devMachineIp` moves the
+   firewall rule, and the next migrate then fails for a confusing reason.
+   Confirm that `SHOW azure.extensions` lists both extensions.
+5. **Reset, then migrate staging to head.** This is the default path, not a
+   fallback:
+   - staging's August data is disposable (U116), and TYRE-374's reset is
+     sequenced anyway;
+   - a run interrupted in 000026 may already have left `schema_migrations`
+     dirty.
+
+   As `tyreadmin`, drop and recreate the `tyre` database, with the collation
+   `platform.bicep` declares. `app_login` and `app_rw` are cluster roles and
+   survive the drop, and 000001 creates them only `IF NOT EXISTS`. Then
+   migrate the empty database to head (below). Tenants come from TYRE-374.
+
+   The live image does not apply `app.bicep` by hand: the 21 Aug image has
+   no `/readyz`, so its revision would never pass readiness. The first
+   `app.bicep` apply is the pipeline's, with an image that has the route.
+6. **Merge TYRE-79.** The merge is the first run of the new pipeline. Watch
    it go green, then run the red proof in section 5.
 
 ### Each release
@@ -347,10 +432,12 @@ cost a session before.
    - the `schema_migrations` version and its dirty flag;
    - who ran it.
 
-**If staging's August data will not migrate:** the data is disposable
-(U116), so TYRE-374's reset runs first and the migrate runs on an empty
-database. The runbook says so. It never weakens a migration to get past
-existing rows.
+The runbook never weakens a migration to get past existing rows. On
+staging, the answer to data that will not migrate is the reset in bring-up
+step 5.
+
+**Every platform apply** re-sends `pgAdminPassword`, read from the vault,
+and `devMachineIp`, read live. Neither value is copied from an earlier run.
 
 The U94 read-only query (TYRE-368 comment 13436) belongs to TYRE-374's
 pre-reset step, not to this runbook.
@@ -363,6 +450,9 @@ pre-reset step, not to this runbook.
   succeeds, and 503 with no error text when it fails. The test uses a fake
   pinger behind a small consumer-side interface.
 - **Go, integration.** Against the real Postgres, `/readyz` answers 200.
+- **Go, the no-actor table.** The route table in
+  `api/internal/httpapi/security_test.go` gains a `/readyz` row beside
+  `/healthz`: no actor needed, and the security headers present.
 - **The gate.** `scripts/deploy-gate.test.sh` runs the gate with stub `az`
   and `curl` on `PATH`. Its cases:
   - Running and 100 with the right SHA passes;
@@ -391,9 +481,12 @@ pre-reset step, not to this runbook.
    - `az containerapp show` lists the `DATABASE_URL` secretRef;
    - `/api/me` answers 401, not 503 and not 404, because the `AUTH_*`
      settings are live.
-2. **Red.** A dispatch with `image_sha=752c04b...`, the 21 Aug image, which
-   has no `/readyz`. The gate fails at step 2. The run is then re-dispatched
-   with the merge's SHA, which restores staging and proves rollback.
+2. **Red.** A dispatch from `develop` with `image_sha=752c04b...`, the
+   21 Aug image, which has no `/readyz`.
+   - Its revision fails readiness and never takes traffic, so the gate fails
+     at step 1, on the timeout.
+   - The merge's revision keeps serving throughout.
+   - Re-dispatching with the merge's SHA then proves rollback.
 3. **TYRE-53.** The web job's log carries no unexpected-input warning.
 4. **TYRE-368.** The first runbook run's version (000052) is posted on
    TYRE-368, and the release table holds its first row.
@@ -402,8 +495,9 @@ pre-reset step, not to this runbook.
 
 - `infra/main.bicep` is deleted. `infra/platform.bicep`, `infra/app.bicep`
   and `infra/app.staging.bicepparam` are new.
-- `.github/workflows/deploy.yml` and `.github/workflows/ci.yml` (the lint
-  job).
+- `.github/workflows/deploy.yml`, which becomes reusable.
+- `.github/workflows/ci.yml`: the `deploy-staging` job, the concurrency
+  expression and the lint job.
 - `api/cmd/api/main.go`, `api/internal/httpapi/` (the route and its test),
   and `api/Dockerfile` (`ARG BUILD_SHA`).
 - `scripts/deploy-gate.sh` and its test. Makefile targets for the lint and
