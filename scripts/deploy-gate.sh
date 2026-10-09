@@ -31,7 +31,10 @@ while :; do
   case "$prov $run" in
     *Failed*) echo "::error::$rev failed: provisioning=$prov running=$run"; exit 1 ;;
   esac
-  code=$(curl -s --max-time 30 -o "$body" -w '%{http_code}' "https://$fqdn/readyz" || true)
+  # A failed transfer is no answer, and a body from an earlier pass must not
+  # be read as this one's (TYRE-79).
+  : >"$body"
+  code=$(curl -s --max-time 30 -o "$body" -w '%{http_code}' "https://$fqdn/readyz") || code=000
   got_sha=$(sed -n 's/.*"sha"[[:space:]]*:[[:space:]]*"\([0-9a-zA-Z]*\)".*/\1/p' "$body")
   got_rev=$(sed -n 's/.*"revision"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$body")
   if [ "$code" = "200" ] && [ "$got_sha" = "$want" ] && [ "$got_rev" = "$rev" ] && [ "$weight" = "100" ]; then
