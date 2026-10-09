@@ -206,6 +206,12 @@ second push to `develop` waits behind the running one, and GitHub keeps only
 the newest of any waiting runs. Pull request and feature-branch runs still
 cancel.
 
+The `deploy-staging` caller job also carries its own concurrency group,
+`deploy-staging` with `cancel-in-progress: false`. GitHub's page on reusable
+workflows does not say whether a called workflow's workflow-level
+concurrency applies, and the caller's context governs everything else, so
+the guarantee sits on the caller.
+
 **The GitHub environment.** Both deploy jobs set `environment: staging`. The
 GitHub environment `staging` has:
 
@@ -401,9 +407,16 @@ cost a session before.
    For production (TYRE-397), the database is new and empty, so this step
    is only the migrate.
 
-   As `tyreadmin`, drop and recreate the `tyre` database, with the collation
-   `platform.bicep` declares. `app_login` and `app_rw` are cluster roles and
-   survive the drop, and 000001 creates them only `IF NOT EXISTS`. Then
+   **Drop.** As `tyreadmin`, run `DROP DATABASE tyre WITH (FORCE)`.
+   Crash-looping replicas of the old image may hold connections, and
+   `FORCE` ends them.
+
+   **Recreate.** Re-apply `platform.bicep`, which declares the `tyre`
+   database, so the collation and owner match what Bicep declares. Never
+   use hand-typed `CREATE DATABASE`.
+
+   `app_login` and `app_rw` are cluster roles and survive the drop, and
+   000001 creates them only `IF NOT EXISTS`. Then
    migrate the empty database to head (below). Tenants come from TYRE-374.
 
    The live image does not apply `app.bicep` by hand: the 21 Aug image has
@@ -489,8 +502,10 @@ pre-reset step, not to this runbook.
      settings are live.
 2. **Red.** A dispatch from `develop` with `image_sha=752c04b...`, the
    21 Aug image, which has no `/readyz`.
-   - Its revision fails readiness and never takes traffic, so the gate fails
-     at step 1, on the timeout.
+   - Its revision fails readiness and never takes traffic, so the run fails
+     before the image serves anything. That may happen at the apply, if ARM
+     blocks until the revision provisions and then times out, or at the
+     gate's step 1 timeout. Either is a pass for the proof.
    - The merge's revision keeps serving throughout.
    - Re-dispatching with the merge's SHA then proves rollback.
 3. **TYRE-53.** The web job's log carries no unexpected-input warning.
