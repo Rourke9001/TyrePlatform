@@ -14,7 +14,9 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A develop run may be deploying staging; cancelling it mid-rollout would
+  # strand a half-applied release (TYRE-79). Every other ref still cancels.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
 jobs:
   database:
@@ -109,6 +111,18 @@ jobs:
       # past both locally still cannot merge (docs/comments.md, TYRE-22).
       - name: Comment standard (deterministic subset)
         run: node scripts/check-comment-style.mjs
+
+  infra:
+    name: Infrastructure and workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Same targets make lint and make test run, so a template or workflow
+      # that would fail at deploy time fails here first (TYRE-79).
+      - name: Bicep and workflow lint
+        run: make infra-lint
+      - name: Deploy gate cases
+        run: make deploy-gate-test
 
   api:
     name: Go
@@ -294,3 +308,20 @@ jobs:
           name: playwright-traces
           path: web/test-results/
           retention-days: 7
+
+  # Deploys staging from inside CI's own run, so github.ref is develop and the
+  # staging environment's branch rule admits it; a workflow_run trigger would
+  # run as main (TYRE-79, ADR-0017). Every gate job must pass first.
+  deploy-staging:
+    name: Deploy staging
+    needs: [database, comments, infra, api, web, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    permissions:
+      id-token: write
+      contents: read
+    # GitHub's reusable-workflow docs do not say whether the called
+    # workflow's own concurrency applies, so the guarantee sits here too.
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    uses: ./.github/workflows/deploy.yml
