@@ -2,24 +2,31 @@
 
 The owner's runbook for TYRE-368 and TYRE-79 (spec
 `docs/superpowers/specs/2026-10-09-staging-deploy-path-design.md`, section
-4). Written for staging; every command names the environment in `ENV`, so
-TYRE-397 runs it unchanged for production. Every `az` write here is the
-owner's. CI never runs these.
+4). Written for staging: `ENV` names the environment in every command, and
+TYRE-397 decides production's first-apply order, because a new production
+has no vault and no secrets before its first platform apply. Every `az`
+write here is the owner's. CI never runs these.
 
-Run each block in Git Bash after `export MSYS_NO_PATHCONV=1`: Git Bash
-otherwise rewrites `/subscriptions/...` arguments into Windows paths.
+Run every block in Git Bash, from the repo root, in one shell: the `infra/`
+and `db/migrations` paths are relative, and later blocks use the `ENV`,
+`RG`, `PG` and `KV` the first one sets. That block also exports
+`MSYS_NO_PATHCONV=1`, because Git Bash otherwise rewrites the `-v` mount,
+`-path=/migrations` and `/subscriptions/...` arguments into Windows paths.
 
 ## Before anything
 
 ```bash
+export MSYS_NO_PATHCONV=1
 az login --tenant 9688ca2b-20f0-45ba-a560-11b5cfbde338
 az account show --query "{subscription:id, tenant:tenantId}" -o table
 ENV=staging
 RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV
 ```
 
-The subscription must be `5a61b832-e331-4529-95ed-ae7b07a9697d`. The CLI's
-default tenant is the CIAM one, which has no subscription.
+The subscription must be `5a61b832-e331-4529-95ed-ae7b07a9697d`. If
+`az account show` shows another one, run
+`az account set --subscription 5a61b832-e331-4529-95ed-ae7b07a9697d`. The
+CLI's default tenant is the CIAM one, which has no subscription.
 
 While an environment's Postgres is stopped, its API is down: the API
 pings the database at startup and exits without it. That is accepted for
@@ -32,29 +39,36 @@ release (TYRE-397).
 
 1. **Read access to the vault.** Until step 4 lands the Secrets Officer
    grant, give yourself Secrets User (a different role, so the two do not
-   collide):
+   collide). An empty `--scope` would widen the grant to the whole
+   subscription, so the block checks both values first:
 
    ```bash
    me=$(az ad signed-in-user show --query id -o tsv)
    kvid=$(az keyvault show -n $KV --query id -o tsv)
-   az role assignment create --assignee-object-id "$me" --assignee-principal-type User \
-     --role "Key Vault Secrets User" --scope "$kvid"
+   echo "me=$me kvid=$kvid"   # both must be non-empty
+   [ -n "$me" ] && [ -n "$kvid" ] && \
+     az role assignment create --assignee-object-id "$me" --assignee-principal-type User \
+       --role "Key Vault Secrets User" --scope "$kvid"
    ```
 
-2. **Prove the secrets.** All three must be listed, and `database-url` must
-   connect as `app_login` without bypassing RLS:
+2. **Prove the secrets.** This connects to Postgres, so first run **Each
+   release** step 1 below: a stopped server or a stale firewall IP fails the
+   connection whatever `database-url` holds. All three secrets must be
+   listed, and `database-url` must connect as `app_login` without bypassing
+   RLS:
 
    ```bash
    az keyvault secret list --vault-name $KV --query "[].name" -o tsv
    dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
-   docker run --rm -e DSN="$dsn" postgres:16-alpine sh -c \
+   docker run --rm -e DSN="$dsn" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea sh -c \
      'psql "$DSN" -At -c "SELECT current_user || '"' '"' || rolbypassrls FROM pg_roles WHERE rolname = current_user;"'
    unset dsn
    ```
 
    Expect `psql-admin-password`, `pg-app-login-password`, `database-url`, then
    `app_login false`. Anything else stops the bring-up: a revision cannot
-   activate without `database-url`.
+   activate without a working `database-url`. Judge a failed connection only
+   after Each release step 1 has run.
 
 3. **The deploy identity's credential and the GitHub environment.**
 
@@ -129,29 +143,53 @@ release (TYRE-397).
    (U116), and its schema predates 000001's later edits (TYRE-368 comment
    13572).
    **First, drop** the database through ARM, which needs no assumption
-   about who owns it inside Postgres:
+   about who owns it inside Postgres. The command asks for confirmation;
+   answer it yourself. The guard keeps it from running against production,
+   whose database is never dropped:
 
    ```bash
-   az postgres flexible-server db delete -g $RG -s $PG -n tyre --yes
+   [ "$ENV" = staging ] && az postgres flexible-server db delete -g $RG -s $PG -n tyre
    ```
 
    If ARM refuses because sessions are open, list them as `tyreadmin` from
-   the `postgres` database with
-   `SELECT pid, usename, application_name FROM pg_stat_activity WHERE datname = 'tyre';`
-   and stop to decide. The 21 Aug image never connects, so none are expected.
+   the `postgres` database and stop to decide:
 
-   **Then recreate** it by re-running the **whole** step 4 block, which
-   recreates `tyre` with the collation the template declares. Never use a
-   hand-typed `CREATE DATABASE`.
+   ```bash
+   pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
+   docker run --rm -e PGPASSWORD="$pw" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
+     "host=$PG.postgres.database.azure.com dbname=postgres user=tyreadmin sslmode=require" -At \
+     -c "SELECT pid, usename, application_name FROM pg_stat_activity WHERE datname = 'tyre';"
+   unset pw
+   ```
+
+   The 21 Aug image never connects, so none are expected.
+
+   **Then recreate** it by re-running the step 4 apply block (the first one),
+   which recreates `tyre` with the collation the template declares. Never use
+   a hand-typed `CREATE DATABASE`. Right after the grant swap, the Secrets
+   Officer grant can take a few minutes to take effect, so if `pw-length=0`
+   prints, wait and re-run.
 
    Then **Each release** below, from step 2. Production's database is new and
    empty, so production skips the drop. Tenants come from TYRE-374.
+
+   Each release says to migrate from `develop`, and this runs before the
+   TYRE-79 merge, so bring-up runs on the TYRE-79 branch, where
+   `infra/platform.bicep` already exists. The rule still holds because TYRE-79
+   adds no migration: bring-up applies only migrations already on `develop`.
+   Before Each release step 2, run `git fetch`, then confirm that
+   `git diff --stat origin/develop -- db/migrations` prints nothing.
 
 6. **Merge TYRE-79.** The merge is the new pipeline's first run. Do not apply
    `infra/app.bicep` by hand first: the 21 Aug image has no `/readyz` and
    would never pass readiness.
 
 ## Each release
+
+Run it from the repo root on a clean checkout of `develop` that includes the
+merge commit, never from a feature branch: the migrate reads that checkout's
+`db/migrations`, and step 3's check of the highest migration number reads
+it too. Bring-up step 5 is the one exception, and says why.
 
 **When to migrate.** Every merge to `develop` deploys staging, and the
 migrate is a manual step (U94). Run **Each release** straight after a merge
@@ -195,6 +233,7 @@ Production (TYRE-397) has real data, so TYRE-397 decides its own order.
      -path=/migrations \
      -database "postgres://tyreadmin:$enc@$PG.postgres.database.azure.com:5432/tyre?sslmode=require" up
    echo "migrate exit: $?"
+   unset pw enc
    ```
 
 3. **Stop on any of these.** A non-zero exit; `version` below reporting
@@ -216,7 +255,7 @@ Production (TYRE-397) has real data, so TYRE-397 decides its own order.
 
    ```bash
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
-   docker run --rm -e PGPASSWORD="$pw" postgres:16-alpine psql \
+   docker run --rm -e PGPASSWORD="$pw" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
      "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require" -At \
      -c "SELECT proowner::regrole, proacl FROM pg_proc WHERE oid = 'app.refresh_governing_tread()'::regprocedure;" \
      -c "SELECT has_function_privilege('app_login', 'app.refresh_governing_tread()', 'EXECUTE');"
@@ -242,4 +281,5 @@ environment (TYRE-374, U92).
 From the repo's Actions tab, run **Deploy staging** from `develop` with
 `image_sha` set to the full SHA of an image staging ran before. It
 redeploys that image under today's template; a template change that must be
-undone is a revert on `develop`.
+undone is a revert on `develop`. A rollback runs no down migration, so the
+schema stays at head, and an old image must tolerate it.
