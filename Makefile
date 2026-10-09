@@ -168,6 +168,10 @@ api-release-check: ## The release binary names no dev header (U103)
 web-test: ## Frontend tests
 	cd web && npm test
 
+.PHONY: deploy-gate-test
+deploy-gate-test: ## The staging deploy gate's pass and fail cases, with stub az and curl (TYRE-79)
+	bash scripts/deploy-gate.test.sh
+
 .PHONY: web-bundle
 web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk and no dev identity in the build (TYRE-317)
 	node scripts/check-capture-bundle.mjs --self-test
@@ -262,7 +266,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, es
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged api-test web-test ## Every test in the repo
+test: db-reset db-test db-test-privileged api-test web-test deploy-gate-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.
