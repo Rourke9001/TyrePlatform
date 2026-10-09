@@ -66,7 +66,8 @@ allow-listed. Nothing records which schema runs beside which image.
 - `deploy.yml` deploys staging when CI passes on `develop`, through a GitHub
   environment, with a gate that proves the new revision serves, and a
   rollback dispatch.
-- A `/readyz` route that pings the database and names the build's commit.
+- A `/readyz` route that pings the database and names the build's commit
+  and its revision.
 - The six `AUTH_*` settings on the container app, and the three
   `VITE_AUTH_*` values in the web build.
 - A runbook, `docs/runbooks/environment-release.md`, covering:
@@ -119,7 +120,8 @@ they are, so the first apply updates the live resources in place
   Neither extension needs `shared_preload_libraries`.
 
 **Parameters:** `env`, `pgAdminPassword`, `deployerObjectId` and
-`devMachineIp`, as today. It outputs what `app.bicep` needs.
+`devMachineIp`, as today. `app.bicep` reads the resources it needs as
+`existing`, not through this file's outputs.
 
 **The admin password is re-sent on every apply.** The schema allows the
 password to change at any time, and the docs are silent on omitting it from
@@ -206,11 +208,13 @@ second push to `develop` waits behind the running one, and GitHub keeps only
 the newest of any waiting runs. Pull request and feature-branch runs still
 cancel.
 
-The `deploy-staging` caller job also carries its own concurrency group,
-`deploy-staging` with `cancel-in-progress: false`. GitHub's page on reusable
-workflows does not say whether a called workflow's workflow-level
-concurrency applies, and the caller's context governs everything else, so
-the guarantee sits on the caller.
+The `deploy-staging` caller job in `ci.yml` holds its own concurrency
+group, `deploy-staging` with `cancel-in-progress: false`, which keeps CI
+deploys single. `deploy.yml` has no workflow-level group. Its `api` and
+`web` jobs hold the job-level groups `deploy-staging-api` and
+`deploy-staging-web`, and those keep a dispatch and a CI deploy apart.
+GitHub's docs do not say that job-level groups inside a called workflow are
+honoured, so the first runs confirm it.
 
 **The GitHub environment.** Both deploy jobs set `environment: staging`. The
 GitHub environment `staging` has:
@@ -250,9 +254,11 @@ Only then is the old credential deleted. Until TYRE-397, nothing deploys
 2. **Image.** Skipped when the dispatch input `image_sha` is set. Otherwise
    build with `--build-arg BUILD_SHA=$IMAGE_SHA` and push
    `crtyrestaging.azurecr.io/tyre-api:$IMAGE_SHA`, as today.
-3. **Apply.** Run `az deployment group create -g rg-tyre-staging -f
-   infra/app.bicep -p infra/app.staging.bicepparam -p apiImage=...
-   revisionSuffix=...`.
+3. **Apply.** Run
+   `API_IMAGE=... REVISION_SUFFIX=... az deployment group create -g rg-tyre-staging -n app-<suffix> -p infra/app.staging.bicepparam`.
+   The two values go in as environment variables, which the param file
+   reads through `readEnvironmentVariable`, because az takes a
+   `.bicepparam` file alone after `-p`.
 4. **Gate.** Run `scripts/deploy-gate.sh` (below).
 
 **Rollback** (NFR-MNT-006) is a dispatch with `image_sha` set to an earlier
@@ -298,17 +304,25 @@ it.
 
 **One polling loop.** Every 10 seconds until the timeout, each pass checks
 the new revision's state and then `/readyz`. The loop passes on the first
-pass where both hold.
+pass where `/readyz` holds and the new revision's traffic weight is 100.
 
 1. **Revision state.** `az containerapp revision show` for the new
    revision's name. An old revision's state never reaches the gate, so a
    poisoned old revision cannot fail a deploy.
-   - Fail at once only on `provisioningState` Failed or `runningState`
-     Failed.
-   - Degraded and Unhealthy are transient during a cold start with a fresh
-     database connection, so they wait out the timeout instead.
-   - The state holds when `runningState` is Running and `trafficWeight` is
-     100.
+   - The state stops the gate at once only when `provisioningState` or
+     `runningState` is Failed, or a value containing it such as
+     ActivationFailed.
+   - Any other state, such as Activating, Degraded or Unhealthy, keeps the
+     loop polling. Degraded and Unhealthy are transient during a cold start
+     with a fresh database connection.
+   - The gate passes only when `/readyz` answers 200 through the app's
+     FQDN, naming the expected SHA and the revision `<app>--<suffix>`, and
+     that revision's `trafficWeight` is 100. A revision that never serves
+     fails at the timeout.
+   - The pass rule reads neither state, because a new-revision replica
+     answering with its own name proves the revision serves, a state check
+     adds no proof, and az may report the value differently
+     (RunningAtMaxScale, Activating).
 
    The fields and their values are from the ARM revision model
    (learn.microsoft.com/javascript/api/@azure/arm-appcontainers/revision).
@@ -340,6 +354,8 @@ Every failure exits non-zero. The workflow does not pipe the script.
 The web job:
 
 - runs after the API job (`needs: api`) and in environment `staging`;
+- checks out `IMAGE_SHA`, so a rollback also rebuilds and ships that
+  commit's frontend (ADR-0017, one bundle for both environments);
 - builds with the three `VITE_AUTH_*` values as literals in `deploy.yml`
   (public identifiers, and the same for both environments under ADR-0017);
 - uploads with `Azure/static-web-apps-deploy` pinned to
@@ -378,9 +394,9 @@ makes replicas unready, not restarted.
 
 ## 4. The runbook (`docs/runbooks/environment-release.md`)
 
-The runbook is written for staging. Every step names the environment, so
-TYRE-397 runs it unchanged for production. Every step is an owner action,
-and every `az` write is confirmed by the owner.
+The runbook is written for staging. `ENV` names the environment in every
+command, and TYRE-397 decides production's first-apply order. Every step is
+an owner action, and every `az` write is confirmed by the owner.
 
 ### Before anything
 
@@ -514,12 +530,23 @@ pre-reset step, not to this runbook.
   `/healthz`: no actor needed, and the security headers present.
 - **The gate.** `scripts/deploy-gate.test.sh` runs the gate with stub `az`
   and `curl` on `PATH`. Its cases:
-  - Running and 100 with the right SHA and revision passes;
-  - Failed, Degraded or Unhealthy fails;
-  - an old revision answering 404 on `/readyz` fails;
-  - the wrong SHA fails;
-  - the right SHA from a different revision fails;
-  - a timeout fails.
+  - passing: Running at 100 with the right SHA and revision, the same with
+    spaced JSON, and an Activating or a Degraded revision at 100 once the
+    new revision answers;
+  - failing at once: provisioning state Failed, running state Failed, and
+    running state ActivationFailed;
+  - failing at the timeout:
+    - a revision that never takes traffic (weight 0), whether Running and
+      answering or Degraded and unready;
+    - a revision that never appears;
+    - an old image answering 404 on `/readyz`;
+    - the wrong SHA;
+    - the right SHA from a different revision;
+    - a 503 unready answer;
+    - a curl that fails (000);
+    - a 200 with no body after an unready answer, with or without a failed
+      transfer;
+    - a 200 with the right body but a failed transfer.
 
   Each failing case asserts a non-zero exit, and one passing case is the
   control. A new Makefile target runs it, and `make test` calls that target.
