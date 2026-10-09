@@ -1,10 +1,10 @@
 // The rarely-changing half of an environment (U117, ADR-0017): identities,
 // role assignments, data stores and the Container Apps environment. The
-// owner applies it by hand through docs/runbooks/environment-release.md,
-// because Contributor cannot write role assignments and the deploy
+// owner applies it by hand (docs/runbooks/environment-release.md, bring-up
+// step 4), because Contributor cannot write role assignments and the deploy
 // identity holds Contributor. infra/app.bicep is the pipeline's half.
 //
-// Deployed at resource-group scope into rg-tyre-staging. Outside Bicep: the
+// Deployed at resource-group scope into rg-tyre-<env>. Outside Bicep: the
 // resource group itself, the budget, the registry, Log Analytics, and the
 // deploy identity id-tyre-deploy-staging, the credential the pipeline
 // applies infra/app.bicep with.
@@ -19,9 +19,6 @@
 // Every apply re-sends pgAdminPassword read from kv-tyre-<env> and
 // devMachineIp read live: a different password changes the admin's, and a
 // stale IP moves the firewall rule (spec section 4).
-//
-// Deploy: az deployment group create -g rg-tyre-<env> -f infra/platform.bicep \
-//           -p env=<env> pgAdminPassword=... deployerObjectId=... devMachineIp=...
 
 @description('Region for everything that stores data (ADR-0002).')
 param location string = 'southafricanorth'

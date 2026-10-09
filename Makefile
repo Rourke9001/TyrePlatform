@@ -165,9 +165,10 @@ api-release-check: ## The release binary names no dev header (U103)
 	docker build --target build --output type=cacheonly api
 
 # Bicep's binary and actionlint are pinned by digest (TYRE-79). Renovate
-# tracks ACTIONLINT_IMAGE through renovate.json; the Bicep ADD in
-# infra/bicep.Dockerfile is bumped by hand (TYRE-304). The image build is
-# cached, so later runs start in seconds.
+# tracks ACTIONLINT_IMAGE through renovate.json; the Bicep version is bumped
+# by hand, together, in infra/bicep.Dockerfile's ADD, BICEP_IMAGE's tag and
+# deploy.yml's az bicep install (TYRE-304). The image build is cached, so
+# later runs start in seconds.
 #
 # bicep lint exits 0 on warnings, and a misspelled resource property is
 # only a warning (BCP089), so any Warning line fails the target. The output
@@ -278,7 +279,7 @@ fmt: py-tools-check ## Format everything
 # proven it could have (rule 2, TYRE-36). Its web half is an ESLint rule and
 # rides `npm run lint` above.
 .PHONY: lint
-lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths, bundle
+lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comment standard, money paths, bundle
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
 	$(GO_RUN) $(GO_IMAGE) go vet -tags devheader ./...
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck -tags devheader ./...
