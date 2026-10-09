@@ -114,7 +114,7 @@ The archetypes, all real, all currently in this repo:
 
 **A documented accepted risk** — name the weakness and the compensating
 control rather than pretending it is not there. See the ACCEPTED TRADE note
-in `infra/main.bicep` and the DEPLOYMENT NOTE at the end of
+in `infra/platform.bicep` and the DEPLOYMENT NOTE at the end of
 `000001_init.up.sql`.
 
 ## Requirement and ticket IDs

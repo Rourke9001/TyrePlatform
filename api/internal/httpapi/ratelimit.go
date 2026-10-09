@@ -34,7 +34,7 @@ const (
 //
 // A fixed window admits up to twice its limit in any sliding minute per
 // replica: a full window's worth at its end, and again at the start of the
-// next. infra/main.bicep's scale block permits maxReplicas: 2, so with both
+// next. infra/app.bicep's scale block permits maxReplicas: 2, so with both
 // warm the bound is four times each constant above (240 submits per sliding
 // minute per account, not 60), and minReplicas: 0 means a cold start resets
 // every window to empty (TYRE-184 F7).
@@ -126,7 +126,7 @@ func accountKey(id Identity) string {
 
 // clientAddress resolves the per-address counter's key, honouring
 // trustedProxyHops trusted L7 hops in front of this process
-// (infra/main.bicep's TRUSTED_PROXY_HOPS, default 1: today's single
+// (infra/app.bicep's TRUSTED_PROXY_HOPS, default 1: today's single
 // Container Apps ingress hop). Keying on RemoteAddr behind an untrusted
 // proxy would collapse every client into one bucket. See
 // docs/architecture.md's rate-limiting section for the full topology
