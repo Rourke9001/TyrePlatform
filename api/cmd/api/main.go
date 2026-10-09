@@ -25,9 +25,8 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// buildSHA is set at link time by api/Dockerfile from the deploy's commit
-// (-X main.buildSHA); /readyz reports it so the deploy gate can tell this
-// build from the one it replaces (TYRE-79).
+// buildSHA is set at link time by api/Dockerfile (-X main.buildSHA) and
+// reported by /readyz (TYRE-79).
 var buildSHA = "dev"
 
 // trustedProxyHops parses TRUSTED_PROXY_HOPS for NFR-SEC-007's per-source

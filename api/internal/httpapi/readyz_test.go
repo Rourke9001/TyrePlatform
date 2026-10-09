@@ -36,7 +36,7 @@ func TestReadyzDefaultsToDev(t *testing.T) {
 }
 
 // NFR-OBS-005: a replica whose database is gone reports unready, and the
-// body never carries the driver's error text.
+// body never carries the ping error.
 func TestReadyzUnreadyWhenTheDatabaseIsGone(t *testing.T) {
 	ctx := context.Background()
 	s, _ := testStore(t, ctx)
