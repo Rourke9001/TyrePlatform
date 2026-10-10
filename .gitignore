@@ -39,6 +39,7 @@ web/playwright-report/
 .env.*
 !.env.example
 !web/.env.development
+!web/.env.production
 *.log
 .DS_Store
 api/bin/

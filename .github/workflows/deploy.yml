@@ -149,12 +149,6 @@ jobs:
     concurrency:
       group: deploy-staging-web
       cancel-in-progress: false
-    env:
-      # Public identifiers, the same in both environments (ADR-0017, The web
-      # bundle carries no per-environment setting).
-      VITE_AUTH_AUTHORITY: https://9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19.ciamlogin.com/9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19/v2.0
-      VITE_AUTH_CLIENT_ID: 15552f43-eb78-438b-9c3d-809c5024e25e
-      VITE_AUTH_API_SCOPE: api://7804c37b-de70-4e9d-8700-f7f7a70fc988/access_as_user
     steps:
       # The frontend matches the image: a rollback ships the old commit's web too.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -167,11 +161,15 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Build
+      # The budget and dev-string gates ci.yml runs, on the dist this job
+      # uploads rather than a rebuild of it (TYRE-79).
+      - name: Build and check
         run: |
           cd web
           npm ci
           npm run build
+          npm run bundle:check
+          node ../scripts/check-dist-dev-strings.mjs
 
       - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
