@@ -201,11 +201,13 @@ deploy-gate-test: ## The staging deploy gate's pass and fail cases, with stub az
 	bash scripts/deploy-gate.test.sh
 
 .PHONY: web-bundle
-web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk and no dev identity in the build (TYRE-317)
+web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk, no dev identity in the build (TYRE-317) and its sign-in values (TYRE-79)
 	node scripts/check-capture-bundle.mjs --self-test
 	cd web && npm run build && npm run bundle:check
 	node scripts/check-dist-dev-strings.mjs --self-test
 	node scripts/check-dist-dev-strings.mjs
+	node scripts/check-dist-sign-in.mjs --self-test
+	node scripts/check-dist-sign-in.mjs
 
 # Not in `make test`: needs a live stack (make api-run, make db-reset) and
 # CI runs it as its own job (TYRE-65). Reseed is mandatory: FR-INS-038
