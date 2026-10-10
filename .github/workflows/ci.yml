@@ -239,8 +239,7 @@ jobs:
     runs-on: ubuntu-latest
     # The one job that runs the real stack end to end (seeded Postgres, the
     # API, vite dev server, headless Chromium and WebKit): jsdom cannot
-    # exercise real rendering, and the deploy workflow gates on this job's
-    # conclusion (TYRE-65).
+    # exercise real rendering, and deploy-staging below needs it (TYRE-65).
     services:
       postgres:
         image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea

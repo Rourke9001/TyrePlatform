@@ -70,8 +70,10 @@ jobs:
 
       # Prints the token's subject claim, which id-tyre-deploy-staging's
       # federated credential must match byte for byte (runbook, bring-up
-      # step 3). The token itself is never printed.
+      # step 3). The token itself is never printed. A diagnostic, so its own
+      # failure never stops a deploy.
       - name: OIDC subject
+        continue-on-error: true
         run: |
           tok=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
                   "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" \
@@ -94,7 +96,7 @@ jobs:
             case "$state" in
               Ready) exit 0 ;;
               Stopped) az postgres flexible-server start -g "$RG" -n "$PG" -o none ;;
-              Starting|Updating|Stopping) ;;
+              Starting|Updating|Stopping|Restarting|Provisioning) ;;
               *) echo "::error::$PG is in state '$state', which this job does not wait out"; exit 1 ;;
             esac
             sleep 10

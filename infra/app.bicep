@@ -53,6 +53,9 @@ resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
   scope: resourceGroup(acrResourceGroup)
 }
 
+// platform.bicep's kvSecretsForApi must be live before this applies, or the
+// database-url Key Vault reference fails revision activation with a
+// permission error, not a missing secret (runbook, bring-up step 4).
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-api-${env}'
   location: location
