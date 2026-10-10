@@ -64,19 +64,21 @@ prints anything, stop.
 2. **Prove the secrets.** This connects to Postgres, so first run **Each
    release** step 1 below: a stopped server or a stale firewall IP fails the
    connection whatever `database-url` holds. All three secrets must be
-   listed, and `database-url` must connect as `app_login` without bypassing
-   RLS:
+   listed, and `database-url` must connect as `app_login`, which is not a
+   superuser, does not bypass RLS and is a member of neither `tyreadmin` nor
+   `azure_pg_admin` (CLAUDE.md rule 1). Roles outlive the database drop in
+   step 5, so a hand change from an earlier bring-up would survive it:
 
    ```bash
    az keyvault secret list --vault-name $KV --query "[].name" -o tsv
    dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
    docker run --rm -e DSN="$dsn" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea sh -c \
-     'psql "$DSN" -At -c "SELECT current_user || '"' '"' || rolbypassrls FROM pg_roles WHERE rolname = current_user;"'
+     'psql "$DSN" -At -F " " -c "SELECT current_user, rolsuper, rolbypassrls, pg_has_role(current_user, '"'tyreadmin'"', '"'MEMBER'"'), pg_has_role(current_user, '"'azure_pg_admin'"', '"'MEMBER'"') FROM pg_roles WHERE rolname = current_user;"'
    unset dsn
    ```
 
    Expect `psql-admin-password`, `pg-app-login-password`, `database-url`, then
-   `app_login false`. Anything else stops the bring-up: a revision cannot
+   `app_login f f f f`. Anything else stops the bring-up: a revision cannot
    activate without a working `database-url`. Judge a failed connection only
    after Each release step 1 has run.
 
@@ -180,12 +182,18 @@ prints anything, stop.
    Officer grant can take a few minutes to take effect, so if `pw-length=0`
    prints, wait and re-run.
 
-   Then **Each release** below, from step 2. Production's database is new and
-   empty, so production skips the drop. Tenants come from TYRE-374.
+   Then **Each release** below, steps 2 to 4. Leave its step 5 for step 6
+   below: the image serving now is the one the merge replaces, and it never
+   serves this schema. Production's database is new and empty, so production
+   skips the drop. Tenants come from TYRE-374.
 
 6. **Merge TYRE-79.** The merge is the new pipeline's first run. Do not apply
    `infra/app.bicep` by hand first: the 21 Aug image has no `/readyz` and
    would never pass readiness.
+
+   Once the merge's deploy is green, run **Each release** step 5 to record
+   the release table's first row: the image read live then, with the version
+   and dirty flag that step 5's migrate left.
 
 ## Each release
 
