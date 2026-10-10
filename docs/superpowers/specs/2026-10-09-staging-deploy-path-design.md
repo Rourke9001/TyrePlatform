@@ -361,8 +361,10 @@ The web job:
   (public identifiers, and the same for both environments under ADR-0017).
   CI, `make web-bundle` and the deploy all read that one file, so the
   bundle the budget measures is the bundle that ships;
-- runs `bundle:check` and `check-dist-dev-strings.mjs` on the dist it
-  uploads;
+- runs `bundle:check`, `check-dist-dev-strings.mjs` and
+  `check-dist-sign-in.mjs` on the dist it uploads. The last fails a build
+  that lacks any of the three values, which the budget alone would pass
+  because that bundle is smaller;
 - uploads with `Azure/static-web-apps-deploy` pinned to
   `4d27395796ac319302594769cfe812bd207490b1`, the `v1` branch head of
   11 Sep 2024, whose `action.yml` declares `skip_api_build`. That is
@@ -607,8 +609,8 @@ pre-reset step, not to this runbook.
 - `scripts/deploy-gate.sh` and its test. Makefile targets for the lint and
   the gate test.
 - `docs/runbooks/environment-release.md`, new.
-- `web/.env.production`, new, and `web/bundle-budget.json`, re-recorded on
-  the configured build.
+- `web/.env.production` and `scripts/check-dist-sign-in.mjs`, new, and
+  `web/bundle-budget.json`, re-recorded on the configured build.
 - `docs/implementation-order.md`: the Staging row.
 - Outside the repo, at close-out:
   - Confluence page 10682399: the release table, and the deploy pipeline

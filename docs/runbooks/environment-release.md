@@ -185,7 +185,8 @@ prints anything, stop.
    Then **Each release** below, steps 2 to 4. Leave its step 5 for step 6
    below: the image serving now is the one the merge replaces, and it never
    serves this schema. Production's database is new and empty, so production
-   skips the drop. Tenants come from TYRE-374.
+   skips the drop, and records its first row once its first release is
+   serving (TYRE-397). Tenants come from TYRE-374.
 
 6. **Merge TYRE-79.** The merge is the new pipeline's first run. Do not apply
    `infra/app.bicep` by hand first: the 21 Aug image has no `/readyz` and
@@ -193,7 +194,7 @@ prints anything, stop.
 
    Once the merge's deploy is green, run **Each release** step 5 to record
    the release table's first row: the image read live then, with the version
-   and dirty flag that step 5's migrate left.
+   and dirty flag that Each release step 3 printed during step 5 above.
 
 ## Each release
 
