@@ -164,16 +164,50 @@ api-run: ## Run the API locally on :8080 (needs db-up and a .env file)
 api-release-check: ## The release binary names no dev header (U103)
 	docker build --target build --output type=cacheonly api
 
+# Bicep's binary and actionlint are pinned by digest (TYRE-79). Renovate
+# tracks ACTIONLINT_IMAGE through renovate.json; the Bicep version is bumped
+# by hand, together, in infra/bicep.Dockerfile's ADD, BICEP_IMAGE's tag and
+# deploy.yml's az bicep install (TYRE-304). The image build is cached, so
+# later runs start in seconds.
+#
+# bicep lint exits 0 on warnings, and a misspelled resource property is
+# only a warning (BCP089), so any Warning line fails the target. The output
+# is captured, not piped, so the status read is bicep's own.
+#
+# The two env values only satisfy readEnvironmentVariable in the param
+# file; nothing deploys here.
+BICEP_IMAGE ?= tyre-bicep:0.47.16
+ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+BICEP_RUN = MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE)
+
+.PHONY: infra-lint
+infra-lint: ## Bicep lint on both templates (warnings fail), the staging param file builds, actionlint on the workflows
+	docker build -q -t $(BICEP_IMAGE) -f infra/bicep.Dockerfile infra
+	@for f in platform.bicep app.bicep; do \
+	  out=$$($(BICEP_RUN) lint $$f 2>&1); st=$$?; echo "$$out"; \
+	  [ $$st -eq 0 ] || { echo "bicep lint $$f exited $$st"; exit 1; }; \
+	  if grep -q "Warning" <<<"$$out"; then echo "bicep lint $$f: a warning fails the gate (TYRE-79)"; exit 1; fi; \
+	done
+	MSYS_NO_PATHCONV=1 docker run --rm -e API_IMAGE=lint.example/tyre-api:lint -e REVISION_SUFFIX=lint \
+	  -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE) build-params app.staging.bicepparam --stdout >/dev/null
+	MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/repo" -w /repo $(ACTIONLINT_IMAGE) -color
+
 .PHONY: web-test
 web-test: ## Frontend tests
 	cd web && npm test
 
+.PHONY: deploy-gate-test
+deploy-gate-test: ## The staging deploy gate's pass and fail cases, with stub az and curl (TYRE-79)
+	bash scripts/deploy-gate.test.sh
+
 .PHONY: web-bundle
-web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk and no dev identity in the build (TYRE-317)
+web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk, no dev identity in the build (TYRE-317) and its sign-in values (TYRE-79)
 	node scripts/check-capture-bundle.mjs --self-test
 	cd web && npm run build && npm run bundle:check
 	node scripts/check-dist-dev-strings.mjs --self-test
 	node scripts/check-dist-dev-strings.mjs
+	node scripts/check-dist-sign-in.mjs --self-test
+	node scripts/check-dist-sign-in.mjs
 
 # Not in `make test`: needs a live stack (make api-run, make db-reset) and
 # CI runs it as its own job (TYRE-65). Reseed is mandatory: FR-INS-038
@@ -247,11 +281,12 @@ fmt: py-tools-check ## Format everything
 # proven it could have (rule 2, TYRE-36). Its web half is an ESLint rule and
 # rides `npm run lint` above.
 .PHONY: lint
-lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, eslint, tsc, comment standard, money paths, bundle
+lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comment standard, money paths, bundle
 	$(GO_RUN) $(GO_IMAGE) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run make fmt"; exit 1; }'
 	$(GO_RUN) $(GO_IMAGE) go vet -tags devheader ./...
 	$(GO_RUN) $(GO_IMAGE) go tool staticcheck -tags devheader ./...
 	$(MAKE) api-release-check
+	$(MAKE) infra-lint
 	cd web && npm run format:check && npm run lint && npm run typecheck
 	$(RUFF) format --check db/seeds
 	$(RUFF) check db/seeds
@@ -262,7 +297,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, es
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged api-test web-test ## Every test in the repo
+test: db-reset db-test db-test-privileged api-test web-test deploy-gate-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.

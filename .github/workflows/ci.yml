@@ -7,14 +7,17 @@ on:
 
 # A pull_request run executes repo scripts (seed generators, the comment
 # checker, npm lifecycle) against the token it is handed. Read-only is all any
-# job here needs; without this block the run inherits whatever the repository
-# default grants, which is a write token on many settings (TYRE-50).
+# job here needs, except deploy-staging, which grants its own id-token: write
+# for OIDC (TYRE-79). Without this block the run inherits whatever the
+# repository default grants, which is a write token on many settings (TYRE-50).
 permissions:
   contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # A develop run may be deploying staging; cancelling it mid-rollout would
+  # strand a half-applied release (TYRE-79). Every other ref still cancels.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
 
 jobs:
   database:
@@ -109,6 +112,18 @@ jobs:
       # past both locally still cannot merge (docs/comments.md, TYRE-22).
       - name: Comment standard (deterministic subset)
         run: node scripts/check-comment-style.mjs
+
+  infra:
+    name: Infrastructure and workflows
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Same targets make lint and make test run, so a template or workflow
+      # that would fail at deploy time fails here first (TYRE-79).
+      - name: Bicep and workflow lint
+        run: make infra-lint
+      - name: Deploy gate cases
+        run: make deploy-gate-test
 
   api:
     name: Go
@@ -218,14 +233,15 @@ jobs:
           npm run bundle:check
           node ../scripts/check-dist-dev-strings.mjs --self-test
           node ../scripts/check-dist-dev-strings.mjs
+          node ../scripts/check-dist-sign-in.mjs --self-test
+          node ../scripts/check-dist-sign-in.mjs
 
   e2e:
     name: Browser smoke
     runs-on: ubuntu-latest
     # The one job that runs the real stack end to end (seeded Postgres, the
     # API, vite dev server, headless Chromium and WebKit): jsdom cannot
-    # exercise real rendering, and the deploy workflow gates on this job's
-    # conclusion (TYRE-65).
+    # exercise real rendering, and deploy-staging below needs it (TYRE-65).
     services:
       postgres:
         image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
@@ -274,7 +290,7 @@ jobs:
         run: |
           cd api
           go run -tags devheader ./cmd/api &
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             curl -s -o /dev/null http://localhost:8080/api/me && exit 0
             sleep 1
           done
@@ -294,3 +310,21 @@ jobs:
           name: playwright-traces
           path: web/test-results/
           retention-days: 7
+
+  # Deploys staging from inside CI's own run, so github.ref is develop and the
+  # staging environment's branch rule admits it; a workflow_run trigger would
+  # run as main (TYRE-79, ADR-0017). Every gate job must pass first.
+  deploy-staging:
+    name: Deploy staging
+    needs: [database, comments, infra, api, web, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/develop'
+    permissions:
+      id-token: write
+      contents: read
+    # This group keeps CI deploys single. A dispatch is kept apart by
+    # deploy.yml's job-level groups, which GitHub's docs do not say are
+    # honoured inside a called workflow; the first runs confirm it (TYRE-79).
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    uses: ./.github/workflows/deploy.yml

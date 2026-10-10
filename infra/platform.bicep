@@ -1,10 +1,13 @@
-// Staging environment for the TyrePlatform POC (ADR-0005: staging IS
-// production for the BAC pilot; prod is stamped from this same template).
+// The rarely-changing half of an environment (U117, ADR-0017): identities,
+// role assignments, data stores and the Container Apps environment. The
+// owner applies it by hand (docs/runbooks/environment-release.md, bring-up
+// step 4), because Contributor cannot write role assignments and the deploy
+// identity holds Contributor. infra/app.bicep is the pipeline's half.
 //
-// Deployed at resource-group scope into rg-tyre-staging. Outside Bicep: the
+// Deployed at resource-group scope into rg-tyre-<env>. Outside Bicep: the
 // resource group itself, the budget, the registry, Log Analytics, and the
-// deploy identity id-tyre-deploy-staging, since it is the credential that
-// runs this template and cannot own itself.
+// deploy identity id-tyre-deploy-staging, the credential the pipeline
+// applies infra/app.bicep with.
 //
 // ACCEPTED TRADE: id-tyre-deploy-staging's Contributor scope on
 // rg-tyre-staging is therefore live-Azure only, not visible or reviewable
@@ -13,8 +16,9 @@
 // not Azure RBAC scoping. Revisit before the first commercial contract, per
 // NFR-SEC-014; tracked as TYRE-61.
 //
-// Deploy: az deployment group create -g rg-tyre-staging -f infra/main.bicep \
-//           -p pgAdminPassword=... deployerObjectId=... devMachineIp=...
+// Every apply re-sends pgAdminPassword read from kv-tyre-<env> and
+// devMachineIp read live: a different password changes the admin's, and a
+// stale IP moves the firewall rule (spec section 4).
 
 @description('Region for everything that stores data (ADR-0002).')
 param location string = 'southafricanorth'
@@ -196,6 +200,20 @@ resource tyreDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01'
   properties: { charset: 'UTF8', collation: 'en_US.utf8' }
 }
 
+// Flexible Server refuses CREATE EXTENSION for anything not allow-listed
+// here, and 000026 needs btree_gist (TYRE-368). The parameter is dynamic:
+// no restart. Serialised after the server's other children, which can
+// conflict when ARM applies them in parallel.
+resource pgExtensions 'Microsoft.DBforPostgreSQL/flexibleServers/configurations@2024-08-01' = {
+  parent: pg
+  name: 'azure.extensions'
+  properties: {
+    value: 'PGCRYPTO,BTREE_GIST'
+    source: 'user-override'
+  }
+  dependsOn: [ pgAllowAzure, pgAllowDev, tyreDb ]
+}
+
 // ---------------------------------------------------------- container apps --
 
 resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
@@ -213,79 +231,6 @@ resource cae 'Microsoft.App/managedEnvironments@2024-03-01' = {
   }
 }
 
-// ACCEPTED TRADE: the image below is a placeholder. From the first CI deploy
-// onward the live image is owned by .github/workflows/deploy.yml (tagged with
-// the git sha), so a full template redeploy silently reverts the app to the
-// placeholder. Compensating control: redeploy the template only alongside a
-// CI run, which immediately re-deploys the real image.
-resource api 'Microsoft.App/containerApps@2024-03-01' = {
-  name: 'ca-api-${env}'
-  location: location
-  tags: tags
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: { '${apiIdentity.id}': {} }
-  }
-  properties: {
-    managedEnvironmentId: cae.id
-    configuration: {
-      ingress: {
-        external: true
-        // The Go API listens on 8080 (PORT default in api/cmd/api/main.go).
-        targetPort: 8080
-        allowInsecure: false
-      }
-      registries: [
-        {
-          server: acr.properties.loginServer
-          identity: apiIdentity.id
-        }
-      ]
-      secrets: [
-        // Resolved from Key Vault by the API's managed identity: app_login
-        // never exists in this repo, CI or the app config. Must exist
-        // before this template deploys or revision activation fails:
-        //   az keyvault secret set --vault-name kv-tyre-staging \
-        //     --name database-url --value 'postgres://app_login:...'
-        {
-          name: 'database-url'
-          keyVaultUrl: '${kv.properties.vaultUri}secrets/database-url'
-          identity: apiIdentity.id
-        }
-      ]
-    }
-    template: {
-      containers: [
-        {
-          name: 'api'
-          image: 'mcr.microsoft.com/k8se/quickstart:latest'
-          resources: { cpu: json('0.25'), memory: '0.5Gi' }
-          env: [
-            { name: 'DATABASE_URL', secretRef: 'database-url' }
-            // NFR-SEC-007's rate limit reads the caller's address this many
-            // entries from the right of X-Forwarded-For. '1' matches the
-            // ingress above being the only hop; adding any L7 hop in front
-            // (Front Door, App Gateway, CDN, WAF) and leaving this stale
-            // collapses the limit into one bucket shared by every client.
-            { name: 'TRUSTED_PROXY_HOPS', value: '1' }
-          ]
-        }
-      ]
-      // Scale to zero: an idle POC costs nothing (ADR-0001). If the first
-      // request of the morning proves too slow, minReplicas: 1 at a known
-      // monthly cost is the documented fix.
-      //
-      // maxReplicas and minReplicas both bound the submit rate limiter's
-      // per-process counters; see ratelimit.go's comment for the arithmetic
-      // (TYRE-184 F7).
-      scale: { minReplicas: 0, maxReplicas: 2 }
-    }
-  }
-  // kvSecretsForApi must exist first or the database-url Key Vault reference
-  // fails revision activation with a permission error, not a missing secret.
-  dependsOn: [ acrPullForApi, kvSecretsForApi ]
-}
-
 // -------------------------------------------------------- static web app --
 
 resource swa 'Microsoft.Web/staticSites@2023-12-01' = {
@@ -301,7 +246,6 @@ resource swa 'Microsoft.Web/staticSites@2023-12-01' = {
 
 // ----------------------------------------------------------------- outputs --
 
-output apiFqdn string = api.properties.configuration.ingress.fqdn
 output pgFqdn string = pg.properties.fullyQualifiedDomainName
 output swaHostname string = swa.properties.defaultHostname
 output kvUri string = kv.properties.vaultUri

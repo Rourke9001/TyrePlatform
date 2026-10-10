@@ -1,61 +1,84 @@
-# Releases staging from main (ADR-0004: main only fast-forwards a vetted
-# develop commit, so arriving here IS a release). Staging is production for
-# the BAC pilot (ADR-0005).
+# The staging deploy (ADR-0017). ci.yml's deploy-staging job calls it once
+# every gate job has passed on a push to develop; a dispatch from develop
+# rolls back to an image already in the registry (NFR-MNT-006). Not on
+# workflow_run: that event runs as the default branch, main, which the
+# staging environment's branch rule refuses (TYRE-79).
 #
-# Auth is OIDC federated credentials on id-tyre-deploy-staging; no
-# long-lived Azure secret exists in this repo. Holds AcrPush on the
-# registry and Contributor on the resource group only.
+# Auth is OIDC on id-tyre-deploy-staging through the GitHub environment
+# staging; no long-lived Azure secret exists in this repo. The identity holds
+# AcrPush and Contributor on the resource group only, so it applies
+# infra/app.bicep and never infra/platform.bicep (U117).
 name: Deploy staging
 
-# CI finishing on main is the trigger, not the push. Triggering on the push
-# itself races the verification suite: both start together, and the deploy
-# wins. ADR-0004 says the commit was vetted on develop; this is the machine
-# checking that claim instead of the release trusting it (TYRE-50).
 on:
-  workflow_run:
-    workflows: [CI]
-    branches: [main]
-    types: [completed]
+  # image_sha is declared on both triggers so the inputs context is typed
+  # for a CI call too; a call leaves it empty, and IMAGE_SHA falls back.
+  workflow_call:
+    inputs:
+      image_sha:
+        description: Leave empty. CI calls this workflow for a normal deploy.
+        required: false
+        type: string
+        default: ''
   workflow_dispatch:
+    inputs:
+      image_sha:
+        description: Full commit SHA of an image already in the registry, to roll back to
+        required: true
+        type: string
 
 permissions:
   id-token: write
   contents: read
 
-# Never run two deploys concurrently; queue instead of cancelling so a
-# fast-follow fix cannot kill the release in front of it mid-rollout.
-concurrency:
-  group: deploy-staging
-  cancel-in-progress: false
-
 env:
   RG: rg-tyre-staging
   ACR: crtyrestaging
   APP: ca-api-staging
+  PG: psql-tyre-staging
   SWA: stapp-tyre-staging
-  # On a workflow_run event github.sha is the default branch's head at the
-  # moment this workflow starts, not the commit CI actually verified. Deploying
-  # that would ship an unverified fast-follow push. head_sha is the commit CI
-  # ran against; the fallback covers workflow_dispatch, which has no run to
-  # inherit from.
-  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+  # TEMPLATE_SHA is the run's commit; IMAGE_SHA is the rollback input when
+  # set, else that commit (spec section 2, Rollback).
+  TEMPLATE_SHA: ${{ github.sha }}
+  IMAGE_SHA: ${{ inputs.image_sha || github.sha }}
 
-# A workflow_run fires on every completion, failure included, so the gate is
-# the conclusion AND the event: ci.yml also runs for pull_requests, and a
-# PR-sourced run must never release. workflow_dispatch carries no conclusion,
-# so it stays open and main's head can be re-released when CI is red. It is
-# pinned to main so a dispatch from another ref cannot ship unvetted code.
 jobs:
   api:
-    name: API image
-    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
+    name: API to Container Apps
     runs-on: ubuntu-latest
+    environment: staging
+    # The red proof makes ARM wait on a revision that never readies; this
+    # bounds the run rather than leaving it to GitHub's six-hour default.
+    # Budget: at least 10 min starting the database, a build, 10 min of gate.
+    timeout-minutes: 45
+    # Job level, so a dispatch and a CI deploy also exclude each other; the
+    # caller job in ci.yml carries its own group for the CI path.
+    concurrency:
+      group: deploy-staging-api
+      cancel-in-progress: false
     steps:
+      - name: Rollback input is a full SHA
+        if: inputs.image_sha != ''
+        run: |
+          [[ "$IMAGE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::image_sha must be a full 40-character lower-case commit SHA, got '$IMAGE_SHA'"; exit 1; }
+
       # Pinned to a commit SHA for the reason set out at the top of the
       # database job in ci.yml.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.DEPLOY_SHA }}
+          ref: ${{ env.TEMPLATE_SHA }}
+
+      # Prints the token's subject claim, which id-tyre-deploy-staging's
+      # federated credential must match byte for byte (runbook, bring-up
+      # step 3). The token itself is never printed. A diagnostic, so its own
+      # failure never stops a deploy.
+      - name: OIDC subject
+        continue-on-error: true
+        run: |
+          tok=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+                  "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=api://AzureADTokenExchange" \
+                | python3 -c 'import json,sys; print(json.load(sys.stdin)["value"])')
+          python3 -c 'import base64,json,sys; p=sys.argv[1].split(".")[1]; p+="="*(-len(p)%4); print("sub:", json.loads(base64.urlsafe_b64decode(p))["sub"])' "$tok"
 
       - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
@@ -63,47 +86,76 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      # The owner stops staging's server while idle (ADR-0017); the API
+      # exits at startup without it, so a deploy starts it first.
+      - name: Database running
+        run: |
+          for _ in $(seq 1 60); do
+            state=$(az postgres flexible-server show -g "$RG" -n "$PG" --query state -o tsv)
+            echo "server state: $state"
+            case "$state" in
+              Ready) exit 0 ;;
+              Stopped) az postgres flexible-server start -g "$RG" -n "$PG" -o none ;;
+              Starting|Updating|Stopping|Restarting|Provisioning) ;;
+              *) echo "::error::$PG is in state '$state', which this job does not wait out"; exit 1 ;;
+            esac
+            sleep 10
+          done
+          echo "::error::$PG did not reach Ready (last state: $state)"
+          exit 1
+
       - name: Build and push image
+        if: inputs.image_sha == ''
         run: |
           az acr login --name "$ACR"
-          image="$ACR.azurecr.io/tyre-api:$DEPLOY_SHA"
-          docker build -t "$image" api
+          image="$ACR.azurecr.io/tyre-api:$IMAGE_SHA"
+          docker build --build-arg BUILD_SHA="$IMAGE_SHA" -t "$image" api
           docker push "$image"
 
-      # The live image is owned by this workflow, not by Bicep. The ACCEPTED
-      # TRADE note on the container app in infra/main.bicep says why.
-      - name: Deploy to Container Apps
+      - name: Image exists
         run: |
-          # Unpinned, unlike the SHA-pinned actions: the extension ships from
-          # Microsoft's own index via the az CLI the runner already trusts
-          # unpinned, and a version pin here would need manual bumps that
-          # Renovate cannot see.
-          az extension add -n containerapp --upgrade
-          az containerapp update -g "$RG" -n "$APP" \
-            --image "$ACR.azurecr.io/tyre-api:$DEPLOY_SHA"
+          az acr login --name "$ACR"
+          docker buildx imagetools inspect "$ACR.azurecr.io/tyre-api:$IMAGE_SHA" >/dev/null \
+            || { echo "::error::tyre-api:$IMAGE_SHA is not in $ACR"; exit 1; }
 
-      # Hit the app through its public FQDN, not the revision URL: this is the
-      # path a driver's phone takes, including a cold start from zero replicas.
-      - name: Health check
+      - name: Apply the app template
+        env:
+          ROLLBACK_SHA: ${{ inputs.image_sha }}
         run: |
-          fqdn=$(az containerapp show -g "$RG" -n "$APP" \
-                   --query properties.configuration.ingress.fqdn -o tsv)
-          for i in $(seq 1 30); do
-            code=$(curl -s -o /dev/null -w '%{http_code}' "https://$fqdn/healthz" || true)
-            [ "$code" = "200" ] && { echo "healthy after $i checks"; exit 0; }
-            sleep 5
-          done
-          echo "::error::/healthz never returned 200 (last=$code)"
-          exit 1
+          # c for a CI deploy, d for a dispatch: the two count runs
+          # separately, so the prefix keeps their suffixes apart (spec section 2).
+          kind=c; [ -n "$ROLLBACK_SHA" ] && kind=d
+          suffix="${kind}${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${IMAGE_SHA:0:7}"
+          echo "REVISION_SUFFIX=$suffix" >> "$GITHUB_ENV"
+          # The runner's own Bicep is unpinned; this version matches
+          # infra/bicep.Dockerfile and the Makefile's BICEP_IMAGE tag, and all
+          # three are bumped together (TYRE-304).
+          az config set bicep.use_binary_from_path=false
+          az bicep install --version v0.47.16
+          API_IMAGE="$ACR.azurecr.io/tyre-api:$IMAGE_SHA" REVISION_SUFFIX="$suffix" \
+            az deployment group create -g "$RG" -n "app-$suffix" \
+              -p infra/app.staging.bicepparam -o none
+
+      - name: Gate
+        run: bash scripts/deploy-gate.sh "$RG" "$APP" "$REVISION_SUFFIX" "$IMAGE_SHA" 600
 
   web:
     name: Web to Static Web Apps
-    if: (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') || (github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success')
+    # A frontend never ships ahead of an API that failed to activate.
+    needs: api
     runs-on: ubuntu-latest
+    environment: staging
+    # A hung upload would otherwise hold deploy-staging-web, and develop CI
+    # behind it, for six hours.
+    timeout-minutes: 20
+    concurrency:
+      group: deploy-staging-web
+      cancel-in-progress: false
     steps:
+      # The frontend matches the image: a rollback ships the old commit's web too.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.DEPLOY_SHA }}
+          ref: ${{ env.IMAGE_SHA }}
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -111,11 +163,16 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      - name: Build
+      # The budget, dev-string and sign-in gates ci.yml runs, on the dist
+      # this job uploads rather than a rebuild of it (TYRE-79).
+      - name: Build and check
         run: |
           cd web
           npm ci
           npm run build
+          npm run bundle:check
+          node ../scripts/check-dist-dev-strings.mjs
+          node ../scripts/check-dist-sign-in.mjs
 
       - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:
@@ -134,12 +191,11 @@ jobs:
           echo "::add-mask::$key"
           echo "key=$key" >> "$GITHUB_OUTPUT"
 
-      # The third-party action in the job holding the OIDC token, so the one
-      # that most needed pinning. This repository carries both a `v1` tag and a
-      # `v1` branch, three years apart, and the runner resolves `@v1` to the
-      # tag, so the tag's SHA is the pin that preserves behaviour. TYRE-53
-      # holds the decision about moving to the branch.
-      - uses: Azure/static-web-apps-deploy@1a947af9992250f3bc2e68ad0754c0b0c11566c9 # v1
+      # TYRE-53 option (a): the v1 branch head of 11 Sep 2024, which declares
+      # skip_api_build; the v1 tag is the March 2021 build that ignored it.
+      # Renovate would read a version comment as the tag and revert this, so
+      # renovate.json disables the package and a bump is a deliberate edit.
+      - uses: Azure/static-web-apps-deploy@4d27395796ac319302594769cfe812bd207490b1 # branch head 2024-09-11, TYRE-53
         with:
           azure_static_web_apps_api_token: ${{ steps.swa.outputs.key }}
           action: upload

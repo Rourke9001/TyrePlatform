@@ -11,7 +11,9 @@ RUN go mod download
 COPY . .
 # CGO off makes the binary fully static so it runs on distroless/static.
 # No -tags devheader: the release binary has no dev header resolver (U103).
-RUN CGO_ENABLED=0 go build -trimpath -ldflags='-s -w' -o /out/api ./cmd/api
+# The deploy passes its commit (deploy.yml); /readyz reports it (TYRE-79).
+ARG BUILD_SHA=dev
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.buildSHA=${BUILD_SHA}" -o /out/api ./cmd/api
 # U103: the image does not build if the binary it ships names a dev header.
 # The control is the devheader build, kept out of /out.
 RUN CGO_ENABLED=0 go build -tags devheader -trimpath -ldflags='-s -w' -o /tmp/control ./cmd/api \
@@ -19,7 +21,7 @@ RUN CGO_ENABLED=0 go build -tags devheader -trimpath -ldflags='-s -w' -o /tmp/co
 
 FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 COPY --from=build /out/api /api
-# Container Apps ingress targets 8080 (infra/main.bicep); main.go defaults to
+# Container Apps ingress targets 8080 (infra/app.bicep); main.go defaults to
 # the same, so this is documentation more than configuration.
 ENV PORT=8080
 EXPOSE 8080

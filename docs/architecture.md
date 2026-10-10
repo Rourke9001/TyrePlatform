@@ -194,7 +194,7 @@ every connection and forwards over its internal hop, so `RemoteAddr` is
 always the ingress's own address, never the caller's. Keying the counter on
 `RemoteAddr` there would collapse every client into one bucket, turning the
 limiter meant to stop a hostile client into a way for one to lock out every
-driver. `infra/main.bicep`'s `TRUSTED_PROXY_HOPS` defaults to 1 for exactly
+driver. `infra/app.bicep`'s `TRUSTED_PROXY_HOPS` defaults to 1 for exactly
 this hop; adding a second hop in front of it (a CDN, WAF or gateway) moves
 the trusted observation one entry further from the right, which is what
 raising the option tracks. If the flattened chain has fewer entries than
@@ -253,6 +253,7 @@ Go rather than a raw Postgres error.
 |---|---|
 | Local | docker-compose Postgres 16 on :5433. Same major version as production so RLS and `security_invoker` behave identically. |
 | CI | GitHub Actions. Ephemeral Postgres service container. The verification suite is the gate. |
+| Staging | Deploys from `develop` through CI's `deploy-staging` job, which calls `.github/workflows/deploy.yml`. The gate is `scripts/deploy-gate.sh` (ADR-0017). |
 | Production | Azure. One resource group per environment. Bicep in `infra/`. Deploys via GitHub Actions using OIDC federated credentials — no long-lived Azure secret in the repo. |
 
 ## Decision record index
