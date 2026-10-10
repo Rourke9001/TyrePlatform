@@ -43,6 +43,7 @@ done
 n=$(( $(cat "$STUB_DIR/calls" 2>/dev/null || echo 0) + 1 ))
 echo "$n" >"$STUB_DIR/calls"
 if [ "$n" -ge 2 ] && [ -e "$STUB_DIR/code2" ]; then
+  [ ! -s "$STUB_DIR/body2" ] || cat "$STUB_DIR/body2" >"$out"
   cat "$STUB_DIR/code2"
   exit "$(cat "$STUB_DIR/exit2")"
 fi
@@ -57,13 +58,13 @@ sha=0123456789abcdef0123456789abcdef01234567
 rev=ca-api-staging--c7-1-0123456
 fails=0
 
-case_run() { # name want-exit state(3 lines, or empty) code body [curl-exit [later-code later-exit]]
-  rm -f "$work/calls" "$work/code2" "$work/exit2"
+case_run() { # name want-exit state(3 lines, or empty) code body [curl-exit [later-code later-exit [later-body]]]
+  rm -f "$work/calls" "$work/code2" "$work/exit2" "$work/body2"
   if [ -n "$3" ]; then printf '%s\n' "$3" >"$work/state"; else : >"$work/state"; fi
   printf '%s' "$4" >"$work/code"
   printf '%s' "$5" >"$work/body"
   printf '%s' "${6:-0}" >"$work/exit"
-  if [ -n "${7:-}" ]; then printf '%s' "$7" >"$work/code2"; printf '%s' "${8:-0}" >"$work/exit2"; fi
+  if [ -n "${7:-}" ]; then printf '%s' "$7" >"$work/code2"; printf '%s' "${8:-0}" >"$work/exit2"; printf '%s' "${9:-}" >"$work/body2"; fi
   bash "$gate" rg-tyre-staging ca-api-staging c7-1-0123456 "$sha" 2 >/dev/null 2>&1
   got=$?
   if { [ "$2" = 0 ] && [ "$got" -ne 0 ]; } || { [ "$2" = 1 ] && [ "$got" -eq 0 ]; }; then
@@ -93,6 +94,8 @@ case_run "curl fails (timeout, 000)" 1 "$ok" 000 "" 28
 case_run "a body-less 200 after an unready answer does not pass" 1 "$ok" 503 "{\"status\":\"unready\",\"sha\":\"$sha\",\"revision\":\"$rev\"}" 0 200 18
 case_run "a clean body-less 200 after an unready answer does not pass" 1 "$ok" 503 "{\"status\":\"unready\",\"sha\":\"$sha\",\"revision\":\"$rev\"}" 0 200 0
 case_run "a 200 with the right body but a failed transfer does not pass" 1 "$ok" 200 "$ok_body" 18
+case_run "cold start: unready, then the right answer passes" 0 "$ok" 503 "{\"status\":\"unready\",\"sha\":\"$sha\",\"revision\":\"$rev\"}" 0 200 0 "$ok_body"
+case_run "cold start: no answer (000), then the right answer passes" 0 "$ok" 000 "" 28 200 0 "$ok_body"
 
 [ "$fails" -eq 0 ] || { echo "$fails deploy-gate case(s) failed"; exit 1; }
 echo "deploy-gate: all cases pass"
