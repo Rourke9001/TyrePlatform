@@ -163,8 +163,8 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
-      # The budget and dev-string gates ci.yml runs, on the dist this job
-      # uploads rather than a rebuild of it (TYRE-79).
+      # The budget, dev-string and sign-in gates ci.yml runs, on the dist
+      # this job uploads rather than a rebuild of it (TYRE-79).
       - name: Build and check
         run: |
           cd web
@@ -172,6 +172,7 @@ jobs:
           npm run build
           npm run bundle:check
           node ../scripts/check-dist-dev-strings.mjs
+          node ../scripts/check-dist-sign-in.mjs
 
       - uses: azure/login@7184910d9eb2b1c5e48f7073824a90609bb9b6d6 # v2.3.1
         with:

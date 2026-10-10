@@ -233,6 +233,8 @@ jobs:
           npm run bundle:check
           node ../scripts/check-dist-dev-strings.mjs --self-test
           node ../scripts/check-dist-dev-strings.mjs
+          node ../scripts/check-dist-sign-in.mjs --self-test
+          node ../scripts/check-dist-sign-in.mjs
 
   e2e:
     name: Browser smoke
