@@ -69,7 +69,8 @@ allow-listed. Nothing records which schema runs beside which image.
 - A `/readyz` route that pings the database and names the build's commit
   and its revision.
 - The six `AUTH_*` settings on the container app, and the three
-  `VITE_AUTH_*` values in the web build.
+  `VITE_AUTH_*` values in `web/.env.production`, which every production
+  build reads.
 - A runbook, `docs/runbooks/environment-release.md`, covering:
   - the one-time bring-up;
   - applying the platform template;
@@ -356,8 +357,12 @@ The web job:
 - runs after the API job (`needs: api`) and in environment `staging`;
 - checks out `IMAGE_SHA`, so a rollback also rebuilds and ships that
   commit's frontend (ADR-0017, one bundle for both environments);
-- builds with the three `VITE_AUTH_*` values as literals in `deploy.yml`
-  (public identifiers, and the same for both environments under ADR-0017);
+- builds with the three `VITE_AUTH_*` values from `web/.env.production`
+  (public identifiers, and the same for both environments under ADR-0017).
+  CI, `make web-bundle` and the deploy all read that one file, so the
+  bundle the budget measures is the bundle that ships;
+- runs `bundle:check` and `check-dist-dev-strings.mjs` on the dist it
+  uploads;
 - uploads with `Azure/static-web-apps-deploy` pinned to
   `4d27395796ac319302594769cfe812bd207490b1`, the `v1` branch head of
   11 Sep 2024, whose `action.yml` declares `skip_api_build`. That is
@@ -549,7 +554,9 @@ pre-reset step, not to this runbook.
     - a 200 with the right body but a failed transfer.
 
   Each failing case asserts a non-zero exit, and one passing case is the
-  control. A new Makefile target runs it, and `make test` calls that target.
+  control. Two more must pass, each a cold start: an unready answer or a
+  failed transfer, then the right one. A new Makefile target runs it, and
+  `make test` calls that target.
 - **Lint.**
   - `bicep build` and `bicep lint` on both templates and the param file, in
     a pinned container image.
@@ -579,6 +586,8 @@ pre-reset step, not to this runbook.
    - Re-dispatching with a SHA other than the one serving then proves
      rollback. The image must have `/readyz` and exist in the registry, for
      example the merge's commit once a later deploy has replaced it.
+   - That rollback dispatch's elapsed time, from the dispatch until both
+     jobs are green, is posted with it against NFR-MNT-006's rollback time.
    - A re-dispatch with the SHA already serving is meaningful too, because
      the gate also compares the revision name, so it passes only once a new
      revision is the one answering.
@@ -598,6 +607,8 @@ pre-reset step, not to this runbook.
 - `scripts/deploy-gate.sh` and its test. Makefile targets for the lint and
   the gate test.
 - `docs/runbooks/environment-release.md`, new.
+- `web/.env.production`, new, and `web/bundle-budget.json`, re-recorded on
+  the configured build.
 - `docs/implementation-order.md`: the Staging row.
 - Outside the repo, at close-out:
   - Confluence page 10682399: the release table, and the deploy pipeline
