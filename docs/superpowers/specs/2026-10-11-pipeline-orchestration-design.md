@@ -113,9 +113,9 @@ agent teams"), which would change how plain sessions and `/ticket` dispatch.
 
 Every teammate ends its turn with a short report to the lead: done or
 blocked, what it produced, and any open finding. A teammate loads CLAUDE.md,
-skills, MCP servers and the project hooks like any session (agent-teams
-docs, "Context and communication"), so `gate-not-piped.sh` and
-`migration-immutable.sh` bind it.
+skills and MCP servers like any session (agent-teams docs, "Context and
+communication"). The docs do not say it loads the project hooks, so spike
+6 checks that `gate-not-piped.sh` binds it.
 
 The reviewer runs `/review-pr` unchanged. Its check that "this session wrote
 none of the PR's code" holds, because the implementer wrote the code. Its
@@ -131,8 +131,10 @@ under the review line, and the owner decides at merge.
 
 ### 4. The run state file
 
-`.superpowers/sdd/<date>-pipeline-<key>/state.md`, gitignored with the other
-run artefacts there. The lead rewrites it after every stage:
+`.superpowers/sdd/<date>-pipeline-<key>/state.md`. That directory is ignored
+only by a `.gitignore` inside it that a skill writes on first use, so the
+lead writes that file first if it is missing. The lead rewrites the state
+file after every stage:
 
 - key, branch, small-fix call and reason
 - spec path and commit, plan path
@@ -159,18 +161,36 @@ linked, as `/ticket` step 11 already says.
 The lead fills `.github/pull_request_template.md`. "How it ran" carries the
 spec path, the red-team verdict with the counts fixed and ruled on, or the
 small-fix plan, and the ticked "Code review by a separate session" line with
-the report path. That line is what TYRE-395's CI check will read, so
-TYRE-395 needs no change.
+the report path. The template's line today also asserts "no open Critical
+or Important finding", which a capped review loop cannot promise, so it is
+reworded to list any finding still open for the owner's ruling. The line is
+still ticked with a report path, which is what TYRE-395's CI check will
+read, so TYRE-395 needs no change.
 
 ### 7. `/close-out` cloud mode
 
-`.claude/commands/close-out.md` gains one switch, taken when Docker is not
-available, which is how it runs in a cloud routine:
+`.claude/commands/close-out.md` gains a second argument, `cloud`, which the
+routine passes. Cloud sessions are different in three ways that shape it
+(code.claude.com/docs/en/cloud-environments):
 
-- **Step 2.** The gate is CI's push run on `develop` for the merge commit,
-  which runs the same gates as `make check`. Close-out waits for it to finish
-  and cites its URL. If it is red, it comments that on the ticket,
-  transitions nothing, and stops.
+- The GitHub proxy rejects GraphQL, so `gh pr` and `gh issue` fail. Every
+  GitHub call in cloud mode uses the REST API through `gh api`, with the
+  repository named literally.
+- A run triggered by a PR event starts from the PR's head commit, not from
+  `develop` (routines docs, "Repositories and branch permissions"). Cloud
+  mode checks out `origin/develop` before it reads or edits anything.
+- A foreground command waits at most 10 minutes. Cloud sessions do have
+  Docker, but CI's develop run has already run the gates on the merge
+  commit, and `make check` would not finish inside that limit.
+
+So in cloud mode:
+
+- **Step 2.** The gate is CI's push run on `develop` for the merge commit.
+  Close-out polls it in the foreground until it finishes and cites its URL.
+  If it is red, including a failed staging deploy, it comments that on the
+  ticket, transitions nothing, and stops. A run cancelled by a later push is
+  replaced by the newest completed develop run that contains the merge
+  commit.
 - **Step 7.** Never runs. Promoting `main` stays with the owner.
 - **Doc edits.** Changes to `docs/implementation-order.md` or
   `docs/lessons.md` go on a `TYRE-nnn-close-out` branch cut from `develop`,
@@ -181,7 +201,9 @@ available, which is how it runs in a cloud routine:
   the owner.
 - **First step.** If the merged PR's branch ends in `-close-out` or it
   carries the `close-out` label, exit without changes. This is the loop
-  guard: merging a close-out PR must not start another close-out.
+  guard: merging a close-out PR must not start another close-out. A merged
+  PR that names no `TYRE-<n>` in its title or body, such as a Renovate
+  bump, gets a comment saying so and nothing else.
 
 Run by hand on the owner's machine, `/close-out` behaves as it does today.
 
@@ -191,14 +213,19 @@ Created in the owner's claude.ai account (claude.ai/code/routines or
 `/schedule`). It is not in the repo, so it holds nothing worth reviewing:
 
 - **Trigger:** GitHub event `pull_request.closed`, filters "is merged" equals
-  true and "base branch" equals `develop`. Needs the Claude GitHub App on the
-  repository (routines docs, "Add a GitHub trigger").
+  true, "base branch" equals `develop`, and "title" matches
+  `.*TYRE-[0-9]+.*`, which saves a run per Renovate merge. Needs the Claude
+  GitHub App on the repository (routines docs, "Add a GitHub trigger").
 - **Prompt:** run `/close-out` in cloud mode for the merged PR named in this
   event. The prompt opts in to reading the PR number from the event; it acts
   on nothing else in the payload.
 - **Connectors:** Atlassian and GitHub only. A routine can use every tool of
   an included connector without asking (routines docs, "Review connectors").
-- **Branches:** never push to `develop` or `main`.
+- **Branches:** never push to `develop` or `main`. Only the prompt enforces
+  this: the cloud proxy does not limit which branches a push updates, and
+  the `develop` ruleset only blocks deletion. A ruleset requiring PRs on
+  `develop` would close the gap and also block the owner's direct docs
+  pushes, so it is the owner's call (ADR-0018).
 - **Identity:** commits, PRs and Jira comments appear as the owner (routines
   docs, "Create a routine").
 
@@ -228,8 +255,9 @@ launched. Under auto mode, an approval relayed from another agent is treated
 as untrusted (agent-teams docs, "Messages between agents"), so an owner
 answer only counts when typed in the lead.
 
-- **Spec approval.** The lead runs brainstorming with the owner and commits
-  the spec only after the owner approves it.
+- **Spec approval.** The lead runs brainstorming with the owner on its
+  architectural path, commits the spec as that skill does, and waits for
+  the owner to approve the written spec before any planning starts.
 - **Red-team ruling.** The lead puts each open finding with the planner's
   position and the options. The answer goes in the state file and on the
   ticket, and the planner applies it.
@@ -261,7 +289,8 @@ Throwaway; nothing from them is kept. Each has a fallback if it fails.
 
 1. **`/code-review` in a teammate.** It launches as a background fork, and an
    in-process teammate cannot run background work (agent-teams docs,
-   Limitations). Run it on merged PR #105. Pass: a report comes back.
+   Limitations). Run it on merged PR #105 in a teammate and, as the control,
+   in a plain session. Pass: a report comes back in both.
    Fallback: `/review-pr` gains a foreground path that reviews the diff
    in-session with the auditors.
 2. **Jira from a teammate.** A teammate calls `getJiraIssue` on TYRE-412.
@@ -271,12 +300,19 @@ Throwaway; nothing from them is kept. Each has a fallback if it fails.
    dispatches and returns. Fallback: the implementer uses
    `superpowers:executing-plans` inline.
 4. **The launcher.** `make pipeline` starts an interactive `claude` from Git
-   Bash on Windows with the flag set. Fallback: a PowerShell function
-   documented in the command's header.
+   Bash on Windows with the flag set, and the slash command arrives intact.
+   Git Bash rewrites an argument starting with `/` into a Windows path when
+   it starts a native program, so the launcher excludes `/pipeline ` from
+   that conversion. Fallback: a PowerShell function documented in the
+   command's header.
+6. **Hooks in a teammate.** The docs name CLAUDE.md, MCP servers and skills
+   as what a teammate loads, not hooks. A teammate runs a piped gate, which
+   `gate-not-piped.sh` refuses. Fallback: the teammate prompts restate the
+   unpiped-gate rule.
 5. **The routine.** Run now against a merged PR in report-only mode. Pass:
-   it reads the PR number from the event, reads CI's run for the merge
-   commit, and reads the ticket from Jira. Fallback for the CI read: the
-   GitHub connector instead of `gh`.
+   it reads the PR through `gh api`, reads CI's run for the merge commit,
+   and reads the ticket from Jira. Fallback for a GitHub read: the cloud
+   session's built-in GitHub tools.
 
 ## Acceptance
 
