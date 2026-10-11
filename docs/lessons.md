@@ -28,6 +28,21 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-11 — A failing Container Apps revision reads 100% traffic while the old one serves
+
+**What happened:** during TYRE-79's red proof, `az containerapp revision list`
+showed the new revision `d10-1-752c04b` at `trafficWeight` 100 and the
+serving `c312-1-e055ae2` at 0, first while it was Activating and then after
+it reached `ActivationFailed`. Every request was still answered by
+`e055ae2`. In single revision mode the weight follows the template's
+`latestRevision: true` at once, and traffic moves only when the revision is
+ready, so the listing looks like the failed build took staging.
+
+**The rule:** judge which build serves by what answers, `/readyz`'s sha and
+revision through the FQDN, or by `latestReadyRevisionName`, never by a
+revision's `trafficWeight` alone. `scripts/deploy-gate.sh` already requires
+both.
+
 ## 2026-10-09 - Azure CLI flags drift, and a ticket's "staging is at N" was never read (TYRE-79)
 
 **What happened:** a check script for the owner used `az postgres

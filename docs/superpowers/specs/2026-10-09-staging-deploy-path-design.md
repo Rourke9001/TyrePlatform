@@ -612,6 +612,12 @@ pre-reset step, not to this runbook.
 - `web/.env.production` and `scripts/check-dist-sign-in.mjs`, new, and
   `web/bundle-budget.json`, re-recorded on the configured build.
 - `docs/implementation-order.md`: the Staging row.
+- `docs/adr/0017-staging-and-production-environments.md`, new, and
+  `docs/adr/0005-environments-and-hosting.md` and `docs/architecture.md`,
+  which it amends.
+- `infra/bicep.Dockerfile`, new, the pinned Bicep image the lint runs in.
+- `api/internal/store/store.go`: the `Ping` that `/readyz` calls.
+- `renovate.json`: the TYRE-53 pin and `ACTIONLINT_IMAGE`.
 - Outside the repo, at close-out:
   - Confluence page 10682399: the release table, and the deploy pipeline
     section, which describes the old `main`-triggered shape;
@@ -619,15 +625,24 @@ pre-reset step, not to this runbook.
 
 ## Open points the plan settles, not the owner
 
+All four were settled by #105 (TYRE-79), as each line below records.
+
 - **The revision suffix rules.** The pattern and the length limit, and
   whether ARM accepts a reused suffix after a rollback, which the design
-  avoids anyway.
+  avoids anyway. Settled: `<c|d><run_number>-<run_attempt>-<sha7>`, so
+  no suffix is reused.
 - **The lint images.** Which pinned image carries the Bicep CLI without a
-  network download at run time.
+  network download at run time. Settled: `infra/bicep.Dockerfile` builds
+  one from a checksummed release binary.
 - **Mixed parameters.** Whether `az deployment group create` accepts a
   `.bicepparam` file together with inline `-p` overrides on the runner's
   CLI version. If it does not, the overrides move into the param file
-  through `readEnvironmentVariable()`.
+  through `readEnvironmentVariable()`. Settled: there are no inline
+  overrides. `infra/app.staging.bicepparam` reads `API_IMAGE` and
+  `REVISION_SUFFIX` that way.
 - **Whether `az deployment group create` waits for the revision.** If ARM
   blocks until the revision provisions or fails, the gate's state check
-  mostly confirms what ARM already said, and that is harmless.
+  mostly confirms what ARM already said, and that is harmless. Settled by
+  the first deploy (run 38162289006): the apply returned after 45 s and the
+  gate waited 48 s more for `/readyz`, so ARM does not wait for the
+  revision to serve, and the gate is what proves it.
