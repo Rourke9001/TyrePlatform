@@ -3,10 +3,11 @@
 - **Date:** 2026-10-11
 - **Ticket:** TYRE-412, under epic TYRE-10.
 - **Decisions it rests on:**
-  - Owner rulings of 11 Oct 2026, recorded on TYRE-412: the spec approval
-    and red-team rulings are the only stops before the PR; the lead makes
-    the small-fix call; the review fix loop is capped at two rounds; close-out
-    runs as a cloud routine; the owner reviews and merges every PR.
+  - Owner rulings U120 to U124 (11 Oct 2026, on TYRE-412): before the PR
+    the owner is stopped only for the spec, red-team rulings and pushes
+    (U120, U124); the lead makes the small-fix call (U121); the review fix
+    loop is capped at two rounds (U122); close-out runs as a cloud routine,
+    and the owner reviews and merges every PR (U123).
   - TYRE-394 (PR #99): the five stages and the PR #99 exemptions.
   - ADR-0018, written in this ticket: agent teams for the run, a routine for
     close-out.
@@ -65,7 +66,7 @@ close-out routine (cloud, on a PR merged into develop)
 ```
 
 A small fix skips steps 2 and 4, as CLAUDE.md already allows, and runs to
-the PR without a stop. The lead records the small-fix call and its reason in
+the PR with no stop but the push approval (U124). The lead records the small-fix call and its reason in
 the PR body, where the owner sees it at review. This replaces the PR #99
 pause for that call under `/pipeline`; `/ticket` keeps the pause.
 
@@ -142,7 +143,7 @@ file after every stage:
 - each owner answer at a stop, verbatim, with the time
 - PR number, `make check` result
 - review rounds: report path, counts, verdict
-- the stage reached
+- the last stage finished
 
 It is the only handoff a new lead needs after a crash.
 
@@ -179,9 +180,10 @@ routine passes. Cloud sessions are different in three ways that shape it
 - A run triggered by a PR event starts from the PR's head commit, not from
   `develop` (routines docs, "Repositories and branch permissions"). Cloud
   mode checks out `origin/develop` before it reads or edits anything.
-- A foreground command waits at most 10 minutes. Cloud sessions do have
-  Docker, but CI's develop run has already run the gates on the merge
-  commit, and `make check` would not finish inside that limit.
+- A foreground command waits at most 10 minutes before it moves to the
+  background, where a result can arrive after the turn has ended. Cloud
+  sessions do have Docker, but CI's develop run has already run the gates
+  on the merge commit, so a cloud `make check` would only repeat it, slower.
 
 So in cloud mode:
 
@@ -261,8 +263,11 @@ answer only counts when typed in the lead.
 - **Red-team ruling.** The lead puts each open finding with the planner's
   position and the options. The answer goes in the state file and on the
   ticket, and the planner applies it.
-- **Permission prompts.** Teammate prompts surface in the lead (agent-teams
-  docs, "Permissions").
+- **Push approval.** The project's `ask` rule on `git push` stays (U124).
+  The implementer's push that opens the PR, and its push in each review fix
+  round, wait for the owner's approval in the lead: one to three per ticket.
+- **Other permission prompts.** Teammate prompts surface in the lead
+  (agent-teams docs, "Permissions").
 - **PR ready.** The lead says the PR is ready, with the counts and the
   verdict. The run ends there.
 
@@ -291,8 +296,9 @@ Throwaway; nothing from them is kept. Each has a fallback if it fails.
    in-process teammate cannot run background work (agent-teams docs,
    Limitations). Run it on merged PR #105 in a teammate and, as the control,
    in a plain session. Pass: a report comes back in both.
-   Fallback: `/review-pr` gains a foreground path that reviews the diff
-   in-session with the auditors.
+   Fallback: the reviewer's spawn prompt has it review the diff in the
+   foreground with the auditors and write the report `/review-pr` writes;
+   `/review-pr` itself stays as it is for the manual path.
 2. **Jira from a teammate.** A teammate calls `getJiraIssue` on TYRE-412.
    Fallback: the lead fetches Jira and passes the text in the spawn prompt.
 3. **Subagents from a teammate.** The implementer runs
