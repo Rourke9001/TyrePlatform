@@ -254,7 +254,7 @@ Go rather than a raw Postgres error.
 | Local | docker-compose Postgres 16 on :5433. Same major version as production so RLS and `security_invoker` behave identically. |
 | CI | GitHub Actions. Ephemeral Postgres service container. The verification suite is the gate. |
 | Staging | Deploys from `develop` through CI's `deploy-staging` job, which calls `.github/workflows/deploy.yml`. The gate is `scripts/deploy-gate.sh` (ADR-0017). |
-| Production | Azure. One resource group per environment. Bicep in `infra/`. Deploys via GitHub Actions using OIDC federated credentials — no long-lived Azure secret in the repo. |
+| Production | Not stood up yet (TYRE-397). It will deploy from `main`, and only an image staging ran first (ADR-0017). |
 
 ## Decision record index
 
