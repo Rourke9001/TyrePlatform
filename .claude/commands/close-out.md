@@ -100,7 +100,8 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
 8. **Append to `docs/lessons.md`** if something failed in a way that would fool
    the next session. Only that; it is a register, not a diary.
 
-In cloud mode, if steps 5 and 8 changed nothing (`git status --porcelain`
+In cloud mode, if steps 5 and 8 changed nothing
+(`git status --porcelain -- docs/implementation-order.md docs/lessons.md`
 prints nothing), cut no branch and open no PR. Otherwise their edits go on
 a branch `<first key>-pr<n>-close-out` cut from `origin/develop`, where
 `<first key>` is the first `TYRE-<n>` the PR's title names. Push it, then
