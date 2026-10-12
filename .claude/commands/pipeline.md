@@ -6,7 +6,8 @@ You are the lead for **$ARGUMENTS** (CLAUDE.md, How work runs; design in
 `docs/superpowers/specs/2026-10-11-pipeline-orchestration-design.md`,
 ADR-0018). You talk to the owner and coordinate teammates. You never edit
 code, a plan, or anything a teammate owns. The files you write are the spec
-you write with the owner, the state file, and the PR body.
+you write with the owner, and the state file and the PR body in this run's
+state directory.
 
 `make pipeline T=$ARGUMENTS` is the only supported way in. A `claude -p`
 session can pass the checks below but cannot spawn teammates, so every
@@ -25,12 +26,12 @@ stage would run as a plain subagent.
      deleting its state directory abandons that run.
    - Another key's file at "handed over": read its PR with
      `gh api repos/Rourke9001/TyrePlatform/pulls/<n> --jq '.state, .merged'`.
-     While that PR is open, stop: its stage 5 fixes may be running in this
-     checkout. Name the key and the PR; the remedy is to merge or close that
-     PR, or to delete its state directory.
+     While that PR is open, stop: fixes from its CLAUDE.md stage 5 (code
+     review) may be running in this checkout. Name the key and the PR; the
+     remedy is to merge or close that PR, or to delete its state directory.
    - This key's file at "handed over": stop. Close-out takes it from the
-     merge. To run this key again for a second PR, the owner deletes or
-     renames that state directory first.
+     merge. To run this key again for a second PR, the owner first deletes
+     or renames that state directory and deletes that PR's branch (step 6).
    - This key's file at any other stage: this is a resume (step 5).
    - None for this key: this is a fresh run.
 4. Run `git status --porcelain`.
@@ -44,7 +45,12 @@ stage would run as a plain subagent.
    state`). If any fact disagrees, stop and report the mismatch; never
    guess. If all agree, `git checkout <branch>` and restart at the stage
    after the last finished one, with new teammates.
-6. Fresh run only: create `.superpowers/sdd/<date>-pipeline-$ARGUMENTS/state.md`
+6. Fresh run only: run `git fetch --prune origin`. Stop if
+   `git branch -a --list "*$ARGUMENTS-*"` prints anything, or if an open
+   PR's title names $ARGUMENTS as a whole key, so TYRE-41 is not TYRE-412:
+   `gh api 'repos/Rourke9001/TyrePlatform/pulls?state=open&per_page=100' --jq '.[].title'`.
+   Name the branch or the PR: the ticket was started another way.
+7. Fresh run only: create `.superpowers/sdd/<date>-pipeline-$ARGUMENTS/state.md`
    from the template at the end, where `<date>` is `date -u +%F`.
 
 At the end of every stage, before starting the next, fill that stage's
@@ -74,13 +80,15 @@ reply as an answer. No teammate dispatches a subagent or runs
 result from work a teammate started reaches you, such as a subagent's
 hand-back, forward it to that teammate.
 
-## Stage 1: triage (you)
+## Triage (you)
 
 Do `/ticket` steps 1 to 5: fetch the ticket, read the SRS IDs it cites from
 Confluence, restate it, check its links for a blocker, and make the
 small-fix call by CLAUDE.md's definition. Two differences from `/ticket`:
 
-- A blocker stops the run. Tell the owner which ticket blocks it.
+- A blocker stops the run. Delete this run's state directory first, so
+  another key can launch, then tell the owner which ticket blocks it and
+  that you deleted the state directory.
 - Do not wait on the small-fix call. Decide it, write the call and the
   reason in the state file, and tell the owner in the same message as the
   restatement. Go on unless the owner objects.
@@ -88,17 +96,20 @@ small-fix call by CLAUDE.md's definition. Two differences from `/ticket`:
 Then move the ticket to In Progress if it is in To Do, and cut the branch:
 `git fetch origin` and `git checkout -b $ARGUMENTS-<short-description> origin/develop`.
 
-## Stage 2: spec (you, with the owner). Skipped for a small fix.
+## Spec (you, with the owner). Skipped for a small fix.
 
 Run `superpowers:brainstorming` with the owner, and take its architectural
 path whatever it would classify the ticket as: anything that is not a
 small fix gets a written spec. The skill commits the spec and asks the
 owner to review it: STOP there until the owner approves the written spec.
 The skill then invokes writing-plans; do not. Planning is the planner's.
+The skill's gate on reviewing the written plan and choosing an execution
+method does not apply here: the red team reviews the plan, and you run
+execution (U120).
 
 Comment on the ticket: the spec path and commit.
 
-## Stage 3: plan (planner)
+## Plan (planner)
 
 Spawn a teammate named `planner` (general-purpose) with:
 
@@ -115,25 +126,26 @@ Spawn a teammate named `planner` (general-purpose) with:
 For a small fix, the prompt instead asks for a short plan in
 `<state dir>/small-fix-plan.md`, written for the PR body.
 
-## Stage 4: red team. Skipped for a small fix.
+## Red team. Skipped for a small fix.
 
 For round r = 1, 2, 3:
 
 1. Dispatch the `plan-red-team` agent as an ordinary subagent of yours,
-   without a name, so its findings come back to you as its result: a named
-   agent would launch as a teammate, and that agent's tools include no
-   messaging. Give it the spec path, the plan path and $ARGUMENTS, as
-   `/ticket` does. From round 2 on, add every
+   without a name, so its findings come back to you as its result: the path
+   Task 0 proved, and the one `/ticket` uses. Give it the spec path, the
+   plan path and $ARGUMENTS, as `/ticket` does. From round 2 on, add every
    earlier Critical and Important finding, each marked fixed (with what
    changed) or ruled (with the owner ruling's U-number). A ruled finding is
    not a finding again unless the agent shows the ruling itself is wrong.
 2. Record its verdict and its findings by severity in the state file.
 3. Send every Critical and Important finding to `planner`. A finding the
    planner disputes or cannot close goes to the owner: STOP, show the
-   finding, the planner's position and the options. Record the answer as
-   "Owner ruling U<n>" in a comment on the ticket, where `<n>` is one past
-   the highest U-number a Jira search for "Owner ruling U" returns, and send
-   it to `planner`.
+   finding, the planner's position and the options. Propose one past the
+   highest U-number you can find
+   (Jira `text ~ "Owner ruling" ORDER BY updated DESC`, newest comments
+   first), and the owner confirms or corrects the number with the ruling.
+   Record the answer as "Owner ruling U<n>" in a comment on the ticket, and
+   send it to `planner`.
 4. If this round returned no Critical, leave the loop once step 3 has
    closed every Important finding. Otherwise go to the next round.
 
@@ -144,7 +156,7 @@ However the loop ends, wait for `planner` to report every fix and ruling
 applied, then ask it to shut down and wait for its confirmation. Comment on
 the ticket: the final verdict, and the counts fixed and ruled.
 
-## Stage 5: implementation (implementer)
+## Implementation (implementer)
 
 Spawn a teammate named `implementer` (general-purpose) with:
 
@@ -177,9 +189,12 @@ as a new ticket, linked to $ARGUMENTS, after checking it against the SRS
 
 When the PR is open, move the ticket to In Review and comment the PR link.
 
-## Stage 6: hand to the owner (you)
+## Hand-over (you)
 
-Fill the PR's "How it ran" section with `gh pr edit <n> --body-file`:
+Fill the PR's "How it ran" section. Start from its current body
+(`gh pr view <n> --json body --jq .body`), write the filled body to
+`<state dir>/pr-body.md`, never anywhere else in the checkout, and run
+`gh pr edit <n> --body-file <state dir>/pr-body.md`. The section carries:
 
 - the spec path, or the small-fix plan and the reason for the call
 - the red-team verdict, with the counts fixed and ruled
@@ -191,12 +206,12 @@ Leave the "Code review by a separate session" line unticked: CLAUDE.md
 stage 5 (code review) is the owner's (U125). Ask `implementer` to shut down
 and wait for its confirmation. Set the last finished stage to "handed
 over". Tell the owner: the PR link, the red-team verdict, the `make check`
-result, and the next steps: run `/review-pr <n>` in a separate session
-(under `make pipeline` stage 5 applies to every PR that is not docs-only,
-because the final review was a self-review), make its fixes outside this
-run as for a `/ticket` PR, then merge; close-out runs by itself once they
-merge. Until that PR merges or closes, a new `make pipeline` for another
-key stops (Before anything, step 3).
+result, and the next steps: run `/review-pr <n>` in a separate session,
+make its fixes outside this run as for a `/ticket` PR, then merge;
+close-out runs by itself once they merge. Under `make pipeline`, CLAUDE.md
+stage 5 (code review) applies to every PR that is not docs-only, because
+the final review was a self-review. Until that PR merges or closes, a new
+`make pipeline` for another key stops (Before anything, step 3).
 
 ## When something fails
 

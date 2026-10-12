@@ -243,7 +243,8 @@ when the PR opens (TYRE-412, ADR-0018). `/ticket` walks them by hand.
 
 When a PR merges into `develop`, a Claude Code routine runs
 `/close-out <n> cloud` (ADR-0018). Run `/close-out <n>` by hand only when
-the routine did not run; it does the same with a local gate.
+the routine did not run or stopped; its comment on the merged PR says which.
+By hand it does the same with a local gate.
 
 **Small fixes** skip stages 1 and 3 and keep a short plan in the PR body. A
 small fix is one defect with a regression test, no migration, no new endpoint,
