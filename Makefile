@@ -231,6 +231,16 @@ e2e: ## Browser smoke tests (reseeds first; needs `make api-run` running)
 deps-age: ## Assert nothing in the web lockfile is younger than the .npmrc window
 	node scripts/check-release-age.mjs
 
+## ---------------------------------------------------------------- workflow
+
+.PHONY: pipeline
+pipeline: ## One ticket from triage to its PR with an agent team: make pipeline T=TYRE-123 (TYRE-412, ADR-0018)
+	@bash scripts/pipeline.sh "$(T)"
+
+.PHONY: pipeline-launch-test
+pipeline-launch-test: ## The pipeline launcher's key check and launch shape, with a stub claude (TYRE-412)
+	bash scripts/pipeline.test.sh
+
 ## ---------------------------------------------------------------- aggregate
 
 .PHONY: py-tools
@@ -297,7 +307,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged api-test web-test deploy-gate-test ## Every test in the repo
+test: db-reset db-test db-test-privileged api-test web-test deploy-gate-test pipeline-launch-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.
