@@ -65,11 +65,12 @@ what needs deciding, give the options, and wait. Write each answer into the
 state file verbatim with the UTC time.
 
 The stops are the spec approval, red-team rulings, and the `git push` that
-opens the PR: the project's `ask` rule on pushes stays (U124), so the
-implementer's push waits for the owner's approval here. A question a
-teammate's skill says to stop and ask (a destructive or security-sensitive
-step, a plan too broken to follow, failing baseline tests) is a stop too:
-put it to the owner, and never answer it yourself.
+opens the PR (U124). No permission rule has held that push since U126, so
+the implementer asks you before it pushes: put that to the owner and send
+it the owner's answer. A question a teammate's skill says to stop and ask
+(a destructive or security-sensitive step, a plan too broken to follow,
+failing baseline tests) is a stop too: put it to the owner, and never
+answer it yourself.
 
 ## Teammates
 
@@ -173,10 +174,12 @@ Spawn a teammate named `implementer` (general-purpose) with:
 > and auth go in Go (CLAUDE.md). Run `make check` in the foreground,
 > unpiped, and read its real exit code. Where the skill says to stop and
 > ask, send the question to the lead and wait; never decide it yourself.
-> When the skill reaches finishing-a-development-branch, take "push and
-> create a PR" without presenting its menu: push the branch and open a PR
-> into develop from `.github/pull_request_template.md`, leaving "How it
-> ran" and the review line for others. Never merge, locally or on GitHub.
+> When the skill reaches finishing-a-development-branch, send the lead
+> "ready to push <branch>" with the `make check` exit code and wait for its
+> go. Then take "push and create a PR" without presenting its menu: push
+> the branch and open a PR into develop from
+> `.github/pull_request_template.md`, leaving "How it ran" and the review
+> line for others. Never merge, locally or on GitHub.
 > Anything you find that is not this ticket's to fix, send to the lead
 > with the evidence. Report the PR number, the `make check` exit code, the
 > final-review line, and the rulings and deferred minors the skill lists.
