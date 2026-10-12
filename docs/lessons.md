@@ -1677,3 +1677,21 @@ premise against the source or the running database, not against the review
 text; a test that passes before the fix is the premise failing, not the
 fix being unnecessary. And a gate's control carries the shape its real
 input has, tags and all, or the run proves only that the control fires.
+
+## 2026-10-12 — A teammate's subagents and forks report to the lead, not to the teammate (TYRE-412)
+
+**What happened:** in the TYRE-412 spike (Claude Code 2.1.296, agent teams
+on), a teammate dispatched a subagent and blocked on it. The subagent's
+`SubagentHandback` was refused with "the agent that spawned you is no
+longer running" while the teammate was still waiting, and the teammate's
+Agent call returned "no report was delivered". The subagent's later
+hand-back reached the lead. The teammate's `/code-review` fork also
+completed to the lead and never to the teammate. Separately, the lead
+wrote that the teammate had not answered a message: the teammate had sent
+its reply 30 seconds earlier, and it had not reached the lead yet.
+
+**The rule:** never give a teammate work that dispatches a subagent or a
+background fork, such as subagent-driven development, `/code-review` or
+`/review-pr`; it runs inline or stays outside the team (ADR-0018, U125). A
+lead waits for a teammate's explicit report and never reads silence as an
+answer.
