@@ -12,6 +12,9 @@
     subagent's result: stage 5 stays a separate session the owner starts,
     and the pipeline ends when the PR opens. It supersedes U122, which had
     capped a pipeline review loop at two rounds.
+  - U126 (12 Oct 2026, on TYRE-412): the owner moved `git push` from the
+    project's `ask` list to `allow`. The pipeline's push stop (U124) stays,
+    held by the playbook: the implementer asks the lead before it pushes.
   - TYRE-394 (PR #99): the five stages and the PR #99 exemptions.
   - ADR-0018, written in this ticket: agent teams for the run, a routine for
     close-out.
@@ -291,9 +294,9 @@ answer only counts when typed in the lead.
 - **Red-team ruling.** The lead puts each open finding with the planner's
   position and the options. The answer goes in the state file and on the
   ticket, and the planner applies it.
-- **Push approval.** The project's `ask` rule on `git push` stays (U124).
-  The implementer's push that opens the PR waits for the owner's approval
-  in the lead.
+- **Push approval.** The implementer's push that opens the PR waits for
+  the owner's approval in the lead (U124). No `ask` rule has backed it
+  since U126, so the implementer asks the lead before it pushes.
 - **Other permission prompts.** Teammate prompts surface in the lead
   (agent-teams docs, "Permissions").
 - **A skill's own stop.** Where the implementer's skill says to stop and
