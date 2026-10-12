@@ -51,7 +51,8 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
    cloud would only repeat it, slower. Find it with the full SHA:
    `gh run list -R Rourke9001/TyrePlatform --branch develop --commit <merge_commit_sha> --workflow CI --json databaseId,status,conclusion,url`.
    The foreground refuses `sleep`, so every wait is a bounded watch, run in
-   the foreground and unpiped:
+   the foreground and unpiped, with the Bash tool's timeout set to 600000 ms
+   so the watch is not moved to the background at the 2-minute default:
    `timeout 540 gh run watch <id> -R Rourke9001/TyrePlatform --interval 30 > /dev/null 2>&1`.
    - To wait for a run to finish, watch it, then read
      `gh api repos/Rourke9001/TyrePlatform/actions/runs/<id> --jq '.status, .conclusion'`,

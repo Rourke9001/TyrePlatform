@@ -192,7 +192,8 @@ routine passes. Cloud sessions are different in three ways that shape it
 
 - The GitHub proxy rejects GraphQL, so `gh pr` and `gh issue` fail. Every
   GitHub call in cloud mode uses the REST API through `gh api`, with the
-  repository named literally.
+  repository named literally, except `gh run list` and `gh run watch`,
+  which use REST themselves.
 - A run triggered by a PR event starts from the PR's head commit, not from
   `develop` (routines docs, "Repositories and branch permissions"). Cloud
   mode checks out `origin/develop` before it reads or edits anything.
@@ -227,7 +228,9 @@ So in cloud mode:
   PR that names no `TYRE-<n>` in its title or body, such as a Renovate
   bump, gets a comment saying so and nothing else.
 
-Run by hand on the owner's machine, `/close-out` behaves as it does today.
+Run by hand on the owner's machine, `/close-out` behaves as it does today,
+apart from the guards and one stop: it refuses while a pipeline that has not
+handed over is working in the checkout.
 
 ### 8. The close-out routine
 
