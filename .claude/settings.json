@@ -17,6 +17,7 @@
       "Bash(gh run:*)",
       "Bash(rg:*)",
       "Bash(fd:*)",
+      "Bash(git push:*)",
       "mcp__claude_ai_Atlassian_Rovo__getJiraIssue",
       "mcp__claude_ai_Atlassian_Rovo__searchJiraIssuesUsingJql",
       "mcp__claude_ai_Atlassian_Rovo__getConfluencePage",
@@ -33,7 +34,6 @@
       "Read(./**/*.pem)"
     ],
     "ask": [
-      "Bash(git push:*)",
       "Bash(az:*)",
       "Bash(terraform:*)"
     ]
