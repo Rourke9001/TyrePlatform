@@ -277,3 +277,4 @@ Go rather than a raw Postgres error.
 | [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Proposed |
 | [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Proposed |
 | [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Proposed |
+| [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Proposed |

@@ -2,6 +2,10 @@
 description: Pull a Jira ticket, restate it, and run it through spec, plan, red team and implementation
 argument-hint: [TYRE-nnn]
 ---
+This command is the manual path. The owner can instead run stages 1 to 4
+with an agent team by launching `make pipeline T=<key>` from a terminal
+(`/pipeline`, ADR-0018); a session never starts it from here.
+
 Work ticket **$ARGUMENTS** through the five stages in CLAUDE.md (How work
 runs). Do not start a stage until the one before it is done.
 

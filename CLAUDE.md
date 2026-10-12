@@ -71,6 +71,7 @@ make test           # everything: db, api, web
 make fmt            # gofmt + prettier, in place
 make lint           # gofmt/prettier check, vet, staticcheck, eslint, tsc, comments
 make check          # fmt + lint + test. Run before every commit.
+make pipeline T=TYRE-123  # one ticket from triage to its PR with an agent team
 ```
 
 `make db-test` is the important one. It asserts tenant isolation, append-only
@@ -208,7 +209,10 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
 ## How work runs
 
 Every ticket runs these five stages in order, and no stage starts until the
-one before it is done (owner, 5 Oct 2026, TYRE-394). `/ticket` walks them.
+one before it is done (owner, 5 Oct 2026, TYRE-394).
+`make pipeline T=TYRE-nnn` runs stages 1 to 4 with an agent team, a lead that
+writes the spec with the owner and teammates that plan and implement, and ends
+when the PR opens (TYRE-412, ADR-0018). `/ticket` walks them by hand.
 
 1. **Spec.** `superpowers:brainstorming` writes
    `docs/superpowers/specs/<date>-<topic>-design.md`, which is committed. It
@@ -223,19 +227,31 @@ one before it is done (owner, 5 Oct 2026, TYRE-394). `/ticket` walks them.
    and the count of findings fixed and ruled on go in the PR body, because the
    plan itself is not committed.
 4. **Implement.** Use `superpowers:subagent-driven-development` against the
-   plan. Run `make check` and open the PR.
+   plan. Under `make pipeline` the implementer uses
+   `superpowers:executing-plans` instead, because a teammate's subagents
+   report to the lead, not to it (ADR-0018). Run `make check` and open the
+   PR.
 5. **Code review.** A separate Claude session, not a subagent of the one that
-   wrote the code, runs `/review-pr <n>`. A subagent cannot collect
-   `/code-review`, which launches as a background fork, and a reviewer that
-   shares the author's context shares its blind spots. The owner merges only
-   once the report shows no open Critical or Important finding.
-   `/code-review ultra` is the owner's to launch.
+   wrote the code and not a pipeline lead or teammate, runs `/review-pr <n>`
+   (U125). A subagent or teammate cannot collect what `/code-review`
+   dispatches, and a reviewer that shares the author's context shares its
+   blind spots. The owner merges only once the report shows no open
+   Critical or Important finding. `/code-review ultra` is the owner's to
+   launch. A `make pipeline` PR gets this stage unless it is docs-only,
+   wherever it touches, because its implementer's final review was a
+   self-review.
+
+When a PR merges into `develop`, a Claude Code routine runs
+`/close-out <n> cloud` (ADR-0018). Run `/close-out <n>` by hand only when
+the routine did not run; it does the same with a local gate.
 
 **Small fixes** skip stages 1 and 3 and keep a short plan in the PR body. A
 small fix is one defect with a regression test, no migration, no new endpoint,
 route or screen, and no change to a non-negotiable rule. When in doubt, it is
-not a small fix. Stage 5 applies to every PR that touches `api/`, `db/`,
-`web/` or `infra/`. A PR that only touches docs is exempt.
+not a small fix. `/ticket` waits for the owner to confirm the call; under
+`make pipeline` the lead makes it and states the reason in the PR body. Stage
+5 applies to every PR that touches `api/`, `db/`, `web/` or `infra/`. A PR
+that only touches docs is exempt.
 
 ## Repo etiquette
 
