@@ -56,3 +56,7 @@ coverage/
 # code comments cite them.
 docs/superpowers/plans/
 docs/HANDOFF_*.md
+
+# Run state for skills and the pipeline lead (TYRE-412): per-session and
+# per-machine, never documentation.
+.superpowers/
