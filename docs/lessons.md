@@ -1695,3 +1695,17 @@ background fork, such as subagent-driven development, `/code-review` or
 `/review-pr`; it runs inline or stays outside the team (ADR-0018, U125). A
 lead waits for a teammate's explicit report and never reads silence as an
 answer.
+
+## 2026-10-12 — A routine's webhook trigger drops the filter the API was sent (TYRE-412)
+
+**What happened:** the close-out routine's GitHub trigger was created with
+RemoteTrigger `create_webhook_trigger`, with a filter for merged PRs into
+`develop` whose title names a `TYRE-` key. The call succeeded, but the
+trigger came back without the filter and fires on every closed PR. The API
+has no delete for a webhook trigger, and `get` on the routine does not show
+its webhook triggers, so neither the create's response nor a read-back
+shows the loss.
+
+**The rule:** set and confirm a routine's trigger filters on its claude.ai
+routine page, never through the API. Never create a second trigger to
+correct the first: there is no delete, and both would fire.
