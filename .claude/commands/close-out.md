@@ -11,8 +11,9 @@ mode the number is always given. A second argument `cloud` means this runs
 in the close-out routine (CLAUDE.md, How work runs; ADR-0018).
 
 Cloud sessions reject GitHub's GraphQL API, so every GitHub call below uses
-`gh api` with `repos/Rourke9001/TyrePlatform` written out. Where a step, or
-a method a doc names, says `gh pr list` or `gh pr view`, use the REST form:
+`gh api` with `repos/Rourke9001/TyrePlatform` written out, except
+`gh run list` and `gh run watch`, which use REST. Where a step, or a method
+a doc names, says `gh pr list` or `gh pr view`, use the REST form:
 `gh api 'repos/Rourke9001/TyrePlatform/pulls?state=open&per_page=100'` or
 `gh api repos/Rourke9001/TyrePlatform/pulls/<n>`.
 
@@ -33,6 +34,10 @@ head commit, not on `develop`. Run `git fetch origin develop main`
 `true`) and `git checkout --detach origin/develop`, and read and edit only
 from there.
 
+**Local mode only, next:** before checking anything out, look for
+`.superpowers/sdd/*-pipeline-*/state.md`. If one exists whose last finished
+stage is not "handed over", stop: a pipeline is working in this checkout.
+
 1. **Confirm the merge.** The guards have read `merged` and
    `merge_commit_sha`. Read the PR body's gate section and check every
    unticked box: a PR can merge with a gate still open, and that open gate
@@ -45,23 +50,34 @@ from there.
    It already ran the same gates on that exact commit, so a second run in the
    cloud would only repeat it, slower. Find it with the full SHA:
    `gh run list -R Rourke9001/TyrePlatform --branch develop --commit <merge_commit_sha> --workflow CI --json databaseId,status,conclusion,url`.
-   If it is not listed yet, list again; GitHub queues develop runs for
-   minutes. Poll it in the foreground, never piped or in the background,
-   with a 10-minute timeout per call, until `status` is `completed`:
-   `gh api repos/Rourke9001/TyrePlatform/actions/runs/<id> --jq '.status, .conclusion'`.
+   The foreground refuses `sleep`, so every wait is a bounded watch, run in
+   the foreground and unpiped:
+   `timeout 540 gh run watch <id> -R Rourke9001/TyrePlatform --interval 30 > /dev/null 2>&1`.
+   - To wait for a run to finish, watch it, then read
+     `gh api repos/Rourke9001/TyrePlatform/actions/runs/<id> --jq '.status, .conclusion'`,
+     and repeat until `status` is `completed`.
+   - To wait for a run that is not listed yet (GitHub queues develop runs
+     for minutes), watch develop's newest CI run, used only as a wait, then
+     list again:
+     `gh run list -R Rourke9001/TyrePlatform --branch develop --workflow CI --limit 1 --json databaseId --jq '.[0].databaseId'`.
+
+   When the merge commit's run completes:
    - `success`: cite the run URL and go on.
    - `cancelled`: a later push queued behind it replaced it. List develop's
      CI push runs created after it
      (`gh run list -R Rourke9001/TyrePlatform --branch develop --event push --workflow CI --json databaseId,headSha,createdAt,status`),
      take the oldest whose head contains the merge commit, checked with
      `gh api repos/Rourke9001/TyrePlatform/compare/<merge_commit_sha>...<headSha> --jq .status`
-     returning `ahead` or `identical`, and poll that one the same way. If
-     none exists yet, list again.
+     returning `ahead` or `identical`, wait for it the same way, and judge
+     its result by these same cases. If none exists yet, wait as for a run
+     not listed yet, then list again.
    - anything else, including a failed staging deploy: comment the run URL
-     on each ticket the PR names, transition nothing, and stop.
+     on each ticket the PR names, transition nothing, post the report (at
+     the end), and stop.
 
    If 60 minutes pass with no completed run that contains the merge commit,
-   comment that on each ticket the PR names, transition nothing, and stop.
+   comment that on each ticket the PR names, transition nothing, post the
+   report (at the end), and stop.
 3. **Read each ticket's definition of done before transitioning it.** A key
    whose only commit is the one that wrote it down in a docs page has been
    recorded, not built. Where a ticket is half delivered, leave it open and
@@ -84,16 +100,22 @@ from there.
 8. **Append to `docs/lessons.md`** if something failed in a way that would fool
    the next session. Only that; it is a register, not a diary.
 
-In cloud mode, the edits from steps 5 and 8 go on a branch
-`<first key>-pr<n>-close-out` cut from `origin/develop`, where `<first key>`
-is the first `TYRE-<n>` the PR's title names. Push it, then open the PR and
-label it:
+In cloud mode, if steps 5 and 8 changed nothing (`git status --porcelain`
+prints nothing), cut no branch and open no PR. Otherwise their edits go on
+a branch `<first key>-pr<n>-close-out` cut from `origin/develop`, where
+`<first key>` is the first `TYRE-<n>` the PR's title names. Push it, then
+open the PR and label it:
 `gh api -X POST repos/Rourke9001/TyrePlatform/pulls -f title='docs(close-out): <first key> <summary>' -f head=<branch> -f base=develop -F body=@<file> --jq .number`,
 then `gh api -X POST repos/Rourke9001/TyrePlatform/issues/<that number>/labels -f 'labels[]=close-out'`.
 Never push to `develop` or `main`.
 
 Report what you changed on the board and what you left alone, and say plainly
-which decisions are waiting on the owner. In cloud mode, post this report as a comment on the
-merged PR (`gh api -X POST repos/Rourke9001/TyrePlatform/issues/<n>/comments -F body=@<file>`),
-where GitHub notifies the owner. Do not mark a ticket Done to tidy the
-board: an unmet definition of done is the finding, not an obstacle.
+which decisions are waiting on the owner. In cloud mode, post this report as
+a comment on the merged PR
+(`gh api -X POST repos/Rourke9001/TyrePlatform/issues/<n>/comments -F body=@<file>`)
+on every path past the guards, including each stop in step 2. The routine
+acts as the owner, and neither GitHub nor Jira notifies the owner of their
+own comment, so when the run stops early or leaves a decision waiting on
+the owner, also send the owner a push notification with the session's
+notification tool. Do not mark a ticket Done to tidy the board: an unmet
+definition of done is the finding, not an obstacle.

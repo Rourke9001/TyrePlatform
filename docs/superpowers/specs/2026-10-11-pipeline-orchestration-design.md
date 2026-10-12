@@ -123,9 +123,8 @@ agent teams"), which would change how plain sessions and `/ticket` dispatch.
 | `implementer` | general-purpose | key, spec path, plan path, branch | PR number, `make check` exit code, its report | until the PR opens |
 
 The red team is not a teammate. The lead dispatches `plan-red-team` as its
-own unnamed subagent each round, as `/ticket` does, so the findings return
-to the lead as the subagent's result: a named agent would launch as a
-teammate, and that agent's tools include no messaging.
+own unnamed subagent each round, so its findings come back to the lead as
+its result: the path Task 0 proved, and the one `/ticket` uses.
 
 Every teammate ends its turn with a short report to the lead: done or
 blocked, what it produced, and any open finding. A teammate loads the
@@ -205,19 +204,23 @@ routine passes. Cloud sessions are different in three ways that shape it
 So in cloud mode:
 
 - **Step 2.** The gate is CI's push run on `develop` for the merge commit.
-  Close-out polls it in the foreground until it finishes and cites its URL.
-  If it is red, including a failed staging deploy, it comments that on the
-  ticket, transitions nothing, and stops. A run cancelled by a later push is
-  replaced by the newest completed develop run that contains the merge
-  commit.
+  The foreground refuses `sleep`, so close-out waits on the run with a
+  bounded `gh run watch` in the foreground, and cites its URL when it
+  finishes. A run cancelled by a later push is replaced by the oldest later
+  develop run whose head contains the merge commit, waited on the same way,
+  with a 60-minute ceiling. If the run is red, including a failed staging
+  deploy, or nothing completes within that ceiling, close-out comments that
+  on each ticket the PR names, transitions nothing, and stops.
 - **Step 7.** Never runs. Promoting `main` stays with the owner.
 - **Doc edits.** Changes to `docs/implementation-order.md` or
-  `docs/lessons.md` go on a `TYRE-nnn-close-out` branch cut from `develop`,
-  as a PR with the `close-out` label. It is docs-only, so stage 5 does not
-  apply.
+  `docs/lessons.md`, if there are any, go on a `<first key>-pr<n>-close-out`
+  branch cut from `develop`, as a PR with the `close-out` label. It is
+  docs-only, so stage 5 does not apply.
 - **Report.** The board changes, what it left alone and the decisions
-  waiting on the owner go in a comment on the merged PR, so GitHub notifies
-  the owner.
+  waiting on the owner go in a comment on the merged PR, on every path past
+  the guards (First step). The routine acts as the owner, and neither GitHub
+  nor Jira notifies the owner of their own comment, so a push notification
+  goes to the owner when the run stops early or leaves a decision waiting.
 - **First step.** If the merged PR's branch ends in `-close-out` or it
   carries the `close-out` label, exit without changes. This is the loop
   guard: merging a close-out PR must not start another close-out. A merged
@@ -259,10 +262,9 @@ lives in `/close-out` itself.
   subagents do not report back to it. Stage 5 is unchanged, except that it
   applies to every pipeline PR that is not docs-only, and neither a
   subagent nor the pipeline's lead or teammates may be the reviewer (U125).
-  Close-out
-  runs on merge by routine, and `/close-out` still runs by hand. Under
-  `/pipeline` the lead makes the small-fix call and records it in the PR
-  body.
+  Close-out runs on merge by routine, and `/close-out` runs by hand only
+  when the routine did not run or stopped. Under `/pipeline` the lead makes
+  the small-fix call and records it in the PR body.
 - **`/ticket`:** one line pointing to `/pipeline`; the steps are unchanged.
 - **ADR-0018:** agent teams for the run and a routine for close-out. Rejected:
   Paperclip (no Jira, its own task model as the unit of work, headless runs

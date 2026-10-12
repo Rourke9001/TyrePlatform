@@ -69,7 +69,8 @@ what `/review-pr` dispatches.
 
 **Good:** one launch per ticket up to the PR; the owner is asked only for
 the spec, for red-team rulings and for the push (the project's `ask` rule,
-U124). Stage 5 is unchanged. Jira stays the only tracker. The board is
+U124). Stage 5 runs as today, and under `make pipeline` applies to every
+PR that is not docs-only. Jira stays the only tracker. The board is
 reconciled after a merge without anyone opening a chat.
 
 **Bad:**
