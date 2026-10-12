@@ -37,8 +37,10 @@ is the point. Stage 5 stays a separate session the owner starts, as today
 
 ## Out of scope
 
-- More than one pipeline at a time. The database container and port 5433 are
-  shared, so runs are serial.
+- More than one ticket in flight at a time. The main checkout, the database
+  container and port 5433 are shared, and stage 5 fixes run in that
+  checkout after the run hands over, so a ticket is in flight from launch
+  until its PR merges or closes.
 - A second work tracker. Jira stays the state and Confluence the authority
   (CLAUDE.md). Paperclip was rejected for this reason among others (ADR-0018).
 - Automating the merge or the promotion of `main`. Both stay with the owner.
@@ -118,37 +120,48 @@ agent teams"), which would change how plain sessions and `/ticket` dispatch.
 | Name | Type | Input | Output | Lifetime |
 | :- | :- | :- | :- | :- |
 | `planner` | general-purpose | key, spec path | plan path | until red team passes, so it fixes findings with its context loaded |
-| `red-team-<round>` | `plan-red-team` | key, spec path, plan path | findings and verdict | one round; a new one each round, as CLAUDE.md stage 3 dispatches it again |
-| `implementer` | general-purpose | key, spec path, plan path, branch | PR number, `make check` exit code | until the PR opens |
+| `implementer` | general-purpose | key, spec path, plan path, branch | PR number, `make check` exit code, its report | until the PR opens |
+
+The red team is not a teammate. The lead dispatches `plan-red-team` as its
+own unnamed subagent each round, as `/ticket` does, so the findings return
+to the lead as the subagent's result: a named agent would launch as a
+teammate, and that agent's tools include no messaging.
 
 Every teammate ends its turn with a short report to the lead: done or
-blocked, what it produced, and any open finding. A teammate loads CLAUDE.md,
-skills, MCP servers and the project hooks (Task 0: a teammate read Jira,
-and `gate-not-piped.sh` refused its piped gate).
+blocked, what it produced, and any open finding. A teammate loads the
+project's MCP servers and hooks (Task 0: a teammate read Jira, and
+`gate-not-piped.sh` refused its piped gate). The agent-teams docs say it
+loads CLAUDE.md and skills too; the first real run checks that.
 
 No teammate dispatches a subagent or launches `/code-review`. In Task 0 a
 teammate's subagent could not hand its result back to the teammate, and a
-teammate's `/code-review` fork reported to the lead instead. So the
-implementer works through the plan inline with `superpowers:executing-plans`
-and takes that skill's final review on its no-subagent path, a self-review.
-The auditor agents run in stage 5, where `/review-pr` dispatches them.
+teammate's `/code-review` fork reported to the lead instead. So the planner
+researches the code itself, and the implementer works through the plan
+inline with `superpowers:executing-plans` and does that skill's final
+review itself, a self-review. The auditor agents run in stage 5, where
+`/review-pr` dispatches them; because the final review was a self-review,
+stage 5 applies to every pipeline PR that is not docs-only. Where the
+implementer's skill says to stop and ask, the question goes to the owner
+through the lead.
 
-Red-team loop: a round is planner fixes plus a new red-team. A finding the
+Red-team loop: a round is planner fixes plus a new red-team subagent. A finding the
 planner disputes or cannot close goes to the owner. After three rounds with
 a Critical still open, the run stops for the owner rather than looping.
 
 ### 4. The run state file
 
-`.superpowers/sdd/<date>-pipeline-<key>/state.md`. That directory is ignored
-only by a `.gitignore` inside it that a skill writes on first use, so the
-lead writes that file first if it is missing. The lead rewrites the state
-file after every stage:
+`.superpowers/sdd/<date>-pipeline-<key>/state.md`, ignored by a root
+`.gitignore` entry for `.superpowers/`. At the end of every stage, before
+the next starts, the lead fills that stage's fields and sets the last stage
+finished:
 
 - key, branch, small-fix call and reason
 - spec path and commit, plan path
 - red-team rounds: verdict, counts, findings fixed and ruled on
 - each owner answer at a stop, verbatim, with the time
 - PR number, `make check` result
+- the implementer's report, saved beside the state file, because
+  executing-plans deletes its own ledger when it finishes
 - the last stage finished
 
 It is the only handoff a new lead needs after a crash.
@@ -167,9 +180,10 @@ linked, as `/ticket` step 11 already says.
 
 The lead fills `.github/pull_request_template.md`. "How it ran" carries the
 spec path, the red-team verdict with the counts fixed and ruled on, or the
-small-fix plan. The lead leaves the "Code review by a separate session" line
-unticked: the owner's stage 5 session ticks it with the report path, as
-today. The template does not change, and neither does TYRE-395's CI check.
+small-fix plan, plus the implementer's rulings and deferred minors and the
+line "Final review: self-review". The lead leaves the "Code review by a
+separate session" line unticked: the owner's stage 5 session ticks it with
+the report path, as today. The template does not change, and neither does TYRE-395's CI check.
 
 ### 7. `/close-out` cloud mode
 
@@ -239,11 +253,13 @@ lives in `/close-out` itself.
 
 ### 9. Process documents
 
-- **CLAUDE.md, "How work runs":** `/pipeline` is the default way to run a
-  ticket to its PR and `/ticket` the manual path. Under `/pipeline` the
+- **CLAUDE.md, "How work runs":** `make pipeline` runs a ticket to its PR
+  and `/ticket` walks the stages by hand. Under `/pipeline` the
   implementer uses `superpowers:executing-plans`, because a teammate's
-  subagents do not report back to it. Stage 5 is unchanged, and neither a
-  subagent nor a pipeline teammate may be the reviewer (U125). Close-out
+  subagents do not report back to it. Stage 5 is unchanged, except that it
+  applies to every pipeline PR that is not docs-only, and neither a
+  subagent nor the pipeline's lead or teammates may be the reviewer (U125).
+  Close-out
   runs on merge by routine, and `/close-out` still runs by hand. Under
   `/pipeline` the lead makes the small-fix call and records it in the PR
   body.
@@ -253,8 +269,9 @@ lives in `/close-out` itself.
   only), a `claude -p` runner (needs a viewer built for it), and the Workflow
   tool (no stop for the owner mid-run). Costs: agent teams are
   experimental, a team cannot be resumed, each teammate draws on the
-  owner's usage separately, and a teammate cannot collect a subagent or a
-  `/code-review` fork, so stage 5 stays a chat the owner opens (U125).
+  owner's usage separately, a teammate cannot collect a subagent or a
+  `/code-review` fork, so stage 5 stays a chat the owner opens (U125), and
+  one ticket is in flight until its PR merges or closes.
 
 ## Owner stops
 
@@ -274,6 +291,10 @@ answer only counts when typed in the lead.
   in the lead.
 - **Other permission prompts.** Teammate prompts surface in the lead
   (agent-teams docs, "Permissions").
+- **A skill's own stop.** Where the implementer's skill says to stop and
+  ask (a destructive or security-sensitive step, a plan too broken to
+  follow, failing baseline tests), the question comes to the lead, which
+  puts it to the owner and never answers it itself.
 - **PR ready.** The lead says the PR is ready, with the red-team verdict and
   the `make check` result, and names stage 5 as the owner's next step. The
   run ends there. Fixes from the stage 5 review are made outside the run,
@@ -281,8 +302,10 @@ answer only counts when typed in the lead.
 
 ## Failure and recovery
 
-- **A teammate errors or stops early.** The lead respawns it once from the
-  state file. A second failure stops the run and asks the owner.
+- **A teammate errors or stops early.** The lead asks it to shut down and
+  waits for the confirmation, so two never work in the checkout at once,
+  then respawns it once from the state file. A second failure stops the run
+  and asks the owner.
 - **The lead's session dies.** `/resume` does not restore in-process
   teammates (agent-teams docs, Limitations). The owner runs
   `make pipeline T=<key>` again; the new lead reads the state file, checks it
@@ -296,16 +319,18 @@ answer only counts when typed in the lead.
   The lead judges a stage by its output on disk and in git, never by task
   status.
 - **A teammate goes idle without its report.** Its message may not have
-  reached the lead yet (Task 0). The lead asks it once for the report
-  before treating it as failed. A result that reaches the lead from work a
+  reached the lead yet (Task 0). The lead checks the stage's output on disk
+  and in git, then asks it once for the report, and treats it as failed
+  only when neither shows progress. A result that reaches the lead from work a
   teammate started, such as a subagent's hand-back, is forwarded to that
   teammate.
 
 ## Spikes before the build (plan Task 0)
 
 Throwaway; nothing from them is kept. Each has a fallback if it fails.
-Spikes 1 to 4 and 6 ran on 12 Oct 2026, a lead and one teammate on Claude
-Code 2.1.296; the results are on TYRE-412.
+All seven ran on 12 Oct 2026 on Claude Code 2.1.296: spikes 1 to 4, 6 and
+7 with a lead and one teammate, spike 5 as a routine run. The results are
+on TYRE-412 (comments 13580 and 13581).
 
 1. **`/code-review` in a teammate.** Failed. The lead's control run returned
    a report. The teammate's run launched, but its result reported to the
@@ -323,15 +348,17 @@ Code 2.1.296; the results are on TYRE-412.
    set to `/pipeline ` it arrived intact, with the flag in the environment.
    That an interactive `claude` runs its first argument as a slash command
    is shown by the first real launch.
+5. **The routine.** Passed. A report-only Run now read PR #106 through
+   `gh api`, found CI's run for its merge commit with `gh run list`,
+   fetched `develop`, and read the ticket through the Atlassian connector.
+   The clone is shallow, so cloud mode's `--unshallow` applies, and the
+   repo's `.mcp.json` Atlassian server cannot connect in the cloud, so the
+   connector is the one used.
 6. **Hooks in a teammate.** Passed: `gate-not-piped.sh` refused the
    teammate's piped `make lint`.
 7. **A second message to an idle teammate.** Passed: the teammate answered.
    Its reply had not reached the lead when the lead summarised, which is
    why the lead waits for an explicit report (component 2).
-5. **The routine.** Run now against a merged PR in report-only mode. Pass:
-   it reads the PR through `gh api`, reads CI's run for the merge commit,
-   and reads the ticket from Jira. Fallback for a GitHub read: the cloud
-   session's built-in GitHub tools.
 
 ## Acceptance
 
