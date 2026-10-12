@@ -1709,3 +1709,18 @@ shows the loss.
 **The rule:** set and confirm a routine's trigger filters on its claude.ai
 routine page, never through the API. Never create a second trigger to
 correct the first: there is no delete, and both would fire.
+
+## 2026-10-12 — A routine's Run now loads main's settings, and only an ask rule stopped its Bash (TYRE-416)
+
+**What happened:** the TYRE-412 push probe, started with Run now, stopped
+at a permission prompt and waited until the owner approved it on the
+session page. Nobody was notified. Run now starts on `main` (the PR 53 run
+began at `08c6d2b`, main's head), and `main`'s `.claude/settings.json`
+still asks before `git push`, which `develop` allows since U126. The run on
+#108's merge started on that PR's head branch, which carries `develop`'s
+settings, and ran `git checkout --detach origin/develop` with no prompt,
+although no allow rule names that command.
+
+**The rule:** test a routine with a real merge into `develop`, never Run
+now, until `main` is promoted. Before adding allow rules for a routine's
+prompt, read the `ask` rules on the branch the run started on.
