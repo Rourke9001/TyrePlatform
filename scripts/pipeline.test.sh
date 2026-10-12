@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
-# Cases for scripts/pipeline.sh and the make pipeline target (TYRE-412): a stub
-# claude on PATH records its arguments and environment, and a malformed key
-# must exit non-zero without ever reaching claude. The stub is a script, so
-# Git Bash's path conversion never touches it; only a live launch proves the
-# slash command arrives intact on Windows.
+# Cases for scripts/pipeline.sh (TYRE-412). The stub is a script, so Git Bash's
+# path conversion never touches it; only a live launch proves "/pipeline ..."
+# arrives intact on Windows.
 set -uo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 launcher="$here/pipeline.sh"
@@ -23,12 +21,14 @@ unset CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS MSYS2_ARG_CONV_EXCL
 fails=0
 
 refused() {
-  local label=$1; shift
+  local label=$1 rc; shift
   rm -f "$work/called"
-  if bash "$launcher" "$@" 2>/dev/null; then
-    echo "FAIL: accepted $label"; fails=$((fails + 1))
-  elif [ -e "$work/called" ]; then
+  bash "$launcher" "$@" 2>/dev/null
+  rc=$?
+  if [ -e "$work/called" ]; then
     echo "FAIL: $label reached claude"; fails=$((fails + 1))
+  elif [ "$rc" -ne 2 ]; then
+    echo "FAIL: $label exited $rc, not 2"; fails=$((fails + 1))
   else
     echo "PASS: refused $label"
   fi
@@ -55,10 +55,18 @@ fi
 # reach the script as one argument and be refused, never run.
 rm -f "$work/called"
 out=$(make -s -C "$here/.." pipeline 'T=TYRE-12;echo INJECTED' 2>&1)
-if [ -e "$work/called" ] || [[ "$out" == *INJECTED* ]]; then
-  echo "FAIL: make pipeline ran a shell suffix: $out"; fails=$((fails + 1))
+if [ -e "$work/called" ] || [[ "$out" == *INJECTED* ]] || [[ "$out" != *usage:* ]]; then
+  echo "FAIL: make pipeline did not refuse a shell suffix: $out"; fails=$((fails + 1))
 else
   echo "PASS: make pipeline refused a shell suffix"
+fi
+
+rm -f "$work/called"
+if make -s -C "$here/.." pipeline T=TYRE-412 && [ "$(cat "$work/called")" = "$want" ]; then
+  echo "PASS: make pipeline launches /pipeline TYRE-412 with the flag and the path exclusion"
+else
+  echo "FAIL: make pipeline launch shape was: $(cat "$work/called" 2>/dev/null || echo 'claude not called')"
+  fails=$((fails + 1))
 fi
 
 [ "$fails" -eq 0 ] || exit 1
