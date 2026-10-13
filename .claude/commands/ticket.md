@@ -32,7 +32,8 @@ runs). Do not start a stage until the one before it is done.
 10. **Implement**: `superpowers:subagent-driven-development`. Business rules
     go in SQL with a test in `db/tests/`; transport and auth go in Go.
 11. Anything you find that is not this ticket's to fix: fix it in this branch
-    if it sits in code the branch already changes and is small. Otherwise
+    if it sits in code the branch already changes and is small, and name it
+    under Decisions in the PR body. Otherwise
     apply CLAUDE.md's schedule test: a ticket linked to this one if it
     passes, a line under "Set aside" in the PR body if it does not (U130).
 12. `make check`, then open the PR. Stop there. The code review is stage 5,

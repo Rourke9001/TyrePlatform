@@ -16,7 +16,8 @@ do not read it end to end.
 
 A problem found along the way is fixed in the branch that found it when it
 sits in code the branch already changes and the fix is small: no migration,
-endpoint, route or screen beyond the branch's own. Anything else gets one
+endpoint, route or screen beyond the branch's own. The PR's Decisions name
+each such fix, so the code review sees it. Anything else gets one
 test: would the owner schedule it before the pilot? If so, raise one Jira
 ticket linked to the parent, with the evidence. If not, list it under "Set
 aside" in the PR body and let it go (U130, owner, 13 Oct 2026). Two kinds
