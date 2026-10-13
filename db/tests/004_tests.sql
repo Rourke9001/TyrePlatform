@@ -10595,6 +10595,14 @@ BEGIN
     ('a new tread at the removal threshold',
      jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', thr::text),
      format('new tread must exceed the removal threshold of %s mm; check the depth entered', thr)),
+    -- 0.1 mm of usable tread puts R10 000 000.00 at 10^8 a millimetre,
+    -- past rand_per_mm's numeric(12,4), so the bound answers before a bare
+    -- 22003 can (TYRE-421).
+    ('a rate past what the register carries',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', (thr + 0.1)::text,
+                        'purchase_price', '10000000.00', 'cost_source', 'INVOICE'),
+     format('a purchase price of %s over %s mm of usable tread is a rate above what the register carries; check the price and the new tread entered',
+            10000000.00::numeric(12,2), (thr + 0.1)::numeric(4,1) - thr)),
     ('a price with no source',
      jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
                         'purchase_price', '4319.91'),
@@ -10619,7 +10627,7 @@ BEGIN
         c.label, coalesce('TY011 "' || got || '"', 'by an accepted receive'), c.want;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  69a twenty incomplete receives refused, each with its own TY011 message; Second Fleet''s size, pattern and brand read as missing ones';
+  RAISE NOTICE 'PASS  69a twenty-one incomplete receives refused, each with its own TY011 message; Second Fleet''s size, pattern and brand read as missing ones';
 END $$;
 ROLLBACK;
 
@@ -10709,7 +10717,19 @@ BEGIN
         app.rand_per_mm(t.purchase_price, t.new_tread_mm, app.current_removal_threshold_mm()) THEN
     RAISE EXCEPTION 'FAIL 69b: stored price % and rate %, which do not reproduce', t.purchase_price, t.rand_per_mm;
   END IF;
-  RAISE NOTICE 'PASS  69b entries stored, the pattern''s brand taken when omitted, the rate reproducible from the rounded price, an unpriced receive UNKNOWN whether named or omitted';
+
+  -- The rate bound's control: a rate just under 10^8 fits numeric(12,4)
+  -- and is stored, so 69a's rate row could not pass by refusing every
+  -- large price.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptu,
+    'new_tread_mm', (app.current_removal_threshold_mm() + 0.1)::text,
+    'purchase_price', '9999999.99', 'cost_source', 'INVOICE'));
+  IF (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM 99999999.9000 THEN
+    RAISE EXCEPTION 'FAIL 69b: a rate just under the bound stored %, not 99999999.9000',
+      (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id);
+  END IF;
+  RAISE NOTICE 'PASS  69b entries stored, the pattern''s brand taken when omitted, the rate reproducible from the rounded price, a rate just under the bound stored, an unpriced receive UNKNOWN whether named or omitted';
 END $$;
 ROLLBACK;
 
@@ -10736,6 +10756,52 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  69c section 69 leaves no residue';
 END $$;
+
+\echo '== 69d. with no removal threshold in force, a priced receive is refused as TY011 and an unpriced one lands awaiting cost (U129, TYRE-421; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1 constant uuid := md5('sz1')::uuid;
+        pt1 constant uuid := md5('pt1')::uuid;
+        r record; t app.tyre; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- Section 17's device: DELETE is revoked (DR-014a), so the fleet-wide
+  -- policy is dated out of reach instead.
+  UPDATE app.threshold_policy
+     SET effective_from = 'infinity'
+   WHERE tenant_id = bac AND operating_group_id IS NULL AND axle_class IS NULL;
+  IF app.current_removal_threshold_mm() IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 69d: BAC still has a removal threshold in force, so the refusal cannot be probed';
+  END IF;
+
+  got := NULL;
+  BEGIN
+    PERFORM app.receive_tyres(jsonb_build_object(
+      'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+      'purchase_price', '4319.91', 'cost_source', 'INVOICE'));
+  EXCEPTION WHEN sqlstate 'TY011' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'this fleet has no removal threshold configured, so a priced tyre cannot be rated; configure the removal threshold first, or receive the tyre without its price' THEN
+    RAISE EXCEPTION 'FAIL 69d: a priced receive with no threshold in force was answered %',
+      coalesce('TY011 "' || got || '"', 'by an accepted receive');
+  END IF;
+
+  -- An unpriced tyre stays in the awaiting-cost backlog, where a cost
+  -- entered once a threshold is configured rates it (FR-TYR-041).
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL OR t.cost_source <> 'UNKNOWN' THEN
+    RAISE EXCEPTION 'FAIL 69d: an unpriced receive stored price %, rate %, source %',
+      t.purchase_price, t.rand_per_mm, t.cost_source;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = t.id) THEN
+    RAISE EXCEPTION 'FAIL 69d: an unpriced receive with no threshold in force is not awaiting cost';
+  END IF;
+  RAISE NOTICE 'PASS  69d with no threshold in force a priced receive is refused as TY011 and an unpriced one lands awaiting cost';
+END $$;
+ROLLBACK;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

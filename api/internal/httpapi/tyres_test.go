@@ -1,9 +1,11 @@
 package httpapi_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"maps"
 	"net/http"
 	"strings"
@@ -624,10 +626,10 @@ func TestReceiveTyresRefusesAnIncompleteReceiveAsTY011(t *testing.T) {
 	require.Zero(t, landed, "a refused receive must not mint a tyre")
 }
 
-// 000053's threshold rule is skipped when no removal threshold is in force:
-// the receive lands and its rate stays NULL, which is what app.rand_per_mm
-// answers for a NULL threshold (rule 5). plantTenant seeds no policy.
-func TestReceiveTyresWithNoThresholdInForceLeavesTheRateNull(t *testing.T) {
+// U129 (TYRE-421): with no removal threshold in force a priced receive could
+// never be rated, and TY013 would keep it unrated for good, so it is refused.
+// An unpriced receive still lands, unrated. plantTenant seeds no policy.
+func TestReceiveTyresWithNoThresholdInForceRefusesAPricedReceive(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, _ := plantTenant(t, ctx, admin, "receive-no-threshold")
@@ -640,19 +642,32 @@ func TestReceiveTyresWithNoThresholdInForceLeavesTheRateNull(t *testing.T) {
 		`SELECT count(*) FROM app.threshold_policy WHERE tenant_id = $1`, tenantID).Scan(&policies))
 	require.Zero(t, policies, "the premise: this tenant has no threshold policy")
 
-	code := "NOTHR-" + uuid.NewString()[:8]
 	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
 		cat.body(t, map[string]any{
-			"displayCode": code, "newTreadMm": "1.0", "purchasePrice": "1500.00", "costSource": "INVOICE",
+			"displayCode":   "NOTHR-" + uuid.NewString()[:8],
+			"purchasePrice": "1500.00", "costSource": "INVOICE",
 		}))
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-
-	var tread string
-	var rate *string
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY011", ref.Code)
+	require.Equal(t,
+		"this fleet has no removal threshold configured, so a priced tyre cannot be rated; configure the removal threshold first, or receive the tyre without its price",
+		ref.Message)
+	var landed int
 	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT new_tread_mm::text, rand_per_mm::text FROM app.tyre WHERE tenant_id = $1 AND display_code = $2`,
-		tenantID, code).Scan(&tread, &rate))
-	require.Equal(t, "1.0", tread)
+		`SELECT count(*) FROM app.tyre WHERE tenant_id = $1`, tenantID).Scan(&landed))
+	require.Zero(t, landed, "a refused receive must not mint a tyre")
+
+	code := "NOTHR-" + uuid.NewString()[:8]
+	rec = post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{"displayCode": code}))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var price, rate *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT purchase_price::text, rand_per_mm::text FROM app.tyre WHERE tenant_id = $1 AND display_code = $2`,
+		tenantID, code).Scan(&price, &rate))
+	require.Nil(t, price)
 	require.Nil(t, rate, "no threshold, no rate")
 }
 
@@ -1375,4 +1390,40 @@ func TestReceiveTyresRefusesAnOverflowingNumberAs422(t *testing.T) {
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT count(*) FROM app.tyre WHERE tenant_id = $1`, tenantID).Scan(&landed))
 	require.Zero(t, landed, "a refused receive must not mint a tyre")
+}
+
+// TYRE-421: a 22003 can be a figure the server computed, not one the client
+// sent, so withActor logs it at warn where the other canned refusals write
+// nothing. The client's own price overflow is the case a test can reach.
+func TestWithActorLogsANumericOverflowAtWarn(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "overflow-log")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{
+			"displayCode":   "OVFLOG-" + uuid.NewString()[:8],
+			"purchasePrice": "12345678901.00", "costSource": "INVOICE",
+		}))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+
+	var overflow map[string]any
+	for line := range strings.Lines(buf.String()) {
+		var entry map[string]any
+		require.NoError(t, json.Unmarshal([]byte(line), &entry), line)
+		if entry["sqlstate"] == "22003" {
+			overflow = entry
+		}
+	}
+	require.NotNil(t, overflow, "no log line names SQLSTATE 22003: %s", buf.String())
+	require.Equal(t, "WARN", overflow["level"])
+	require.Equal(t, tenantID.String(), overflow["tenant"])
 }

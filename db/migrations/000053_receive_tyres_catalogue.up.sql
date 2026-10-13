@@ -2,7 +2,7 @@
 --  A receive names its catalogue entries, a ratable new tread and the source
 --  of its price (TYRE-318)
 --  Implements: FR-TYR-031, FR-TYR-040, FR-TYR-041, FR-CFG-004, FR-CFG-007,
---  NFR-USE-006, BR-VAL-002; U93. Design:
+--  NFR-USE-006, BR-VAL-002; U93, U129. Design:
 --  docs/superpowers/specs/2026-10-12-tyre-catalogue-receive-design.md
 -- ============================================================================
 -- CREATE OR REPLACE keeps the signature, the invoker rights and the grants
@@ -32,6 +32,7 @@ DECLARE
   pt_brand uuid;
   pt_use   text;
   thr      numeric;
+  rate     numeric;
   rcv   date;
   stamp timestamptz;
   code  text;
@@ -148,8 +149,8 @@ BEGIN
 
   -- U93, BR-VAL-002: app.rand_per_mm divides by the tread above the removal
   -- threshold, so a tread at or below it is unratable. One resolution
-  -- serves this check and the rate below. With no threshold in force the
-  -- check is skipped and the rate stays NULL (rule 5).
+  -- serves this check and the rate below. With no threshold in force there
+  -- is nothing to check the tread against (rule 5).
   thr := app.current_removal_threshold_mm();
   IF thr IS NOT NULL AND tread <= thr THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
@@ -173,6 +174,23 @@ BEGIN
       MESSAGE = 'a cost source is recorded with its purchase price; enter the price, or leave the source out until it is known';
   END IF;
 
+  -- U129: with no threshold in force a priced tyre would be stored unrated,
+  -- and set_tyre_cost's TY013 would keep it so. An unpriced one lands and
+  -- awaits its cost (FR-TYR-041).
+  IF price IS NOT NULL AND thr IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY011',
+      MESSAGE = 'this fleet has no removal threshold configured, so a priced tyre cannot be rated; configure the removal threshold first, or receive the tyre without its price';
+  END IF;
+  -- FR-VAL-006: the bound is rand_per_mm's numeric(12,4), not a business
+  -- threshold, tested on the rounded rate the column stores so a bare 22003
+  -- never reaches the wire (the reasoning is log_retread_return's, 000048).
+  rate := app.rand_per_mm(price, tread, thr);
+  IF rate >= 100000000 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY011',
+      MESSAGE = format('a purchase price of %s over %s mm of usable tread is a rate above what the register carries; check the price and the new tread entered',
+                       price, tread - thr);
+  END IF;
+
   FOR i IN 1..qty LOOP
     IF pol = 'GENERATED' THEN
       -- The counter row lock is the concurrency story: two receives
@@ -194,8 +212,7 @@ BEGIN
                           cost_source, new_tread_mm, rand_per_mm, state,
                           current_depot_id, received_date)
     VALUES (app.current_tenant_id(), code, sz, br, pt, 'NEW', 0,
-            (payload->>'purchase_date')::date, price, src, tread,
-            app.rand_per_mm(price, tread, thr),
+            (payload->>'purchase_date')::date, price, src, tread, rate,
             'IN_STOCK', (payload->>'depot_id')::uuid, rcv)
     RETURNING id INTO new_id;
 
