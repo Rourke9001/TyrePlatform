@@ -4193,20 +4193,33 @@ BEGIN;
 DO $$
 DECLARE r record; a uuid; b uuid; c uuid; d uuid; e uuid; n int; rate numeric;
         stored_price numeric; stored_rate numeric;
+        -- What app.receive_tyres requires a receive to name (FR-TYR-031):
+        -- BAC's seeded entries, and a size and pattern Second Fleet is given
+        -- below.
+        cat1 jsonb := jsonb_build_object('size_id', md5('sz1')::uuid,
+                                         'pattern_id', md5('pt1')::uuid, 'new_tread_mm', '25.0');
+        cat2 jsonb := jsonb_build_object('size_id', md5('t39t2sz')::uuid,
+                                         'pattern_id', md5('t39t2pt')::uuid, 'new_tread_mm', '25.0');
 BEGIN
   -- BAC is GENERATED (D12): a hand-typed code is refused, an issued one is
   -- sequential from the counter
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   BEGIN
-    PERFORM app.receive_tyres('{"display_code":"HAND-1"}'::jsonb);
+    PERFORM app.receive_tyres(cat1 || '{"display_code":"HAND-1"}'::jsonb);
     RAISE EXCEPTION 'FAIL: hand-typed code accepted under GENERATED';
-  EXCEPTION WHEN sqlstate 'TY011' THEN RAISE NOTICE 'PASS  39a hand-typed code refused (D12)';
+  EXCEPTION WHEN sqlstate 'TY011' THEN
+    -- The catalogue refusals are TY011 too (FR-TYR-031), so the message
+    -- pins which one fired.
+    IF SQLERRM <> 'this fleet''s display codes are issued by the platform; leave the code blank and the next one is assigned' THEN
+      RAISE EXCEPTION 'FAIL 39a: TY011 fired for another reason: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  39a hand-typed code refused (D12)';
   END;
 
   -- received_date is pinned to the past, not tenant_today(): near a UTC day
   -- boundary tenant_today() can land ahead of now(), which would let a later
   -- disposal stamped at now() sort before this receipt.
-  SELECT * INTO r FROM app.receive_tyres('{"new_tread_mm":"25.0","received_date":"2026-08-25"}'::jsonb);
+  SELECT * INTO r FROM app.receive_tyres(cat1 || '{"new_tread_mm":"25.0","received_date":"2026-08-25"}'::jsonb);
   a := r.tyre_id;
   IF r.display_code !~ '^BAC-\d{5}$' THEN
     RAISE EXCEPTION 'FAIL: issued code % is not the ADR-0008 scheme', r.display_code;
@@ -4231,7 +4244,7 @@ BEGIN
   END;
 
   -- Bulk issue is sequential and atomic
-  SELECT count(DISTINCT display_code) INTO n FROM app.receive_tyres('{"quantity":3}'::jsonb);
+  SELECT count(DISTINCT display_code) INTO n FROM app.receive_tyres(cat1 || '{"quantity":3}'::jsonb);
   IF n <> 3 THEN RAISE EXCEPTION 'FAIL: bulk receive issued % codes, expected 3', n; END IF;
   RAISE NOTICE 'PASS  39e bulk receive issues distinct sequential codes';
 
@@ -4262,19 +4275,28 @@ BEGIN
   -- FREE tenant (2): the code is the tenant''s own, required, and reusable
   -- across history with the dated lookup resolving by date (FR-TYR-042)
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  -- Second Fleet seeds no catalogue, so the receives below get their own.
+  INSERT INTO app.tyre_size (id, tenant_id, name)
+  VALUES (md5('t39t2sz')::uuid, '22222222-2222-2222-2222-222222222222', '315/80R22.5');
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to)
+  VALUES (md5('t39t2pt')::uuid, '22222222-2222-2222-2222-222222222222', 'T39 NEW', 'NEW');
   BEGIN
-    PERFORM app.receive_tyres('{}'::jsonb);
+    PERFORM app.receive_tyres(cat2);
     RAISE EXCEPTION 'FAIL: FREE receive without a code accepted';
-  EXCEPTION WHEN sqlstate 'TY011' THEN RAISE NOTICE 'PASS  39i FREE requires the tenant''s code';
+  EXCEPTION WHEN sqlstate 'TY011' THEN
+    IF SQLERRM <> 'this fleet brands its own tyres; enter the code branded on the sidewall' THEN
+      RAISE EXCEPTION 'FAIL 39i: TY011 fired for another reason: %', SQLERRM;
+    END IF;
+    RAISE NOTICE 'PASS  39i FREE requires the tenant''s code';
   END;
-  SELECT tyre_id INTO b FROM app.receive_tyres('{"display_code":"CA123-11","received_date":"2026-01-10"}'::jsonb);
+  SELECT tyre_id INTO b FROM app.receive_tyres(cat2 || '{"display_code":"CA123-11","received_date":"2026-01-10"}'::jsonb);
   BEGIN
-    PERFORM app.receive_tyres('{"display_code":"CA123-11"}'::jsonb);
+    PERFORM app.receive_tyres(cat2 || '{"display_code":"CA123-11"}'::jsonb);
     RAISE EXCEPTION 'FAIL: second active tyre with the same code accepted';
   EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'PASS  39j duplicate active code refused by the DB';
   END;
   PERFORM app.dispose_tyre(b, 'SCRAPPED', 'worn out', NULL, '2026-06-01T08:00:00Z');
-  SELECT tyre_id INTO c FROM app.receive_tyres('{"display_code":"CA123-11","received_date":"2026-06-15"}'::jsonb);
+  SELECT tyre_id INTO c FROM app.receive_tyres(cat2 || '{"display_code":"CA123-11","received_date":"2026-06-15"}'::jsonb);
   IF (SELECT app.tyre_for_code('CA123-11', '2026-03-01')) IS DISTINCT FROM b
      OR (SELECT app.tyre_for_code('CA123-11', '2026-07-01')) IS DISTINCT FROM c THEN
     RAISE EXCEPTION 'FAIL: dated code lookup did not resolve historical reuse';
@@ -4311,7 +4333,7 @@ BEGIN
   -- deliberately: a 2dp price cannot fail this.
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   SELECT tyre_id INTO d FROM app.receive_tyres(
-    '{"display_code":"RATE-3DP","new_tread_mm":"25.0","received_date":"2026-01-05"}'::jsonb);
+    cat2 || '{"display_code":"RATE-3DP","new_tread_mm":"25.0","received_date":"2026-01-05"}'::jsonb);
   PERFORM app.set_tyre_cost(d, 4319.915, 'INVOICE');
   SELECT purchase_price, rand_per_mm INTO stored_price, stored_rate
     FROM app.tyre WHERE id = d;
@@ -4328,7 +4350,7 @@ BEGIN
   -- (FR-VAL-022). Refused outright.
   BEGIN
     PERFORM app.receive_tyres(
-      format('{"display_code":"FUTURE-1","received_date":"%s"}', current_date + 30)::jsonb);
+      cat2 || format('{"display_code":"FUTURE-1","received_date":"%s"}', current_date + 30)::jsonb);
     RAISE EXCEPTION 'FAIL: a receive dated in the future was accepted';
   EXCEPTION WHEN sqlstate 'TY012' THEN
     RAISE NOTICE 'PASS  39o a future received_date is refused';
@@ -4339,7 +4361,7 @@ BEGIN
   -- least(date, now()) and never outruns a disposal moments later. This
   -- check only discriminates part of the day; a deterministic version needs
   -- an injected clock, not worth the seam.
-  SELECT tyre_id INTO e FROM app.receive_tyres('{"display_code":"CLAMP-1"}'::jsonb);
+  SELECT tyre_id INTO e FROM app.receive_tyres(cat2 || '{"display_code":"CLAMP-1"}'::jsonb);
   PERFORM app.dispose_tyre(e, 'SCRAPPED', 'audit', NULL, now());
   IF app.tyre_in_estate_asof(e, current_date + 365) THEN
     RAISE EXCEPTION 'FAIL: a disposed tyre is back in the estate, its receipt outranks its disposal';
@@ -4359,14 +4381,14 @@ BEGIN
   -- A FITTED tyre is unpriced-but-in-service: still in v_tyre_awaiting_cost
   -- (CFL-002) and still costable. This is the check that keeps 39q's guard
   -- from being written as "not IN_STOCK".
-  SELECT tyre_id INTO d FROM app.receive_tyres('{"display_code":"FITGUARD-1","new_tread_mm":"20.0"}'::jsonb);
+  SELECT tyre_id INTO d FROM app.receive_tyres(cat2 || '{"display_code":"FITGUARD-1","new_tread_mm":"20.0"}'::jsonb);
   UPDATE app.tyre SET state = 'FITTED' WHERE id = d;
   PERFORM app.set_tyre_cost(d, 900.00, 'INVOICE');
   RAISE NOTICE 'PASS  39r a fitted tyre is still costable';
 
   -- The disposal side of the same ordering invariant 39p guards on receipt.
   SELECT tyre_id INTO d FROM app.receive_tyres(
-    '{"display_code":"BACKDATE-1","received_date":"2026-02-01"}'::jsonb);
+    cat2 || '{"display_code":"BACKDATE-1","received_date":"2026-02-01"}'::jsonb);
   BEGIN
     PERFORM app.dispose_tyre(d, 'SCRAPPED', 'audit', NULL, now() + interval '1 day');
     RAISE EXCEPTION 'FAIL: a disposal dated in the future was accepted';
@@ -9778,13 +9800,16 @@ BEGIN
                                     warning_threshold_mm, max_retreads, effective_from)
   VALUES (pol, bac, 6.0, 6.0, 8.0, 1, now());
 
-  SELECT * INTO r FROM app.receive_tyres('{"new_tread_mm":"25.0","purchase_price":"4319.91"}'::jsonb);
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+    'purchase_price', '4319.91', 'cost_source', 'INVOICE'));
   SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = r.tyre_id;
   IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 6.0) THEN
     RAISE EXCEPTION 'FAIL 63b: receive_tyres stored % where the 6.0 in force gives % (4.0 gives %)',
       rate, app.rand_per_mm(4319.91, 25.0, 6.0), app.rand_per_mm(4319.91, 25.0, 4.0);
   END IF;
-  SELECT * INTO r FROM app.receive_tyres('{"new_tread_mm":"25.0"}'::jsonb);
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
   PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
   SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = r.tyre_id;
   IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 6.0) THEN
@@ -10465,6 +10490,238 @@ BEGIN
   RAISE NOTICE 'PASS  68e one session-start row per session, visible only to its tenant, never unattributed';
 END $$;
 ROLLBACK;
+
+\echo '== 69. TYRE-318: a receive names an active size and a new-tyre pattern, a new tread above the removal threshold, and a source for its price (FR-TYR-031, FR-CFG-004, FR-CFG-007, NFR-USE-006, U93)'
+
+\echo '== 69a. every refusal is TY011 with its own message, and a deactivated row, a missing id and Second Fleet''s pattern read alike (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+        sz1  constant uuid := md5('sz1')::uuid;
+        pt1  constant uuid := md5('pt1')::uuid;      -- seeded NEW, brand br1
+        br2  constant uuid := md5('t69br2')::uuid;   -- active, owns no pattern
+        brx  constant uuid := md5('t69brx')::uuid;   -- deactivated
+        szx  constant uuid := md5('t69szx')::uuid;   -- deactivated
+        ptu  constant uuid := md5('t69ptu')::uuid;   -- NEW, no brand
+        ptr  constant uuid := md5('t69ptr')::uuid;   -- RETREAD only
+        ptx  constant uuid := md5('t69ptx')::uuid;   -- deactivated
+        ptxb constant uuid := md5('t69ptxb')::uuid;  -- active, its brand deactivated
+        t2pt constant uuid := md5('t69t2pt')::uuid;  -- Second Fleet's, receivable there
+        thr numeric; c record; got text;
+BEGIN
+  -- Second Fleet's pattern is active and NEW, so if RLS let BAC see it the
+  -- receive would pass every check and fail on the composite foreign key
+  -- (23503), not as TY011. Only invisibility gives the missing-id message.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to)
+  VALUES (t2pt, t2, 'T69 SECOND', 'NEW');
+
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  thr := app.current_removal_threshold_mm();
+  IF thr IS NULL THEN
+    RAISE EXCEPTION 'FAIL 69a: BAC has no removal threshold in force, so the threshold refusal cannot be probed';
+  END IF;
+  INSERT INTO app.tyre_size (id, tenant_id, name, active) VALUES (szx, bac, 'T69 RETIRED', false);
+  INSERT INTO app.tyre_brand (id, tenant_id, name, active) VALUES
+    (br2, bac, 'T69 OTHER', true),
+    (brx, bac, 'T69 RETIRED', false);
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, brand_id, applies_to, active) VALUES
+    (ptu,  bac, 'T69 UNBRANDED', NULL, 'NEW',     true),
+    (ptr,  bac, 'T69 RETREAD',   NULL, 'RETREAD', true),
+    (ptx,  bac, 'T69 RETIRED',   NULL, 'NEW',     false),
+    (ptxb, bac, 'T69 ORPHANED',  brx,  'NEW',     true);
+
+  -- Each payload breaks exactly one rule, so each message names the rule
+  -- that refused it.
+  FOR c IN SELECT * FROM (VALUES
+    ('no size',
+     jsonb_build_object('pattern_id', pt1, 'new_tread_mm', '25.0'),
+     'a received tyre needs its size; choose one from the catalogue'),
+    ('no pattern',
+     jsonb_build_object('size_id', sz1, 'new_tread_mm', '25.0'),
+     'a received tyre needs its pattern; choose one from the catalogue'),
+    ('no new tread',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1),
+     'a received tyre needs its new tread depth in millimetres'),
+    ('a new tread of zero',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '0'),
+     format('a new tread is in millimetres, above 0 and at most %s; check the depth entered',
+            app.max_tread_mm())),
+    ('a new tread above the ceiling',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1,
+                        'new_tread_mm', (app.max_tread_mm() + 0.1)::text),
+     format('a new tread is in millimetres, above 0 and at most %s; check the depth entered',
+            app.max_tread_mm())),
+    ('a deactivated size',
+     jsonb_build_object('size_id', szx, 'pattern_id', pt1, 'new_tread_mm', '25.0'),
+     'that size is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('a size id nobody holds',
+     jsonb_build_object('size_id', md5('t69nosuch')::uuid, 'pattern_id', pt1, 'new_tread_mm', '25.0'),
+     'that size is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('a deactivated pattern',
+     jsonb_build_object('size_id', sz1, 'pattern_id', ptx, 'new_tread_mm', '25.0'),
+     'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('a pattern id nobody holds',
+     jsonb_build_object('size_id', sz1, 'pattern_id', md5('t69nosuch')::uuid, 'new_tread_mm', '25.0'),
+     'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('Second Fleet''s pattern',
+     jsonb_build_object('size_id', sz1, 'pattern_id', t2pt, 'new_tread_mm', '25.0'),
+     'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('a pattern whose brand is deactivated',
+     jsonb_build_object('size_id', sz1, 'pattern_id', ptxb, 'new_tread_mm', '25.0'),
+     'that pattern''s brand is not in this fleet''s active catalogue; choose another pattern, or ask an administrator to restore the brand'),
+    ('a deactivated brand',
+     jsonb_build_object('size_id', sz1, 'pattern_id', ptu, 'brand_id', brx, 'new_tread_mm', '25.0'),
+     'that brand is not in this fleet''s active catalogue; choose another, leave it blank, or ask an administrator to add it'),
+    ('a retread-only pattern',
+     jsonb_build_object('size_id', sz1, 'pattern_id', ptr, 'new_tread_mm', '25.0'),
+     'that pattern is for retreads only; a received tyre takes a new-tyre pattern'),
+    ('a brand the pattern does not belong to',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'brand_id', br2, 'new_tread_mm', '25.0'),
+     'that pattern belongs to a different brand; choose its own brand or leave the brand blank'),
+    ('a new tread at the removal threshold',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', thr::text),
+     format('new tread must exceed the removal threshold of %s mm; check the depth entered', thr)),
+    ('a price with no source',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+                        'purchase_price', '4319.91'),
+     'a purchase price needs a cost source; choose invoice or price list estimate'),
+    ('a price with an UNKNOWN source',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+                        'purchase_price', '4319.91', 'cost_source', 'UNKNOWN'),
+     'a purchase price needs a known cost source; choose invoice or price list estimate'),
+    ('a source with no price',
+     jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+                        'cost_source', 'INVOICE'),
+     'a cost source is recorded with its purchase price; enter the price, or leave the source out until it is known')
+  ) AS v(label, payload, want)
+  LOOP
+    got := NULL;
+    BEGIN
+      PERFORM app.receive_tyres(c.payload);
+    EXCEPTION WHEN sqlstate 'TY011' THEN got := SQLERRM;
+    END;
+    IF got IS DISTINCT FROM c.want THEN
+      RAISE EXCEPTION 'FAIL 69a: % was answered %, not TY011 "%"',
+        c.label, coalesce('TY011 "' || got || '"', 'by an accepted receive'), c.want;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  69a eighteen incomplete receives refused, each with its own TY011 message; Second Fleet''s pattern reads as a missing one';
+END $$;
+ROLLBACK;
+
+\echo '== 69b. a receive stores its entries, takes an omitted brand from its pattern, rates the tyre through app.rand_per_mm from its rounded price, and leaves an unpriced one UNKNOWN (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1 constant uuid := md5('sz1')::uuid;
+        br1 constant uuid := md5('br1')::uuid;
+        pt1 constant uuid := md5('pt1')::uuid;
+        br2 constant uuid := md5('t69br2')::uuid;
+        ptu constant uuid := md5('t69ptu')::uuid;    -- NEW, no brand
+        ptb constant uuid := md5('t69ptb')::uuid;    -- BOTH, no brand
+        r record; t app.tyre;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  INSERT INTO app.tyre_brand (id, tenant_id, name) VALUES (br2, bac, 'T69 OTHER');
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, brand_id, applies_to) VALUES
+    (ptu, bac, 'T69 UNBRANDED', NULL, 'NEW'),
+    (ptb, bac, 'T69 EITHER',    NULL, 'BOTH');
+
+  -- NFR-USE-006: a branded pattern with its brand omitted stores the
+  -- pattern's brand. 6969.69 is a price no fixture tyre carries, so 69c can
+  -- find the row.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+    'purchase_price', '6969.69', 'cost_source', 'INVOICE'));
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.size_id IS DISTINCT FROM sz1 OR t.pattern_id IS DISTINCT FROM pt1
+     OR t.brand_id IS DISTINCT FROM br1 THEN
+    RAISE EXCEPTION 'FAIL 69b: stored size %, pattern %, brand %; the brand should be the pattern''s own',
+      t.size_id, t.pattern_id, t.brand_id;
+  END IF;
+  IF t.cost_source <> 'INVOICE' OR t.new_tread_mm <> 25.0 OR t.rand_per_mm IS NULL
+     OR t.rand_per_mm IS DISTINCT FROM
+        app.rand_per_mm(6969.69, 25.0, app.current_removal_threshold_mm()) THEN
+    RAISE EXCEPTION 'FAIL 69b: a priced receive stored rate % from source %', t.rand_per_mm, t.cost_source;
+  END IF;
+
+  -- The pattern's own brand sent explicitly is accepted.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'brand_id', br1, 'new_tread_mm', '25.0',
+    'purchase_price', '6969.69', 'cost_source', 'INVOICE'));
+  IF (SELECT brand_id FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM br1 THEN
+    RAISE EXCEPTION 'FAIL 69b: the pattern''s own brand, sent, was not stored';
+  END IF;
+
+  -- A pattern with no brand keeps the brand sent.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptu, 'brand_id', br2, 'new_tread_mm', '25.0'));
+  IF (SELECT brand_id FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM br2 THEN
+    RAISE EXCEPTION 'FAIL 69b: an unbranded pattern did not keep the brand sent';
+  END IF;
+
+  -- A BOTH pattern is receivable; no brand stays NULL (NFR-PRO-002); an
+  -- unpriced receive is UNKNOWN, unrated and awaiting cost (FR-TYR-041).
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptb, 'new_tread_mm', '25.0'));
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.brand_id IS NOT NULL OR t.cost_source <> 'UNKNOWN' OR t.purchase_price IS NOT NULL
+     OR t.rand_per_mm IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 69b: an unpriced receive stored brand %, source %, price %, rate %',
+      t.brand_id, t.cost_source, t.purchase_price, t.rand_per_mm;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = t.id) THEN
+    RAISE EXCEPTION 'FAIL 69b: an unpriced receive is not awaiting cost';
+  END IF;
+
+  -- U128's control: UNKNOWN sent explicitly with no price is the one
+  -- combination that means "no price yet", so it is accepted. Without this,
+  -- 69a's "a source with no price" row could pass by refusing every source.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptb, 'new_tread_mm', '25.0', 'cost_source', 'UNKNOWN'));
+  IF (SELECT cost_source FROM app.tyre WHERE id = r.tyre_id) <> 'UNKNOWN' THEN
+    RAISE EXCEPTION 'FAIL 69b: an unpriced receive naming UNKNOWN did not store UNKNOWN';
+  END IF;
+
+  -- FR-VAL-006 on the receive path: a third decimal is rounded into the
+  -- price column before app.rand_per_mm divides, so the stored rate
+  -- reproduces from the stored price. A 2dp price cannot fail this.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', ptu, 'new_tread_mm', '25.0',
+    'purchase_price', '6969.695', 'cost_source', 'PRICE_LIST_ESTIMATE'));
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price <> 6969.70
+     OR t.rand_per_mm IS DISTINCT FROM
+        app.rand_per_mm(t.purchase_price, t.new_tread_mm, app.current_removal_threshold_mm()) THEN
+    RAISE EXCEPTION 'FAIL 69b: stored price % and rate %, which do not reproduce', t.purchase_price, t.rand_per_mm;
+  END IF;
+  RAISE NOTICE 'PASS  69b entries stored, the pattern''s brand taken when omitted, the rate reproducible from the rounded price, an unpriced receive UNKNOWN whether named or omitted';
+END $$;
+ROLLBACK;
+
+\echo '== 69c. nothing 69a and 69b planted outlives its rollback'
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT (SELECT count(*) FROM app.tyre_size WHERE id = md5('t69szx')::uuid)
+       + (SELECT count(*) FROM app.tyre_brand WHERE id IN (md5('t69br2')::uuid, md5('t69brx')::uuid))
+       + (SELECT count(*) FROM app.tyre_pattern
+           WHERE id IN (md5('t69ptu')::uuid, md5('t69ptr')::uuid, md5('t69ptx')::uuid,
+                        md5('t69ptxb')::uuid, md5('t69ptb')::uuid))
+       + (SELECT count(*) FROM app.tyre
+           WHERE purchase_price IN (6969.69, 6969.70)
+              OR pattern_id IN (md5('t69ptu')::uuid, md5('t69ptb')::uuid))
+    INTO n;
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  n := n + (SELECT count(*) FROM app.tyre_pattern WHERE id = md5('t69t2pt')::uuid);
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 69c: % rows planted by section 69 survived their rollback', n;
+  END IF;
+  RAISE NOTICE 'PASS  69c section 69 leaves no residue';
+END $$;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
