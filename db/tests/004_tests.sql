@@ -10845,5 +10845,49 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 69f. costing a retreaded tyre stores its price and keeps the rate its retread cost gives (FR-TYR-019, BR-VAL-006; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1  constant uuid := md5('sz1')::uuid;
+        pt1  constant uuid := md5('pt1')::uuid;
+        d_rt constant uuid := md5('t69frt')::uuid;
+        j    constant uuid := md5('t69fj')::uuid;
+        tz text; r record; t app.tyre; want numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT x.timezone INTO tz FROM app.tenant x WHERE x.id = bac;
+
+  -- Received ten days back so the dated send and return follow it.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+    'received_date', (app.tenant_today(tz) - 10)::text));
+  -- A dispatch is from REMOVED only, so the casing and a raw job are
+  -- planted at the retreader, 63b's way.
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T69F Retreaders', 'RETREADER');
+  UPDATE app.tyre SET state = 'AT_RETREADER' WHERE id = r.tyre_id;
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
+  VALUES (j, bac, r.tyre_id, d_rt, app.tenant_today(tz) - 5);
+  PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'T69F-RPT', 2500.00, 16.0, 800.00);
+  want := app.rand_per_mm(2500.00, 16.0, app.current_removal_threshold_mm());
+  IF (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM want OR want IS NULL THEN
+    RAISE EXCEPTION 'FAIL 69f: the return stored rate %, not the retread''s %',
+      (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id), want;
+  END IF;
+
+  PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.cost_source IS DISTINCT FROM 'INVOICE' THEN
+    RAISE EXCEPTION 'FAIL 69f: costing a retreaded tyre stored price % from source %',
+      t.purchase_price, t.cost_source;
+  END IF;
+  IF t.rand_per_mm IS DISTINCT FROM want THEN
+    RAISE EXCEPTION 'FAIL 69f: costing a retreaded tyre replaced its retread rate % with %',
+      want, t.rand_per_mm;
+  END IF;
+  RAISE NOTICE 'PASS  69f costing a retreaded tyre stores its price and keeps its retread rate %', want;
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

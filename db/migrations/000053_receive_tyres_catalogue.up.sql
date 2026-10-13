@@ -1,8 +1,8 @@
 -- ============================================================================
 --  A receive names its catalogue entries, a ratable new tread and the source
 --  of its price (TYRE-318)
---  Implements: FR-TYR-031, FR-TYR-040, FR-TYR-041, FR-CFG-004, FR-CFG-007,
---  NFR-USE-006, BR-VAL-002; U93, U128, U129. Design:
+--  Implements: FR-TYR-019, FR-TYR-031, FR-TYR-040, FR-TYR-041, FR-CFG-004,
+--  FR-CFG-007, NFR-USE-006, BR-VAL-002, BR-VAL-006; U93, U128, U129. Design:
 --  docs/superpowers/specs/2026-10-12-tyre-catalogue-receive-design.md
 -- ============================================================================
 -- CREATE OR REPLACE keeps each function's signature, invoker rights and
@@ -275,8 +275,12 @@ BEGIN
   price := p_price;
   -- No event: cost entry is provenance, not a lifecycle transition. The rate
   -- goes through the one permitted implementation (db/CLAUDE.md, FR-VAL-006).
+  -- A retreaded tyre keeps the rate its retread cost gave it (FR-TYR-019,
+  -- BR-VAL-006), because its new_tread_mm is the retread's.
   UPDATE app.tyre
      SET purchase_price = price, cost_source = p_source,
-         rand_per_mm = app.rand_per_mm(price, new_tread_mm, app.current_removal_threshold_mm())
+         rand_per_mm = CASE WHEN retread_count = 0
+                            THEN app.rand_per_mm(price, new_tread_mm, app.current_removal_threshold_mm())
+                            ELSE rand_per_mm END
    WHERE id = p_tyre;
 END $$;
