@@ -158,8 +158,8 @@ BEGIN
 
   -- A recorded cost is never corrected (D5, TY013), so a priced receive
   -- names where its price came from (TYRE-370), and UNKNOWN means exactly
-  -- "no price yet" (U128, DR-019, NFR-PRO-002): a price never carries it,
-  -- and any other source never arrives without a price.
+  -- "no price yet" (U128, DR-019, NFR-PRO-002): at receipt a price never
+  -- carries it, and any other source never arrives without a price.
   IF price IS NOT NULL AND payload->>'cost_source' IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
       MESSAGE = 'a purchase price needs a cost source; choose invoice or price list estimate';
