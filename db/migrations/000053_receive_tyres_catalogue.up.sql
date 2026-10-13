@@ -2,13 +2,13 @@
 --  A receive names its catalogue entries, a ratable new tread and the source
 --  of its price (TYRE-318)
 --  Implements: FR-TYR-031, FR-TYR-040, FR-TYR-041, FR-CFG-004, FR-CFG-007,
---  NFR-USE-006, BR-VAL-002; U93, U129. Design:
+--  NFR-USE-006, BR-VAL-002; U93, U128, U129. Design:
 --  docs/superpowers/specs/2026-10-12-tyre-catalogue-receive-design.md
 -- ============================================================================
--- CREATE OR REPLACE keeps the signature, the invoker rights and the grants
--- (db/CLAUDE.md, Adding a function). Every refusal added here is TY011, says
--- what to do (NFR-USE-005), and runs after the policy and quantity checks
--- and before the loop.
+-- CREATE OR REPLACE keeps each function's signature, invoker rights and
+-- grants (db/CLAUDE.md, Adding a function). Every refusal added to
+-- receive_tyres is TY011, says what to do (NFR-USE-005), and runs after the
+-- policy and quantity checks and before the loop.
 CREATE OR REPLACE FUNCTION app.receive_tyres(payload jsonb)
 RETURNS TABLE (tyre_id uuid, display_code text)
 LANGUAGE plpgsql
@@ -159,8 +159,9 @@ BEGIN
 
   -- A recorded cost is never corrected (D5, TY013), so a priced receive
   -- names where its price came from (TYRE-370), and UNKNOWN means exactly
-  -- "no price yet" (U128, DR-019, NFR-PRO-002): at receipt a price never
-  -- carries it, and any other source never arrives without a price.
+  -- "no price yet" (U128, DR-019, NFR-PRO-002): a price never carries it,
+  -- here or at app.set_tyre_cost below, and no other source arrives
+  -- without a price.
   IF price IS NOT NULL AND payload->>'cost_source' IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
       MESSAGE = 'a purchase price needs a cost source; choose invoice or price list estimate';
@@ -228,4 +229,55 @@ BEGIN
     tyre_id := new_id; display_code := code;
     RETURN NEXT;
   END LOOP;
+END $$;
+
+-- 000031's definition with one refusal added, as TY013, this function's own
+-- cost-entry code (TYRE-422).
+CREATE OR REPLACE FUNCTION app.set_tyre_cost(p_tyre uuid, p_price numeric, p_source app.cost_source)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  cur   numeric;
+  st    app.tyre_state;
+  -- A parameter's type modifier is discarded by Postgres, so p_price arrives
+  -- unrounded however it is declared; only assignment to a typmod'd local
+  -- rounds it. Rounding before the divide is what makes the stored rate
+  -- reproducible from the stored price. See app.receive_tyres' own price
+  -- local for the invariant.
+  price numeric(12,2);
+BEGIN
+  SELECT purchase_price, state INTO cur, st FROM app.tyre WHERE id = p_tyre FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such tyre in this fleet';
+  END IF;
+  -- Extends D5, which specified no state guard: costing recomputes
+  -- rand_per_mm, and doing that to a tyre that has left the estate rewrites
+  -- the rate behind valuations already taken against it. Only the three
+  -- terminal states are refused. A FITTED tyre is still in
+  -- v_tyre_awaiting_cost and must stay costable (CFL-002).
+  IF st IN ('SCRAPPED','SOLD','LOST') THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = format('this tyre is %s and has left the fleet; its cost cannot be recorded now', st);
+  END IF;
+  IF cur IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = 'this tyre''s cost is already recorded',
+      HINT    = 'a correction is a decision this surface does not take; raise it against TYRE-48';
+  END IF;
+  IF p_price IS NULL OR p_price < 0 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013', MESSAGE = 'a cost is a non-negative amount';
+  END IF;
+  -- U128, stated at receive_tyres' cost-source checks above.
+  IF p_source = 'UNKNOWN' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = 'a purchase price needs a known cost source; choose invoice or price list estimate';
+  END IF;
+  price := p_price;
+  -- No event: cost entry is provenance, not a lifecycle transition. The rate
+  -- goes through the one permitted implementation (db/CLAUDE.md, FR-VAL-006).
+  UPDATE app.tyre
+     SET purchase_price = price, cost_source = p_source,
+         rand_per_mm = app.rand_per_mm(price, new_tread_mm, app.current_removal_threshold_mm())
+   WHERE id = p_tyre;
 END $$;

@@ -10803,5 +10803,48 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 69e. set_tyre_cost refuses a price with UNKNOWN as TY013 and stores an INVOICE or PRICE_LIST_ESTIMATE cost with its rate (U128, TYRE-422; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1 constant uuid := md5('sz1')::uuid;
+        pt1 constant uuid := md5('pt1')::uuid;
+        unpriced constant jsonb := jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0');
+        src app.cost_source; r record; t app.tyre; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+
+  SELECT * INTO r FROM app.receive_tyres(unpriced);
+  got := NULL;
+  BEGIN
+    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'UNKNOWN');
+  EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'a purchase price needs a known cost source; choose invoice or price list estimate' THEN
+    RAISE EXCEPTION 'FAIL 69e: a price with UNKNOWN was answered %, not TY013 with receipt''s message',
+      coalesce('TY013 "' || got || '"', 'by a stored cost');
+  END IF;
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 69e: a refused cost stored price % and rate %', t.purchase_price, t.rand_per_mm;
+  END IF;
+
+  -- The refusal's controls: each known source is stored with its price
+  -- and rated, so the row above could not pass by refusing every cost.
+  FOREACH src IN ARRAY ARRAY['INVOICE', 'PRICE_LIST_ESTIMATE']::app.cost_source[] LOOP
+    SELECT * INTO r FROM app.receive_tyres(unpriced);
+    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, src);
+    SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+    IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.cost_source IS DISTINCT FROM src
+       OR t.rand_per_mm IS DISTINCT FROM
+          app.rand_per_mm(4319.91, 25.0, app.current_removal_threshold_mm()) THEN
+      RAISE EXCEPTION 'FAIL 69e: a % cost stored price %, source %, rate %',
+        src, t.purchase_price, t.cost_source, t.rand_per_mm;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  69e set_tyre_cost refuses a price with UNKNOWN as TY013 and stores INVOICE and PRICE_LIST_ESTIMATE costs with their rate';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

@@ -1,7 +1,7 @@
--- Restores app.receive_tyres as 000031 defined it. No ALTER, grant or
--- comment has touched the function since, so 000031's text is the state the
--- up migration found (docs/lessons.md, 2026-09-15). CREATE OR REPLACE keeps
--- the grants.
+-- Restores app.receive_tyres and app.set_tyre_cost as 000031 defined them.
+-- No ALTER, grant or comment has touched either since, so 000031's text is
+-- the state the up migration found (docs/lessons.md, 2026-09-15). CREATE OR
+-- REPLACE keeps the grants.
 CREATE OR REPLACE FUNCTION app.receive_tyres(payload jsonb)
 RETURNS TABLE (tyre_id uuid, display_code text)
 LANGUAGE plpgsql
@@ -102,4 +102,48 @@ BEGIN
     tyre_id := new_id; display_code := code;
     RETURN NEXT;
   END LOOP;
+END $$;
+
+CREATE OR REPLACE FUNCTION app.set_tyre_cost(p_tyre uuid, p_price numeric, p_source app.cost_source)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  cur   numeric;
+  st    app.tyre_state;
+  -- A parameter's type modifier is discarded by Postgres, so p_price arrives
+  -- unrounded however it is declared; only assignment to a typmod'd local
+  -- rounds it. Rounding before the divide is what makes the stored rate
+  -- reproducible from the stored price. See app.receive_tyres' own price
+  -- local for the invariant.
+  price numeric(12,2);
+BEGIN
+  SELECT purchase_price, state INTO cur, st FROM app.tyre WHERE id = p_tyre FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such tyre in this fleet';
+  END IF;
+  -- Extends D5, which specified no state guard: costing recomputes
+  -- rand_per_mm, and doing that to a tyre that has left the estate rewrites
+  -- the rate behind valuations already taken against it. Only the three
+  -- terminal states are refused. A FITTED tyre is still in
+  -- v_tyre_awaiting_cost and must stay costable (CFL-002).
+  IF st IN ('SCRAPPED','SOLD','LOST') THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = format('this tyre is %s and has left the fleet; its cost cannot be recorded now', st);
+  END IF;
+  IF cur IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013',
+      MESSAGE = 'this tyre''s cost is already recorded',
+      HINT    = 'a correction is a decision this surface does not take; raise it against TYRE-48';
+  END IF;
+  IF p_price IS NULL OR p_price < 0 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY013', MESSAGE = 'a cost is a non-negative amount';
+  END IF;
+  price := p_price;
+  -- No event: cost entry is provenance, not a lifecycle transition. The rate
+  -- goes through the one permitted implementation (db/CLAUDE.md, FR-VAL-006).
+  UPDATE app.tyre
+     SET purchase_price = price, cost_source = p_source,
+         rand_per_mm = app.rand_per_mm(price, new_tread_mm, app.current_removal_threshold_mm())
+   WHERE id = p_tyre;
 END $$;
