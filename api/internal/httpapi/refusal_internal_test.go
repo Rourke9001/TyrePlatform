@@ -112,6 +112,12 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:     "a value too large for its numeric column is canned identically",
+			sqlErr:   &pgconn.PgError{Code: "22003", Message: "numeric field overflow"},
+			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},
+			isClient: true,
+		},
+		{
 			name:     "a scalar where an array was promised is canned identically",
 			sqlErr:   &pgconn.PgError{Code: "22023", Message: "cannot extract elements from a scalar"},
 			want:     refusal{status: http.StatusUnprocessableEntity, code: codeInvalidSubmission, message: msgInvalidSubmission},

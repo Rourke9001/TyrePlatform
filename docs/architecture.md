@@ -116,13 +116,13 @@ closed.**
 into three groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
 SQL where a rule is evaluated, forwarded verbatim because the message is
 ours), the standard integrity violations (`23502`, `23503`, `23514`,
-`22P02`, `22023`, `22007`, `22008`, canned as 422 so a client mistake never
-reads as a 500 the outbox retries forever, ADR-0009), and everything else
-(defaults to 500, the honest answer for an invariant breach). A blanket
-`23503` is safe across every write path because the message is canned: a
-foreign-key violation means the request named something that does not
-exist, and 422 with no schema object in it is the honest answer wherever it
-is raised. `TY001`/`TY002` (DR-020 odometer plausibility) never reach the
+`22P02`, `22003`, `22023`, `22007`, `22008`, canned as 422 so a client
+mistake never reads as a 500 the outbox retries forever, ADR-0009), and
+everything else (defaults to 500, the honest answer for an invariant
+breach). A blanket `23503` is safe across every write path because the
+message is canned: a foreign-key violation means the request named
+something that does not exist, and 422 with no schema object in it is the
+honest answer wherever it is raised. `TY001`/`TY002` (DR-020 odometer plausibility) never reach the
 map: both are trapped inside `app.submit_inspection`'s own exception block
 and turned into an `app.inspection_warning` row. `TY010` (no tenant/actor
 bound) is also absent, because that is a genuine invariant breach, not a

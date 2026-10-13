@@ -128,6 +128,7 @@ var submitStatus = map[string]int{
 	"23503": http.StatusUnprocessableEntity, // foreign key: an id this tenant cannot see
 	"23514": http.StatusUnprocessableEntity, // check: FR-INS-030/031's hard ranges
 	"22P02": http.StatusUnprocessableEntity, // a field that will not parse as its type
+	"22003": http.StatusUnprocessableEntity, // a value too large for its numeric column
 	"22023": http.StatusUnprocessableEntity, // a scalar where the payload promised an array
 	// 22007/22008: a date or instant Postgres cannot read or that is out of
 	// range. Every route validates its dates in Go first (dateField,
