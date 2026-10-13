@@ -18,10 +18,9 @@ DECLARE
   tz    text;
   qty   int  := COALESCE((payload->>'quantity')::int, 1);
   hand  text := NULLIF(btrim(COALESCE(payload->>'display_code','')), '');
-  -- numeric(12,2) on the local, not on the argument: the cents rounding has
-  -- to happen BEFORE app.rand_per_mm divides, or the stored rate is not
-  -- reproducible from the stored price. app.set_tyre_cost holds the same
-  -- invariant the same way and cites this comment (FR-VAL-006).
+  -- numeric(12,2) on the local, not on the argument, so the cents round
+  -- before app.rand_per_mm divides and the stored rate reproduces from the
+  -- stored price (FR-VAL-006; the reasoning is 000031:25-30).
   price numeric(12,2) := (payload->>'purchase_price')::numeric;
   tread numeric(4,1)  := (payload->>'new_tread_mm')::numeric;
   -- An omitted source reads as UNKNOWN; the checks below hold UNKNOWN to
@@ -117,7 +116,8 @@ BEGIN
       MESSAGE = 'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it';
   END IF;
   -- A pattern whose brand is deactivated would store a brand no form
-  -- offers. The brand is this tenant's own row, so naming it is no oracle.
+  -- offers (TYRE-318). The brand is this tenant's own row, so naming it is
+  -- no oracle.
   IF pt_brand IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM app.tyre_brand b WHERE b.id = pt_brand AND b.active) THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',

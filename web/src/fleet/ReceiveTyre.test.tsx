@@ -209,8 +209,8 @@ describe("receiving tyres into the fleet", () => {
     expect(receivedBodies()).toHaveLength(0);
   });
 
-  // Review focus: with the brand cleared and the pattern kept, the screen
-  // would show no brand while app.receive_tyres stores the pattern's.
+  // With the brand cleared and the pattern kept, the screen would show no
+  // brand while app.receive_tyres stores the pattern's (NFR-USE-006).
   it("clearing the brand clears a branded pattern, and an unbranded pattern survives a brand change", async () => {
     renderScreen("GENERATED");
 
@@ -287,8 +287,8 @@ describe("receiving tyres into the fleet", () => {
     expect(screen.queryByText(/choose where this price came from/i)).not.toBeInTheDocument();
   });
 
-  // Review focus: a choice made while a price was entered stays in state
-  // after the price is cleared, and must not ride along.
+  // A choice made while a price was entered stays in state after the price
+  // is cleared, and must not ride along (TYRE-370).
   it("never sends a cost source the user did not choose, nor one left behind by a cleared price", async () => {
     mockApi({ receives: [minted("TYRE1")] });
     renderScreen("FREE");
