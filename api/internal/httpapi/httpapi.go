@@ -97,6 +97,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Post("/inspections/{inspectionID}/void", voidInspection(s))
 		r.Get("/org/branding", orgBranding(s))
 		r.Get("/axle-configurations", listAxleConfigurations(s))
+		r.Get("/tyre-catalogue", listTyreCatalogue(s))
 		r.Get("/tyres", listTyres(s))
 
 		// B7.2, the analytics read API (TYRE-36): read-only relays of the
