@@ -37,6 +37,12 @@ export function tyresKey(tenantKey: string): QueryKey {
   return ["tyres", tenantKey];
 }
 
+// The receive form's pickers (TYRE-318). No screen writes the catalogue yet
+// (TYRE-417), so nothing invalidates it.
+export function tyreCatalogueKey(tenantKey: string): QueryKey {
+  return ["tyre-catalogue", tenantKey];
+}
+
 export function depotsKey(tenantKey: string): QueryKey {
   return ["depots", tenantKey];
 }
