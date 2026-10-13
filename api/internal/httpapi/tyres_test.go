@@ -561,6 +561,101 @@ func TestReceiveTyresDisplayCodeTooLongIsRefused(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 }
 
+// 000053 (FR-TYR-031, FR-CFG-007): what a receive must name is
+// app.receive_tyres's rule, refused as TY011 and forwarded verbatim
+// (ADR-0012). Another tenant's pattern reads exactly as a missing one: a
+// leak would pass every check and fail on the composite foreign key as a
+// canned invalid_submission instead.
+func TestReceiveTyresRefusesAnIncompleteReceiveAsTY011(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-incomplete")
+	otherID, _ := plantTenant(t, ctx, admin, "receive-incomplete-other")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+	other := plantReceiveCatalogue(t, ctx, admin, otherID)
+	var ceiling string
+	require.NoError(t, admin.QueryRow(ctx, `SELECT app.max_tread_mm()::text`).Scan(&ceiling))
+
+	tests := []struct {
+		name, wantMessage string
+		fields            map[string]any
+	}{
+		{"no pattern", "a received tyre needs its pattern; choose one from the catalogue",
+			map[string]any{"patternId": nil}},
+		{"no size", "a received tyre needs its size; choose one from the catalogue",
+			map[string]any{"sizeId": nil}},
+		{"no new tread", "a received tyre needs its new tread depth in millimetres",
+			map[string]any{"newTreadMm": nil}},
+		// A dropped decimal, "250" for "25.0" (TYRE-128 decision 8). The
+		// ceiling is read from app.max_tread_mm, the one place it lives.
+		{"a new tread above the ceiling",
+			"a new tread is in millimetres, above 0 and at most " + ceiling + "; check the depth entered",
+			map[string]any{"newTreadMm": "250"}},
+		{"another tenant's pattern",
+			"that pattern is not in this fleet's active catalogue; choose another, or ask an administrator to add it",
+			map[string]any{"patternId": other.patternID.String()}},
+		{"a price with no source", "a purchase price needs a cost source; choose invoice or price list estimate",
+			map[string]any{"purchasePrice": "1500.00"}},
+		{"a price with an UNKNOWN source",
+			"a purchase price needs a known cost source; choose invoice or price list estimate",
+			map[string]any{"purchasePrice": "1500.00", "costSource": "UNKNOWN"}},
+		{"a source with no price",
+			"a cost source is recorded with its purchase price; enter the price, or leave the source out until it is known",
+			map[string]any{"costSource": "INVOICE"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fields := map[string]any{"displayCode": "INC-" + uuid.NewString()[:8]}
+			maps.Copy(fields, tt.fields)
+			rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), cat.body(t, fields))
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "TY011", ref.Code)
+			require.Equal(t, tt.wantMessage, ref.Message)
+		})
+	}
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.tyre WHERE tenant_id = $1`, tenantID).Scan(&landed))
+	require.Zero(t, landed, "a refused receive must not mint a tyre")
+}
+
+// 000053's threshold rule is skipped when no removal threshold is in force:
+// the receive lands and its rate stays NULL, which is what app.rand_per_mm
+// answers for a NULL threshold (rule 5). plantTenant seeds no policy.
+func TestReceiveTyresWithNoThresholdInForceLeavesTheRateNull(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-no-threshold")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	var policies int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.threshold_policy WHERE tenant_id = $1`, tenantID).Scan(&policies))
+	require.Zero(t, policies, "the premise: this tenant has no threshold policy")
+
+	code := "NOTHR-" + uuid.NewString()[:8]
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{
+			"displayCode": code, "newTreadMm": "1.0", "purchasePrice": "1500.00", "costSource": "INVOICE",
+		}))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+
+	var tread string
+	var rate *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT new_tread_mm::text, rand_per_mm::text FROM app.tyre WHERE tenant_id = $1 AND display_code = $2`,
+		tenantID, code).Scan(&tread, &rate))
+	require.Equal(t, "1.0", tread)
+	require.Nil(t, rate, "no threshold, no rate")
+}
+
 // FR-TYR-041: costing discharges the awaiting-cost backlog CFL-002 names.
 func TestSetTyreCostHappyPath(t *testing.T) {
 	ctx := context.Background()

@@ -182,7 +182,7 @@
   "TY011": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a display-code policy refusal on receiving a tyre (D12)",
+    "meaning": "a receive refused by app.receive_tyres: the display-code policy (D12), a quantity outside 1 to 200, a missing size, pattern or new tread, a new tread outside 0 to app.max_tread_mm(), an inactive size, pattern or brand (a pattern's own brand included), a retread-only pattern, a brand the pattern does not belong to, a new tread at or below the removal threshold, a price with no cost source or with UNKNOWN, or a cost source other than UNKNOWN with no price (TYRE-318, U128)",
     "raisedBy": ["app.receive_tyres"]
   },
   "TY012": {
