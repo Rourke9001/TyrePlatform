@@ -10787,8 +10787,7 @@ BEGIN
       coalesce('TY011 "' || got || '"', 'by an accepted receive');
   END IF;
 
-  -- An unpriced tyre stays in the awaiting-cost backlog, where a cost
-  -- entered once a threshold is configured rates it (FR-TYR-041).
+  -- An unpriced tyre lands in the awaiting-cost backlog (FR-TYR-041).
   SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
