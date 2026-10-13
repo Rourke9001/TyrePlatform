@@ -61,6 +61,7 @@ export function ReceiveTyre() {
   const [displayCode, setDisplayCode] = useState("");
   const [sizeId, setSizeId] = useState("");
   const [brandId, setBrandId] = useState("");
+  const [brandFromPattern, setBrandFromPattern] = useState(false);
   const [patternId, setPatternId] = useState("");
   const [newTread, setNewTread] = useState("");
   const [price, setPrice] = useState("");
@@ -77,6 +78,7 @@ export function ReceiveTyre() {
       setDisplayCode("");
       setSizeId("");
       setBrandId("");
+      setBrandFromPattern(false);
       setPatternId("");
       setNewTread("");
       setPrice("");
@@ -105,16 +107,27 @@ export function ReceiveTyre() {
   }
 
   // NFR-USE-006: a branded pattern names its brand, so it is not asked twice.
+  // A brand filled in that way leaves with its pattern, so no tyre is stored
+  // with a brand nobody chose (TYRE-318).
   function choosePattern(id: string) {
     setPatternId(id);
     const brand = brandOf(id);
-    if (brand !== null) setBrandId(brand);
+    if (brand !== null) {
+      if (brand !== brandId) {
+        setBrandId(brand);
+        setBrandFromPattern(true);
+      }
+    } else if (brandFromPattern) {
+      setBrandId("");
+      setBrandFromPattern(false);
+    }
   }
 
   // A branded pattern the new choice does not own is cleared, so the form
   // never shows one brand while app.receive_tyres stores another.
   function chooseBrand(id: string) {
     setBrandId(id);
+    setBrandFromPattern(false);
     const brand = brandOf(patternId);
     if (brand !== null && brand !== id) setPatternId("");
   }
