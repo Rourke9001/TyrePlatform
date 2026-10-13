@@ -223,6 +223,44 @@ describe("receiving tyres into the fleet", () => {
     expect(screen.getByLabelText(/^pattern$/i)).toHaveValue("p2");
   });
 
+  it("clears a brand filled in from a pattern when an unbranded pattern replaces it, and sends none", async () => {
+    mockApi({ receives: [minted("TP-00042")] });
+    renderScreen("GENERATED");
+
+    await userEvent.selectOptions(await screen.findByLabelText(/^pattern$/i), "p1");
+    expect(screen.getByLabelText(/^brand$/i)).toHaveValue("b1");
+    await userEvent.selectOptions(screen.getByLabelText(/^pattern$/i), "p2");
+    expect(screen.getByLabelText(/^brand$/i)).toHaveValue("");
+    expect(optionNames(screen.getByLabelText(/^pattern$/i))).toContain("Haul");
+
+    await chooseEntries({ pattern: "" });
+    await submit();
+    await screen.findByRole("status");
+
+    expect(receivedBodies()[0]).toMatchObject({ patternId: "p2" });
+    expect(receivedBodies()[0]).not.toHaveProperty("brandId");
+  });
+
+  it("clears a brand filled in from a pattern when the pattern is set back to none", async () => {
+    renderScreen("GENERATED");
+
+    await userEvent.selectOptions(await screen.findByLabelText(/^pattern$/i), "p1");
+    await userEvent.selectOptions(screen.getByLabelText(/^pattern$/i), "");
+
+    expect(screen.getByLabelText(/^brand$/i)).toHaveValue("");
+  });
+
+  it("keeps a brand the user chose when its pattern gives way to an unbranded one or none", async () => {
+    renderScreen("GENERATED");
+
+    await userEvent.selectOptions(await screen.findByLabelText(/^brand$/i), "b1");
+    await userEvent.selectOptions(screen.getByLabelText(/^pattern$/i), "p1");
+    await userEvent.selectOptions(screen.getByLabelText(/^pattern$/i), "p2");
+    expect(screen.getByLabelText(/^brand$/i)).toHaveValue("b1");
+    await userEvent.selectOptions(screen.getByLabelText(/^pattern$/i), "");
+    expect(screen.getByLabelText(/^brand$/i)).toHaveValue("b1");
+  });
+
   // Object rows, not tuples: a tuple table types each argument as the union
   // of both columns, which chooseEntries would refuse.
   it.each([
