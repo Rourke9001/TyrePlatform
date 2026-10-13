@@ -291,6 +291,10 @@ BEGIN
       RAISE EXCEPTION USING ERRCODE = 'TY013',
         MESSAGE = 'this fleet has no removal threshold configured, so this tyre''s cost cannot be rated; configure the removal threshold first, then record the cost';
     END IF;
+    IF tread IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY013',
+        MESSAGE = 'this tyre has no new tread recorded, so its cost cannot be rated; leave it awaiting its cost until its new tread is recorded';
+    END IF;
     IF tread <= thr THEN
       RAISE EXCEPTION USING ERRCODE = 'TY013',
         MESSAGE = format('this tyre''s new tread of %s mm does not exceed the removal threshold of %s mm, so its cost cannot be rated; check the removal threshold configured',
