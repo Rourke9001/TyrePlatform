@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -78,6 +79,42 @@ func plantBrandedEvent(t *testing.T, ctx context.Context, admin *pgx.Conn, tenan
 		 VALUES ($1, $2, 'BRANDED', $3, jsonb_build_object('display_code', $4::text))`,
 		tenantID, tyreID, occurredAt, code)
 	require.NoError(t, err)
+}
+
+// receiveCatalogue is what app.receive_tyres requires a receive to name
+// (FR-TYR-031). plantTenant's tenants start with an empty catalogue and no
+// threshold policy, so one size and one NEW pattern serve any tread above
+// zero.
+type receiveCatalogue struct {
+	sizeID, patternID uuid.UUID
+}
+
+func plantReceiveCatalogue(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) receiveCatalogue {
+	t.Helper()
+	var c receiveCatalogue
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre_size (tenant_id, name) VALUES ($1, '315/80R22.5') RETURNING id`,
+		tenantID).Scan(&c.sizeID))
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.tyre_pattern (tenant_id, name, applies_to) VALUES ($1, 'RECEIVE-TEST', 'NEW') RETURNING id`,
+		tenantID).Scan(&c.patternID))
+	return c
+}
+
+// body is a receive naming c's entries and a 14.0 mm new tread, with fields
+// laid over it. A nil value sends JSON null, which the handler reads as an
+// absent field.
+func (c receiveCatalogue) body(t *testing.T, fields map[string]any) string {
+	t.Helper()
+	b := map[string]any{
+		"sizeId":     c.sizeID.String(),
+		"patternId":  c.patternID.String(),
+		"newTreadMm": "14.0",
+	}
+	maps.Copy(b, fields)
+	raw, err := json.Marshal(b)
+	require.NoError(t, err)
+	return string(raw)
 }
 
 // The register is gated on ManageAssets, not ViewFleet: a TECHNICIAN reads
@@ -309,9 +346,10 @@ func TestReceiveTyresHappyPath(t *testing.T) {
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
 	code := "RECV-" + uuid.NewString()[:8]
-	body := `{"displayCode":"` + code + `","newTreadMm":"14.0"}`
-	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), body)
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{"displayCode": code}))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	var out receivedTyresBody
@@ -321,11 +359,14 @@ func TestReceiveTyresHappyPath(t *testing.T) {
 	require.NotEmpty(t, out.Tyres[0].ID)
 
 	var landedTenant, state string
+	var sizeID, patternID uuid.UUID
 	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT tenant_id, state::text FROM app.tyre WHERE id = $1`, out.Tyres[0].ID).
-		Scan(&landedTenant, &state))
+		`SELECT tenant_id, state::text, size_id, pattern_id FROM app.tyre WHERE id = $1`, out.Tyres[0].ID).
+		Scan(&landedTenant, &state, &sizeID, &patternID))
 	require.Equal(t, tenantID.String(), landedTenant)
 	require.Equal(t, "IN_STOCK", state)
+	require.Equal(t, cat.sizeID, sizeID)
+	require.Equal(t, cat.patternID, patternID)
 }
 
 // TYRE-174 / ADR-0013 decision 5: a value that cannot be read as its type is
@@ -360,9 +401,10 @@ func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 	}
 
 	// control: the same shape with a well-formed date is minted
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
 	code := "D-" + uuid.NewString()[:8]
 	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
-		`{"displayCode":"`+code+`","purchaseDate":" 2026-09-01 ","receivedDate":"2026-09-02"}`)
+		cat.body(t, map[string]any{"displayCode": code, "purchaseDate": " 2026-09-01 ", "receivedDate": "2026-09-02"}))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var purchased, received string
 	require.NoError(t, admin.QueryRow(ctx,
@@ -430,8 +472,9 @@ func TestReceiveTyresDuplicateDisplayCodeIsConflict(t *testing.T) {
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
 	code := "DUP-" + uuid.NewString()[:8]
-	body := `{"displayCode":"` + code + `"}`
+	body := cat.body(t, map[string]any{"displayCode": code})
 	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), body)
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
@@ -511,9 +554,10 @@ func TestReceiveTyresDisplayCodeTooLongIsRefused(t *testing.T) {
 	require.Zero(t, landed, "a refused receive must not have minted a tyre")
 
 	// control: exactly at the bound is accepted.
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
 	atBound := strings.Repeat("B", 200)
 	rec = post(t, h, "/api/tyres", tenantID.String(), controller.String(),
-		`{"displayCode":"`+atBound+`"}`)
+		cat.body(t, map[string]any{"displayCode": atBound}))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 }
 
