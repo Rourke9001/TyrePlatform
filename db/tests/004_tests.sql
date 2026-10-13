@@ -10493,7 +10493,7 @@ ROLLBACK;
 
 \echo '== 69. TYRE-318: a receive names an active size and a new-tyre pattern, a new tread above the removal threshold, and a source for its price (FR-TYR-031, FR-CFG-004, FR-CFG-007, NFR-USE-006, U93)'
 
-\echo '== 69a. every refusal is TY011 with its own message, and a deactivated row, a missing id and Second Fleet''s pattern read alike (as BAC, rolled back)'
+\echo '== 69a. every refusal is TY011 with its own message, and a deactivated row, a missing id and Second Fleet''s size, pattern and brand read alike (as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -10508,14 +10508,19 @@ DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         ptx  constant uuid := md5('t69ptx')::uuid;   -- deactivated
         ptxb constant uuid := md5('t69ptxb')::uuid;  -- active, its brand deactivated
         t2pt constant uuid := md5('t69t2pt')::uuid;  -- Second Fleet's, receivable there
+        t2sz constant uuid := md5('t69t2sz')::uuid;  -- Second Fleet's, active
+        t2br constant uuid := md5('t69t2br')::uuid;  -- Second Fleet's, active
         thr numeric; c record; got text;
 BEGIN
-  -- Second Fleet's pattern is active and NEW, so if RLS let BAC see it the
-  -- receive would pass every check and fail on the composite foreign key
-  -- (23503), not as TY011. Only invisibility gives the missing-id message.
+  -- Second Fleet's size, pattern and brand are active, and the pattern is
+  -- NEW, so if RLS let BAC see one the receive would pass every check and
+  -- fail on the composite foreign key (23503), not as TY011. Only
+  -- invisibility gives the missing-id message.
   PERFORM set_config('app.tenant_id', t2::text, true);
   INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to)
   VALUES (t2pt, t2, 'T69 SECOND', 'NEW');
+  INSERT INTO app.tyre_size (id, tenant_id, name) VALUES (t2sz, t2, 'T69 SECOND');
+  INSERT INTO app.tyre_brand (id, tenant_id, name) VALUES (t2br, t2, 'T69 SECOND');
 
   PERFORM set_config('app.tenant_id', bac::text, true);
   thr := app.current_removal_threshold_mm();
@@ -10559,6 +10564,9 @@ BEGIN
     ('a size id nobody holds',
      jsonb_build_object('size_id', md5('t69nosuch')::uuid, 'pattern_id', pt1, 'new_tread_mm', '25.0'),
      'that size is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('Second Fleet''s size',
+     jsonb_build_object('size_id', t2sz, 'pattern_id', pt1, 'new_tread_mm', '25.0'),
+     'that size is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
     ('a deactivated pattern',
      jsonb_build_object('size_id', sz1, 'pattern_id', ptx, 'new_tread_mm', '25.0'),
      'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
@@ -10573,6 +10581,10 @@ BEGIN
      'that pattern''s brand is not in this fleet''s active catalogue; choose another pattern, or ask an administrator to restore the brand'),
     ('a deactivated brand',
      jsonb_build_object('size_id', sz1, 'pattern_id', ptu, 'brand_id', brx, 'new_tread_mm', '25.0'),
+     'that brand is not in this fleet''s active catalogue; choose another, leave it blank, or ask an administrator to add it'),
+    -- Unbranded, so no brand-mismatch check stands between a leak and 23503.
+    ('Second Fleet''s brand',
+     jsonb_build_object('size_id', sz1, 'pattern_id', ptu, 'brand_id', t2br, 'new_tread_mm', '25.0'),
      'that brand is not in this fleet''s active catalogue; choose another, leave it blank, or ask an administrator to add it'),
     ('a retread-only pattern',
      jsonb_build_object('size_id', sz1, 'pattern_id', ptr, 'new_tread_mm', '25.0'),
@@ -10607,7 +10619,7 @@ BEGIN
         c.label, coalesce('TY011 "' || got || '"', 'by an accepted receive'), c.want;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  69a eighteen incomplete receives refused, each with its own TY011 message; Second Fleet''s pattern reads as a missing one';
+  RAISE NOTICE 'PASS  69a twenty incomplete receives refused, each with its own TY011 message; Second Fleet''s size, pattern and brand read as missing ones';
 END $$;
 ROLLBACK;
 
@@ -10716,7 +10728,9 @@ BEGIN
               OR pattern_id IN (md5('t69ptu')::uuid, md5('t69ptb')::uuid))
     INTO n;
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
-  n := n + (SELECT count(*) FROM app.tyre_pattern WHERE id = md5('t69t2pt')::uuid);
+  n := n + (SELECT count(*) FROM app.tyre_pattern WHERE id = md5('t69t2pt')::uuid)
+         + (SELECT count(*) FROM app.tyre_size WHERE id = md5('t69t2sz')::uuid)
+         + (SELECT count(*) FROM app.tyre_brand WHERE id = md5('t69t2br')::uuid);
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL 69c: % rows planted by section 69 survived their rollback', n;
   END IF;
