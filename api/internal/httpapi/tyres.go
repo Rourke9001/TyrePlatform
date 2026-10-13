@@ -178,10 +178,10 @@ func listTyres(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// receiveTyresRequest is FR-TYR-040's intake body. Every field but Quantity
-// is optional. Most of what a tenant eventually knows about a tyre (its
-// size, its cost) is often not known at receipt, which is exactly the
-// awaiting-cost backlog CFL-002 names. Quantity is *int so that "absent" and
+// receiveTyresRequest is FR-TYR-040's intake body. What a receive must
+// carry (a size, a pattern, a new tread, and a source with any price) is
+// app.receive_tyres's rule, refused there as TY011; this struct requires
+// nothing (ADR-0013 decision 5). Quantity is *int so that "absent" and
 // "zero" stay distinguishable: an absent key lets app.receive_tyres's own
 // COALESCE supply its default of 1, while an explicit 0 is forwarded and
 // comes back as that function's TY011. The 1..200 bound is its rule, not one
@@ -256,10 +256,10 @@ type receivedTyreJSON struct {
 	DisplayCode string `json:"displayCode"`
 }
 
-// receiveTyres is FR-TYR-040's intake, the first write over the lifecycle
-// functions in migration 000031. Every rule belongs to app.receive_tyres,
-// not here: the display-code policy refusal (D12/TY011), the 1..200 bulk
-// bound, and the code's own uniqueness (one_active_display_code_per_tenant).
+// receiveTyres is FR-TYR-040's intake over app.receive_tyres. Every rule
+// belongs to that function, not here: the display-code policy (D12), the
+// 1..200 bulk bound, the catalogue, tread and cost-source refusals (all
+// TY011), and the code's own uniqueness (one_active_display_code_per_tenant).
 // This handler only decodes the request shape, translates it to the
 // function's jsonb argument, and reads back what it minted (ADR-0013
 // decision 5).
