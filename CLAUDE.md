@@ -14,11 +14,18 @@ never from a local copy: anything under `docs/spec/` is untracked and may be
 stale. Read the project brief before substantive design work. Search the SRS;
 do not read it end to end.
 
-A problem found along the way, whether a defect, a requirement that does not
-fit or a better approach than the SRS describes, is checked against the SRS
-and raised as a new Jira ticket. Where the SRS is wrong or the other approach
-wins, that ticket proposes the SRS change, and the SRS is updated rather than
-worked around (owner, 29 Sep 2026).
+A problem found along the way is fixed in the branch that found it when it
+sits in code the branch already changes and the fix is small: no migration,
+endpoint, route or screen beyond the branch's own. Anything else gets one
+test: would the owner schedule it before the pilot? If so, raise one Jira
+ticket linked to the parent, with the evidence. If not, list it under "Set
+aside" in the PR body and let it go (U130, owner, 13 Oct 2026). Two kinds
+are always ticketed when not fixed: a requirement that does not fit or a
+better approach than the SRS describes, where the ticket proposes the SRS
+change and the SRS is updated rather than worked around (owner, 29 Sep
+2026); and a finding against rules 1 to 3 below. A question for the owner is
+a comment on the parent ticket, not a ticket, and a Minor never becomes a
+ticket on its own.
 
 ## The capture target
 

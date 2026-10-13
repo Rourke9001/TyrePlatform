@@ -39,3 +39,9 @@ Tick only what this change actually touches; delete the rest.
 
 <!-- If this makes an architectural choice, link the ADR. If it makes one
      without an ADR, write the ADR first. -->
+
+## Set aside
+
+<!-- Problems found that this PR does not fix and that fail CLAUDE.md's
+     schedule test, one line each with file:line. This list is their
+     record; close-out tickets only what passes the test (U130). -->

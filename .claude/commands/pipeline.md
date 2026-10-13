@@ -180,15 +180,16 @@ Spawn a teammate named `implementer` (general-purpose) with:
 > the branch and open a PR into develop from
 > `.github/pull_request_template.md`, leaving "How it ran" and the review
 > line for others. Never merge, locally or on GitHub.
-> Anything you find that is not this ticket's to fix, send to the lead
-> with the evidence. Report the PR number, the `make check` exit code, the
+> Anything you find that is not this ticket's to fix: fix it in this
+> branch if it sits in code the branch already changes and is small
+> (CLAUDE.md); otherwise send it to the lead with the evidence. Report the PR number, the `make check` exit code, the
 > final-review line, and the rulings and deferred minors the skill lists.
 
 When the implementer reports, write its report verbatim to
 `<state dir>/implementer-report.md` before anything else: the skill deletes
-its own ledger when it finishes. Raise each finding the implementer sends
-as a new ticket, linked to $ARGUMENTS, after checking it against the SRS
-(CLAUDE.md).
+its own ledger when it finishes. Put each finding the implementer sends
+through CLAUDE.md's schedule test: raise a ticket linked to $ARGUMENTS for
+one that passes, and keep the rest for the PR's "Set aside" list (U130).
 
 When the PR is open, move the ticket to In Review and comment the PR link.
 
@@ -201,9 +202,11 @@ Fill the PR's "How it ran" section. Start from its current body
 
 - the spec path, or the small-fix plan and the reason for the call
 - the red-team verdict, with the counts fixed and ruled
-- the implementer's rulings and deferred minors
+- the implementer's rulings
 - "Final review: self-review", because the implementer could not dispatch
   a fresh reviewer
+
+Put the deferred minors and the findings kept back above under "Set aside".
 
 Leave the "Code review by a separate session" line unticked: CLAUDE.md
 stage 5 (code review) is the owner's (U125). Ask `implementer` to shut down
