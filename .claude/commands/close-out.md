@@ -92,8 +92,11 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
    pending against `statusCategory = Done`; a hit means the page is stale
    somewhere else too. Correct any premise the batch has falsified, and prune
    what has stopped being about the queue.
-6. **Raise every residual as a ticket**, linked to its parent. Nothing stays
-   only in a PR body or in chat.
+6. **Residuals.** The PR body's "Set aside" list is their record; chat is
+   not. Raise a ticket, linked to its parent, only for an item that passes
+   CLAUDE.md's schedule test or is one of the two kinds it always tickets
+   (U130). If more than two items qualify, raise none and list them in the
+   report as a decision waiting on the owner.
 7. **Promote `main`** if the owner asks, and never in cloud mode: `git push origin origin/develop:main`,
    never through a pull request, because the merge button cannot fast-forward
    (ADR-0004). Verify `git merge-base --is-ancestor origin/main origin/develop`

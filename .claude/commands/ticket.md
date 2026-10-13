@@ -31,8 +31,10 @@ runs). Do not start a stage until the one before it is done.
    agent again until it returns no Critical. Keep the verdict for the PR body.
 10. **Implement**: `superpowers:subagent-driven-development`. Business rules
     go in SQL with a test in `db/tests/`; transport and auth go in Go.
-11. Anything you find that is not this ticket's to fix is checked against the
-    SRS and raised as a new Jira ticket, linked to this one (CLAUDE.md).
+11. Anything you find that is not this ticket's to fix: fix it in this branch
+    if it sits in code the branch already changes and is small. Otherwise
+    apply CLAUDE.md's schedule test: a ticket linked to this one if it
+    passes, a line under "Set aside" in the PR body if it does not (U130).
 12. `make check`, then open the PR. Stop there. The code review is stage 5,
     and it runs in a separate session: tell the owner to run
     `/review-pr <n>` in a new session.

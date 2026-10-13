@@ -47,7 +47,8 @@ Report one line per item: `PASS`, or the findings under it. Give each finding
 a severity (Critical: the plan as written produces a defect or cannot be
 executed; Important: a gap a careful implementer might still fall into; Minor),
 the plan section or task number, the evidence with `file:line`, and the
-change to the plan that closes it.
+change to the plan that closes it. A Minor is the planner's to take or skip
+in this round: it is never a ticket and is not carried to the next round.
 
 End with a verdict: `EXECUTE`, `EXECUTE AFTER FIXES` or `REPLAN`. If an item
 genuinely passes, say so; do not invent a finding to look thorough. If you

@@ -29,7 +29,9 @@ come from a session that does not share the author's context.
 5. **Report.** Write `.superpowers/sdd/<date>-review-pr<n>/report.md`. For
    each surviving finding give the severity, `file:line`, what is wrong and
    why it matters, the evidence, and the fix. List what you set aside, with
-   the reason.
+   the reason. A Minor is non-blocking: give at most five, each with a
+   one-line fix, and count the rest. It is fixed in the PR or goes under
+   the PR's "Set aside", never into a ticket of its own (CLAUDE.md, U130).
 
 Reply with the counts by severity, the merge verdict (merge, merge after
 fixes, or do not merge) and the report path. Fixes run in the authoring
