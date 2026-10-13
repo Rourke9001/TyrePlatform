@@ -212,7 +212,7 @@
   "TY013": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a cost entry refused: already recorded, not a non-negative amount, or a price with UNKNOWN as its source (U128, TYRE-422)",
+    "meaning": "a cost entry refused: already recorded, not a non-negative amount, a price with UNKNOWN as its source (U128, TYRE-422), or a cost the threshold in force cannot rate (U129)",
     "raisedBy": ["app.set_tyre_cost"]
   },
   "TY014": {

@@ -175,9 +175,11 @@ BEGIN
       MESSAGE = 'a cost source is recorded with its purchase price; enter the price, or leave the source out until it is known';
   END IF;
 
-  -- U129: with no threshold in force a priced tyre would be stored unrated,
-  -- and set_tyre_cost's TY013 would keep it so. An unpriced one lands and
-  -- awaits its cost (FR-TYR-041).
+  -- U129: a price is stored only with the rate it gives, because TY013
+  -- refuses a second costing and would keep an unrated tyre out of the
+  -- awaiting-cost backlog for good. A cost the threshold in force cannot
+  -- rate is refused, here and at set_tyre_cost below, and an unpriced tyre
+  -- lands and awaits its cost (FR-TYR-041).
   IF price IS NOT NULL AND thr IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
       MESSAGE = 'this fleet has no removal threshold configured, so a priced tyre cannot be rated; configure the removal threshold first, or receive the tyre without its price';
@@ -237,8 +239,12 @@ RETURNS void
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
-  cur   numeric;
-  st    app.tyre_state;
+  cur      numeric;
+  st       app.tyre_state;
+  retreads int;
+  tread    numeric;
+  thr      numeric;
+  rate     numeric;
   -- A parameter's type modifier is discarded by Postgres, so p_price arrives
   -- unrounded however it is declared; only assignment to a typmod'd local
   -- rounds it. Rounding before the divide is what makes the stored rate
@@ -246,7 +252,9 @@ DECLARE
   -- local for the invariant.
   price numeric(12,2);
 BEGIN
-  SELECT purchase_price, state INTO cur, st FROM app.tyre WHERE id = p_tyre FOR UPDATE;
+  SELECT t.purchase_price, t.state, t.retread_count, t.new_tread_mm, t.rand_per_mm
+    INTO cur, st, retreads, tread, rate
+    FROM app.tyre t WHERE t.id = p_tyre FOR UPDATE;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such tyre in this fleet';
   END IF;
@@ -273,14 +281,32 @@ BEGIN
       MESSAGE = 'a purchase price needs a known cost source; choose invoice or price list estimate';
   END IF;
   price := p_price;
+  -- A retreaded tyre keeps the rate its retread cost gave it (FR-TYR-019,
+  -- BR-VAL-006), because its new_tread_mm is the retread's, so its price
+  -- rates nothing and needs no threshold.
+  IF retreads = 0 THEN
+    -- U129, stated at receive_tyres' threshold refusal above.
+    thr := app.current_removal_threshold_mm();
+    IF thr IS NULL THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY013',
+        MESSAGE = 'this fleet has no removal threshold configured, so this tyre''s cost cannot be rated; configure the removal threshold first, then record the cost';
+    END IF;
+    IF tread <= thr THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY013',
+        MESSAGE = format('this tyre''s new tread of %s mm does not exceed the removal threshold of %s mm, so its cost cannot be rated; check the removal threshold configured',
+                         tread, thr);
+    END IF;
+    -- FR-VAL-006's bound, stated at receive_tyres' rate above.
+    rate := app.rand_per_mm(price, tread, thr);
+    IF rate >= 100000000 THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY013',
+        MESSAGE = format('a purchase price of %s over %s mm of usable tread is a rate above what the register carries; check the price entered',
+                         price, tread - thr);
+    END IF;
+  END IF;
   -- No event: cost entry is provenance, not a lifecycle transition. The rate
   -- goes through the one permitted implementation (db/CLAUDE.md, FR-VAL-006).
-  -- A retreaded tyre keeps the rate its retread cost gave it (FR-TYR-019,
-  -- BR-VAL-006), because its new_tread_mm is the retread's.
   UPDATE app.tyre
-     SET purchase_price = price, cost_source = p_source,
-         rand_per_mm = CASE WHEN retread_count = 0
-                            THEN app.rand_per_mm(price, new_tread_mm, app.current_removal_threshold_mm())
-                            ELSE rand_per_mm END
+     SET purchase_price = price, cost_source = p_source, rand_per_mm = rate
    WHERE id = p_tyre;
 END $$;
