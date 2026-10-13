@@ -225,6 +225,23 @@ for sbseq, (sbfleet, sbreg, sbcfg, sbkind) in {
     L.append(
         f"  (md5('sbvd{sbseq}')::uuid,'{T3}',md5('sbveh{sbseq}')::uuid,md5('sbdriver1')::uuid,'2026-01-01',NULL);"
     )
+# Sandbox's catalogue takes every branch of the Receive tyres pickers
+# (TYRE-318): a branded NEW pattern, an unbranded NEW pattern, a brand that
+# owns no pattern, and a RETREAD-only pattern the form must not offer. The
+# names differ from gen_seed_volume.py's, because the three tables are
+# UNIQUE (tenant_id, name) and make db-volume loads into this tenant.
+L.append(
+    "INSERT INTO app.tyre_size (id,tenant_id,name,construction) VALUES (md5('sbsz1')::uuid,'%s','295/80R22.5','RADIAL'),(md5('sbsz2')::uuid,'%s','385/65R22.5','RADIAL');"
+    % (T3, T3)
+)
+L.append(
+    "INSERT INTO app.tyre_brand (id,tenant_id,name) VALUES (md5('sbbr1')::uuid,'%s','Sandbox Tyres'),(md5('sbbr2')::uuid,'%s','Practice Tyres');"
+    % (T3, T3)
+)
+L.append(
+    "INSERT INTO app.tyre_pattern (id,tenant_id,name,brand_id,applies_to) VALUES (md5('sbpt1')::uuid,'%s','SBX Drive',md5('sbbr1')::uuid,'NEW'),(md5('sbpt2')::uuid,'%s','SBX All Position',NULL,'NEW'),(md5('sbpt3')::uuid,'%s','SBX Retread',NULL,'RETREAD');"
+    % (T3, T3, T3)
+)
 L.append("")
 L.append(
     "INSERT INTO app.tyre_size (id,tenant_id,name,construction) VALUES (md5('sz1')::uuid,'%s','315/80R22.5','RADIAL');"
