@@ -182,8 +182,10 @@ Spawn a teammate named `implementer` (general-purpose) with:
 > line for others. Never merge, locally or on GitHub.
 > Anything you find that is not this ticket's to fix: fix it in this
 > branch if it sits in code the branch already changes and is small
-> (CLAUDE.md); otherwise send it to the lead with the evidence. Report the PR number, the `make check` exit code, the
-> final-review line, and the rulings and deferred minors the skill lists.
+> (CLAUDE.md), and list it with your rulings; otherwise send it to the
+> lead with the evidence. Report the PR number, the `make check` exit
+> code, the final-review line, and the rulings and deferred minors the
+> skill lists.
 
 When the implementer reports, write its report verbatim to
 `<state dir>/implementer-report.md` before anything else: the skill deletes
