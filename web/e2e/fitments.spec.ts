@@ -1,7 +1,14 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { actAsUser } from "./admin";
-import { apiGet, posted, postedRefusal, CONTROLLER } from "./sandbox";
+import {
+  apiGet,
+  posted,
+  postedRefusal,
+  CONTROLLER,
+  SANDBOX_PATTERN,
+  SANDBOX_SIZE,
+} from "./sandbox";
 
 // TYRE-92/93/94's fitment surface (Jira), on Sandbox Fleet, never BAC
 // (TYRE-80). Serial: disposes Sandbox horse sbveh1, so make e2e's db-reset
@@ -49,6 +56,9 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   // policy (D12) means nothing downstream can name a tyre the operator chose.
   await page.goto("/fleet/tyres/new");
   await page.getByLabel(/quantity/i).fill("3");
+  await page.getByLabel("Size", { exact: true }).selectOption({ label: SANDBOX_SIZE });
+  await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
+  await page.getByLabel("New tread (mm)").fill("18.0");
   await Promise.all([
     posted(page, /^\/api\/tyres$/),
     page.getByRole("button", { name: /^receive$/i }).click(),
@@ -88,9 +98,10 @@ test("a controller fits, rotates, removes, dispatches, retreads and disposes", a
   await expect(
     trailerPanel.getByText(`${stockA} was fitted to ${trailerFirst.code}.`, { exact: true }),
   ).toBeVisible();
-  // app.fit_tyre's three advisories are all silent here: no size is recorded
-  // on received stock, the casing is new, and the dual mate is empty. So a
-  // warning on this fit would mean a rule fired on absence (FR-FIT-005).
+  // app.fit_tyre's three advisories are all silent here: the three tyres were
+  // received together on one size, the casing is new, and the dual mate is
+  // empty. So a warning on this fit would mean a rule fired that should not
+  // (FR-FIT-005).
   await expect(page.getByRole("status", { name: "Warnings" })).toHaveCount(0);
   await expect(
     page.getByRole("button", { name: `Position ${trailerFirst.code}: ${stockA}`, exact: true }),
