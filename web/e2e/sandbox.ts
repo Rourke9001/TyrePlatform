@@ -3,9 +3,9 @@ import { randomUUID } from "node:crypto";
 import { expect, type APIResponse, type Page, type Response } from "@playwright/test";
 
 // Sandbox Fleet fixture surface shared by fitments.spec.ts,
-// observations.spec.ts, rigs.spec.ts, rotation.spec.ts and tasks.spec.ts.
-// Specs never import each other (TYRE-80); this is where their common
-// write-flow helpers live instead.
+// observations.spec.ts, rigs.spec.ts, rotation.spec.ts, tasks.spec.ts and
+// tyres.spec.ts. Specs never import each other (TYRE-80); this is where their
+// common write-flow helpers live instead.
 
 // Seed-derived ids, per admin.ts: md5('sbcontroller1') holds ViewFleet,
 // ManageAssets and ManageAssignments, and md5('sbdriver1') is the Sandbox
@@ -57,6 +57,26 @@ export async function apiPost(page: Page, path: string, data: unknown): Promise<
   const res = await page.request.post(path, { headers: ACTOR, data });
   expect(res.ok(), await res.text()).toBeTruthy();
   return res.json();
+}
+
+// The seeded catalogue entries a receive names (gen_seed_fixture.py,
+// TYRE-318): app.receive_tyres refuses a receive without a size, a NEW
+// pattern and a new tread. SBX Drive is the branded NEW pattern.
+export const SANDBOX_SIZE = "295/80R22.5";
+export const SANDBOX_PATTERN = "SBX Drive";
+
+// Read by name through the endpoint the form uses, so a raw receive and the
+// pickers name the same rows.
+export async function sandboxCatalogue(page: Page): Promise<{ sizeId: string; patternId: string }> {
+  const catalogue = (await apiGet(page, "/api/tyre-catalogue")) as {
+    sizes: { id: string; name: string }[];
+    patterns: { id: string; name: string }[];
+  };
+  const sizeId = catalogue.sizes.find((s) => s.name === SANDBOX_SIZE)?.id ?? "";
+  const patternId = catalogue.patterns.find((p) => p.name === SANDBOX_PATTERN)?.id ?? "";
+  expect(sizeId, `${SANDBOX_SIZE} is not in Sandbox's catalogue`).not.toBe("");
+  expect(patternId, `${SANDBOX_PATTERN} is not in Sandbox's catalogue`).not.toBe("");
+  return { sizeId, patternId };
 }
 
 export interface AxleConfiguration {

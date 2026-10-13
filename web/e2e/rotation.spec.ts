@@ -7,6 +7,7 @@ import {
   configFor,
   createUnit,
   posted,
+  sandboxCatalogue,
   CONTROLLER,
   type AxleConfiguration,
   type Position,
@@ -58,7 +59,13 @@ test("a controller rotates a casing onto the trailer of its own rig", async ({ p
 
   // Sandbox seeds no tyres. The codes are the platform's under a GENERATED
   // policy (D12), so they are captured rather than chosen.
-  const stock = (await apiPost(page, "/api/tyres", { quantity: 3 })) as {
+  const { sizeId, patternId } = await sandboxCatalogue(page);
+  const stock = (await apiPost(page, "/api/tyres", {
+    quantity: 3,
+    sizeId,
+    patternId,
+    newTreadMm: "18.0",
+  })) as {
     tyres: { id: string; displayCode: string }[];
   };
   const [travelling, staying, onTrailer] = stock.tyres;

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 import { actAsOrgAdmin } from "./admin";
+import { posted, SANDBOX_PATTERN, SANDBOX_SIZE } from "./sandbox";
 
 // TYRE-91's tyre register (Jira), walked on Sandbox Fleet, never BAC
 // (TYRE-80).
@@ -26,6 +27,9 @@ test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) =
   // Receive one tyre, no price: CFL-002's normal shape for intake, and what
   // puts it in the awaiting-cost backlog the next step reads from.
   await page.getByLabel(/quantity/i).fill("1");
+  await page.getByLabel("Size", { exact: true }).selectOption({ label: SANDBOX_SIZE });
+  await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
+  await page.getByLabel("New tread (mm)").fill("25.0");
   await page.getByRole("button", { name: /^receive$/i }).click();
 
   const status = page.getByRole("status");
@@ -72,4 +76,38 @@ test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) =
   ]);
 
   await expect(row.getByText("SCRAPPED", { exact: true })).toBeVisible();
+});
+
+// TYRE-318's definition of done: a priced receive through the form, with its
+// catalogue entries and new tread, is rated, so the register shows a Rand/mm
+// where an unrated tyre shows a dash.
+test("a priced receive through the pickers is rated on the register", async ({ page }) => {
+  await page.goto("/fleet/tyres/new");
+  await page.getByLabel(/quantity/i).fill("1");
+  await page.getByLabel("Size", { exact: true }).selectOption({ label: SANDBOX_SIZE });
+  await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
+  await page.getByLabel("New tread (mm)").fill("25.0");
+  await page.getByLabel("Purchase price").fill("4319.91");
+  await page.getByLabel("Cost source").selectOption("INVOICE");
+  await Promise.all([
+    posted(page, /^\/api\/tyres$/),
+    page.getByRole("button", { name: /^receive$/i }).click(),
+  ]);
+  const issuedCode = page.getByRole("status").getByRole("listitem");
+  await expect(issuedCode).toHaveText(/^SBX-\d{5}$/);
+  const displayCode = ((await issuedCode.textContent()) ?? "").trim();
+
+  await page.goto("/fleet/tyres");
+  // allTextContents does not wait, so the table must be on screen first.
+  await expect(page.getByRole("columnheader", { name: "Rand/mm", exact: true })).toBeVisible();
+  const columns = await page.getByRole("columnheader").allTextContents();
+  const rateColumn = columns.indexOf("Rand/mm");
+  expect(rateColumn).toBeGreaterThan(0);
+  // The code is a row header, which getByRole("cell") skips, so the cells
+  // run one index behind the headers (fitments.spec.ts).
+  const row = page.getByRole("row", { name: new RegExp(displayCode) });
+  // Appendix E's 4319.91 over (25.0 - 4.0) mm, the figure suite section 7
+  // pins, at Sandbox's seeded 4.0 threshold: a literal, so a wrong rate
+  // fails here, not only a missing one.
+  await expect(row.getByRole("cell").nth(rateColumn - 1)).toHaveText("R 205.7100");
 });
