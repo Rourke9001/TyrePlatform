@@ -10965,6 +10965,27 @@ BEGIN
       t.purchase_price, t.rand_per_mm;
   END IF;
 
+  -- receive_tyres refuses a missing new tread (U93), so the tread is
+  -- cleared after receipt to plant a tyre app.rand_per_mm cannot rate.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
+  UPDATE app.tyre SET new_tread_mm = NULL WHERE id = r.tyre_id;
+  got := NULL;
+  BEGIN
+    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
+  EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'this tyre has no new tread recorded, so its cost cannot be rated; leave it awaiting its cost until its new tread is recorded' THEN
+    RAISE EXCEPTION 'FAIL 69g: a tyre with no new tread was answered %',
+      coalesce('TY013 "' || got || '"', 'by a stored cost');
+  END IF;
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL
+     OR NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = t.id) THEN
+    RAISE EXCEPTION 'FAIL 69g: a tyre refused for no new tread stored price %, rate % or left the backlog',
+      t.purchase_price, t.rand_per_mm;
+  END IF;
+
   -- Section 17's device, as in 69d: DELETE is revoked (DR-014a), so every
   -- fleet-wide policy is dated out of reach instead.
   SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
@@ -11000,7 +11021,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 69g: a retreaded tyre with no threshold in force stored price %, rate % (retread rate %)',
       t.purchase_price, t.rand_per_mm, rt_rate;
   END IF;
-  RAISE NOTICE 'PASS  69g a rate past the register, a tread at the threshold and no threshold each refused as TY013, the tyre still awaiting cost; a rate under the bound stored; a retreaded tyre costed with no threshold';
+  RAISE NOTICE 'PASS  69g a rate past the register, a tread at the threshold, no new tread and no threshold each refused as TY013, the tyre still awaiting cost; a rate under the bound stored; a retreaded tyre costed with no threshold';
 END $$;
 ROLLBACK;
 
