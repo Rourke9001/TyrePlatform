@@ -281,9 +281,9 @@ BEGIN
       MESSAGE = 'a purchase price needs a known cost source; choose invoice or price list estimate';
   END IF;
   price := p_price;
-  -- A retreaded tyre keeps the rate its retread cost gave it (FR-TYR-019,
-  -- BR-VAL-006), because its new_tread_mm is the retread's, so its price
-  -- rates nothing and needs no threshold.
+  -- A retreaded tyre's rate is its retread cost's (FR-TYR-019, BR-VAL-006),
+  -- and its new_tread_mm is the retread's, so its price rates nothing and
+  -- needs no threshold.
   IF retreads = 0 THEN
     -- U129, stated at receive_tyres' threshold refusal above.
     thr := app.current_removal_threshold_mm();
@@ -296,7 +296,8 @@ BEGIN
         MESSAGE = format('this tyre''s new tread of %s mm does not exceed the removal threshold of %s mm, so its cost cannot be rated; check the removal threshold configured',
                          tread, thr);
     END IF;
-    -- FR-VAL-006's bound, stated at receive_tyres' rate above.
+    -- The one permitted implementation (db/CLAUDE.md, FR-VAL-006), with the
+    -- bound stated at receive_tyres' rate above.
     rate := app.rand_per_mm(price, tread, thr);
     IF rate >= 100000000 THEN
       RAISE EXCEPTION USING ERRCODE = 'TY013',
@@ -304,8 +305,7 @@ BEGIN
                          price, tread - thr);
     END IF;
   END IF;
-  -- No event: cost entry is provenance, not a lifecycle transition. The rate
-  -- goes through the one permitted implementation (db/CLAUDE.md, FR-VAL-006).
+  -- No event: cost entry is provenance, not a lifecycle transition.
   UPDATE app.tyre
      SET purchase_price = price, cost_source = p_source, rand_per_mm = rate
    WHERE id = p_tyre;
