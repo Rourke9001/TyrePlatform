@@ -58,7 +58,7 @@
   "invalid_submission": {
     "source": "go",
     "httpStatus": 422,
-    "meaning": "a request field Go refuses before the database sees it (missing, unparseable, too long, not a field of the request, or a homeDepotId outside a depot-scoped creator's depots), with Go's own message naming the field (ADR-0013); or a Postgres integrity class (23502, 23503, 23514, 22P02, 22023, 22007 or 22008) canned so no constraint or table name reaches the wire"
+    "meaning": "a request field Go refuses before the database sees it (missing, unparseable, too long, not a field of the request, or a homeDepotId outside a depot-scoped creator's depots), with Go's own message naming the field (ADR-0013); or a Postgres integrity class (23502, 23503, 23514, 22P02, 22003, 22023, 22007 or 22008) canned so no constraint or table name reaches the wire"
   },
   "conflict": {
     "source": "go",

@@ -1337,3 +1337,42 @@ func TestDispatchTyreRefusals(t *testing.T) {
 		})
 	}
 }
+
+// A value too large for its numeric column is Postgres's 22003: a client
+// mistake canned as invalid_submission like 22P02, never a 500 the client
+// retries (ADR-0012). newTreadMm overflows app.receive_tyres's numeric(4,1)
+// local before any rule runs; a price overflows its numeric(12,2) one.
+func TestReceiveTyresRefusesAnOverflowingNumberAs422(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-overflow")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	for _, tc := range []struct {
+		name   string
+		fields map[string]any
+	}{
+		{"a tread past numeric(4,1)", map[string]any{"newTreadMm": "1234"}},
+		{"a price past numeric(12,2)", map[string]any{"purchasePrice": "12345678901.00", "costSource": "INVOICE"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fields := map[string]any{"displayCode": "OVF-" + uuid.NewString()[:8]}
+			maps.Copy(fields, tc.fields)
+			rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(), cat.body(t, fields))
+			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+			var ref refusalBody
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+			require.Equal(t, "invalid_submission", ref.Code)
+			require.Equal(t, "the submission was refused as invalid", ref.Message)
+			require.NotContains(t, rec.Body.String(), "numeric",
+				"Postgres's own message never reaches the wire (ADR-0012)")
+		})
+	}
+
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.tyre WHERE tenant_id = $1`, tenantID).Scan(&landed))
+	require.Zero(t, landed, "a refused receive must not mint a tyre")
+}
