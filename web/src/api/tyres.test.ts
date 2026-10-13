@@ -106,12 +106,26 @@ describe("the tyre register API module", () => {
         respond(201, { tyres: [{ id: "t1", displayCode: "H1-POS1" }] }),
       );
 
-      const received = await receiveTyres({ quantity: 2, purchasePrice: "1500.00" });
+      const received = await receiveTyres({
+        quantity: 2,
+        sizeId: "s1",
+        patternId: "p1",
+        newTreadMm: "25.0",
+        purchasePrice: "1500.00",
+        costSource: "INVOICE",
+      });
 
       const [url, init] = vi.mocked(fetch).mock.calls[0];
       expect(url).toBe("/api/tyres");
       expect(init?.method).toBe("POST");
-      expect(jsonBody(init)).toEqual({ quantity: 2, purchasePrice: "1500.00" });
+      expect(jsonBody(init)).toEqual({
+        quantity: 2,
+        sizeId: "s1",
+        patternId: "p1",
+        newTreadMm: "25.0",
+        purchasePrice: "1500.00",
+        costSource: "INVOICE",
+      });
       expect(received).toEqual([{ id: "t1", displayCode: "H1-POS1" }]);
     });
 
@@ -123,7 +137,12 @@ describe("the tyre register API module", () => {
         }),
       );
 
-      const error = await receiveTyres({ quantity: 1 }).catch((e: unknown) => e);
+      const error = await receiveTyres({
+        quantity: 1,
+        sizeId: "s1",
+        patternId: "p1",
+        newTreadMm: "25.0",
+      }).catch((e: unknown) => e);
 
       expect(error).toBeInstanceOf(ApiError);
       expect((error as ApiError).code).toBe("display_code_taken");
