@@ -275,6 +275,7 @@ describe("AppRoutes", () => {
   });
 
   it("renders the receive-tyre screen for an actor holding ManageAssets", async () => {
+    mockFetchJson(200, { sizes: [], brands: [], patterns: [] });
     renderAt("/fleet/tyres/new", actor(["ViewFleet", "ManageAssets"]));
     expect(await screen.findByRole("heading", { name: /receive tyres/i })).toBeInTheDocument();
   });

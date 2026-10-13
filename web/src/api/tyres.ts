@@ -32,14 +32,18 @@ export interface ReceivedTyre {
   displayCode: string;
 }
 
-// FR-TYR-040's intake body. Every field but quantity is optional. Most of
-// what a tenant eventually knows about a tyre is often not known at
-// receipt, which is exactly the awaiting-cost backlog CFL-002 names. The
-// bound on quantity and the display-code policy refusal (D12/TY011) both
-// belong to app.receive_tyres, not this shape.
+// FR-TYR-040's intake body. What a receive must carry is app.receive_tyres'
+// rule (000053): a size, a pattern and a new tread always, and a cost source
+// with any price. The three are required here so a caller cannot leave one
+// out; the quantity bound and every refusal stay server-side (TY011).
 export interface NewTyres {
   quantity?: number;
   displayCode?: string;
+  sizeId: string;
+  patternId: string;
+  brandId?: string;
+  // Decimal text, cast in SQL; never a number (DR-007).
+  newTreadMm: string;
   purchasePrice?: string;
   costSource?: string;
 }
@@ -84,8 +88,9 @@ export const DESTINATIONS: { value: Destination; label: string }[] = [
   { value: "AT_BREAKDOWN_SUPPLIER", label: "Breakdown supplier" },
 ];
 
-// app.cost_source's third member, UNKNOWN, is app.receive_tyres' own default
-// for an omitted source and never a choice a human makes, so it is not here.
+// app.cost_source's third member, UNKNOWN, is what app.receive_tyres stores
+// for an unpriced receive; a priced one must name a source (000053). It is
+// never a choice a human makes, so it is not here.
 // Shared by the receive form and the register's per-row cost form.
 export type CostSource = "INVOICE" | "PRICE_LIST_ESTIMATE";
 
