@@ -33,12 +33,7 @@ type tyreCatalogueJSON struct {
 }
 
 // listTyreCatalogue serves the receive form's pickers from the tenant's own
-// register (FR-CFG-001..004). Active rows only (the receive spec's Q4, owner,
-// 12 Oct 2026, over FR-CFG-007's deactivation), and a pattern whose brand is
-// deactivated is left out because app.receive_tyres refuses one. Gated on
-// ViewFleet (the receive spec's Q2). Each list is ordered by length then
-// name, as loadExceptions orders position codes (NFR-USE-012), which is
-// natural only among codes of one shape, so every consumer re-sorts by name.
+// register (FR-CFG-001..004).
 func listTyreCatalogue(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -49,11 +44,17 @@ func listTyreCatalogue(s *store.Store) http.HandlerFunc {
 			Patterns: []cataloguePatternJSON{},
 		}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			// Who may read the catalogue is the receive spec's Q2.
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
 			var err error
+			// Active rows only, in every list (the receive spec's Q4, owner,
+			// 12 Oct 2026, over FR-CFG-007's deactivation).
 			if out.Sizes, err = loadCatalogueEntries(ctx, tx, "sizes",
+				// Length then name, as loadExceptions orders position codes
+				// (NFR-USE-012), is natural only among codes of one shape, so
+				// every consumer re-sorts by name.
 				`SELECT id, name FROM app.tyre_size WHERE active ORDER BY length(name), name`); err != nil {
 				return err
 			}
@@ -93,6 +94,7 @@ func loadCataloguePatterns(ctx context.Context, tx pgx.Tx) ([]cataloguePatternJS
 		SELECT p.id, p.name, p.brand_id, p.applies_to
 		  FROM app.tyre_pattern p
 		 WHERE p.active
+		   -- app.receive_tyres refuses a pattern whose brand is deactivated.
 		   AND (p.brand_id IS NULL
 		        OR EXISTS (SELECT 1 FROM app.tyre_brand b WHERE b.id = p.brand_id AND b.active))
 		 ORDER BY length(p.name), p.name`)
