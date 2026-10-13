@@ -268,6 +268,13 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 		writeError(ctx, w, ref.status, ref.code, ref.message)
 		return false
 	case isClient:
+		// TYRE-421: a 22003 can be a figure the server computed, not one the
+		// client sent, so it leaves the trace the other canned refusals do not.
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "22003" {
+			slog.WarnContext(ctx, "refusing a numeric overflow",
+				append(actorAttrs(ctx, id), "sqlstate", pgErr.Code, "err", err)...)
+		}
 		writeError(ctx, w, pgRef.status, pgRef.code, pgRef.message)
 		return false
 	default:

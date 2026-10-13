@@ -142,7 +142,7 @@ live schema (ADR-0012):
 | TY007 | 000023 | an unrecognised or cross-tenant `vehicle_id` |
 | TY008 | 000024 (widened 000028) | a configuration or unit-kind change on a unit with history; no route can reach it, so no `submitStatus` entry exists |
 | TY009 | 000025 | `fitment_odometer_matches_unit_kind`, on every fitment write |
-| TY011-013 | 000031 | the tyre lifecycle's refusals |
+| TY011-013 | 000031, 000053 | the tyre lifecycle's refusals |
 | TY014 | 000032 | a fitment write refused |
 | TY015 | 000033 | the retread cap |
 | TY016 | 000035 | a unit status transition refused |
