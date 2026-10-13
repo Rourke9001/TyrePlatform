@@ -10889,5 +10889,120 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 69g. set_tyre_cost refuses as TY013 a cost it cannot rate, and the tyre stays awaiting cost; a retreaded tyre needs no threshold to be costed (U129, FR-VAL-006, FR-TYR-019; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1  constant uuid := md5('sz1')::uuid;
+        pt1  constant uuid := md5('pt1')::uuid;
+        pol  constant uuid := md5('t69gpol')::uuid;
+        d_rt constant uuid := md5('t69grt')::uuid;
+        j    constant uuid := md5('t69gj')::uuid;
+        tz text; thr numeric; r record; t app.tyre; got text; rt uuid; rt_rate numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT x.timezone INTO tz FROM app.tenant x WHERE x.id = bac;
+  thr := app.current_removal_threshold_mm();
+
+  -- The guard-agreement control's tyre, retreaded while a threshold is in
+  -- force, 69f's way.
+  SELECT tyre_id INTO rt FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+    'received_date', (app.tenant_today(tz) - 10)::text));
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T69G Retreaders', 'RETREADER');
+  UPDATE app.tyre SET state = 'AT_RETREADER' WHERE id = rt;
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
+  VALUES (j, bac, rt, d_rt, app.tenant_today(tz) - 5);
+  PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'T69G-RPT', 2500.00, 16.0, 800.00);
+  SELECT rand_per_mm INTO rt_rate FROM app.tyre WHERE id = rt;
+
+  -- 0.1 mm of usable tread puts R10 000 000.00 at 10^8 a millimetre, past
+  -- rand_per_mm's numeric(12,4), so the bound answers before a bare 22003.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', (thr + 0.1)::text));
+  got := NULL;
+  BEGIN
+    PERFORM app.set_tyre_cost(r.tyre_id, 10000000.00, 'INVOICE');
+  EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM format('a purchase price of %s over %s mm of usable tread is a rate above what the register carries; check the price entered',
+                                 10000000.00::numeric(12,2), (thr + 0.1)::numeric(4,1) - thr) THEN
+    RAISE EXCEPTION 'FAIL 69g: a rate past the register was answered %',
+      coalesce('TY013 "' || got || '"', 'by a stored cost');
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = r.tyre_id) THEN
+    RAISE EXCEPTION 'FAIL 69g: a tyre refused a rate past the register is no longer awaiting cost';
+  END IF;
+  -- The bound's control: a rate just under 10^8 is stored, so the row
+  -- above could not pass by refusing every large price.
+  PERFORM app.set_tyre_cost(r.tyre_id, 9999999.99, 'INVOICE');
+  IF (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id) IS DISTINCT FROM 99999999.9000 THEN
+    RAISE EXCEPTION 'FAIL 69g: a rate just under the bound stored %, not 99999999.9000',
+      (SELECT rand_per_mm FROM app.tyre WHERE id = r.tyre_id);
+  END IF;
+
+  -- A tread received above one threshold sits at the next one: 6.0 mm
+  -- clears the seeded 4.0 and equals the 6.0 planted after it, the
+  -- boundary BR-VAL-002 cannot rate.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '6.0'));
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+                                    warning_threshold_mm, max_retreads, effective_from)
+  VALUES (pol, bac, 6.0, 6.0, 8.0, 2, now());
+  got := NULL;
+  BEGIN
+    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
+  EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'this tyre''s new tread of 6.0 mm does not exceed the removal threshold of 6.0 mm, so its cost cannot be rated; check the removal threshold configured' THEN
+    RAISE EXCEPTION 'FAIL 69g: a new tread at the threshold in force was answered %',
+      coalesce('TY013 "' || got || '"', 'by a stored cost');
+  END IF;
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL
+     OR NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = t.id) THEN
+    RAISE EXCEPTION 'FAIL 69g: a tyre refused at the threshold stored price %, rate % or left the backlog',
+      t.purchase_price, t.rand_per_mm;
+  END IF;
+
+  -- Section 17's device, as in 69d: DELETE is revoked (DR-014a), so every
+  -- fleet-wide policy is dated out of reach instead.
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
+  UPDATE app.threshold_policy
+     SET effective_from = 'infinity'
+   WHERE tenant_id = bac AND operating_group_id IS NULL AND axle_class IS NULL;
+  IF app.current_removal_threshold_mm() IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 69g: BAC still has a removal threshold in force, so the refusal cannot be probed';
+  END IF;
+  got := NULL;
+  BEGIN
+    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
+  EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'this fleet has no removal threshold configured, so this tyre''s cost cannot be rated; configure the removal threshold first, then record the cost' THEN
+    RAISE EXCEPTION 'FAIL 69g: a cost with no threshold in force was answered %',
+      coalesce('TY013 "' || got || '"', 'by a stored cost');
+  END IF;
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL
+     OR NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = t.id) THEN
+    RAISE EXCEPTION 'FAIL 69g: a tyre refused with no threshold stored price %, rate % or left the backlog',
+      t.purchase_price, t.rand_per_mm;
+  END IF;
+
+  -- The guard-agreement control: the retreaded tyre's rate does not come
+  -- from its price, so it is costed with no threshold in force.
+  PERFORM app.set_tyre_cost(rt, 4319.91, 'INVOICE');
+  SELECT * INTO t FROM app.tyre WHERE id = rt;
+  IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.rand_per_mm IS DISTINCT FROM rt_rate
+     OR rt_rate IS NULL THEN
+    RAISE EXCEPTION 'FAIL 69g: a retreaded tyre with no threshold in force stored price %, rate % (retread rate %)',
+      t.purchase_price, t.rand_per_mm, rt_rate;
+  END IF;
+  RAISE NOTICE 'PASS  69g a rate past the register, a tread at the threshold and no threshold each refused as TY013, the tyre still awaiting cost; a rate under the bound stored; a retreaded tyre costed with no threshold';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

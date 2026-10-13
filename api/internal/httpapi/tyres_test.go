@@ -678,16 +678,22 @@ func TestSetTyreCostHappyPath(t *testing.T) {
 	tenantID, _ := plantTenant(t, ctx, admin, "cost-happy")
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	// U129: a cost the threshold in force cannot rate is refused, so the
+	// tenant needs one. 6.0 is not the seeded 4.0, so the rate names it.
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "6.0")
 
 	tyreID := plantTyre(t, ctx, admin, tenantID, "COST-"+uuid.NewString()[:8], nil)
 	rec := post(t, h, "/api/tyres/"+tyreID.String()+"/cost", tenantID.String(), controller.String(),
 		`{"price":"1500.00","source":"INVOICE"}`)
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 
-	var price string
+	var price, rate string
 	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT purchase_price::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&price))
+		`SELECT purchase_price::text, rand_per_mm::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&price, &rate))
 	require.Equal(t, "1500.00", price)
+	// 1500.00 over plantTyre's 14.0 mm less the 6.0 threshold, replacing
+	// the 250.0000 plantTyre stores.
+	require.Equal(t, "187.5000", rate)
 }
 
 func TestSetTyreCostIsCapabilityGated(t *testing.T) {
