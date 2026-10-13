@@ -661,14 +661,16 @@ func TestReceiveTyresWithNoThresholdInForceRefusesAPricedReceive(t *testing.T) {
 
 	code := "NOTHR-" + uuid.NewString()[:8]
 	rec = post(t, h, "/api/tyres", tenantID.String(), controller.String(),
-		cat.body(t, map[string]any{"displayCode": code}))
+		cat.body(t, map[string]any{"displayCode": code, "newTreadMm": "1.0"}))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 	var price, rate *string
+	var tread string
 	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT purchase_price::text, rand_per_mm::text FROM app.tyre WHERE tenant_id = $1 AND display_code = $2`,
-		tenantID, code).Scan(&price, &rate))
+		`SELECT purchase_price::text, rand_per_mm::text, new_tread_mm::text FROM app.tyre WHERE tenant_id = $1 AND display_code = $2`,
+		tenantID, code).Scan(&price, &rate, &tread))
 	require.Nil(t, price)
 	require.Nil(t, rate, "no threshold, no rate")
+	require.Equal(t, "1.0", tread, "no threshold, no tread check")
 }
 
 // FR-TYR-041: costing discharges the awaiting-cost backlog CFL-002 names.
@@ -678,8 +680,8 @@ func TestSetTyreCostHappyPath(t *testing.T) {
 	tenantID, _ := plantTenant(t, ctx, admin, "cost-happy")
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	// U129: a cost the threshold in force cannot rate is refused, so the
-	// tenant needs one. 6.0 is not the seeded 4.0, so the rate names it.
+	// plantTenant seeds no policy, and a cost the threshold in force cannot
+	// rate is refused (U129), so the tenant needs one.
 	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "6.0")
 
 	tyreID := plantTyre(t, ctx, admin, tenantID, "COST-"+uuid.NewString()[:8], nil)

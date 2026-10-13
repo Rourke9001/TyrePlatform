@@ -107,6 +107,8 @@ refused receive mints no code:
    unratable (Q4, U93). The threshold is the same call the rate uses, so there
    is no constant. When no threshold is in force the check is skipped and the
    rate comes back NULL, as today.
+   U129 (TYRE-421, TYRE-318 comment 13600) later made a priced receive with no
+   threshold in force a refusal; an unpriced one still lands.
 6. A `purchase_price` with no `cost_source` is refused (Q6). An unpriced
    receive keeps `UNKNOWN`. The `INVOICE` branch of the `src` default is
    removed.
@@ -286,5 +288,7 @@ proven end to end.
 - **Rule 5 refuses when no threshold policy row exists.** It does not: it is
   skipped when no threshold is in force. Every seeded tenant has a
   `-infinity` baseline policy (`gen_seed_configurations.py`).
+  U129 (TYRE-421, TYRE-318 comment 13600) later made a priced receive with no
+  threshold in force a refusal; an unpriced one still lands.
 - **The seed change moves a pinned count.** Sandbox rows only, and the plan
   runs the full suite and `make db-volume`.
