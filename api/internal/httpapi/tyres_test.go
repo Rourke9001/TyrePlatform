@@ -626,9 +626,9 @@ func TestReceiveTyresRefusesAnIncompleteReceiveAsTY011(t *testing.T) {
 	require.Zero(t, landed, "a refused receive must not mint a tyre")
 }
 
-// U129 (TYRE-421): with no removal threshold in force a priced receive could
-// never be rated, and TY013 would keep it unrated for good, so it is refused.
-// An unpriced receive still lands, unrated. plantTenant seeds no policy.
+// U129 (TYRE-421, 000053): with no removal threshold in force a priced
+// receive is refused and an unpriced one still lands, unrated. plantTenant
+// seeds no policy.
 func TestReceiveTyresWithNoThresholdInForceRefusesAPricedReceive(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -1392,9 +1392,8 @@ func TestReceiveTyresRefusesAnOverflowingNumberAs422(t *testing.T) {
 	require.Zero(t, landed, "a refused receive must not mint a tyre")
 }
 
-// TYRE-421: a 22003 can be a figure the server computed, not one the client
-// sent, so withActor logs it at warn where the other canned refusals write
-// nothing. The client's own price overflow is the case a test can reach.
+// TYRE-421: withActor's warn line for a 22003 (refusal.go). The client's own
+// price overflow is the case a test can reach.
 func TestWithActorLogsANumericOverflowAtWarn(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)

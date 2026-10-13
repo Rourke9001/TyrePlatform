@@ -183,8 +183,9 @@ BEGIN
       MESSAGE = 'this fleet has no removal threshold configured, so a priced tyre cannot be rated; configure the removal threshold first, or receive the tyre without its price';
   END IF;
   -- FR-VAL-006: the bound is rand_per_mm's numeric(12,4), not a business
-  -- threshold, tested on the rounded rate the column stores so a bare 22003
-  -- never reaches the wire (the reasoning is log_retread_return's, 000048).
+  -- threshold, tested on the rounded rate the column stores, so a positive
+  -- rate past it is refused here and not as a bare 22003 (the reasoning is
+  -- log_retread_return's, 000048).
   rate := app.rand_per_mm(price, tread, thr);
   IF rate >= 100000000 THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
@@ -231,8 +232,6 @@ BEGIN
   END LOOP;
 END $$;
 
--- 000031's definition with one refusal added, as TY013, this function's own
--- cost-entry code (TYRE-422).
 CREATE OR REPLACE FUNCTION app.set_tyre_cost(p_tyre uuid, p_price numeric, p_source app.cost_source)
 RETURNS void
 LANGUAGE plpgsql
@@ -268,7 +267,7 @@ BEGIN
   IF p_price IS NULL OR p_price < 0 THEN
     RAISE EXCEPTION USING ERRCODE = 'TY013', MESSAGE = 'a cost is a non-negative amount';
   END IF;
-  -- U128, stated at receive_tyres' cost-source checks above.
+  -- U128 (TYRE-422), stated at receive_tyres' cost-source checks above.
   IF p_source = 'UNKNOWN' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY013',
       MESSAGE = 'a purchase price needs a known cost source; choose invoice or price list estimate';
