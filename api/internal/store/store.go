@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 
 	"github.com/google/uuid"
@@ -135,13 +136,16 @@ type ActorSetupError struct{ Err error }
 func (e *ActorSetupError) Error() string { return e.Err.Error() }
 func (e *ActorSetupError) Unwrap() error { return e.Err }
 
-// ActorKey names who a request acts as. Exactly one of UserID and Subject is
-// set (spec section 2, ADR-0016).
+// ActorKey names who a request acts as and where it came from. Exactly one
+// of UserID and Subject is set (spec section 2, ADR-0016). Its fields are
+// httpapi.Identity's, in the same order, so withActor converts one to the
+// other.
 type ActorKey struct {
 	TenantID  uuid.UUID
 	UserID    uuid.UUID
 	Subject   uuid.UUID
 	SessionID string
+	Source    netip.Addr // bound as app.source_ip only when valid (FR-AUD-002)
 }
 
 var errActorKeyShape = errors.New("actor key must set exactly one of UserID and Subject")
@@ -202,12 +206,18 @@ func sessionKey(key ActorKey) string {
 // their failures in one place. It reports whether it recorded the session's
 // first use, which InActorTx remembers only once the transaction commits.
 func (s *Store) bindActor(ctx context.Context, tx pgx.Tx, key ActorKey) (auth.Actor, bool, error) {
-	// app.session_id is bound only for a bearer request; TYRE-201's trigger
-	// will read it, and app.record_session_start() does (FR-AUD-002, FR-AUD-004).
+	// app.session_id is bound only for a bearer request and app.source_ip only
+	// for a valid address, never to an empty or placeholder value. The audit
+	// trigger and app.record_session_start() read both (FR-AUD-002, FR-AUD-004).
+	source := ""
+	if key.Source.IsValid() {
+		source = key.Source.String()
+	}
 	if _, err := tx.Exec(ctx,
 		`SELECT set_config('app.tenant_id', $1::text, true),
-		        CASE WHEN $2::text <> '' THEN set_config('app.session_id', $2::text, true) END`,
-		key.TenantID.String(), key.SessionID); err != nil {
+		        CASE WHEN $2::text <> '' THEN set_config('app.session_id', $2::text, true) END,
+		        CASE WHEN $3::text <> '' THEN set_config('app.source_ip', $3::text, true) END`,
+		key.TenantID.String(), key.SessionID, source); err != nil {
 		return auth.Actor{}, false, fmt.Errorf("binding tenant context: %w", err)
 	}
 

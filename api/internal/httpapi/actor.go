@@ -5,18 +5,22 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/netip"
 
 	"github.com/google/uuid"
 )
 
-// Identity is who a request claims to be. It carries no role: the role is
-// read from app.app_user on every request, so a stale or forged claim cannot
-// grant anything (ADR-0011). Exactly one of UserID and Subject is set.
+// Identity is who a request claims to be and where it came from. It carries
+// no role: the role is read from app.app_user on every request, so a stale or
+// forged claim cannot grant anything (ADR-0011). Exactly one of UserID and
+// Subject is set. Source is not taken on trust either: requireActor sets it,
+// never a resolver, and it is only recorded on audit rows (FR-AUD-002).
 type Identity struct {
-	TenantID  uuid.UUID // the dev header, or the token's tenant claim: a hint RLS proves (ADR-0016)
-	UserID    uuid.UUID // dev resolver only
-	Subject   uuid.UUID // bearer resolver only: the Entra oid
-	SessionID string    // bearer resolver only
+	TenantID  uuid.UUID  // the dev header, or the token's tenant claim: a hint RLS proves (ADR-0016)
+	UserID    uuid.UUID  // dev resolver only
+	Subject   uuid.UUID  // bearer resolver only: the Entra oid
+	SessionID string     // bearer resolver only
+	Source    netip.Addr // requireActor's client address; zero when it does not parse (TYRE-383)
 }
 
 // ActorResolver names the identity a request acts as. Its error wraps one of

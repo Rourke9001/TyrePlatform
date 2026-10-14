@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"sort"
 	"strings"
@@ -331,6 +332,32 @@ func TestInActorTxSessionIDDoesNotLeakIntoTheNextTransaction(t *testing.T) {
 
 	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, readSession))
 	require.Nil(t, bound)
+}
+
+// app.source_ip is bound only from a valid address, as app.session_id is
+// bound only from a session, and the binding dies with its transaction: one
+// connection serves both requests, so a zero Source reading NULL proves a
+// pooled connection never lends one request's address to the next audit row
+// (FR-AUD-002, rule 1).
+func TestInActorTxBindsTheSourceAddressOnlyWhenValid(t *testing.T) {
+	ctx := context.Background()
+	_, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	s := singleConnStore(t, ctx)
+
+	var bound *string
+	readSource := func(tx pgx.Tx, _ auth.Actor) error {
+		return tx.QueryRow(ctx, `SELECT nullif(current_setting('app.source_ip', true), '')`).Scan(&bound)
+	}
+	for _, addr := range []string{"203.0.113.9", "2001:db8::1"} {
+		key := store.ActorKey{TenantID: a.id, UserID: userID, Source: netip.MustParseAddr(addr)}
+		require.NoError(t, s.InActorTx(ctx, key, readSource))
+		require.NotNil(t, bound, "a valid Source bound nothing")
+		require.Equal(t, addr, *bound)
+
+		require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: userID}, readSource))
+		require.Nil(t, bound, "a zero Source bound an address, or the last request's address survived")
+	}
 }
 
 // The role is read from app.app_user, never supplied by the caller
