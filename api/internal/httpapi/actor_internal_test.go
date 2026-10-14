@@ -146,10 +146,11 @@ func TestRequireActorLogsWhatFailedOnA500(t *testing.T) {
 }
 
 // requireActor, not the resolver, says where a request came from: the
-// address NFR-SEC-007's counter keys on, in the form app.audit_log.source_ip
-// stores (FR-AUD-002, TYRE-383). The resolver presets a Source in every case,
-// so each want proves requireActor replaced it, the zero ones included, and
-// an address the audit row cannot use never refuses the request.
+// address NFR-SEC-007's rate limiter and the refusal log resolve, normalised
+// for the inet app.audit_log.source_ip stores (FR-AUD-002, TYRE-383). The
+// resolver presets a Source in every case, so each want proves requireActor
+// replaced it, the zero ones included, and an address the audit row cannot
+// use never refuses the request.
 func TestRequireActorSetsSourceFromTheClientAddress(t *testing.T) {
 	preset := netip.MustParseAddr("198.51.100.1")
 	cases := []struct {
