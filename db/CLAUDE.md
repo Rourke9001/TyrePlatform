@@ -11,7 +11,10 @@ isolation assertion silently becomes vacuous while still printing PASS.
 The one file that runs as `postgres` is `db/tests/005_privileged.sql`
 (`make db-test-privileged`): it stages what `app_login` cannot, a composite
 FK removed inside a transaction it rolls back, to watch a definer-chain
-backstop fire. It is not the suite and proves nothing about isolation: the
+backstop fire, a tenant with no threshold policy in force, which rows
+written once leave no `app_login` route to, or a policy row dated between an
+inspection and its sync, which no role may write (TYRE-299). It is not the
+suite and proves nothing about isolation: the
 isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
 (NFR-SEC-005).
 
@@ -115,6 +118,17 @@ transition — to `VOIDED`, with a reason, once; a voided row is frozen.
 was committed by an earlier transaction (`TY020`), so a submitted reading
 cannot gain a measurement. Correcting a capture is `app.void_inspection` and
 a new capture.
+
+`threshold_policy` is written once too (000054): `UPDATE` is revoked from
+`app_rw`, and `threshold_policy_written_once` refuses an `UPDATE` from any
+role (`TY023`). A change is a new row dated now or later;
+`threshold_policy_not_backdated` refuses an earlier `effective_from`, except
+an empty scope's first row at `-infinity` (SRS §5.1, errata E1). There is no
+tolerance, so a writer stamps `DEFAULT now()` or a later instant computed in
+SQL, never one taken from a client clock or before its `BEGIN`. A
+tenant's first row decides its history: provisioning that writes a first
+row dated `DEFAULT now()` can never add a `-infinity` baseline afterwards,
+and the tenant's history before that row stays UNVALUED.
 
 Careful: a blanket `GRANT ALL ON ALL TABLES IN SCHEMA app TO app_rw` in a later
 migration silently undoes those revokes. Check 4 catches it.

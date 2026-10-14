@@ -474,6 +474,9 @@ for a function that resolves at a historical as-at bound, stamp
 `effective_from` before that bound, not a minute back from `now()`. Check
 which instant the function resolves at before choosing the timestamp, and
 say so in the block's comment so the next author does not undo it.
+`app.threshold_policy` refuses a row dated before its own transaction
+(000054), except an empty scope's first row at `-infinity`: plant
+`-infinity` in an empty scope, or ask at an as-at bound after `now()`.
 
 ## 2026-09-09 — A punctuation rule anchored to a neighbouring letter misses the line end (TYRE-237)
 
