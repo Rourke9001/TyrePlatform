@@ -51,15 +51,17 @@ func plantRetreadTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenant
 	return tyreID
 }
 
-// plantRetreadPolicy plants FR-CFG-044's per-class rule. effective_from is
-// backdated because app.fit_tyre only considers rows already effective, and
-// a row stamped by its own DEFAULT now() in an earlier statement is not
-// reliably earlier than the now() the fit reads.
+// plantRetreadPolicy plants FR-CFG-044's per-class rule as the class's
+// -infinity baseline (SRS §5.1, errata E1): in force at every instant
+// app.fit_tyre reads at, and the one instant before now() a first row may
+// carry (U70). The threshold and cap have no default (rule 5); a fit reads
+// neither off a class row (U5).
 func plantRetreadPolicy(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, axleClass string, permitted bool) {
 	t.Helper()
 	_, err := admin.Exec(ctx,
-		`INSERT INTO app.threshold_policy (tenant_id, axle_class, retreads_permitted, effective_from)
-		 VALUES ($1, $2::app.axle_class, $3, now() - interval '1 hour')`,
+		`INSERT INTO app.threshold_policy
+		   (tenant_id, axle_class, retread_threshold_mm, max_retreads, retreads_permitted, effective_from)
+		 VALUES ($1, $2::app.axle_class, 4.0, 2, $3, '-infinity')`,
 		tenantID, axleClass, permitted)
 	require.NoError(t, err)
 }
