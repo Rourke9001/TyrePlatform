@@ -855,8 +855,8 @@ DO $$
 DECLARE v numeric;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
-  INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,scrap_threshold_mm)
-  VALUES (md5('thrprobe6')::uuid,'11111111-1111-1111-1111-111111111111',6.0,6.0);
+  INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,max_retreads)
+  VALUES (md5('thrprobe6')::uuid,'11111111-1111-1111-1111-111111111111',6.0,2);
   SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
   IF v IS DISTINCT FROM 13782.57 THEN
     RAISE EXCEPTION 'FAIL: at 6mm threshold expected 13782.57, got %', v; END IF;
@@ -1082,8 +1082,8 @@ DO $$
 DECLARE v numeric; posid uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
-  INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,scrap_threshold_mm,effective_from)
-  VALUES (md5('t2thrprobe6')::uuid,'22222222-2222-2222-2222-222222222222',6.0,6.0,'2026-08-05T00:00:00Z');
+  INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,max_retreads,effective_from)
+  VALUES (md5('t2thrprobe6')::uuid,'22222222-2222-2222-2222-222222222222',6.0,2,'2026-08-05T00:00:00Z');
   SELECT pos.id INTO posid
     FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
    WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
@@ -2305,7 +2305,7 @@ ROLLBACK;
 \echo '== 25. One pressure model: admin targets, banded tolerances, hot/cold label (CHG-034/035/112)'
 BEGIN;
 DO $$
-DECLARE ok boolean; cold bigint; hot bigint; n bigint; cname text;
+DECLARE ok boolean; cold bigint; hot bigint; n bigint;
 BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
 
@@ -2349,24 +2349,6 @@ BEGIN
     FROM app.inflation_compliance('2027-08-01','2027-09-01') WHERE band_key = 'correct';
   IF cold IS DISTINCT FROM 1 OR hot IS DISTINCT FROM 1 OR n IS DISTINCT FROM 2 THEN
     RAISE EXCEPTION 'FAIL: correct band cold/hot/count %/%/%, expected 1/1/2', cold, hot, n; END IF;
-
-  -- Rule 5 makes both thresholds tenant configuration, and this constraint is
-  -- the only thing that keeps them ordered (000012's Q3 note says why the
-  -- order matters). The control row first, so a refusal below is the
-  -- constraint and not a missing column or an RLS write mask.
-  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, effective_from)
-  VALUES ('22222222-2222-2222-2222-222222222222', 6.0, 4.0, now() - interval '1 minute');
-  BEGIN
-    INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, effective_from)
-    VALUES ('22222222-2222-2222-2222-222222222222', 3.0, 4.0, now() - interval '1 minute');
-    RAISE EXCEPTION 'FAIL 25: a retread threshold below the scrap threshold was accepted';
-  EXCEPTION WHEN check_violation THEN
-    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
-    IF cname <> 'retread_at_or_above_scrap' THEN
-      RAISE EXCEPTION 'FAIL 25: refused by %, not the threshold-order constraint', cname;
-    END IF;
-  END;
-  RAISE NOTICE 'PASS  25 a retread threshold below the scrap threshold is refused at the constraint';
 
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
   RAISE NOTICE 'PASS  pressure targets are one table; the hot/cold basis is labelled per band';
@@ -4881,9 +4863,9 @@ BEGIN
   -- (p) BR-FIT-009, FR-CFG-044: the cap is the one dispatch rule that
   -- refuses. A REMOVED casing has no axle class, so the cap it resolves to is
   -- the tenant-wide policy row (U5), lowered here, on that row.
-  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm,
                                     warning_threshold_mm, max_retreads, effective_from)
-  VALUES (md5('t41pol')::uuid, bac, 4.0, 4.0, 6.0, 1, now());
+  VALUES (md5('t41pol')::uuid, bac, 4.0, 6.0, 1, now());
   BEGIN
     PERFORM app.dispatch_tyre(tyc, 'AT_RETREADER', d_rt);
     RAISE EXCEPTION 'FAIL 41p: a casing at its retread cap was sent for retreading';
@@ -5371,14 +5353,15 @@ BEGIN
   -- can be lowered between send and return; a casing with no axle class
   -- resolves to the tenant-wide row. jg goes in directly, since
   -- app.dispatch_tyre would refuse it at the door, exactly what this
-  -- backstop exists to catch.
-  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+  -- backstop exists to catch. The return is dated today: a return reads the
+  -- policy of its own day (U70), and the lowered cap takes effect at now().
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm,
                                     warning_threshold_mm, max_retreads, effective_from)
-  VALUES (md5('t42pol')::uuid, bac, 4.0, 4.0, 6.0, 1, now() - interval '1 minute');
+  VALUES (md5('t42pol')::uuid, bac, 4.0, 6.0, 1, now());
   INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
   VALUES (jg, bac, tg, d_rt, app.tenant_today(tz) - 3);
   BEGIN
-    PERFORM app.log_retread_return(jg, app.tenant_today(tz) - 1, true, 'T42-RPT-G', 1000.00, 16.0, 500.00);
+    PERFORM app.log_retread_return(jg, app.tenant_today(tz), true, 'T42-RPT-G', 1000.00, 16.0, 500.00);
     RAISE EXCEPTION 'FAIL 42g: a casing past its cap was retreaded on return';
   EXCEPTION WHEN sqlstate 'TY015' THEN
     IF SQLERRM NOT LIKE '%a purchase, not a retread candidate%' THEN
@@ -9097,27 +9080,29 @@ BEGIN
   -- The operating-group tier is the one dimension this migration adds. No
   -- tenant has a seeded group row and app.fit_tyre implements only the axle
   -- tier, so nothing else in the suite would notice the group sort key being
-  -- inverted or dropped. Plant one and make it decide.
-  ts_g := now() - interval '1 minute';
+  -- inverted or dropped. Plant one and make it decide. It takes effect at
+  -- now(), the earliest instant a dated row may carry (U70), so the reads
+  -- that need it in force ask one microsecond later.
+  ts_g := now();
   INSERT INTO app.operating_group (id, tenant_id, name, created_by)
   VALUES (grp, t1, 'T59A Northern', NULL);
   INSERT INTO app.threshold_policy (tenant_id, operating_group_id, retread_threshold_mm,
-                                    scrap_threshold_mm, effective_from, created_by)
-  VALUES (t1, grp, 5.0, 4.0, ts_g, NULL);
+                                    max_retreads, effective_from, created_by)
+  VALUES (t1, grp, 5.0, 2, ts_g, NULL);
   -- A group row carrying no axle class outranks the STEER row and the
   -- tenant-wide row together: the group key sorts ahead of the axle key.
-  pol := app.threshold_policy_for(t1, grp, 'STEER', now());
+  pol := app.threshold_policy_for(t1, grp, 'STEER', ts_g + interval '1 microsecond');
   IF pol.operating_group_id IS DISTINCT FROM grp OR pol.retread_threshold_mm IS DISTINCT FROM 5.0 THEN
     RAISE EXCEPTION 'FAIL 59a: the group row did not outrank the axle row (group % retread %)',
       pol.operating_group_id, pol.retread_threshold_mm;
   END IF;
   -- A caller naming no group never reaches it, which is what keeps the
   -- register pricing through the tenant-wide row while a group policy exists.
-  pol := app.threshold_policy_for(t1, NULL, 'STEER', now());
+  pol := app.threshold_policy_for(t1, NULL, 'STEER', ts_g + interval '1 microsecond');
   IF pol.operating_group_id IS NOT NULL OR pol.retread_threshold_mm IS DISTINCT FROM 4.0 THEN
     RAISE EXCEPTION 'FAIL 59a: a group row leaked into a group-blind lookup';
   END IF;
-  mm := app.removal_threshold_mm_for(t1, now());
+  mm := app.removal_threshold_mm_for(t1, ts_g + interval '1 microsecond');
   IF mm IS DISTINCT FROM 4.0 THEN
     RAISE EXCEPTION 'FAIL 59a: the wrapper answered % once a group policy existed', mm;
   END IF;
@@ -9214,8 +9199,8 @@ BEGIN
 
   -- A later policy row does not re-judge July's sheet (U18): the rule is
   -- judged at the inspection's instant, the register at today (59d).
-  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, warning_threshold_mm, effective_from)
-  VALUES ('11111111-1111-1111-1111-111111111111', 5.0, 5.0, 7.0, now() - interval '1 minute');
+  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, warning_threshold_mm, max_retreads, effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111', 5.0, 7.0, 2, now());
   SELECT count(*) INTO below FROM app.v_exception WHERE rule_code = 'FR-EXC-020';
   IF below IS DISTINCT FROM 9 THEN
     RAISE EXCEPTION 'FAIL 59b: a policy effective after the sheet re-judged it (020 = %)', below; END IF;
@@ -9371,8 +9356,8 @@ BEGIN
   -- contrast belongs to this block: a policy row effective now moves sheet
   -- position 14 (LINK6 position 4, 5.0mm) into the at-risk list, and leaves
   -- every exception row where the July sheet put it.
-  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, warning_threshold_mm, effective_from)
-  VALUES ('11111111-1111-1111-1111-111111111111', 5.0, 5.0, 7.0, now() - interval '1 minute');
+  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, warning_threshold_mm, max_retreads, effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111', 5.0, 7.0, 2, now());
   SELECT tyre_count INTO STRICT n FROM app.v_casing_value_at_risk WHERE level = 'TENANT' AND position_class = 'RUNNING';
   SELECT count(*) FILTER (WHERE rule_code = 'FR-EXC-020'), count(*) INTO exc020, exc_total FROM app.v_exception;
   IF (n, exc020, exc_total) IS DISTINCT FROM (10, 9, 19) THEN
@@ -9702,26 +9687,28 @@ BEGIN
     RAISE EXCEPTION 'FAIL 63a: the in-force resolver reads as [%]', COALESCE(props, 'absent');
   END IF;
 
-  -- The group rows sit a minute or two back so the precedence probe below
-  -- is decided by tier and not only by the instant.
+  -- The group rows are their scopes' -infinity baselines, behind every
+  -- tenant-wide row in time, so the precedence probes below are decided by
+  -- the tier and not by the instant. -infinity is the one past instant a
+  -- scope's first row may carry (U70; SRS §5.1, errata E1).
   INSERT INTO app.operating_group (id, tenant_id, name, created_by)
   VALUES (grp, t1, 'T63A Northern', NULL);
   INSERT INTO app.threshold_policy (id, tenant_id, operating_group_id, axle_class,
-                                    retread_threshold_mm, scrap_threshold_mm, effective_from)
-  VALUES (pnow, t1, NULL, NULL,    6.0, 6.0, now()),
-         (pstr, t1, NULL, 'STEER', 5.0, 4.0, now()),
-         (pgrp, t1, grp,  NULL,    5.5, 4.0, now() - interval '1 minute'),
-         (pgdr, t1, grp,  'DRIVE', 7.0, 4.0, now() - interval '2 minutes');
+                                    retread_threshold_mm, max_retreads, effective_from)
+  VALUES (pnow, t1, NULL, NULL,    6.0, 2, now()),
+         (pstr, t1, NULL, 'STEER', 5.0, 2, now()),
+         (pgrp, t1, grp,  NULL,    5.5, 2, '-infinity'),
+         (pgdr, t1, grp,  'DRIVE', 7.0, 2, '-infinity');
 
   -- now() is the upper edge of "in force now": a row is not in force before
   -- its own effective_from (FR-CFG-051, TYRE-302). These three sit one
   -- microsecond and one day past now() at a 9.0 no row in force carries,
   -- one on the STEER tier, and every now reader must pass over them.
   INSERT INTO app.threshold_policy (id, tenant_id, operating_group_id, axle_class,
-                                    retread_threshold_mm, scrap_threshold_mm, effective_from)
-  VALUES (psoon, t1, NULL, NULL,    9.0, 4.0, now() + interval '1 microsecond'),
-         (pday,  t1, NULL, NULL,    9.0, 4.0, now() + interval '1 day'),
-         (pfstr, t1, NULL, 'STEER', 9.0, 4.0, now() + interval '1 microsecond');
+                                    retread_threshold_mm, max_retreads, effective_from)
+  VALUES (psoon, t1, NULL, NULL,    9.0, 2, now() + interval '1 microsecond'),
+         (pday,  t1, NULL, NULL,    9.0, 2, now() + interval '1 day'),
+         (pfstr, t1, NULL, 'STEER', 9.0, 2, now() + interval '1 microsecond');
   wide  := (app.threshold_policy_in_force(t1, NULL, NULL)).id;
   steer := (app.threshold_policy_in_force(t1, NULL, 'STEER')).id;
   mm    := app.current_removal_threshold_mm();
@@ -9796,9 +9783,9 @@ BEGIN
   SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
   -- Every figure differs from the seeded row's (4.0, cap 2), so each
   -- assertion names the row that governed the call.
-  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm,
                                     warning_threshold_mm, max_retreads, effective_from)
-  VALUES (pol, bac, 6.0, 6.0, 8.0, 1, now());
+  VALUES (pol, bac, 6.0, 8.0, 1, now());
 
   SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
@@ -9829,16 +9816,18 @@ BEGIN
     (ja, bac, ta, d_rt, app.tenant_today(tz) - 3),
     (jb, bac, tb, d_rt, app.tenant_today(tz) - 3);
 
-  -- 5.5 mm clears the seeded 4.0 and not the 6.0 in force.
+  -- 5.5 mm clears the seeded 4.0 and not the 6.0 in force. Each return is
+  -- dated today, so it reads the policy in force at now() (U70); 70e holds
+  -- the back-dated half.
   BEGIN
-    PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T63-RPT-A', 2500.00, 5.5, 800.00);
+    PERFORM app.log_retread_return(ja, app.tenant_today(tz), true, 'T63-RPT-A', 2500.00, 5.5, 800.00);
     RAISE EXCEPTION 'FAIL 63b: a casing returned at 5.5 mm was accepted under the 6.0 threshold in force';
   EXCEPTION WHEN sqlstate 'TY014' THEN
     IF SQLERRM NOT LIKE '%removal threshold of 6.0 mm%' THEN
       RAISE EXCEPTION 'FAIL 63b: the 5.5 mm return was refused for another reason: %', SQLERRM;
     END IF;
   END;
-  PERFORM app.log_retread_return(ja, app.tenant_today(tz) - 1, true, 'T63-RPT-A', 2500.00, 16.0, 800.00);
+  PERFORM app.log_retread_return(ja, app.tenant_today(tz), true, 'T63-RPT-A', 2500.00, 16.0, 800.00);
   SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = ta;
   IF rate IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, 6.0) THEN
     RAISE EXCEPTION 'FAIL 63b: log_retread_return stored % where the 6.0 in force gives %',
@@ -9848,7 +9837,7 @@ BEGIN
   -- The cap comes off the same row. At cap 1 a casing retreaded once is
   -- refused, where the seeded cap of 2 would pass it.
   BEGIN
-    PERFORM app.log_retread_return(jb, app.tenant_today(tz) - 1, true, 'T63-RPT-B', 2500.00, 16.0, 800.00);
+    PERFORM app.log_retread_return(jb, app.tenant_today(tz), true, 'T63-RPT-B', 2500.00, 16.0, 800.00);
     RAISE EXCEPTION 'FAIL 63b: a return past the cap in force was retreaded';
   EXCEPTION WHEN sqlstate 'TY015' THEN
     IF SQLERRM NOT LIKE '%cap of 1%' THEN
@@ -9871,7 +9860,8 @@ ROLLBACK;
 -- These readers name no axle class and no group, because a casing off the
 -- vehicle has neither (U5), so only a tenant-wide row can govern them. A
 -- newer STEER row and a newer group row, at cap 0 and a 7.0 threshold, must
--- move nothing they read.
+-- move nothing they read. The return is dated today, so both rows are in
+-- force at its instant (U70).
 BEGIN;
 DO $$
 DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -9887,10 +9877,10 @@ BEGIN
   INSERT INTO app.operating_group (id, tenant_id, name, created_by)
   VALUES (grp, bac, 'T63C Northern', NULL);
   INSERT INTO app.threshold_policy (id, tenant_id, operating_group_id, axle_class,
-                                    retread_threshold_mm, scrap_threshold_mm, max_retreads,
+                                    retread_threshold_mm, max_retreads,
                                     retreads_permitted, effective_from)
-  VALUES (md5('t63cstr')::uuid, bac, NULL, 'STEER', 7.0, 4.0, 0, false, now()),
-         (md5('t63cgrppol')::uuid, bac, grp, NULL, 7.0, 4.0, 0, false, now());
+  VALUES (md5('t63cstr')::uuid, bac, NULL, 'STEER', 7.0, 0, false, now()),
+         (md5('t63cgrppol')::uuid, bac, grp, NULL, 7.0, 0, false, now());
 
   mm := app.current_removal_threshold_mm();
   IF mm IS DISTINCT FROM 4.0 THEN
@@ -9909,7 +9899,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 63c: dispatch_tyre read a class or group cap: %', SQLERRM;
   END;
   BEGIN
-    PERFORM app.log_retread_return(job, app.tenant_today(tz) - 1, true, 'T63-RPT-D', 2500.00, 16.0, 800.00);
+    PERFORM app.log_retread_return(job, app.tenant_today(tz), true, 'T63-RPT-D', 2500.00, 16.0, 800.00);
   EXCEPTION WHEN sqlstate 'TY015' THEN
     RAISE EXCEPTION 'FAIL 63c: log_retread_return read a class or group cap: %', SQLERRM;
   END;
@@ -9961,9 +9951,12 @@ BEGIN
     RAISE EXCEPTION 'FAIL 63d: a retread on DRIVE warned before any DRIVE rule existed: %', r.warnings;
   END IF;
   -- One DRIVE row later, at the same instant. The class row outranks the
-  -- tenant-wide one and is in force from now().
-  INSERT INTO app.threshold_policy (id, tenant_id, axle_class, retreads_permitted, effective_from)
-  VALUES (md5('t63ddrv')::uuid, bac, 'DRIVE', false, now());
+  -- tenant-wide one and is in force from now(). Its threshold and cap are
+  -- stated because neither has a default (rule 5); no reader takes either
+  -- off a class row (U5).
+  INSERT INTO app.threshold_policy (id, tenant_id, axle_class, retread_threshold_mm,
+                                    max_retreads, retreads_permitted, effective_from)
+  VALUES (md5('t63ddrv')::uuid, bac, 'DRIVE', 4.0, 2, false, now());
   SELECT * INTO r FROM app.fit_tyre(ty2, vh, pb, 12.0, 'MARK_OUTBOARD', 400000);
   IF NOT (r.warnings @> '[{"code":"RETREAD_ON_NON_PERMITTED_AXLE"}]'::jsonb) THEN
     RAISE EXCEPTION 'FAIL 63d: a DRIVE rule in force at now() did not reach the fit: %', r.warnings;
@@ -10946,9 +10939,9 @@ BEGIN
   -- boundary BR-VAL-002 cannot rate.
   SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '6.0'));
-  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, scrap_threshold_mm,
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm,
                                     warning_threshold_mm, max_retreads, effective_from)
-  VALUES (pol, bac, 6.0, 6.0, 8.0, 2, now());
+  VALUES (pol, bac, 6.0, 8.0, 2, now());
   got := NULL;
   BEGIN
     PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
