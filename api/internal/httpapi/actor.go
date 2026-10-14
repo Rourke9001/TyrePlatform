@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -58,11 +59,12 @@ func clientFrom(ctx context.Context) string {
 
 // sourceAddr is the client address in the form app.audit_log.source_ip
 // stores. PostgreSQL 16 refuses a zone in an inet and keeps an IPv4-mapped
-// address as IPv6, so both are normalised here. Anything that does not parse
-// is the zero Addr, and the audit row records no address rather than the
-// request failing (TYRE-383).
+// address as IPv6, so both are normalised here, as are the brackets a
+// forwarded hop may carry with no port, which clientAddress's SplitHostPort
+// leaves on. Anything that does not parse is the zero Addr, and the audit row
+// records no address rather than the request failing (TYRE-383).
 func sourceAddr(client string) netip.Addr {
-	a, err := netip.ParseAddr(client)
+	a, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(client, "["), "]"))
 	if err != nil {
 		return netip.Addr{}
 	}
