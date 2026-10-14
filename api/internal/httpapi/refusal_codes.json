@@ -286,5 +286,15 @@
       "app.apply_composition_observation",
       "app.dismiss_composition_observation"
     ]
+  },
+  "TY023": {
+    "source": "db",
+    "httpStatus": null,
+    "meaning": "a threshold policy row edited, or dated before the transaction that writes it; the one earlier instant allowed is an empty scope's first row at -infinity (U69, U70, FR-CFG-051)",
+    "note": "no route writes app.threshold_policy, so an entry would carry no test able to fail (ADR-0012, TY008's reasoning)",
+    "raisedBy": [
+      "app.threshold_policy_is_written_once",
+      "app.threshold_policy_is_not_backdated"
+    ]
   }
 }

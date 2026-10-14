@@ -130,7 +130,7 @@ BEGIN
        'configuration', 'depot', 'display_code_counter', 'exception',
        'exception_rule', 'fitment', 'inspection_schedule', 'inspection_task',
        'notification', 'operating_group', 'photo', 'position', 'retread_job',
-       'target_pressure', 'threshold_policy', 'tyre', 'tyre_brand', 'tyre_pattern',
+       'target_pressure', 'tyre', 'tyre_brand', 'tyre_pattern',
        'tyre_price_list', 'tyre_size', 'user_depot', 'valuation_snapshot',
        'vehicle', 'vehicle_driver', 'vehicle_tag', 'vehicle_tag_map',
        -- inspection's grant is (state, void_reason) alone (000040, FR-INS-012);
@@ -1034,37 +1034,10 @@ BEGIN
   RAISE NOTICE 'PASS  a tread change snapshots once; an unchanged re-read does not';
 END $$;
 
--- A snapshot is priced under the policy in force on ITS OWN date, not the
--- date it happened to sync (FR-CFG-010), the revisionism 000006 disclaims:
--- offline capture routinely lets the two diverge. A savepoint, not the
--- outer rollback: the probe policy row must not survive into the month-end
--- block below, and DR-014a revokes DELETE, so rollback is the only cleanup.
-SAVEPOINT policy_probe;
-DO $$
-DECLARE v numeric; posid uuid;
-BEGIN
-  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
-  INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,max_retreads,effective_from)
-  VALUES (md5('t2thrprobe6')::uuid,'22222222-2222-2222-2222-222222222222',6.0,2,'2026-08-05T00:00:00Z');
-  SELECT pos.id INTO posid
-    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
-   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
-  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
-  VALUES (md5('t2insp3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
-          md5('t2cli3')::uuid,'2026-08-01T06:00:00Z','2026-08-01T06:05:00Z',99000);
-  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
-  VALUES (md5('t2rd3')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp3')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,1,'OUTER',15),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,2,'CENTRE',16),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd3')::uuid,3,'INNER',17);
-  SELECT s.tread_value INTO v FROM app.valuation_snapshot s
-   WHERE s.tyre_id = md5('t2probetyre')::uuid AND s.as_at = '2026-08-01';
-  IF v IS DISTINCT FROM 1100.00 THEN
-    RAISE EXCEPTION 'FAIL: late-synced snapshot priced at [%], expected 1100.00 under the policy of its own date', v; END IF;
-  RAISE NOTICE 'PASS  a late-synced inspection is priced under the policy of its own date';
-END $$;
-ROLLBACK TO SAVEPOINT policy_probe;
+-- A late-synced snapshot is priced under the policy of its own date, not the
+-- policy in force when it syncs (FR-CFG-010): db/tests/005_privileged.sql P8,
+-- because its probe row is dated between the two, which 000054 refuses to
+-- every role (U70).
 
 -- FR-VAL-022 month-end pass: every valued tyre, once, idempotent. The
 -- scheduler owns invoking this; here only the effect is pinned.
@@ -10889,6 +10862,250 @@ BEGIN
   RAISE NOTICE 'PASS  69g a rate past the register, a tread at the threshold and no new tread each refused as TY013, the tyre still awaiting cost; a rate under the bound stored';
 END $$;
 ROLLBACK;
+
+\echo '== 70. TYRE-299: a threshold policy row is written once, one per scope and instant, and never back-dated (U68, U69, U70, FR-CFG-051, FR-VAL-020)'
+
+\echo '== 70a. the app role cannot UPDATE a policy row, and the written-once trigger stands behind the grant (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        base constant uuid := md5('11111111-1111-1111-1111-111111111111thrpol-default')::uuid;
+        def text; refused boolean := false;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- The row is visible, so the refusal below is the grant and not RLS
+  -- finding nothing to update.
+  IF NOT EXISTS (SELECT 1 FROM app.threshold_policy WHERE id = base) THEN
+    RAISE EXCEPTION 'FAIL 70a: BAC''s baseline is not visible, so the UPDATE below proves nothing';
+  END IF;
+  BEGIN
+    UPDATE app.threshold_policy SET max_retreads = max_retreads WHERE id = base;
+  EXCEPTION WHEN insufficient_privilege THEN
+    IF SQLERRM NOT LIKE 'permission denied for table threshold_policy' THEN
+      RAISE EXCEPTION 'FAIL 70a: the UPDATE was refused for another reason: %', SQLERRM;
+    END IF;
+    refused := true;
+  END;
+  IF NOT refused THEN
+    RAISE EXCEPTION 'FAIL 70a: the app role edited a policy row';
+  END IF;
+  -- The trigger binds the owner and a superuser, which no grant does;
+  -- db/tests/005_privileged.sql P7 stages that half.
+  SELECT pg_get_triggerdef(t.oid) INTO def FROM pg_trigger t
+   WHERE t.tgrelid = 'app.threshold_policy'::regclass
+     AND t.tgname = 'threshold_policy_written_once' AND t.tgenabled = 'O';
+  IF def IS NULL OR def NOT LIKE '%BEFORE UPDATE ON % FOR EACH ROW EXECUTE FUNCTION %threshold_policy_is_written_once()' THEN
+    RAISE EXCEPTION 'FAIL 70a: the written-once trigger reads as [%]', COALESCE(def, 'absent');
+  END IF;
+  RAISE NOTICE 'PASS  70a an UPDATE is refused for privilege, and threshold_policy_written_once stands behind the grant';
+END $$;
+ROLLBACK;
+
+\echo '== 70b. two rows in one scope at one instant are refused, the tenant-wide scope included, and the same instant in another scope is not (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        inst constant timestamptz := now() + interval '1 day';
+        def text; cname text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- NULLS NOT DISTINCT: the tenant-wide scope is a NULL group and a NULL
+  -- class, which a plain UNIQUE would let tie.
+  SELECT pg_get_constraintdef(k.oid) INTO def FROM pg_constraint k
+   WHERE k.conrelid = 'app.threshold_policy'::regclass
+     AND k.conname = 'threshold_policy_one_row_per_instant';
+  IF def IS DISTINCT FROM 'UNIQUE NULLS NOT DISTINCT (tenant_id, operating_group_id, axle_class, effective_from)' THEN
+    RAISE EXCEPTION 'FAIL 70b: the one-row-per-instant constraint reads as [%]', COALESCE(def, 'absent');
+  END IF;
+  -- TYRE-310's tie: 5.0 at cap 3 and 7.0 at cap 1, one scope, one instant.
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, max_retreads, effective_from)
+  VALUES (md5('t70b1')::uuid, bac, 5.0, 3, inst);
+  cname := NULL;
+  BEGIN
+    INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, max_retreads, effective_from)
+    VALUES (md5('t70b2')::uuid, bac, 7.0, 1, inst);
+  EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+  END;
+  IF cname IS DISTINCT FROM 'threshold_policy_one_row_per_instant' THEN
+    RAISE EXCEPTION 'FAIL 70b: a second tenant-wide row at one instant was answered by %', COALESCE(cname, 'an accepted row');
+  END IF;
+  -- The control: another scope at the same instant is a different row, and
+  -- the tie's survivor is the row in force there.
+  INSERT INTO app.threshold_policy (id, tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from)
+  VALUES (md5('t70b3')::uuid, bac, 'DRIVE', 7.0, 1, inst);
+  IF (app.threshold_policy_for(bac, NULL, NULL, inst + interval '1 microsecond')).id IS DISTINCT FROM md5('t70b1')::uuid THEN
+    RAISE EXCEPTION 'FAIL 70b: the tenant-wide row at % is not the one in force there', inst;
+  END IF;
+  RAISE NOTICE 'PASS  70b one row per scope and instant, the NULL scope included; another class at the same instant is accepted';
+END $$;
+ROLLBACK;
+
+\echo '== 70c. a row dated before now() is refused as TY023 unless it is an empty scope''s first row at -infinity; now() and later are accepted (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        m2  constant text := 'a threshold policy row takes effect when it is written or later, never earlier (FR-CFG-051)';
+        m3  constant text := 'this scope already has a threshold policy; only its first row may be the -infinity baseline (SRS 5.1, errata E1)';
+        c app.axle_class; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  -- One microsecond before the transaction's now(), in the seeded
+  -- tenant-wide scope and in DRIVE, which is empty: -infinity is the only
+  -- past instant the exemption covers, whatever the scope holds.
+  FOR c IN SELECT v.c FROM (VALUES (NULL::app.axle_class), ('DRIVE')) v(c) LOOP
+    got := NULL;
+    BEGIN
+      INSERT INTO app.threshold_policy (tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from)
+      VALUES (bac, c, 6.0, 2, now() - interval '1 microsecond');
+    EXCEPTION WHEN sqlstate 'TY023' THEN got := SQLERRM;
+    END;
+    IF got IS DISTINCT FROM m2 THEN
+      RAISE EXCEPTION 'FAIL 70c: a row a microsecond in the past, class %, was answered %',
+        COALESCE(c::text, 'none'), COALESCE('TY023 "' || got || '"', 'by an accepted row');
+    END IF;
+  END LOOP;
+
+  -- The controls: DEFAULT now() and a later instant are accepted.
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, max_retreads)
+  VALUES (md5('t70c1')::uuid, bac, 6.0, 2);
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, max_retreads, effective_from)
+  VALUES (md5('t70c2')::uuid, bac, 6.5, 2, now() + interval '1 hour');
+
+  -- -infinity where the scope has a row: BAC's tenant-wide baseline.
+  got := NULL;
+  BEGIN
+    INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, max_retreads, effective_from)
+    VALUES (bac, 6.0, 2, '-infinity');
+  EXCEPTION WHEN sqlstate 'TY023' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM m3 THEN
+    RAISE EXCEPTION 'FAIL 70c: a second tenant-wide baseline was answered %',
+      COALESCE('TY023 "' || got || '"', 'by an accepted row');
+  END IF;
+
+  -- An empty scope's first row at -infinity is accepted, once: the next
+  -- statement's trigger sees it.
+  INSERT INTO app.threshold_policy (id, tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from)
+  VALUES (md5('t70c3')::uuid, bac, 'DRIVE', 4.0, 2, '-infinity');
+  got := NULL;
+  BEGIN
+    INSERT INTO app.threshold_policy (tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from)
+    VALUES (bac, 'DRIVE', 4.0, 2, '-infinity');
+  EXCEPTION WHEN sqlstate 'TY023' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM m3 THEN
+    RAISE EXCEPTION 'FAIL 70c: a second DRIVE baseline was answered %',
+      COALESCE('TY023 "' || got || '"', 'by an accepted row');
+  END IF;
+
+  -- Two baselines for one empty scope in one statement: a row-level BEFORE
+  -- trigger sees the rows its statement already wrote, so the second is
+  -- refused the same way.
+  got := NULL;
+  BEGIN
+    INSERT INTO app.threshold_policy (tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from)
+    VALUES (bac, 'TRAILER', 4.0, 2, '-infinity'), (bac, 'TRAILER', 4.0, 2, '-infinity');
+  EXCEPTION WHEN sqlstate 'TY023' THEN got := SQLERRM;
+  END;
+  IF got IS DISTINCT FROM m3 THEN
+    RAISE EXCEPTION 'FAIL 70c: two TRAILER baselines in one statement were answered %',
+      COALESCE('TY023 "' || got || '"', 'by accepted rows');
+  END IF;
+  RAISE NOTICE 'PASS  70c a past instant is refused in a seeded scope and an empty one; now() and later are accepted; -infinity is accepted once per empty scope, across two statements or within one';
+END $$;
+ROLLBACK;
+
+\echo '== 70d. the scrap and insurance columns are gone, the threshold and cap carry no default, and a warning sits above the retread threshold (U68, TYRE-189 F5, S1; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        cols text; defs text; def text; cname text; col text; w numeric;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT string_agg(a.attname, ', ' ORDER BY a.attname) INTO cols
+    FROM pg_attribute a
+   WHERE a.attrelid = 'app.threshold_policy'::regclass AND a.attnum > 0 AND NOT a.attisdropped
+     AND a.attname IN ('scrap_threshold_mm', 'insurance_minimum_mm', 'insurance_note');
+  IF cols IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 70d: app.threshold_policy still carries %', cols;
+  END IF;
+  -- effective_from keeps DEFAULT now(), a date and not a threshold, and
+  -- retreads_permitted its true, which F5 did not name.
+  SELECT string_agg(c.column_name || '=' || COALESCE(c.column_default, 'none') || '/' || c.is_nullable,
+                    ', ' ORDER BY c.column_name) INTO defs
+    FROM information_schema.columns c
+   WHERE c.table_schema = 'app' AND c.table_name = 'threshold_policy'
+     AND c.column_name IN ('effective_from', 'max_retreads', 'retread_threshold_mm', 'retreads_permitted');
+  IF defs IS DISTINCT FROM 'effective_from=now()/NO, max_retreads=none/NO, retread_threshold_mm=none/NO, retreads_permitted=true/NO' THEN
+    RAISE EXCEPTION 'FAIL 70d: the defaults read as [%]', defs;
+  END IF;
+  -- Omitting either is a NOT NULL refusal naming the column, never a default.
+  FOREACH col IN ARRAY ARRAY['retread_threshold_mm', 'max_retreads'] LOOP
+    cname := NULL;
+    BEGIN
+      IF col = 'retread_threshold_mm' THEN
+        INSERT INTO app.threshold_policy (tenant_id, max_retreads, effective_from)
+        VALUES (bac, 2, now() + interval '1 hour');
+      ELSE
+        INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, effective_from)
+        VALUES (bac, 4.0, now() + interval '1 hour');
+      END IF;
+    EXCEPTION WHEN not_null_violation THEN
+      GET STACKED DIAGNOSTICS cname = COLUMN_NAME;
+    END;
+    IF cname IS DISTINCT FROM col THEN
+      RAISE EXCEPTION 'FAIL 70d: a row omitting % was answered by %', col,
+        COALESCE('a NOT NULL refusal of ' || cname, 'an accepted row');
+    END IF;
+  END LOOP;
+
+  SELECT pg_get_constraintdef(k.oid) INTO def FROM pg_constraint k
+   WHERE k.conrelid = 'app.threshold_policy'::regclass AND k.conname = 'warning_above_retread';
+  IF def IS DISTINCT FROM 'CHECK ((warning_threshold_mm > retread_threshold_mm))' THEN
+    RAISE EXCEPTION 'FAIL 70d: warning_above_retread reads as [%]', COALESCE(def, 'absent');
+  END IF;
+  -- The controls: no warning, and a warning a tenth above, are accepted.
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, warning_threshold_mm, max_retreads, effective_from)
+  VALUES (md5('t70d1')::uuid, bac, 6.0, NULL, 2, now() + interval '2 hours'),
+         (md5('t70d2')::uuid, bac, 6.0, 6.1,  2, now() + interval '3 hours');
+  -- At the retread threshold and below it, the band is empty.
+  FOREACH w IN ARRAY ARRAY[6.0, 5.9]::numeric[] LOOP
+    cname := NULL;
+    BEGIN
+      INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, warning_threshold_mm, max_retreads, effective_from)
+      VALUES (bac, 6.0, w, 2, now() + interval '4 hours');
+    EXCEPTION WHEN check_violation THEN
+      GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    END;
+    IF cname IS DISTINCT FROM 'warning_above_retread' THEN
+      RAISE EXCEPTION 'FAIL 70d: a warning of % over a 6.0 retread threshold was answered by %', w,
+        COALESCE(cname, 'an accepted row');
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  70d three columns gone; threshold and cap carry no default; a warning at or below the retread threshold is refused, a NULL or higher one accepted';
+END $$;
+ROLLBACK;
+
+\echo '== 70f. nothing section 70 planted outlives its rollback'
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  IF (SELECT count(*) FROM app.threshold_policy) <> 2 THEN
+    RAISE EXCEPTION 'FAIL 70f: BAC holds % policy rows, not its two seeded baselines',
+      (SELECT count(*) FROM app.threshold_policy);
+  END IF;
+  SELECT (SELECT count(*) FROM app.tyre WHERE display_code LIKE 'T70TYRE%')
+       + (SELECT count(*) FROM app.depot WHERE id = md5('t70ert')::uuid)
+       + (SELECT count(*) FROM app.retread_job
+           WHERE id IN (md5('t70ejpast')::uuid, md5('t70ejnow')::uuid, md5('t70ejcap')::uuid))
+    INTO n;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 70f: % rows planted by section 70 survived their rollback', n;
+  END IF;
+  RAISE NOTICE 'PASS  70f section 70 leaves no residue';
+END $$;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

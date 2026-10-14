@@ -7,6 +7,11 @@
 -- written once (U69), so a configured tenant cannot reach that state as
 -- app_login: postgres deletes BAC's tenant-wide row inside the transaction,
 -- then SET LOCAL ROLE app_login runs the probe under RLS (TYRE-299).
+--
+-- P8 dates a policy row between an inspection and its sync, which
+-- threshold_policy_not_backdated refuses to every role (U70): postgres
+-- disables that trigger for the one INSERT and enables it again before the
+-- probe runs, inside the rolled-back transaction.
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -293,6 +298,124 @@ BEGIN
   IF v IS DISTINCT FROM 20571.00 THEN
     RAISE EXCEPTION 'FAIL P6: totals did not come back after the no-policy probes, got %', v; END IF;
   RAISE NOTICE 'PASS  P6 the rollbacks restored BAC''s baseline and its 20571.00 register';
+END $$;
+ROLLBACK;
+
+\echo '== P7. TYRE-299: the written-once and back-date triggers bind a superuser, which no grant does (U69, U70, FR-CFG-051)'
+BEGIN;
+DO $$
+DECLARE t1   constant uuid := '11111111-1111-1111-1111-111111111111';
+        base constant uuid := md5('11111111-1111-1111-1111-111111111111thrpol-default')::uuid;
+        msg text;
+BEGIN
+  -- The row exists, so a refused UPDATE is the trigger on a row it visited.
+  IF NOT EXISTS (SELECT 1 FROM app.threshold_policy WHERE id = base) THEN
+    RAISE EXCEPTION 'FAIL P7: BAC''s baseline row is missing, so the UPDATE below would visit nothing';
+  END IF;
+  -- A no-op UPDATE is still an edit: a migration touching a row rewrites it.
+  msg := NULL;
+  BEGIN
+    UPDATE app.threshold_policy SET max_retreads = max_retreads WHERE id = base;
+  EXCEPTION WHEN sqlstate 'TY023' THEN msg := SQLERRM;
+  END;
+  IF msg IS DISTINCT FROM 'a threshold policy row is history and is never edited; a change is a new row with a later effective_from (FR-CFG-051)' THEN
+    RAISE EXCEPTION 'FAIL P7: a superuser UPDATE of a policy row was answered %',
+      COALESCE('TY023 "' || msg || '"', 'by an edit');
+  END IF;
+  msg := NULL;
+  BEGIN
+    INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, max_retreads, effective_from)
+    VALUES (t1, 5.0, 2, now() - interval '1 day');
+  EXCEPTION WHEN sqlstate 'TY023' THEN msg := SQLERRM;
+  END;
+  IF msg IS DISTINCT FROM 'a threshold policy row takes effect when it is written or later, never earlier (FR-CFG-051)' THEN
+    RAISE EXCEPTION 'FAIL P7: a superuser back-dated insert was answered %',
+      COALESCE('TY023 "' || msg || '"', 'by an accepted row');
+  END IF;
+  RAISE NOTICE 'PASS  P7 a superuser can neither edit a policy row nor back-date one';
+END $$;
+ROLLBACK;
+
+\echo '== P8. TYRE-299: a late-synced inspection is priced under the policy of its own date, not the policy in force when it syncs (FR-CFG-010, FR-VAL-022)'
+-- The probe row is dated 2026-08-05, between the 2026-08-01 inspection and
+-- its sync. Dated now() instead, a pricing at the sync instant through the
+-- exclusive as-at resolver would still see 4.0, and pass.
+BEGIN;
+SET LOCAL ROLE app_login;
+-- Second Fleet's probe tyre and a 2026-08-10 capture, priced at the 4.0
+-- baseline before the probe row exists: section 18's staging.
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        posid uuid; v numeric;
+BEGIN
+  IF current_user <> 'app_login' THEN
+    RAISE EXCEPTION 'FAIL P8: the staging runs as %, so RLS is not on trial', current_user;
+  END IF;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  INSERT INTO app.tyre (id,tenant_id,display_code,status,purchase_date,purchase_price,new_tread_mm,rand_per_mm,casing_value,state)
+  VALUES (md5('p8tyre')::uuid,t2,'P8PROBE1','NEW','2024-03-01',2100.00,25.0,100.0000,500.00,'IN_STOCK');
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('p8insp1')::uuid,t2,md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('p8cli1')::uuid,'2026-08-10T08:00:00Z','2026-08-10T08:05:00Z',100000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('p8rd1')::uuid,t2,md5('p8insp1')::uuid,md5('t2veh1')::uuid,posid,md5('p8tyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    (t2,md5('p8rd1')::uuid,1,'OUTER',12),
+    (t2,md5('p8rd1')::uuid,2,'CENTRE',13),
+    (t2,md5('p8rd1')::uuid,3,'INNER',14);
+  SELECT s.tread_value INTO v FROM app.valuation_snapshot s
+   WHERE s.tyre_id = md5('p8tyre')::uuid AND s.as_at = '2026-08-10';
+  IF v IS DISTINCT FROM 800.00 THEN
+    RAISE EXCEPTION 'FAIL P8: the staging capture priced at [%], expected 800.00 under the baseline', v;
+  END IF;
+END $$;
+RESET ROLE;
+ALTER TABLE app.threshold_policy DISABLE TRIGGER threshold_policy_not_backdated;
+INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, max_retreads, effective_from)
+VALUES (md5('p8thrprobe6')::uuid, '22222222-2222-2222-2222-222222222222', 6.0, 2, '2026-08-05T00:00:00Z');
+ALTER TABLE app.threshold_policy ENABLE TRIGGER threshold_policy_not_backdated;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        posid uuid; v numeric;
+BEGIN
+  IF current_user <> 'app_login' THEN
+    RAISE EXCEPTION 'FAIL P8: the probe runs as %, so RLS is not on trial', current_user;
+  END IF;
+  IF (SELECT t.tgenabled FROM pg_trigger t
+       WHERE t.tgrelid = 'app.threshold_policy'::regclass
+         AND t.tgname = 'threshold_policy_not_backdated') IS DISTINCT FROM 'O' THEN
+    RAISE EXCEPTION 'FAIL P8: threshold_policy_not_backdated did not come back enabled';
+  END IF;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  -- The control: the probe row is Second Fleet's and in force where a
+  -- pricing at the sync instant would read it, so the 1100.00 below can only
+  -- come from the policy of the snapshot's own date.
+  IF app.removal_threshold_mm_for(t2, now()) IS DISTINCT FROM 6.0 THEN
+    RAISE EXCEPTION 'FAIL P8: the probe row is not in force for Second Fleet at now() (%)',
+      app.removal_threshold_mm_for(t2, now());
+  END IF;
+  SELECT pos.id INTO posid
+    FROM app.position pos JOIN app.vehicle vh ON vh.configuration_id = pos.configuration_id
+   WHERE vh.id = md5('t2veh1')::uuid AND pos.code = '1';
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('p8insp3')::uuid,t2,md5('t2veh1')::uuid,md5('driver2')::uuid,
+          md5('p8cli3')::uuid,'2026-08-01T06:00:00Z','2026-08-01T06:05:00Z',99000);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('p8rd3')::uuid,t2,md5('p8insp3')::uuid,md5('t2veh1')::uuid,posid,md5('p8tyre')::uuid,750);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
+    (t2,md5('p8rd3')::uuid,1,'OUTER',15),
+    (t2,md5('p8rd3')::uuid,2,'CENTRE',16),
+    (t2,md5('p8rd3')::uuid,3,'INNER',17);
+  SELECT s.tread_value INTO v FROM app.valuation_snapshot s
+   WHERE s.tyre_id = md5('p8tyre')::uuid AND s.as_at = '2026-08-01';
+  IF v IS DISTINCT FROM 1100.00 THEN
+    RAISE EXCEPTION 'FAIL P8: late-synced snapshot priced at [%], expected 1100.00 under the policy of its own date', v;
+  END IF;
+  RAISE NOTICE 'PASS  P8 a late-synced inspection is priced under the policy of its own date';
 END $$;
 ROLLBACK;
 
