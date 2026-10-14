@@ -157,10 +157,14 @@ Nothing new is stored on `retread_job`. With rows written once (U69) and never
 back-dated (U70), the policy in force at `stamp` cannot change after the
 return, so the rate is re-derivable from the job's own figures and `stamp`.
 
-The "no removal threshold is configured" (TY014) and "no retread policy is
-configured" (TY015) refusals name the return date. Behind a `-infinity`
-baseline they cannot fire; they fire only for a tenant whose first row is
-dated, and for that tenant the date is what the reader needs.
+The "no removal threshold is configured" refusal (TY014) names the return
+date. Behind a `-infinity` baseline it cannot fire; it fires only for a
+tenant whose first row is dated and a return dated before that row, and for
+that tenant the date is what the reader needs. The "no retread policy is
+configured" refusal (TY015) cannot fire at all: the threshold and the cap
+come from one row, `max_retreads` is `NOT NULL`, and TY014 refuses first when
+there is no row. It stays as a defence and its comment does not claim
+otherwise (red team round 1).
 
 **Unchanged.** `dispatch_tyre` and `fit_tyre` keep resolving at `now()`.
 Neither stores a figure that has to be re-derived later, and U70 named the
