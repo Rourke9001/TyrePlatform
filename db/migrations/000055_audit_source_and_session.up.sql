@@ -9,9 +9,8 @@
 -- FR-AUD-002, TYRE-383. The one reading of app.source_ip, for both writers. A
 -- value that is not an address is NULL, never a refusal: an audit detail
 -- never fails the write it records. pg_input_is_valid tests the cast without
--- an exception block per row. One SELECT with no FROM and no SET clause, the
--- shape of app.current_actor_id(), so the planner inlines it into every
--- audited INSERT; it calls only pg_catalog functions and runs as its caller.
+-- an exception block per row. No search_path pin, so the planner can inline
+-- it; it calls only pg_catalog functions (db/CLAUDE.md, Adding a function).
 CREATE FUNCTION app.current_source_ip() RETURNS inet
 LANGUAGE sql STABLE AS $$
   SELECT CASE WHEN pg_input_is_valid(current_setting('app.source_ip', true), 'inet')
