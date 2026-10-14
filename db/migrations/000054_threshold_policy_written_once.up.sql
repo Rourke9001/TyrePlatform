@@ -42,8 +42,8 @@ ALTER TABLE app.threshold_policy
   ALTER COLUMN max_retreads DROP DEFAULT;
 
 -- U69. The grant stops app_rw; the trigger stops the owner and a superuser,
--- which no grant binds, on 000024's pattern. threshold_policy_stamps_updated
--- (000017) stays, unreachable.
+-- which no grant binds. threshold_policy_stamps_updated (000017) stays,
+-- unreachable.
 REVOKE UPDATE ON app.threshold_policy FROM app_rw;
 
 CREATE FUNCTION app.threshold_policy_is_written_once() RETURNS trigger
@@ -93,12 +93,11 @@ BEFORE INSERT ON app.threshold_policy
 FOR EACH ROW EXECUTE FUNCTION app.threshold_policy_is_not_backdated();
 
 -- One inclusive resolver at any instant (U70 item 1). The predicate and the
--- precedence live here once. threshold_policy_in_force keeps its signature
--- and oid as a projection at now(), so v_removal_forecast (which pg_depend
--- ties to it), fit_tyre, dispatch_tyre and current_removal_threshold_mm
--- still resolve at now(); a body with no FROM clause inlines into its
--- callers (000045's header). Section 63 holds it to threshold_policy_for's
--- precedence at any instant.
+-- precedence live here once. threshold_policy_in_force keeps the signature
+-- and oid v_removal_forecast depends on, as a projection at now(), so the
+-- view, fit_tyre, dispatch_tyre and current_removal_threshold_mm still
+-- resolve at now(). Section 63 holds it to threshold_policy_for's precedence
+-- at any instant.
 CREATE FUNCTION app.threshold_policy_in_force_at(p_tenant uuid, p_operating_group uuid,
                                                  p_axle_class app.axle_class, p_at timestamptz)
 RETURNS app.threshold_policy
@@ -278,9 +277,9 @@ BEGIN
     thr := pol.retread_threshold_mm;
     -- An unconfigured threshold would make the comparison below NULL and the
     -- rate NULL with it, which reads downstream as an unvalued casing rather
-    -- than as the tenant's gap it is (rule 5, ADR-0012). Behind a -infinity
-    -- baseline it cannot fire, so it names the day: the fleet may well have a
-    -- threshold today.
+    -- than as the tenant's gap it is (rule 5, ADR-0012). It fires only for a
+    -- return dated before the fleet's first row, and the fleet may have a
+    -- threshold today, so the message names the day (U70).
     IF thr IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'TY014',
         MESSAGE = format('no removal threshold is configured for this fleet on %s', p_returned_on),
@@ -323,7 +322,7 @@ BEGIN
     -- force on the return's day. Same scope as the dispatch: U5, a REMOVED
     -- casing has no axle class, so the tenant-wide row governs.
     cap := pol.max_retreads;
-    -- A backstop that cannot fire today: max_retreads is NOT NULL, and a
+    -- A backstop that cannot fire while max_retreads is NOT NULL, because a
     -- return with no row in force stops at TY014 above.
     IF cap IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'TY015',
