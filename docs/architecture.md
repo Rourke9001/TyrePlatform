@@ -128,6 +128,13 @@ and turned into an `app.inspection_warning` row. `TY010` (no tenant/actor
 bound) is also absent, because that is a genuine invariant breach, not a
 client mistake.
 
+`withActor` sorts one case out before any of that: a fault in one of
+`store.InActorTx`'s own steps, before the handler's work runs, comes back as
+a `store.ActorSetupError` and answers 500 whatever SQLSTATE it carries.
+Those steps act on the verified identity, not on the request, and a 422
+there would fail a held capture for good (TYRE-383, ADR-0009). Errors from
+the handler's work and from the commit keep the mapping above.
+
 The TY code ledger, migration by migration. It is a summary and nothing
 checks it; each code's meaning of record is its entry in
 `api/internal/httpapi/refusal_codes.json`, whose keys the tests hold to the

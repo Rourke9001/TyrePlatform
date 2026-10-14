@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -243,30 +244,41 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 	// A conversion, not a field copy: a field added to Identity and not to
 	// store.ActorKey then fails to compile instead of being dropped (TYRE-317).
 	err := s.InActorTx(ctx, store.ActorKey(id), fn)
+	if err == nil {
+		return true
+	}
+	writeActorTxError(ctx, w, id, err)
+	return false
+}
+
+// writeActorTxError answers for a failed InActorTx. It is the half of
+// withActor that needs no database, so the classification is tested with a
+// constructed error.
+func writeActorTxError(ctx context.Context, w http.ResponseWriter, id Identity, err error) {
 	pgRef, isClient := refusalForPgError(err)
 	var ref refusalError
+	var setup *store.ActorSetupError
 	switch {
-	case err == nil:
-		return true
 	case errors.Is(err, store.ErrNoSuchActor):
 		// Deliberately indistinguishable to the client: whether the user is
 		// deactivated, unlinked or simply not in this tenant is not theirs to learn.
 		slog.WarnContext(ctx, "refusing unresolvable actor", actorAttrs(ctx, id)...)
 		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
-		return false
 	case errors.Is(err, store.ErrTenantInactive):
 		slog.WarnContext(ctx, "refusing actor of a tenant that is not active", actorAttrs(ctx, id)...)
 		writeError(ctx, w, http.StatusForbidden, codeTenantInactive, msgTenantInactive)
-		return false
+	case errors.As(err, &setup):
+		// Ahead of isClient, which a wrapped 22P02 also satisfies;
+		// store.ActorSetupError says why this is a 500 (TYRE-383). Logged as
+		// the default arm logs, the error alone (NFR-PRV-007).
+		slog.ErrorContext(ctx, "actor setup failed", "err", err)
+		writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)
 	case errors.Is(err, errForbidden):
 		writeError(ctx, w, http.StatusForbidden, codeForbidden, msgForbidden)
-		return false
 	case errors.Is(err, errVehicleNotVisible):
 		writeError(ctx, w, http.StatusUnprocessableEntity, codeVehicleNotVisible, msgVehicleNotVisible)
-		return false
 	case errors.As(err, &ref):
 		writeError(ctx, w, ref.status, ref.code, ref.message)
-		return false
 	case isClient:
 		// TYRE-421: a 22003 can be a figure the server computed, not one the
 		// client sent, so it leaves the trace the other canned refusals do not.
@@ -276,11 +288,9 @@ func withActor(w http.ResponseWriter, r *http.Request, s *store.Store, fn func(p
 				append(actorAttrs(ctx, id), "sqlstate", pgErr.Code, "err", err)...)
 		}
 		writeError(ctx, w, pgRef.status, pgRef.code, pgRef.message)
-		return false
 	default:
 		slog.ErrorContext(ctx, "actor transaction failed", "err", err)
 		writeError(ctx, w, http.StatusInternalServerError, codeInternal, msgInternal)
-		return false
 	}
 }
 

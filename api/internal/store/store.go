@@ -125,6 +125,16 @@ var ErrNoSuchActor = errors.New("actor not found or inactive")
 // too, because its users are not yet meant to sign in (TYRE-376).
 var ErrTenantInactive = errors.New("tenant is not active")
 
+// ActorSetupError is a failure in one of InActorTx's own steps, before fn
+// runs. Those steps act on the identity the resolver verified, not on what
+// the request asks for, so withActor answers 500 whatever SQLSTATE it wraps,
+// and a held capture is retried rather than failed for good (TYRE-383,
+// ADR-0009).
+type ActorSetupError struct{ Err error }
+
+func (e *ActorSetupError) Error() string { return e.Err.Error() }
+func (e *ActorSetupError) Unwrap() error { return e.Err }
+
 // ActorKey names who a request acts as. Exactly one of UserID and Subject is
 // set (spec section 2, ADR-0016).
 type ActorKey struct {
@@ -143,6 +153,10 @@ var errActorKeyShape = errors.New("actor key must set exactly one of UserID and 
 // can be forged; app.app_user is the register of record, and reading it here
 // is what makes deactivation bite on the next request rather than at token
 // expiry (ADR-0011, NFR-SEC-006).
+//
+// A failure in its own steps is an *ActorSetupError, except ErrNoSuchActor,
+// ErrTenantInactive and a key of the wrong shape. An error from fn comes back
+// as fn returned it, and a commit error is wrapped but not marked.
 func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, auth.Actor) error) error {
 	if (key.UserID == uuid.Nil) == (key.Subject == uuid.Nil) {
 		return errActorKeyShape
@@ -153,17 +167,48 @@ func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, aut
 	// interleaving raises 40001, which submitStatus does not map (TYRE-95).
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 	if err != nil {
-		return fmt.Errorf("beginning actor transaction: %w", err)
+		return &ActorSetupError{Err: fmt.Errorf("beginning actor transaction: %w", err)}
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // rollback after commit is a no-op
 
+	actor, recordSession, err := s.bindActor(ctx, tx, key)
+	switch {
+	case errors.Is(err, ErrNoSuchActor), errors.Is(err, ErrTenantInactive):
+		return err
+	case err != nil:
+		return &ActorSetupError{Err: err}
+	}
+
+	if err := fn(tx, actor); err != nil {
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing actor transaction: %w", err)
+	}
+	// Remembered only once committed, so a rolled-back request cannot lose
+	// the event (spec section 3, FR-AUD-004).
+	if recordSession {
+		s.sessions.add(sessionKey(key))
+	}
+	return nil
+}
+
+// sessionKey is keyed on the tenant too, as the unique index is (000052).
+func sessionKey(key ActorKey) string {
+	return key.TenantID.String() + "/" + key.SessionID
+}
+
+// bindActor is every step of InActorTx before fn, so InActorTx marks all of
+// their failures in one place. It reports whether it recorded the session's
+// first use, which InActorTx remembers only once the transaction commits.
+func (s *Store) bindActor(ctx context.Context, tx pgx.Tx, key ActorKey) (auth.Actor, bool, error) {
 	// app.session_id is bound only for a bearer request; TYRE-201's trigger
 	// will read it, and app.record_session_start() does (FR-AUD-002, FR-AUD-004).
 	if _, err := tx.Exec(ctx,
 		`SELECT set_config('app.tenant_id', $1::text, true),
 		        CASE WHEN $2::text <> '' THEN set_config('app.session_id', $2::text, true) END`,
 		key.TenantID.String(), key.SessionID); err != nil {
-		return fmt.Errorf("binding tenant context: %w", err)
+		return auth.Actor{}, false, fmt.Errorf("binding tenant context: %w", err)
 	}
 
 	lookup, arg := `SELECT id, display_name, role::text, active FROM app.app_user WHERE id = $1`, key.UserID
@@ -177,20 +222,20 @@ func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, aut
 	// tenant, or a subject claimed for the wrong one, is not visible here, so
 	// a wrong or forged tenant needs no branch (ADR-0016 decision 5). role is
 	// cast to text because the enum's OID is not in pgx's type map.
-	err = tx.QueryRow(ctx, lookup, arg).Scan(&actor.UserID, &actor.DisplayName, &roleName, &active)
+	err := tx.QueryRow(ctx, lookup, arg).Scan(&actor.UserID, &actor.DisplayName, &roleName, &active)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNoSuchActor
+		return auth.Actor{}, false, ErrNoSuchActor
 	}
 	if err != nil {
-		return fmt.Errorf("resolving actor: %w", err)
+		return auth.Actor{}, false, fmt.Errorf("resolving actor: %w", err)
 	}
 	if !active {
-		return ErrNoSuchActor
+		return auth.Actor{}, false, ErrNoSuchActor
 	}
 	actor.Role = auth.Role(roleName)
 
 	if _, err := tx.Exec(ctx, `SELECT set_config('app.actor_id', $1, true)`, actor.UserID.String()); err != nil {
-		return fmt.Errorf("binding actor context: %w", err)
+		return auth.Actor{}, false, fmt.Errorf("binding actor context: %w", err)
 	}
 
 	// Checked after the actor resolves, so only a linked user learns the
@@ -198,39 +243,25 @@ func (s *Store) InActorTx(ctx context.Context, key ActorKey, fn func(pgx.Tx, aut
 	var state string
 	if err := tx.QueryRow(ctx,
 		`SELECT state::text FROM app.tenant WHERE id = app.current_tenant_id()`).Scan(&state); err != nil {
-		return fmt.Errorf("reading tenant state: %w", err)
+		return auth.Actor{}, false, fmt.Errorf("reading tenant state: %w", err)
 	}
 	if state != "ACTIVE" {
-		return ErrTenantInactive
+		return auth.Actor{}, false, ErrTenantInactive
 	}
 
 	depots, err := actorDepots(ctx, tx)
 	if err != nil {
-		return err
+		return auth.Actor{}, false, err
 	}
 	actor.DepotIDs = depots
 
-	// Keyed on the tenant too, as the unique index is (000052).
-	sessionKey := key.TenantID.String() + "/" + key.SessionID
-	recordSession := key.SessionID != "" && !s.sessions.has(sessionKey)
+	recordSession := key.SessionID != "" && !s.sessions.has(sessionKey(key))
 	if recordSession {
 		if _, err := tx.Exec(ctx, `SELECT app.record_session_start()`); err != nil {
-			return fmt.Errorf("recording session start: %w", err)
+			return auth.Actor{}, false, fmt.Errorf("recording session start: %w", err)
 		}
 	}
-
-	if err := fn(tx, actor); err != nil {
-		return err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return fmt.Errorf("committing actor transaction: %w", err)
-	}
-	// Remembered only once committed, so a rolled-back request cannot lose
-	// the event (spec section 3, FR-AUD-004).
-	if recordSession {
-		s.sessions.add(sessionKey)
-	}
-	return nil
+	return actor, recordSession, nil
 }
 
 // actorDepots reads the depot scope through the single view that defines it
