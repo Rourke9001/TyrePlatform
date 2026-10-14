@@ -175,8 +175,8 @@ func TestRequireActorSetsSourceFromTheClientAddress(t *testing.T) {
 			netip.MustParseAddr("2001:db8::1")},
 		{"a hop that is not an address is the zero Addr", []string{"unknown"}, 1, "10.0.0.4:443",
 			netip.Addr{}},
-		{"a bracketed IPv6 hop with no port is the zero Addr", []string{"[2001:db8::1]"}, 1, "10.0.0.4:443",
-			netip.Addr{}},
+		{"a bracketed IPv6 hop with no port is unbracketed", []string{"[2001:db8::1]"}, 1, "10.0.0.4:443",
+			netip.MustParseAddr("2001:db8::1")},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
