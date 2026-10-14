@@ -9592,8 +9592,7 @@ ROLLBACK;
 -- already governs; threshold_policy_in_force asks at now() (000054). The
 -- blocks plant at the transaction's own now(), the one instant where the two
 -- readings part, or later, and date their returns today so each resolves at
--- now(); 63a's group rows are -infinity baselines. Every block rolls back,
--- and 63e proves it.
+-- now(). Every block rolls back, and 63e proves it.
 
 \echo '== 63a. a row effective at now() is in force for the now readers and not for an as-at edge at that instant; a row effective after now() is in force for neither; both resolvers share one precedence, at now() and at any instant'
 BEGIN;
