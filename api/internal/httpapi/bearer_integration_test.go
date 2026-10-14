@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -148,4 +149,48 @@ func TestBearerASessionStartIsRecordedOnce(t *testing.T) {
 		`SELECT count(*) FROM app.audit_log WHERE tenant_id = $1 AND session_id = $2 AND action = 'SESSION_START'`,
 		tenantID, "sid:"+claims["sid"].(string)).Scan(&n))
 	require.Equal(t, 1, n)
+}
+
+// FR-AUD-002, FR-AUD-004: through the API, a bearer request's session start
+// and its audited write both carry the address requireActor resolved, and the
+// write carries the token's session. One trusted hop is the default, so the
+// rightmost forwarded entry is the ingress's observation and the forged
+// leftmost one is ignored. Each read names the tenant on the admin
+// connection, so it cannot come back empty for want of a binding
+// (docs/lessons.md, 2026-09-19).
+func TestBearerAuditRowsCarryTheClientAddressAndTheSession(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, unit, _, _, _, _ := plantUnitFixture(t, ctx, admin, "bearer-audit")
+	subject := linkSubject(t, ctx, admin, plantUser(t, ctx, admin, tenantID, auth.RoleController))
+	h, idp := bearerHandler(t, s)
+	claims := idp.Claims(subject, tenantID)
+	session := "sid:" + claims["sid"].(string)
+
+	r := httptest.NewRequest(http.MethodPost, "/api/vehicles/"+unit.String()+"/status",
+		strings.NewReader(`{"status":"PARKED"}`))
+	r.Header.Set(bearer.HeaderName, "Bearer "+idp.Mint(t, claims))
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("X-Forwarded-For", "198.51.100.66, 203.0.113.9:51712")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+
+	var startAddr *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT host(source_ip) FROM app.audit_log
+		  WHERE tenant_id = $1 AND session_id = $2 AND action = 'SESSION_START'`,
+		tenantID, session).Scan(&startAddr))
+	require.NotNil(t, startAddr, "the session start recorded no address")
+	require.Equal(t, "203.0.113.9", *startAddr)
+
+	var writeAddr, writeSession *string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT host(source_ip), session_id FROM app.audit_log
+		  WHERE tenant_id = $1 AND entity_type = 'vehicle' AND entity_id = $2 AND action = 'UPDATE'`,
+		tenantID, unit).Scan(&writeAddr, &writeSession))
+	require.NotNil(t, writeAddr, "the audited write recorded no address")
+	require.Equal(t, "203.0.113.9", *writeAddr)
+	require.NotNil(t, writeSession, "the audited write recorded no session")
+	require.Equal(t, session, *writeSession)
 }

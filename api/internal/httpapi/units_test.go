@@ -942,7 +942,9 @@ func TestPatchUnitFleetNumberConflictIs409(t *testing.T) {
 // is why the handler carries no audit code at all, an implementation that
 // wrote its own row would fail the "exactly one" count. action is filtered to
 // UPDATE because the fixture's own INSERT already wrote a row for this unit
-// with a NULL actor (the trigger fires on both).
+// with a NULL actor (the trigger fires on both). A dev header request has an
+// address and no session, so the row records httptest's client and a NULL
+// session (FR-AUD-002, ADR-0016).
 func TestPatchUnitAuditsTheChange(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -966,17 +968,21 @@ func TestPatchUnitAuditsTheChange(t *testing.T) {
 
 	var actorID, tenantOnRow uuid.UUID
 	var afterDescription string
-	var beforeDescription *string
+	var beforeDescription, source, session *string
 	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT actor_id, tenant_id, after->>'description', before->>'description'
+		`SELECT actor_id, tenant_id, after->>'description', before->>'description',
+		        host(source_ip), session_id
 		   FROM app.audit_log
 		  WHERE entity_type = 'vehicle' AND entity_id = $1 AND action = 'UPDATE'
 		  ORDER BY at DESC, id DESC LIMIT 1`, mine,
-	).Scan(&actorID, &tenantOnRow, &afterDescription, &beforeDescription))
+	).Scan(&actorID, &tenantOnRow, &afterDescription, &beforeDescription, &source, &session))
 	require.Equal(t, controller, actorID, "the acting user is the one the actor transaction bound")
 	require.Equal(t, tenantID, tenantOnRow)
 	require.Equal(t, "audited edit", afterDescription)
 	require.Nil(t, beforeDescription, "the row before the edit carried no description")
+	require.NotNil(t, source, "the audited edit recorded no address")
+	require.Equal(t, "192.0.2.1", *source, "httptest's RemoteAddr, with no forwarded header")
+	require.Nil(t, session, "a dev header request carries no session")
 }
 
 // The WITH CHECK kill for the tag map, the shape admin_test.go's
