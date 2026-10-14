@@ -264,19 +264,20 @@ Production (TYRE-397) has real data, so TYRE-397 decides its own order.
    unset pw enc
    ```
 
-4. **The 000051 check** (TYRE-368 comment 13439). As `tyreadmin`:
+4. **The 000051 and 000054 checks** (TYRE-368 comment 13439, TYRE-299). As `tyreadmin`:
 
    ```bash
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
    docker run --rm -e PGPASSWORD="$pw" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
      "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require" -At \
      -c "SELECT proowner::regrole, proacl FROM pg_proc WHERE oid = 'app.refresh_governing_tread()'::regprocedure;" \
-     -c "SELECT has_function_privilege('app_login', 'app.refresh_governing_tread()', 'EXECUTE');"
+     -c "SELECT has_function_privilege('app_login', 'app.refresh_governing_tread()', 'EXECUTE');" \
+     -c "SELECT has_table_privilege('app_login', 'app.threshold_policy', 'UPDATE');"
    unset pw
    ```
 
-   The ACL holds only the owner's entry and the second query returns `f`.
-   Otherwise the release stops.
+   The ACL holds only the owner's entry, and the second and third queries
+   return `f`. Otherwise the release stops.
 
 5. **Record the release** in the release table on Confluence page 10682399
    (U118): date, environment, image tag, schema version and dirty flag, who

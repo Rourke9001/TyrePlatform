@@ -117,7 +117,7 @@ The code table:
 
 | Source | `code` | Status |
 | --- | --- | --- |
-| Database, named refusals | `TY003`..`TY022` (`TY008`, `TY010`, `TY020` excepted), verbatim — `TY020` is defined in 000040, not mapped: unreachable through any route | 409 / 422 |
+| Database, named refusals | `TY003`..`TY023` (`TY008`, `TY010`, `TY020`, `TY023` excepted), verbatim — `TY020` (000040) and `TY023` (000054) are defined, not mapped: unreachable through any route | 409 / 422 |
 | Database, integrity classes `23502` `23503` `23514` `22P02` `22023` `22007` `22008` | `invalid_submission` | 422 |
 | Database, other unique violation `23505`, and `23P01` (`vehicle_driver_no_overlap`, 000026) | `conflict` | 409 |
 | `errVehicleNotVisible` (Go scope check) | `TY007` | 422 |
@@ -240,3 +240,9 @@ key; it names the same 22 codes and is not machine-checked against the
 schema, so a drift between the two shows up as a documentation review
 finding, not a test failure, until it cites this file instead of repeating
 its own copy.
+
+**Amended 2026-10-14 (TYRE-299):** `TY023` (000054), a threshold policy row
+edited or dated before the transaction that writes it, stays out of the code
+table on `TY008`'s reasoning: no route writes `app.threshold_policy`. Its
+registry entry carries `httpStatus: null` and it has no `submitStatus`
+entry. The ledger in `docs/architecture.md` now names 23 codes.
