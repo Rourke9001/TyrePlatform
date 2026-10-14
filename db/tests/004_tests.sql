@@ -9587,12 +9587,15 @@ ROLLBACK;
 
 \echo '== 63. TYRE-211, TYRE-142: the policy in force now has one inclusive resolver, and one call reads one row (FR-CFG-051, FR-CFG-044, FR-VAL-006)'
 -- An as-at reader passes a day's exclusive edge to threshold_policy_for. A
--- writer asks what is in force at the instant it runs, through
--- threshold_policy_in_force, where a row effective at now() already governs
--- (000048's header). Each block plants at the transaction's own now(), the
--- one instant where the two readings part, and rolls back; 63e proves it.
+-- writer asks what is in force at the instant its call stands for, through
+-- threshold_policy_in_force_at, where a row effective at that instant
+-- already governs; threshold_policy_in_force asks at now() (000054). The
+-- blocks plant at the transaction's own now(), the one instant where the two
+-- readings part, or later, and date their returns today so each resolves at
+-- now(); 63a's group rows are -infinity baselines. Every block rolls back,
+-- and 63e proves it.
 
-\echo '== 63a. a row effective at now() is in force for the now readers and not for an as-at edge at that instant; a row effective after now() is in force for neither; both resolvers share one precedence'
+\echo '== 63a. a row effective at now() is in force for the now readers and not for an as-at edge at that instant; a row effective after now() is in force for neither; both resolvers share one precedence, at now() and at any instant'
 BEGIN;
 DO $$
 DECLARE t1    constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -9604,22 +9607,35 @@ DECLARE t1    constant uuid := '11111111-1111-1111-1111-111111111111';
         psoon constant uuid := md5('t63apsoon')::uuid;
         pday  constant uuid := md5('t63apday')::uuid;
         pfstr constant uuid := md5('t63apfstr')::uuid;
-        pol app.threshold_policy; mm numeric; n int; stray int; props text;
+        base  constant uuid := md5('11111111-1111-1111-1111-111111111111thrpol-default')::uuid;
+        bstr  constant uuid := md5('11111111-1111-1111-1111-111111111111thrpol-steer')::uuid;
+        pol app.threshold_policy; mm numeric; n int; stray int; props text; src text;
         g uuid; c app.axle_class; want uuid; got uuid; edge uuid; wide uuid; steer uuid;
+        inst timestamptz;
 BEGIN
   PERFORM set_config('app.tenant_id', t1::text, true);
 
   -- Invoker rights, so RLS on threshold_policy binds the lookup to the
   -- caller's tenant (check 8c), and no SET clause, the same shape as
-  -- threshold_policy_for.
+  -- threshold_policy_for. The now() resolver keeps the signature
+  -- v_removal_forecast depends on; the instant resolver beside it carries
+  -- the one body (U70).
   SELECT string_agg(p.oid::regprocedure::text || ' ' || l.lanname || ' ' || p.provolatile::text
                     || ' definer=' || p.prosecdef::text
-                    || ' config=' || COALESCE(p.proconfig::text, 'none'), '; ')
+                    || ' config=' || COALESCE(p.proconfig::text, 'none'), '; ' ORDER BY p.proname)
     INTO props
     FROM pg_proc p JOIN pg_language l ON l.oid = p.prolang
-   WHERE p.pronamespace = 'app'::regnamespace AND p.proname = 'threshold_policy_in_force';
-  IF props IS DISTINCT FROM 'threshold_policy_in_force(uuid,uuid,axle_class) sql s definer=false config=none' THEN
-    RAISE EXCEPTION 'FAIL 63a: the in-force resolver reads as [%]', COALESCE(props, 'absent');
+   WHERE p.pronamespace = 'app'::regnamespace
+     AND p.proname IN ('threshold_policy_in_force', 'threshold_policy_in_force_at');
+  IF props IS DISTINCT FROM 'threshold_policy_in_force(uuid,uuid,axle_class) sql s definer=false config=none; threshold_policy_in_force_at(uuid,uuid,axle_class,timestamp with time zone) sql s definer=false config=none' THEN
+    RAISE EXCEPTION 'FAIL 63a: the in-force resolvers read as [%]', COALESCE(props, 'absent');
+  END IF;
+  -- The predicate and the precedence exist once: the now() resolver is a
+  -- projection of the instant resolver, with no FROM of its own.
+  SELECT p.prosrc INTO src FROM pg_proc p
+   WHERE p.oid = 'app.threshold_policy_in_force(uuid,uuid,app.axle_class)'::regprocedure;
+  IF src NOT LIKE '%app.threshold_policy_in_force_at(%now()%' OR src ILIKE '%from%' THEN
+    RAISE EXCEPTION 'FAIL 63a: threshold_policy_in_force carries a body of its own: %', src;
   END IF;
 
   -- The group rows are their scopes' -infinity baselines, behind every
@@ -9695,7 +9711,40 @@ BEGIN
         g, c, got, edge, want;
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  63a a row effective at now() governs current_removal_threshold_mm and the forecast, not an as-at edge at that instant; a row effective after now() governs neither; one precedence';
+  -- The same agreement at instants other than now() (U70): a day on, where
+  -- pday is effective exactly at the instant asked, and in 2021, before
+  -- every finite row, where the group baselines still outrank the seeded
+  -- ones. The expected row is named, so the pair cannot agree by both being
+  -- wrong.
+  FOR inst, g, c, want IN
+    SELECT * FROM (VALUES
+      (now() + interval '1 day', NULL::uuid, NULL::app.axle_class, pday),
+      (now() + interval '1 day', NULL, 'STEER', pfstr),
+      (now() + interval '1 day', NULL, 'DRIVE', pday),
+      (now() + interval '1 day', grp,  NULL,    pgrp),
+      (now() + interval '1 day', grp,  'STEER', pgrp),
+      (now() + interval '1 day', grp,  'DRIVE', pgdr),
+      (timestamptz '2021-06-01 00:00:00+00', NULL, NULL,    base),
+      (timestamptz '2021-06-01 00:00:00+00', NULL, 'STEER', bstr),
+      (timestamptz '2021-06-01 00:00:00+00', NULL, 'DRIVE', base),
+      (timestamptz '2021-06-01 00:00:00+00', grp,  NULL,    pgrp),
+      (timestamptz '2021-06-01 00:00:00+00', grp,  'STEER', pgrp),
+      (timestamptz '2021-06-01 00:00:00+00', grp,  'DRIVE', pgdr)) v
+  LOOP
+    got  := (app.threshold_policy_in_force_at(t1, g, c, inst)).id;
+    edge := (app.threshold_policy_for(t1, g, c, inst + interval '1 microsecond')).id;
+    IF got IS DISTINCT FROM want OR edge IS DISTINCT FROM want THEN
+      RAISE EXCEPTION 'FAIL 63a: at % group % class % resolved % in force and % at the next microsecond, expected %',
+        inst, g, c, got, edge, want;
+    END IF;
+  END LOOP;
+  -- Inclusive against exclusive at that later instant: the as-at edge still
+  -- takes psoon, effective before it, and not pday, effective at it.
+  edge := (app.threshold_policy_for(t1, NULL, NULL, now() + interval '1 day')).id;
+  IF edge IS DISTINCT FROM psoon THEN
+    RAISE EXCEPTION 'FAIL 63a: the as-at edge at now() + 1 day resolved %, expected the row effective just after now()', edge;
+  END IF;
+  RAISE NOTICE 'PASS  63a a row effective at now() governs current_removal_threshold_mm and the forecast, not an as-at edge at that instant; a row effective after now() governs neither; one precedence at now(), a day on and in 2021';
 END $$;
 ROLLBACK;
 
@@ -11084,6 +11133,73 @@ BEGIN
     END IF;
   END LOOP;
   RAISE NOTICE 'PASS  70d three columns gone; threshold and cap carry no default; a warning at or below the retread threshold is refused, a NULL or higher one accepted';
+END $$;
+ROLLBACK;
+
+\echo '== 70e. a back-dated retread return is priced and capped by the policy of its own day, and a return dated today by the policy in force now (U70 item 1, TYRE-310, FR-VAL-020, BR-FIT-009; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac   constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1   constant uuid := md5('sz1')::uuid;
+        pt1   constant uuid := md5('pt1')::uuid;
+        d_rt  constant uuid := md5('t70ert')::uuid;
+        tpast constant uuid := md5('t70etpast')::uuid;  -- retreaded once, returned five days back
+        tnow  constant uuid := md5('t70etnow')::uuid;   -- new, returned today
+        tcap  constant uuid := md5('t70etcap')::uuid;   -- retreaded once, returned today
+        jpast constant uuid := md5('t70ejpast')::uuid;
+        jnow  constant uuid := md5('t70ejnow')::uuid;
+        jcap  constant uuid := md5('t70ejcap')::uuid;
+        tz text; rate numeric; n int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T70E Retreaders', 'RETREADER');
+  -- Raw tyres and jobs, 63b's way: no to_state event, so the return's
+  -- last-movement guard is silent and the policy is what decides.
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status,
+                        retread_count, state) VALUES
+    (tpast, bac, 'T70TYREP', sz1, pt1, 'RETREAD', 1, 'AT_RETREADER'),
+    (tnow,  bac, 'T70TYREN', sz1, pt1, 'NEW',     0, 'AT_RETREADER'),
+    (tcap,  bac, 'T70TYREC', sz1, pt1, 'RETREAD', 1, 'AT_RETREADER');
+  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at) VALUES
+    (jpast, bac, tpast, d_rt, app.tenant_today(tz) - 6),
+    (jnow,  bac, tnow,  d_rt, app.tenant_today(tz) - 6),
+    (jcap,  bac, tcap,  d_rt, app.tenant_today(tz) - 6);
+  -- Over the seeded 4.0 at cap 2, a 6.0 at cap 1 from now().
+  INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm, warning_threshold_mm, max_retreads)
+  VALUES (md5('t70epol')::uuid, bac, 6.0, 8.0, 1);
+
+  -- Five tenant days back the baseline governs both figures: 2500.00 over
+  -- 16.0 - 4.0 mm, and a casing retreaded once is under its cap of 2.
+  BEGIN
+    PERFORM app.log_retread_return(jpast, app.tenant_today(tz) - 5, true, 'T70-RPT-P', 2500.00, 16.0, 800.00);
+  EXCEPTION WHEN sqlstate 'TY015' THEN
+    RAISE EXCEPTION 'FAIL 70e: a return five days back was capped by the row written now: %', SQLERRM;
+  END;
+  SELECT t.rand_per_mm, t.retread_count INTO rate, n FROM app.tyre t WHERE t.id = tpast;
+  IF rate IS DISTINCT FROM 208.3333 OR rate IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, 4.0)
+     OR n IS DISTINCT FROM 2 THEN
+    RAISE EXCEPTION 'FAIL 70e: a return five days back stored % at retread count %, expected 208.3333 (the 4.0 baseline) at 2',
+      rate, n;
+  END IF;
+
+  -- Today the row written now governs both: 2500.00 over 16.0 - 6.0 mm, and
+  -- a casing retreaded once is at its cap of 1.
+  PERFORM app.log_retread_return(jnow, app.tenant_today(tz), true, 'T70-RPT-N', 2500.00, 16.0, 800.00);
+  SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = tnow;
+  IF rate IS DISTINCT FROM 250.0000 OR rate IS DISTINCT FROM app.rand_per_mm(2500.00, 16.0, 6.0) THEN
+    RAISE EXCEPTION 'FAIL 70e: a return today stored %, expected 250.0000 (the 6.0 row in force now)', rate;
+  END IF;
+  got := NULL;
+  BEGIN
+    PERFORM app.log_retread_return(jcap, app.tenant_today(tz), true, 'T70-RPT-C', 2500.00, 16.0, 800.00);
+  EXCEPTION WHEN sqlstate 'TY015' THEN got := SQLERRM;
+  END;
+  IF got IS NULL OR got NOT LIKE '%at a cap of 1;%' THEN
+    RAISE EXCEPTION 'FAIL 70e: a casing retreaded once, returned today, was answered %',
+      COALESCE('TY015 "' || got || '"', 'by an accepted return');
+  END IF;
+  RAISE NOTICE 'PASS  70e five days back the baseline prices 208.3333 and caps at 2; today the row written now prices 250.0000 and caps at 1';
 END $$;
 ROLLBACK;
 

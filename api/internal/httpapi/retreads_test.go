@@ -374,3 +374,39 @@ func TestLogRetreadReturnRejectedCasingIsScrapped(t *testing.T) {
 		jobID).Scan(&zeroValuations))
 	require.Equal(t, 1, zeroValuations, "the rejection is recorded as a valuation, not as an absence")
 }
+
+// U70, TYRE-310: a return resolves its policy at its own day, so a casing
+// returned before the fleet's first policy row has no threshold to be priced
+// against. The refusal names that day, because the fleet does have a policy
+// today and a reader checking today's would see no gap. The first row is
+// dated now(), which an empty scope accepts (000054).
+func TestLogRetreadReturnBeforeTheFirstPolicyRowNamesTheDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "retread-before-policy")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, max_retreads)
+		 VALUES ($1, 4.0, 2)`, tenantID)
+	require.NoError(t, err)
+	jobID, tyreID, _ := plantOpenRetreadJob(t, ctx, admin, tenantID, 3)
+
+	var yesterday string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT (app.tenant_today(tn.timezone) - 1)::text FROM app.tenant tn WHERE tn.id = $1`,
+		tenantID).Scan(&yesterday))
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	rec := post(t, h, "/api/retread-jobs/"+jobID.String()+"/return", tenantID.String(), controller.String(),
+		retreadReturnBody(yesterday, "RPT-BEFORE", "2500.00", "16.0", "800.00"))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY014", ref.Code)
+	require.Equal(t, "no removal threshold is configured for this fleet on "+yesterday, ref.Message)
+
+	var state string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT state::text FROM app.tyre WHERE id = $1`, tyreID).Scan(&state))
+	require.Equal(t, "AT_RETREADER", state, "a refused return left the casing at the retreader")
+}
