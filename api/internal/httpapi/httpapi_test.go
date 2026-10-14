@@ -259,10 +259,11 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 	}
 
 	// The tenant-wide default row app.removal_threshold_mm_for resolves: no
-	// operating_group_id, no axle_class.
+	// operating_group_id, no axle_class, and the -infinity baseline a first
+	// row may carry (SRS §5.1, errata E1).
 	_, err = admin.Exec(ctx,
-		`INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, effective_from)
-		 VALUES ($1, 4.0, 4.0, now() - interval '1 hour')`,
+		`INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, max_retreads, effective_from)
+		 VALUES ($1, 4.0, 2, '-infinity')`,
 		tenantID)
 	require.NoError(t, err)
 
@@ -1051,13 +1052,14 @@ func plantDepotFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, label
 		 RETURNING id`,
 		tenantID, configID).Scan(&pos))
 
-	// Backdated a year so every resolver's strict "effective_from < at"
-	// holds at the planted inspections' submitted_at as well as at now().
-	// The catalogue row is what makes v_exception emit anything (000045
-	// joins app.exception_rule AND enabled).
+	// The policy is the tenant's -infinity baseline (SRS §5.1, errata E1) and
+	// the pressure target is backdated a year, so every resolver's strict
+	// "effective_from < at" holds at the planted inspections' submitted_at as
+	// well as at now(). The catalogue row is what makes v_exception emit
+	// anything (000045 joins app.exception_rule AND enabled).
 	for _, sql := range []string{
-		`INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, scrap_threshold_mm, warning_threshold_mm, effective_from)
-		 VALUES ($1, 4.0, 4.0, 6.0, now() - interval '400 days')`,
+		`INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, warning_threshold_mm, max_retreads, effective_from)
+		 VALUES ($1, 4.0, 6.0, 2, '-infinity')`,
 		`INSERT INTO app.target_pressure (tenant_id, axle_class, target_kpa, effective_from)
 		 VALUES ($1, 'STEER'::app.axle_class, 800, now() - interval '400 days')`,
 		`INSERT INTO app.exception_rule (tenant_id, code, name, enabled, severity)

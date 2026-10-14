@@ -1006,19 +1006,17 @@ func plantRemovedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, tenant
 // threshold_policy row, and an absent cap is TY015 rather than unlimited, so
 // every dispatch and Log Retread fixture needs this one. The threshold is
 // always named so a test can tell the policy's value from any other source
-// (rule 5, TYRE-308); retread_at_or_above_scrap (000012) keeps it at or above
-// scrap_threshold_mm's default of 4.0.
+// (rule 5, TYRE-308).
 //
-// effective_from is backdated for plantRetreadPolicy's reason: both
-// resolvers require effective_from <= now(), and a row stamped by its own
-// DEFAULT now() in an earlier statement is not reliably earlier than the
-// now() the handler's transaction reads.
+// effective_from is -infinity, the tenant's baseline (SRS §5.1, errata E1):
+// it is in force at every instant a dispatch or a dated return resolves at,
+// and it is the one instant before now() a first row may carry (U70).
 func plantFleetRetreadPolicy(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, maxRetreads int, retreadThresholdMm string) {
 	t.Helper()
 	_, err := admin.Exec(ctx,
 		`INSERT INTO app.threshold_policy
 		   (tenant_id, operating_group_id, axle_class, max_retreads, retread_threshold_mm, effective_from)
-		 VALUES ($1, NULL, NULL, $2, $3::numeric, now() - interval '1 hour')`,
+		 VALUES ($1, NULL, NULL, $2, $3::numeric, '-infinity')`,
 		tenantID, maxRetreads, retreadThresholdMm)
 	require.NoError(t, err)
 }
