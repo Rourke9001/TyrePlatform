@@ -616,3 +616,66 @@ func TestADevKeyRecordsNoSessionStart(t *testing.T) {
 		`SELECT count(*) FROM app.audit_log WHERE tenant_id = $1 AND action = 'SESSION_START'`, a.id).Scan(&n))
 	require.Zero(t, n)
 }
+
+// TYRE-383: a fault in InActorTx's own steps comes back marked, so withActor
+// answers 500 whatever SQLSTATE it carries. A cancelled context fails the
+// BEGIN, and a session id holding a NUL byte fails the binding statement,
+// because Postgres stores no NUL in text.
+func TestInActorTxMarksAFaultInItsOwnSteps(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	userID := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	subject := linkSubject(t, ctx, admin, userID)
+	cancelled, cancel := context.WithCancel(ctx)
+	cancel()
+
+	cases := []struct {
+		name string
+		ctx  context.Context
+		key  store.ActorKey
+	}{
+		{"beginning the transaction", cancelled, store.ActorKey{TenantID: a.id, UserID: userID}},
+		{"binding the context", ctx, store.ActorKey{TenantID: a.id, Subject: subject, SessionID: "sid:nul\x00byte"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ran := false
+			err := s.InActorTx(tc.ctx, tc.key, func(pgx.Tx, auth.Actor) error {
+				ran = true
+				return nil
+			})
+			require.False(t, ran, "fn ran after a setup fault")
+			var setup *store.ActorSetupError
+			require.ErrorAs(t, err, &setup)
+		})
+	}
+}
+
+// The two refusals and an error from fn come back unmarked: the refusals keep
+// their 403s, and fn's error is the handler's own work on what the client
+// sent, which keeps today's mapping (TYRE-383). ErrorIs alone would pass
+// through a wrapper, so each case also checks the error is not marked.
+func TestInActorTxLeavesRefusalsAndHandlerErrorsUnmarked(t *testing.T) {
+	ctx := context.Background()
+	s, admin, a, _ := openFixtures(t, ctx)
+	active := plantUser(t, ctx, admin, a.id, auth.RoleDriver, true)
+	inactive := plantUser(t, ctx, admin, a.id, auth.RoleDriver, false)
+	var setup *store.ActorSetupError
+
+	err := s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: inactive}, noop)
+	require.ErrorIs(t, err, store.ErrNoSuchActor)
+	require.False(t, errors.As(err, &setup), "ErrNoSuchActor came back marked")
+
+	setTenantState(t, ctx, admin, a.id, "SUSPENDED")
+	err = s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: active}, noop)
+	require.ErrorIs(t, err, store.ErrTenantInactive)
+	require.False(t, errors.As(err, &setup), "ErrTenantInactive came back marked")
+	setTenantState(t, ctx, admin, a.id, "ACTIVE")
+
+	handlerErr := errors.New("handler refused")
+	err = s.InActorTx(ctx, store.ActorKey{TenantID: a.id, UserID: active}, func(pgx.Tx, auth.Actor) error {
+		return handlerErr
+	})
+	require.ErrorIs(t, err, handlerErr)
+	require.False(t, errors.As(err, &setup), "an error from fn came back marked")
+}

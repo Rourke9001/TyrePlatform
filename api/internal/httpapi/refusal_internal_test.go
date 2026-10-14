@@ -17,10 +17,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
 	req "github.com/stretchr/testify/require" // aliased: see ratelimit_test.go
+
+	"tyreplatform/api/internal/store"
 )
 
 // The Content-Type assertion is the point of this test, not decoration. See
@@ -237,6 +240,53 @@ func TestRefusalForPgErrorIgnoresNonPgErrors(t *testing.T) {
 
 	_, isClient = refusalForPgError(nil)
 	req.False(t, isClient)
+}
+
+// TYRE-383, ruling Q2: a fault in the actor setup answers 500, for the reason
+// store.ActorSetupError gives. The same codes from the handler's work or its
+// commit keep their 4xx, so the outbox still stops on a payload that fails
+// every retry (ADR-0012).
+func TestWriteActorTxErrorAnswersASetupFaultWith500(t *testing.T) {
+	malformed := &pgconn.PgError{Code: "22P02", Message: `invalid input syntax for type inet: "not-an-ip"`}
+	cases := []struct {
+		name   string
+		err    error
+		status int
+		code   string
+	}{
+		{"a 22P02 from the actor setup",
+			&store.ActorSetupError{Err: fmt.Errorf("recording session start: %w", malformed)},
+			http.StatusInternalServerError, codeInternal},
+		{"a TY code from the actor setup",
+			&store.ActorSetupError{Err: &pgconn.PgError{Code: "TY016", Message: "a refusal"}},
+			http.StatusInternalServerError, codeInternal},
+		{"the same 22P02 from the handler",
+			fmt.Errorf("updating unit: %w", malformed),
+			http.StatusUnprocessableEntity, codeInvalidSubmission},
+		{"a unique violation at commit",
+			fmt.Errorf("committing actor transaction: %w", &pgconn.PgError{Code: "23505"}),
+			http.StatusConflict, codeConflict},
+		{"no such actor", store.ErrNoSuchActor, http.StatusForbidden, codeForbidden},
+		{"a tenant that is not active", store.ErrTenantInactive, http.StatusForbidden, codeTenantInactive},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			writeActorTxError(context.Background(), rec, Identity{TenantID: uuid.New(), UserID: uuid.New()}, tc.err)
+			req.Equal(t, tc.status, rec.Code, rec.Body.String())
+			req.Contains(t, rec.Body.String(), `"code":"`+tc.code+`"`)
+		})
+	}
+}
+
+// The 500 tells the client nothing, so the cause goes to the log.
+func TestWriteActorTxErrorLogsTheSetupFault(t *testing.T) {
+	buf := captureLog(t)
+	err := &store.ActorSetupError{Err: fmt.Errorf("recording session start: %w",
+		&pgconn.PgError{Code: "22P02", Message: "bad inet"})}
+	writeActorTxError(context.Background(), httptest.NewRecorder(), Identity{TenantID: uuid.New(), UserID: uuid.New()}, err)
+	req.Contains(t, buf.String(), "recording session start")
+	req.Contains(t, buf.String(), "SQLSTATE 22P02")
 }
 
 // A conflict a form must act on differently from any other conflict carries
