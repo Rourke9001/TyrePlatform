@@ -11246,5 +11246,219 @@ BEGIN
   RAISE NOTICE 'PASS  70f section 70 leaves no residue';
 END $$;
 
+\echo '== 71. TYRE-201: an audit row carries the bound client address and session, and an address that is not one is NULL, never a refusal (FR-AUD-002, FR-AUD-004, TYRE-383)'
+
+\echo '== 71a. an audited insert and update record the address and the session bound for them, IPv4 and IPv6 (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        -- A seeded BAC user: app.vehicle.created_by defaults to the bound
+        -- actor behind a composite FK, so an invented one would kill the
+        -- plant and read as a fault in the trigger (lesson 2026-08-28).
+        act constant uuid := md5('controller1')::uuid;
+        veh constant uuid := md5('t71a')::uuid;
+        cfg uuid; a app.audit_log;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', act::text, true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  IF cfg IS NULL THEN
+    RAISE EXCEPTION 'FAIL 71a: BAC''s veh1 is not visible, so the plant below proves nothing';
+  END IF;
+  PERFORM set_config('app.source_ip', '203.0.113.9', true);
+  PERFORM set_config('app.session_id', 'sid:probe-71a', true);
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (veh, bac, 'T71-A', 'T71A GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = veh AND al.action = 'INSERT';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 71a: the insert wrote no audit row';
+  END IF;
+  -- Against the literals bound above, with IS DISTINCT FROM: a NULL in either
+  -- column fails instead of comparing as unknown, and reading the setting
+  -- back would let two NULLs agree (lesson 2026-08-26).
+  IF a.source_ip IS DISTINCT FROM '203.0.113.9'::inet
+     OR a.session_id IS DISTINCT FROM 'sid:probe-71a' THEN
+    RAISE EXCEPTION 'FAIL 71a: the insert''s audit row records address % and session %',
+      a.source_ip, a.session_id;
+  END IF;
+
+  -- The registration changes, so the trigger's no-op skip cannot swallow
+  -- the UPDATE row this reads.
+  PERFORM set_config('app.source_ip', '2001:db8::1', true);
+  PERFORM set_config('app.session_id', 'sid:probe-71a-two', true);
+  UPDATE app.vehicle SET registration = 'T71A GP2' WHERE id = veh;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = veh AND al.action = 'UPDATE';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 71a: the update wrote no audit row';
+  END IF;
+  IF a.source_ip IS DISTINCT FROM '2001:db8::1'::inet
+     OR a.session_id IS DISTINCT FROM 'sid:probe-71a-two' THEN
+    RAISE EXCEPTION 'FAIL 71a: the update''s audit row records address % and session %',
+      a.source_ip, a.session_id;
+  END IF;
+  RAISE NOTICE 'PASS  71a an audited insert and update record the bound address, IPv4 and IPv6, and the bound session';
+END $$;
+ROLLBACK;
+
+\echo '== 71b. with neither bound, an audited write records no address and no session (as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        act constant uuid := md5('controller1')::uuid;
+        veh constant uuid := md5('t71b')::uuid;
+        cfg uuid; a app.audit_log;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', act::text, true);
+  -- Empty, because a placeholder an earlier transaction set reads as '' once
+  -- that transaction ends, which is what a pooled connection's next request
+  -- sees when InActorTx binds neither.
+  PERFORM set_config('app.source_ip', '', true);
+  PERFORM set_config('app.session_id', '', true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  IF cfg IS NULL THEN
+    RAISE EXCEPTION 'FAIL 71b: BAC''s veh1 is not visible, so the plant below proves nothing';
+  END IF;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (veh, bac, 'T71-B', 'T71B GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = veh AND al.action = 'INSERT';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 71b: the insert wrote no audit row';
+  END IF;
+  IF a.source_ip IS NOT NULL OR a.session_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 71b: with nothing bound the row records address % and session %',
+      a.source_ip, a.session_id;
+  END IF;
+  RAISE NOTICE 'PASS  71b with nothing bound the row records neither an address nor a session';
+END $$;
+ROLLBACK;
+
+\echo '== 71c. an app.source_ip that is not an address, or carries a zone, lets the audited write through with a NULL address and the session still recorded (TYRE-383; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        act constant uuid := md5('controller1')::uuid;
+        veh constant uuid := md5('t71c')::uuid;
+        cfg uuid; a app.audit_log;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', act::text, true);
+  PERFORM set_config('app.session_id', 'sid:probe-71c', true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  IF cfg IS NULL THEN
+    RAISE EXCEPTION 'FAIL 71c: BAC''s veh1 is not visible, so the plant below proves nothing';
+  END IF;
+  PERFORM set_config('app.source_ip', 'not-an-ip', true);
+  BEGIN
+    INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                             unit_kind, home_depot_id, status)
+    VALUES (veh, bac, 'T71-C', 'T71C GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  EXCEPTION WHEN invalid_text_representation THEN
+    RAISE EXCEPTION 'FAIL 71c: an address that is not one refused the insert: %', SQLERRM;
+  END;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = veh AND al.action = 'INSERT';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 71c: the insert wrote no audit row';
+  END IF;
+  IF a.source_ip IS NOT NULL OR a.session_id IS DISTINCT FROM 'sid:probe-71c' THEN
+    RAISE EXCEPTION 'FAIL 71c: with app.source_ip [not-an-ip] the row records address % and session %',
+      a.source_ip, a.session_id;
+  END IF;
+
+  -- PostgreSQL 16 refuses a zone in an inet, so this is a bad address too.
+  PERFORM set_config('app.source_ip', 'fe80::1%eth0', true);
+  BEGIN
+    UPDATE app.vehicle SET registration = 'T71C GP2' WHERE id = veh;
+  EXCEPTION WHEN invalid_text_representation THEN
+    RAISE EXCEPTION 'FAIL 71c: an address with a zone refused the update: %', SQLERRM;
+  END;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle' AND al.entity_id = veh AND al.action = 'UPDATE';
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 71c: the update wrote no audit row';
+  END IF;
+  IF a.source_ip IS NOT NULL OR a.session_id IS DISTINCT FROM 'sid:probe-71c' THEN
+    RAISE EXCEPTION 'FAIL 71c: with app.source_ip [fe80::1%%eth0] the row records address % and session %',
+      a.source_ip, a.session_id;
+  END IF;
+  RAISE NOTICE 'PASS  71c an address that is not one, or carries a zone, records NULL and refuses nothing; the session is still recorded';
+END $$;
+ROLLBACK;
+
+\echo '== 71d. app.record_session_start() stores a session start with a NULL address for an app.source_ip that is not one, and the bound address for one that is (TYRE-383; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE v text; src inet;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
+  FOREACH v IN ARRAY ARRAY['not-an-ip', 'fe80::1%eth0'] LOOP
+    PERFORM set_config('app.source_ip', v, true);
+    PERFORM set_config('app.session_id', 'sid:probe-71d-' || v, true);
+    BEGIN
+      PERFORM app.record_session_start();
+    EXCEPTION WHEN invalid_text_representation THEN
+      RAISE EXCEPTION 'FAIL 71d: a session start with app.source_ip [%] raised instead of storing NULL: %',
+        v, SQLERRM;
+    END;
+    IF NOT EXISTS (SELECT 1 FROM app.audit_log al
+                    WHERE al.action = 'SESSION_START' AND al.session_id = 'sid:probe-71d-' || v
+                      AND al.source_ip IS NULL) THEN
+      RAISE EXCEPTION 'FAIL 71d: no session start with a NULL address for app.source_ip [%]', v;
+    END IF;
+  END LOOP;
+  -- The control: an address that is one is stored, so the NULLs above are
+  -- the helper turning a bad value away, not a writer ignoring the setting.
+  PERFORM set_config('app.source_ip', '203.0.113.9', true);
+  PERFORM set_config('app.session_id', 'sid:probe-71d-good', true);
+  PERFORM app.record_session_start();
+  SELECT al.source_ip INTO src FROM app.audit_log al
+   WHERE al.action = 'SESSION_START' AND al.session_id = 'sid:probe-71d-good';
+  IF src IS DISTINCT FROM '203.0.113.9'::inet THEN
+    RAISE EXCEPTION 'FAIL 71d: a session start records address %, not the one bound', src;
+  END IF;
+  RAISE NOTICE 'PASS  71d a session start stores NULL for an address that is not one, without raising, and the address bound for one that is';
+END $$;
+ROLLBACK;
+
+\echo '== 71e. app.current_source_ip() is STABLE, runs with invoker rights and is executable as app.current_actor_id() is'
+DO $$
+DECLARE r record;
+BEGIN
+  SELECT p.provolatile, p.prosecdef, p.proacl,
+         (SELECT q.proacl FROM pg_proc q WHERE q.oid = 'app.current_actor_id()'::regprocedure) AS ref_acl
+    INTO r
+    FROM pg_proc p WHERE p.oid = to_regprocedure('app.current_source_ip()');
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 71e: app.current_source_ip() does not exist';
+  END IF;
+  IF r.provolatile IS DISTINCT FROM 's' OR r.prosecdef IS DISTINCT FROM false
+     OR r.proacl IS DISTINCT FROM r.ref_acl THEN
+    RAISE EXCEPTION 'FAIL 71e: the helper reads volatility %, definer %, acl %, against app.current_actor_id()''s acl %',
+      r.provolatile, r.prosecdef, r.proacl, r.ref_acl;
+  END IF;
+  RAISE NOTICE 'PASS  71e app.current_source_ip() is STABLE, invoker and granted as app.current_actor_id() is';
+END $$;
+
+\echo '== 71f. nothing section 71 planted outlives its rollback'
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT (SELECT count(*) FROM app.vehicle WHERE fleet_number LIKE 'T71-%')
+       + (SELECT count(*) FROM app.audit_log WHERE session_id LIKE 'sid:probe-71%')
+    INTO n;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 71f: % rows planted by section 71 survived their rollback', n;
+  END IF;
+  RAISE NOTICE 'PASS  71f section 71 leaves no residue';
+END $$;
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
