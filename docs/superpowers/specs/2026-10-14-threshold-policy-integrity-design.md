@@ -153,9 +153,13 @@ start of the day for a past date. That instant is the RETURNED event's
 still serves both the threshold and the cap, so one call cannot read the two
 from different rows (TYRE-142).
 
-Nothing new is stored on `retread_job`. With rows written once (U69) and never
-back-dated (U70), the policy in force at `stamp` cannot change after the
-return, so the rate is re-derivable from the job's own figures and `stamp`.
+Nothing new is stored on `retread_job`. Rows are written once (U69), and none
+is dated before the `BEGIN` of the transaction that writes it (U70). A row is
+seen only from its `COMMIT`, so the policy in force at `stamp` is fixed once
+every policy writer open at `stamp` has committed. The gap is bounded by the
+writing transaction, and a policy row is written by a transaction that does
+nothing else and commits at once (U131). From then the rate is re-derivable
+from the job's own figures and `stamp`, the RETURNED event's `occurred_at`.
 
 The "no removal threshold is configured" refusal (TY014) names the return
 date. Behind a `-infinity` baseline it cannot fire; it fires only for a

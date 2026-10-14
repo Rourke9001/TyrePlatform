@@ -12,8 +12,8 @@ The one file that runs as `postgres` is `db/tests/005_privileged.sql`
 (`make db-test-privileged`): it stages what `app_login` cannot, a composite
 FK removed inside a transaction it rolls back, to watch a definer-chain
 backstop fire, a tenant with no threshold policy in force, which rows
-written once leave no `app_login` route to, or a policy row dated between an
-inspection and its sync, which no role may write (TYRE-299). It is not the
+written once leave no `app_login` route to, or a policy row dated days before
+the transaction that writes it, which no role may write (TYRE-299). It is not the
 suite and proves nothing about isolation: the
 isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
 (NFR-SEC-005).
@@ -121,14 +121,26 @@ a new capture.
 
 `threshold_policy` is written once too (000054): `UPDATE` is revoked from
 `app_rw`, and `threshold_policy_written_once` refuses an `UPDATE` from any
-role (`TY023`). A change is a new row dated now or later;
-`threshold_policy_not_backdated` refuses an earlier `effective_from`, except
-an empty scope's first row at `-infinity` (SRS §5.1, errata E1). There is no
-tolerance, so a writer stamps `DEFAULT now()` or a later instant computed in
-SQL, never one taken from a client clock or before its `BEGIN`. A
-tenant's first row decides its history: provisioning that writes a first
-row dated `DEFAULT now()` can never add a `-infinity` baseline afterwards,
-and the tenant's history before that row stays UNVALUED.
+role (`TY023`). A change is a new row dated no earlier than the `BEGIN` of
+the transaction that writes it; `threshold_policy_not_backdated` refuses an
+earlier `effective_from`, except an empty scope's first row at `-infinity`
+(SRS §5.1, errata E1). There is no tolerance, so a writer stamps `DEFAULT
+now()` or a later instant computed in SQL, never one taken from a client
+clock or before its `BEGIN`. A tenant's first row decides its history:
+provisioning that writes a first row dated `DEFAULT now()` can never add a
+`-infinity` baseline afterwards, and the tenant's history before that row
+stays UNVALUED.
+
+The guarantee holds from the row's `COMMIT`, not its `BEGIN`. A row dated
+`now()` takes effect at the writer's `BEGIN` and is seen only once it
+commits, so a read at an instant in between resolves without it and a later
+read of the same instant resolves to it. A rate stored or an exception
+judged inside that window can then re-resolve to another row (FR-VAL-020).
+The gap is bounded by the writing transaction, so a policy row is written
+by a transaction that does nothing else and commits at once (U131). A
+commit-time check against `clock_timestamp()` would close the gap but
+refuses `DEFAULT now()` rows; it waits for the first route that writes
+policy rows.
 
 Careful: a blanket `GRANT ALL ON ALL TABLES IN SCHEMA app TO app_rw` in a later
 migration silently undoes those revokes. Check 4 catches it.

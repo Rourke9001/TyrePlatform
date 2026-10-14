@@ -70,7 +70,8 @@ BEGIN
   -- history. That is safe only while U5 holds: no as-at reader names a class
   -- or a group, so no past figure moves.
   IF NEW.effective_from = '-infinity' THEN
-    -- Under RLS this sees only the caller's tenant, the only rows it needs.
+    -- Under RLS this sees only the caller's tenant, which is enough because
+    -- WITH CHECK refuses another tenant's row after the trigger (70c).
     -- Two sessions planting one empty scope at once can both pass it; no
     -- route writes this table and provisioning writes a scope's baseline
     -- once, so the spec accepts that race.
@@ -93,11 +94,12 @@ BEFORE INSERT ON app.threshold_policy
 FOR EACH ROW EXECUTE FUNCTION app.threshold_policy_is_not_backdated();
 
 -- One inclusive resolver at any instant (U70 item 1). The predicate and the
--- precedence live here once. threshold_policy_in_force keeps the signature
+-- precedence live here once for the in-force readers. threshold_policy_for
+-- (000045) is the exclusive twin, and section 63 holds the two to one
+-- precedence at any instant. threshold_policy_in_force keeps the signature
 -- and oid v_removal_forecast depends on, as a projection at now(), so the
 -- view, fit_tyre, dispatch_tyre and current_removal_threshold_mm still
--- resolve at now(). Section 63 holds it to threshold_policy_for's precedence
--- at any instant.
+-- resolve at now().
 CREATE FUNCTION app.threshold_policy_in_force_at(p_tenant uuid, p_operating_group uuid,
                                                  p_axle_class app.axle_class, p_at timestamptz)
 RETURNS app.threshold_policy
@@ -119,10 +121,11 @@ LANGUAGE sql STABLE AS $$
 $$;
 
 -- log_retread_return is restated whole, with its signature, defaults and
--- search_path pin, so CREATE OR REPLACE keeps its oid and grants. With rows
--- written once and never back-dated, the policy in force at a return's
--- instant cannot change after it, so the rate stays re-derivable from the
--- job's own figures and its day and nothing new is stored (FR-VAL-006).
+-- search_path pin, so CREATE OR REPLACE keeps its oid and grants. It stores
+-- nothing new. The rate re-derives from the job's figures at the RETURNED
+-- event's occurred_at, the instant it resolved at, which for a return keyed
+-- today is not the start of returned_at (FR-VAL-006). That holds from the
+-- commit of every policy writer open at that instant (U131, db/CLAUDE.md).
 
 -- This is the one place a retread's arithmetic is done. The rate is recomputed
 -- from the retread cost through app.rand_per_mm, so the same implementation
@@ -283,7 +286,7 @@ BEGIN
     IF thr IS NULL THEN
       RAISE EXCEPTION USING ERRCODE = 'TY014',
         MESSAGE = format('no removal threshold is configured for this fleet on %s', p_returned_on),
-        HINT    = 'set retread_threshold_mm on the fleet-wide threshold policy (FR-CFG-044)';
+        HINT    = 'this return predates the first fleet-wide threshold policy row and cannot be priced (FR-CFG-051)';
     END IF;
     -- BR-VAL-002 divides by (tread - threshold), so a casing returned at or
     -- below the threshold has no usable tread and no rate. FR-TYR-019 wants a

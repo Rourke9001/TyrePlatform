@@ -8,10 +8,12 @@
 -- app_login: postgres deletes BAC's tenant-wide row inside the transaction,
 -- then SET LOCAL ROLE app_login runs the probe under RLS (TYRE-299).
 --
--- P8 dates a policy row between an inspection and its sync, which
--- threshold_policy_not_backdated refuses to every role (U70): postgres
--- disables that trigger for the one INSERT and enables it again before the
--- probe runs, inside the rolled-back transaction.
+-- P8 needs a policy row dated days before the transaction that writes it,
+-- to stand in for one written between a capture and its late sync.
+-- threshold_policy_not_backdated refuses a date before the writer's BEGIN to
+-- every role (U70, U131). postgres disables that trigger for the one INSERT
+-- and enables it again before the probe runs, inside the rolled-back
+-- transaction.
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;

@@ -10989,12 +10989,14 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 70c. a row dated before now() is refused as TY023 unless it is an empty scope''s first row at -infinity; now() and later are accepted (as BAC, rolled back)'
+\echo '== 70c. a row dated before now() is refused as TY023 unless it is an empty scope''s first row at -infinity; now() and later are accepted; another tenant''s -infinity row is refused by RLS (as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2  constant uuid := '22222222-2222-2222-2222-222222222222';
         m2  constant text := 'a threshold policy row takes effect when it is written or later, never earlier (FR-CFG-051)';
         m3  constant text := 'this scope already has a threshold policy; only its first row may be the -infinity baseline (SRS 5.1, errata E1)';
+        m4  constant text := '42501 new row violates row-level security policy for table "threshold_policy"';
         c app.axle_class; got text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
@@ -11060,7 +11062,29 @@ BEGIN
     RAISE EXCEPTION 'FAIL 70c: two TRAILER baselines in one statement were answered %',
       COALESCE('TY023 "' || got || '"', 'by accepted rows');
   END IF;
-  RAISE NOTICE 'PASS  70c a past instant is refused in a seeded scope and an empty one; now() and later are accepted; -infinity is accepted once per empty scope, across two statements or within one';
+
+  -- BAC writes a -infinity row for Second Fleet's tenant-wide scope, which
+  -- has its baseline. The trigger cannot see that row under RLS and passes,
+  -- so WITH CHECK is what refuses it. TY023 here would mean the trigger read
+  -- another tenant's rows.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  IF NOT EXISTS (SELECT 1 FROM app.threshold_policy
+                  WHERE tenant_id = t2 AND operating_group_id IS NULL
+                    AND axle_class IS NULL AND effective_from = '-infinity') THEN
+    RAISE EXCEPTION 'FAIL 70c: Second Fleet has no tenant-wide baseline, so the probe below proves nothing';
+  END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  got := NULL;
+  BEGIN
+    INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, max_retreads, effective_from)
+    VALUES (t2, 4.0, 2, '-infinity');
+  EXCEPTION WHEN OTHERS THEN got := SQLSTATE || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM m4 THEN
+    RAISE EXCEPTION 'FAIL 70c: BAC''s -infinity row for Second Fleet was answered %',
+      COALESCE(got, 'by an accepted row');
+  END IF;
+  RAISE NOTICE 'PASS  70c a past instant is refused in a seeded scope and an empty one; now() and later are accepted; -infinity is accepted once per empty scope, across two statements or within one; another tenant''s -infinity row is refused by WITH CHECK';
 END $$;
 ROLLBACK;
 
