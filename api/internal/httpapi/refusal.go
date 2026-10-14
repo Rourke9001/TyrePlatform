@@ -94,9 +94,9 @@ var submitStatus = map[string]int{
 	"TY007": http.StatusUnprocessableEntity,
 
 	// TY009/011-019: fitment (TYRE-92), tyre-lifecycle, unit-status, rig and
-	// task refusals. TY020 and TY008 have no entry; no route can reach
-	// either. See docs/architecture.md's refusal-vocabulary table for the
-	// migration each one came from.
+	// task refusals. TY008, TY020 and TY023 have no entry; no route can
+	// reach any of them. See docs/architecture.md's refusal-vocabulary table
+	// for the migration each one came from.
 	"TY009": http.StatusUnprocessableEntity,
 	"TY011": http.StatusUnprocessableEntity,
 	"TY012": http.StatusUnprocessableEntity,
