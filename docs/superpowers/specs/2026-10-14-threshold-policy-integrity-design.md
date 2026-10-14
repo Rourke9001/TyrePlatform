@@ -14,8 +14,9 @@
   - Valuation: FR-VAL-006, FR-VAL-020, FR-VAL-021, BR-VAL-002.
   - Retread: FR-FIT-021, FR-FIT-022, FR-TYR-019, BR-FIT-009.
   - Exceptions: FR-EXC-020 and FR-EXC-021 (as amended by B7 U2 and U3).
-- **Raised by this spec:** TYRE-424 (the SRS erratum) and TYRE-425 (the
-  same rules for `target_pressure` and `configuration`).
+- **Raised by this spec:** TYRE-425 (the same rules for `target_pressure`
+  and `configuration`). The SRS erratum folded into this ticket (owner, 14
+  Oct 2026; TYRE-299 comment 13723).
 
 ## Why this exists
 
@@ -48,12 +49,12 @@ Owner answers, 14 Oct 2026, in the TYRE-299 spec session:
 
 | # | Question | Answer |
 |---|---|---|
-| Q1 | FR-CFG-010 still requires a scrap threshold and an insurance pair; U68 drops them | Drop all three columns. The SRS is amended through TYRE-424, not worked around |
+| Q1 | FR-CFG-010 still requires a scrap threshold and an insurance pair; U68 drops them | Drop all three columns. The SRS is amended, not worked around: the erratum rows are on TYRE-299, comment 13723 |
 | Q2 | How the back-dated refusal treats the E1 baseline | Refuse `effective_from < now()` with no tolerance; exempt `-infinity` when the row's scope has no row yet |
 | Q3 | How "written once" is enforced | Revoke UPDATE from `app_rw` and add a trigger that refuses every UPDATE |
 | Q4 | Where the retread return resolves its cap | One resolution at the return's instant serves the threshold and the cap |
 | Q5 | `target_pressure` and `configuration` share the defects | Raise a ticket (TYRE-425); this PR stays on policy rows |
-| S1 | A CHECK that the warning threshold sits above the retread threshold | Add it; TYRE-424 restates FR-CFG-012 to match |
+| S1 | A CHECK that the warning threshold sits above the retread threshold | Add it; the erratum restates FR-CFG-012 to match |
 
 The three design sections were approved as presented.
 
@@ -107,7 +108,7 @@ tenant's rows, which are the only rows the exists check needs.
 **Unread columns (U68, Q1).** Drop the `retread_at_or_above_scrap` constraint,
 then `scrap_threshold_mm`, `insurance_minimum_mm` and `insurance_note`. No
 live view or function reads them; 000013:18 inserts them in a data step, which
-is history. TYRE-424 carries the SRS change for FR-CFG-010, FR-CFG-011,
+is history. TYRE-299 comment 13723 carries the SRS change for FR-CFG-010, FR-CFG-011,
 FR-CFG-012, §5.1, Appendix D.2, FR-ANL-004 and the glossary.
 
 **Warning above retread (S1).** `ALTER TABLE app.threshold_policy ADD
@@ -121,7 +122,7 @@ NULL`, so every row states its own numbers. `effective_from DEFAULT now()`
 stays because it is a date, not a threshold. `retreads_permitted DEFAULT
 true` stays: F5 did not name it, and CHG-038 seeds the only `false`.
 FR-CFG-011's 4 mm for a new tenant is met by provisioning writing the
-baseline row (E1), never by a column default; TYRE-424 restates it that way.
+baseline row (E1), never by a column default; the erratum restates it that way.
 
 **TY023** goes in `api/internal/httpapi/refusal_codes.json` with `httpStatus:
 null`: no route reaches it, the same reasoning as TY008 (ADR-0012). Its
@@ -274,7 +275,7 @@ On staging, the REVOKE in 000054 is applied by the owner role, as 000051 was
 
 - One "now" for every current figure: TYRE-244 (U70 item 2).
 - `target_pressure` and `configuration`: TYRE-425.
-- The SRS paste: TYRE-424. TYRE-299's definition of done waits on it.
+- The SRS paste: by hand, from TYRE-299 comment 13723. TYRE-299's definition of done waits on it.
 - `operating_group_id` stays dead until OI-29 settles tenancy.
 - An axle-class row's `retread_threshold_mm` and `max_retreads` stay unread:
   U68 kept U5 tenant-wide for readers.
