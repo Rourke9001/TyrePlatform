@@ -14,8 +14,9 @@ import (
 // Identity is who a request claims to be and where it came from. It carries
 // no role: the role is read from app.app_user on every request, so a stale or
 // forged claim cannot grant anything (ADR-0011). Exactly one of UserID and
-// Subject is set. Source is not taken on trust either: requireActor sets it,
-// never a resolver, and it is only recorded on audit rows (FR-AUD-002).
+// Subject is set. Source is set by requireActor, never by a resolver, is only
+// as right as TRUSTED_PROXY_HOPS (D7), and is only recorded on audit rows
+// (FR-AUD-002).
 type Identity struct {
 	TenantID  uuid.UUID  // the dev header, or the token's tenant claim: a hint RLS proves (ADR-0016)
 	UserID    uuid.UUID  // dev resolver only
@@ -88,8 +89,8 @@ func requireActor(resolver ActorResolver, trustedProxyHops int) func(http.Handle
 			id, err := resolver.Identify(ctx, r)
 			if err == nil {
 				// Set here and never by a resolver, so the audit row names the
-				// address the rate limiter and the refusal log already use
-				// (FR-AUD-002, NFR-SEC-007).
+				// address the rate limiter and the refusal log resolve, normalised
+				// for inet (FR-AUD-002, NFR-SEC-007).
 				id.Source = sourceAddr(client)
 				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, identityKey{}, id)))
 				return
