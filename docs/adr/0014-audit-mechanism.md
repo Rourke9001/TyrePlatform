@@ -163,14 +163,13 @@ platform-admin row would write `tenant_id = NULL` on the audit row, which
 tenant-bound session: a record that exists and that no tenant reader can
 ever see. Neither condition is a fact about `app.vehicle` today; both gate
 widening to `app.app_user`, not this decision. `source_ip` and `session_id`
-are also permanently NULL under this mechanism: `api/internal/store/store.go:108`
-binds only `app.tenant_id` and `app.actor_id` as session GUCs, the two the
-trigger reads, so Option A's request context — actor, session, source IP —
-does not survive the move to a trigger; capturing those two columns would
-need binding them as GUCs of their own, which this decision does not do.
-ADR-0016 binds `app.session_id` and adds `app.record_session_start()`, the one
-writer of this table besides the trigger, for authentication events; TYRE-201
-has the trigger read both GUCs. The
+survive the move to a trigger as GUCs of their own: `store.InActorTx` binds
+`app.session_id` for a bearer request (ADR-0016) and `app.source_ip` when
+the request's client address parses, and the trigger reads both (`000055`).
+A value in `app.source_ip` that is not an address is stored as NULL through
+`app.current_source_ip()`, which both writers of this table read, so an
+audit detail never fails the write it records (TYRE-383). The other writer
+is `app.record_session_start()`, for authentication events (ADR-0016). The
 trigger also says nothing about `DELETE`, so the day a write surface is
 allowed to remove a row, this decision has to be revisited rather than
 assumed to already cover it.

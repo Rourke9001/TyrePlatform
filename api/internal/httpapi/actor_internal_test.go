@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"testing"
 
 	"github.com/google/uuid"
@@ -142,4 +143,60 @@ func TestRequireActorLogsWhatFailedOnA500(t *testing.T) {
 	req.Equal(t, http.StatusInternalServerError, rec.Code)
 	req.Contains(t, buf.String(), `"err":"refused"`)
 	req.Contains(t, buf.String(), `"kid":"key-1"`)
+}
+
+// requireActor, not the resolver, says where a request came from: the
+// address NFR-SEC-007's counter keys on, in the form app.audit_log.source_ip
+// stores (FR-AUD-002, TYRE-383). The resolver presets a Source in every case,
+// so each want proves requireActor replaced it, the zero ones included, and
+// an address the audit row cannot use never refuses the request.
+func TestRequireActorSetsSourceFromTheClientAddress(t *testing.T) {
+	preset := netip.MustParseAddr("198.51.100.1")
+	cases := []struct {
+		name   string
+		xff    []string // one entry per header line, sent with Header.Add
+		hops   int
+		remote string
+		want   netip.Addr
+	}{
+		{"the trusted forwarded hop", []string{"9.9.9.9, 203.0.113.9:51712"}, 1, "10.0.0.4:443",
+			netip.MustParseAddr("203.0.113.9")},
+		{"the second trusted hop from the right", []string{"9.9.9.9, 203.0.113.9:51712, 10.10.10.5:443"}, 2, "10.0.0.4:443",
+			netip.MustParseAddr("203.0.113.9")},
+		{"RemoteAddr with no forwarded header", nil, 1, "192.0.2.7:1234",
+			netip.MustParseAddr("192.0.2.7")},
+		{"RemoteAddr when no hop is trusted", []string{"203.0.113.9"}, 0, "192.0.2.7:1234",
+			netip.MustParseAddr("192.0.2.7")},
+		{"a zone is stripped", nil, 1, "[fe80::1%eth0]:443",
+			netip.MustParseAddr("fe80::1")},
+		{"an IPv4-mapped trusted hop on its own header line is unmapped", []string{"9.9.9.9", "::ffff:203.0.113.9"}, 1, "10.0.0.4:443",
+			netip.MustParseAddr("203.0.113.9")},
+		{"an IPv6 hop stays IPv6", []string{"2001:db8::1"}, 1, "10.0.0.4:443",
+			netip.MustParseAddr("2001:db8::1")},
+		{"a hop that is not an address is the zero Addr", []string{"unknown"}, 1, "10.0.0.4:443",
+			netip.Addr{}},
+		{"a bracketed IPv6 hop with no port is the zero Addr", []string{"[2001:db8::1]"}, 1, "10.0.0.4:443",
+			netip.Addr{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got Identity
+			reached := false
+			resolver := stubResolver{id: Identity{TenantID: uuid.New(), UserID: uuid.New(), Source: preset}}
+			h := requireActor(resolver, tc.hops)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				got, reached = identityFrom(r.Context())
+				w.WriteHeader(http.StatusOK)
+			}))
+			r := httptest.NewRequest(http.MethodGet, "/api/me", nil)
+			r.RemoteAddr = tc.remote
+			for _, line := range tc.xff {
+				r.Header.Add("X-Forwarded-For", line)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, r)
+			req.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			req.True(t, reached, "the handler never saw an identity")
+			req.Equal(t, tc.want, got.Source)
+		})
+	}
 }

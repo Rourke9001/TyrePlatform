@@ -56,6 +56,19 @@ func clientFrom(ctx context.Context) string {
 	return c
 }
 
+// sourceAddr is the client address in the form app.audit_log.source_ip
+// stores. PostgreSQL 16 refuses a zone in an inet and keeps an IPv4-mapped
+// address as IPv6, so both are normalised here. Anything that does not parse
+// is the zero Addr, and the audit row records no address rather than the
+// request failing (TYRE-383).
+func sourceAddr(client string) netip.Addr {
+	a, err := netip.ParseAddr(client)
+	if err != nil {
+		return netip.Addr{}
+	}
+	return a.Unmap().WithZone("")
+}
+
 // requireActor refuses any request it cannot attribute to a user in a
 // tenant. A nil resolver is a deployment with no AUTH_* configured: 503, not
 // 401 (ADR-0016). Every refusal is logged with the client address, which is
@@ -72,6 +85,10 @@ func requireActor(resolver ActorResolver, trustedProxyHops int) func(http.Handle
 			}
 			id, err := resolver.Identify(ctx, r)
 			if err == nil {
+				// Set here and never by a resolver, so the audit row names the
+				// address the rate limiter and the refusal log already use
+				// (FR-AUD-002, NFR-SEC-007).
+				id.Source = sourceAddr(client)
 				next.ServeHTTP(w, r.WithContext(context.WithValue(ctx, identityKey{}, id)))
 				return
 			}
