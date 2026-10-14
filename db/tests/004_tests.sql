@@ -894,48 +894,10 @@ BEGIN
 END $$;
 ROLLBACK;
 
--- A tenant with NO effective threshold row (fresh provisioning, or policy
--- dated forward) must surface every tyre unvalued. GREATEST(0, NULL) is 0,
--- so an unguarded call would silently price the whole estate at R0.00 tread,
--- indistinguishable from a bald fleet. The row's valuation_basis says so out
--- loud (CHG-115): UNVALUED, never a zero.
-BEGIN;
-DO $$
-DECLARE n int;
-BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
-  -- DR-014a revoked DELETE from the app role, and privilege checks do not
-  -- care that a transaction rolls back, so shift the baseline out of reach
-  -- instead of destroying it: effective_from = +infinity makes the row
-  -- unresolvable at every as-at date, which is exactly the "no effective
-  -- policy" condition this check probes.
-  UPDATE app.threshold_policy
-     SET effective_from = 'infinity'
-   WHERE tenant_id = '11111111-1111-1111-1111-111111111111'
-     AND operating_group_id IS NULL AND axle_class IS NULL;
-  SELECT count(*) INTO n FROM app.v_tyre_valuation WHERE tread_value IS NOT NULL;
-  IF n <> 0 THEN
-    RAISE EXCEPTION 'FAIL: % tyres priced with no threshold policy configured', n; END IF;
-  SELECT count(*) INTO n FROM app.v_tyre_valuation WHERE valuation_basis <> 'UNVALUED';
-  IF n <> 0 THEN
-    RAISE EXCEPTION 'FAIL: % rows not labelled UNVALUED with no threshold policy', n; END IF;
-  SELECT unvalued_count INTO n FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
-  IF n IS DISTINCT FROM 27 THEN
-    RAISE EXCEPTION 'FAIL: unvalued_count=% with no threshold policy, expected 27', n; END IF;
-  RAISE NOTICE 'PASS  no threshold policy means unvalued and labelled, never a silent R0.00 estate';
-END $$;
-ROLLBACK;
-
--- The rollback restored the seeded sentinel baseline; prove it, because every
--- later as-at assertion leans on that row (SRS §5.1, errata E1).
-DO $$
-DECLARE v numeric;
-BEGIN
-  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  SELECT tread_value INTO v FROM app.v_estate_valuation WHERE level = 'TENANT' AND location_class = 'ALL';
-  IF v IS DISTINCT FROM 20571.00 THEN
-    RAISE EXCEPTION 'FAIL: totals did not come back after the no-policy probe, got %', v; END IF;
-END $$;
+-- With no threshold policy in force the register is unvalued and labelled,
+-- never a silent R0.00 (CHG-115): db/tests/005_privileged.sql P3. Policy rows
+-- are written once (U69), so only a superuser can stage a configured tenant
+-- with no threshold.
 
 -- Foreign-tenant leakage, asserted from the tenant-2 side: the check-8b sweep
 -- alone is vacuous for a view whose underlying table holds no foreign rows to
@@ -10750,50 +10712,8 @@ BEGIN
   RAISE NOTICE 'PASS  69c section 69 leaves no residue';
 END $$;
 
-\echo '== 69d. with no removal threshold in force, a priced receive is refused as TY011 and an unpriced one lands awaiting cost (U129, TYRE-421; as BAC, rolled back)'
-BEGIN;
-DO $$
-DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
-        sz1 constant uuid := md5('sz1')::uuid;
-        pt1 constant uuid := md5('pt1')::uuid;
-        r record; t app.tyre; got text;
-BEGIN
-  PERFORM set_config('app.tenant_id', bac::text, true);
-  -- Section 17's device: DELETE is revoked (DR-014a), so the fleet-wide
-  -- policy is dated out of reach instead.
-  UPDATE app.threshold_policy
-     SET effective_from = 'infinity'
-   WHERE tenant_id = bac AND operating_group_id IS NULL AND axle_class IS NULL;
-  IF app.current_removal_threshold_mm() IS NOT NULL THEN
-    RAISE EXCEPTION 'FAIL 69d: BAC still has a removal threshold in force, so the refusal cannot be probed';
-  END IF;
-
-  got := NULL;
-  BEGIN
-    PERFORM app.receive_tyres(jsonb_build_object(
-      'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-      'purchase_price', '4319.91', 'cost_source', 'INVOICE'));
-  EXCEPTION WHEN sqlstate 'TY011' THEN got := SQLERRM;
-  END;
-  IF got IS DISTINCT FROM 'this fleet has no removal threshold configured, so a priced tyre cannot be rated; configure the removal threshold first, or receive the tyre without its price' THEN
-    RAISE EXCEPTION 'FAIL 69d: a priced receive with no threshold in force was answered %',
-      coalesce('TY011 "' || got || '"', 'by an accepted receive');
-  END IF;
-
-  -- An unpriced tyre lands in the awaiting-cost backlog (FR-TYR-041).
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
-  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
-  IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL OR t.cost_source <> 'UNKNOWN' THEN
-    RAISE EXCEPTION 'FAIL 69d: an unpriced receive stored price %, rate %, source %',
-      t.purchase_price, t.rand_per_mm, t.cost_source;
-  END IF;
-  IF NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = t.id) THEN
-    RAISE EXCEPTION 'FAIL 69d: an unpriced receive with no threshold in force is not awaiting cost';
-  END IF;
-  RAISE NOTICE 'PASS  69d with no threshold in force a priced receive is refused as TY011 and an unpriced one lands awaiting cost';
-END $$;
-ROLLBACK;
+-- 69d, a receive with no removal threshold in force (U129, TYRE-421), is
+-- db/tests/005_privileged.sql P4, for section 17's reason.
 
 \echo '== 69e. set_tyre_cost refuses a price with UNKNOWN as TY013 and stores an INVOICE or PRICE_LIST_ESTIMATE cost with its rate (U128, TYRE-422; as BAC, rolled back)'
 BEGIN;
@@ -10882,32 +10802,19 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 69g. set_tyre_cost refuses as TY013 a cost it cannot rate, and the tyre stays awaiting cost; a retreaded tyre needs no threshold to be costed (U129, FR-VAL-006, FR-TYR-019; as BAC, rolled back)'
+\echo '== 69g. set_tyre_cost refuses as TY013 a cost it cannot rate, and the tyre stays awaiting cost (U129, FR-VAL-006; as BAC, rolled back)'
+-- With no threshold in force, the refusal and the retreaded tyre it does not
+-- block are db/tests/005_privileged.sql P5, for section 17's reason.
 BEGIN;
 DO $$
 DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         sz1  constant uuid := md5('sz1')::uuid;
         pt1  constant uuid := md5('pt1')::uuid;
         pol  constant uuid := md5('t69gpol')::uuid;
-        d_rt constant uuid := md5('t69grt')::uuid;
-        j    constant uuid := md5('t69gj')::uuid;
-        tz text; thr numeric; r record; t app.tyre; got text; rt uuid; rt_rate numeric;
+        thr numeric; r record; t app.tyre; got text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
-  SELECT x.timezone INTO tz FROM app.tenant x WHERE x.id = bac;
   thr := app.current_removal_threshold_mm();
-
-  -- The guard-agreement control's tyre, retreaded while a threshold is in
-  -- force, 69f's way.
-  SELECT tyre_id INTO rt FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-    'received_date', (app.tenant_today(tz) - 10)::text));
-  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T69G Retreaders', 'RETREADER');
-  UPDATE app.tyre SET state = 'AT_RETREADER' WHERE id = rt;
-  INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
-  VALUES (j, bac, rt, d_rt, app.tenant_today(tz) - 5);
-  PERFORM app.log_retread_return(j, app.tenant_today(tz) - 1, true, 'T69G-RPT', 2500.00, 16.0, 800.00);
-  SELECT rand_per_mm INTO rt_rate FROM app.tyre WHERE id = rt;
 
   -- 0.1 mm of usable tread puts R10 000 000.00 at 10^8 a millimetre, past
   -- rand_per_mm's numeric(12,4), so the bound answers before a bare 22003.
@@ -10979,42 +10886,7 @@ BEGIN
       t.purchase_price, t.rand_per_mm;
   END IF;
 
-  -- Section 17's device, as in 69d: DELETE is revoked (DR-014a), so every
-  -- fleet-wide policy is dated out of reach instead.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
-  UPDATE app.threshold_policy
-     SET effective_from = 'infinity'
-   WHERE tenant_id = bac AND operating_group_id IS NULL AND axle_class IS NULL;
-  IF app.current_removal_threshold_mm() IS NOT NULL THEN
-    RAISE EXCEPTION 'FAIL 69g: BAC still has a removal threshold in force, so the refusal cannot be probed';
-  END IF;
-  got := NULL;
-  BEGIN
-    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
-  EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
-  END;
-  IF got IS DISTINCT FROM 'this fleet has no removal threshold configured, so this tyre''s cost cannot be rated; configure the removal threshold first, then record the cost' THEN
-    RAISE EXCEPTION 'FAIL 69g: a cost with no threshold in force was answered %',
-      coalesce('TY013 "' || got || '"', 'by a stored cost');
-  END IF;
-  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
-  IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL
-     OR NOT EXISTS (SELECT 1 FROM app.v_tyre_awaiting_cost WHERE tyre_id = t.id) THEN
-    RAISE EXCEPTION 'FAIL 69g: a tyre refused with no threshold stored price %, rate % or left the backlog',
-      t.purchase_price, t.rand_per_mm;
-  END IF;
-
-  -- The guard-agreement control: the retreaded tyre's rate does not come
-  -- from its price, so it is costed with no threshold in force.
-  PERFORM app.set_tyre_cost(rt, 4319.91, 'INVOICE');
-  SELECT * INTO t FROM app.tyre WHERE id = rt;
-  IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.rand_per_mm IS DISTINCT FROM rt_rate
-     OR rt_rate IS NULL THEN
-    RAISE EXCEPTION 'FAIL 69g: a retreaded tyre with no threshold in force stored price %, rate % (retread rate %)',
-      t.purchase_price, t.rand_per_mm, rt_rate;
-  END IF;
-  RAISE NOTICE 'PASS  69g a rate past the register, a tread at the threshold, no new tread and no threshold each refused as TY013, the tyre still awaiting cost; a rate under the bound stored; a retreaded tyre costed with no threshold';
+  RAISE NOTICE 'PASS  69g a rate past the register, a tread at the threshold and no new tread each refused as TY013, the tyre still awaiting cost; a rate under the bound stored';
 END $$;
 ROLLBACK;
 
