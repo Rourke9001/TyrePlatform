@@ -1,8 +1,8 @@
 import json
 from seed_policy import (
     RETREAD_THRESHOLD_MM,
-    SCRAP_THRESHOLD_MM,
     WARNING_THRESHOLD_MM,
+    MAX_RETREADS,
     TARGET_KPA,
 )
 
@@ -194,7 +194,9 @@ for tid in [
     L.append("")
     L.append("-- CHG-111: threshold_policy is the one threshold source; no")
     L.append("-- removal_threshold_mm / warning_threshold_mm config key may exist.")
-    L.append("-- 4.0mm retread/scrap pull point cited from seed_policy.py (CFL-012).")
+    L.append(
+        "-- The 4.0mm pull point and the cap are cited from seed_policy.py (CFL-012)."
+    )
     L.append("-- A tenant's FIRST policy rows carry the sentinel -infinity (SRS §5.1,")
     L.append(
         "-- errata E1): the baseline asserts no date before which it did not apply,"
@@ -206,10 +208,10 @@ for tid in [
         "-- change under it. Every deliberate change thereafter is a new dated row."
     )
     L.append(
-        "INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,scrap_threshold_mm,warning_threshold_mm,effective_from)"
+        "INSERT INTO app.threshold_policy (id,tenant_id,retread_threshold_mm,warning_threshold_mm,max_retreads,effective_from)"
     )
     L.append(
-        f"  VALUES (md5('{tid}thrpol-default')::uuid,'{tid}',{RETREAD_THRESHOLD_MM},{SCRAP_THRESHOLD_MM},{WARNING_THRESHOLD_MM},'-infinity');"
+        f"  VALUES (md5('{tid}thrpol-default')::uuid,'{tid}',{RETREAD_THRESHOLD_MM},{WARNING_THRESHOLD_MM},{MAX_RETREADS},'-infinity');"
     )
     L.append(
         "-- CHG-038: retreads are not fitted to steer axles. Fleet practice, not a"
@@ -220,10 +222,10 @@ for tid in [
     L.append("-- rule is data the resolver can reach, not a comment. Part of the same")
     L.append("-- baseline as the default row, so it carries the same sentinel.")
     L.append(
-        "INSERT INTO app.threshold_policy (id,tenant_id,axle_class,retread_threshold_mm,scrap_threshold_mm,warning_threshold_mm,retreads_permitted,effective_from)"
+        "INSERT INTO app.threshold_policy (id,tenant_id,axle_class,retread_threshold_mm,warning_threshold_mm,max_retreads,retreads_permitted,effective_from)"
     )
     L.append(
-        f"  VALUES (md5('{tid}thrpol-steer')::uuid,'{tid}','STEER',{RETREAD_THRESHOLD_MM},{SCRAP_THRESHOLD_MM},{WARNING_THRESHOLD_MM},false,'-infinity');"
+        f"  VALUES (md5('{tid}thrpol-steer')::uuid,'{tid}','STEER',{RETREAD_THRESHOLD_MM},{WARNING_THRESHOLD_MM},{MAX_RETREADS},false,'-infinity');"
     )
     L.append("")
     L.append(

@@ -5,9 +5,8 @@
 # app.threshold_policy_for, app.threshold_policy_in_force and
 # app.target_pressure_for are the only readers in SQL.
 #
-# Both retread and scrap sit at 4.0mm: BAC runs a single pull point today,
-# and 4mm is its policy figure, never a legal claim (CFL-012). The warning
-# band edge is threshold + 2 (B7 spec U3).
+# BAC runs a single pull point today, and 4mm is its policy figure, never a
+# legal claim (CFL-012). The warning band edge is threshold + 2 (B7 spec U3).
 #
 # RETREAD_THRESHOLD_MM is not a tunable default. BAC's seeded rows are the
 # acceptance fixture, so gen_seed_fixture.py derives every fixture tyre's
@@ -17,8 +16,11 @@
 # the Appendix E sections of `make db-test` by design, because that gate is
 # cent-exact against a fixed 4mm pull point (FR-VAL-006).
 RETREAD_THRESHOLD_MM = 4.0
-SCRAP_THRESHOLD_MM = 4.0
 WARNING_THRESHOLD_MM = 6.0
+
+# The seeded tenants' retread cap (FR-CFG-044). The column has no default
+# (rule 5), so every seeded row states it.
+MAX_RETREADS = 2
 
 # Target pressures per axle class (CHG-112, FR-CFG-013). No SPARE entry on
 # purpose: a spare's pressure is unclassifiable, never silently compliant.
