@@ -79,8 +79,10 @@ tx, err := pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.ReadCommitted})
 defer tx.Rollback(ctx)
 _, err = tx.Exec(ctx,
     "SELECT set_config('app.tenant_id', $1, true)", key.TenantID)
-// app.session_id is bound the same way, only when the key carries one (a
-// bearer request); a dev header request has none.
+// app.session_id and app.source_ip are bound in the same statement, each only
+// when the key carries one: a session on a bearer request, an address when
+// requireActor's client address parsed. A dev header request has an address
+// and no session (TYRE-201).
 // The tenant is the token's claim, a hint: the user is found by subject (the
 // Entra oid) under RLS, so a wrong tenant finds no row (ADR-0016). A dev
 // build finds the user by id instead.
