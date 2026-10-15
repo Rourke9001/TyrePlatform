@@ -27,8 +27,9 @@ something nobody supplied:
    eight lines below the default, say the opposite for any capture nobody
    vouched for.
 2. `app.submit_inspection` writes `orientation_known` as `NOT v_spare`
-   (000041:457) and ignores any value in the payload. Only the 2021 backfill
-   can ever store `false` on a non-spare.
+   (000041:457) and ignores any value in the payload. Only a load of
+   pre-convention captures, today the 2021 fixture (`gen_seed_fixture.py`,
+   Manifest CHG-074), can store `false` on a non-spare.
 3. `app.receive_tyres` refuses a future received date with TY012
    (000053:50-51). TY012 means an invalid lifecycle transition or a row the
    tenant cannot see. The code a caller should get is the one for a receive
@@ -77,7 +78,8 @@ orientation_known DROP DEFAULT`. The column stays `NOT NULL`. A new
 `COMMENT ON COLUMN` replaces 000011's and says three things: every writer
 states the value (ADR-0010 rule 2, CHG-011 as amended), `submit_inspection`
 derives it as `NOT is_spare` under FR-INS-029a, and `false` on a non-spare
-comes only from the 2021 backfill or an import under FR-IMP-009.
+comes only from a load of pre-convention captures, the 2021 fixture or an
+import under FR-IMP-009.
 
 **The view.** `DROP VIEW app.v_axle_side_divergence`. Nothing depends on
 it. 000045:202 already reserves the AXLE subject in `app.v_exception` for
