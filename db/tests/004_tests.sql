@@ -3778,14 +3778,20 @@ BEGIN
   -- And prove app_login really is barred from the path that would exercise it,
   -- so the catalog assertion above is not quietly standing in for a check that
   -- could have been behavioural all along.
-  ok := false;
+  -- app_user is audited, so audit_log's policy would answer a row this
+  -- table's policy let through with the same 42501: the message says which
+  -- refused (docs/lessons.md 2026-09-08). WITH CHECK runs before the CHECK
+  -- constraint, so the policy is what answers.
+  got := NULL;
   BEGIN
     INSERT INTO app.app_user (tenant_id, email, display_name, role)
          VALUES (NULL, 'ty30-dup@example.test', 'First', 'PLATFORM_ADMIN');
-  EXCEPTION WHEN insufficient_privilege OR check_violation THEN ok := true;
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
   END;
-  IF NOT ok THEN
-    RAISE EXCEPTION 'FAIL: app_login inserted a NULL-tenant user; the index is no longer the only control here';
+  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "app_user"%' THEN
+    RAISE EXCEPTION 'FAIL: app_login''s NULL-tenant insert was answered %, not by app_user''s own policy; the catalogue check above stands in for a behavioural one only while that policy refuses it',
+      COALESCE(got, 'by an accepted row');
   END IF;
 
   -- (b) An exact-duplicate current assignment multiplies the vehicle through
@@ -5708,7 +5714,7 @@ BEGIN
     RAISE NOTICE 'PASS  43h the tag map is deletable and the tag itself is not';
   END;
 
-  -- (i) ADR-0014's 'loaded, not acted': planted with no actor bound, so
+  -- (i) ADR-0014's NULL actor (no app actor bound): planted with none, so
   -- the INSERT audit row has a NULL actor rather than failing. before IS
   -- NULL is the row shape's other half: a trigger stamping to_jsonb(NEW)
   -- into both columns would make a creation indistinguishable from a no-op

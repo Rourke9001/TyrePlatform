@@ -1044,8 +1044,9 @@ func TestPatchUnitAuditsTheChange(t *testing.T) {
 // TestWriteAimedAtAnotherTenantIsRefused established. Every id is tenant B's
 // own, its unit and its tag, so a composite FK (000012) cannot be what
 // refuses this row: the one thing wrong with it is that tenant A is writing
-// it (lesson 2026-08-28). app.vehicle_tag_map has no created_by column, so
-// that lesson's FK trap has no counterpart to fall into here.
+// it (lesson 2026-08-28). created_by defaults to userA, whose composite FK
+// (000017) would refuse the row too, but as 23503 and only after the policy
+// has answered.
 func TestWriteAimedAtAnotherTenantIsRefused_VehicleTag(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -1072,6 +1073,9 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleTag(t *testing.T) {
 	// 42501 is insufficient_privilege, which is how row-level security
 	// refuses a write it will not admit.
 	require.Equal(t, "42501", pgErr.Code)
+	// By name: the map is audited, and audit_log's policy answers 42501 too
+	// (docs/lessons.md 2026-09-08).
+	require.Contains(t, pgErr.Message, `row-level security policy for table "vehicle_tag_map"`)
 
 	var landed int
 	require.NoError(t, admin.QueryRow(ctx,

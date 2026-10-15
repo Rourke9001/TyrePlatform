@@ -734,6 +734,9 @@ func TestWriteAimedAtAnotherTenantIsRefused_Fitment(t *testing.T) {
 	// 42501 is insufficient_privilege, which is how row-level security
 	// refuses a write it will not admit.
 	require.Equal(t, "42501", pgErr.Code)
+	// By name: the table is audited, and audit_log's policy answers 42501
+	// too (docs/lessons.md 2026-09-08).
+	require.Contains(t, pgErr.Message, `row-level security policy for table "fitment"`)
 
 	var landed int
 	require.NoError(t, admin.QueryRow(ctx,
