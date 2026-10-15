@@ -667,8 +667,9 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 }
 
 // replaceUnitTags writes only the difference, so each link added or removed
-// is one audit entry under the unit (ADR-0014). Why it may delete a link but
-// never a tag name is ADR-0013 decision 7.
+// is one audit entry under the unit (ADR-0014). It may delete a link but
+// never a tag name, because 000035 grants the map's DELETE alone (FR-VEH-041,
+// U6).
 func replaceUnitTags(ctx context.Context, tx pgx.Tx, vehicleID uuid.UUID, tags []string) error {
 	if _, err := tx.Exec(ctx,
 		`INSERT INTO app.vehicle_tag (tenant_id, name)
