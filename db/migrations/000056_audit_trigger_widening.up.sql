@@ -28,17 +28,10 @@ DECLARE
   entity uuid := (audited ->> entity_column)::uuid;
 BEGIN
   -- FR-AUD-001 logs mutations, and an UPDATE that leaves the row identical is
-  -- not one. app.set_vehicle_status refuses a no-op transition outright
-  -- (TY016) for that reason; the unit PATCH is a COALESCE UPDATE, so a client
-  -- resending an unchanged field would otherwise write an entry whose before
-  -- and after are the same row, a log that claims a change nobody made.
-  --
-  -- updated_at/updated_by are out of the comparison because app.stamp_updated
-  -- (000017) is a BEFORE UPDATE trigger and has already written them into NEW
-  -- by the time this AFTER trigger sees it; comparing whole records would
-  -- find every UPDATE distinct. The comparison is on jsonb rather than a
-  -- column list so the function stays attachable to any table by one CREATE
-  -- TRIGGER: '-' on a key the row does not have is a no-op.
+  -- not one (ADR-0014). updated_at/updated_by are set aside because
+  -- app.stamp_updated (000017), a BEFORE UPDATE trigger, has already written
+  -- them into NEW. jsonb keeps the comparison attachable to any table, since
+  -- '-' on a key the row does not have is a no-op.
   IF TG_OP = 'UPDATE'
      AND (old_row - 'updated_at' - 'updated_by')
          IS NOT DISTINCT FROM (new_row - 'updated_at' - 'updated_by') THEN

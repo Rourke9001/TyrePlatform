@@ -426,11 +426,11 @@ END $$;
 ROLLBACK;
 
 \echo '== P9. TYRE-98: a tenant whose unit carries a tag closes, because the audit trigger files nothing for a row its own tenant''s deletion removes (DR-014, ADR-0014)'
--- The control stages the premise on a second tenant: an entry written during
--- a closure fails audit_log_tenant_id_fkey. The closure that succeeds after
--- it therefore succeeds because the trigger stood aside. Nothing here calls
--- app.receive_tyres: display_code_counter has no tenant cascade, and its row
--- would refuse the closure for a reason unrelated to the trigger.
+-- The control, on a second tenant, shows that an entry written during a
+-- closure fails audit_log_tenant_id_fkey, so the closure that succeeds after
+-- it succeeds because the trigger stood aside. Nothing here calls
+-- app.receive_tyres, because display_code_counter has no tenant cascade and
+-- its row would refuse the closure for a reason unrelated to the trigger.
 BEGIN;
 DO $$
 DECLARE t uuid; n int;
