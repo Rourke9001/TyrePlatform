@@ -91,19 +91,20 @@ outside the database that a tenant's row already lives in.
 
 We will use Option B: `app.audit_row_change()` is one generic trigger
 function, `LANGUAGE plpgsql`, `SECURITY INVOKER`,
-`SET search_path = app, pg_temp`, that writes one row per invocation —
+`SET search_path = app, pg_temp`, that writes one row per invocation:
 
 ```
-tenant_id   = NEW.tenant_id
+tenant_id   = the row's tenant_id
 actor_id    = app.current_actor_id()
 action      = TG_OP
 entity_type = TG_TABLE_NAME
-entity_id   = NEW.id
+entity_id   = the row's id, or the column the trigger names (TG_ARGV[0])
 before      = to_jsonb(OLD)   -- NULL on INSERT
-after       = to_jsonb(NEW)
+after       = to_jsonb(NEW)   -- NULL on DELETE
 ```
 
-— attached `AFTER INSERT OR UPDATE FOR EACH ROW` on each audited table, named
+It is attached `AFTER INSERT OR UPDATE FOR EACH ROW` on each audited table,
+with `DELETE` added where the app role may delete, and named
 `<table>_audited` (e.g. `vehicle_audited`). `SECURITY INVOKER` is deliberate,
 not a default left alone: the trigger runs as the writer, so `tenant_isolation`
 on `app.audit_log` evaluates against the writer's own session-bound tenant —
@@ -115,9 +116,26 @@ An UPDATE that changes nothing writes no row: the trigger returns early when
 records changes, and a PATCH that resends a unit's current values is not one —
 `app.set_vehicle_status` refuses the same no-op with TY016 for the same reason.
 
+A table whose rows have no `id` of their own passes the column its entries
+are filed under as the trigger's argument. `app.vehicle_tag_map` passes
+`vehicle_id`, so a tag added to or removed from a unit is an entry under that
+unit (TYRE-98). An UPDATE that moves a link to another unit is filed under
+the unit it moves to, with the old unit in `before`; no route moves one. A
+row with no `tenant_id` column, or no value in the column named, raises: a
+trigger attached with the wrong argument fails its first write instead of
+filing an entry under NULL.
+
+A DELETE files the removed row as `before`, with a NULL `after`. When the
+row's tenant does not exist, the trigger writes nothing. Tenant closure is
+the one physical deletion DR-014 sanctions, and the cascade that removes the
+tenant's rows removes its audit rows too, so an entry written during it would
+fail `audit_log`'s foreign key and the closure with it. A row with a NULL
+tenant passes that key, so its deletion is still filed.
+
 `tenant_id` here departs from ADR-0013 decision 2, which rules that
 `tenant_id` on an insert comes from `app.current_tenant_id()`, never the
-request: the trigger reads `NEW.tenant_id` instead, because
+request: the trigger reads the row's own `tenant_id` instead (`OLD`'s on a
+DELETE), because
 `app.audit_log.tenant_id` is nullable (`000001:504`) and a session-derived
 source would write `tenant_id = NULL` on every seed-loaded or
 superuser-written audit row — a row `tenant_isolation`'s `USING` clause then
@@ -132,7 +150,11 @@ B6.2 (migration `000038`, TYRE-90) attaches it to `app.inspection_task`,
 which that slice gives a create path to; the submit's close (000023) is
 audited under the driver from then on. B6.3.5 R1 (migration `000040`,
 TYRE-164) attaches it to `app.inspection`, which that slice gives its first
-UPDATE path — the void. TYRE-98 carries the wider sweep.
+UPDATE path — the void. TYRE-98 (migration `000056`) attaches it to `app.tyre`, `app.fitment`,
+`app.retread_job`, `app.app_user`, `app.vehicle_driver`,
+`app.threshold_policy`, `app.configuration` and `app.vehicle_tag`, and, with
+`DELETE` and the `vehicle_id` argument, to `app.vehicle_tag_map`. The tables
+that stay unaudited, and why, are listed under Consequences.
 
 ## Consequences
 
@@ -142,45 +164,74 @@ covers a SQL-function write the same way it covers a Go insert because it
 sits on the row, not on the caller. Seed-loaded and suite-planted rows get an
 INSERT audit row with a NULL `actor_id`, because `app.current_actor_id()`
 returns NULL when no actor is bound (`000001:32-35`) rather than failing the
-insert — this is intended, not incidental: a row that entered the system
-without a session behind it is audited as "loaded, not acted," and a reader
-of the audit log can rely on a NULL actor meaning exactly that. `app.tyre`
-and `app.app_user` already carry the unaudited update paths this ADR exists
-to close (Context); widening the trigger to them, plus `app.fitment`,
-`app.retread_job`, `app.vehicle_driver`, `app.threshold_policy` and
-`app.configuration`, is a scope decision for a follow-up ticket, not evidence
-those tables lack a write surface to audit (U4) — raised as TYRE-98 at
-close-out.
+insert. This is intended, not incidental: a NULL actor means no app actor
+was bound, which is a seed, a migration, or an owner action through a
+runbook (`docs/runbooks/provision-a-user.md`). FR-AUD-002 names no field
+that tells those three apart. Since TYRE-98 every table the app role writes
+in place is audited; the tables that stay unaudited are listed below with
+their reasons.
 
-**Bad:** `before`/`after` capture every column on the row, so once the
-trigger reaches `app.app_user` it will carry PII into `app.audit_log` on
-every update, and NFR-PRV-004's 84-month retention-then-pseudonymisation rule
-then has to apply to audit rows as well as the table they describe. A second
-condition sits on that same table: `app.app_user.tenant_id` is nullable —
-NULL for `PLATFORM_ADMIN` (`000001:100`) — so an audited mutation of a
-platform-admin row would write `tenant_id = NULL` on the audit row, which
-`tenant_isolation`'s `USING` clause (`000001:532`) then hides from every
-tenant-bound session: a record that exists and that no tenant reader can
-ever see. Neither condition is a fact about `app.vehicle` today; both gate
-widening to `app.app_user`, not this decision. `source_ip` and `session_id`
+**Bad:** `before`/`after` capture every column on the row, so the entries
+for `app.app_user` carry personal information (email, display name, staff
+number) into `app.audit_log`. Pseudonymising it is deferred again:
+NFR-PRV-004 is outside Appendix H.1, and SRS section 5.3 keeps the audit log
+apart from application logs, so NFR-PRV-007 does not reach it. When
+pseudonymisation is built, it must reach `audit_log.before` and `after` too.
+`app.app_user.tenant_id` is NULL for `PLATFORM_ADMIN` (`000001:100`,
+FR-TEN-002), so such a row's entry carries a NULL tenant, which
+`tenant_isolation`'s `USING` clause (`000001:532`) hides from every tenant
+session. No SRS row names a tenant reader for a platform-level entry, so the
+owning role alone reads it (FR-AUT-003a). `source_ip` and `session_id`
 survive the move to a trigger as GUCs of their own: `store.InActorTx` binds
 `app.session_id` for a bearer request (ADR-0016) and `app.source_ip` when
 the request's client address parses, and the trigger reads both (`000055`).
 A value in `app.source_ip` that is not an address is stored as NULL through
 `app.current_source_ip()`, which both writers of this table read, so an
 audit detail never fails the write it records (TYRE-383). The other writer
-is `app.record_session_start()`, for authentication events (ADR-0016). The
-trigger also says nothing about `DELETE`, so the day a write surface is
-allowed to remove a row, this decision has to be revisited rather than
-assumed to already cover it.
+is `app.record_session_start()`, for authentication events (ADR-0016). A
+table the app role may delete from carries `DELETE` among its trigger's
+events; today that is `app.vehicle_tag_map` alone (ADR-0013 decision 7).
 
 `app.tyre_valuation_asof` (`000036`) pins no `search_path`; the reasoning is
 in 000036's own header comment.
 
+**Unaudited, and why** (TYRE-98). FR-AUD-001's text asks for every
+creation, modification and deletion; leaving the tables below out is an SRS
+change, proposed as an FR-AUD-001 erratum in TYRE-427 (owner ruling U132,
+15 Oct 2026). Once the erratum is pasted, it replaces that ticket key here.
+
+- Insert-only record tables: `tyre_event`, `reading`, `reading_measurement`,
+  `inspection_warning`, `inspection_absent_spare`,
+  `vehicle_odometer_reading`, `casing_valuation` and `tenant_consent`. Each
+  is written once, never updated or deleted by the app role (DR-011, DR-018),
+  and carries DR-013's `created_at` and `created_by`, so each row is its own
+  record of its creation. `threshold_policy` is insert-only too since
+  `000054`, and is audited because TYRE-98 names it.
+- `valuation_snapshot`: a derived cache of `app.tyre_valuation_asof()`
+  (`000006`, `000018`), one row per tyre per date, rebuilt from immutable
+  readings and events, so any date is recomputable.
+- `display_code_counter`: a per-tenant counter with no `id`; its effect is
+  the display code on the audited `tyre` row.
+- `user_depot`: no write path.
+- `inspection_schedule`: no write path yet; TYRE-133 attaches the trigger
+  with the path it adds.
+- Reference and catalogue tables: `depot`, `operating_group`, `tyre_size`,
+  `tyre_brand`, `tyre_pattern`, `tyre_price_list`, `casing_estimate_by_size`,
+  `axle_configuration`, `position`, `target_pressure`, `exception_rule`,
+  `exception`, `notification` and `photo`. No route writes them today. A
+  ticket that adds the first write path attaches the trigger, as U4 and U12
+  already require.
+
+A tag link and a valuation snapshot are deleted, and neither conflicts with
+DR-014: a tag link is a unit's current label, and a snapshot is a derived
+cache over immutable history. Neither is a business record (owner, 14 Oct
+2026, TYRE-98 spec Q4).
+
 **Revisit when:** a table's row is large enough that a full-row `jsonb`
 snapshot on every update becomes a storage concern of its own (fitment or
 reading history, over a long enough tenant lifetime, are the likely
-candidates); when a write surface is given `DELETE`, since `FOR EACH ROW` on
-`INSERT OR UPDATE` captures neither the row nor the fact of its removal; or
+candidates); when a table is given a DELETE path, which adds `DELETE` to its
+trigger's events; when TYRE-426 settles how long a tenant's audit rows
+outlive its closure (SRS section 5.3's 84 months); or
 when CDC infrastructure (Option C) becomes available to the pilot, at which
 point per-table triggers may be worth replacing rather than only extending.
