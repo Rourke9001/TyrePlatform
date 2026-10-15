@@ -2898,30 +2898,32 @@ BEGIN
   -- Section-local fixtures, rolled back with everything else here: reusing
   -- an existing tenant-1 configuration (TRAILER_2AXLE) means these vehicles
   -- get real, valid positions for free, with no new axle configuration to
-  -- build.
+  -- build. The units are trailers because they sit on TRAILER_2AXLE
+  -- (000042's rule, TYRE-224), and no assertion in this section depends on
+  -- the kind.
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-PROBE',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-PROBE',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_probe;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-COMBO',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-COMBO',  md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_combo;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-QUEUED', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-QUEUED', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_queued;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-LATE',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-LATE',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_late;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-ATOMIC', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-ATOMIC', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_atomic;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-GRAN',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-GRAN',   md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_gran;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-TASK-B', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-TASK-B', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_taskb;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind) VALUES
-    (gen_random_uuid(), t_id, 'SEC31-TASK-C', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'HORSE')
+    (gen_random_uuid(), t_id, 'SEC31-TASK-C', md5('11111111-1111-1111-1111-111111111111TRAILER_2AXLE')::uuid, 'TRAILER')
     RETURNING id INTO v_taskc;
 
   SELECT p.id INTO pos_atomic FROM app.position p
@@ -3484,7 +3486,7 @@ BEGIN
          p.axle_class, p.side, p.slot, p.is_spare, p.unit_label, p.axle_type, p.spare_ordinal
     FROM app.position p WHERE p.configuration_id = cfg_v1;
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind)
-  VALUES (gen_random_uuid(), t_id, 'SEC31-SUPER', cfg_v2, 'HORSE') RETURNING id INTO v_super;
+  VALUES (gen_random_uuid(), t_id, 'SEC31-SUPER', cfg_v2, 'TRAILER') RETURNING id INTO v_super;
   SELECT p.id INTO pos_super_v1 FROM app.position p
    WHERE p.configuration_id = cfg_v1 AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
 
