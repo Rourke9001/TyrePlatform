@@ -266,6 +266,9 @@ func TestWriteAimedAtAnotherTenantIsRefused(t *testing.T) {
 	// 42501 is insufficient_privilege, which is how a row-level security
 	// policy refuses a write it will not admit.
 	require.Equal(t, "42501", pgErr.Code)
+	// By name: the table is audited, and audit_log's policy answers 42501
+	// too (docs/lessons.md 2026-09-08).
+	require.Contains(t, pgErr.Message, `row-level security policy for table "vehicle"`)
 
 	var landed int
 	require.NoError(t, admin.QueryRow(ctx,
@@ -383,6 +386,9 @@ func TestWriteAimedAtAnotherTenantIsRefused_AppUser(t *testing.T) {
 	// 42501 is insufficient_privilege, which is how a row-level security
 	// policy refuses a write it will not admit.
 	require.Equal(t, "42501", pgErr.Code)
+	// By name: the table is audited, and audit_log's policy answers 42501
+	// too (docs/lessons.md 2026-09-08).
+	require.Contains(t, pgErr.Message, `row-level security policy for table "app_user"`)
 
 	var landed int
 	require.NoError(t, admin.QueryRow(ctx,
@@ -551,6 +557,9 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver(t *testing.T) {
 	// policy refuses a write it will not admit. 23503 would mean an FK fired
 	// instead of the policy, which means the test's own setup is broken.
 	require.Equal(t, "42501", pgErr.Code)
+	// By name: the table is audited, and audit_log's policy answers 42501
+	// too (docs/lessons.md 2026-09-08).
+	require.Contains(t, pgErr.Message, `row-level security policy for table "vehicle_driver"`)
 
 	var landed int
 	require.NoError(t, admin.QueryRow(ctx,
