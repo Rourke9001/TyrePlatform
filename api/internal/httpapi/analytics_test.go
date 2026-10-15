@@ -209,10 +209,10 @@ func plantBandedTyre(t *testing.T, ctx context.Context, admin *pgx.Conn, f depot
 		 VALUES ($1, $2, $3, $4, $5, 800) RETURNING id`,
 		f.Tenant, inspID, vehicleID, posID, tyreID).Scan(&readingID))
 	_, err = tx.Exec(ctx,
-		`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm)
-		 VALUES ($1, $2, 1, 'OUTER'::app.tread_position, 5.0),
-		        ($1, $2, 2, 'CENTRE'::app.tread_position, 5.1),
-		        ($1, $2, 3, 'INNER'::app.tread_position, 5.2)`,
+		`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known)
+		 VALUES ($1, $2, 1, 'OUTER'::app.tread_position, 5.0, true),
+		        ($1, $2, 2, 'CENTRE'::app.tread_position, 5.1, true),
+		        ($1, $2, 3, 'INNER'::app.tread_position, 5.2, true)`,
 		f.Tenant, readingID)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))

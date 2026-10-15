@@ -327,8 +327,8 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 			tenantID, inspID, motiveID, leftPos, tyreID,
 		).Scan(&readingID))
 		_, err = tx.Exec(ctx,
-			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position)
-			 VALUES ($1, $2, 1, $3::numeric, 'CENTRE'::app.tread_position)`,
+			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position, orientation_known)
+			 VALUES ($1, $2, 1, $3::numeric, 'CENTRE'::app.tread_position, true)`,
 			tenantID, readingID, rd.treadMm)
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit(ctx))
@@ -1129,10 +1129,10 @@ func plantDepotFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, label
 			 VALUES ($1, $2, $3, $4, $5, 800) RETURNING id`,
 			tenantID, inspID, *u.vehicle, pos, *u.tyre).Scan(&readingID))
 		_, err = tx.Exec(ctx,
-			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm)
-			 VALUES ($1, $2, 1, 'OUTER'::app.tread_position, 3.0),
-			        ($1, $2, 2, 'CENTRE'::app.tread_position, 3.5),
-			        ($1, $2, 3, 'INNER'::app.tread_position, 4.0)`,
+			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known)
+			 VALUES ($1, $2, 1, 'OUTER'::app.tread_position, 3.0, true),
+			        ($1, $2, 2, 'CENTRE'::app.tread_position, 3.5, true),
+			        ($1, $2, 3, 'INNER'::app.tread_position, 4.0, true)`,
 			tenantID, readingID)
 		require.NoError(t, err)
 		require.NoError(t, tx.Commit(ctx))
