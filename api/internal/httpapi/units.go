@@ -666,17 +666,18 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// replaceUnitTags is U6's replace-all, in the caller's transaction so no
-// session sees the unit briefly untagged. It is ADR-0013 decision 7's named
-// exception: a tag map row is a unit's current label, not a record of
-// anything that happened, so 000035 restores DELETE for it alone. A tag NAME
-// is shared across units; one unit's edit must never delete a name the rest
-// of the fleet still carries.
+// replaceUnitTags is U6's replace: the unit ends with exactly the named set,
+// in the caller's transaction so no session sees it half tagged. It writes
+// only the difference, because every link it deletes or inserts is an audit
+// entry under the unit (ADR-0014, TYRE-98) and an unchanged tag is not a
+// change. A tag map row is a unit's current label, not a record of anything
+// that happened, so 000035 restores DELETE for it alone (ADR-0013 decision
+// 7). A tag NAME is shared across units; one unit's edit must never delete a
+// name the rest of the fleet still carries.
 func replaceUnitTags(ctx context.Context, tx pgx.Tx, vehicleID uuid.UUID, tags []string) error {
-	if _, err := tx.Exec(ctx,
-		`DELETE FROM app.vehicle_tag_map WHERE vehicle_id = $1`, vehicleID); err != nil {
-		return fmt.Errorf("clearing the tags of unit %s: %w", vehicleID, err)
-	}
+	// Never nil: pgx sends a nil slice as NULL, and tag_id <> ALL (NULL) is
+	// NULL for every row, so clearing the set would delete nothing.
+	tagIDs := make([]uuid.UUID, 0, len(tags))
 	for _, name := range tags {
 		var tagID uuid.UUID
 		if err := tx.QueryRow(ctx,
@@ -685,11 +686,18 @@ func replaceUnitTags(ctx context.Context, tx pgx.Tx, vehicleID uuid.UUID, tags [
 			 RETURNING id`, name).Scan(&tagID); err != nil {
 			return fmt.Errorf("resolving a tag name for unit %s: %w", vehicleID, err)
 		}
-		if _, err := tx.Exec(ctx,
-			`INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id)
-			 VALUES (app.current_tenant_id(), $1, $2)`, vehicleID, tagID); err != nil {
-			return fmt.Errorf("tagging unit %s: %w", vehicleID, err)
-		}
+		tagIDs = append(tagIDs, tagID)
+	}
+	if _, err := tx.Exec(ctx,
+		`DELETE FROM app.vehicle_tag_map
+		  WHERE vehicle_id = $1 AND tag_id <> ALL ($2::uuid[])`, vehicleID, tagIDs); err != nil {
+		return fmt.Errorf("removing tags from unit %s: %w", vehicleID, err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id)
+		 SELECT app.current_tenant_id(), $1, t.id FROM unnest($2::uuid[]) AS t(id)
+		 ON CONFLICT DO NOTHING`, vehicleID, tagIDs); err != nil {
+		return fmt.Errorf("tagging unit %s: %w", vehicleID, err)
 	}
 	return nil
 }

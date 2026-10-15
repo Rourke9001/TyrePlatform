@@ -176,11 +176,12 @@ doing two further jobs beyond the edit itself. It is the existence check,
 where RLS is what makes "no such unit" and "another tenant's unit" the same
 404 (ADR-0011), and its row lock is what serialises two concurrent tag
 replacements on one unit, which a bare SELECT in its place would not. A
-tags-only edit therefore still touches the vehicle row, and writes no audit
-entry for it: `app.audit_row_change` returns early when an UPDATE leaves
-the row identical, so nothing is logged that claims a column moved when
-none did. The tag map rows it does change are not audited, because
-`vehicle_audited` is on `app.vehicle` alone (000035). The UPDATE's scope
+tags-only edit therefore still touches the vehicle row, and writes no
+vehicle audit entry for it: `app.audit_row_change` returns early when an
+UPDATE leaves the row identical, so nothing is logged that claims a column
+moved when none did. `replaceUnitTags` writes only the difference, so the
+edit files one `vehicle_tag_map` entry under the unit for each tag it adds
+or removes, and an unchanged tag files none (ADR-0014, TYRE-98). The UPDATE's scope
 predicate is `unitSource`'s (FR-AUT-008); the read-back is through
 `app.vehicle` deliberately, because the write was authorised against the
 row as it stood, so the editor reads back what they wrote.
