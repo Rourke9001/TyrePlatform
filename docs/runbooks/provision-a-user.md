@@ -22,8 +22,8 @@ link.
   ```
 
 - Every `INSERT` and `UPDATE` below on `app.app_user` files an audit entry
-  under the tenant the step binds, with no actor, because the runbook binds
-  no app user (ADR-0014).
+  under the row's tenant, which each step's binding scopes, with no actor,
+  because the runbook binds no app user (ADR-0014).
 - Each step says what it expects. Anything else, a count or a value:
   `ROLLBACK;` and stop, before `COMMIT`.
 - The binding scopes each statement through its WHERE clause

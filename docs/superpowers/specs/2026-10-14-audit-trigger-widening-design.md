@@ -88,8 +88,8 @@ Adding a function). Its body:
   audit rows too, so a row written here would be refused by the foreign key
   and fail the closure. Any other error refuses the DELETE: an `app_rw`
   session that cannot see its own tenant fails `audit_log`'s policy and is
-  refused, never skipped. INSERT and UPDATE file outside the block, which
-  costs a subtransaction per row.
+  refused, never skipped. The block costs a subtransaction per row, so
+  INSERT and UPDATE, which meet no closure, file outside it.
 - **`source_ip` and `session_id`** are read as 000055 reads them.
 - `tenant_id` still comes from the row, never from the session (ADR-0014).
 
@@ -142,7 +142,8 @@ triggers are gone and the six earlier ones remain.
 requested tag set, in the caller's transaction, after `patchUnit`'s UPDATE
 has locked the vehicle row (`docs/architecture.md`).
 
-- It resolves each requested name to a tag id with today's upsert, first.
+- It inserts the requested names with one `INSERT ... ON CONFLICT DO
+  NOTHING`, ordered by name, then reads their ids with one SELECT.
 - It deletes the unit's map rows whose tag id is not in the resolved set.
 - It inserts the resolved ids with `ON CONFLICT DO NOTHING`.
 
@@ -151,9 +152,9 @@ tag removed and one INSERT row per tag added, each with
 `entity_type = 'vehicle_tag_map'` and `entity_id` the unit. An unchanged
 tag writes nothing.
 
-Reusing a name writes nothing to `vehicle_tag`'s audit either: the upsert's
-`ON CONFLICT DO UPDATE SET name = EXCLUDED.name` changes no column the
-no-op skip compares. Only a new name writes a `vehicle_tag` INSERT row.
+Reusing a name writes nothing to `vehicle_tag`'s audit either: a reused
+name inserts nothing, so it files nothing. Only a new name writes a
+`vehicle_tag` INSERT row.
 
 `patchUnit`'s doc comment and `docs/architecture.md` both say a tags-only
 edit writes no audit entry and that tag map rows are not audited. Both
@@ -178,10 +179,12 @@ Suite section 72 (`db/tests/004_tests.sql`, as `app_login`):
   `app_user`, and an UPDATE of a `configuration` row.
 - **72c, cross-tenant forge.** For each table, an INSERT naming another
   tenant's `tenant_id` is refused by that table's own policy (42501 on the
-  table, not on `audit_log`), and no audit row lands in either tenant.
+  table, not on `audit_log`).
 - **72d, the tag map.** A DELETE writes one row with `action = 'DELETE'`,
-  `entity_id` the unit, `before` the map row and `after` NULL. The skip on a
-  missing tenant is not reachable as `app_login` and is proven in 005.
+  `entity_id` the unit, `before` the map row and `after` NULL. A DELETE
+  that unbinds or switches its tenant mid-statement is refused by
+  `audit_log`'s policy and files nothing; the closure's foreign-key catch
+  is proven in 005 (P9).
 - **72e, the entity argument.** A trigger naming a column the row lacks
   raises rather than writing a NULL `entity_id`. The probe stages its own
   throwaway table and trigger and rolls them back; the plan chooses where it

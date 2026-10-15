@@ -62,10 +62,8 @@ BEGIN
   IF TG_OP = 'DELETE' THEN
     -- Tenant closure is the one physical deletion (DR-014), and its cascade
     -- removes the tenant's audit rows too, so an entry filed during it fails
-    -- audit_log_tenant_id_fkey. That failure alone is swallowed. An app_rw
-    -- session that cannot see its own tenant fails audit_log's policy instead
-    -- and is refused, never skipped (TYRE-98). A NULL tenant passes the key,
-    -- so a platform row's deletion is still filed.
+    -- audit_log_tenant_id_fkey. That failure alone is swallowed. Every other
+    -- DELETE files or is refused as ADR-0014 says.
     BEGIN
       INSERT INTO app.audit_log (tenant_id, actor_id, action, entity_type, entity_id,
                                  before, after, source_ip, session_id)
@@ -77,8 +75,8 @@ BEGIN
       END IF;
     END;
   ELSE
-    -- An INSERT or UPDATE meets no closure, so it files without the EXCEPTION
-    -- block, which costs a subtransaction per row (TYRE-98).
+    -- The EXCEPTION block costs a subtransaction per row, so an INSERT or
+    -- UPDATE, which meets no closure, files outside it (TYRE-98).
     INSERT INTO app.audit_log (tenant_id, actor_id, action, entity_type, entity_id,
                                before, after, source_ip, session_id)
     VALUES (row_tenant, actor, TG_OP, TG_TABLE_NAME, entity, old_row, new_row, addr, sess);

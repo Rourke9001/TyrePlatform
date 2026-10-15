@@ -134,8 +134,8 @@ any other error refuses the statement. An `app_rw` session that cannot see
 its own tenant, because it unbound or switched `app.tenant_id` partway
 through its own DELETE, fails `audit_log`'s policy and is refused, never
 skipped (TYRE-98). A row with a NULL tenant passes the key, so its deletion
-is still filed. An INSERT or UPDATE meets no closure and files outside the
-block, which costs a subtransaction per row.
+is still filed. The block costs a subtransaction per row, so an INSERT or
+UPDATE, which meets no closure, files outside it.
 
 `tenant_id` here departs from ADR-0013 decision 2, which rules that
 `tenant_id` on an insert comes from `app.current_tenant_id()`, never the
