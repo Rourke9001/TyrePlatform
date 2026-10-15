@@ -21,6 +21,9 @@ link.
   COMMIT;
   ```
 
+- Every `INSERT` and `UPDATE` below on `app.app_user` files an audit entry
+  under the tenant the step binds, with no actor, because the runbook binds
+  no app user (ADR-0014).
 - Each step says what it expects. Anything else, a count or a value:
   `ROLLBACK;` and stop, before `COMMIT`.
 - The binding scopes each statement through its WHERE clause
@@ -290,6 +293,4 @@ again (step 2) and disable their Entra account (step 3).
 ## Not covered here
 
 - Deactivating from the app: TYRE-377.
-- An audit row for the subject link: `app.app_user` writes are unaudited
-  until TYRE-98.
 - A person who needs two tenants needs two Entra accounts (ADR-0016).
