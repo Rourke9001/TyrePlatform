@@ -666,27 +666,25 @@ func patchUnit(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// replaceUnitTags is U6's replace: the unit ends with exactly the named set,
-// in the caller's transaction so no session sees it half tagged. It writes
-// only the difference, because every link it deletes or inserts is an audit
-// entry under the unit (ADR-0014, TYRE-98) and an unchanged tag is not a
-// change. A tag map row is a unit's current label, not a record of anything
-// that happened, so 000035 restores DELETE for it alone (ADR-0013 decision
-// 7). A tag NAME is shared across units; one unit's edit must never delete a
-// name the rest of the fleet still carries.
+// replaceUnitTags writes only the difference, so each link added or removed
+// is one audit entry under the unit (ADR-0014). Why it may delete a link but
+// never a tag name is ADR-0013 decision 7.
 func replaceUnitTags(ctx context.Context, tx pgx.Tx, vehicleID uuid.UUID, tags []string) error {
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO app.vehicle_tag (tenant_id, name)
+		 SELECT app.current_tenant_id(), n FROM unnest($1::text[]) n ORDER BY n
+		 ON CONFLICT (tenant_id, name) DO NOTHING`, tags); err != nil {
+		return fmt.Errorf("creating tag names for unit %s: %w", vehicleID, err)
+	}
+	rows, err := tx.Query(ctx, `SELECT id FROM app.vehicle_tag WHERE name = ANY($1)`, tags)
+	if err != nil {
+		return fmt.Errorf("resolving tag names for unit %s: %w", vehicleID, err)
+	}
 	// Never nil: pgx sends a nil slice as NULL, and tag_id <> ALL (NULL) is
 	// NULL for every row, so clearing the set would delete nothing.
-	tagIDs := make([]uuid.UUID, 0, len(tags))
-	for _, name := range tags {
-		var tagID uuid.UUID
-		if err := tx.QueryRow(ctx,
-			`INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (app.current_tenant_id(), $1)
-			 ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
-			 RETURNING id`, name).Scan(&tagID); err != nil {
-			return fmt.Errorf("resolving a tag name for unit %s: %w", vehicleID, err)
-		}
-		tagIDs = append(tagIDs, tagID)
+	tagIDs, err := pgx.AppendRows(make([]uuid.UUID, 0, len(tags)), rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return fmt.Errorf("reading tag ids for unit %s: %w", vehicleID, err)
 	}
 	if _, err := tx.Exec(ctx,
 		`DELETE FROM app.vehicle_tag_map

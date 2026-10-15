@@ -11565,6 +11565,7 @@ DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         cf   constant uuid := md5('t72b-config')::uuid;
         sz1  constant uuid := md5('sz1')::uuid;
         pt1  constant uuid := md5('pt1')::uuid;
+        tag_names constant text[] := ARRAY['T72B Tag'];
         cfg uuid; pos uuid; tz text; ta uuid; fit uuid; job uuid; usr uuid; vd uuid;
         tg uuid; tg_again uuid; a app.audit_log; n int;
 BEGIN
@@ -11707,31 +11708,33 @@ BEGIN
     RAISE EXCEPTION 'FAIL 72b: the configuration edit is filed as % to %', a.before->'value', a.after->'value';
   END IF;
 
-  -- vehicle_tag and the map: the unit edit's statements (units.go).
-  INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (app.current_tenant_id(), 'T72B Tag')
-  ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
-  RETURNING id INTO tg;
+  -- vehicle_tag and the map: the unit edit's statements (units.go), with
+  -- tag_names for its $1 and nm for its alias, since n is a variable here.
+  INSERT INTO app.vehicle_tag (tenant_id, name)
+  SELECT app.current_tenant_id(), nm FROM unnest(tag_names) nm ORDER BY nm
+  ON CONFLICT (tenant_id, name) DO NOTHING;
+  SELECT t.id INTO tg FROM app.vehicle_tag t WHERE t.name = ANY(tag_names);
   a := pg_temp.t72_one('vehicle_tag', tg, 'INSERT', bac, act);
   IF a.before IS NOT NULL OR a.after->>'name' IS DISTINCT FROM 'T72B Tag' THEN
     RAISE EXCEPTION 'FAIL 72b: the new tag is filed with before % and name %', a.before, a.after->>'name';
   END IF;
-  -- Reusing the name: DO UPDATE stamps updated_at and changes no column the
-  -- no-op skip compares, so it files nothing.
-  INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (app.current_tenant_id(), 'T72B Tag')
-  ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
-  RETURNING id INTO tg_again;
-  IF tg_again IS DISTINCT FROM tg THEN
-    RAISE EXCEPTION 'FAIL 72b: the second upsert resolved % and the first %', tg_again, tg;
+  -- Reusing the name inserts nothing, so it files nothing, and the name
+  -- still resolves to the same tag.
+  INSERT INTO app.vehicle_tag (tenant_id, name)
+  SELECT app.current_tenant_id(), nm FROM unnest(tag_names) nm ORDER BY nm
+  ON CONFLICT (tenant_id, name) DO NOTHING;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 72b: reusing a tag name inserted % rows', n;
   END IF;
-  -- The control: updated_at is NULL until the first UPDATE, so a stamp means
-  -- the update arm ran and the zero below is the skip's.
-  IF (SELECT t.updated_at FROM app.vehicle_tag t WHERE t.id = tg) IS NULL THEN
-    RAISE EXCEPTION 'FAIL 72b: the second upsert never reached its update arm, so the zero below proves nothing';
+  SELECT t.id INTO tg_again FROM app.vehicle_tag t WHERE t.name = ANY(tag_names);
+  IF tg_again IS DISTINCT FROM tg THEN
+    RAISE EXCEPTION 'FAIL 72b: the reused name resolved % and the new one %', tg_again, tg;
   END IF;
   SELECT count(*) INTO n FROM app.audit_log al
-   WHERE al.entity_type = 'vehicle_tag' AND al.entity_id = tg AND al.action = 'UPDATE';
-  IF n <> 0 THEN
-    RAISE EXCEPTION 'FAIL 72b: reusing a tag name filed % UPDATE entries', n;
+   WHERE al.entity_type = 'vehicle_tag' AND al.entity_id = tg;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 72b: reusing a tag name left % entries for the tag, not its one INSERT', n;
   END IF;
   INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id)
   VALUES (app.current_tenant_id(), vu, tg);
