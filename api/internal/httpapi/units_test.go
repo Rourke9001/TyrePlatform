@@ -877,10 +877,8 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	require.NoError(t, json.Unmarshal(afterBlank.Body.Bytes(), &afterBlankBody))
 	require.Equal(t, []string{"REEFER"}, afterBlankBody.Tags, "a refused edit changes no tag")
 
-	// A repeated name is one tag. Without the de-duplication the second map
-	// insert would meet the map primary key and answer 409, so this asserts
-	// how the handler reads the request rather than what the constraint does.
-	// It is also the set the unit already carries, so it files nothing.
+	// A repeated name reads back as one tag, and as the set the unit already
+	// carries it files nothing.
 	deduped := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
 		`{"tags":["REEFER","REEFER"]}`)
 	require.Equal(t, []string{"REEFER"}, deduped.Tags)
