@@ -24,9 +24,23 @@ DECLARE
   -- A table whose rows have no id of their own names the column its entries
   -- are filed under, as the tag map files under its unit (TYRE-98).
   entity_column text := COALESCE(TG_ARGV[0], 'id');
-  row_tenant uuid := (audited ->> 'tenant_id')::uuid;
-  entity uuid := (audited ->> entity_column)::uuid;
+  row_tenant uuid;
+  entity uuid;
+  actor uuid;
+  addr inet;
+  sess text;
+  failed_key text;
 BEGIN
+  -- A trigger attached to a table without these, or naming the wrong column,
+  -- fails its first write instead of filing an entry no reader can find.
+  IF NOT (audited ? 'tenant_id') THEN
+    RAISE EXCEPTION 'app.audit_row_change: %.% has no tenant_id column',
+      TG_TABLE_SCHEMA, TG_TABLE_NAME;
+  END IF;
+  IF audited ->> entity_column IS NULL THEN
+    RAISE EXCEPTION 'app.audit_row_change: %.% row has no value in %, the column its entries are filed under',
+      TG_TABLE_SCHEMA, TG_TABLE_NAME, entity_column;
+  END IF;
   -- FR-AUD-001 logs mutations, and an UPDATE that leaves the row identical is
   -- not one (ADR-0014). updated_at/updated_by are set aside because
   -- app.stamp_updated (000017), a BEFORE UPDATE trigger, has already written
@@ -37,32 +51,38 @@ BEGIN
          IS NOT DISTINCT FROM (new_row - 'updated_at' - 'updated_by') THEN
     RETURN NULL;
   END IF;
-  -- DR-014: tenant closure is the one physical deletion, and its cascade
-  -- removes the tenant's audit rows with the rest, so an entry written here
-  -- would fail audit_log_tenant_id_fkey and the closure with it. A NULL
-  -- tenant passes that key, so a platform row's deletion is still filed.
-  IF TG_OP = 'DELETE' AND row_tenant IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM app.tenant t WHERE t.id = row_tenant) THEN
-    RETURN NULL;
+  row_tenant := (audited ->> 'tenant_id')::uuid;
+  entity := (audited ->> entity_column)::uuid;
+  actor := app.current_actor_id();
+  -- FR-AUD-002, read as app.record_session_start() reads them. Unbound is
+  -- NULL: a seed or suite write binds neither, and a dev header request
+  -- carries no session (ADR-0016).
+  addr := app.current_source_ip();
+  sess := nullif(current_setting('app.session_id', true), '');
+  IF TG_OP = 'DELETE' THEN
+    -- Tenant closure is the one physical deletion (DR-014), and its cascade
+    -- removes the tenant's audit rows too, so an entry filed during it fails
+    -- audit_log_tenant_id_fkey. That failure alone is swallowed. An app_rw
+    -- session that cannot see its own tenant fails audit_log's policy instead
+    -- and is refused, never skipped (TYRE-98). A NULL tenant passes the key,
+    -- so a platform row's deletion is still filed.
+    BEGIN
+      INSERT INTO app.audit_log (tenant_id, actor_id, action, entity_type, entity_id,
+                                 before, after, source_ip, session_id)
+      VALUES (row_tenant, actor, TG_OP, TG_TABLE_NAME, entity, old_row, new_row, addr, sess);
+    EXCEPTION WHEN foreign_key_violation THEN
+      GET STACKED DIAGNOSTICS failed_key = CONSTRAINT_NAME;
+      IF failed_key IS DISTINCT FROM 'audit_log_tenant_id_fkey' THEN
+        RAISE;
+      END IF;
+    END;
+  ELSE
+    -- An INSERT or UPDATE meets no closure, so it files without the EXCEPTION
+    -- block, which costs a subtransaction per row (TYRE-98).
+    INSERT INTO app.audit_log (tenant_id, actor_id, action, entity_type, entity_id,
+                               before, after, source_ip, session_id)
+    VALUES (row_tenant, actor, TG_OP, TG_TABLE_NAME, entity, old_row, new_row, addr, sess);
   END IF;
-  -- A trigger attached to a table without these, or naming the wrong column,
-  -- fails its first write instead of filing an entry no reader can find.
-  IF NOT (audited ? 'tenant_id') THEN
-    RAISE EXCEPTION 'app.audit_row_change: %.% has no tenant_id column',
-      TG_TABLE_SCHEMA, TG_TABLE_NAME;
-  END IF;
-  IF entity IS NULL THEN
-    RAISE EXCEPTION 'app.audit_row_change: %.% row has no value in %, the column its entries are filed under',
-      TG_TABLE_SCHEMA, TG_TABLE_NAME, entity_column;
-  END IF;
-  INSERT INTO app.audit_log (tenant_id, actor_id, action, entity_type, entity_id,
-                             before, after, source_ip, session_id)
-  VALUES (row_tenant, app.current_actor_id(), TG_OP, TG_TABLE_NAME, entity,
-          old_row, new_row,
-          -- FR-AUD-002, read as app.record_session_start() reads them. Unbound
-          -- is NULL: a seed or suite write binds neither, and a dev header
-          -- request carries no session (ADR-0016).
-          app.current_source_ip(), nullif(current_setting('app.session_id', true), ''));
   RETURN NULL;
 END $$;
 
