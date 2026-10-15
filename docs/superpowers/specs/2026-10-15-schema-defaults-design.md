@@ -55,6 +55,7 @@ Owner answers, 15 Oct 2026, in the TYRE-175 spec session:
 | Q2 | Lane 4 F5, the submit path | Document it. The column comment says submit derives the value; `submit_inspection` is not redefined, so TYRE-283 keeps that function to itself |
 | Q3 | The receive future-date code | TY011, `receive_tyres`' own refusal code and one the Receive form already speaks. `dispose_tyre` keeps TY012, its code for every refusal |
 | Q4 | How far the kind fix goes | Section 31 only, its units become TRAILER. The ~20 TRAILER, RIGID and LIGHT plants on HORSE_6X4 in other sections go under Set aside |
+| U134 | Where section 31's sentence goes | In the fixture comment where the units are planted, not on the `\echo` title line (planner question PD-2, TYRE-175 comment 13755) |
 
 The two design parts below were approved as presented.
 
@@ -108,8 +109,9 @@ and TY012 are both 422 and both forward verbatim.
 so once TYRE-418 adds the back-datable received date, a future date shows
 the server's message instead of fallback copy.
 
-**`db/CLAUDE.md`, "Adding a function".** One line: a write-surface function
-takes its JSON input as `p_payload`, as `app.submit_inspection` does.
+**`db/CLAUDE.md`, "Adding a function".** One line: input parameters carry
+the `p_` prefix, and a write-surface function whose whole request is one
+jsonb names it `p_payload`, as `app.submit_inspection` does.
 `app.receive_tyres(payload)` predates the rule and keeps its name, because
 a rename is a migration and breaks a named-argument caller.
 
@@ -124,23 +126,30 @@ leg fails on develop:
 - (b) `app.receive_tyres` with a received date of the tenant's tomorrow
   raises TY011 with the message "a tyre is received on or before today,
   never on a future date". The same payload dated the tenant's today is
-  accepted, so the leg cannot pass on an unrelated refusal. No test pins
-  this refusal on develop.
+  accepted, so the leg cannot pass on an unrelated refusal.
 - (c) `to_regclass('app.v_axle_side_divergence')` is null.
+
+**Check 39o** (`004_tests.sql:4270-4280`) already traps the future-date
+refusal as TY012. It moves to TY011 and pins the message, because TY011
+covers about twenty receive refusals and the code alone would let the
+wrong one pass. This assertion moves on purpose: Q3 changes the code under
+test.
 
 **The fixture sweep.** 20 of the suite's 30 inserts into
 `app.reading_measurement` leave `orientation_known` out, and so do four Go
 test inserts (`analytics_test.go:212`, `httpapi_test.go:330` and `:1132`,
-`inspections_test.go:41`). Each states `true`, the value the default gave
+`inspections_test.go:41`), and two in `db/tests/005_privileged.sql` (lines
+371 and 415, which `make test` and CI run). Each states `true`, the value the default gave
 it. No expectation moves: section 27's count of 159 orientation-unknown
 fixture rows stays 159, and nothing an analytics or exception leg reads
 changes. The seed generators already state the column.
 
 **Section 31.** The nine `'HORSE'` literals on `SEC31-*` units become
 `'TRAILER'` (`004_tests.sql` lines 2903, 2906, 2909, 2912, 2915, 2918, 2921,
-2924 and 3487). The banner gains one sentence: the units are trailers
-because they sit on TRAILER_2AXLE (000042's rule, TYRE-224), and nothing in
-the section reads the kind. No assertion moves. No SEC31 submit sends an
+2924 and 3487). The section's fixture comment (`004_tests.sql:2898-2901`,
+where the units are planted) gains one sentence (U134): the units are
+trailers because they sit on TRAILER_2AXLE (000042's rule, TYRE-224), and
+no assertion in the section depends on the kind. No assertion moves. No SEC31 submit sends an
 odometer, and the one SEC31 fitment (`SEC31-COMBO`) supplies
 `fitted_odometer`, which TY009 accepts under either kind. `SEC31-T2` sits
 on tenant 2's HORSE_6X4 and is already a horse.
@@ -203,8 +212,9 @@ These go in the PR's Set aside list (U130):
 
 - 000057 drops the default, drops the view and moves the receive refusal to
   TY011. Its down is proved by catalogue.
-- Suite section 73 pins all three. Every fixture states `orientation_known`.
-  Section 31's units are trailers.
+- Suite section 73 pins all three, and check 39o expects TY011 with its
+  message. Every fixture states `orientation_known`. Section 31's units are
+  trailers.
 - `refusal_codes.json` and `db/CLAUDE.md` say what the code does.
 - The CHG-011 erratum row is pasted into SRS Part 3, and the Manifest's
   CHG-011 row points to it.
