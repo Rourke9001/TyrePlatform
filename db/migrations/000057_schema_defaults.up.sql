@@ -5,9 +5,7 @@
 --  docs/superpowers/specs/2026-10-15-schema-defaults-design.md
 -- ============================================================================
 
--- CHG-011 as amended (TYRE-175 Q1): the column is NOT NULL with no default,
--- so a writer that leaves it out is refused with 23502 rather than recorded
--- as orientation-known (ADR-0010 rule 2).
+-- CHG-011 as amended (TYRE-175 Q1); the column comment says why.
 ALTER TABLE app.reading_measurement ALTER COLUMN orientation_known DROP DEFAULT;
 
 COMMENT ON COLUMN app.reading_measurement.orientation_known IS
@@ -174,7 +172,7 @@ BEGIN
   -- A recorded cost is never corrected (D5, TY013), so a priced receive
   -- names where its price came from (TYRE-370), and UNKNOWN means exactly
   -- "no price yet" (U128, DR-019, NFR-PRO-002): a price never carries it,
-  -- here or at app.set_tyre_cost below, and no other source arrives
+  -- here or at app.set_tyre_cost, and no other source arrives
   -- without a price.
   IF price IS NOT NULL AND payload->>'cost_source' IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
@@ -192,7 +190,7 @@ BEGIN
   -- U129: a price is stored only with the rate it gives, because TY013
   -- refuses a second costing and would keep an unrated tyre out of the
   -- awaiting-cost backlog for good. A cost the threshold in force cannot
-  -- rate is refused, here and at set_tyre_cost below, and an unpriced tyre
+  -- rate is refused, here and at set_tyre_cost, and an unpriced tyre
   -- lands and awaits its cost (FR-TYR-041).
   IF price IS NOT NULL AND thr IS NULL THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
