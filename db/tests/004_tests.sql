@@ -709,8 +709,8 @@ BEGIN
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', false);
   BEGIN
     -- ordinal 4 keeps 1..n contiguous so only the tenant boundary can reject
-    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm)
-    VALUES ('22222222-2222-2222-2222-222222222222', victim, 4, 'OUTER', 0.1);
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known)
+    VALUES ('22222222-2222-2222-2222-222222222222', victim, 4, 'OUTER', 0.1, true);
   EXCEPTION WHEN foreign_key_violation THEN ok := true;
   END;
   IF NOT ok THEN
@@ -1005,10 +1005,10 @@ BEGIN
           md5('t2cli1')::uuid,'2026-08-10T08:00:00Z','2026-08-10T08:05:00Z',100000);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('t2rd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp1')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,1,'OUTER',12),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,2,'CENTRE',13),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,3,'INNER',14);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,1,'OUTER',12,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,2,'CENTRE',13,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd1')::uuid,3,'INNER',14,true);
   -- date-scoped: the month-end block later adds its own 2026-08-31 row for
   -- this tyre, and the suite must stay re-runnable after it has
   SELECT count(*), min(s.tread_value) INTO n, v
@@ -1023,10 +1023,10 @@ BEGIN
           md5('t2cli2')::uuid,'2026-08-15T08:00:00Z','2026-08-15T08:05:00Z',101000);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('t2rd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp2')::uuid,md5('t2veh1')::uuid,posid,md5('t2probetyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,1,'OUTER',12),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,2,'CENTRE',13),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,3,'INNER',14);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,1,'OUTER',12,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,2,'CENTRE',13,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd2')::uuid,3,'INNER',14,true);
   SELECT count(*) INTO n FROM app.valuation_snapshot
    WHERE tyre_id = md5('t2probetyre')::uuid AND as_at = '2026-08-15';
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unchanged re-read wrote % snapshot(s)', n; END IF;
@@ -1196,10 +1196,10 @@ BEGIN
           md5('t2cli4')::uuid,'2026-08-20T08:00:00Z','2026-08-20T08:05:00Z',102000);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('t2rd4')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2insp4')::uuid,md5('t2veh1')::uuid,posid,md5('t2gaptyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,1,'OUTER',4.5),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,2,'CENTRE',4.8),
-    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,3,'INNER',4.7);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,1,'OUTER',4.5,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,2,'CENTRE',4.8,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2rd4')::uuid,3,'INNER',4.7,true);
   -- the invariant, not just the presence of a row: every fitted position the
   -- summary counts must appear in exactly one band
   SELECT (SELECT sum(tyre_count) FROM app.v_tread_distribution
@@ -1350,20 +1350,20 @@ BEGIN
             md5('t2s1latecli')::uuid,'2026-09-02T08:55:00Z','2026-09-02T09:00:00Z',110000);
     INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
     VALUES (md5('t2s1lateread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s1late')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap1')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,1,'OUTER',9),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,2,'CENTRE',10),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,3,'INNER',11);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,1,'OUTER',9,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,2,'CENTRE',10,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1lateread')::uuid,3,'INNER',11,true);
 
     INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
     VALUES (md5('t2s1early')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
             md5('t2s1earlycli')::uuid,'2026-09-02T06:55:00Z','2026-09-02T07:00:00Z',109000);
     INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
     VALUES (md5('t2s1earlyread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s1early')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap1')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,1,'OUTER',11),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,2,'CENTRE',12),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,3,'INNER',13);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,1,'OUTER',11,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,2,'CENTRE',12,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s1earlyread')::uuid,3,'INNER',13,true);
 
     -- only meaningful on the run that stages it: on a later run the readings
     -- already exist and no trigger re-fires, so the assertion would pass
@@ -1434,20 +1434,20 @@ BEGIN
             md5('t2s2acli')::uuid,'2026-09-05T06:55:00Z','2026-09-05T07:00:00Z',111000);
     INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
     VALUES (md5('t2s2aread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s2a')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap2')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,1,'OUTER',15),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,2,'CENTRE',16),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,3,'INNER',17);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,1,'OUTER',15,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,2,'CENTRE',16,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2aread')::uuid,3,'INNER',17,true);
 
     INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
     VALUES (md5('t2s2b')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2veh1')::uuid,md5('driver2')::uuid,
             md5('t2s2bcli')::uuid,'2026-09-06T06:55:00Z','2026-09-06T07:00:00Z',112000);
     INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
     VALUES (md5('t2s2bread')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2s2b')::uuid,md5('t2veh1')::uuid,posid,md5('t2snap2')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,1,'OUTER',12),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,2,'CENTRE',13),
-      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,3,'INNER',14);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,1,'OUTER',12,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,2,'CENTRE',13,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2s2bread')::uuid,3,'INNER',14,true);
 
     -- a month-end row now carries the 6th's value forward
     PERFORM app.take_valuation_snapshots('2026-09-30');
@@ -1898,13 +1898,13 @@ BEGIN
     INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
     VALUES (md5('t2flatrd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2flat1')::uuid,md5('t2veh1')::uuid,posid,md5('t2flattyre')::uuid,750),
            (md5('t2flatrd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2flat2')::uuid,md5('t2veh1')::uuid,posid,md5('t2flattyre')::uuid,750);
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,1,'OUTER',12),
-      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,2,'CENTRE',13),
-      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,3,'INNER',14),
-      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,1,'OUTER',12),
-      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,2,'CENTRE',13),
-      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,3,'INNER',14);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,1,'OUTER',12,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,2,'CENTRE',13,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd1')::uuid,3,'INNER',14,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,1,'OUTER',12,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,2,'CENTRE',13,true),
+      ('22222222-2222-2222-2222-222222222222',md5('t2flatrd2')::uuid,3,'INNER',14,true);
   END IF;
 
   SELECT wear_rate_mm_per_1000km, wear_rate_status INTO r, st
@@ -1964,16 +1964,16 @@ BEGIN
     (md5('t2parkrd1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park1')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
     (md5('t2parkrd2')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2park2')::uuid,md5('t2veh2')::uuid,posid,md5('t2parktyre')::uuid,750),
     (md5('t2solord1')::uuid,'22222222-2222-2222-2222-222222222222',md5('t2solo1')::uuid,md5('t2veh3')::uuid,posid,md5('t2solotyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,1,'OUTER',3),
-    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,2,'CENTRE',3),
-    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,3,'INNER',3),
-    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,1,'OUTER',3),
-    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,2,'CENTRE',3),
-    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,3,'INNER',3),
-    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,1,'OUTER',2),
-    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,2,'CENTRE',2),
-    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,3,'INNER',2);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,1,'OUTER',3,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,2,'CENTRE',3,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd1')::uuid,3,'INNER',3,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,1,'OUTER',3,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,2,'CENTRE',3,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2parkrd2')::uuid,3,'INNER',3,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,1,'OUTER',2,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,2,'CENTRE',2,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t2solord1')::uuid,3,'INNER',2,true);
 
   -- A parked vehicle divides zero distance by zero days. Reading the whole
   -- view is the assertion: an unguarded division takes down every row, not
@@ -3363,8 +3363,8 @@ BEGIN
   SELECT id INTO a_reading FROM app.reading WHERE inspection_id = first AND position_id = posl;
   got := NULL;
   BEGIN
-    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position, granularity_mm)
-    VALUES (t_id, a_reading, 4, 40.0, 'CENTRE', 1.0);
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position, granularity_mm, orientation_known)
+    VALUES (t_id, a_reading, 4, 40.0, 'CENTRE', 1.0, true);
   EXCEPTION WHEN check_violation THEN got := 'check_violation';
   END;
   IF got IS DISTINCT FROM 'check_violation' THEN
@@ -7304,10 +7304,10 @@ BEGIN
           now() - interval '35 minutes', now() - interval '30 minutes', 100000);
   INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
   VALUES (md5('t47rd1')::uuid, bac, md5('t47ins1')::uuid, h4, p3, m1, 800);
-  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm) VALUES
-    (bac, md5('t47rd1')::uuid, 1, 'OUTER',  5.0),
-    (bac, md5('t47rd1')::uuid, 2, 'CENTRE', 6.0),
-    (bac, md5('t47rd1')::uuid, 3, 'INNER',  7.0);
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known) VALUES
+    (bac, md5('t47rd1')::uuid, 1, 'OUTER',  5.0, true),
+    (bac, md5('t47rd1')::uuid, 2, 'CENTRE', 6.0, true),
+    (bac, md5('t47rd1')::uuid, 3, 'INNER',  7.0, true);
   SELECT * INTO r FROM app.fit_tyre(m2, h4, p4, 12.0, 'MARK_OUTBOARD', 100100);
   IF NOT (r.warnings @> '[{"code":"DUAL_MATE_TREAD_GAP"}]'::jsonb) THEN
     RAISE EXCEPTION 'FAIL 47m: a mate reading 5mm against this 12mm did not warn: %', r.warnings;
@@ -7323,10 +7323,10 @@ BEGIN
           now() - interval '35 minutes', now() - interval '30 minutes', 100200);
   INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
   VALUES (md5('t47rd2')::uuid, bac, md5('t47ins2')::uuid, h4, p5, m3, 800);
-  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm) VALUES
-    (bac, md5('t47rd2')::uuid, 1, 'OUTER',  12.0),
-    (bac, md5('t47rd2')::uuid, 2, 'CENTRE', 13.0),
-    (bac, md5('t47rd2')::uuid, 3, 'INNER',  14.0);
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known) VALUES
+    (bac, md5('t47rd2')::uuid, 1, 'OUTER',  12.0, true),
+    (bac, md5('t47rd2')::uuid, 2, 'CENTRE', 13.0, true),
+    (bac, md5('t47rd2')::uuid, 3, 'INNER',  14.0, true);
   SELECT * INTO r FROM app.fit_tyre(m4, h4, p6, 12.0, 'MARK_OUTBOARD', 100300);
   IF r.warnings IS DISTINCT FROM '[]'::jsonb THEN
     RAISE EXCEPTION 'FAIL 47m: a mate read at 12mm warned against this 12mm: %', r.warnings;
@@ -7342,10 +7342,10 @@ BEGIN
           now() - interval '5 minutes', now(), 100400);
   INSERT INTO app.reading (id, tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
   VALUES (md5('t47rd3')::uuid, bac, md5('t47ins3')::uuid, h4, p7, m5, 800);
-  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm) VALUES
-    (bac, md5('t47rd3')::uuid, 1, 'OUTER',  5.0),
-    (bac, md5('t47rd3')::uuid, 2, 'CENTRE', 6.0),
-    (bac, md5('t47rd3')::uuid, 3, 'INNER',  7.0);
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known) VALUES
+    (bac, md5('t47rd3')::uuid, 1, 'OUTER',  5.0, true),
+    (bac, md5('t47rd3')::uuid, 2, 'CENTRE', 6.0, true),
+    (bac, md5('t47rd3')::uuid, 3, 'INNER',  7.0, true);
   SELECT * INTO r FROM app.fit_tyre(m6, h4, p8, 12.0, 'MARK_OUTBOARD', 100500,
                                     now() - interval '30 minutes');
   IF r.warnings IS DISTINCT FROM '[]'::jsonb THEN
@@ -7642,11 +7642,11 @@ BEGIN
 
   -- The CHECK and the function agree: a row at the ceiling lands, a row past
   -- it is 23514.
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm)
-  VALUES (t_id, v_reading, 1, 'CENTRE', mx);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known)
+  VALUES (t_id, v_reading, 1, 'CENTRE', mx, true);
   BEGIN
-    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm)
-    VALUES (t_id, v_reading, 2, 'OUTER', mx + 0.1);
+    INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known)
+    VALUES (t_id, v_reading, 2, 'OUTER', mx + 0.1, true);
     RAISE EXCEPTION 'FAIL 48: reading_measurement accepted % mm', mx + 0.1;
   EXCEPTION WHEN check_violation THEN ok := true;
   END;
@@ -7818,10 +7818,10 @@ BEGIN
           md5('t50cli')::uuid, now(), now(), 750);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('t50rd')::uuid,'22222222-2222-2222-2222-222222222222',md5('t50insp')::uuid,md5('t2veh1')::uuid,posid,NULL,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,1,'OUTER',9),
-    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,2,'CENTRE',8),
-    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,3,'INNER',10);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,1,'OUTER',9,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,2,'CENTRE',8,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t50rd')::uuid,3,'INNER',10,true);
   SELECT governing_tread_mm INTO after_mm FROM app.reading WHERE id = md5('t50rd')::uuid;
   IF after_mm IS DISTINCT FROM 8 THEN
     RAISE EXCEPTION 'FAIL 50: the same-transaction write did not materialise its MIN (got %)', after_mm; END IF;
@@ -7878,10 +7878,10 @@ BEGIN
              WHERE p.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
                AND NOT p.is_spare ORDER BY p.sequence LIMIT 1),
           NULL,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,1,'OUTER',9),
-    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,2,'CENTRE',8),
-    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,3,'INNER',10);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,1,'OUTER',9,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,2,'CENTRE',8,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t51rd')::uuid,3,'INNER',10,true);
   i_id := md5('t51insp')::uuid;
   -- the grant, not a trigger, refuses the columns that price a tyre (rule 3)
   BEGIN
@@ -7978,10 +7978,10 @@ BEGIN
           md5('t52clie')::uuid,'2026-08-01T06:55:00Z','2026-08-01T07:00:00Z',90000);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('t52read_early')::uuid,'22222222-2222-2222-2222-222222222222',md5('t52insp_early')::uuid,md5('t2veh1')::uuid,posid,md5('t52tyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,1,'OUTER',10),
-    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,2,'CENTRE',10),
-    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,3,'INNER',10);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,1,'OUTER',10,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,2,'CENTRE',10,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read_early')::uuid,3,'INNER',10,true);
 
   -- md5('t52insp') is the LATER of the pair and the one this section voids
   INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
@@ -7989,10 +7989,10 @@ BEGIN
           md5('t52cli')::uuid,'2026-08-08T06:55:00Z','2026-08-08T07:00:00Z',91500);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('t52read')::uuid,'22222222-2222-2222-2222-222222222222',md5('t52insp')::uuid,md5('t2veh1')::uuid,posid,md5('t52tyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,1,'OUTER',9),
-    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,2,'CENTRE',9),
-    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,3,'INNER',9);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,1,'OUTER',9,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,2,'CENTRE',9,true),
+    ('22222222-2222-2222-2222-222222222222',md5('t52read')::uuid,3,'INNER',9,true);
   i_id := md5('t52insp')::uuid;
 
   SELECT wear_rate_status INTO wst FROM app.v_tyre_wear_rate WHERE tyre_id = md5('t52tyre')::uuid;

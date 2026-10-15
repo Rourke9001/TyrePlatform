@@ -38,8 +38,8 @@ func plantVoidableInspection(t *testing.T, ctx context.Context, admin *pgx.Conn,
 		tenantID, inspID, vehicleID, positionID,
 	).Scan(&readingID))
 	_, err = tx.Exec(ctx,
-		`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position)
-		 VALUES ($1, $2, 1, 10.0, 'CENTRE'::app.tread_position)`,
+		`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, tread_mm, position, orientation_known)
+		 VALUES ($1, $2, 1, 10.0, 'CENTRE'::app.tread_position, true)`,
 		tenantID, readingID)
 	require.NoError(t, err)
 	require.NoError(t, tx.Commit(ctx))

@@ -368,10 +368,10 @@ BEGIN
           md5('p8cli1')::uuid,'2026-08-10T08:00:00Z','2026-08-10T08:05:00Z',100000);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('p8rd1')::uuid,t2,md5('p8insp1')::uuid,md5('t2veh1')::uuid,posid,md5('p8tyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    (t2,md5('p8rd1')::uuid,1,'OUTER',12),
-    (t2,md5('p8rd1')::uuid,2,'CENTRE',13),
-    (t2,md5('p8rd1')::uuid,3,'INNER',14);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    (t2,md5('p8rd1')::uuid,1,'OUTER',12,true),
+    (t2,md5('p8rd1')::uuid,2,'CENTRE',13,true),
+    (t2,md5('p8rd1')::uuid,3,'INNER',14,true);
   SELECT s.tread_value INTO v FROM app.valuation_snapshot s
    WHERE s.tyre_id = md5('p8tyre')::uuid AND s.as_at = '2026-08-10';
   IF v IS DISTINCT FROM 800.00 THEN
@@ -412,10 +412,10 @@ BEGIN
           md5('p8cli3')::uuid,'2026-08-01T06:00:00Z','2026-08-01T06:05:00Z',99000);
   INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
   VALUES (md5('p8rd3')::uuid,t2,md5('p8insp3')::uuid,md5('t2veh1')::uuid,posid,md5('p8tyre')::uuid,750);
-  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm) VALUES
-    (t2,md5('p8rd3')::uuid,1,'OUTER',15),
-    (t2,md5('p8rd3')::uuid,2,'CENTRE',16),
-    (t2,md5('p8rd3')::uuid,3,'INNER',17);
+  INSERT INTO app.reading_measurement (tenant_id,reading_id,ordinal,position,tread_mm,orientation_known) VALUES
+    (t2,md5('p8rd3')::uuid,1,'OUTER',15,true),
+    (t2,md5('p8rd3')::uuid,2,'CENTRE',16,true),
+    (t2,md5('p8rd3')::uuid,3,'INNER',17,true);
   SELECT s.tread_value INTO v FROM app.valuation_snapshot s
    WHERE s.tyre_id = md5('p8tyre')::uuid AND s.as_at = '2026-08-01';
   IF v IS DISTINCT FROM 1100.00 THEN
