@@ -1,7 +1,7 @@
 # Implementation order
 
-Re-verified **14 Oct 2026** against `develop` @ `9e74ac1` and the board,
-at the board triage of TYRE-423.
+Re-verified **15 Oct 2026** against `develop` @ `e3a1879` and the board,
+at the close-out of PR #120.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -24,7 +24,7 @@ data exists and expensive after, because afterwards it has to be retrofitted
 around rows that already violate it. That is why the database constraints came
 before any surface that writes, and why the database lane below takes first the
 items whose loss is permanent once real rows exist: TYRE-346 with 300, then
-TYRE-299, TYRE-201 with 98 (both merged), and TYRE-175 with its riders, all before TYRE-286
+TYRE-299, TYRE-201 with 98 and TYRE-175 with its riders (all merged), all before TYRE-286
 or TYRE-322 write a real tenant's receipts (U88). W5b and the rest of the W5
 chain are refactors that write no wrong row, so they follow.
 
@@ -89,7 +89,7 @@ right.
 | 2 | **Merged** 30 Sep 2026, PR [#87](https://github.com/Rourke9001/TyrePlatform/pull/87): TYRE-239, the dashboard, with the chart half of TYRE-275 (tooltip placement, and more than five bands blended, U56). No migration. The capture entry budget rose once, from 135255 to 135877 gzip bytes (U84). TYRE-193 and TYRE-271 closed with it; the review's residuals are TYRE-354 to 367 | **Merged** 30 Sep 2026, PR [#89](https://github.com/Rourke9001/TyrePlatform/pull/89): TYRE-346 with TYRE-300. The definer's EXECUTE is revoked from PUBLIC and app_rw (migration 000051, suite section 67), and the Appendix E pins and their siblings compare NULL-safely. TYRE-375 is the residual, carried on TYRE-245. On staging, 000051 must be applied by the owner role (TYRE-368, comment 13439) |
 | 3 | B9, the pilot path, below, started 30 Sep (U99). Sign-in's code **merged** 2 Oct 2026, PRs [#92](https://github.com/Rourke9001/TyrePlatform/pull/92), [#93](https://github.com/Rourke9001/TyrePlatform/pull/93) and [#94](https://github.com/Rourke9001/TyrePlatform/pull/94): migration 000052, suite section 68, and TYRE-376 closed with it. TYRE-317 stays open for its first staging sign-in; the CIAM checks passed and U110 to U113 were ruled on 2 Oct. `main` is first promoted as production's first release (ADR-0017, TYRE-397), after TYRE-79's gate, the TYRE-368 runbook and the TYRE-374 reset (U89), and not before sign-in's stage 2 | **Merged** 14 Oct 2026, PR [#114](https://github.com/Rourke9001/TyrePlatform/pull/114): TYRE-299, carrying 298 and 310, with 189 F5. Threshold policy rows are written once and never back-dated (migration 000054, suite section 70, U69, U70). On staging, the owner role applies the REVOKE. TYRE-299 stays open until the SRS erratum rows (comment 13723) are pasted into Confluence |
 | 4 | W3's real-driver subset, before the real-vehicle run (M2): TYRE-241 (U78), 323, and photos (TYRE-152) or a softened photo string | **Merged** 14 Oct 2026, PR [#116](https://github.com/Rourke9001/TyrePlatform/pull/116): TYRE-201, carrying TYRE-383 (migration 000055, suite section 71). The audit trigger and `app.record_session_start()` record the bound address and session through `app.current_source_ip()`. Then **merged** 15 Oct 2026, PR [#118](https://github.com/Rourke9001/TyrePlatform/pull/118): TYRE-98, migration 000056, suite section 72; the audit trigger reaches nine more tables (ADR-0014). Its FR-AUD-001 erratum is TYRE-427 |
-| 5 | B8: TYRE-243, the exception lifecycle, rule administration and notifications, with TYRE-58 riding, on TYRE-371's job runner. 243's definition of done is a spec, so the build takes its own ticket. It must be live before the measured window opens (agreement 11.2). Milestone M5 | TYRE-175 F12 to F14, carrying 224 and 213 F4 (213's warning helper rides TYRE-283), before TYRE-286 or TYRE-322 write receipts. TYRE-122 and 297 closed with #110's 000053 |
+| 5 | B8: TYRE-243, the exception lifecycle, rule administration and notifications, with TYRE-58 riding, on TYRE-371's job runner. 243's definition of done is a spec, so the build takes its own ticket. It must be live before the measured window opens (agreement 11.2). Milestone M5 | **Merged** 15 Oct 2026, PR [#120](https://github.com/Rourke9001/TyrePlatform/pull/120): TYRE-175, carrying 224 and 213's view (migration 000057, suite section 73). `orientation_known` has no default, a future receive date is TY011, and `app.v_axle_side_divergence` is dropped. 213's warning helper rides TYRE-283. TYRE-122 and 297 closed with #110's 000053 |
 | 6 | Reports and export: TYRE-320, carrying 290, with 287 and 292 (292 waits on TYRE-109). Milestone M4 | W5b: TYRE-209, carrying both halves of TYRE-108 (rotate and return), 134, 135 (with 136) and 137, with 112 riding |
 | 7 | Pilot readiness, TYRE-321. Milestone M6 | W5d: TYRE-168 (before TYRE-322's odometer import) and TYRE-190, carrying its F10 and 189 F4 |
 | 8 | The rest of the capture PR (W3): TYRE-173 (F15 now, a capture-only caution shade, U76), 171 (with 330's odometer hint), 218, 129, 154, 207 F11, 285 (with 216's on-road swap, U62) and 329, and the error-boundary residuals on capture: TYRE-334, carrying 333, 335, 339 and 340. TYRE-220's GO-key check rides TYRE-241 at step 4. TYRE-337 waits for the BAC pilot's feedback (labels `pilot-feedback` and `post-poc`), and 342 waits on the owner's call | W5e: TYRE-210, taking 189 F6. Deferred (U88); 265 is `post-poc` |
@@ -97,13 +97,13 @@ right.
 | 10 | B7.4: TYRE-240, the redesign, carrying TYRE-118, 119, 176 (with 278), 281, 291, 327, 328 and 330 (with 182). TYRE-132, 345 and 359 are folded into it. Behind the pilot items (U99) | |
 
 TYRE-318 took migration 000053 and suite section 69. TYRE-299 took 000054 and
-section 70, and TYRE-201 took 000055 and section 71. The next free pair is 000056 and section 72, taken by whichever
+section 70, and TYRE-201 took 000055 and section 71. TYRE-98 took 000056 and section 72, and TYRE-175 took 000057 and section 73. The next free pair is 000058 and section 74, taken by whichever
 database branch is cut first.
 
 The database lane runs one PR after another because each takes the next
 migration number and suite section, not because the function bodies overlap.
 W5b edits `fit_tyre`, `remove_tyre`, `rotate_tyres` and `return_tyre_to_stock`;
-TYRE-175's PR edits `receive_tyres` and `set_tyre_cost` (000053); TYRE-201's
+TYRE-175's PR edited `receive_tyres` (000057); TYRE-201's
 edits the audit trigger (000035). TYRE-214 is closed for the POC, so W5e ends
 the chain. The privileged-suite PR (TYRE-253, carrying TYRE-314 and 349) is
 `post-poc`.
@@ -170,7 +170,7 @@ when a gap appears.
 - **Tenant-day PR:** TYRE-123, carrying 221 (with 000041:529), and 244,
   carrying 360 and TYRE-310 item 2 (U70: one "now" for every current
   figure). TYRE-131's
-  refusal timestamps follow TYRE-175's PR.
+  refusal timestamps follow TYRE-175's PR (merged).
 - **Register money PR:** TYRE-113 and 120, behind the valuation verifier.
 - **Dashboard residuals** from the TYRE-239 review: TYRE-354 (with U96's
   `me.scope` word, carrying 362 and 355's degraded states), 363 (U97's pin),
