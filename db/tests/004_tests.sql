@@ -3779,9 +3779,9 @@ BEGIN
   -- so the catalog assertion above is not quietly standing in for a check that
   -- could have been behavioural all along.
   -- app_user is audited, so audit_log's policy would answer a row this
-  -- table's policy let through with the same 42501: the message says which
-  -- refused (docs/lessons.md 2026-09-08). WITH CHECK runs before the CHECK
-  -- constraint, so the policy is what answers.
+  -- table's policy let through with the same 42501, and only the message
+  -- says which refused (docs/lessons.md 2026-09-08). WITH CHECK runs before
+  -- the CHECK constraint, so the policy is what answers.
   got := NULL;
   BEGIN
     INSERT INTO app.app_user (tenant_id, email, display_name, role)

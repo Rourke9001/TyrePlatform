@@ -786,7 +786,7 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	}
 
 	// A tags-only PATCH writes no vehicle audit row (docs/architecture.md,
-	// unit writes): the count taken here, across the first tags-only patch
+	// unit writes). The count taken here, across the first tags-only patch
 	// below, is what proves that rather than restates it.
 	countUpdates := func() int {
 		var n int
