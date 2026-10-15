@@ -11460,5 +11460,514 @@ BEGIN
   RAISE NOTICE 'PASS  71f section 71 leaves no residue';
 END $$;
 
+\echo '== 72. TYRE-98: the audit trigger reaches every table the app writes in place, files the tag map under its unit, and stands aside only for a closed tenant (FR-AUD-001, ADR-0014, ADR-0013 decision 7)'
+-- 72b and 72d read entries through this: exactly one for the entity and
+-- action, under the tenant and actor passed in, returned for the caller's
+-- field checks. Dropped at the end of 72f.
+CREATE FUNCTION pg_temp.t72_one(p_type text, p_entity uuid, p_action text,
+                                p_tenant uuid, p_actor uuid)
+RETURNS app.audit_log
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE a app.audit_log; n int;
+BEGIN
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = p_type AND al.entity_id = p_entity AND al.action = p_action;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 72: % % entries for % %, not one', n, p_action, p_type, p_entity;
+  END IF;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = p_type AND al.entity_id = p_entity AND al.action = p_action;
+  -- Against the values passed, not the settings read back: two NULLs would
+  -- agree (lesson 2026-08-26).
+  IF a.tenant_id IS DISTINCT FROM p_tenant OR a.actor_id IS DISTINCT FROM p_actor THEN
+    RAISE EXCEPTION 'FAIL 72: the % % entry for % landed under tenant % and actor %',
+      p_action, p_type, p_entity, a.tenant_id, a.actor_id;
+  END IF;
+  RETURN a;
+END $fn$;
+
+\echo '== 72a. the fifteen audited tables call app.audit_row_change() AFTER each row, DELETE and an argument on the tag map alone, and the function keeps invoker rights and its pinned search_path (ADR-0014, db/CLAUDE.md)'
+DO $$
+DECLARE r record; n int;
+BEGIN
+  -- tgtype bits: 1 ROW, 2 BEFORE, 4 INSERT, 8 DELETE, 16 UPDATE. 21 is
+  -- AFTER INSERT OR UPDATE FOR EACH ROW; 29 adds DELETE.
+  FOR r IN SELECT * FROM (VALUES
+      ('app.tyre', 'tyre_audited', 21), ('app.fitment', 'fitment_audited', 21),
+      ('app.retread_job', 'retread_job_audited', 21), ('app.app_user', 'app_user_audited', 21),
+      ('app.vehicle_driver', 'vehicle_driver_audited', 21),
+      ('app.threshold_policy', 'threshold_policy_audited', 21),
+      ('app.configuration', 'configuration_audited', 21),
+      ('app.vehicle_tag', 'vehicle_tag_audited', 21),
+      ('app.vehicle_tag_map', 'vehicle_tag_map_audited', 29),
+      ('app.vehicle', 'vehicle_audited', 21), ('app.combination', 'combination_audited', 21),
+      ('app.combination_member', 'combination_member_audited', 21),
+      ('app.inspection_task', 'inspection_task_audited', 21),
+      ('app.inspection', 'inspection_audited', 21),
+      ('app.composition_observation', 'composition_observation_audited', 21)
+    ) v(tbl, tgname, tgtype)
+  LOOP
+    SELECT count(*) INTO n FROM pg_trigger t
+     WHERE t.tgrelid = r.tbl::regclass AND t.tgname = r.tgname
+       AND t.tgfoid = 'app.audit_row_change()'::regprocedure
+       AND t.tgtype = r.tgtype AND t.tgenabled = 'O';
+    IF n <> 1 THEN
+      RAISE EXCEPTION 'FAIL 72a: % on % is missing, disabled, or not of tgtype % calling app.audit_row_change()',
+        r.tgname, r.tbl, r.tgtype;
+    END IF;
+  END LOOP;
+  SELECT count(*) INTO n FROM pg_trigger t
+   WHERE t.tgfoid = 'app.audit_row_change()'::regprocedure
+     AND t.tgname <> 'vehicle_tag_map_audited'
+     AND ((t.tgtype & 8) <> 0 OR t.tgnargs <> 0);
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 72a: % audit triggers besides the tag map''s fire on DELETE or pass an argument', n;
+  END IF;
+  -- The argument as stored: the name, then a zero byte.
+  SELECT count(*) INTO n FROM pg_trigger t
+   WHERE t.tgrelid = 'app.vehicle_tag_map'::regclass AND t.tgname = 'vehicle_tag_map_audited'
+     AND t.tgnargs = 1
+     AND encode(t.tgargs, 'hex') = encode(convert_to('vehicle_id', 'UTF8'), 'hex') || '00';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 72a: vehicle_tag_map_audited does not pass vehicle_id as its one argument';
+  END IF;
+  SELECT count(*) INTO n FROM pg_proc p
+   WHERE p.oid = 'app.audit_row_change()'::regprocedure
+     AND NOT p.prosecdef
+     AND coalesce(p.proconfig @> ARRAY['search_path=app, pg_temp'], false);
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 72a: app.audit_row_change() lost its invoker rights or its pinned search_path';
+  END IF;
+  RAISE NOTICE 'PASS  72a fifteen audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
+END $$;
+
+\echo '== 72b. each of the nine tables files a real write through the path that writes it: action, entity, before and after, under the bound tenant and actor; a seeded row is filed with no actor (FR-AUD-001; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        -- A seeded BAC user: every created_by defaults to the bound actor
+        -- behind a composite FK, so an invented one would kill a plant and
+        -- read as a fault in the trigger (lesson 2026-08-28).
+        act  constant uuid := md5('controller1')::uuid;
+        drv  constant uuid := md5('driver1')::uuid;
+        vu   constant uuid := md5('t72b-unit')::uuid;  -- TRAILER: owes no fitment odometer (TY009)
+        tb   constant uuid := md5('t72b-tyre-fit')::uuid;
+        tc   constant uuid := md5('t72b-tyre-retread')::uuid;
+        d_rt constant uuid := md5('t72b-retreader')::uuid;
+        tp   constant uuid := md5('t72b-policy')::uuid;
+        cf   constant uuid := md5('t72b-config')::uuid;
+        sz1  constant uuid := md5('sz1')::uuid;
+        pt1  constant uuid := md5('pt1')::uuid;
+        cfg uuid; pos uuid; tz text; ta uuid; fit uuid; job uuid; usr uuid; vd uuid;
+        tg uuid; tg_again uuid; a app.audit_log; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', act::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  SELECT p.id INTO pos FROM app.position p WHERE p.configuration_id = cfg AND p.code = '1';
+  IF tz IS NULL OR cfg IS NULL OR pos IS NULL THEN
+    RAISE EXCEPTION 'FAIL 72b: BAC''s timezone or veh1''s configuration is not visible, so the plants below prove nothing';
+  END IF;
+  -- The seed fills every position on veh1, so the unit is planted on the
+  -- same configuration to have an empty one (as section 43 does).
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (vu, bac, 'T72-B', 'T72B GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+
+  -- tyre: app.receive_tyres inserts it, app.set_tyre_cost updates it.
+  SELECT r.tyre_id INTO ta FROM app.receive_tyres(jsonb_build_object(
+    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
+    'received_date', '2026-08-25')) r;
+  a := pg_temp.t72_one('tyre', ta, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'state' IS DISTINCT FROM 'IN_STOCK' THEN
+    RAISE EXCEPTION 'FAIL 72b: the received tyre is filed with before % and state %', a.before, a.after->>'state';
+  END IF;
+  PERFORM app.set_tyre_cost(ta, 4319.91, 'INVOICE');
+  a := pg_temp.t72_one('tyre', ta, 'UPDATE', bac, act);
+  IF a.before->>'purchase_price' IS NOT NULL
+     OR a.after->>'purchase_price' IS DISTINCT FROM '4319.91' THEN
+    RAISE EXCEPTION 'FAIL 72b: the costing is filed as % to %', a.before->>'purchase_price', a.after->>'purchase_price';
+  END IF;
+
+  -- fitment: app.fit_tyre inserts it, app.remove_tyre's closure updates it.
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, status, retread_count, state)
+  VALUES (tb, bac, 'T72BFIT', sz1, 'NEW', 0, 'IN_STOCK');
+  SELECT r.fitment_id INTO fit FROM app.fit_tyre(tb, vu, pos, 14.0, 'MARK_OUTBOARD') r;
+  a := pg_temp.t72_one('fitment', fit, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'tyre_id' IS DISTINCT FROM tb::text
+     OR a.after->>'removed_at' IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 72b: the fit is filed with before %, tyre %, removed_at %',
+      a.before, a.after->>'tyre_id', a.after->>'removed_at';
+  END IF;
+  PERFORM app.remove_tyre(fit, 'damage', 10.0);
+  a := pg_temp.t72_one('fitment', fit, 'UPDATE', bac, act);
+  IF a.before->>'removed_at' IS NOT NULL OR a.after->>'removed_at' IS NULL
+     OR a.after->>'removal_reason' IS DISTINCT FROM 'damage' THEN
+    RAISE EXCEPTION 'FAIL 72b: the closure is filed as removed_at % to %, reason %',
+      a.before->>'removed_at', a.after->>'removed_at', a.after->>'removal_reason';
+  END IF;
+
+  -- retread_job: app.dispatch_tyre inserts it, app.log_retread_return
+  -- updates it. Dated in the past, as section 42 dates them.
+  INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T72B Retreaders', 'RETREADER');
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status, retread_count, state)
+  VALUES (tc, bac, 'T72BRETREAD', sz1, pt1, 'NEW', 0, 'REMOVED');
+  SELECT r.retread_job_id INTO job
+    FROM app.dispatch_tyre(tc, 'AT_RETREADER', d_rt, app.tenant_today(tz) - 5) r;
+  a := pg_temp.t72_one('retread_job', job, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'tyre_id' IS DISTINCT FROM tc::text
+     OR a.after->>'returned_at' IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 72b: the dispatch is filed with before %, tyre %, returned_at %',
+      a.before, a.after->>'tyre_id', a.after->>'returned_at';
+  END IF;
+  PERFORM app.log_retread_return(job, app.tenant_today(tz) - 1, false, 'T72B-RPT');
+  a := pg_temp.t72_one('retread_job', job, 'UPDATE', bac, act);
+  IF a.before->>'returned_at' IS NOT NULL
+     OR a.after->>'returned_at' IS DISTINCT FROM (app.tenant_today(tz) - 1)::text
+     OR a.after->>'casing_accepted' IS DISTINCT FROM 'false' THEN
+    RAISE EXCEPTION 'FAIL 72b: the return is filed as returned_at % to %, accepted %',
+      a.before->>'returned_at', a.after->>'returned_at', a.after->>'casing_accepted';
+  END IF;
+
+  -- app_user: createUser's INSERT, the runbook's deactivation, then
+  -- createUser's rehire UPDATE (admin.go), each as issued with its
+  -- parameters bound.
+  INSERT INTO app.app_user (tenant_id, email, display_name, staff_number, role)
+  VALUES (app.current_tenant_id(), 't72b@example.invalid', 'T72B Person', NULL, 'DRIVER'::app.user_role)
+  RETURNING id INTO usr;
+  a := pg_temp.t72_one('app_user', usr, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'email' IS DISTINCT FROM 't72b@example.invalid' THEN
+    RAISE EXCEPTION 'FAIL 72b: the new user is filed with before % and email %', a.before, a.after->>'email';
+  END IF;
+  UPDATE app.app_user SET active = false WHERE id = usr;
+  UPDATE app.app_user
+     SET active = true, display_name = 'T72B Rehired',
+         staff_number = CASE WHEN false THEN NULL
+                             ELSE COALESCE(NULL::text, staff_number) END,
+         role = 'DRIVER'::app.user_role
+   WHERE lower(email) = lower('t72b@example.invalid') AND NOT active;
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'app_user' AND al.entity_id = usr AND al.action = 'UPDATE';
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 72b: the deactivation and the rehire filed % UPDATE entries, not two', n;
+  END IF;
+  SELECT * INTO a FROM app.audit_log al
+   WHERE al.entity_type = 'app_user' AND al.entity_id = usr AND al.action = 'UPDATE'
+   ORDER BY al.id DESC LIMIT 1;
+  IF a.before->>'active' IS DISTINCT FROM 'false' OR a.after->>'active' IS DISTINCT FROM 'true'
+     OR a.after->>'display_name' IS DISTINCT FROM 'T72B Rehired'
+     OR a.tenant_id IS DISTINCT FROM bac OR a.actor_id IS DISTINCT FROM act THEN
+    RAISE EXCEPTION 'FAIL 72b: the rehire is filed as active % to %, name %, tenant %, actor %',
+      a.before->>'active', a.after->>'active', a.after->>'display_name', a.tenant_id, a.actor_id;
+  END IF;
+
+  -- vehicle_driver: assignDriver's INSERT (admin.go).
+  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
+  VALUES (app.current_tenant_id(), vu, drv,
+          COALESCE(NULL::date,
+                   app.tenant_today((SELECT timezone FROM app.tenant
+                                      WHERE id = app.current_tenant_id()))))
+  RETURNING id INTO vd;
+  a := pg_temp.t72_one('vehicle_driver', vd, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'user_id' IS DISTINCT FROM drv::text
+     OR a.after->>'vehicle_id' IS DISTINCT FROM vu::text THEN
+    RAISE EXCEPTION 'FAIL 72b: the assignment is filed with before %, user %, unit %',
+      a.before, a.after->>'user_id', a.after->>'vehicle_id';
+  END IF;
+
+  -- threshold_policy and configuration have no route; their writers are the
+  -- seeds, migrations and the owning role, and app_rw holds the grants. The
+  -- policy row is dated a day ahead so nothing above prices under it.
+  INSERT INTO app.threshold_policy (id, tenant_id, axle_class, retread_threshold_mm,
+                                    max_retreads, effective_from)
+  VALUES (tp, bac, 'DRIVE', 4.0, 2, now() + interval '1 day');
+  a := pg_temp.t72_one('threshold_policy', tp, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'retread_threshold_mm' IS DISTINCT FROM '4.0'
+     OR a.after->>'axle_class' IS DISTINCT FROM 'DRIVE' THEN
+    RAISE EXCEPTION 'FAIL 72b: the policy row is filed with before %, threshold %, class %',
+      a.before, a.after->>'retread_threshold_mm', a.after->>'axle_class';
+  END IF;
+  INSERT INTO app.configuration (id, tenant_id, key, value) VALUES (cf, bac, 't72b_probe', '"one"');
+  a := pg_temp.t72_one('configuration', cf, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->'value' IS DISTINCT FROM '"one"'::jsonb THEN
+    RAISE EXCEPTION 'FAIL 72b: the configuration row is filed with before % and value %', a.before, a.after->'value';
+  END IF;
+  UPDATE app.configuration SET value = '"two"' WHERE id = cf;
+  a := pg_temp.t72_one('configuration', cf, 'UPDATE', bac, act);
+  IF a.before->'value' IS DISTINCT FROM '"one"'::jsonb
+     OR a.after->'value' IS DISTINCT FROM '"two"'::jsonb THEN
+    RAISE EXCEPTION 'FAIL 72b: the configuration edit is filed as % to %', a.before->'value', a.after->'value';
+  END IF;
+
+  -- vehicle_tag and the map: the unit edit's statements (units.go).
+  INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (app.current_tenant_id(), 'T72B Tag')
+  ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
+  RETURNING id INTO tg;
+  a := pg_temp.t72_one('vehicle_tag', tg, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'name' IS DISTINCT FROM 'T72B Tag' THEN
+    RAISE EXCEPTION 'FAIL 72b: the new tag is filed with before % and name %', a.before, a.after->>'name';
+  END IF;
+  -- Reusing the name: DO UPDATE stamps updated_at and changes no column the
+  -- no-op skip compares, so it files nothing.
+  INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (app.current_tenant_id(), 'T72B Tag')
+  ON CONFLICT (tenant_id, name) DO UPDATE SET name = EXCLUDED.name
+  RETURNING id INTO tg_again;
+  IF tg_again IS DISTINCT FROM tg THEN
+    RAISE EXCEPTION 'FAIL 72b: the second upsert resolved % and the first %', tg_again, tg;
+  END IF;
+  -- The control: updated_at is NULL until the first UPDATE, so a stamp means
+  -- the update arm ran and the zero below is the skip's.
+  IF (SELECT t.updated_at FROM app.vehicle_tag t WHERE t.id = tg) IS NULL THEN
+    RAISE EXCEPTION 'FAIL 72b: the second upsert never reached its update arm, so the zero below proves nothing';
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle_tag' AND al.entity_id = tg AND al.action = 'UPDATE';
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 72b: reusing a tag name filed % UPDATE entries', n;
+  END IF;
+  INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id)
+  VALUES (app.current_tenant_id(), vu, tg);
+  a := pg_temp.t72_one('vehicle_tag_map', vu, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'tag_id' IS DISTINCT FROM tg::text
+     OR a.after->>'vehicle_id' IS DISTINCT FROM vu::text THEN
+    RAISE EXCEPTION 'FAIL 72b: the link is filed with before %, tag %, unit %',
+      a.before, a.after->>'tag_id', a.after->>'vehicle_id';
+  END IF;
+
+  -- The seed loads as the owning role with no actor bound, so its rows are
+  -- filed under their own tenant with a NULL actor (ADR-0014).
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'tyre' AND al.entity_id = md5('tyre1')::uuid AND al.action = 'INSERT'
+     AND al.tenant_id = bac AND al.actor_id IS NULL AND al.before IS NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 72b: the seeded tyre1 has % readable unactored INSERT entries, not one', n;
+  END IF;
+  RAISE NOTICE 'PASS  72b the nine tables file each write through its live path with the right action, entity, before and after; a reused tag name files nothing; a seeded row is filed with no actor';
+END $$;
+ROLLBACK;
+
+\echo '== 72c. an INSERT naming another tenant is refused by the audited table''s own policy, and no audit entry lands in either tenant (FR-TEN-004, docs/lessons.md 2026-09-08; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2   constant uuid := '22222222-2222-2222-2222-222222222222';
+        veh2 constant uuid := md5('t2veh1')::uuid;
+        drv2 constant uuid := md5('driver2')::uuid;
+        ty2  constant uuid := md5('t72c-tyre2')::uuid;
+        tag2 constant uuid := md5('t72c-tag2')::uuid;
+        pos2 uuid; r record; msg text; bac_n int; t2_n int; n int;
+BEGIN
+  -- Second Fleet's own rows for every reference, planted under its own
+  -- binding, so each forged row is valid in every way but its writer
+  -- (lesson 2026-09-01). No actor is bound, so created_by defaults to NULL
+  -- rather than to a BAC user behind a composite FK (lesson 2026-08-28).
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  INSERT INTO app.tyre (id, tenant_id, display_code, state) VALUES (ty2, t2, 'T72CTYRE2', 'IN_STOCK');
+  INSERT INTO app.vehicle_tag (id, tenant_id, name) VALUES (tag2, t2, 'T72C Tag');
+  SELECT p.id INTO pos2 FROM app.position p
+    JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+   WHERE v.id = veh2 AND p.code = '1';
+  IF pos2 IS NULL THEN
+    RAISE EXCEPTION 'FAIL 72c: Second Fleet''s unit has no position 1, so the fitment forge proves nothing';
+  END IF;
+  SELECT count(*) INTO t2_n FROM app.audit_log;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT count(*) INTO bac_n FROM app.audit_log;
+
+  FOR r IN SELECT * FROM (VALUES
+      ('tyre', format(
+        'INSERT INTO app.tyre (tenant_id, display_code, state) VALUES (%L, %L, %L)',
+        t2, 'T72CFORGE', 'IN_STOCK')),
+      ('fitment', format(
+        'INSERT INTO app.fitment (tenant_id, tyre_id, vehicle_id, position_id, fitted_at, fitted_odometer, fitted_tread_mm) VALUES (%L, %L, %L, %L, now(), 100000, 14.0)',
+        t2, ty2, veh2, pos2)),
+      ('retread_job', format(
+        'INSERT INTO app.retread_job (tenant_id, tyre_id, sent_at) VALUES (%L, %L, current_date)',
+        t2, ty2)),
+      ('app_user', format(
+        'INSERT INTO app.app_user (tenant_id, email, display_name, role) VALUES (%L, %L, %L, %L)',
+        t2, 't72c@example.invalid', 'T72C Forged', 'DRIVER')),
+      ('vehicle_driver', format(
+        'INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date) VALUES (%L, %L, %L, current_date)',
+        t2, veh2, drv2)),
+      ('threshold_policy', format(
+        'INSERT INTO app.threshold_policy (tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from) VALUES (%L, %L, 4.0, 2, now() + interval %L)',
+        t2, 'DRIVE', '1 day')),
+      ('configuration', format(
+        'INSERT INTO app.configuration (tenant_id, key, value) VALUES (%L, %L, %L)',
+        t2, 't72c_probe', '"forged"')),
+      ('vehicle_tag', format(
+        'INSERT INTO app.vehicle_tag (tenant_id, name) VALUES (%L, %L)',
+        t2, 'T72C Forged')),
+      ('vehicle_tag_map', format(
+        'INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES (%L, %L, %L)',
+        t2, veh2, tag2))
+    ) v(tbl, stmt)
+  LOOP
+    msg := NULL;
+    BEGIN
+      EXECUTE r.stmt;
+    EXCEPTION WHEN insufficient_privilege THEN
+      GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    END;
+    -- The table's own policy, by name: audit_log's policy would answer a row
+    -- that got past it with the same 42501.
+    IF msg IS NULL OR msg NOT LIKE format('%%row-level security policy for table "%s"%%', r.tbl) THEN
+      RAISE EXCEPTION 'FAIL 72c: a % row aimed at Second Fleet was answered %',
+        r.tbl, COALESCE(msg, 'by an accepted row');
+    END IF;
+  END LOOP;
+  SELECT count(*) INTO n FROM app.audit_log;
+  IF n <> bac_n THEN
+    RAISE EXCEPTION 'FAIL 72c: the forges left % entries under BAC, not %', n, bac_n;
+  END IF;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  SELECT count(*) INTO n FROM app.audit_log;
+  IF n <> t2_n THEN
+    RAISE EXCEPTION 'FAIL 72c: the forges left % entries under Second Fleet, not %', n, t2_n;
+  END IF;
+  RAISE NOTICE 'PASS  72c a row aimed at another tenant is refused by each audited table''s own policy, and no entry lands in either tenant';
+END $$;
+ROLLBACK;
+
+\echo '== 72d. a tag map DELETE is filed under the unit with the link it removed, a real UPDATE under the unit too, and a no-op UPDATE not at all (FR-AUD-001, ADR-0013 decision 7; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        act constant uuid := md5('controller1')::uuid;
+        vd  constant uuid := md5('t72d-unit')::uuid;
+        tg1 constant uuid := md5('t72d-tag1')::uuid;
+        tg2 constant uuid := md5('t72d-tag2')::uuid;
+        cfg uuid; a app.audit_log; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', act::text, true);
+  SELECT v.configuration_id INTO cfg FROM app.vehicle v WHERE v.id = md5('veh1')::uuid;
+  IF cfg IS NULL THEN
+    RAISE EXCEPTION 'FAIL 72d: BAC''s veh1 is not visible, so the plant below proves nothing';
+  END IF;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (vd, bac, 'T72-D', 'T72D GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
+  INSERT INTO app.vehicle_tag (id, tenant_id, name) VALUES (tg1, bac, 'T72D One'), (tg2, bac, 'T72D Two');
+  INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES (bac, vd, tg1);
+
+  UPDATE app.vehicle_tag_map SET tag_id = tg2 WHERE vehicle_id = vd;
+  a := pg_temp.t72_one('vehicle_tag_map', vd, 'UPDATE', bac, act);
+  IF a.before->>'tag_id' IS DISTINCT FROM tg1::text OR a.after->>'tag_id' IS DISTINCT FROM tg2::text THEN
+    RAISE EXCEPTION 'FAIL 72d: the relabel is filed as % to %', a.before->>'tag_id', a.after->>'tag_id';
+  END IF;
+  -- app.stamp_updated moves updated_at on every UPDATE; the skip sets it aside.
+  UPDATE app.vehicle_tag_map SET tag_id = tag_id WHERE vehicle_id = vd;
+  GET DIAGNOSTICS n = ROW_COUNT;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 72d: the no-op update reached % rows, so its count below proves nothing', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type = 'vehicle_tag_map' AND al.entity_id = vd AND al.action = 'UPDATE';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 72d: a no-op update of a link left % UPDATE entries, not the one relabel', n;
+  END IF;
+
+  DELETE FROM app.vehicle_tag_map WHERE vehicle_id = vd;
+  a := pg_temp.t72_one('vehicle_tag_map', vd, 'DELETE', bac, act);
+  IF a.after IS NOT NULL OR a.before->>'tag_id' IS DISTINCT FROM tg2::text
+     OR a.before->>'vehicle_id' IS DISTINCT FROM vd::text THEN
+    RAISE EXCEPTION 'FAIL 72d: the removal is filed with before tag %, unit %, after %',
+      a.before->>'tag_id', a.before->>'vehicle_id', a.after;
+  END IF;
+  RAISE NOTICE 'PASS  72d a link''s removal is filed under its unit with the link it removed; a relabel is filed, a no-op update is not';
+END $$;
+ROLLBACK;
+
+\echo '== 72e. a trigger on a table with no tenant_id, or whose row has no value in the column it names, raises instead of filing an entry under NULL (ADR-0014; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        act constant uuid := md5('controller1')::uuid;
+        u   constant uuid := md5('t72e-unit')::uuid;
+        a app.audit_log; msg text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', act::text, true);
+  -- app_login owns a temporary table and has no CREATE on app, so this is
+  -- the one place it can attach the function; the rollback removes both.
+  CREATE TEMP TABLE t72e (id uuid, tenant_id uuid, unit_id uuid);
+  CREATE TEMP TABLE t72e_bare (id uuid);
+  CREATE TRIGGER t72e_named AFTER INSERT ON t72e
+  FOR EACH ROW EXECUTE FUNCTION app.audit_row_change('unit_id');
+
+  -- The control: a row with a value in the named column is filed under it.
+  INSERT INTO t72e VALUES (gen_random_uuid(), bac, u);
+  a := pg_temp.t72_one('t72e', u, 'INSERT', bac, act);
+
+  msg := NULL;
+  BEGIN
+    INSERT INTO t72e VALUES (gen_random_uuid(), bac, NULL);
+  EXCEPTION WHEN raise_exception THEN msg := SQLERRM;
+  END;
+  IF msg IS NULL OR msg NOT LIKE '%.t72e row has no value in unit_id,%' THEN
+    RAISE EXCEPTION 'FAIL 72e: a NULL in the named column was answered %', COALESCE(msg, 'by a filed entry');
+  END IF;
+
+  DROP TRIGGER t72e_named ON t72e;
+  CREATE TRIGGER t72e_wrong AFTER INSERT ON t72e
+  FOR EACH ROW EXECUTE FUNCTION app.audit_row_change('no_such_column');
+  msg := NULL;
+  BEGIN
+    INSERT INTO t72e VALUES (gen_random_uuid(), bac, u);
+  EXCEPTION WHEN raise_exception THEN msg := SQLERRM;
+  END;
+  IF msg IS NULL OR msg NOT LIKE '%.t72e row has no value in no_such_column,%' THEN
+    RAISE EXCEPTION 'FAIL 72e: a column the table lacks was answered %', COALESCE(msg, 'by a filed entry');
+  END IF;
+
+  CREATE TRIGGER t72e_bare_audited AFTER INSERT ON t72e_bare
+  FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
+  msg := NULL;
+  BEGIN
+    INSERT INTO t72e_bare VALUES (gen_random_uuid());
+  EXCEPTION WHEN raise_exception THEN msg := SQLERRM;
+  END;
+  IF msg IS NULL OR msg NOT LIKE '%.t72e_bare has no tenant_id column' THEN
+    RAISE EXCEPTION 'FAIL 72e: a table with no tenant_id was answered %', COALESCE(msg, 'by a filed entry');
+  END IF;
+
+  SELECT count(*) INTO n FROM app.audit_log al
+   WHERE al.entity_type IN ('t72e', 't72e_bare') AND al.entity_id IS NULL;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 72e: % entries were filed with a NULL entity_id', n;
+  END IF;
+  RAISE NOTICE 'PASS  72e a missing tenant_id, a missing column and a NULL in the named column each raise; a value is filed under the column named';
+END $$;
+ROLLBACK;
+
+\echo '== 72f. nothing section 72 planted outlives its rollback'
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT (SELECT count(*) FROM app.vehicle WHERE fleet_number LIKE 'T72-%')
+       + (SELECT count(*) FROM app.tyre WHERE display_code LIKE 'T72%')
+       + (SELECT count(*) FROM app.app_user WHERE email LIKE 't72%')
+       + (SELECT count(*) FROM app.configuration WHERE key LIKE 't72%')
+       + (SELECT count(*) FROM app.vehicle_tag WHERE name LIKE 'T72%')
+       + (SELECT count(*) FROM app.depot WHERE name LIKE 'T72%')
+       + (SELECT count(*) FROM app.audit_log WHERE entity_type IN ('t72e', 't72e_bare'))
+    INTO n;
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  SELECT n + (SELECT count(*) FROM app.tyre WHERE display_code LIKE 'T72%')
+           + (SELECT count(*) FROM app.vehicle_tag WHERE name LIKE 'T72%')
+    INTO n;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 72f: % rows planted by section 72 survived their rollback', n;
+  END IF;
+  RAISE NOTICE 'PASS  72f section 72 leaves no residue';
+END $$;
+DROP FUNCTION pg_temp.t72_one(text, uuid, text, uuid, uuid);
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

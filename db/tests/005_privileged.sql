@@ -14,6 +14,10 @@
 -- every role (U70, U131). postgres disables that trigger for the one INSERT
 -- and enables it again before the probe runs, inside the rolled-back
 -- transaction.
+--
+-- P9 and P10 delete what app_login cannot: a tenant, for the audit
+-- trigger's closure skip (DR-014), and a NULL-tenant app_user row, under a
+-- DELETE trigger staged for the probe (TYRE-98).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -418,6 +422,165 @@ BEGIN
     RAISE EXCEPTION 'FAIL P8: late-synced snapshot priced at [%], expected 1100.00 under the policy of its own date', v;
   END IF;
   RAISE NOTICE 'PASS  P8 a late-synced inspection is priced under the policy of its own date';
+END $$;
+ROLLBACK;
+
+\echo '== P9. TYRE-98: a tenant whose unit carries a tag closes, because the audit trigger files nothing for a row its own tenant''s deletion removes (DR-014, ADR-0014)'
+-- The control stages the premise on a second tenant: an entry written during
+-- a closure fails audit_log_tenant_id_fkey. The closure that succeeds after
+-- it therefore succeeds because the trigger stood aside. Nothing here calls
+-- app.receive_tyres: display_code_counter has no tenant cascade, and its row
+-- would refuse the closure for a reason unrelated to the trigger.
+BEGIN;
+DO $$
+DECLARE t uuid; n int;
+BEGIN
+  FOREACH t IN ARRAY ARRAY[md5('p9-closed')::uuid, md5('p9-control')::uuid] LOOP
+    INSERT INTO app.tenant (id, name, subdomain, state)
+    VALUES (t, 'P9 ' || t, 'p9-' || left(t::text, 8), 'ACTIVE');
+    INSERT INTO app.axle_configuration (id, tenant_id, code, name, axle_count)
+    VALUES (md5('p9cfg' || t)::uuid, t, 'P9RIG', 'P9 rig', 2);
+    INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind)
+    VALUES (md5('p9veh' || t)::uuid, t, 'P9-U', md5('p9cfg' || t)::uuid, 'TRAILER');
+    INSERT INTO app.vehicle_tag (id, tenant_id, name) VALUES (md5('p9tag' || t)::uuid, t, 'P9 tag');
+    INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id)
+    VALUES (t, md5('p9veh' || t)::uuid, md5('p9tag' || t)::uuid);
+    SELECT count(*) INTO n FROM app.audit_log
+     WHERE tenant_id = t AND entity_type = 'vehicle_tag_map'
+       AND entity_id = md5('p9veh' || t)::uuid AND action = 'INSERT';
+    IF n <> 1 THEN
+      RAISE EXCEPTION 'FAIL P9: tagging tenant %''s unit filed % entries, not one, so the closure below never meets the trigger', t, n;
+    END IF;
+  END LOOP;
+END $$;
+CREATE FUNCTION app.p9_unguarded() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+BEGIN
+  INSERT INTO app.audit_log (tenant_id, action, entity_type, entity_id)
+  VALUES (OLD.tenant_id, 'DELETE', 'p9_unguarded', OLD.vehicle_id);
+  RETURN NULL;
+END $fn$;
+CREATE TRIGGER p9_unguarded AFTER DELETE ON app.vehicle_tag_map
+FOR EACH ROW EXECUTE FUNCTION app.p9_unguarded();
+DO $$
+DECLARE got text;
+BEGIN
+  BEGIN
+    DELETE FROM app.tenant WHERE id = md5('p9-control')::uuid;
+  EXCEPTION WHEN foreign_key_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
+  END;
+  IF got IS DISTINCT FROM 'audit_log_tenant_id_fkey' THEN
+    RAISE EXCEPTION 'FAIL P9: an entry written during a closure was answered %, so the closure below proves nothing',
+      COALESCE(got, 'by a completed deletion');
+  END IF;
+END $$;
+DROP TRIGGER p9_unguarded ON app.vehicle_tag_map;
+DROP FUNCTION app.p9_unguarded();
+DO $$
+DECLARE t constant uuid := md5('p9-closed')::uuid;
+        got text; n int;
+BEGIN
+  BEGIN
+    DELETE FROM app.tenant WHERE id = t;
+  EXCEPTION WHEN foreign_key_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
+    RAISE EXCEPTION 'FAIL P9: closing a tenant with a tagged unit was refused by %', got;
+  END;
+  IF EXISTS (SELECT 1 FROM app.tenant WHERE id = t) THEN
+    RAISE EXCEPTION 'FAIL P9: the tenant survived its deletion';
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE tenant_id = t OR entity_id = md5('p9veh' || t)::uuid;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL P9: % entries for the closed tenant or its unit survived the closure', n;
+  END IF;
+  RAISE NOTICE 'PASS  P9 a tenant with a tagged unit closes and takes its entries with it; an entry written during the closure would have refused it';
+END $$;
+ROLLBACK;
+
+\echo '== P10. TYRE-98: the owning role''s app_user writes are filed with no actor: a platform admin''s under a NULL tenant no tenant session reads, a subject relink under its tenant, and a NULL-tenant deletion not mistaken for a closure (FR-TEN-002, FR-AUT-003a, ADR-0014)'
+BEGIN;
+DO $$
+DECLARE pa  constant uuid := md5('p10-admin')::uuid;
+        bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        u uuid; a app.audit_log; n int;
+BEGIN
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (pa, NULL, 'p10-admin@example.invalid', 'P10 Platform Admin', 'PLATFORM_ADMIN');
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'app_user' AND entity_id = pa AND action = 'INSERT'
+     AND tenant_id IS NULL AND actor_id IS NULL AND before IS NULL
+     AND after->>'role' = 'PLATFORM_ADMIN';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P10: the platform admin''s insert filed % entries with no tenant and no actor, not one', n;
+  END IF;
+  UPDATE app.app_user SET display_name = 'P10 Renamed' WHERE id = pa;
+  SELECT * INTO a FROM app.audit_log
+   WHERE entity_type = 'app_user' AND entity_id = pa AND action = 'UPDATE';
+  IF NOT FOUND OR a.tenant_id IS NOT NULL OR a.actor_id IS NOT NULL
+     OR a.before->>'display_name' IS DISTINCT FROM 'P10 Platform Admin'
+     OR a.after->>'display_name' IS DISTINCT FROM 'P10 Renamed' THEN
+    RAISE EXCEPTION 'FAIL P10: the platform admin''s update is filed under tenant %, actor %, as % to %',
+      a.tenant_id, a.actor_id, a.before->>'display_name', a.after->>'display_name';
+  END IF;
+
+  -- The runbook's rehire relink, bound to its tenant with no actor
+  -- (docs/runbooks/provision-a-user.md).
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  UPDATE app.app_user SET subject = md5('p10-new-oid')::uuid
+   WHERE lower(email) = lower('melusi@example.invalid') AND subject = md5('subject-driver1')::uuid
+     AND tenant_id = app.current_tenant_id()
+  RETURNING id INTO u;
+  IF u IS DISTINCT FROM md5('driver1')::uuid THEN
+    RAISE EXCEPTION 'FAIL P10: the relink reached %, not driver1', u;
+  END IF;
+  SELECT * INTO a FROM app.audit_log
+   WHERE entity_type = 'app_user' AND entity_id = u AND action = 'UPDATE'
+     AND after->>'subject' = md5('p10-new-oid')::uuid::text;
+  IF NOT FOUND OR a.tenant_id IS DISTINCT FROM bac OR a.actor_id IS NOT NULL
+     OR a.before->>'subject' IS DISTINCT FROM md5('subject-driver1')::uuid::text THEN
+    RAISE EXCEPTION 'FAIL P10: the relink is filed under tenant %, actor %, from subject %',
+      a.tenant_id, a.actor_id, a.before->>'subject';
+  END IF;
+END $$;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE n int;
+BEGIN
+  IF current_user <> 'app_login' THEN
+    RAISE EXCEPTION 'FAIL P10: the read runs as %, so RLS is not on trial', current_user;
+  END IF;
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  -- The control: BAC reads its own relink entry, so the zero below is the
+  -- NULL tenant hiding the platform admin's, not a read that sees nothing.
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'app_user' AND entity_id = md5('driver1')::uuid
+     AND after->>'subject' = md5('p10-new-oid')::uuid::text;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P10: BAC reads % of its own relink entries, not one', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log WHERE entity_id = md5('p10-admin')::uuid;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL P10: a tenant session reads % of the platform admin''s entries', n;
+  END IF;
+END $$;
+RESET ROLE;
+CREATE TRIGGER p10_app_user_delete_audited AFTER DELETE ON app.app_user
+FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
+DO $$
+DECLARE n int;
+BEGIN
+  DELETE FROM app.app_user WHERE id = md5('p10-admin')::uuid;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'app_user' AND entity_id = md5('p10-admin')::uuid AND action = 'DELETE'
+     AND tenant_id IS NULL AND after IS NULL
+     AND before->>'email' = 'p10-admin@example.invalid';
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P10: deleting a NULL-tenant row filed % entries, not one; the closure skip took it for a closed tenant', n;
+  END IF;
+  RAISE NOTICE 'PASS  P10 the owning role''s app_user writes are filed with no actor; a platform admin''s under a NULL tenant no tenant reads; a NULL-tenant deletion is filed';
 END $$;
 ROLLBACK;
 
