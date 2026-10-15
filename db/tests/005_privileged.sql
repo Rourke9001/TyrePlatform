@@ -452,6 +452,13 @@ BEGIN
       RAISE EXCEPTION 'FAIL P9: tagging tenant %''s unit filed % entries, not one, so the closure below never meets the trigger', t, n;
     END IF;
   END LOOP;
+  -- The task's ON DELETE SET NULL (schedule_id) is an UPDATE the closure
+  -- would meet if it ran before the tenant's own cascades, which 000056's
+  -- UPDATE arm would refuse (TYRE-98).
+  INSERT INTO app.inspection_schedule (id, tenant_id, vehicle_id)
+  VALUES (md5('p9sched')::uuid, md5('p9-closed')::uuid, md5('p9veh' || md5('p9-closed')::uuid)::uuid);
+  INSERT INTO app.inspection_task (tenant_id, schedule_id, vehicle_id, due_at)
+  VALUES (md5('p9-closed')::uuid, md5('p9sched')::uuid, md5('p9veh' || md5('p9-closed')::uuid)::uuid, now());
 END $$;
 CREATE FUNCTION app.p9_unguarded() RETURNS trigger
 LANGUAGE plpgsql

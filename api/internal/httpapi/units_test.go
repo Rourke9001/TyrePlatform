@@ -826,14 +826,20 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	require.Equal(t, 2, countTagEntries(), "two new names, two vehicle_tag entries")
 
 	// The second unit takes one of the same names: a tag row is created once
-	// per tenant and shared, so this is also the upsert's ON CONFLICT branch.
+	// per tenant and shared, so the reused name's insert meets the existing
+	// row and does nothing.
 	shared := patchedUnit(t, h, other.String(), tenantID.String(), controller.String(),
 		`{"tags":["REEFER"]}`)
 	require.Equal(t, []string{"REEFER"}, shared.Tags)
 	require.Equal(t, 1, countTag("REEFER"), "a tag name is created once per tenant, not once per unit")
 	require.Equal(t, 1, countMapEntries(other, "INSERT"), "one link added to the second unit")
 	require.Equal(t, 2, countTagEntries(),
-		"a reused name changes no vehicle_tag column the audit compares, so it files no entry")
+		"a reused name inserts no vehicle_tag row, so it files no entry")
+	var unstamped bool
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT updated_at IS NULL FROM app.vehicle_tag WHERE tenant_id = $1 AND name = 'REEFER'`, tenantID,
+	).Scan(&unstamped))
+	require.True(t, unstamped, "a reused name updates nothing, so the shared tag is never stamped")
 
 	narrowed := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
 		`{"tags":["REEFER"]}`)
