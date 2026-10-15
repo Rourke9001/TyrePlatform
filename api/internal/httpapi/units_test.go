@@ -765,6 +765,11 @@ func TestPatchUnitRefusesConfigurationID(t *testing.T) {
 // both and fails the third. The tag NAME survives a clear (000035 restores
 // DELETE on the map alone, never on app.vehicle_tag), which the second unit
 // still carrying it is what proves.
+//
+// TYRE-98: the map is audited under the unit and the edit writes only the
+// difference, so each count below moves by exactly the links added or
+// removed, and a replace-all that deleted and re-added the kept tag fails
+// the narrowing.
 func TestPatchUnitReplacesTags(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -780,8 +785,8 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 		return n
 	}
 
-	// units.go's patchUnit doc comment claims a tags-only PATCH writes no
-	// audit row: the count taken here, across the first tags-only patch
+	// A tags-only PATCH writes no vehicle audit row (docs/architecture.md,
+	// unit writes): the count taken here, across the first tags-only patch
 	// below, is what proves that rather than restates it.
 	countUpdates := func() int {
 		var n int
@@ -791,13 +796,34 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 		).Scan(&n))
 		return n
 	}
+	// Both name the tenant on the admin connection, so neither can read empty
+	// for want of a binding (docs/lessons.md 2026-09-19).
+	countMapEntries := func(unit uuid.UUID, action string) int {
+		var n int
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT count(*) FROM app.audit_log
+			  WHERE tenant_id = $1 AND entity_type = 'vehicle_tag_map'
+			    AND entity_id = $2 AND action = $3`, tenantID, unit, action,
+		).Scan(&n))
+		return n
+	}
+	countTagEntries := func() int {
+		var n int
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT count(*) FROM app.audit_log
+			  WHERE tenant_id = $1 AND entity_type = 'vehicle_tag'`, tenantID,
+		).Scan(&n))
+		return n
+	}
 	updatesBeforeTagsOnly := countUpdates()
 
 	set := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
 		`{"tags":["LONG HAUL","REEFER"]}`)
 	require.ElementsMatch(t, []string{"LONG HAUL", "REEFER"}, set.Tags)
 	require.Equal(t, updatesBeforeTagsOnly, countUpdates(),
-		"a tags-only edit touches no column app.audit_row_change compares, so it writes no audit row")
+		"a tags-only edit touches no column app.audit_row_change compares, so it writes no vehicle audit row")
+	require.Equal(t, 2, countMapEntries(mine, "INSERT"), "two links added, two entries under the unit")
+	require.Equal(t, 2, countTagEntries(), "two new names, two vehicle_tag entries")
 
 	// The second unit takes one of the same names: a tag row is created once
 	// per tenant and shared, so this is also the upsert's ON CONFLICT branch.
@@ -805,10 +831,32 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 		`{"tags":["REEFER"]}`)
 	require.Equal(t, []string{"REEFER"}, shared.Tags)
 	require.Equal(t, 1, countTag("REEFER"), "a tag name is created once per tenant, not once per unit")
+	require.Equal(t, 1, countMapEntries(other, "INSERT"), "one link added to the second unit")
+	require.Equal(t, 2, countTagEntries(),
+		"a reused name changes no vehicle_tag column the audit compares, so it files no entry")
 
 	narrowed := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
 		`{"tags":["REEFER"]}`)
 	require.Equal(t, []string{"REEFER"}, narrowed.Tags, "the set is replaced, not merged")
+	require.Equal(t, 1, countMapEntries(mine, "DELETE"), "narrowing removes one link: one DELETE entry")
+	require.Equal(t, 2, countMapEntries(mine, "INSERT"), "the link the unit keeps is not deleted and added again")
+
+	var longHaul, removed uuid.UUID
+	var afterIsNull bool
+	var removedBy *uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.vehicle_tag WHERE tenant_id = $1 AND name = 'LONG HAUL'`, tenantID,
+	).Scan(&longHaul))
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT (before->>'tag_id')::uuid, after IS NULL, actor_id
+		   FROM app.audit_log
+		  WHERE tenant_id = $1 AND entity_type = 'vehicle_tag_map'
+		    AND entity_id = $2 AND action = 'DELETE'`, tenantID, mine,
+	).Scan(&removed, &afterIsNull, &removedBy))
+	require.Equal(t, longHaul, removed, "the entry records the link it removed")
+	require.True(t, afterIsNull, "a removed link has no after")
+	require.NotNil(t, removedBy, "the removal recorded no actor")
+	require.Equal(t, controller, *removedBy)
 
 	// A blank name is not a tag, and the refusal leaves the set as it stood.
 	// The good name in the refused body is deliberately one the unit does NOT
@@ -832,9 +880,12 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	// A repeated name is one tag. Without the de-duplication the second map
 	// insert would meet the map primary key and answer 409, so this asserts
 	// how the handler reads the request rather than what the constraint does.
+	// It is also the set the unit already carries, so it files nothing.
 	deduped := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
 		`{"tags":["REEFER","REEFER"]}`)
 	require.Equal(t, []string{"REEFER"}, deduped.Tags)
+	require.Equal(t, 1, countMapEntries(mine, "DELETE"), "resending the unit's own set files no removal")
+	require.Equal(t, 2, countMapEntries(mine, "INSERT"), "resending the unit's own set files no addition")
 
 	// An absent key is not an empty set.
 	untouched := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
@@ -844,6 +895,7 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	emptied := patchedUnit(t, h, mine.String(), tenantID.String(), controller.String(),
 		`{"tags":[]}`)
 	require.Empty(t, emptied.Tags, "an empty array clears the set")
+	require.Equal(t, 2, countMapEntries(mine, "DELETE"), "clearing the set files the last link's removal")
 
 	stillTagged := get(t, h, "/api/vehicles/"+other.String(), tenantID.String(), controller.String())
 	require.Equal(t, http.StatusOK, stillTagged.Code, stillTagged.Body.String())
@@ -852,6 +904,9 @@ func TestPatchUnitReplacesTags(t *testing.T) {
 	require.Equal(t, []string{"REEFER"}, otherBody.Tags,
 		"one unit's clear must not strip the name from another unit")
 	require.Equal(t, 1, countTag("REEFER"), "the tag name itself is never deleted by an edit")
+	// other still carries REEFER, so plantTenant's cleanup closes a tenant with
+	// a tagged unit, which the audit trigger stands aside for (DR-014,
+	// TYRE-98). The cleanup's require.NoError is that assertion.
 }
 
 // The transport cap on how many tags one edit may name (maxTagsPerPatch). The
