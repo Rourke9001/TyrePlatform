@@ -23,9 +23,10 @@ isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
 A change is a new pair `migrations/NNNNNN_name.up.sql` + `.down.sql` (next
 number in sequence, golang-migrate). Never edit a migration that is already
 on `develop` — it has run somewhere and will not run again, and a hook
-refuses the edit (TYRE-250). A down file never DROPs what its up did not
+refuses the edit (TYRE-250). A down file never retires what its up did not
 create, and an up retires an earlier object only when a decision orders
-it; `make db-reset` owns destruction.
+it. A DROP followed by its CREATE, under the same or a new signature,
+retires nothing. `make db-reset` owns destruction.
 
 Numbering spans directories because it is load order: migrations, then
 `seeds/002` and `003`, then the suite `tests/004`.
