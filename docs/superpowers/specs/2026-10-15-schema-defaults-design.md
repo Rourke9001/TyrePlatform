@@ -156,21 +156,30 @@ departs from it, so CHG-011 gets an erratum, as TYRE-418 did for
 FR-TYR-040. SRS pages exceed the Confluence connector's limits, so the
 owner has the row pasted by hand, and the ticket is not done until it is.
 
-The row, for SRS Part 3's errata table (page 10878977), in the FR-TYR-040
-row's format:
+The row, for SRS Part 3's errata table (page 10878977), whose columns are
+Requirement, Erratum, Amendment, Reason and Section. It goes directly after
+the FR-TYR-040 row:
 
-- **Item:** CHG-011 (Change and Verification Manifest v1.1, section 4.2)
-- **Section:** section 5.1 (Part 4), `reading_measurement`; cross-ref
-  FR-INS-029a, FR-ANL-045, FR-IMP-009
+- **Requirement:** CHG-011 (Change and Verification Manifest v1.1, section 4.2)
+- **Erratum:** (TYRE-175, 15 Oct 2026)
 - **Amendment:** `orientation_known` is `boolean NOT NULL` with no default.
   Every writer states it. A capture that follows FR-INS-029a's convention
   stores `true`, a spare stores `false`, and 2021 or imported rows store
   `false` (FR-IMP-009). A writer that leaves it out is refused rather than
   recorded as orientation-known (ADR-0010 rule 2).
-- **Source:** TYRE-175, 15 Oct 2026
+- **Reason:** TYRE-175, from the TYRE-143 review sweep (lane 3 F12). A
+  default of `true` lets a writer that leaves the column out claim a
+  certainty nobody supplied, against ADR-0010 rule 2 and OI-28's answer
+  (Q1) that captures without the convention carry `false`. The one writer
+  today, submit, states the value (`NOT is_spare`), so no stored row is
+  mislabelled.
+- **Section:** §5.1 (Part 4), `reading_measurement`; cross-ref
+  FR-INS-029a, FR-ANL-045, FR-IMP-009
 
-The Manifest's CHG-011 row gets a one-line note pointing to that erratum,
-so a reader of the Manifest does not restore the default.
+The Manifest's section 4.2 table has the columns ID, T and Assertion. The
+CHG-011 row's Assertion cell gains one sentence pointing to the erratum, so
+a reader of the Manifest does not restore the default. Its original text
+stays as it is.
 
 No other SRS text changes. Section 5.1 names the column without a default,
 FR-TYR-040's erratum already refuses a future received date, and the SRS
