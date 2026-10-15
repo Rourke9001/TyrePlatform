@@ -109,9 +109,10 @@ and TY012 are both 422 and both forward verbatim.
 so once TYRE-418 adds the back-datable received date, a future date shows
 the server's message instead of fallback copy.
 
-**`db/CLAUDE.md`, "Adding a function".** One line: input parameters carry
-the `p_` prefix, and a write-surface function whose whole request is one
-jsonb names it `p_payload`, as `app.submit_inspection` does.
+**`db/CLAUDE.md`, "Adding a function".** One line: a write-surface function
+names its inputs with the `p_` prefix, and one whose whole request is a
+single jsonb names it `p_payload`, as `app.submit_inspection` does. The
+pure valuation functions keep Appendix E's argument names.
 `app.receive_tyres(payload)` predates the rule and keeps its name, because
 a rename is a migration and breaks a named-argument caller.
 
