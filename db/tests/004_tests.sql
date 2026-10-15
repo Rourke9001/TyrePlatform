@@ -4277,7 +4277,10 @@ BEGIN
     PERFORM app.receive_tyres(
       cat2 || format('{"display_code":"FUTURE-1","received_date":"%s"}', current_date + 30)::jsonb);
     RAISE EXCEPTION 'FAIL: a receive dated in the future was accepted';
-  EXCEPTION WHEN sqlstate 'TY012' THEN
+  EXCEPTION WHEN sqlstate 'TY011' THEN
+    IF SQLERRM <> 'a tyre is received on or before today, never on a future date' THEN
+      RAISE EXCEPTION 'FAIL 39o: TY011 fired for the wrong reason (%)', SQLERRM;
+    END IF;
     RAISE NOTICE 'PASS  39o a future received_date is refused';
   END;
 
@@ -11998,6 +12001,162 @@ BEGIN
   RAISE NOTICE 'PASS  72f section 72 leaves no residue';
 END $$;
 DROP FUNCTION pg_temp.t72_one(text, uuid, text, uuid, uuid);
+
+\echo '== 73. TYRE-175: orientation_known has no default and every writer states it, a future receive is TY011, and the axle side-divergence view is gone (CHG-011 as amended, FR-TYR-040, ADR-0010 rule 2, ADR-0012)'
+
+\echo '== 73a. orientation_known is NOT NULL with no default; a measurement that leaves it out is refused 23502 on that column, and the same row stating it lands (CHG-011 as amended, ADR-0010 rule 2; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        posid uuid; st text; col text; n int;
+BEGIN
+  SELECT count(*) INTO n FROM pg_attribute a
+   WHERE a.attrelid = 'app.reading_measurement'::regclass
+     AND a.attname = 'orientation_known' AND a.attnotnull AND NOT a.atthasdef;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 73a: orientation_known carries a default or accepts NULL';
+  END IF;
+
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  SELECT p.id INTO posid FROM app.position p
+   WHERE p.configuration_id = md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid
+     AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  IF posid IS NULL THEN
+    RAISE EXCEPTION 'FAIL 73a: Second Fleet''s HORSE_6X4 position is not visible, so the insert below proves nothing';
+  END IF;
+  -- The inspection is this transaction's, so reading_measurement_sealed
+  -- (TY020) lets the row through and only the column can refuse it.
+  INSERT INTO app.inspection (id,tenant_id,vehicle_id,user_id,client_uuid,started_at,submitted_at,odometer)
+  VALUES (md5('t73insp')::uuid, t2, md5('t2veh1')::uuid, md5('driver2')::uuid,
+          md5('t73cli')::uuid, now(), now(), 750);
+  INSERT INTO app.reading (id,tenant_id,inspection_id,vehicle_id,position_id,tyre_id,pressure_kpa)
+  VALUES (md5('t73rd')::uuid, t2, md5('t73insp')::uuid, md5('t2veh1')::uuid, posid, NULL, 750);
+  BEGIN
+    INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm)
+    VALUES (t2, md5('t73rd')::uuid, 1, 'CENTRE', 9);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, col = COLUMN_NAME;
+  END;
+  IF st IS DISTINCT FROM '23502' OR col IS DISTINCT FROM 'orientation_known' THEN
+    RAISE EXCEPTION 'FAIL 73a: a measurement that left orientation_known out was answered %',
+      COALESCE(st || ' on ' || COALESCE(NULLIF(col, ''), 'no column'), 'by a stored row');
+  END IF;
+  -- The control: the same row stating the value lands, so the 23502 above
+  -- came from the omission and from nothing else in the row.
+  INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known)
+  VALUES (t2, md5('t73rd')::uuid, 1, 'CENTRE', 9, true);
+  SELECT count(*) INTO n FROM app.reading_measurement
+   WHERE reading_id = md5('t73rd')::uuid AND orientation_known;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 73a: the same measurement stating orientation_known did not land (% rows)', n;
+  END IF;
+  RAISE NOTICE 'PASS  73a orientation_known has no default; leaving it out is a 23502 on that column, and stating it lands';
+END $$;
+ROLLBACK;
+
+\echo '== 73b. a receive dated the tenant''s tomorrow is refused TY011 with its own message, and the same receive dated the tenant''s today lands (FR-TYR-040 as amended, ADR-0012, TYRE-175 Q3; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        tz text; base jsonb; st text; msg text; r record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  IF tz IS NULL THEN
+    RAISE EXCEPTION 'FAIL 73b: BAC''s timezone is not visible, so its tomorrow cannot be computed';
+  END IF;
+  -- A receive that names everything FR-TYR-031 requires, so only the date
+  -- can refuse it. No fixture tyre carries the purchase date, so 73e can
+  -- find the row.
+  base := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                             'new_tread_mm', '25.0', 'purchase_date', '2001-07-03');
+  BEGIN
+    PERFORM app.receive_tyres(base || jsonb_build_object(
+      'received_date', (app.tenant_today(tz) + 1)::text));
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  END;
+  IF st IS DISTINCT FROM 'TY011'
+     OR msg IS DISTINCT FROM 'a tyre is received on or before today, never on a future date' THEN
+    RAISE EXCEPTION 'FAIL 73b: a receive dated the tenant''s tomorrow was answered %',
+      COALESCE(st || ' "' || msg || '"', 'by an accepted receive');
+  END IF;
+  SELECT * INTO r FROM app.receive_tyres(base || jsonb_build_object(
+    'received_date', app.tenant_today(tz)::text));
+  IF (SELECT t.received_date FROM app.tyre t WHERE t.id = r.tyre_id) IS DISTINCT FROM app.tenant_today(tz) THEN
+    RAISE EXCEPTION 'FAIL 73b: the same receive dated the tenant''s today did not land on that day';
+  END IF;
+  RAISE NOTICE 'PASS  73b a receive dated tomorrow is TY011 with its own message, and dated today it lands';
+END $$;
+ROLLBACK;
+
+\echo '== 73c. app.v_axle_side_divergence is gone (owner decision 6 on TYRE-143; FR-ANL-029 and FR-EXC-037 are deferred to Appendix H.2)'
+DO $$
+BEGIN
+  IF to_regclass('app.v_axle_side_divergence') IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 73c: app.v_axle_side_divergence still exists';
+  END IF;
+  RAISE NOTICE 'PASS  73c the axle side-divergence view is gone';
+END $$;
+
+\echo '== 73d. a submit states orientation_known itself, true on a running position and false on a spare, from a payload that carries no such key (FR-INS-029a, CHG-011 as amended; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        drv constant uuid := md5('driver2')::uuid;
+        cfg constant uuid := md5('22222222-2222-2222-2222-222222222222HORSE_6X4')::uuid;
+        -- A unit of its own, so FR-INS-038's window cannot refuse the submit.
+        v   constant uuid := md5('t73d-unit')::uuid;
+        p_run uuid; p_spare uuid; insp uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', drv::text, true);
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (v, t2, 'T73-D', 'CAA737301', cfg, 'HORSE', 'ACTIVE');
+  SELECT p.id INTO p_run FROM app.position p
+   WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  SELECT p.id INTO p_spare FROM app.position p
+   WHERE p.configuration_id = cfg AND p.is_spare ORDER BY p.sequence LIMIT 1;
+  IF p_run IS NULL OR p_spare IS NULL THEN
+    RAISE EXCEPTION 'FAIL 73d: Second Fleet''s HORSE_6X4 has no visible running position or spare';
+  END IF;
+
+  SELECT s.inspection_id INTO insp FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v,
+    'started_at', now() - interval '150 seconds', 'submitted_at', now(),
+    'readings', jsonb_build_array(
+      jsonb_build_object('vehicle_id', v, 'position_id', p_run,
+                         'pressure_kpa', 800, 'treads', jsonb_build_array(12.0, 13.0, 14.0)),
+      jsonb_build_object('vehicle_id', v, 'position_id', p_spare,
+                         'pressure_kpa', 800, 'treads', jsonb_build_array(12.0, 13.0, 14.0))))) s;
+  SELECT string_agg(CASE WHEN r.position_id = p_spare THEN 'spare' ELSE 'running' END
+                    || ':' || m.ordinal || ':' || m.orientation_known,
+                    ' ' ORDER BY r.position_id = p_spare, m.ordinal)
+    INTO got
+    FROM app.reading r JOIN app.reading_measurement m ON m.reading_id = r.id
+   WHERE r.inspection_id = insp;
+  IF got IS DISTINCT FROM 'running:1:true running:2:true running:3:true spare:1:false spare:2:false spare:3:false' THEN
+    RAISE EXCEPTION 'FAIL 73d: the submit stored %', COALESCE(got, 'no measurements');
+  END IF;
+  RAISE NOTICE 'PASS  73d a submit stores true on a running position and false on a spare, with no key in its payload';
+END $$;
+ROLLBACK;
+
+\echo '== 73e. nothing section 73 planted outlives its rollback'
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  SELECT count(*) INTO n FROM app.tyre WHERE purchase_date = '2001-07-03';
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  n := n + (SELECT count(*) FROM app.inspection WHERE id = md5('t73insp')::uuid)
+         + (SELECT count(*) FROM app.reading WHERE id = md5('t73rd')::uuid)
+         + (SELECT count(*) FROM app.vehicle WHERE id = md5('t73d-unit')::uuid);
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 73e: % rows planted by section 73 survived their rollback', n;
+  END IF;
+  RAISE NOTICE 'PASS  73e section 73 leaves no residue';
+END $$;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

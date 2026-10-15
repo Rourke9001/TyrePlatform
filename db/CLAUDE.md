@@ -88,7 +88,13 @@ when it runs and would otherwise follow the caller's path (TYRE-181). A
 `LANGUAGE sql` table function that a view is built over carries no pin:
 the planner inlines
 those and a SET clause blocks the inlining (000036). Check 8d holds both
-halves. Cite this section from a migration; do not restate it.
+halves. A write-surface function names its inputs with the `p_` prefix,
+and one whose whole request is a single jsonb names it `p_payload`, as
+`app.submit_inspection` does. The pure valuation functions keep Appendix
+E's argument names. `app.receive_tyres(payload)` predates the rule and
+keeps its name, because a rename is a migration and breaks a caller that
+names the argument (TYRE-213). Cite this section from a migration; do not
+restate it.
 
 Everything the definer reaches, including the snapshot reconcile and
 `app.tyre_valuation_asof`, runs with RLS off. A lookup there that finds its
@@ -162,10 +168,11 @@ and exception views see nothing (TYRE-254).
 Nothing forces that choice. Ordinary `INSERT` and ordinary `COPY` both satisfy
 the ordinal check, and it constrains numbering rather than completeness: one
 measurement is a valid set, so is two. Number ordinals densely from 1 in
-capture order, put the anatomy in `position`, and set `orientation_known =
-false` where the outer/centre/inner convention did not apply (CHG-011). A
-history that cannot be numbered 1..n is a question about what the data means,
-to answer before the load.
+capture order, put the anatomy in `position`, and state `orientation_known`
+on every row, `false` where the outer/centre/inner convention did not apply
+(FR-IMP-009). The column has no default, so a row that leaves it out is
+refused (CHG-011 as amended, TYRE-175). A history that cannot be numbered
+1..n is a question about what the data means, to answer before the load.
 
 ## Seeds
 

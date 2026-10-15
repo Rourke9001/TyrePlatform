@@ -416,6 +416,37 @@ func TestReceiveTyresRefusesAMalformedDateAs422(t *testing.T) {
 	require.Equal(t, "2026-09-02", received)
 }
 
+// FR-TYR-040 as amended (TYRE-418): a received date after the tenant's today
+// is app.receive_tyres' own TY011, forwarded verbatim (ADR-0012, TYRE-175).
+// Two days ahead stays in the future across a tenant midnight between the
+// read and the request; suite section 73b pins the edge at tomorrow.
+func TestReceiveTyresRefusesAFutureReceivedDateAsTY011(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-future")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	var today, ahead string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT app.tenant_today(timezone)::text, (app.tenant_today(timezone) + 2)::text
+		   FROM app.tenant WHERE id = $1`, tenantID).Scan(&today, &ahead))
+
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{"displayCode": "FUT-" + uuid.NewString()[:8], "receivedDate": ahead}))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY011", ref.Code)
+	require.Equal(t, "a tyre is received on or before today, never on a future date", ref.Message)
+
+	// control: the same receive dated the tenant's today is minted
+	rec = post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{"displayCode": "FUT-" + uuid.NewString()[:8], "receivedDate": today}))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
 // Gated on ManageAssets like the other write paths, a TECHNICIAN holds
 // ViewFleet and no more.
 func TestReceiveTyresIsCapabilityGated(t *testing.T) {

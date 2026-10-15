@@ -182,7 +182,7 @@
   "TY011": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a receive refused by app.receive_tyres: the display-code policy (D12), a quantity outside 1 to 200, a missing size, pattern or new tread, a new tread outside 0 to app.max_tread_mm(), an inactive size, pattern or brand (a pattern's own brand included), a retread-only pattern, a brand the pattern does not belong to, a new tread at or below the removal threshold, a price with no cost source or with UNKNOWN, a cost source other than UNKNOWN with no price (TYRE-318, U128), a price with no removal threshold in force (U129), or a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421)",
+    "meaning": "a receive refused by app.receive_tyres: a received date after the tenant's today (FR-TYR-040 as amended, TYRE-175), the display-code policy (D12), a quantity outside 1 to 200, a missing size, pattern or new tread, a new tread outside 0 to app.max_tread_mm(), an inactive size, pattern or brand (a pattern's own brand included), a retread-only pattern, a brand the pattern does not belong to, a new tread at or below the removal threshold, a price with no cost source or with UNKNOWN, a cost source other than UNKNOWN with no price (TYRE-318, U128), a price with no removal threshold in force (U129), or a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421)",
     "raisedBy": ["app.receive_tyres"]
   },
   "TY012": {
@@ -200,7 +200,6 @@
       "app.fit_tyre",
       "app.fitment_instant_ok",
       "app.log_retread_return",
-      "app.receive_tyres",
       "app.remove_tyre",
       "app.return_tyre_to_stock",
       "app.rotate_tyres",
