@@ -11839,15 +11839,16 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 72d. a tag map DELETE is filed under the unit with the link it removed, a real UPDATE under the unit too, and a no-op UPDATE not at all (FR-AUD-001, ADR-0013 decision 7; as BAC, rolled back)'
+\echo '== 72d. a tag map DELETE is filed under the unit with the link it removed, a DELETE that unbinds or switches its tenant mid-statement is refused, a real UPDATE is filed under the unit too, and a no-op UPDATE not at all (FR-AUD-001, DR-014, ADR-0013 decision 7; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        t2  constant uuid := '22222222-2222-2222-2222-222222222222';
         act constant uuid := md5('controller1')::uuid;
         vd  constant uuid := md5('t72d-unit')::uuid;
         tg1 constant uuid := md5('t72d-tag1')::uuid;
         tg2 constant uuid := md5('t72d-tag2')::uuid;
-        cfg uuid; a app.audit_log; n int;
+        cfg uuid; a app.audit_log; n int; links int; switched text; msg text; ret text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', act::text, true);
@@ -11878,14 +11879,43 @@ BEGIN
     RAISE EXCEPTION 'FAIL 72d: a no-op update of a link left % UPDATE entries, not the one relabel', n;
   END IF;
 
-  DELETE FROM app.vehicle_tag_map WHERE vehicle_id = vd;
+  -- A second link, so the control below removes one and the probes after it
+  -- still have one to aim at.
+  INSERT INTO app.vehicle_tag_map (tenant_id, vehicle_id, tag_id) VALUES (bac, vd, tg1);
+  DELETE FROM app.vehicle_tag_map WHERE vehicle_id = vd AND tag_id = tg2;
   a := pg_temp.t72_one('vehicle_tag_map', vd, 'DELETE', bac, act);
   IF a.after IS NOT NULL OR a.before->>'tag_id' IS DISTINCT FROM tg2::text
      OR a.before->>'vehicle_id' IS DISTINCT FROM vd::text THEN
     RAISE EXCEPTION 'FAIL 72d: the removal is filed with before tag %, unit %, after %',
       a.before->>'tag_id', a.before->>'vehicle_id', a.after;
   END IF;
-  RAISE NOTICE 'PASS  72d a link''s removal is filed under its unit with the link it removed; a relabel is filed, a no-op update is not';
+
+  -- The trigger fires after RETURNING has run, so a DELETE can unbind or
+  -- switch its tenant before its entry is filed. It is refused by audit_log's
+  -- policy, never let through unfiled (DR-014, TYRE-98).
+  FOREACH switched IN ARRAY ARRAY['', t2::text] LOOP
+    msg := NULL;
+    BEGIN
+      DELETE FROM app.vehicle_tag_map WHERE vehicle_id = vd AND tag_id = tg1
+      RETURNING set_config('app.tenant_id', switched, true) INTO ret;
+    EXCEPTION WHEN insufficient_privilege THEN
+      GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    END;
+    -- Rebound before counting: a DELETE that went through left the tenant
+    -- switched, and an unbound count reads zero for the wrong reason.
+    PERFORM set_config('app.tenant_id', bac::text, true);
+    SELECT count(*) INTO links FROM app.vehicle_tag_map m WHERE m.vehicle_id = vd AND m.tag_id = tg1;
+    SELECT count(*) INTO n FROM app.audit_log al
+     WHERE al.entity_type = 'vehicle_tag_map' AND al.entity_id = vd AND al.action = 'DELETE'
+       AND al.before->>'tag_id' = tg1::text;
+    IF msg IS NULL OR msg NOT LIKE '%row-level security policy for table "audit_log"%'
+       OR links <> 1 OR n <> 0 THEN
+      RAISE EXCEPTION 'FAIL 72d: a DELETE that bound tenant ''%'' mid-statement was answered %, left % links and filed % DELETE entries for it',
+        switched, COALESCE(msg, 'by a completed deletion'), links, n;
+    END IF;
+  END LOOP;
+  PERFORM pg_temp.t72_one('vehicle_tag_map', vd, 'DELETE', bac, act);
+  RAISE NOTICE 'PASS  72d a link''s removal is filed under its unit with the link it removed; a DELETE that unbinds or switches its tenant mid-statement is refused and files nothing; a relabel is filed, a no-op update is not';
 END $$;
 ROLLBACK;
 

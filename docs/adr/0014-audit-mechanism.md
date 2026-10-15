@@ -125,12 +125,17 @@ row with no `tenant_id` column, or no value in the column named, raises: a
 trigger attached with the wrong argument fails its first write instead of
 filing an entry under NULL.
 
-A DELETE files the removed row as `before`, with a NULL `after`. When the
-row's tenant does not exist, the trigger writes nothing. Tenant closure is
-the one physical deletion DR-014 sanctions, and the cascade that removes the
-tenant's rows removes its audit rows too, so an entry written during it would
-fail `audit_log`'s foreign key and the closure with it. A row with a NULL
-tenant passes that key, so its deletion is still filed.
+A DELETE files the removed row as `before`, with a NULL `after`. Tenant
+closure is the one physical deletion DR-014 sanctions, and the cascade that
+removes the tenant's rows removes its audit rows too, so an entry written
+during it fails `audit_log_tenant_id_fkey`. On a DELETE the trigger's INSERT
+runs in an exception block that swallows that one failure and files nothing;
+any other error refuses the statement. An `app_rw` session that cannot see
+its own tenant, because it unbound or switched `app.tenant_id` partway
+through its own DELETE, fails `audit_log`'s policy and is refused, never
+skipped (TYRE-98). A row with a NULL tenant passes the key, so its deletion
+is still filed. An INSERT or UPDATE meets no closure and files outside the
+block, which costs a subtransaction per row.
 
 `tenant_id` here departs from ADR-0013 decision 2, which rules that
 `tenant_id` on an insert comes from `app.current_tenant_id()`, never the

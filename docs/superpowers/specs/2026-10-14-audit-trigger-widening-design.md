@@ -81,13 +81,15 @@ Adding a function). Its body:
   `NEW.id` reference does today. It never writes a NULL `entity_id`.
 - **The DELETE arm.** `tenant_id` and the entity come from `OLD`;
   `before` is `to_jsonb(OLD)` and `after` is NULL.
-- **Tenant closure.** On a DELETE, when no `app.tenant` row with
-  `OLD.tenant_id` exists, the trigger writes nothing. Tenant closure is the
-  one physical deletion DR-014 sanctions, and the cascade that removes the
-  tenant's rows removes its audit rows too, so a row written here would be
-  refused by the foreign key and fail the closure. Under `app_rw` the check
-  sees exactly the session tenant (`tenant_self`), which is `OLD.tenant_id`
-  for any row RLS let the DELETE reach.
+- **Tenant closure.** On a DELETE, the INSERT runs in an exception block
+  that catches a `foreign_key_violation` on `audit_log_tenant_id_fkey` and
+  writes nothing. Tenant closure is the one physical deletion DR-014
+  sanctions, and the cascade that removes the tenant's rows removes its
+  audit rows too, so a row written here would be refused by the foreign key
+  and fail the closure. Any other error refuses the DELETE: an `app_rw`
+  session that cannot see its own tenant fails `audit_log`'s policy and is
+  refused, never skipped. INSERT and UPDATE file outside the block, which
+  costs a subtransaction per row.
 - **`source_ip` and `session_id`** are read as 000055 reads them.
 - `tenant_id` still comes from the row, never from the session (ADR-0014).
 
