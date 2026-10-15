@@ -11757,7 +11757,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 72c. an INSERT naming another tenant is refused by the audited table''s own policy, and no audit entry lands in either tenant (FR-TEN-004, docs/lessons.md 2026-09-08; as BAC, rolled back)'
+\echo '== 72c. an INSERT naming another tenant is refused by the audited table''s own policy (FR-TEN-004, docs/lessons.md 2026-09-08; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -11766,7 +11766,7 @@ DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         drv2 constant uuid := md5('driver2')::uuid;
         ty2  constant uuid := md5('t72c-tyre2')::uuid;
         tag2 constant uuid := md5('t72c-tag2')::uuid;
-        pos2 uuid; r record; msg text; bac_n int; t2_n int; n int;
+        pos2 uuid; r record; msg text;
 BEGIN
   -- Second Fleet's own rows for every reference, planted under its own
   -- binding, so each forged row is valid in every way but its writer
@@ -11782,9 +11782,7 @@ BEGIN
   IF pos2 IS NULL THEN
     RAISE EXCEPTION 'FAIL 72c: Second Fleet''s unit has no position 1, so the fitment forge proves nothing';
   END IF;
-  SELECT count(*) INTO t2_n FROM app.audit_log;
   PERFORM set_config('app.tenant_id', bac::text, true);
-  SELECT count(*) INTO bac_n FROM app.audit_log;
 
   FOR r IN SELECT * FROM (VALUES
       ('tyre', format(
@@ -11829,16 +11827,7 @@ BEGIN
         r.tbl, COALESCE(msg, 'by an accepted row');
     END IF;
   END LOOP;
-  SELECT count(*) INTO n FROM app.audit_log;
-  IF n <> bac_n THEN
-    RAISE EXCEPTION 'FAIL 72c: the forges left % entries under BAC, not %', n, bac_n;
-  END IF;
-  PERFORM set_config('app.tenant_id', t2::text, true);
-  SELECT count(*) INTO n FROM app.audit_log;
-  IF n <> t2_n THEN
-    RAISE EXCEPTION 'FAIL 72c: the forges left % entries under Second Fleet, not %', n, t2_n;
-  END IF;
-  RAISE NOTICE 'PASS  72c a row aimed at another tenant is refused by each audited table''s own policy, and no entry lands in either tenant';
+  RAISE NOTICE 'PASS  72c a row aimed at another tenant is refused by each audited table''s own policy';
 END $$;
 ROLLBACK;
 

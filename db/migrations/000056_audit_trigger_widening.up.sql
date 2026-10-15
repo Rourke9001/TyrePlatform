@@ -86,7 +86,8 @@ BEGIN
   RETURN NULL;
 END $$;
 
--- FR-AUD-001, ADR-0014: every table the app role writes in place.
+-- FR-AUD-001, ADR-0014: every table the app role writes in place except
+-- display_code_counter and valuation_snapshot, which ADR-0014 leaves out.
 CREATE TRIGGER tyre_audited
 AFTER INSERT OR UPDATE ON app.tyre
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();

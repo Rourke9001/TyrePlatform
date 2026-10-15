@@ -173,8 +173,9 @@ insert. This is intended, not incidental: a NULL actor means no app actor
 was bound, which is a seed, a migration, or an owner action through a
 runbook (`docs/runbooks/provision-a-user.md`). FR-AUD-002 names no field
 that tells those three apart. Since TYRE-98 every table the app role writes
-in place is audited; the tables that stay unaudited are listed below with
-their reasons.
+in place is audited except `display_code_counter` and `valuation_snapshot`;
+those and the other tables that stay unaudited are listed below with their
+reasons.
 
 **Bad:** `before`/`after` capture every column on the row, so the entries
 for `app.app_user` carry personal information (email, display name, staff
@@ -193,9 +194,11 @@ the request's client address parses, and the trigger reads both (`000055`).
 A value in `app.source_ip` that is not an address is stored as NULL through
 `app.current_source_ip()`, which both writers of this table read, so an
 audit detail never fails the write it records (TYRE-383). The other writer
-is `app.record_session_start()`, for authentication events (ADR-0016). A
-table the app role may delete from carries `DELETE` among its trigger's
-events; today that is `app.vehicle_tag_map` alone (ADR-0013 decision 7).
+is `app.record_session_start()`, for authentication events (ADR-0016). An
+audited table the app role may delete from carries `DELETE` among its
+trigger's events; today that is `app.vehicle_tag_map` alone (ADR-0013
+decision 7). The app role also deletes from `valuation_snapshot`, which is
+unaudited.
 
 `app.tyre_valuation_asof` (`000036`) pins no `search_path`; the reasoning is
 in 000036's own header comment.
