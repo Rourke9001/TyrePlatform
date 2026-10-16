@@ -69,6 +69,7 @@ export function CostForm({
         onChange={(e) =>
           setCostSource(COST_SOURCES.find((c) => c.value === e.target.value)?.value ?? "")
         }
+        required
         aria-describedby={sourceMissing ? hintId : undefined}
       >
         <option value="">Choose a source</option>
