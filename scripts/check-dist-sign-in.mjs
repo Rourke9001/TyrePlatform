@@ -8,22 +8,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readEnv } from "./read-env.mjs";
+
 const KEYS = ["VITE_AUTH_AUTHORITY", "VITE_AUTH_CLIENT_ID", "VITE_AUTH_API_SCOPE"];
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-
-// KEY=VALUE lines only. A form vite reads and this does not, such as an
-// inline comment, fails the check rather than passing it.
-function readEnv(file) {
-  const env = {};
-  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-    const t = line.trim();
-    if (t === "" || t.startsWith("#")) continue;
-    const i = t.indexOf("=");
-    if (i < 0) continue;
-    env[t.slice(0, i).trim()] = t.slice(i + 1).trim().replace(/^(["'])(.*)\1$/, "$2");
-  }
-  return env;
-}
 
 function problems(envFile, dir) {
   if (!existsSync(envFile)) return [`${envFile} is missing`];

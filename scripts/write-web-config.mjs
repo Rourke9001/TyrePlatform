@@ -17,27 +17,18 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { readEnv } from "./read-env.mjs";
+
 const PLACEHOLDER = "__API_ORIGIN__";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const SOURCE = resolve(root, "web/staticwebapp.config.json");
 const ENV_FILE = resolve(root, "web/.env.production");
 
-// check-dist-sign-in.mjs's rules: KEY=VALUE lines only, so a form vite
-// reads and this does not fails the check rather than passing it.
-function readEnv(file) {
-  const env = {};
-  for (const line of readFileSync(file, "utf8").split(/\r?\n/)) {
-    const t = line.trim();
-    if (t === "" || t.startsWith("#")) continue;
-    const i = t.indexOf("=");
-    if (i < 0) continue;
-    env[t.slice(0, i).trim()] = t.slice(i + 1).trim().replace(/^(["'])(.*)\1$/, "$2");
-  }
-  return env;
-}
-
-// The app's parseApiOrigin takes any origin; the deployed one is https.
+// The app's parseApiOrigin takes any origin; the deployed one is https, with
+// a host of letters, digits, dots and hyphens alone. new URL also takes ;, *
+// and ' in a host, and each changes what the CSP it is filled into says.
 function isHttpsOrigin(o) {
+  if (!/^https:\/\/[a-z0-9.-]+(:\d+)?$/.test(o)) return false;
   try {
     const u = new URL(o);
     return u.protocol === "https:" && u.origin === o;
@@ -144,6 +135,14 @@ function selfTest() {
 
     for (const bad of [`${origin}/`, `${origin}/api`, "http://api.test", ""]) {
       count(`the origin ${JSON.stringify(bad)}`, 1, prepare({ ...input, apiOrigin: bad }));
+    }
+    // Each is its own URL's origin. The first also ends connect-src early,
+    // so the CIAM origin goes missing too and the count is not fixed.
+    for (const bad of [`${origin};img-src`, "https://*.test", `${origin}'x`]) {
+      const got = prepare({ ...input, apiOrigin: bad });
+      if (!got.problems.some((p) => p.startsWith("--api-origin"))) {
+        throw new Error(`the origin ${JSON.stringify(bad)} was taken: ${JSON.stringify(got.problems)}`);
+      }
     }
 
     writeFileSync(source, sourceText(`https://api.test ${ciam}`));
