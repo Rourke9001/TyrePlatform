@@ -299,11 +299,12 @@
   "TY024": {
     "source": "db",
     "httpStatus": null,
-    "meaning": "a tenant's catalogue file refused by app.provision_catalogue, naming the section, the row and the reason: no tenant bound or one that does not exist, a payload that is not one object of known sections, a section that is not a list, a row that is not an object or names an unknown field, a required field missing, a name that is not a string or is empty or padded, a construction or applies_to outside its set, a name the fleet already has or the file repeats, a size or brand the fleet does not have, an amount that is a JSON number, negative, past two decimal places or above 9999999999.99, an effective_from that is not a YYYY-MM-DD date, or an estimate or price that repeats or already exists for its size, brand and date (TYRE-369)",
+    "meaning": "a tenant's catalogue file refused by app.provision_catalogue, naming the section, the row and the reason: a key repeated inside one object of the file's text, no tenant bound or one that does not exist, a payload that is not one object of known sections, a section that is not a list, a row that is not an object or names an unknown field, a required field missing, a name that is not a string or is empty or padded, a construction or applies_to outside its set, a name the fleet already has or the file repeats, a size or brand the fleet does not have, an amount that is a JSON number, negative, past two decimal places or above 9999999999.99, an effective_from that is not a YYYY-MM-DD date, an estimate or price that repeats or already exists for its size, brand and date, or an estimate dated before the current UTC day for a size that already has one or that the fleet holds a tyre of (TYRE-369, U135)",
     "note": "no route loads a catalogue file; make provision-catalogue and docs/runbooks/provision-a-tenant-catalogue.md do, so an entry would carry no test able to fail (ADR-0012, TY008's reasoning)",
     "raisedBy": [
       "app.catalogue_file_date",
       "app.catalogue_file_money",
+      "app.catalogue_file_parse",
       "app.catalogue_file_rows",
       "app.catalogue_file_text",
       "app.provision_catalogue"

@@ -1,9 +1,13 @@
 -- 000058 down. Drops what the up created and restores the price list's key
--- under its own name, proved by catalogue (docs/lessons.md, 2026-09-15). A
--- seeded copy keeps its platform_catalogue_id, a column the down does not
--- own, and the value then references nothing.
+-- under its own name and the UPDATE grant 000001 gave, proved by catalogue
+-- (docs/lessons.md, 2026-09-15). A seeded copy keeps its
+-- platform_catalogue_id, a column the down does not own, and the value then
+-- references nothing.
+
+GRANT UPDATE ON app.casing_estimate_by_size, app.tyre_price_list TO app_rw;
 
 DROP FUNCTION app.provision_catalogue(jsonb);
+DROP FUNCTION app.catalogue_file_parse(text);
 DROP FUNCTION app.catalogue_file_rows(jsonb, text, text[]);
 DROP FUNCTION app.catalogue_file_text(jsonb, text, text, boolean);
 DROP FUNCTION app.catalogue_file_money(jsonb, text, text);

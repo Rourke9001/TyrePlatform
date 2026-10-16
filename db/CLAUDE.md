@@ -150,6 +150,15 @@ provisioning that writes a first row dated `DEFAULT now()` can never add a
 `-infinity` baseline afterwards, and the tenant's history before that row
 stays UNVALUED.
 
+`casing_estimate_by_size` and `tyre_price_list` are insert-only for
+`app_rw` (000058): a changed figure is a new row with a later
+`effective_from` (FR-CFG-042). `app.provision_catalogue` refuses an estimate
+dated before the current UTC day once its size has an estimate or the
+tenant holds a tyre of the size, since it would re-price valuations already
+computed (FR-CFG-051, U135). A size's first estimate may be dated back only
+until the tenant holds such a tyre, so a new tenant loads its estimates
+before its tyres.
+
 The guarantee holds from the row's `COMMIT`, not its `BEGIN`. A row dated
 `now()` takes effect at the writer's `BEGIN` and is seen only once it
 commits, so a read at an instant in between resolves without it and a later
