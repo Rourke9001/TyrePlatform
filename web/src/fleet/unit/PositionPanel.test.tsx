@@ -638,4 +638,32 @@ describe("a position panel", () => {
     expect(screen.queryByRole("combobox", { name: "Reason" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Remove tyre" })).toBeNull();
   });
+
+  // TYRE-324: pins the depth and the source's words in one cell, as
+  // lastTreadCell (PositionPanel.tsx) renders them.
+  it("shows the last tread with the source it came from", () => {
+    const lastTread = () =>
+      screen.getByText("Last tread", { selector: "dt" }).nextElementSibling?.textContent;
+    const panel = (lastTreadMm: string | null, lastTreadSource: string | null) =>
+      renderPanel(
+        unitPosition({
+          id: "p2",
+          code: "POS2",
+          fitment: openFitment({ lastTreadMm, lastTreadSource }),
+        }),
+        {},
+        ["ViewFleet"],
+      );
+
+    const reading = panel("11.0", "READING");
+    expect(lastTread()).toBe("11.0 mm (inspection reading)");
+    reading.unmount();
+
+    const audit = panel("14.0", "AUDIT");
+    expect(lastTread()).toBe("14.0 mm (measured outside an inspection)");
+    audit.unmount();
+
+    panel(null, null);
+    expect(lastTread()).toBe("—");
+  });
 });

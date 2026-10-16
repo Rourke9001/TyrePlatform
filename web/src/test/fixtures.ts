@@ -91,6 +91,7 @@ export function openFitment(overrides: Partial<OpenFitment> = {}): OpenFitment {
     retreadCount: 0,
     sizeName: "295/80R22.5",
     lastTreadMm: "12.0",
+    lastTreadSource: "READING",
     ...overrides,
   };
 }
