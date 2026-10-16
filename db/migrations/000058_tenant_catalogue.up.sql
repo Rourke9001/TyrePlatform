@@ -1,7 +1,7 @@
 -- ============================================================================
 --  A tenant's tyre catalogue, casing estimates and price list (TYRE-369)
 --  Implements: FR-CFG-001 to FR-CFG-005, FR-CFG-007, FR-CFG-040, FR-CFG-042,
---  FR-CFG-043, FR-TEN-006, DR-007; ADR-0003, ADR-0013. Design:
+--  FR-CFG-043, FR-CFG-051, FR-TEN-006, DR-007; ADR-0003, ADR-0013. Design:
 --  docs/superpowers/specs/2026-10-15-tenant-catalogue-provisioning-design.md
 -- ============================================================================
 -- New SQLSTATEs TY024 (a catalogue file refused) and TY025 (a seed
@@ -107,6 +107,11 @@ ALTER TABLE app.tyre_price_list
   DROP CONSTRAINT tyre_price_list_tenant_id_size_id_brand_id_effective_from_key,
   ADD CONSTRAINT tyre_price_list_one_row_per_date
     UNIQUE NULLS NOT DISTINCT (tenant_id, size_id, brand_id, effective_from);
+
+-- A changed estimate or price is a new row, and the row it supersedes
+-- stays, so the app role inserts and never rewrites one (FR-CFG-042,
+-- FR-CFG-051, U135; check 4).
+REVOKE UPDATE ON app.casing_estimate_by_size, app.tyre_price_list FROM app_rw;
 
 -- ---------------------------------------------------------------------------
 -- Audit (FR-AUD-001, ADR-0014)
@@ -248,7 +253,8 @@ END $$;
 
 -- A name or a choice. A JSON null reads as absent. A name with white space
 -- at either end would sit beside its trimmed twin under UNIQUE (tenant_id,
--- name), so it is refused rather than trimmed.
+-- name), so it is refused rather than trimmed. [[:space:]] misses the
+-- no-break and zero-width spaces, so the class names them as well.
 CREATE FUNCTION app.catalogue_file_text(p_row jsonb, p_field text, p_label text, p_required boolean)
 RETURNS text
 LANGUAGE plpgsql
@@ -269,7 +275,8 @@ BEGIN
       MESSAGE = format('%s: %s is written as a JSON string', p_label, p_field);
   END IF;
   s := v #>> '{}';
-  IF s = '' OR s ~ '^[[:space:]]' OR s ~ '[[:space:]]$' THEN
+  IF s = '' OR s ~ '^[[:space:]   ​⁠﻿]'
+            OR s ~ '[[:space:]   ​⁠﻿]$' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY024',
       MESSAGE = format('%s: %s %L is empty or begins or ends with white space', p_label, p_field, s);
   END IF;
@@ -313,8 +320,9 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY024',
       MESSAGE = format('%s: %s %L is not an amount in rand, such as "1837.50"', p_label, p_field, s);
   END IF;
-  -- numeric(12,2)'s ceiling, the type of both money columns.
-  IF s::numeric > 9999999999.99 THEN
+  -- numeric(12,2)'s ceiling, the type of both money columns, read from the
+  -- digits before the cast, which a long enough string would overflow.
+  IF length(ltrim(split_part(s, '.', 1), '0')) > 10 THEN
     RAISE EXCEPTION USING ERRCODE = 'TY024',
       MESSAGE = format('%s: %s %L is above 9999999999.99, the most an amount can hold', p_label, p_field, s);
   END IF;
@@ -354,6 +362,26 @@ BEGIN
   RETURN d;
 END $$;
 
+-- The file's text as jsonb, the one way the make target and the runbook
+-- read a file. jsonb keeps only the last value of a key an object repeats,
+-- so a doubled field or section would load as one with no sign; the text is
+-- checked first, nested objects included (TYRE-369). A leading byte-order
+-- mark, which some Windows editors write, is dropped. Text that is not JSON
+-- reaches the cast and the parser's own message.
+CREATE FUNCTION app.catalogue_file_parse(p_text text)
+RETURNS jsonb
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  doc text := ltrim(p_text, chr(65279));
+BEGIN
+  IF doc IS JSON AND NOT (doc IS JSON WITH UNIQUE KEYS) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY024',
+      MESSAGE = 'a key repeats inside one object of the file, and only its last value would load; name each section and each field once';
+  END IF;
+  RETURN doc::jsonb;
+END $$;
+
 -- One file, one transaction, insert-only (D3). Sizes, brands and patterns
 -- load first, so a later section may name an entry an earlier one adds.
 -- Names resolve against the bound tenant's rows alone, seeded or its own,
@@ -366,6 +394,7 @@ LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
   tid   uuid := app.current_tenant_id();
+  today date := (now() AT TIME ZONE 'UTC')::date;
   r     record;
   lbl   text;
   nm    text;
@@ -508,6 +537,22 @@ BEGIN
                 WHERE e.tenant_id = tid AND e.size_id = sz AND e.effective_from = eff) THEN
       RAISE EXCEPTION USING ERRCODE = 'TY024',
         MESSAGE = format('%s: the size %L already has a casing estimate effective %s; a change is a new row with a later effective_from',
+                         lbl, nm, to_char(eff, 'YYYY-MM-DD'));
+    END IF;
+    -- FR-CFG-051, U135: an estimate dated before the current UTC day would
+    -- re-price valuations already computed, so it is refused once the size
+    -- has an estimate, or once the fleet holds a tyre of the size, whatever
+    -- the tyre's state. An earlier row of this file counts, as each row is
+    -- inserted before the next is read.
+    IF eff < today AND EXISTS (SELECT 1 FROM app.casing_estimate_by_size e
+                                WHERE e.tenant_id = tid AND e.size_id = sz) THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY024',
+        MESSAGE = format('%s: the size %L already has a casing estimate, so a new one is dated today (UTC) or later; one effective %s would re-price valuations already computed',
+                         lbl, nm, to_char(eff, 'YYYY-MM-DD'));
+    END IF;
+    IF eff < today AND EXISTS (SELECT 1 FROM app.tyre t WHERE t.tenant_id = tid AND t.size_id = sz) THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY024',
+        MESSAGE = format('%s: this fleet already holds tyres of the size %L, so its first casing estimate is dated today (UTC) or later; one effective %s would re-price valuations already computed',
                          lbl, nm, to_char(eff, 'YYYY-MM-DD'));
     END IF;
     INSERT INTO app.casing_estimate_by_size (tenant_id, size_id, estimated_value, effective_from, created_by)

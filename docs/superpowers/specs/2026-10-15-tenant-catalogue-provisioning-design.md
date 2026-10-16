@@ -67,6 +67,15 @@ spec review:
   the threshold policy. It sits in a table this branch writes, and the fix is
   one constraint in the branch's own migration (CLAUDE.md, fix in the branch).
 
+Amended after the stage 5 review of PR #122, Owner ruling U135 (16 Oct
+2026, TYRE-369 comment 13763): FR-CFG-051 binds casing estimates. An
+estimate dated before the current UTC day is refused once its size has an
+estimate or the tenant holds a tyre of the size, and `UPDATE` on the
+estimate and price tables is revoked from the app role. A size's first
+estimate may be dated back while the tenant holds no tyre of it. The file's
+text is refused when a key repeats inside one object, before it becomes
+`jsonb`.
+
 ## Scope
 
 In:
@@ -189,7 +198,7 @@ Payload, every section optional:
 - **Dates.** `effective_from` is required on every estimate and price row
   and must be an ISO date (D5). A date after an inspection means that
   inspection does not see the row (`effective_from <= p_as_at` in 000050),
-  so the supplier of the figure chooses it.
+  so the supplier of the figure chooses it, within U135's limit above.
 - **Unknown keys.** A top-level key or a row field the function does not
   know is refused, so a misspelt `estimated_valeu` cannot load as a row
   with no value.

@@ -134,12 +134,12 @@ BEGIN
    WHERE n.nspname = 'app' AND c.relkind IN ('r', 'p')
      AND has_any_column_privilege(current_user, c.oid, 'UPDATE')
      AND c.relname NOT IN (
-       'app_user', 'axle_configuration', 'casing_estimate_by_size', 'combination',
+       'app_user', 'axle_configuration', 'combination',
        'configuration', 'depot', 'display_code_counter', 'exception',
        'exception_rule', 'fitment', 'inspection_schedule', 'inspection_task',
        'notification', 'operating_group', 'photo', 'position', 'retread_job',
        'target_pressure', 'tyre', 'tyre_brand', 'tyre_pattern',
-       'tyre_price_list', 'tyre_size', 'user_depot', 'valuation_snapshot',
+       'tyre_size', 'user_depot', 'valuation_snapshot',
        'vehicle', 'vehicle_driver', 'vehicle_tag', 'vehicle_tag_map',
        -- inspection's grant is (state, void_reason) alone (000040, FR-INS-012);
        -- section 51 pins that column shape.
@@ -12390,7 +12390,7 @@ BEGIN
       "patterns": [{"name": "T74 OWN PATTERN", "brand": "T74 OWN BRAND", "applies_to": "RETREAD"},
                    {"name": "T74 SEEDED BRAND", "brand": "Dunlop", "applies_to": "BOTH"}],
       "casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1837.50", "effective_from": "2026-01-01"},
-                           {"size": "315/80R22.5", "estimated_value": "0.5", "effective_from": "2026-06-01"},
+                           {"size": "315/80R22.5", "estimated_value": "0.5", "effective_from": "2099-06-01"},
                            {"size": "T74 OWN SIZE", "estimated_value": "9999999999.99", "effective_from": "2026-01-01"}],
       "price_list": [{"size": "315/80R22.5", "brand": "Dunlop", "typical_price": "4319.91", "effective_from": "2026-01-01"},
                      {"size": "315/80R22.5", "typical_price": "4000.00", "effective_from": "2026-01-01"},
@@ -12422,7 +12422,7 @@ BEGIN
                     ' ' ORDER BY e.estimated_value) INTO got
     FROM app.casing_estimate_by_size e JOIN app.tyre_size s ON s.id = e.size_id
    WHERE e.created_by IS NULL;
-  IF got IS DISTINCT FROM '315/80R22.5@2026-06-01=0.50 315/80R22.5@2026-01-01=1837.50 T74 OWN SIZE@2026-01-01=9999999999.99' THEN
+  IF got IS DISTINCT FROM '315/80R22.5@2099-06-01=0.50 315/80R22.5@2026-01-01=1837.50 T74 OWN SIZE@2026-01-01=9999999999.99' THEN
     RAISE EXCEPTION 'FAIL 74d: the casing estimates read %', got;
   END IF;
   SELECT string_agg(s.name || '/' || COALESCE(b.name, '-') || '@' || to_char(l.effective_from, 'YYYY-MM-DD')
@@ -12470,7 +12470,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 74e. each refusal names its section, row and reason, under TY024 for a file and TY025 for a seed (DR-007, D3 to D5, TYRE-369 comment 13592; as Second Fleet, rolled back)'
+\echo '== 74e. each refusal names its section, row and reason, under TY024 for a file and TY025 for a seed, and an estimate dated back is refused once it would re-price a valuation (DR-007, D3 to D5, FR-CFG-051, U135, TYRE-369 comment 13592; as Second Fleet, rolled back)'
 BEGIN;
 DO $$
 DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -12548,9 +12548,18 @@ BEGIN
      'TY024 casing_estimates row 1: effective_from ''01/02/2026'' is not a date written YYYY-MM-DD'),
     ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1900.00", "effective_from": "2026-01-01"}]}',
      'TY024 casing_estimates row 1: the size ''315/80R22.5'' already has a casing estimate effective 2026-01-01; a change is a new row with a later effective_from'),
-    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1.00", "effective_from": "2026-03-01"},
-                            {"size": "315/80R22.5", "estimated_value": "2.00", "effective_from": "2026-03-01"}]}',
-     'TY024 casing_estimates row 2: the size ''315/80R22.5'' effective 2026-03-01 repeats casing_estimates row 1'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1.00", "effective_from": "2099-03-01"},
+                            {"size": "315/80R22.5", "estimated_value": "2.00", "effective_from": "2099-03-01"}]}',
+     'TY024 casing_estimates row 2: the size ''315/80R22.5'' effective 2099-03-01 repeats casing_estimates row 1'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1900.00", "effective_from": "2026-03-01"}]}',
+     'TY024 casing_estimates row 1: the size ''315/80R22.5'' already has a casing estimate, so a new one is dated today (UTC) or later; one effective 2026-03-01 would re-price valuations already computed'),
+    ('{"casing_estimates": [{"size": "225/70R19.5", "estimated_value": "1.00", "effective_from": "2026-02-01"},
+                            {"size": "225/70R19.5", "estimated_value": "2.00", "effective_from": "2026-03-01"}]}',
+     'TY024 casing_estimates row 2: the size ''225/70R19.5'' already has a casing estimate, so a new one is dated today (UTC) or later; one effective 2026-03-01 would re-price valuations already computed'),
+    (E'{"sizes": [{"name": "T74 E34\\u00a0"}]}', E'TY024 sizes row 1: name ''T74 E34 '' is empty or begins or ends with white space'),
+    (E'{"brands": [{"name": "\\u200bT74 E35"}]}', E'TY024 brands row 1: name ''​T74 E35'' is empty or begins or ends with white space'),
+    ('{"price_list": [{"size": "315/80R22.5", "typical_price": "' || repeat('9', 140000) || '", "effective_from": "2026-02-01"}]}',
+     'TY024 price_list row 1: typical_price ''' || repeat('9', 140000) || ''' is above 9999999999.99, the most an amount can hold'),
     ('{"price_list": [{"size": "315/80R22.5", "typical_price": "4100.00", "effective_from": "2026-01-01"}]}',
      'TY024 price_list row 1: the size ''315/80R22.5'' already has a price with no brand effective 2026-01-01; a change is a new row with a later effective_from'),
     ('{"price_list": [{"size": "315/80R22.5", "brand": "Dunlop", "typical_price": "1.00", "effective_from": "2026-03-01"},
@@ -12602,6 +12611,76 @@ BEGIN
   RAISE NOTICE 'PASS  74e a seed over a name the fleet holds as its own is TY025 listing every such name, and adopts none';
 END $$;
 ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE t2    constant uuid := '22222222-2222-2222-2222-222222222222';
+        today constant date := (now() AT TIME ZONE 'UTC')::date;
+        got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  -- A tyre of 11R22.5, which has no estimate yet.
+  got := pg_temp.t74_seed();
+  PERFORM app.receive_tyres(jsonb_build_object(
+    'display_code', 'T74E-1',
+    'size_id', (SELECT s.id FROM app.tyre_size s WHERE s.name = '11R22.5'),
+    'pattern_id', (SELECT p.id FROM app.tyre_pattern p WHERE p.name = 'SP431'),
+    'new_tread_mm', '20.0',
+    'received_date', to_char(today - 10, 'YYYY-MM-DD')));
+  got := got || ' | ' || pg_temp.t74_load(
+    '{"casing_estimates": [{"size": "11R22.5", "estimated_value": "1800.00", "effective_from": "2026-01-01"}]}');
+  IF got IS DISTINCT FROM 'seeded 10 | TY024 casing_estimates row 1: this fleet already holds tyres of the size ''11R22.5'', so its first casing estimate is dated today (UTC) or later; one effective 2026-01-01 would re-price valuations already computed' THEN
+    RAISE EXCEPTION 'FAIL 74e: a back-dated first estimate for a size the fleet holds a tyre of answered %', got;
+  END IF;
+  -- The controls: the same estimate dated today loads, and a back-dated
+  -- first estimate for a size with no tyre loads.
+  got := pg_temp.t74_load(jsonb_build_object('casing_estimates', jsonb_build_array(
+           jsonb_build_object('size', '11R22.5', 'estimated_value', '1800.00',
+                              'effective_from', to_char(today, 'YYYY-MM-DD')))))
+         || ' | ' || pg_temp.t74_load(
+           '{"casing_estimates": [{"size": "185/65R15", "estimated_value": "000000000001.00", "effective_from": "2026-01-01"}]}');
+  IF got IS DISTINCT FROM 'sizes=0 brands=0 patterns=0 casing_estimates=1 price_list=0 | sizes=0 brands=0 patterns=0 casing_estimates=1 price_list=0'
+     OR pg_temp.t74_counts() <> '4/3/3/2/0' THEN
+    RAISE EXCEPTION 'FAIL 74e: an estimate dated today, and a first one for a size with no tyre, answered % and left %',
+      got, pg_temp.t74_counts();
+  END IF;
+  -- FR-CFG-042, U135: an estimate or a price is never rewritten in place.
+  IF has_any_column_privilege(current_user, 'app.casing_estimate_by_size', 'UPDATE')
+     OR has_any_column_privilege(current_user, 'app.tyre_price_list', 'UPDATE') THEN
+    RAISE EXCEPTION 'FAIL 74e: the app role can UPDATE a casing estimate or a price row';
+  END IF;
+  RAISE NOTICE 'PASS  74e an estimate dated before today is TY024 once its size has an estimate or the fleet holds a tyre of it, and the app role cannot rewrite one (FR-CFG-051, U135)';
+END $$;
+ROLLBACK;
+
+DO $$
+DECLARE c record; got text; st text; msg text; bad text := '';
+BEGIN
+  -- A key repeated at any depth is refused before the cast (TYRE-369).
+  FOR c IN SELECT * FROM (VALUES
+    ('{"price_list": [{"size": "315/80R22.5"}], "price_list": []}',
+     'TY024 a key repeats inside one object of the file, and only its last value would load; name each section and each field once'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1837.50", "estimated_value": "183.75", "effective_from": "2026-01-01"}]}',
+     'TY024 a key repeats inside one object of the file, and only its last value would load; name each section and each field once'),
+    (E'﻿{"sizes": [{"name": "T74 BOM"}]}', '{"sizes": [{"name": "T74 BOM"}]}'),
+    ('not json', '22P02 invalid input syntax for type json')
+  ) AS v(txt, expected) LOOP
+    BEGIN
+      got := app.catalogue_file_parse(c.txt)::text;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+      got := st || ' ' || msg;
+    END;
+    IF got IS DISTINCT FROM c.expected THEN
+      bad := bad || format(E'\n  text %s answered %s', c.txt, got);
+    END IF;
+  END LOOP;
+  IF bad <> '' THEN
+    RAISE EXCEPTION 'FAIL 74e: %', bad;
+  END IF;
+  RAISE NOTICE 'PASS  74e a file whose text repeats a key, at any depth, is TY024 before it becomes jsonb, and a leading byte-order mark is dropped';
+END $$;
 
 \echo '== 74f. the price list keeps one row per size, brand and date, a missing brand counting as one value (FR-CFG-040; as Second Fleet, rolled back)'
 BEGIN;
@@ -12719,9 +12798,9 @@ BEGIN
     RAISE EXCEPTION 'FAIL 74h: Second Fleet''s catalogue reads % after section 74', pg_temp.t74_counts();
   END IF;
   SELECT (SELECT count(*) FROM app.vehicle WHERE id = md5('t74g-unit')::uuid)
-       + (SELECT count(*) FROM app.tyre WHERE display_code = 'T74G-1') INTO n;
+       + (SELECT count(*) FROM app.tyre WHERE display_code IN ('T74G-1', 'T74E-1')) INTO n;
   IF n <> 0 THEN
-    RAISE EXCEPTION 'FAIL 74h: % rows planted by 74g survived their rollback', n;
+    RAISE EXCEPTION 'FAIL 74h: % rows planted by 74e or 74g survived their rollback', n;
   END IF;
   RAISE NOTICE 'PASS  74h section 74 leaves no residue';
 END $$;

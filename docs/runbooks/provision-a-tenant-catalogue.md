@@ -12,26 +12,35 @@ what a new tenant needs, is not covered here.
 
 ## Before any SQL
 
-- Connect as `provision-a-user.md` does: `postgres` locally, the Flexible
-  Server admin `tyreadmin` in Azure. In Azure, set `$RG`, `$PG` and `$KV` as
-  `environment-release.md` does, and open psql from the folder that holds
-  the tenant's file. The folder is mounted read-only at `/load`:
+- Connect as `app_login`, the role the API uses, which does not bypass RLS
+  (CLAUDE.md rule 1). Nothing here needs more. In Azure, set `$RG`, `$PG`
+  and `$KV` as `environment-release.md` does, and open psql with the Key
+  Vault `database-url` from the folder that holds the tenant's file. The
+  folder is mounted read-only at `/load`:
 
   ```bash
-  pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
-  MSYS_NO_PATHCONV=1 docker run --rm -it -e PGPASSWORD="$pw" -v "$(pwd -W):/load:ro" \
-    postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
-    "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require"
-  unset pw
+  dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
+  MSYS_NO_PATHCONV=1 docker run --rm -it -e DSN="$dsn" -v "$(pwd -W):/load:ro" \
+    postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
+    sh -c 'psql "$DSN"'
+  unset dsn
   ```
 
   `MSYS_NO_PATHCONV=1` and `pwd -W` are for Git Bash. Without them it
   rewrites the mount and the file never reaches `/load`. If
   docker answers that the input device is not a TTY, put `winpty` in front
-  of `docker`.
-- Locally, `make provision-catalogue T=<tenant id> F=<file>` runs step 3
-  from a file on your machine, as `app_login`, in one transaction, and
-  prints the counts.
+  of `docker`. The first statement in psql:
+
+  ```sql
+  SELECT current_user, rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  Expect `app_login | f`. Anything else: quit, and check `database-url` as
+  `environment-release.md` bring-up step 2 does.
+- Locally, `make db-shell` opens psql as `app_login` for steps 1 and 2, and
+  `make provision-catalogue T=<tenant id> F=<file>` runs step 3 from a file
+  on your machine, in one transaction, printing the fleet's name and the
+  counts.
 - Run each step in its own transaction that binds the tenant first:
 
   ```sql
@@ -102,20 +111,23 @@ CREATE TEMP TABLE catalogue_file (n bigint GENERATED ALWAYS AS IDENTITY, line te
 \copy catalogue_file (line) FROM '/load/<file>' WITH (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')
 SELECT s.key AS section,
        CASE WHEN jsonb_typeof(s.value) = 'array' THEN jsonb_array_length(s.value) END AS rows_in_file
-  FROM (SELECT ltrim(string_agg(line, E'\n' ORDER BY n), chr(65279))::jsonb AS doc FROM catalogue_file) AS f
+  FROM (SELECT app.catalogue_file_parse(string_agg(line, E'\n' ORDER BY n)) AS doc FROM catalogue_file) AS f
   CROSS JOIN LATERAL jsonb_each(CASE WHEN jsonb_typeof(f.doc) = 'object' THEN f.doc ELSE '{}' END) AS s;
 SELECT * FROM app.provision_catalogue(
-  (SELECT ltrim(string_agg(line, E'\n' ORDER BY n), chr(65279))::jsonb FROM catalogue_file));
+  (SELECT app.catalogue_file_parse(string_agg(line, E'\n' ORDER BY n)) FROM catalogue_file));
 ```
 
 `\copy` reads the file line by line as text, with no character treated as a
 quote or a separator, so the file reaches Postgres as written and becomes
-`jsonb` there. A byte-order mark at the start, which some Windows editors
-write, is dropped first. Expect each section's `inserted` to equal its
-`rows_in_file`, and 0 for a section the file leaves out. A section that is
-not a list shows no `rows_in_file`, and the load then says what is wrong
-with it. A file that is not JSON at all stops at the first `SELECT` with
-the parser's message: `ROLLBACK;` and send it back.
+`jsonb` there through `app.catalogue_file_parse`. A byte-order mark at the
+start, which some Windows editors write, is dropped first. Expect each
+section's `inserted` to equal its `rows_in_file`, and 0 for a section the
+file leaves out. A section that is not a list shows no `rows_in_file`, and
+the load then says what is wrong with it. A file that is not JSON at all,
+or that repeats a key inside one object, such as a second `price_list`
+section or a field written twice, stops at the first `SELECT`:
+`ROLLBACK;` and send it back. `jsonb` would keep only the repeat's last
+value, and the counts would not show it.
 
 A refusal names the section, the row counted from 1, and the reason, for
 example `price_list row 3: typical_price '1800.005' has more than two
@@ -150,18 +162,24 @@ One JSON object. Every section is optional:
 - **Names.** A size or brand a row names is one the fleet has, seeded or
   its own, or one an earlier section of the same file adds. Names match
   exactly, capitals included. A name that is empty or has a space at either
-  end is refused.
+  end, a no-break or zero-width one included, is refused.
 - **Insert only.** A size, brand or pattern the fleet already has, or one
   the file names twice, is refused. So is an estimate for a size and date
   that already has one, or a price for a size, brand and date that already
   has one. A changed figure is a new row with a later `effective_from`, and
   the row it supersedes stays.
+- **Estimates are never dated back over a valuation** (FR-CFG-051, U135).
+  A size's first estimate may carry a past date while the fleet holds no
+  tyre of that size, which is how a new tenant's file is loaded. Once the
+  size has an estimate, or the fleet holds a tyre of it, an estimate is
+  dated today (UTC) or later: an earlier date would re-price valuations
+  already computed. Load a new tenant's estimates before its tyres.
 - **Amounts** are JSON strings of rand with at most two decimal places,
   such as `"1837.50"`. A JSON number, a third decimal place, a negative
   amount or one above 9999999999.99 is refused, never rounded.
 - **Dates.** `effective_from` is required on every estimate and price row,
-  written `YYYY-MM-DD`. A valuation or an inspection before that date does
-  not see the row, so it is the date the figure applies from.
+  written `YYYY-MM-DD`. The figure applies from the UTC day of that date,
+  in any valuation as at that day or later.
 - A section or field the load does not know is refused, so a misspelt
   `estimated_value` never loads a row without its value.
 - The file holds the tenant's prices. It stays out of the repository.
