@@ -54,8 +54,7 @@ describe("boot", () => {
     expect(f.listeners.size).toBe(0);
   });
 
-  // completeRedirect flushes the outbox to the API, so it waits for the
-  // origin; a redirect left incomplete keeps its code in the URL.
+  // The redirect waits for the configuration (boot.ts says why).
   it("shows the failure and waits for the signal when the configuration fails", async () => {
     const f = fakes(() => Promise.reject(new Error("no config")));
     void boot(f.steps);

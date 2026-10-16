@@ -236,10 +236,8 @@ func TestAuthConfigNamesTheUnsetVariables(t *testing.T) {
 	require.NotContains(t, err.Error(), "AUTH_AUDIENCE")
 }
 
-// TestAllowedOriginsParsing pins CORS_ALLOWED_ORIGINS's exactness: a browser
-// sends Origin as scheme://host[:port] and the middleware compares it byte
-// for byte (ADR-0019), so a value it could never match is refused at
-// startup rather than silently allowing nothing.
+// TestAllowedOriginsParsing pins every form allowedOrigins refuses;
+// allowedOrigins in main.go carries why (ADR-0019).
 func TestAllowedOriginsParsing(t *testing.T) {
 	tests := []struct {
 		name    string

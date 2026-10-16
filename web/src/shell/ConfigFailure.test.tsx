@@ -20,8 +20,7 @@ describe("ConfigFailure", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
-  // It renders outside ThemeProvider, the only other place the variables are
-  // set, and .btn's 44px floor (NFR-USE-004) is one of them.
+  // NFR-USE-004; ConfigFailure.tsx says why it sets them.
   it("sets the design system's variables itself", () => {
     document.documentElement.style.removeProperty("--target-min");
     render(<ConfigFailure onRetry={() => undefined} />);

@@ -11,16 +11,15 @@
 # globalHeaders are what the web origin must send. Each check retries,
 # SMOKE_TRIES times SMOKE_POLL_SECONDS apart, for a cold-starting replica or
 # a propagating upload. Exit 0 all pass, 1 a check failed, 2 usage.
-#
-# JSON is read with node, not python3: the deploy's web job sets Node up,
-# ubuntu-latest carries it for CI's stub test, and on the Windows host
-# python3 is the Store stub (the Makefile's PYTHON).
 set -euo pipefail
 [ "$#" -eq 3 ] || { echo "usage: $0 WEB_ORIGIN API_ORIGIN SWA_CONFIG" >&2; exit 2; }
 web=$1 api=$2 swa_config=$3
 tries=${SMOKE_TRIES:-12}
 poll=${SMOKE_POLL_SECONDS:-10}
 
+# JSON is read with node, not python3: the deploy's web job sets Node up,
+# ubuntu-latest carries it for CI's stub test, and on the Windows host
+# python3 is the Store stub (the Makefile's PYTHON).
 expected=$(node -e '
   const c = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
   const h = Object.entries(c.globalHeaders ?? {});

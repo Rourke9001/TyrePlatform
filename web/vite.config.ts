@@ -8,8 +8,7 @@ import react from "@vitejs/plugin-react";
 // The production build downloads /config.json beside the entry rather than
 // after it (NFR-PRF-001, ADR-0019). Build only: a dev build never fetches the
 // file, so under vite dev the preload would be answered with index.html and
-// the browser would warn that it went unused. crossorigin makes its mode and
-// credentials match fetch's defaults, or the fetch would not consume it.
+// the browser would warn that it went unused.
 function preloadRuntimeConfig(): Plugin {
   return {
     name: "preload-runtime-config",
@@ -17,6 +16,8 @@ function preloadRuntimeConfig(): Plugin {
     transformIndexHtml: () => [
       {
         tag: "link",
+        // crossorigin matches fetch's default mode and credentials; a
+        // preload that differs is not consumed, and the file downloads twice.
         attrs: { rel: "preload", as: "fetch", href: "/config.json", crossorigin: true },
         injectTo: "head",
       },
