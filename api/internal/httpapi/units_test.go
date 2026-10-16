@@ -174,6 +174,7 @@ type unitPositionBody struct {
 		RetreadCount     int     `json:"retreadCount"`
 		SizeName         *string `json:"sizeName"`
 		LastTreadMm      *string `json:"lastTreadMm"`
+		LastTreadSource  *string `json:"lastTreadSource"`
 	} `json:"fitment"`
 }
 
@@ -263,6 +264,115 @@ func TestGetUnitCarriesPositionsAndCurrentFitments(t *testing.T) {
 	require.NoError(t, json.Unmarshal(otherRec.Body.Bytes(), &otherBody))
 	require.False(t, otherBody.HasOdometer, "unit_kind TRAILER has no odometer (000025)'s false branch")
 	require.True(t, otherBody.HasHistory, "other's own fitment above is history too")
+}
+
+// plantedReading is one position's line on a planted sheet: three
+// width-wise treads, the lowest of which governs (CR-011).
+type plantedReading struct {
+	position, tyre uuid.UUID
+	treads         [3]string
+}
+
+// plantSheetAt plants one SYNCED inspection submitted at an explicit
+// instant, in the single transaction reading_sealed requires (000040, TY020),
+// with each reading's three ordinals in one statement (000046).
+func plantSheetAt(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID, driverID uuid.UUID, at time.Time, odometer int64, readings ...plantedReading) {
+	t.Helper()
+	tx, err := admin.Begin(ctx)
+	require.NoError(t, err)
+	var inspID uuid.UUID
+	require.NoError(t, tx.QueryRow(ctx,
+		`INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+		 VALUES ($1, $2, $3, $4, $5, $5, $6) RETURNING id`,
+		tenantID, vehicleID, driverID, uuid.New(), at, odometer).Scan(&inspID))
+	for _, r := range readings {
+		var readingID uuid.UUID
+		require.NoError(t, tx.QueryRow(ctx,
+			`INSERT INTO app.reading (tenant_id, inspection_id, vehicle_id, position_id, tyre_id, pressure_kpa)
+			 VALUES ($1, $2, $3, $4, $5, 800) RETURNING id`,
+			tenantID, inspID, vehicleID, r.position, r.tyre).Scan(&readingID))
+		_, err = tx.Exec(ctx,
+			`INSERT INTO app.reading_measurement (tenant_id, reading_id, ordinal, position, tread_mm, orientation_known)
+			 VALUES ($1, $2, 1, 'OUTER'::app.tread_position, $3::numeric, true),
+			        ($1, $2, 2, 'CENTRE'::app.tread_position, $4::numeric, true),
+			        ($1, $2, 3, 'INNER'::app.tread_position, $5::numeric, true)`,
+			tenantID, readingID, r.treads[0], r.treads[1], r.treads[2])
+		require.NoError(t, err)
+	}
+	require.NoError(t, tx.Commit(ctx))
+}
+
+// TYRE-324: a position's last tread is the latest reading of the tyre
+// fitted there since that fit, else the tread it was fitted at, and says
+// which. Every instant is explicit because the Docker VM clock can reorder
+// now() across transactions (docs/lessons.md, 2026-09-03). The instants sit
+// minutes apart, inside the 24 hours app.return_tyre_to_stock allows without
+// a backdate reason.
+func TestGetUnitLastTreadIsTheLatestReadingSinceTheFit(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, leftPos, rightPos, _ := plantUnitFixture(t, ctx, admin, "unit-last-tread")
+	plantRemovalReasons(t, ctx, admin, tenantID, "WORN")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	key := store.ActorKey{TenantID: tenantID, UserID: controller}
+
+	var base time.Time
+	require.NoError(t, admin.QueryRow(ctx, `SELECT now() - interval '2 hours'`).Scan(&base))
+	at := func(minutes int) time.Time { return base.Add(time.Duration(minutes) * time.Minute) }
+
+	tyreA := plantTyre(t, ctx, admin, tenantID, "LAST-TREAD-A", nil)
+	tyreB := plantTyre(t, ctx, admin, tenantID, "LAST-TREAD-B", nil)
+	fitA := fitTyreAtViaActor(t, ctx, s, tenantID, controller, tyreA, mine, leftPos, "12.0", "MARK_OUTBOARD", int64Ptr(40000), at(0), "")
+	fitTyreAtViaActor(t, ctx, s, tenantID, controller, tyreB, mine, rightPos, "13.0", "MARK_OUTBOARD", int64Ptr(40000), at(0), "")
+
+	// A is read during its first fit; B is read twice during its only one,
+	// so the older 12.0 is there to be wrongly chosen.
+	plantSheetAt(t, ctx, admin, tenantID, mine, driver, at(10), 40100,
+		plantedReading{leftPos, tyreA, [3]string{"9.0", "9.5", "10.0"}},
+		plantedReading{rightPos, tyreB, [3]string{"12.0", "12.5", "13.0"}})
+
+	// A leaves 1L, returns to stock and is refitted there: its 9.0 reading
+	// predates the open fitment and must not stand for it.
+	require.NoError(t, s.InActorTx(ctx, key, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx, `SELECT app.remove_tyre($1, 'WORN', 9.0, 40200, $2)`, fitA, at(20))
+		return err
+	}))
+	require.NoError(t, s.InActorTx(ctx, key, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx, `SELECT app.return_tyre_to_stock($1, NULL, $2)`, tyreA, at(30))
+		return err
+	}))
+	fitTyreAtViaActor(t, ctx, s, tenantID, controller, tyreA, mine, leftPos, "14.0", "MARK_OUTBOARD", int64Ptr(40200), at(40), "")
+
+	plantSheetAt(t, ctx, admin, tenantID, mine, driver, at(50), 40300,
+		plantedReading{rightPos, tyreB, [3]string{"11.0", "11.5", "12.0"}})
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	rec := get(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body unitBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+
+	byCode := map[string]unitPositionBody{}
+	for _, p := range body.Positions {
+		byCode[p.Code] = p
+	}
+
+	left := byCode["1L"].Fitment
+	require.NotNil(t, left)
+	require.NotNil(t, left.LastTreadMm)
+	require.NotNil(t, left.LastTreadSource)
+	require.Equal(t, "14.0", *left.LastTreadMm, "no reading since the refit, so the refit's tread stands")
+	require.Equal(t, "AUDIT", *left.LastTreadSource)
+
+	right := byCode["1R"].Fitment
+	require.NotNil(t, right)
+	require.NotNil(t, right.LastTreadMm)
+	require.NotNil(t, right.LastTreadSource)
+	require.Equal(t, "11.0", *right.LastTreadMm, "the newer of two readings since the fit")
+	require.Equal(t, "READING", *right.LastTreadSource)
+
+	require.Nil(t, byCode["SP1"].Fitment)
 }
 
 // A missing or another tenant's unit answers 404 not_found, never TY012,

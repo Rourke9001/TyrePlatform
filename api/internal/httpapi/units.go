@@ -40,6 +40,9 @@ type openFitmentJSON struct {
 	RetreadCount     int     `json:"retreadCount"`
 	SizeName         *string `json:"sizeName"`
 	LastTreadMm      *string `json:"lastTreadMm"`
+	// READING or AUDIT, the register's tread_source vocabulary (000005, U29);
+	// nil exactly when LastTreadMm is.
+	LastTreadSource *string `json:"lastTreadSource"`
 }
 
 // unitPositionJSON is one row of the unit's configuration, carrying its
@@ -220,16 +223,34 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 	// One row per position with its open fitment if any, the same LEFT JOIN
 	// chain capture.go's loadCaptureContext already establishes for the
 	// driver's context, reused here for the manager's read (D4).
+	//
+	// Last tread is the fitted tyre's latest reading since this fit, else the
+	// tread it was fitted at. app.tyre.last_tread_mm is only the onboarding-audit
+	// fallback, and current tread derives from a reading (SRS 5.1 errata E1,
+	// TYRE-324). The source travels with the figure (NFR-PRO-001).
 	u.Positions = []unitPositionJSON{}
 	prows, err := tx.Query(ctx, `
 		SELECT p.id, p.code, p.sequence, p.axle_number, p.axle_class::text, p.side::text, p.slot::text, p.is_spare,
 		       f.id, f.tyre_id, t.display_code, f.fitted_at, f.fitted_odometer, f.fitted_tread_mm::text,
-		       f.mount_orientation::text, t.status::text, t.retread_count, s.name, t.last_tread_mm::text
+		       f.mount_orientation::text, t.status::text, t.retread_count, s.name,
+		       COALESCE(lr.governing_tread_mm, f.fitted_tread_mm)::text,
+		       CASE WHEN lr.governing_tread_mm IS NOT NULL THEN 'READING'
+		            WHEN f.fitted_tread_mm IS NOT NULL THEN 'AUDIT' END
 		  FROM app.vehicle v
 		  JOIN app.position p ON p.configuration_id = v.configuration_id
 		  LEFT JOIN app.fitment f ON f.position_id = p.id AND f.vehicle_id = v.id AND f.removed_at IS NULL
 		  LEFT JOIN app.tyre t ON t.id = f.tyre_id
 		  LEFT JOIN app.tyre_size s ON s.id = t.size_id
+		  LEFT JOIN LATERAL (
+		    SELECT d.governing_tread_mm
+		      FROM app.v_reading_detail d
+		      JOIN app.inspection i ON i.id = d.inspection_id
+		     WHERE d.tyre_id = f.tyre_id AND d.vehicle_id = v.id
+		       AND d.submitted_at >= f.fitted_at
+		       AND d.governing_tread_mm IS NOT NULL
+		     -- Ties break as app.v_latest_unit_inspection does (000045).
+		     ORDER BY d.submitted_at DESC, i.received_at DESC, d.inspection_id, d.reading_id
+		     LIMIT 1) lr ON true
 		 WHERE v.id = $1
 		 ORDER BY p.sequence`, id)
 	if err != nil {
@@ -249,11 +270,12 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 			fittedAt                                  *time.Time
 			fittedOdometer                            *int64
 			fittedTreadMm, sizeName, lastTreadMm      *string
+			lastTreadSource                           *string
 			retreadCount                              *int
 		)
 		if err := prows.Scan(&posID, &code, &sequence, &axleNumber, &axleClass, &side, &slot, &isSpare,
 			&fitmentID, &tyreID, &displayCode, &fittedAt, &fittedOdometer, &fittedTreadMm,
-			&mountOrientation, &tyreStatus, &retreadCount, &sizeName, &lastTreadMm); err != nil {
+			&mountOrientation, &tyreStatus, &retreadCount, &sizeName, &lastTreadMm, &lastTreadSource); err != nil {
 			return unitJSON{}, fmt.Errorf("scanning unit position: %w", err)
 		}
 		pos := unitPositionJSON{
@@ -273,6 +295,7 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 				RetreadCount:     *retreadCount,
 				SizeName:         sizeName,
 				LastTreadMm:      lastTreadMm,
+				LastTreadSource:  lastTreadSource,
 			}
 		}
 		u.Positions = append(u.Positions, pos)

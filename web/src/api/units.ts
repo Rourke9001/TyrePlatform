@@ -20,6 +20,8 @@ export interface OpenFitment {
   retreadCount: number;
   sizeName: string | null;
   lastTreadMm: string | null;
+  // READING or AUDIT (U29), null exactly when lastTreadMm is.
+  lastTreadSource: string | null;
 }
 
 // unitPositionJSON: side and slot are null for a spare, mirroring

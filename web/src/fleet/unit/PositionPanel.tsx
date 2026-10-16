@@ -1,12 +1,22 @@
 import { useState } from "react";
 
-import type { FitWarning, Unit, UnitPosition } from "../../api/units";
+import type { FitWarning, OpenFitment, Unit, UnitPosition } from "../../api/units";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
+import { formatMm, treadSourceLabel } from "../../ui/vocabulary";
 import { RefusalAlert } from "../RefusalAlert";
 import { FitForm } from "./FitForm";
 import { orientationLabel } from "./vocabulary";
 import { RemoveForm } from "./RemoveForm";
+
+// NFR-PRO-001: a depth and where it came from are one fact, rendered in one
+// cell as FitmentHistory renders a distance (TYRE-324).
+function lastTreadCell(fitment: OpenFitment): string {
+  if (fitment.lastTreadMm === null) return "—";
+  const mm = formatMm(Number(fitment.lastTreadMm));
+  if (fitment.lastTreadSource === null) return mm;
+  return `${mm} (${treadSourceLabel(fitment.lastTreadSource)})`;
+}
 
 // Which write was made last, what it named, and which fitment it acted on:
 // needed because a form's own fields and mutation state do not survive the
@@ -80,7 +90,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
           <dt>Fitted</dt>
           <dd>{asDate(position.fitment.fittedAt)}</dd>
           <dt>Last tread</dt>
-          <dd>{position.fitment.lastTreadMm ?? "—"}</dd>
+          <dd>{lastTreadCell(position.fitment)}</dd>
         </dl>
       )}
 
