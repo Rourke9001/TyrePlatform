@@ -246,3 +246,8 @@ of the sponsorship subscription, and give production its own registry and
 CIAM tenant); the stopped-server habit fails often enough that staging's cost
 saving is fiction; or a second engineer joins, which makes a reviewer on
 production deploys worth its click.
+
+**Amended 2026-10-16 (TYRE-51, U137):** the API is not reached by a relative
+`/api`. Its origin is the first setting that differs per environment, and it
+moved to a fetched `config.json`, as "The web bundle carries no
+per-environment setting" prescribes (ADR-0019).

@@ -172,10 +172,9 @@ tests and CI must remember the build tag.
 
 **Revisit when:** the mapped claim cannot reach tyre-api's access token
 (take Option 2, back through the owner); a hand-made user cannot use the
-passcode flow (U91 itself goes back to the owner); Static Web Apps strips
-`Authorization` on the linked backend (TYRE-51), when the fallback is the
-Container App's origin over CORS or a second header the resolver also
-accepts; a person needs several tenants; a custom domain lands (TYRE-19),
+passcode flow (U91 itself goes back to the owner); a proxy is placed in
+front of Go (ADR-0019 took the CORS fallback, so none sits there today); a
+person needs several tenants; a custom domain lands (TYRE-19),
 which moves the issuer, redirect URIs and CSP; the marketplace's second
 customer type is decided (ADR-0003); `PLATFORM_ADMIN` login or SSO
 (FR-AUT-021) is taken on; the Go toolchain moves past 1.24 (TYRE-379).

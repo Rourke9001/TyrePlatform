@@ -23,9 +23,9 @@ import (
 	"tyreplatform/api/internal/httpapi"
 )
 
-// HeaderName is where the token travels. It lives in one constant so a switch
-// to a second header, if the Static Web App's linked backend will not forward
-// this one, is a one-line change (ADR-0016, TYRE-51).
+// HeaderName is where the token travels: one constant here and one in the
+// web (AUTH_HEADER in web/src/api/client.ts), so the two sides cannot
+// disagree (ADR-0016).
 const HeaderName = "Authorization"
 
 const (
