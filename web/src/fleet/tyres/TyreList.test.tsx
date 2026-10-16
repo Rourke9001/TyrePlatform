@@ -376,6 +376,8 @@ describe("the tyre register", () => {
     await screen.findAllByRole("rowheader");
 
     await userEvent.type(screen.getByLabelText(/purchase price for pos1/i), "500.00");
+
+    await userEvent.selectOptions(screen.getByLabelText(/cost source for pos1/i), "INVOICE");
     await userEvent.click(screen.getByRole("button", { name: /set cost/i }));
 
     const alert = await screen.findByRole("alert");
@@ -399,6 +401,8 @@ describe("the tyre register", () => {
     await screen.findAllByRole("rowheader");
 
     await userEvent.type(screen.getByLabelText(/purchase price for pos1/i), "500.00");
+
+    await userEvent.selectOptions(screen.getByLabelText(/cost source for pos1/i), "INVOICE");
     await userEvent.click(screen.getByRole("button", { name: /set cost/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -711,6 +715,8 @@ describe("the tyre register", () => {
     await screen.findAllByRole("rowheader");
 
     await user.type(screen.getByLabelText(/purchase price for pos1/i), "1200.00");
+
+    await user.selectOptions(screen.getByLabelText(/cost source for pos1/i), "INVOICE");
     await user.click(screen.getByRole("button", { name: /set cost/i }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(/tyre pos1's cost was recorded/i);
