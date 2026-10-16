@@ -83,8 +83,8 @@ func checkOrigin(o string) error {
 		return err
 	}
 	if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
-		o != u.Scheme+"://"+u.Host || strings.HasSuffix(u.Host, ":") {
-		return errors.New("must be scheme://host[:port] with no userinfo, path, query, fragment or empty port")
+		o != u.Scheme+"://"+u.Host || u.Hostname() == "" || strings.HasSuffix(u.Host, ":") {
+		return errors.New("must be scheme://host[:port] with a host and no userinfo, path, query, fragment or empty port")
 	}
 	switch {
 	case u.Scheme == "https" && u.Port() != "443":
