@@ -146,8 +146,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     # A hung upload would otherwise hold deploy-staging-web, and develop CI
-    # behind it, for six hours.
-    timeout-minutes: 20
+    # behind it, for six hours. The smoke's retries ride on top of the
+    # upload: six checks, each up to 12 tries 10 s apart.
+    timeout-minutes: 30
     concurrency:
       group: deploy-staging-web
       cancel-in-progress: false
@@ -180,6 +181,25 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
+      # The API origin is the one setting that differs per environment, so it
+      # lands in config.json and the CSP beside the bundle, never in it
+      # (ADR-0019). After "Build and check", so the bundle measured is the
+      # one shipped. Read with the gate's own query rather than passed from
+      # the api job. A rollback to a commit with no writer still deploys.
+      - name: Runtime configuration
+        run: |
+          api=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)
+          web=$(az staticwebapp show -g "$RG" -n "$SWA" --query defaultHostname -o tsv)
+          [ -n "$api" ] || { echo "::error::$APP has no ingress FQDN"; exit 1; }
+          [ -n "$web" ] || { echo "::error::$SWA has no default hostname"; exit 1; }
+          echo "API_ORIGIN=https://$api" >> "$GITHUB_ENV"
+          echo "WEB_ORIGIN=https://$web" >> "$GITHUB_ENV"
+          if [ -f scripts/write-web-config.mjs ]; then
+            node scripts/write-web-config.mjs --api-origin "https://$api" --dist web/dist
+          else
+            echo "::warning::$IMAGE_SHA predates config.json (TYRE-51): its web calls a relative /api, and the smoke fails"
+          fi
+
       # The SWA deployment token is fetched fresh via OIDC each run instead of
       # living in repo secrets: one less credential that can go stale or leak.
       # add-mask before it touches an output so the log can never show it.
@@ -202,3 +222,13 @@ jobs:
           app_location: web/dist
           skip_app_build: true
           skip_api_build: true
+
+      # TYRE-398's first post-deploy smoke tests: both origins, CORS and the
+      # refusal shape, as deployed (scripts/deploy-smoke.sh).
+      - name: Smoke both origins
+        run: |
+          if [ ! -f scripts/deploy-smoke.sh ]; then
+            echo "::error::$IMAGE_SHA predates the post-deploy smoke (runbook, Roll back)"
+            exit 1
+          fi
+          bash scripts/deploy-smoke.sh "$WEB_ORIGIN" "$API_ORIGIN" web/dist/staticwebapp.config.json

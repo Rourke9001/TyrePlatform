@@ -229,6 +229,10 @@ web-production: ## The production bundle in Chromium under its CSP and config.js
 deploy-gate-test: ## The staging deploy gate's pass and fail cases, with stub az and curl (TYRE-79)
 	bash scripts/deploy-gate.test.sh
 
+.PHONY: deploy-smoke-test
+deploy-smoke-test: ## The post-deploy smoke's pass and fail cases, with a stub curl (TYRE-51)
+	bash scripts/deploy-smoke.test.sh
+
 .PHONY: web-bundle
 web-bundle: ## The capture route's JavaScript budget (TYRE-238, ADR-0015), the lazy sign-in chunk, no dev identity in the build (TYRE-317), its sign-in values (TYRE-79) and the deploy's web config writer (TYRE-51)
 	node scripts/check-capture-bundle.mjs --self-test
@@ -337,7 +341,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged api-test web-test web-production deploy-gate-test pipeline-launch-test ## Every test in the repo
+test: db-reset db-test db-test-privileged api-test web-test web-production deploy-gate-test deploy-smoke-test pipeline-launch-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.

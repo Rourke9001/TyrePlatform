@@ -318,3 +318,9 @@ redeploys that image under today's template, and rebuilds the web from that
 commit too; a template change that must be undone is a revert on `develop`.
 A rollback runs no down migration, so the schema stays at head, and an old
 image must tolerate it.
+
+A rollback to a commit from before TYRE-51 ships a web with no `config.json`
+handling. That web calls a relative `/api` and 404s, and the web job's smoke
+fails, since the commit has no `scripts/deploy-smoke.sh`. This is accepted
+while nobody signs in to staging (TYRE-51 spec, What the owner does after
+merge).
