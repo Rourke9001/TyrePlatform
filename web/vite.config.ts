@@ -1,12 +1,32 @@
 import { configDefaults, defineConfig } from "vitest/config";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
+
+// The production build downloads /config.json beside the entry rather than
+// after it (NFR-PRF-001, ADR-0019). Build only: a dev build never fetches the
+// file, so under vite dev the preload would be answered with index.html and
+// the browser would warn that it went unused. crossorigin makes its mode and
+// credentials match fetch's defaults, or the fetch would not consume it.
+function preloadRuntimeConfig(): Plugin {
+  return {
+    name: "preload-runtime-config",
+    apply: "build",
+    transformIndexHtml: () => [
+      {
+        tag: "link",
+        attrs: { rel: "preload", as: "fetch", href: "/config.json", crossorigin: true },
+        injectTo: "head",
+      },
+    ],
+  };
+}
 
 // No service worker or PWA plugin: ADR-0009 protects an in-progress
 // inspection with IndexedDB and the outbox's own retry, never a cache or
 // Background Sync, which iOS Safari lacks. An installable manifest would add
 // reach, not durability.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), preloadRuntimeConfig()],
   // Stamped from package.json so a deployed bundle traces back to a release
   // (NFR-OBS-004). This file is the vitest config too, so the define reaches
   // tests; npm sets the variable for `npm test` and `npm run build` alike.

@@ -2,9 +2,12 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter } from "react-router";
+import { loadRuntimeConfig } from "./api/runtimeConfig";
 import { completeRedirect } from "./auth/callback";
 import { ActorProvider } from "./auth/ActorProvider";
 import { ThemeProvider } from "./theme/ThemeProvider";
+import { boot } from "./shell/boot";
+import { ConfigFailure } from "./shell/ConfigFailure";
 import { installChunkReload } from "./shell/chunkReload";
 import { App } from "./App.tsx";
 
@@ -14,26 +17,39 @@ const queryClient = new QueryClient();
 // first navigation is still covered.
 installChunkReload();
 
-function render() {
-  createRoot(document.getElementById("root")!).render(
-    <StrictMode>
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <ActorProvider>
-            <ThemeProvider>
-              <App />
-            </ThemeProvider>
-          </ActorProvider>
-        </BrowserRouter>
-      </QueryClientProvider>
-    </StrictMode>,
-  );
-}
+const root = createRoot(document.getElementById("root")!);
 
-// Settled before the first render (callback.ts says why). A rejection is
-// logged once with no token or URL, and the app still renders.
-completeRedirect()
-  .catch(() => {
-    console.error("sign-in callback failed");
-  })
-  .finally(render);
+// The redirect settles before the first render (callback.ts says why), and
+// the configuration before the redirect (boot.ts).
+void boot({
+  loadConfig: loadRuntimeConfig,
+  completeRedirect,
+  render: () => {
+    root.render(
+      <StrictMode>
+        <QueryClientProvider client={queryClient}>
+          <BrowserRouter>
+            <ActorProvider>
+              <ThemeProvider>
+                <App />
+              </ThemeProvider>
+            </ActorProvider>
+          </BrowserRouter>
+        </QueryClientProvider>
+      </StrictMode>,
+    );
+  },
+  renderFailure: (retry) => {
+    root.render(
+      <StrictMode>
+        <ConfigFailure onRetry={retry} />
+      </StrictMode>,
+    );
+  },
+  onOnline: (listener) => {
+    window.addEventListener("online", listener);
+    return () => {
+      window.removeEventListener("online", listener);
+    };
+  },
+});
