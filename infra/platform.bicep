@@ -5,15 +5,14 @@
 // identity holds Contributor. infra/app.bicep is the pipeline's half.
 //
 // Deployed at resource-group scope into rg-tyre-<env>. Outside Bicep: the
-// resource group itself, the budget, the registry, Log Analytics, and the
-// deploy identity id-tyre-deploy-staging, the credential the pipeline
-// applies infra/app.bicep with.
+// resource group itself, the budget, Log Analytics, the deploy identity
+// id-tyre-deploy-<env> (the credential the pipeline applies infra/app.bicep
+// with), and the registry, which is staging's for both environments.
 //
-// ACCEPTED TRADE: id-tyre-deploy-staging's Contributor scope on
-// rg-tyre-staging is therefore live-Azure only, not visible or reviewable
-// here. Accepted for a single-operator subscription, where the actual
-// enforcement boundary is RLS plus password auth (non-negotiable rule 1),
-// not Azure RBAC scoping. Revisit before the first commercial contract, per
+// ACCEPTED TRADE: id-tyre-deploy-<env>'s Contributor scope on rg-tyre-<env>
+// is therefore live-Azure only, not visible or reviewable here. Accepted for
+// a single-operator subscription, where the actual enforcement boundary is
+// RLS plus password auth (non-negotiable rule 1), not Azure RBAC scoping. Revisit before the first commercial contract, per
 // NFR-SEC-014; tracked as TYRE-61.
 //
 // Every apply re-sends pgAdminPassword read from kv-tyre-<env> and
@@ -28,6 +27,11 @@ param location string = 'southafricanorth'
 param swaLocation string = 'westeurope'
 
 param env string = 'staging'
+
+// Both environments pull from staging's registry, so these default to it
+// whatever env is (ADR-0017, Registry).
+param acrName string = 'crtyrestaging'
+param acrResourceGroup string = 'rg-tyre-staging'
 
 @secure()
 @description('PostgreSQL admin password. Used for migrations and for the provisioning runbook (docs/runbooks/provision-a-user.md). The API connects as app_login, never as this admin: RLS does not bind it (non-negotiable rule 1).')
@@ -48,14 +52,9 @@ var tags = {
 // hardcoding them is safe and avoids a roleDefinitions lookup at deploy time.
 var roleKeyVaultSecretsOfficer = 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7'
 var roleKeyVaultSecretsUser = '4633458b-17de-408a-b874-0445c86b69e6'
-var roleAcrPull = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
 resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
   name: 'log-tyre-${env}'
-}
-
-resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: 'crtyre${env}'
 }
 
 // ---------------------------------------------------------------- storage --
@@ -132,13 +131,13 @@ resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-3
   tags: tags
 }
 
-resource acrPullForApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(acr.id, apiIdentity.id, roleAcrPull)
-  scope: acr
-  properties: {
+module acrPullForApi 'acr-pull.bicep' = {
+  name: 'acr-pull-${env}'
+  scope: resourceGroup(acrResourceGroup)
+  params: {
+    acrName: acrName
     principalId: apiIdentity.properties.principalId
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleAcrPull)
-    principalType: 'ServicePrincipal'
+    apiIdentityId: apiIdentity.id
   }
 }
 
