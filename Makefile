@@ -126,6 +126,25 @@ db-test-privileged: ## Negative controls that need a superuser to STAGE (db/test
 db-shell: ## Interactive psql as the application role
 	docker exec -it $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
 
+# Loads one tenant's catalogue file into the local database as app_login,
+# so RLS binds the load as well as the function's own tenant predicate. The
+# file reaches Postgres as raw text, read by \copy with no quote or
+# separator character, and becomes jsonb there, so nothing else reads an
+# amount (rule 2). A leading byte-order mark, which some Windows editors
+# write, is dropped first. psql does not interpolate a variable inside -c,
+# so T is checked as a uuid before it is written into the SQL. Staging and
+# the pilot follow docs/runbooks/provision-a-tenant-catalogue.md (TYRE-369).
+.PHONY: provision-catalogue
+provision-catalogue: db-up ## Load a tenant's catalogue file locally (T=<tenant uuid> F=<file>, TYRE-369)
+	@[[ "$(T)" =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$$ ]] || { echo "usage: make provision-catalogue T=<tenant uuid> F=<catalogue file>"; exit 2; }
+	@[ -f "$(F)" ] || { echo "no catalogue file at $(F)"; exit 2; }
+	$(PSQL_APP) -v ON_ERROR_STOP=1 -q -1 \
+	  -c "CREATE TEMP TABLE catalogue_file (n bigint GENERATED ALWAYS AS IDENTITY, line text)" \
+	  -c "\copy catalogue_file (line) FROM pstdin WITH (FORMAT csv, QUOTE E'\x01', DELIMITER E'\x02')" \
+	  -c "SELECT set_config('app.tenant_id', '$(T)', true) AS tenant" \
+	  -c "SELECT * FROM app.provision_catalogue((SELECT ltrim(string_agg(line, E'\n' ORDER BY n), chr(65279))::jsonb FROM catalogue_file))" \
+	  < "$(F)"
+
 ## ---------------------------------------------------------------- api / web
 
 # Go runs in docker (no host toolchain on Windows), joined to the compose

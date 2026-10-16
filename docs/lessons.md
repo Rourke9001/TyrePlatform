@@ -28,6 +28,20 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-15 - psql does not interpolate a variable inside `-c` (TYRE-369)
+
+**What happened:** the catalogue load was first drafted as `psql -v
+tenant=<uuid> -c "SELECT set_config('app.tenant_id', :'tenant', true)"`.
+psql sends a `-c` string to the server as written, so `:'tenant'` arrived as
+text and failed with `syntax error at or near ":"`. The same statement read
+from a file or from standard input is interpolated, which is why the form
+looks right.
+
+**The rule:** never expect `:'name'` to expand inside `-c`. Check the value
+in the shell against a strict pattern and write it into the SQL, as `make
+provision-catalogue` does with its uuid, or put the statements in a file
+psql reads.
+
 ## 2026-10-11 — A failing Container Apps revision reads 100% traffic while the old one serves
 
 **What happened:** during TYRE-79's red proof, `az containerapp revision list`
@@ -535,6 +549,10 @@ Makefile carries the workaround, a hand-typed command does not), and prove a
 round-trip by reading state, not the suite: `schema_migrations.version` and a catalog fact the down must undo
 (a dropped function, a restored signature) after `down 1`, then again after
 `up 1`. A green suite after a down/up that printed an error is not evidence.
+A `docker run -v` typed in Git Bash needs a Windows host path as well,
+`$(pwd -W)` or make's `$(CURDIR)`, because with `$(pwd)` the folder never
+reaches the container. List the mount before anything reads from it
+(TYRE-369).
 
 ## 2026-09-05 — A gate piped to `tail` always succeeds (TYRE-101)
 
