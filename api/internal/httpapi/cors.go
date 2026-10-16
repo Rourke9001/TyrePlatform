@@ -16,12 +16,10 @@ const (
 	corsMaxAge = "7200"
 )
 
-// allowOrigins answers CORS for the web origins named, matched byte for
-// byte, never a pattern or a reflected Origin (ADR-0019). It runs ahead of
+// allowOrigins answers CORS for the web origins named. It runs ahead of
 // requireActor and every rate limiter, so a preflight is answered before
 // either and a refusal carries the origin too: client.ts then reads a 401
-// or 429 envelope rather than a network error. Credentials are never
-// allowed, because sign-in is a bearer token, not a cookie (ADR-0016).
+// or 429 envelope, not a network error (ADR-0019).
 func allowOrigins(origins []string) func(http.Handler) http.Handler {
 	if len(origins) == 0 {
 		return func(next http.Handler) http.Handler { return next }
@@ -36,10 +34,13 @@ func allowOrigins(origins []string) func(http.Handler) http.Handler {
 			// So no cache serves one origin's answer to another.
 			h.Add("Vary", "Origin")
 			origin := r.Header.Get("Origin")
+			// Byte for byte, never a pattern or a reflected Origin (ADR-0019).
 			if !slices.Contains(origins, origin) {
 				next.ServeHTTP(w, r)
 				return
 			}
+			// No Allow-Credentials: sign-in is a bearer token, not a cookie
+			// (ADR-0016).
 			h.Set("Access-Control-Allow-Origin", origin)
 			if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 				h.Set("Access-Control-Allow-Methods", corsAllowMethods)

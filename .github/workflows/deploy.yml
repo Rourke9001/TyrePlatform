@@ -146,8 +146,9 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     # A hung upload would otherwise hold deploy-staging-web, and develop CI
-    # behind it, for six hours. The smoke's retries ride on top of the
-    # upload: six checks, each up to 12 tries 10 s apart.
+    # behind it, for six hours. The smoke rides on top of the upload and
+    # stops at its first failed check, which takes at most about 8 minutes
+    # to fail: 12 tries, each a curl of up to 30 s, 10 s apart.
     timeout-minutes: 30
     concurrency:
       group: deploy-staging-web
