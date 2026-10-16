@@ -5,6 +5,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -64,7 +65,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		writeError(r.Context(), w, http.StatusMethodNotAllowed, codeMethodNotAllowed, "that method is not allowed on this endpoint")
 	})
 	r.Get("/healthz", healthz)
-	r.Get("/readyz", readyz(s, o.buildSHA, o.revision))
+	r.Get("/readyz", readyz(newReadinessProbe(s, time.Now), o.buildSHA, o.revision))
 	r.Route("/api", func(r chi.Router) {
 		r.Use(requireActor(resolver, o.trustedProxyHops))
 		r.Get("/me", me(s))
