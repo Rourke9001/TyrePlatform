@@ -225,9 +225,10 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 	// driver's context, reused here for the manager's read (D4).
 	//
 	// Last tread is the fitted tyre's latest reading since this fit, else the
-	// tread it was fitted at. app.tyre.last_tread_mm is only the onboarding-audit
-	// fallback, and current tread derives from a reading (SRS 5.1 errata E1,
-	// TYRE-324). The source travels with the figure (NFR-PRO-001).
+	// tread it was fitted at. app.tyre.last_tread_mm holds the last tread
+	// measured outside an inspection (U29) and no reading ever writes it, so
+	// current tread derives from a reading (SRS 5.1 errata E1, TYRE-324). The
+	// source travels with the figure (NFR-PRO-001).
 	u.Positions = []unitPositionJSON{}
 	prows, err := tx.Query(ctx, `
 		SELECT p.id, p.code, p.sequence, p.axle_number, p.axle_class::text, p.side::text, p.slot::text, p.is_spare,
