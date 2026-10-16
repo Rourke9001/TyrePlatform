@@ -218,6 +218,13 @@ infra-lint: ## Bicep lint on both templates (warnings fail), the staging param f
 web-test: ## Frontend tests
 	cd web && npm test
 
+# Builds dist and serves it with vite preview on 4173, so it needs no stack:
+# every identity provider and API call is stubbed (web/CLAUDE.md, Browser
+# tests).
+.PHONY: web-production
+web-production: ## The production bundle in Chromium under its CSP and config.json (TYRE-51)
+	cd web && npx playwright install chromium && npm run e2e:production
+
 .PHONY: deploy-gate-test
 deploy-gate-test: ## The staging deploy gate's pass and fail cases, with stub az and curl (TYRE-79)
 	bash scripts/deploy-gate.test.sh
@@ -330,7 +337,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged api-test web-test deploy-gate-test pipeline-launch-test ## Every test in the repo
+test: db-reset db-test db-test-privileged api-test web-test web-production deploy-gate-test pipeline-launch-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.

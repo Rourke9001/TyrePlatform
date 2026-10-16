@@ -3,16 +3,27 @@ import { type Page } from "@playwright/test";
 import config from "../playwright.config";
 import { DRIVER_ACTOR } from "./sandbox";
 
-// The one e2e file that mocks (web/CLAUDE.md). The identity provider cannot
+// The identity provider stub (web/CLAUDE.md). The identity provider cannot
 // be reached from CI, and the Go half of sign-in is proved by its own tests
-// (spec section 7). The stub answers idp.test, web/.env.development's
-// authority, and on /api swaps the bearer for the Sandbox driver's dev
-// headers, since `make api-run` has no AUTH_* configuration to validate it.
-const IDP = "https://idp.test";
-const ORIGIN = new URL(config.use?.baseURL ?? "").origin;
-const CLIENT_ID = "e2e-pwa";
-const SCOPE = "openid profile offline_access api://e2e-api/access_as_user";
-const CORS = { "Access-Control-Allow-Origin": ORIGIN };
+// (spec section 7). By default the stub answers idp.test,
+// web/.env.development's authority, and on /api swaps the bearer for the
+// Sandbox driver's dev headers, since `make api-run` has no AUTH_*
+// configuration to validate it. The production check hands it the
+// production authority and its own web origin, and stubs the API itself
+// (productionApi.ts).
+export interface IdpSettings {
+  authority: string;
+  clientId: string;
+  apiScope: string;
+  webOrigin: string;
+}
+
+export const DEV_IDP: IdpSettings = {
+  authority: "https://idp.test/",
+  clientId: "e2e-pwa",
+  apiScope: "api://e2e-api/access_as_user",
+  webOrigin: new URL(config.use?.baseURL ?? "").origin,
+};
 
 export interface IdpStub {
   // The oid the next token response carries.
@@ -35,11 +46,11 @@ function b64url(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
 
-function idToken(oid: string): string {
+function idToken(idp: IdpSettings, oid: string): string {
   const now = Math.floor(Date.now() / 1000);
   const claims = {
-    iss: `${IDP}/`,
-    aud: CLIENT_ID,
+    iss: idp.authority,
+    aud: idp.clientId,
     sub: `pairwise-${oid}`,
     oid,
     iat: now,
@@ -48,7 +59,15 @@ function idToken(oid: string): string {
   return `${b64url({ alg: "RS256", typ: "JWT" })}.${b64url(claims)}.c2ln`;
 }
 
-export async function stubIdentityProvider(page: Page): Promise<IdpStub> {
+export async function stubIdentityProvider(
+  page: Page,
+  idp: IdpSettings = DEV_IDP,
+  opts: { swapApi?: boolean } = {},
+): Promise<IdpStub> {
+  const base = idp.authority.replace(/\/$/, "");
+  const origin = idp.webOrigin;
+  const cors = { "Access-Control-Allow-Origin": origin };
+  const scope = `openid profile offline_access ${idp.apiScope}`;
   const stub: IdpStub = {
     subject: "e2e-oid-a",
     failNextAuthorize: false,
@@ -61,73 +80,86 @@ export async function stubIdentityProvider(page: Page): Promise<IdpStub> {
     submitBearers: [],
   };
 
-  await page.route(`${IDP}/.well-known/openid-configuration`, (route) =>
-    route.fulfill({
-      headers: CORS,
-      json: {
-        issuer: `${IDP}/`,
-        authorization_endpoint: `${IDP}/authorize`,
-        token_endpoint: `${IDP}/token`,
-        end_session_endpoint: `${IDP}/logout`,
-        jwks_uri: `${IDP}/keys`,
-      },
-    }),
+  await page.route(
+    (url) => url.href === `${base}/.well-known/openid-configuration`,
+    (route) =>
+      route.fulfill({
+        headers: cors,
+        json: {
+          issuer: idp.authority,
+          authorization_endpoint: `${base}/authorize`,
+          token_endpoint: `${base}/token`,
+          end_session_endpoint: `${base}/logout`,
+          jwks_uri: `${base}/keys`,
+        },
+      }),
   );
 
-  // RegExp, not a glob, because whether "?" in a glob is literal has changed
-  // across Playwright releases.
-  await page.route(/^https:\/\/idp\.test\/authorize\?/, (route) => {
-    const url = new URL(route.request().url());
-    stub.authorizeUrls.push(url);
-    const back = new URL(`${ORIGIN}/`);
-    back.searchParams.set("state", url.searchParams.get("state") ?? "");
-    if (stub.failNextAuthorize) {
-      stub.failNextAuthorize = false;
-      back.searchParams.set("error", "access_denied");
-    } else {
-      back.searchParams.set("code", "e2e-code");
-    }
-    return route.fulfill({ status: 302, headers: { location: back.href } });
-  });
+  // Predicates on the href, not globs, because whether "?" in a glob is
+  // literal has changed across Playwright releases.
+  await page.route(
+    (url) => url.href.startsWith(`${base}/authorize?`),
+    (route) => {
+      const url = new URL(route.request().url());
+      stub.authorizeUrls.push(url);
+      const back = new URL(`${origin}/`);
+      back.searchParams.set("state", url.searchParams.get("state") ?? "");
+      if (stub.failNextAuthorize) {
+        stub.failNextAuthorize = false;
+        back.searchParams.set("error", "access_denied");
+      } else {
+        back.searchParams.set("code", "e2e-code");
+      }
+      return route.fulfill({ status: 302, headers: { location: back.href } });
+    },
+  );
 
-  await page.route(`${IDP}/token`, (route) => {
-    if (route.request().method() === "OPTIONS") {
+  await page.route(
+    (url) => url.href === `${base}/token`,
+    (route) => {
+      if (route.request().method() === "OPTIONS") {
+        return route.fulfill({
+          status: 204,
+          headers: {
+            ...cors,
+            "Access-Control-Allow-Methods": "POST",
+            "Access-Control-Allow-Headers": "*",
+          },
+        });
+      }
       return route.fulfill({
-        status: 204,
-        headers: {
-          ...CORS,
-          "Access-Control-Allow-Methods": "POST",
-          "Access-Control-Allow-Headers": "*",
+        headers: cors,
+        json: {
+          access_token: `e2e-at-${stub.subject}`,
+          id_token: idToken(idp, stub.subject),
+          refresh_token: `e2e-rt-${stub.subject}`,
+          token_type: "Bearer",
+          expires_in: 3600,
+          scope,
         },
       });
-    }
-    return route.fulfill({
-      headers: CORS,
-      json: {
-        access_token: `e2e-at-${stub.subject}`,
-        id_token: idToken(stub.subject),
-        refresh_token: `e2e-rt-${stub.subject}`,
-        token_type: "Bearer",
-        expires_in: 3600,
-        scope: SCOPE,
-      },
-    });
-  });
+    },
+  );
 
-  await page.route(/^https:\/\/idp\.test\/logout\?/, (route) => {
-    const url = new URL(route.request().url());
-    stub.endSessionUrls.push(url);
-    return route.fulfill({
-      status: 302,
-      headers: { location: url.searchParams.get("post_logout_redirect_uri") ?? `${ORIGIN}/` },
-    });
-  });
+  await page.route(
+    (url) => url.href.startsWith(`${base}/logout?`),
+    (route) => {
+      const url = new URL(route.request().url());
+      stub.endSessionUrls.push(url);
+      return route.fulfill({
+        status: 302,
+        headers: { location: url.searchParams.get("post_logout_redirect_uri") ?? `${origin}/` },
+      });
+    },
+  );
+
+  if (opts.swapApi === false) return stub;
 
   // A predicate, not the glob "**/api/**". Playwright matches a glob against
   // the whole URL, so that glob also catches Vite's own /src/api/client.ts,
   // token.ts and friends, and main.tsx never runs.
   await page.route(
-    (url) => url.origin === ORIGIN && url.pathname.startsWith("/api/"),
+    (url) => url.origin === origin && url.pathname.startsWith("/api/"),
     (route) => {
       const request = route.request();
       const bearer = request.headers()["authorization"];

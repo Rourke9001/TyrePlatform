@@ -113,7 +113,8 @@ U75's reasons no longer hold. Sign-in is a bearer token, not a cookie
     `<style>` element at runtime, through react-remove-scroll's
     react-style-singleton, and a static header cannot carry a per-response
     nonce. Inline style is the accepted, lower-risk allowance; inline script
-    is not.
+    is not. Tried on 16 Oct 2026: without the allowance the production check
+    records six `style-src-elem` violations, all once the Select opens.
   - `connect-src 'self'`, the API origin and the CIAM origin (the host of
     `VITE_AUTH_AUTHORITY`).
   - No `frame-src`: `renew()` in `web/src/auth/oidc.ts` ends the session

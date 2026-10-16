@@ -13,5 +13,5 @@
     "skipLibCheck": true
   },
   // The lint rule's test is a node program too, so it is checked here.
-  "include": ["e2e", "lint", "playwright.config.ts"]
+  "include": ["e2e", "lint", "playwright.config.ts", "playwright.production.config.ts"]
 }

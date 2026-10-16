@@ -117,7 +117,18 @@ terminal; CI's "Browser smoke" job builds that stack itself on every PR. The
 reseed is not optional: `capture.spec.ts` submits, so a second run against the
 same seed is refused at the first spec. Identity is the dev actor headers
 everywhere but `auth`, so specs run against `vite dev`, never a production
-build (playwright.config.ts says why). Assert on roles and visible text, not
+build (playwright.config.ts says why), with one exception below.
+
+`playwright.production.config.ts` is the one config that runs a production
+build: `vite preview` on 4173, serving the deploy's own headers and a
+`config.json` naming `https://api.test`, both written by
+`scripts/write-web-config.mjs`. It is the second place that stubs:
+`e2e/productionApi.ts` fulfils every API call and `e2e/idp.ts` the
+production authority, since a production bundle has no dev header path.
+`production.spec.ts` fails on any CSP violation, on an API origin the CSP
+does not list going unblocked, on a second `config.json` request per load,
+and on a missing `config.json` that does not show `ConfigFailure`. It needs
+no stack: run it with `make web-production`, which `make test` includes. Assert on roles and visible text, not
 CSS — with one deliberate exception: a requirement id may be reached through a `data-` attribute
 (`data-position-id`, `data-warning-code`), because CR-010 keeps those ids out
 of driver-facing wording and a spec keyed on the friendly name would fail on
