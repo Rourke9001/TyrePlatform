@@ -3,6 +3,8 @@
 -- seeded copy keeps its platform_catalogue_id, a column the down does not
 -- own, and the value then references nothing.
 
+DROP FUNCTION app.seed_tenant_catalogue();
+
 DROP TRIGGER tyre_price_list_audited ON app.tyre_price_list;
 DROP TRIGGER casing_estimate_by_size_audited ON app.casing_estimate_by_size;
 DROP TRIGGER tyre_pattern_audited ON app.tyre_pattern;

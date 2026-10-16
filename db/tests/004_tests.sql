@@ -12217,6 +12217,124 @@ SET search_path = app, pg_temp AS $fn$
          || '/' || (SELECT count(*) FROM app.tyre_price_list)
 $fn$;
 
+\echo '== 74a. a seed copies every platform entry once into a tenant with no catalogue, each with its lineage, and each starter pattern with no brand (FR-CFG-005, D2, D8; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  IF pg_temp.t74_counts() <> '0/0/0/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74a: Second Fleet holds catalogue rows % before its seed, so the counts below prove nothing',
+      pg_temp.t74_counts();
+  END IF;
+  -- D8's starter list, read from the platform tables the seed copies.
+  SELECT string_agg(p.name || ':' || p.construction, ' ' ORDER BY p.name) INTO got FROM app.platform_tyre_size p;
+  IF got IS DISTINCT FROM '11R22.5:RADIAL 185/65R15:RADIAL 225/70R19.5:RADIAL 315/80R22.5:RADIAL' THEN
+    RAISE EXCEPTION 'FAIL 74a: the platform sizes are %', got;
+  END IF;
+  SELECT string_agg(p.name, ' ' ORDER BY p.name) INTO got FROM app.platform_tyre_brand p;
+  IF got IS DISTINCT FROM 'Dunlop Evergreen Roadshine' THEN
+    RAISE EXCEPTION 'FAIL 74a: the platform brands are %', got;
+  END IF;
+  SELECT string_agg(p.name || ':' || p.applies_to || ':' || COALESCE(p.brand_id::text, '-'), ' ' ORDER BY p.name)
+    INTO got FROM app.platform_tyre_pattern p;
+  IF got IS DISTINCT FROM 'EGT88:NEW:- RS620:NEW:- SP431:NEW:-' THEN
+    RAISE EXCEPTION 'FAIL 74a: the platform patterns are %', got;
+  END IF;
+
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'seeded 10' THEN
+    RAISE EXCEPTION 'FAIL 74a: the first seed answered %', got;
+  END IF;
+  -- Every tenant row is a copy, and every copy matches its platform entry
+  -- by lineage, field by field.
+  SELECT count(*) INTO n FROM app.tyre_size s JOIN app.platform_tyre_size p ON p.id = s.platform_catalogue_id
+   WHERE s.name = p.name AND s.construction IS NOT DISTINCT FROM p.construction AND s.active;
+  IF n <> 4 OR pg_temp.t74_counts() <> '4/3/3/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74a: % of the sizes are faithful copies; the catalogue reads %', n, pg_temp.t74_counts();
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_brand b JOIN app.platform_tyre_brand p ON p.id = b.platform_catalogue_id
+   WHERE b.name = p.name AND b.active;
+  IF n <> 3 THEN
+    RAISE EXCEPTION 'FAIL 74a: % of the three brands are faithful copies', n;
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_pattern t JOIN app.platform_tyre_pattern p ON p.id = t.platform_catalogue_id
+   WHERE t.name = p.name AND t.applies_to = p.applies_to AND t.brand_id IS NULL AND t.active;
+  IF n <> 3 THEN
+    RAISE EXCEPTION 'FAIL 74a: % of the three patterns are faithful brandless copies', n;
+  END IF;
+  RAISE NOTICE 'PASS  74a a seed copies the ten starter entries once, each with its lineage, each pattern with no brand';
+END $$;
+ROLLBACK;
+
+\echo '== 74b. a second seed inserts nothing, and a copy the tenant deactivated is neither duplicated nor restored (FR-CFG-005, D2; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'seeded 10' THEN
+    RAISE EXCEPTION 'FAIL 74b: the first seed answered %', got;
+  END IF;
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'seeded 0' OR pg_temp.t74_counts() <> '4/3/3/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74b: a second seed answered % and left %', got, pg_temp.t74_counts();
+  END IF;
+  -- The copy is found by lineage, whatever its state: a deactivated copy is
+  -- the tenant's decision and a later seed leaves it as it is.
+  UPDATE app.tyre_size SET active = false WHERE platform_catalogue_id = md5('platform_tyre_size:185/65R15')::uuid;
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'seeded 0' OR pg_temp.t74_counts() <> '4/3/3/0/0'
+     OR (SELECT active FROM app.tyre_size WHERE name = '185/65R15') THEN
+    RAISE EXCEPTION 'FAIL 74b: a seed after a deactivation answered % and left %', got, pg_temp.t74_counts();
+  END IF;
+  -- An entry the fleet holds a copy of is never a clash, even after the
+  -- fleet renamed that copy and gave the name to a row of its own.
+  UPDATE app.tyre_brand SET name = 'Dunlop (seeded)' WHERE platform_catalogue_id = md5('platform_tyre_brand:Dunlop')::uuid;
+  INSERT INTO app.tyre_brand (tenant_id, name) VALUES (t2, 'Dunlop');
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'seeded 0' OR pg_temp.t74_counts() <> '4/4/3/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74b: a seed after the fleet renamed its Dunlop copy and added its own Dunlop answered % and left %',
+      got, pg_temp.t74_counts();
+  END IF;
+  RAISE NOTICE 'PASS  74b a second seed inserts nothing, leaves a deactivated copy deactivated, and takes no copied entry for a clash';
+END $$;
+ROLLBACK;
+
+\echo '== 74e. each refusal names its section, row and reason, under TY024 for a file and TY025 for a seed (DR-007, D3 to D5, TYRE-369 comment 13592; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  -- Two rows of Second Fleet's own whose names are platform names. The seed
+  -- lists both and adopts neither.
+  INSERT INTO app.tyre_brand (tenant_id, name) VALUES (t2, 'Evergreen');
+  INSERT INTO app.tyre_size (tenant_id, name) VALUES (t2, '11R22.5');
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'TY025 this fleet already has its own brand ''Evergreen'', size ''11R22.5''; a platform entry never adopts a row by name, so nothing was seeded'
+     OR pg_temp.t74_counts() <> '1/1/0/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74e: a seed over the fleet''s own Evergreen and 11R22.5 answered % and left %', got, pg_temp.t74_counts();
+  END IF;
+  -- The control: renamed, the same two rows clash with nothing, and the
+  -- seed lands in full beside them.
+  UPDATE app.tyre_brand SET name = 'Evergreen (own)' WHERE name = 'Evergreen';
+  UPDATE app.tyre_size SET name = '11R22.5 (own)' WHERE name = '11R22.5';
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'seeded 10' OR pg_temp.t74_counts() <> '5/4/3/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74e: the seed after the rename answered % and left %', got, pg_temp.t74_counts();
+  END IF;
+  RAISE NOTICE 'PASS  74e a seed over a name the fleet holds as its own is TY025 listing every such name, and adopts none';
+END $$;
+ROLLBACK;
+
 \echo '== 74f. the price list keeps one row per size, brand and date, a missing brand counting as one value (FR-CFG-040; as Second Fleet, rolled back)'
 BEGIN;
 DO $$
