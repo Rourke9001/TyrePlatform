@@ -93,6 +93,28 @@ test("the production bundle runs under its CSP, signed in, with a Radix Select o
   expect(violations).toEqual([]);
 });
 
+// Capture is the route held to the three-minute target, and this is its
+// only run under the production CSP before staging.
+test("a driver's capture runs under its CSP, from the task list to a reading", async ({ page }) => {
+  await stubIdentityProvider(page, PROD, { swapApi: false });
+  const api = await stubProductionApi(page, TEST_API_ORIGIN, webOrigin, "driver");
+
+  await page.goto("/");
+  await page.getByRole("button", { name: "Email me a sign-in code" }).click();
+  await expect(page.getByRole("heading", { name: "My inspections" })).toBeVisible();
+  await page.getByRole("link", { name: /^PC-T1, due / }).click();
+  await page.getByRole("button", { name: "Start inspection" }).click();
+  await expect(page.getByRole("heading", { name: "0 of 2 done" })).toBeVisible();
+  await page.locator("[data-position-id]").first().click();
+  await page.getByRole("button", { name: "1", exact: true }).click();
+  await expect(page.getByLabel("Tread reading 1 of 3")).toContainText("1");
+
+  expect(api.calls.filter((c) => c.startsWith("GET /api/capture/vehicles/"))).toEqual([
+    expect.stringMatching(/ bearer$/),
+  ]);
+  expect(violations).toEqual([]);
+});
+
 // The permanent proof that connect-src binds the API origin. Taking the
 // placeholder out of the source cannot prove it: the writer refuses such a
 // source and the preview never starts.
