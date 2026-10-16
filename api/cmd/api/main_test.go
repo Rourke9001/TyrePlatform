@@ -235,3 +235,50 @@ func TestAuthConfigNamesTheUnsetVariables(t *testing.T) {
 	require.ErrorContains(t, err, "AUTH_TENANT_CLAIM")
 	require.NotContains(t, err.Error(), "AUTH_AUDIENCE")
 }
+
+// TestAllowedOriginsParsing pins CORS_ALLOWED_ORIGINS's exactness: a browser
+// sends Origin as scheme://host[:port] and the middleware compares it byte
+// for byte (ADR-0019), so a value it could never match is refused at
+// startup rather than silently allowing nothing.
+func TestAllowedOriginsParsing(t *testing.T) {
+	tests := []struct {
+		name    string
+		raw     string
+		want    []string
+		wantErr bool
+	}{
+		{"unset means none", "", nil, false},
+		{"one origin", "https://web.example.test", []string{"https://web.example.test"}, false},
+		{"two, trimmed", "https://a.example.test, https://b.example.test", []string{"https://a.example.test", "https://b.example.test"}, false},
+		{"http on a loopback host", "http://localhost:5173", []string{"http://localhost:5173"}, false},
+		{"a trailing slash", "https://web.example.test/", nil, true},
+		{"a path", "https://web.example.test/app", nil, true},
+		{"a wildcard", "*", nil, true},
+		{"a pattern", "https://*.azurestaticapps.net", nil, true},
+		{"http off loopback", "http://web.example.test", nil, true},
+		{"upper case", "https://Web.example.test", nil, true},
+		{"an empty entry", "https://a.example.test,,https://b.example.test", nil, true},
+		{"a query", "https://web.example.test?x=1", nil, true},
+		{"userinfo", "https://user@web.example.test", nil, true},
+		{"the default https port", "https://web.example.test:443", nil, true},
+		{"the default http port", "http://localhost:80", nil, true},
+		{"an empty port", "https://web.example.test:", nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			getenv := func(k string) string {
+				if k == "CORS_ALLOWED_ORIGINS" {
+					return tt.raw
+				}
+				return ""
+			}
+			got, err := allowedOrigins(getenv)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
