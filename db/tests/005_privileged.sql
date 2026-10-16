@@ -18,6 +18,12 @@
 -- P9 and P10 delete what app_login cannot: a tenant, for the audit
 -- trigger's closure skip (DR-014), and a NULL-tenant app_user row, under a
 -- DELETE trigger staged for the probe (TYRE-98).
+--
+-- P11 runs the catalogue seed and load as postgres, which bypasses RLS as
+-- the Azure admin role may, so only the functions' own tenant predicates
+-- keep them in the bound tenant. P12 writes a platform catalogue entry,
+-- which only a migration's role can, to stand in for a later platform
+-- migration (TYRE-369).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -588,6 +594,183 @@ BEGIN
     RAISE EXCEPTION 'FAIL P10: deleting a NULL-tenant row filed % entries, not one; the closure skip took it for a closed tenant', n;
   END IF;
   RAISE NOTICE 'PASS  P10 the owning role''s app_user writes are filed with no actor; a platform admin''s under a NULL tenant no tenant reads; a NULL-tenant deletion is filed';
+END $$;
+ROLLBACK;
+
+\echo '== P11. TYRE-369: under a role that bypasses RLS, the seed and the file land in the bound tenant alone and resolve names there alone'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sbx constant uuid := '33333333-3333-3333-3333-333333333333';
+        others_before text; others_after text; got text; st text; msg text; n int;
+BEGIN
+  -- postgres bypasses RLS, as the Azure admin role the runbook connects as
+  -- may. BAC holds Dunlop, SP431 and 315/80R22.5 as its own rows, and
+  -- Sandbox holds 385/65R22.5: what a missing tenant predicate would find.
+  SELECT count(*) INTO n FROM (
+    SELECT 1 FROM app.tyre_brand   WHERE tenant_id = bac AND name = 'Dunlop'      AND platform_catalogue_id IS NULL
+    UNION ALL SELECT 1 FROM app.tyre_pattern WHERE tenant_id = bac AND name = 'SP431' AND platform_catalogue_id IS NULL
+    UNION ALL SELECT 1 FROM app.tyre_size    WHERE tenant_id = bac AND name = '315/80R22.5' AND platform_catalogue_id IS NULL
+    UNION ALL SELECT 1 FROM app.tyre_size    WHERE tenant_id = sbx AND name = '385/65R22.5') x;
+  IF n <> 4 THEN
+    RAISE EXCEPTION 'FAIL P11: % of the four fixture rows this control rests on are visible', n;
+  END IF;
+  -- Sandbox is seeded first, so Second Fleet's seed meets another tenant's
+  -- copy of every platform entry, and only the tenant predicates on its
+  -- lineage lookups keep it from skipping them all.
+  PERFORM set_config('app.tenant_id', sbx::text, true);
+  n := app.seed_tenant_catalogue();
+  IF n <> 10 THEN
+    RAISE EXCEPTION 'FAIL P11: the seed bound to Sandbox inserted %, not 10', n;
+  END IF;
+  SELECT string_agg(t || '=' || c, ' ' ORDER BY t) INTO others_before FROM (
+    SELECT 'size' AS t, count(*) AS c FROM app.tyre_size WHERE tenant_id <> t2
+    UNION ALL SELECT 'brand', count(*) FROM app.tyre_brand WHERE tenant_id <> t2
+    UNION ALL SELECT 'pattern', count(*) FROM app.tyre_pattern WHERE tenant_id <> t2
+    UNION ALL SELECT 'estimate', count(*) FROM app.casing_estimate_by_size WHERE tenant_id <> t2
+    UNION ALL SELECT 'price', count(*) FROM app.tyre_price_list WHERE tenant_id <> t2) x;
+
+  -- A row of Second Fleet's own under a platform name is a clash, whoever
+  -- else holds a copy of that entry. The handler takes the planted row back
+  -- with the refused seed.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  BEGIN
+    INSERT INTO app.tyre_brand (tenant_id, name) VALUES (t2, 'Evergreen');
+    PERFORM app.seed_tenant_catalogue();
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  END;
+  IF st IS DISTINCT FROM 'TY025'
+     OR msg IS DISTINCT FROM 'this fleet already has its own brand ''Evergreen''; a platform entry never adopts a row by name, so nothing was seeded' THEN
+    RAISE EXCEPTION 'FAIL P11: a seed over Second Fleet''s own Evergreen, beside Sandbox''s copy, was answered %',
+      COALESCE(st || ' ' || msg, 'by a seed');
+  END IF;
+
+  n := app.seed_tenant_catalogue();
+  IF n <> 10 THEN
+    RAISE EXCEPTION 'FAIL P11: the seed bound to Second Fleet inserted %, not 10, beside Sandbox''s copies', n;
+  END IF;
+  -- The file names 315/80R22.5 and Dunlop, which BAC and Sandbox hold too,
+  -- and adds 295/80R22.5, which Sandbox holds.
+  SELECT string_agg(s.section || '=' || s.inserted, ' ' ORDER BY s.n) INTO got
+    FROM app.provision_catalogue(
+      '{"sizes": [{"name": "295/80R22.5", "construction": "RADIAL"}],
+        "price_list": [{"size": "315/80R22.5", "brand": "Dunlop", "typical_price": "4319.91", "effective_from": "2026-01-01"}]}')
+      WITH ORDINALITY AS s(section, inserted, n);
+  IF got IS DISTINCT FROM 'sizes=1 brands=0 patterns=0 casing_estimates=0 price_list=1' THEN
+    RAISE EXCEPTION 'FAIL P11: the load bound to Second Fleet answered %', got;
+  END IF;
+  SELECT count(*) INTO n
+    FROM app.tyre_price_list l
+    JOIN app.tyre_size s  ON s.id = l.size_id
+    JOIN app.tyre_brand b ON b.id = l.brand_id
+   WHERE l.tenant_id = t2 AND s.tenant_id = t2 AND b.tenant_id = t2
+     AND s.platform_catalogue_id IS NOT NULL AND b.platform_catalogue_id IS NOT NULL;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P11: the price row does not cite Second Fleet''s seeded size and brand';
+  END IF;
+  st := NULL;
+  msg := NULL;
+  BEGIN
+    PERFORM app.provision_catalogue(
+      '{"casing_estimates": [{"size": "385/65R22.5", "estimated_value": "1.00", "effective_from": "2026-01-01"}]}');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  END;
+  IF st IS DISTINCT FROM 'TY024' OR msg IS DISTINCT FROM 'casing_estimates row 1: this fleet has no size named ''385/65R22.5''' THEN
+    RAISE EXCEPTION 'FAIL P11: a load naming Sandbox''s size was answered %', COALESCE(st || ' ' || msg, 'by a stored row');
+  END IF;
+
+  -- Unbound, the explicit check is the only guard this role has.
+  PERFORM set_config('app.tenant_id', '', true);
+  st := NULL;
+  BEGIN
+    PERFORM app.seed_tenant_catalogue();
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE;
+  END;
+  IF st IS DISTINCT FROM 'TY025' THEN
+    RAISE EXCEPTION 'FAIL P11: an unbound seed under this role was answered %', COALESCE(st, 'by a seed');
+  END IF;
+  st := NULL;
+  BEGIN
+    PERFORM app.provision_catalogue('{}');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE;
+  END;
+  IF st IS DISTINCT FROM 'TY024' THEN
+    RAISE EXCEPTION 'FAIL P11: an unbound load under this role was answered %', COALESCE(st, 'by a load');
+  END IF;
+
+  SELECT string_agg(t || '=' || c, ' ' ORDER BY t) INTO others_after FROM (
+    SELECT 'size' AS t, count(*) AS c FROM app.tyre_size WHERE tenant_id <> t2
+    UNION ALL SELECT 'brand', count(*) FROM app.tyre_brand WHERE tenant_id <> t2
+    UNION ALL SELECT 'pattern', count(*) FROM app.tyre_pattern WHERE tenant_id <> t2
+    UNION ALL SELECT 'estimate', count(*) FROM app.casing_estimate_by_size WHERE tenant_id <> t2
+    UNION ALL SELECT 'price', count(*) FROM app.tyre_price_list WHERE tenant_id <> t2) x;
+  IF others_after IS DISTINCT FROM others_before THEN
+    RAISE EXCEPTION 'FAIL P11: the other tenants'' catalogues moved from % to %', others_before, others_after;
+  END IF;
+  RAISE NOTICE 'PASS  P11 under a role that bypasses RLS the seed and the file stay in Second Fleet and resolve names there alone, beside Sandbox''s copies';
+END $$;
+ROLLBACK;
+
+\echo '== P12. TYRE-369 D8: platform entries a later migration adds reach a tenant already seeded, only those entries, and a new pattern takes the tenant''s own copy of its brand'
+BEGIN;
+SET LOCAL ROLE app_login;
+DO $$
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  IF app.seed_tenant_catalogue() <> 10 THEN
+    RAISE EXCEPTION 'FAIL P12: the first seed did not insert the ten starter entries';
+  END IF;
+END $$;
+RESET ROLE;
+-- What a later migration does, written as the owning role, which the app
+-- role cannot: a size, a brand, and a pattern of that brand.
+INSERT INTO app.platform_tyre_size (id, name, construction)
+VALUES (md5('platform_tyre_size:P12 SIZE')::uuid, 'P12 SIZE', 'RADIAL');
+INSERT INTO app.platform_tyre_brand (id, name)
+VALUES (md5('platform_tyre_brand:P12 BRAND')::uuid, 'P12 BRAND');
+INSERT INTO app.platform_tyre_pattern (id, name, brand_id, applies_to)
+VALUES (md5('platform_tyre_pattern:P12 PATTERN')::uuid, 'P12 PATTERN', md5('platform_tyre_brand:P12 BRAND')::uuid, 'NEW');
+-- As postgres, which bypasses RLS: Sandbox is seeded first, so its copy of
+-- the new brand is visible when Second Fleet's pattern looks for its own.
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        sbx constant uuid := '33333333-3333-3333-3333-333333333333';
+        n int; m int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', sbx::text, true);
+  n := app.seed_tenant_catalogue();
+  IF n <> 13 THEN
+    RAISE EXCEPTION 'FAIL P12: Sandbox''s first seed inserted %, not the 13 platform entries', n;
+  END IF;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  n := app.seed_tenant_catalogue();
+  m := app.seed_tenant_catalogue();
+  IF n <> 3 OR m <> 0 THEN
+    RAISE EXCEPTION 'FAIL P12: after the new entries Second Fleet''s seeds inserted % and then %, not 3 and 0', n, m;
+  END IF;
+  SELECT count(*) INTO n
+    FROM app.tyre_pattern p JOIN app.tyre_brand b ON b.id = p.brand_id
+   WHERE p.tenant_id = t2 AND b.tenant_id = t2
+     AND p.platform_catalogue_id = md5('platform_tyre_pattern:P12 PATTERN')::uuid
+     AND b.platform_catalogue_id = md5('platform_tyre_brand:P12 BRAND')::uuid;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL P12: Second Fleet''s copy of P12 PATTERN does not carry its own copy of P12 BRAND';
+  END IF;
+  SELECT (SELECT count(*) FROM app.tyre_size WHERE tenant_id = t2) || '/'
+         || (SELECT count(*) FROM app.tyre_brand WHERE tenant_id = t2) || '/'
+         || (SELECT count(*) FROM app.tyre_pattern WHERE tenant_id = t2) INTO got;
+  IF got IS DISTINCT FROM '5/4/4' OR NOT EXISTS (
+       SELECT 1 FROM app.tyre_size
+        WHERE tenant_id = t2 AND name = 'P12 SIZE'
+          AND platform_catalogue_id = md5('platform_tyre_size:P12 SIZE')::uuid) THEN
+    RAISE EXCEPTION 'FAIL P12: Second Fleet holds %, not 5/4/4 with a copy of P12 SIZE', got;
+  END IF;
+  RAISE NOTICE 'PASS  P12 a seed after later platform entries inserts those alone, and the new pattern takes Second Fleet''s copy of its brand';
 END $$;
 ROLLBACK;
 
