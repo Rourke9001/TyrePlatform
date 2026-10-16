@@ -50,6 +50,12 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: 'kv-tyre-${env}'
 }
 
+// The web origin CORS allows is read off the resource, so it cannot drift
+// from it (ADR-0019).
+resource swa 'Microsoft.Web/staticSites@2023-12-01' existing = {
+  name: 'stapp-tyre-${env}'
+}
+
 // platform.bicep's kvSecretsForApi must be live before this applies, or the
 // database-url Key Vault reference fails revision activation with a
 // permission error, not a missing secret (runbook, bring-up step 4).
@@ -108,6 +114,9 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
             { name: 'AUTH_AUDIENCE', value: authAudience }
             { name: 'AUTH_CLIENT_ID', value: authClientId }
             { name: 'AUTH_TENANT_CLAIM', value: authTenantClaim }
+            // Go answers CORS for this one origin; ingress corsPolicy stays
+            // unset, or a browser sees two Allow-Origin headers (ADR-0019).
+            { name: 'CORS_ALLOWED_ORIGINS', value: 'https://${swa.properties.defaultHostname}' }
           ]
           // Startup and liveness on /healthz, so a database blip makes a
           // replica unready, never restarted; readiness on /readyz, which

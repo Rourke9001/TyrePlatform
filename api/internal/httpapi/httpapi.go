@@ -5,6 +5,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -22,6 +23,7 @@ type options struct {
 	trustedProxyHops int
 	buildSHA         string
 	revision         string
+	allowedOrigins   []string
 }
 
 // WithTrustedProxyHops sets how many trusted L7 hops sit between the caller
@@ -46,6 +48,12 @@ func WithRevision(name string) Option {
 	return func(o *options) { o.revision = name }
 }
 
+// WithAllowedOrigins names the web origins allowed over CORS, each exact
+// (ADR-0019). Unset, the API sends no CORS headers.
+func WithAllowedOrigins(origins []string) Option {
+	return func(o *options) { o.allowedOrigins = slices.Clone(origins) }
+}
+
 func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 	o := options{trustedProxyHops: 1, buildSHA: "dev"}
 	for _, opt := range opts {
@@ -56,6 +64,9 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 	// NFR-SEC-010, ahead of every route so a 404/405 carries the same
 	// headers as a matched one (security.go).
 	r.Use(securityHeaders)
+	// Ahead of requireActor and the rate limiters, which the /api mount
+	// adds below (cors.go).
+	r.Use(allowOrigins(o.allowedOrigins))
 	// chi answers both of these itself, in text/plain, unless they are
 	// registered. They are the envelope's only escapees (ADR-0012).
 	r.NotFound(func(w http.ResponseWriter, r *http.Request) {

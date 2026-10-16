@@ -46,6 +46,55 @@ func trustedProxyHops(getenv func(string) string) (int, error) {
 	return n, nil
 }
 
+// allowedOrigins parses CORS_ALLOWED_ORIGINS, the comma-separated web
+// origins the API allows (ADR-0019). Unset means none. The middleware
+// compares a browser's Origin byte for byte, and a browser sends it as a
+// lower-case scheme://host[:port] with no default port, so any other form
+// could never match and stops startup, as a malformed TRUSTED_PROXY_HOPS
+// does.
+func allowedOrigins(getenv func(string) string) ([]string, error) {
+	raw := getenv("CORS_ALLOWED_ORIGINS")
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
+	}
+	var origins []string
+	for _, entry := range strings.Split(raw, ",") {
+		o := strings.TrimSpace(entry)
+		if err := checkOrigin(o); err != nil {
+			return nil, fmt.Errorf("CORS_ALLOWED_ORIGINS entry %q: %w", o, err)
+		}
+		origins = append(origins, o)
+	}
+	return origins, nil
+}
+
+func checkOrigin(o string) error {
+	if o == "" {
+		return errors.New("is empty")
+	}
+	if strings.Contains(o, "*") {
+		return errors.New("must be an exact origin, not a pattern")
+	}
+	if o != strings.ToLower(o) {
+		return errors.New("must be lower case, as a browser sends it")
+	}
+	u, err := url.Parse(o)
+	if err != nil {
+		return err
+	}
+	if u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" ||
+		o != u.Scheme+"://"+u.Host || strings.HasSuffix(u.Host, ":") {
+		return errors.New("must be scheme://host[:port] with no userinfo, path, query, fragment or empty port")
+	}
+	switch {
+	case u.Scheme == "https" && u.Port() != "443":
+	case u.Scheme == "http" && isLoopback(u.Hostname()) && u.Port() != "80":
+	default:
+		return errors.New("must be https (http only on a loopback host) with no default port")
+	}
+	return nil
+}
+
 // authVars are ADR-0016's six settings for the bearer resolver.
 var authVars = []string{
 	"AUTH_DISCOVERY_URL", "AUTH_ISSUER", "AUTH_TENANT_ID",
@@ -185,6 +234,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	origins, err := allowedOrigins(os.Getenv)
+	if err != nil {
+		logger.Error("parsing CORS_ALLOWED_ORIGINS", "err", err)
+		os.Exit(1)
+	}
+	if len(origins) > 0 {
+		logger.Info("cross-origin requests allowed", "origins", origins)
+	}
+
 	s, err := store.New(ctx, dsn)
 	if err != nil {
 		logger.Error("connecting to database", "err", err)
@@ -213,6 +271,7 @@ func main() {
 		Addr: ":" + port,
 		Handler: httpapi.New(s, resolver, httpapi.WithTrustedProxyHops(hops),
 			httpapi.WithBuildSHA(buildSHA),
+			httpapi.WithAllowedOrigins(origins),
 			// Set by Container Apps in every container; empty locally.
 			httpapi.WithRevision(os.Getenv("CONTAINER_APP_REVISION"))),
 		ReadHeaderTimeout: 5 * time.Second,
