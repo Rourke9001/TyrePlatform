@@ -237,6 +237,7 @@ jobs:
           node ../scripts/check-dist-dev-strings.mjs
           node ../scripts/check-dist-sign-in.mjs --self-test
           node ../scripts/check-dist-sign-in.mjs
+          node ../scripts/write-web-config.mjs --self-test
 
   e2e:
     name: Browser smoke
