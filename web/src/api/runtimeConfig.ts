@@ -43,8 +43,9 @@ export function createRuntimeConfig(
     async load() {
       if (origin !== null) return;
       // Bounded, or a stalled depot connection leaves a driver on "Loading."
-      // with no way out (docs/lessons.md, 2026-10-02). The signal is held
-      // until the body is parsed.
+      // with no way out. The signal is held until the body is parsed: a
+      // bound that ends with the headers does not cover a stalled body
+      // (docs/lessons.md, 2026-10-02).
       const controller = new AbortController();
       const timer = setTimeout(() => {
         controller.abort();

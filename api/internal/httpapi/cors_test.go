@@ -37,9 +37,7 @@ func varyNamesOrigin(rec *httptest.ResponseRecorder) bool {
 	return false
 }
 
-// ADR-0019: the API allows exactly one web origin, answers its preflight
-// before requireActor and every rate limiter, and puts the origin on
-// refusals too, so client.ts reads the envelope rather than a network error.
+// The behaviour allowOrigins states (cors.go, ADR-0019), case by case.
 func TestCORS(t *testing.T) {
 	ctx := context.Background()
 	s, _ := testStore(t, ctx)

@@ -181,11 +181,9 @@ jobs:
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
-      # The API origin is the one setting that differs per environment, so it
-      # lands in config.json and the CSP beside the bundle, never in it
-      # (ADR-0019). After "Build and check", so the bundle measured is the
-      # one shipped. Read with the gate's own query rather than passed from
-      # the api job. A rollback to a commit with no writer still deploys.
+      # The API origin differs per environment, so it lands in config.json and
+      # the CSP beside the bundle, never in it, and after "Build and check",
+      # so the bundle measured is the one shipped (ADR-0019).
       - name: Runtime configuration
         run: |
           api=$(az containerapp show -g "$RG" -n "$APP" --query properties.configuration.ingress.fqdn -o tsv)

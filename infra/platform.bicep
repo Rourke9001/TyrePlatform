@@ -12,8 +12,9 @@
 // ACCEPTED TRADE: id-tyre-deploy-<env>'s Contributor scope on rg-tyre-<env>
 // is therefore live-Azure only, not visible or reviewable here. Accepted for
 // a single-operator subscription, where the actual enforcement boundary is
-// RLS plus password auth (non-negotiable rule 1), not Azure RBAC scoping. Revisit before the first commercial contract, per
-// NFR-SEC-014; tracked as TYRE-61.
+// RLS plus password auth (non-negotiable rule 1), not Azure RBAC scoping.
+// Revisit before the first commercial contract, per NFR-SEC-014; tracked as
+// TYRE-61.
 //
 // Every apply re-sends pgAdminPassword read from kv-tyre-<env> and
 // devMachineIp read live: a different password changes the admin's, and a
