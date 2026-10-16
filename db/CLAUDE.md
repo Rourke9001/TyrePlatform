@@ -13,7 +13,9 @@ The one file that runs as `postgres` is `db/tests/005_privileged.sql`
 FK removed inside a transaction it rolls back, to watch a definer-chain
 backstop fire, a tenant with no threshold policy in force, which rows
 written once leave no `app_login` route to, or a policy row dated days before
-the transaction that writes it, which no role may write (TYRE-299). It is not the
+the transaction that writes it, which no role may write (TYRE-299). P11 and
+P12 stage a role that bypasses RLS, as the Azure admin may, and a platform
+catalogue entry, which only a migration's role writes (TYRE-369). It is not the
 suite and proves nothing about isolation: the
 isolation proofs are `db/tests/004_tests.sql`, run in CI on every build
 (NFR-SEC-005).
@@ -60,6 +62,15 @@ The default ACL covers every relation kind, and a materialized view or a
 foreign table cannot carry a policy, so check 12 refuses either one in `app`
 outright. Derived rows that must be stored go in a table with RLS, the way
 `valuation_snapshot` does.
+
+A tenant-free reference table is the one exception: a fact that belongs to
+no tenant, such as `app.jurisdiction_tread_minimum` or the platform
+catalogue's `app.platform_tyre_size`, `_brand` and `_pattern` (000058). It
+takes `ENABLE` and `FORCE` and a `FOR SELECT USING (true)` policy instead of
+`enable_tenant_rls`, its write privileges are revoked from `app_rw`, and a
+migration is its only writer. Name it, with its reason, in each of the
+suite's five tenant-free allowlists: checks 2, 4, 12 and 16, and 37b's
+message.
 
 Nothing to add to the isolation test: its sweep reads `pg_class` for every
 table (`r` or `p`) with RLS on and a `tenant_id` column, so a new table
@@ -184,6 +195,13 @@ from the same model, so the spec and the seed data cannot drift. Change the
 generator, never the generated SQL. The output is gitignored and CI asserts it
 is deterministic. `seed_policy.py` holds the policy literals all three
 generators read.
+
+A real tenant's catalogue comes from two functions, never from a
+generator. `app.seed_tenant_catalogue()` copies the platform catalogue into
+the bound tenant, and `app.provision_catalogue(p_payload jsonb)` loads the
+tenant's own file (`docs/runbooks/provision-a-tenant-catalogue.md`,
+TYRE-369). The generators call neither, so each fixture tenant keeps
+exactly the catalogue its generator writes.
 
 `gen_seed_volume.py` is the third generator and the odd one out: it writes
 Sandbox Fleet's volume tenant for the dashboard read-path measurement
