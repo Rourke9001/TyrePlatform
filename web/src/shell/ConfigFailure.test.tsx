@@ -20,6 +20,12 @@ describe("ConfigFailure", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("says it is trying while a retry is in flight", () => {
+    render(<ConfigFailure onRetry={() => undefined} busy />);
+    const button = screen.getByRole("button", { name: "Trying…" });
+    expect(button).toHaveAttribute("aria-disabled", "true");
+  });
+
   // NFR-USE-004; ConfigFailure.tsx says why it sets them.
   it("sets the design system's variables itself", () => {
     document.documentElement.style.removeProperty("--target-min");

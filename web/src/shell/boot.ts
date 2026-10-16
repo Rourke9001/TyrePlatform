@@ -5,7 +5,7 @@ export interface BootSteps {
   loadConfig(): Promise<void>;
   completeRedirect(): Promise<unknown>;
   render(): void;
-  renderFailure(retry: () => void): void;
+  renderFailure(retry: () => void, busy: boolean): void;
   onOnline(listener: () => void): () => void;
 }
 
@@ -14,6 +14,7 @@ export interface BootSteps {
 export function boot(steps: BootSteps): Promise<void> {
   return new Promise((resolve) => {
     let inFlight = false;
+    let failed = false;
     let unsubscribe: (() => void) | null = null;
     // In place, never a reload: a reload strands a driver without signal on
     // the browser's offline page, since there is no service worker
@@ -22,6 +23,10 @@ export function boot(steps: BootSteps): Promise<void> {
     const attempt = (): void => {
       if (inFlight) return;
       inFlight = true;
+      // A retry shows itself: on a stalled connection it can run for
+      // REQUEST_TIMEOUT_SECONDS, and a gloved driver cannot otherwise tell a
+      // tap that landed from one that did not.
+      if (failed) steps.renderFailure(attempt, true);
       // The configuration first: completeRedirect flushes the outbox to the
       // API, whose origin it names.
       steps.loadConfig().then(
@@ -39,8 +44,9 @@ export function boot(steps: BootSteps): Promise<void> {
         },
         () => {
           inFlight = false;
+          failed = true;
           console.error("the app could not load config.json");
-          steps.renderFailure(attempt);
+          steps.renderFailure(attempt, false);
           unsubscribe ??= steps.onOnline(attempt);
         },
       );

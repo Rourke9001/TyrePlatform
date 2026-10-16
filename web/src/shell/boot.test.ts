@@ -27,8 +27,8 @@ function fakes(loadConfig: () => Promise<void>, completeRedirect = () => Promise
       return completeRedirect();
     },
     render: () => calls.push("render"),
-    renderFailure: (retry) => {
-      calls.push("renderFailure");
+    renderFailure: (retry, busy) => {
+      calls.push(busy ? "renderFailure busy" : "renderFailure");
       retries.push(retry);
     },
     onOnline: (listener) => {
@@ -77,6 +77,7 @@ describe("boot", () => {
     expect(f.calls).toEqual([
       "loadConfig",
       "renderFailure",
+      "renderFailure busy",
       "loadConfig",
       "completeRedirect",
       "render",
@@ -105,6 +106,22 @@ describe("boot", () => {
     settle();
     await booted;
     expect(f.calls.filter((c) => c === "render")).toHaveLength(1);
+  });
+
+  // boot.ts says why a retry shows itself.
+  it("shows a retry as busy until it fails again", async () => {
+    const f = fakes(() => Promise.reject(new Error("no config")));
+    void boot(f.steps);
+    await flush();
+    f.retries[0]();
+    await flush();
+    expect(f.calls).toEqual([
+      "loadConfig",
+      "renderFailure",
+      "renderFailure busy",
+      "loadConfig",
+      "renderFailure",
+    ]);
   });
 
   it("still renders when the redirect fails", async () => {
