@@ -254,7 +254,8 @@ END $$;
 -- A name or a choice. A JSON null reads as absent. A name with white space
 -- at either end would sit beside its trimmed twin under UNIQUE (tenant_id,
 -- name), so it is refused rather than trimmed. [[:space:]] misses the
--- no-break and zero-width spaces, so the class names them as well.
+-- no-break, figure, narrow no-break and zero-width spaces, the word joiner
+-- and the byte-order mark, so pad adds them by code point.
 CREATE FUNCTION app.catalogue_file_text(p_row jsonb, p_field text, p_label text, p_required boolean)
 RETURNS text
 LANGUAGE plpgsql
@@ -262,6 +263,7 @@ SET search_path = app, pg_temp AS $$
 DECLARE
   v jsonb := p_row -> p_field;
   s text;
+  pad constant text := '[[:space:]' || chr(160) || chr(8199) || chr(8239) || chr(8203) || chr(8288) || chr(65279) || ']';
 BEGIN
   IF v IS NULL OR jsonb_typeof(v) = 'null' THEN
     IF p_required THEN
@@ -275,8 +277,7 @@ BEGIN
       MESSAGE = format('%s: %s is written as a JSON string', p_label, p_field);
   END IF;
   s := v #>> '{}';
-  IF s = '' OR s ~ '^[[:space:]   ​⁠﻿]'
-            OR s ~ '[[:space:]   ​⁠﻿]$' THEN
+  IF s = '' OR s ~ ('^' || pad) OR s ~ (pad || '$') THEN
     RAISE EXCEPTION USING ERRCODE = 'TY024',
       MESSAGE = format('%s: %s %L is empty or begins or ends with white space', p_label, p_field, s);
   END IF;
