@@ -158,8 +158,12 @@ TYRE-164) attaches it to `app.inspection`, which that slice gives its first
 UPDATE path — the void. TYRE-98 (migration `000056`) attaches it to `app.tyre`, `app.fitment`,
 `app.retread_job`, `app.app_user`, `app.vehicle_driver`,
 `app.threshold_policy`, `app.configuration` and `app.vehicle_tag`, and, with
-`DELETE` and the `vehicle_id` argument, to `app.vehicle_tag_map`. The tables
-that stay unaudited, and why, are listed under Consequences.
+`DELETE` and the `vehicle_id` argument, to `app.vehicle_tag_map`. TYRE-369
+(migration `000058`) attaches it to `app.tyre_size`, `app.tyre_brand`,
+`app.tyre_pattern`, `app.casing_estimate_by_size` and `app.tyre_price_list`,
+which `app.seed_tenant_catalogue()` and `app.provision_catalogue()` give
+their first write path. The tables that stay unaudited, and why, are listed
+under Consequences.
 
 ## Consequences
 
@@ -204,9 +208,9 @@ unaudited.
 in 000036's own header comment.
 
 **Unaudited, and why** (TYRE-98). FR-AUD-001's text asks for every
-creation, modification and deletion; leaving the tables below out is an SRS
-change, proposed as an FR-AUD-001 erratum in TYRE-427 (owner ruling U132,
-15 Oct 2026). Once the erratum is pasted, it replaces that ticket key here.
+creation, modification and deletion. The FR-AUD-001 erratum (TYRE-427,
+15 Oct 2026, owner ruling U132) reads it as the list below leaves it, and a
+table gains its trigger with its first write path.
 
 - Insert-only record tables: `tyre_event`, `reading`, `reading_measurement`,
   `inspection_warning`, `inspection_absent_spare`,
@@ -223,12 +227,10 @@ change, proposed as an FR-AUD-001 erratum in TYRE-427 (owner ruling U132,
 - `user_depot`: no write path.
 - `inspection_schedule`: no write path yet; TYRE-133 attaches the trigger
   with the path it adds.
-- Reference and catalogue tables: `depot`, `operating_group`, `tyre_size`,
-  `tyre_brand`, `tyre_pattern`, `tyre_price_list`, `casing_estimate_by_size`,
-  `axle_configuration`, `position`, `target_pressure`, `exception_rule`,
-  `exception`, `notification` and `photo`. No route writes them today. A
-  ticket that adds the first write path attaches the trigger, as U4 and U12
-  already require.
+- Reference tables: `depot`, `operating_group`, `axle_configuration`,
+  `position`, `target_pressure`, `exception_rule`, `exception`,
+  `notification` and `photo`. No route writes them today. A ticket that adds
+  the first write path attaches the trigger, as U4 and U12 already require.
 
 A tag link and a valuation snapshot are deleted, and neither conflicts with
 DR-014: a tag link is a unit's current label, and a snapshot is a derived

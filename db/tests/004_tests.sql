@@ -67,11 +67,15 @@ BEGIN
   SELECT count(*) INTO n FROM app.tenant;
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL: % tenant rows visible, expected exactly 1', n; END IF;
 
-  -- the tenant-less allowlist itself
+  -- the tenant-less allowlist itself. Each entry belongs to no tenant:
+  -- tenant is the isolation root, jurisdiction_tread_minimum is public law
+  -- (CHG-019), and the three platform_tyre_ tables are the catalogue every
+  -- tenant is seeded from (FR-CFG-005, TYRE-369 D1).
   SELECT string_agg(c.relname, ', ') INTO leaked
     FROM pg_class c JOIN pg_namespace ns ON ns.oid = c.relnamespace
    WHERE ns.nspname='app' AND c.relkind IN ('r','p')
-     AND c.relname NOT IN ('tenant','jurisdiction_tread_minimum')
+     AND c.relname NOT IN ('tenant', 'jurisdiction_tread_minimum',
+                           'platform_tyre_size', 'platform_tyre_brand', 'platform_tyre_pattern')
      AND NOT EXISTS (SELECT 1 FROM information_schema.columns col
                       WHERE col.table_schema='app' AND col.table_name=c.relname
                         AND col.column_name='tenant_id');
@@ -105,11 +109,15 @@ BEGIN
   -- such as GRANT UPDATE (pressure_kpa) ON app.reading reaches that column,
   -- and has_table_privilege sees only a grant on the whole table.
 
-  -- INSERT: platform reference data (CHG-019) and the tenant row itself
-  -- (TYRE-158) are written as postgres, never through the app role.
+  -- INSERT: platform reference data (CHG-019, FR-CFG-005) and the tenant
+  -- row itself (TYRE-158) are written as postgres, never through the app
+  -- role.
   SELECT string_agg(t || '.' || v, ', ') INTO bad
     FROM (VALUES
       ('jurisdiction_tread_minimum','INSERT'),
+      ('platform_tyre_size','INSERT'),
+      ('platform_tyre_brand','INSERT'),
+      ('platform_tyre_pattern','INSERT'),
       ('tenant','INSERT')
     ) AS revoked(t, v)
    WHERE has_any_column_privilege(current_user, 'app.' || t, v);
@@ -548,12 +556,15 @@ BEGIN
   SELECT string_agg(c.relname || '.' || p.polname, ', ') INTO bad
     FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
    WHERE c.relnamespace = 'app'::regnamespace
-     -- jurisdiction_tread_minimum's read-everyone policy is the one named
-     -- exception (CHG-019), matched by table, name and shape: SELECT only,
-     -- USING (true), no WITH CHECK. The same name on another table, or this
-     -- policy widened to writes, falls through to the canonical test below
-     -- (TYRE-309).
-     AND NOT (c.relname = 'jurisdiction_tread_minimum' AND p.polname = 'jurisdiction_public_read'
+     -- The read-everyone policies on platform reference data are the named
+     -- exceptions (CHG-019, FR-CFG-005), each matched by table, name and
+     -- shape: SELECT only, USING (true), no WITH CHECK. The same name on
+     -- another table, or one of these widened to writes, falls through to
+     -- the canonical test below (TYRE-309).
+     AND NOT ((c.relname, p.polname) IN (('jurisdiction_tread_minimum', 'jurisdiction_public_read'),
+                                         ('platform_tyre_size', 'platform_catalogue_public_read'),
+                                         ('platform_tyre_brand', 'platform_catalogue_public_read'),
+                                         ('platform_tyre_pattern', 'platform_catalogue_public_read'))
               AND p.polcmd = 'r' AND p.polwithcheck IS NULL
               AND pg_get_expr(p.polqual, p.polrelid) = 'true')
      AND (COALESCE(pg_get_expr(p.polqual, p.polrelid), '') <>
@@ -737,6 +748,10 @@ BEGIN
    WHERE c.contype = 'f'
      AND c.connamespace = 'app'::regnamespace
      AND parent.relname <> 'tenant'
+     -- The platform catalogue belongs to no tenant and every tenant reads
+     -- it, so a reference to it below RLS reaches nothing a session could
+     -- not already read (FR-CFG-005, TYRE-369 D1).
+     AND parent.relname NOT IN ('platform_tyre_size', 'platform_tyre_brand', 'platform_tyre_pattern')
      AND NOT EXISTS (
        SELECT 1 FROM unnest(c.conkey) k
          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k
@@ -4059,7 +4074,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 37: the app role can write a tenant-free table with a global unique key: %', bad;
   END IF;
   RAISE NOTICE 'PASS  37a every tenant-table unique/exclusion key leads with tenant_id or is allowlisted';
-  RAISE NOTICE 'PASS  37b no tenant-free table with a global unique key is writable by the app role (tenant: it is the tenant; jurisdiction_tread_minimum: platform reference data, 000012)';
+  RAISE NOTICE 'PASS  37b no tenant-free table with a global unique key is writable by the app role (tenant: it is the tenant; jurisdiction_tread_minimum: platform reference data, 000012; platform_tyre_size, platform_tyre_brand, platform_tyre_pattern: the platform catalogue, 000058)';
 END $$;
 ROLLBACK;
 
@@ -11498,7 +11513,7 @@ BEGIN
   RETURN a;
 END $fn$;
 
-\echo '== 72a. the fifteen audited tables call app.audit_row_change() AFTER each row, DELETE and an argument on the tag map alone, and the function keeps invoker rights and its pinned search_path (ADR-0014, db/CLAUDE.md)'
+\echo '== 72a. the twenty audited tables call app.audit_row_change() AFTER each row, DELETE and an argument on the tag map alone, and the function keeps invoker rights and its pinned search_path (ADR-0014, db/CLAUDE.md)'
 DO $$
 DECLARE r record; n int;
 BEGIN
@@ -11516,7 +11531,11 @@ BEGIN
       ('app.combination_member', 'combination_member_audited', 21),
       ('app.inspection_task', 'inspection_task_audited', 21),
       ('app.inspection', 'inspection_audited', 21),
-      ('app.composition_observation', 'composition_observation_audited', 21)
+      ('app.composition_observation', 'composition_observation_audited', 21),
+      ('app.tyre_size', 'tyre_size_audited', 21), ('app.tyre_brand', 'tyre_brand_audited', 21),
+      ('app.tyre_pattern', 'tyre_pattern_audited', 21),
+      ('app.casing_estimate_by_size', 'casing_estimate_by_size_audited', 21),
+      ('app.tyre_price_list', 'tyre_price_list_audited', 21)
     ) v(tbl, tgname, tgtype)
   LOOP
     SELECT count(*) INTO n FROM pg_trigger t
@@ -11550,7 +11569,7 @@ BEGIN
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL 72a: app.audit_row_change() lost its invoker rights or its pinned search_path';
   END IF;
-  RAISE NOTICE 'PASS  72a fifteen audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
+  RAISE NOTICE 'PASS  72a twenty audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
 END $$;
 
 \echo '== 72b. each of the nine tables files a real write through the path that writes it: action, entity, before and after, under the bound tenant and actor; a seeded row is filed with no actor (FR-AUD-001; as BAC, rolled back)'
@@ -12157,6 +12176,105 @@ BEGIN
   END IF;
   RAISE NOTICE 'PASS  73e section 73 leaves no residue';
 END $$;
+
+\echo '== 74. TYRE-369: a tenant is seeded from the platform catalogue by lineage, its own file loads insert-only and all or nothing, the price list keeps one row per size, brand and date, and a seeded size values a casing ESTIMATED (FR-CFG-005, FR-CFG-040, FR-CFG-042, FR-CFG-043, FR-TYR-008, DR-007)'
+
+-- One provisioning call each, answered as the counts it returns or as
+-- 'SQLSTATE message'. The handler is the subtransaction a refused call rolls
+-- back to, so a refusal leaves the section's transaction as it was.
+CREATE FUNCTION pg_temp.t74_seed() RETURNS text
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE st text; msg text;
+BEGIN
+  RETURN 'seeded ' || app.seed_tenant_catalogue();
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  RETURN st || ' ' || msg;
+END $fn$;
+
+CREATE FUNCTION pg_temp.t74_load(p_payload jsonb) RETURNS text
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE got text; st text; msg text;
+BEGIN
+  SELECT string_agg(s.section || '=' || s.inserted, ' ' ORDER BY s.n) INTO got
+    FROM app.provision_catalogue(p_payload) WITH ORDINALITY AS s(section, inserted, n);
+  RETURN got;
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  RETURN st || ' ' || msg;
+END $fn$;
+
+-- The bound tenant's catalogue as five counts: sizes, brands, patterns,
+-- casing estimates, price rows.
+CREATE FUNCTION pg_temp.t74_counts() RETURNS text
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  SELECT (SELECT count(*) FROM app.tyre_size) || '/' || (SELECT count(*) FROM app.tyre_brand)
+         || '/' || (SELECT count(*) FROM app.tyre_pattern)
+         || '/' || (SELECT count(*) FROM app.casing_estimate_by_size)
+         || '/' || (SELECT count(*) FROM app.tyre_price_list)
+$fn$;
+
+\echo '== 74f. the price list keeps one row per size, brand and date, a missing brand counting as one value (FR-CFG-040; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        sz  constant uuid := md5('t74f-size')::uuid;
+        br  constant uuid := md5('t74f-brand')::uuid;
+        got text; st text; con text;
+BEGIN
+  SELECT string_agg(c.conname || ' ' || pg_get_constraintdef(c.oid), '; ') INTO got
+    FROM pg_constraint c WHERE c.conrelid = 'app.tyre_price_list'::regclass AND c.contype = 'u';
+  IF got IS DISTINCT FROM 'tyre_price_list_one_row_per_date UNIQUE NULLS NOT DISTINCT (tenant_id, size_id, brand_id, effective_from)' THEN
+    RAISE EXCEPTION 'FAIL 74f: the price list''s unique keys are %', got;
+  END IF;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  INSERT INTO app.tyre_size (id, tenant_id, name) VALUES (sz, t2, 'T74F SIZE');
+  INSERT INTO app.tyre_brand (id, tenant_id, name) VALUES (br, t2, 'T74F BRAND');
+  INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from)
+  VALUES (t2, sz, NULL, 4000.00, '2026-01-01');
+  BEGIN
+    INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from)
+    VALUES (t2, sz, NULL, 4100.00, '2026-01-01');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, con = CONSTRAINT_NAME;
+  END;
+  IF st IS DISTINCT FROM '23505' OR con IS DISTINCT FROM 'tyre_price_list_one_row_per_date' THEN
+    RAISE EXCEPTION 'FAIL 74f: a second brandless price for one size and date was answered %',
+      COALESCE(st || ' on ' || COALESCE(NULLIF(con, ''), 'no constraint'), 'by a stored row');
+  END IF;
+  -- The control: a branded row on that date and a brandless row on another
+  -- both land, so the key refused the pair and nothing else.
+  INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from)
+  VALUES (t2, sz, br, 4200.00, '2026-01-01'), (t2, sz, NULL, 4300.00, '2026-02-01');
+  IF (SELECT count(*) FROM app.tyre_price_list) <> 3 THEN
+    RAISE EXCEPTION 'FAIL 74f: the control rows did not land';
+  END IF;
+  RAISE NOTICE 'PASS  74f two brandless prices for one size and date are refused by tyre_price_list_one_row_per_date';
+END $$;
+ROLLBACK;
+
+\echo '== 74h. nothing section 74 planted outlives its rollback'
+DO $$
+DECLARE n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  IF pg_temp.t74_counts() <> '0/0/0/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74h: Second Fleet''s catalogue reads % after section 74', pg_temp.t74_counts();
+  END IF;
+  SELECT (SELECT count(*) FROM app.vehicle WHERE id = md5('t74g-unit')::uuid)
+       + (SELECT count(*) FROM app.tyre WHERE display_code = 'T74G-1') INTO n;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL 74h: % rows planted by 74g survived their rollback', n;
+  END IF;
+  RAISE NOTICE 'PASS  74h section 74 leaves no residue';
+END $$;
+DROP FUNCTION pg_temp.t74_seed();
+DROP FUNCTION pg_temp.t74_load(jsonb);
+DROP FUNCTION pg_temp.t74_counts();
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'
