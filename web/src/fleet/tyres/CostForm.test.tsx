@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -38,7 +38,7 @@ describe("setting a tyre's cost", () => {
   });
 
   it("starts with no source chosen and refuses a save until one is", async () => {
-    renderForm();
+    const { container } = renderForm();
     const source = screen.getByRole("combobox", { name: /cost source for POS1/i });
     expect(source).toHaveValue("");
     expect(screen.getByRole("option", { name: "Choose a source" })).toBeInTheDocument();
@@ -51,36 +51,14 @@ describe("setting a tyre's cost", () => {
     expect(screen.getByRole("button", { name: "Set cost" })).toBeDisabled();
     expect(screen.getByText(/choose where this price came from/i)).toBeInTheDocument();
 
-    await userEvent.type(
-      screen.getByRole("textbox", { name: /purchase price for POS1/i }),
-      "{Enter}",
-    );
+    // fireEvent.submit reaches onSubmit past the disabled button and the
+    // required select, so this proves submit()'s own guard; the flush lets a
+    // request the guard failed to stop actually land.
+    const form = container.querySelector("form");
+    if (form === null) throw new Error("expected a form element");
+    fireEvent.submit(form);
+    await new Promise((resolve) => setTimeout(resolve, 0));
     expect(costCalls()).toHaveLength(0);
-  });
-
-  it("gives each row's hint its own id so a register of rows never repeats one", async () => {
-    renderWithActor(
-      <>
-        <CostForm tyre={TYRE} tenantKey="tenant-a" />
-        <CostForm tyre={{ ...TYRE, id: "t2", displayCode: "POS2" }} tenantKey="tenant-a" />
-      </>,
-    );
-    for (const code of ["POS1", "POS2"]) {
-      await userEvent.type(
-        screen.getByRole("textbox", { name: new RegExp(`purchase price for ${code}`, "i") }),
-        "10",
-      );
-    }
-
-    const hints = screen.getAllByText(/choose where this price came from/i);
-    expect(hints).toHaveLength(2);
-    expect(hints[0]?.id).not.toBe(hints[1]?.id);
-    ["POS1", "POS2"].forEach((code, i) => {
-      const select = screen.getByRole("combobox", {
-        name: new RegExp(`cost source for ${code}`, "i"),
-      });
-      expect(select.getAttribute("aria-describedby")).toBe(hints[i]?.id);
-    });
   });
 
   it("gives each row's hint its own id so a register of rows never repeats one", async () => {
