@@ -22,10 +22,10 @@ import (
 
 // defaultMaxConns is applied only when the DSN carries no pool_max_conns of
 // its own (store_test.go's =1 override for connection-identity tests must
-// keep working). The arithmetic it satisfies, replicas x pool + headroom <=
-// the server's max_connections, is recorded once in ADR-0005 next to the
-// scale block rather than here (TYRE-184 F8).
-const defaultMaxConns = 10
+// keep working). Seven per replica (U71) fits B1ms's 35 user connections
+// through a rolling deploy; the arithmetic is ADR-0005's TYRE-305
+// amendment.
+const defaultMaxConns = 7
 
 type Store struct {
 	pool     *pgxpool.Pool
