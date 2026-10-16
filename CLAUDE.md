@@ -260,7 +260,9 @@ route or screen, and no change to a non-negotiable rule. When in doubt, it is
 not a small fix. `/ticket` waits for the owner to confirm the call; under
 `make pipeline` the lead makes it and states the reason in the PR body. Stage
 5 applies to every PR that touches `api/`, `db/`, `web/` or `infra/`. A PR
-that only touches docs is exempt.
+that only touches docs is exempt. Related small fixes may share one PR, each
+with its own commit, regression test and short plan in the PR body; one stage 5
+review covers them (U136, owner, 16 Oct 2026).
 
 ## Repo etiquette
 
