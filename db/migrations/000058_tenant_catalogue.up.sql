@@ -125,3 +125,75 @@ FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 CREATE TRIGGER tyre_price_list_audited
 AFTER INSERT OR UPDATE ON app.tyre_price_list
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
+
+-- ---------------------------------------------------------------------------
+-- Seeding a tenant (FR-CFG-005, FR-TEN-006, spec D2 and D4)
+-- ---------------------------------------------------------------------------
+-- Copies every platform entry the bound tenant holds no copy of, matched by
+-- lineage, so a second call inserts nothing and a call after a later
+-- platform migration inserts only that migration's entries. An entry still
+-- to copy whose name the tenant holds as a row of its own refuses the whole
+-- seed, because a row is never adopted or merged by name (TYRE-369 comment
+-- 13592).
+CREATE FUNCTION app.seed_tenant_catalogue() RETURNS int
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  tid   uuid := app.current_tenant_id();
+  clash text;
+  n     int;
+  total int := 0;
+BEGIN
+  IF tid IS NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY025',
+      MESSAGE = 'a seed needs app.tenant_id bound to the fleet it seeds';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.tenant t WHERE t.id = tid) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY025',
+      MESSAGE = format('app.tenant_id %s names no fleet', tid);
+  END IF;
+
+  SELECT string_agg(c.what, ', ' ORDER BY c.what) INTO clash
+    FROM (SELECT format('brand %L', t.name) AS what
+            FROM app.platform_tyre_brand p
+            JOIN app.tyre_brand t ON t.tenant_id = tid AND t.name = p.name
+           WHERE NOT EXISTS (SELECT 1 FROM app.tyre_brand k WHERE k.tenant_id = tid AND k.platform_catalogue_id = p.id)
+          UNION ALL
+          SELECT format('pattern %L', t.name)
+            FROM app.platform_tyre_pattern p
+            JOIN app.tyre_pattern t ON t.tenant_id = tid AND t.name = p.name
+           WHERE NOT EXISTS (SELECT 1 FROM app.tyre_pattern k WHERE k.tenant_id = tid AND k.platform_catalogue_id = p.id)
+          UNION ALL
+          SELECT format('size %L', t.name)
+            FROM app.platform_tyre_size p
+            JOIN app.tyre_size t ON t.tenant_id = tid AND t.name = p.name
+           WHERE NOT EXISTS (SELECT 1 FROM app.tyre_size k WHERE k.tenant_id = tid AND k.platform_catalogue_id = p.id)) c;
+  IF clash IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY025',
+      MESSAGE = format('this fleet already has its own %s; a platform entry never adopts a row by name, so nothing was seeded', clash);
+  END IF;
+
+  INSERT INTO app.tyre_brand (tenant_id, name, platform_catalogue_id, created_by)
+  SELECT tid, p.name, p.id, app.current_actor_id()
+    FROM app.platform_tyre_brand p
+   WHERE NOT EXISTS (SELECT 1 FROM app.tyre_brand t WHERE t.tenant_id = tid AND t.platform_catalogue_id = p.id);
+  GET DIAGNOSTICS n = ROW_COUNT;
+  total := total + n;
+
+  INSERT INTO app.tyre_size (tenant_id, name, construction, platform_catalogue_id, created_by)
+  SELECT tid, p.name, p.construction, p.id, app.current_actor_id()
+    FROM app.platform_tyre_size p
+   WHERE NOT EXISTS (SELECT 1 FROM app.tyre_size t WHERE t.tenant_id = tid AND t.platform_catalogue_id = p.id);
+  GET DIAGNOSTICS n = ROW_COUNT;
+  total := total + n;
+
+  -- A pattern's brand is the tenant's copy of its platform brand, found by
+  -- lineage and never by name (D4).
+  INSERT INTO app.tyre_pattern (tenant_id, name, brand_id, applies_to, platform_catalogue_id, created_by)
+  SELECT tid, p.name, b.id, p.applies_to, p.id, app.current_actor_id()
+    FROM app.platform_tyre_pattern p
+    LEFT JOIN app.tyre_brand b ON b.tenant_id = tid AND b.platform_catalogue_id = p.brand_id
+   WHERE NOT EXISTS (SELECT 1 FROM app.tyre_pattern t WHERE t.tenant_id = tid AND t.platform_catalogue_id = p.id);
+  GET DIAGNOSTICS n = ROW_COUNT;
+  RETURN total + n;
+END $$;

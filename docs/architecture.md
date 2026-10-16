@@ -162,6 +162,7 @@ live schema (ADR-0012):
 | TY021 | 000041 | the future-skew refusal |
 | TY022 | 000044 | a composition observation refused |
 | TY023 | 000054 | a threshold policy row edited, or dated before the transaction that writes it; no route can reach it, so no entry exists |
+| TY025 | 000058 | a platform catalogue seed refused; no route can reach it, so no entry exists |
 
 `httpapi.unitSource` is the one place a fleet handler chooses its relation
 for a unit, by `auth.Actor.Scope` and never by role name (ADR-0006). Every
