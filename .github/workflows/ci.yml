@@ -306,6 +306,14 @@ jobs:
           npx playwright install --with-deps chromium webkit
           npm run e2e
 
+      # The production bundle under the deploy's own headers and config.json,
+      # with every identity provider and API call stubbed (TYRE-51). The step
+      # above installed the browsers.
+      - name: Production bundle under its CSP
+        run: |
+          cd web
+          npm run e2e:production
+
       - name: Upload traces on failure
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
