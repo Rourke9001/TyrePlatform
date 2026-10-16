@@ -28,6 +28,21 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-16 - The Write and Edit tools turn a typed `\u` escape into the raw character (TYRE-369)
+
+**What happened:** a stage 5 fix typed `'[[:space:]\u00a0\u2007...]'` into
+000058 through the Edit tool. The tool decodes `\uXXXX` in its input, so
+the file got six raw invisible characters instead of the escapes. The suite
+passed, since the characters were the right ones, and only the re-review
+saw that no reader could see them and an editor could strip them. A doubled
+backslash and `\x` arrive as typed. Bash is the reverse: a single `\u`
+arrives as typed, and a doubled backslash before `u` collapses to one.
+
+**The rule:** never type a `\u` escape into Write or Edit. Name the
+character by code point (`chr(160)` in SQL), or write the line through
+Bash. After any edit meant to add an escape, run `grep -nP '[^\x00-\x7F]'`
+on the file before committing.
+
 ## 2026-10-15 - psql does not interpolate a variable inside `-c` (TYRE-369)
 
 **What happened:** the catalogue load was first drafted as `psql -v

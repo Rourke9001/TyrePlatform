@@ -12556,8 +12556,8 @@ BEGIN
     ('{"casing_estimates": [{"size": "225/70R19.5", "estimated_value": "1.00", "effective_from": "2026-02-01"},
                             {"size": "225/70R19.5", "estimated_value": "2.00", "effective_from": "2026-03-01"}]}',
      'TY024 casing_estimates row 2: the size ''225/70R19.5'' already has a casing estimate, so a new one is dated today (UTC) or later; one effective 2026-03-01 would re-price valuations already computed'),
-    (E'{"sizes": [{"name": "T74 E34\\u00a0"}]}', E'TY024 sizes row 1: name ''T74 E34 '' is empty or begins or ends with white space'),
-    (E'{"brands": [{"name": "\\u200bT74 E35"}]}', E'TY024 brands row 1: name ''​T74 E35'' is empty or begins or ends with white space'),
+    (E'{"sizes": [{"name": "T74 E34\u00a0"}]}', 'TY024 sizes row 1: name ''T74 E34' || chr(160) || ''' is empty or begins or ends with white space'),
+    (E'{"brands": [{"name": "\u200bT74 E35"}]}', 'TY024 brands row 1: name ''' || chr(8203) || 'T74 E35'' is empty or begins or ends with white space'),
     ('{"price_list": [{"size": "315/80R22.5", "typical_price": "' || repeat('9', 140000) || '", "effective_from": "2026-02-01"}]}',
      'TY024 price_list row 1: typical_price ''' || repeat('9', 140000) || ''' is above 9999999999.99, the most an amount can hold'),
     ('{"price_list": [{"size": "315/80R22.5", "typical_price": "4100.00", "effective_from": "2026-01-01"}]}',
@@ -12663,7 +12663,7 @@ BEGIN
      'TY024 a key repeats inside one object of the file, and only its last value would load; name each section and each field once'),
     ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1837.50", "estimated_value": "183.75", "effective_from": "2026-01-01"}]}',
      'TY024 a key repeats inside one object of the file, and only its last value would load; name each section and each field once'),
-    (E'﻿{"sizes": [{"name": "T74 BOM"}]}', '{"sizes": [{"name": "T74 BOM"}]}'),
+    (chr(65279) || '{"sizes": [{"name": "T74 BOM"}]}', '{"sizes": [{"name": "T74 BOM"}]}'),
     ('not json', '22P02 invalid input syntax for type json')
   ) AS v(txt, expected) LOOP
     BEGIN
