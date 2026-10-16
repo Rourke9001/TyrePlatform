@@ -261,6 +261,8 @@ func TestAllowedOriginsParsing(t *testing.T) {
 		{"the default https port", "https://web.example.test:443", nil, true},
 		{"the default http port", "http://localhost:80", nil, true},
 		{"an empty port", "https://web.example.test:", nil, true},
+		{"no host", "https://", nil, true},
+		{"a port and no host", "https://:8443", nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
