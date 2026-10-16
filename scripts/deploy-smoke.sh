@@ -92,6 +92,12 @@ deep_link() {
   fetch deep GET "$web/fleet/tyres?smoke=1"
   [ "$code" = 200 ] || { why="a deep link answered $code"; return 1; }
   cmp -s "$work/root.b" "$work/deep.b" || { why="a deep link answered a body other than /"; return 1; }
+  # A reload of any route is this fallback answer, so it carries the same
+  # headers as / (NFR-SEC-010).
+  local name want
+  while IFS=$'\t' read -r name want; do
+    one deep "$name" "$want" || { why="the deep link: $why"; return 1; }
+  done <<<"$expected"
   # chunkReload.ts reloads on HTML where a script was asked for.
   fetch missing GET "$web/assets/deploy-smoke-missing.js"
   [ "$code" = 404 ] || { why="a missing asset answered $code, not 404"; return 1; }
@@ -156,7 +162,7 @@ check() {
 }
 
 check "the web origin's headers" web_origin
-check "a deep link returns the app, a missing asset 404s" deep_link
+check "a deep link returns the app and its headers, a missing asset 404s" deep_link
 check "config.json names the API origin" configuration
 check "the API answers the web origin's preflight" preflight
 check "a refusal carries CORS and the security headers" refusal

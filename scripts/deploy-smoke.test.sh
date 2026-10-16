@@ -162,6 +162,10 @@ expect "the deep link 404s" 1
 control; answer GET "$WEB/fleet/tyres?smoke=1" "" 200 "$WEB_HEADERS" "<!doctype html><title>Something else</title>"
 expect "the deep link answers another body" 1
 
+control; answer GET "$WEB/fleet/tyres?smoke=1" "" 200 "$HSTS
+permissions-policy: camera=(), geolocation=()" "$INDEX"
+expect "the deep link sends no CSP" 1
+
 control; answer GET "$WEB/assets/deploy-smoke-missing.js" "" 200 "content-type: text/html" "$INDEX"
 expect "a missing asset answers 200" 1
 
