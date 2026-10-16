@@ -1,4 +1,4 @@
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useId, useState } from "react";
 
 import { COST_SOURCES, setTyreCost, type CostSource, type Tyre } from "../../api/tyres";
 import { RefusalAlert } from "../RefusalAlert";
@@ -28,7 +28,12 @@ export function CostForm({
   onSuccess?: () => void;
 }) {
   const [price, setPrice] = useState("");
-  const [costSource, setCostSource] = useState<CostSource>("INVOICE");
+  // FR-TYR-002 has three provenance values and NFR-PRO-002 makes absence never
+  // a default; app.set_tyre_cost refuses a correction once a price exists
+  // (000031), so a pre-selected INVOICE would stick.
+  const [costSource, setCostSource] = useState<CostSource | "">("");
+  const hintId = useId();
+  const sourceMissing = price.trim() !== "" && costSource === "";
 
   const cost = useFormMutation({
     // Price stays a string end to end (rule 2), never Number()'d, here or
@@ -37,14 +42,14 @@ export function CostForm({
     invalidate: [tyresKey(tenantKey)],
     onSuccess: () => {
       setPrice("");
-      setCostSource("INVOICE");
+      setCostSource("");
       onSuccess?.();
     },
   });
 
   function submit(e: FormEvent) {
     e.preventDefault();
-    if (price.trim() === "") return;
+    if (price.trim() === "" || costSource === "") return;
     cost.submit({ price, source: costSource });
   }
 
@@ -61,19 +66,28 @@ export function CostForm({
       <select
         aria-label={`Cost source for ${tyre.displayCode}`}
         value={costSource}
-        onChange={(e) => setCostSource(e.target.value as CostSource)}
+        onChange={(e) =>
+          setCostSource(COST_SOURCES.find((c) => c.value === e.target.value)?.value ?? "")
+        }
+        aria-describedby={sourceMissing ? hintId : undefined}
       >
+        <option value="">Choose a source</option>
         {COST_SOURCES.map((c) => (
           <option key={c.value} value={c.value}>
             {c.label}
           </option>
         ))}
       </select>
+      {sourceMissing && (
+        <p className="tyres-receive-hint" id={hintId}>
+          Choose where this price came from. A cost cannot be corrected once it is recorded.
+        </p>
+      )}
 
       <button
         className="btn-primary btn-compact"
         type="submit"
-        disabled={price.trim() === "" || cost.isPending}
+        disabled={price.trim() === "" || costSource === "" || cost.isPending}
       >
         {cost.isPending ? "Saving…" : "Set cost"}
       </button>

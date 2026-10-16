@@ -46,6 +46,7 @@ test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) =
   // Cost it through the register's inline CostForm (TyreList.tsx), rendered
   // only while awaitingCost is true.
   await row.getByLabel(`Purchase price for ${displayCode}`).fill("550.00");
+  await row.getByLabel(`Cost source for ${displayCode}`).selectOption("INVOICE");
   await Promise.all([
     page.waitForResponse(
       (res) =>
