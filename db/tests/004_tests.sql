@@ -12306,7 +12306,275 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 74c. another tenant bound in the same session sees none of the rows seeded or loaded into Second Fleet, and its own load cannot name them (FR-TEN-003, NFR-SEC-004, TYRE-369 comment 13592; rolled back)'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sbx constant uuid := '33333333-3333-3333-3333-333333333333';
+        probe constant jsonb := '{"casing_estimates": [{"size": "T74 OWN SIZE", "estimated_value": "1.00", "effective_from": "2026-02-01"}]}';
+        ids uuid[]; other uuid; got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  got := pg_temp.t74_seed() || ' ' || pg_temp.t74_load(
+    '{"sizes": [{"name": "T74 OWN SIZE"}],
+      "casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1837.50", "effective_from": "2026-01-01"}],
+      "price_list": [{"size": "T74 OWN SIZE", "typical_price": "4000.00", "effective_from": "2026-01-01"}]}');
+  IF got IS DISTINCT FROM 'seeded 10 sizes=1 brands=0 patterns=0 casing_estimates=1 price_list=1' THEN
+    RAISE EXCEPTION 'FAIL 74c: Second Fleet''s seed and load answered %', got;
+  END IF;
+  SELECT array_agg(x.id) INTO ids FROM (
+    SELECT id FROM app.tyre_size UNION ALL SELECT id FROM app.tyre_brand
+    UNION ALL SELECT id FROM app.tyre_pattern UNION ALL SELECT id FROM app.casing_estimate_by_size
+    UNION ALL SELECT id FROM app.tyre_price_list) x;
+  IF cardinality(ids) <> 13 THEN
+    RAISE EXCEPTION 'FAIL 74c: Second Fleet reads % catalogue rows, not 13', cardinality(ids);
+  END IF;
+
+  FOREACH other IN ARRAY ARRAY[bac, sbx] LOOP
+    PERFORM set_config('app.tenant_id', other::text, true);
+    SELECT (SELECT count(*) FROM app.tyre_size WHERE id = ANY (ids))
+         + (SELECT count(*) FROM app.tyre_brand WHERE id = ANY (ids))
+         + (SELECT count(*) FROM app.tyre_pattern WHERE id = ANY (ids))
+         + (SELECT count(*) FROM app.casing_estimate_by_size WHERE id = ANY (ids))
+         + (SELECT count(*) FROM app.tyre_price_list WHERE id = ANY (ids))
+         + (SELECT count(*) FROM app.tyre_size WHERE platform_catalogue_id IS NOT NULL)
+         + (SELECT count(*) FROM app.tyre_brand WHERE platform_catalogue_id IS NOT NULL)
+         + (SELECT count(*) FROM app.tyre_pattern WHERE platform_catalogue_id IS NOT NULL)
+      INTO n;
+    IF n <> 0 THEN
+      RAISE EXCEPTION 'FAIL 74c: tenant % sees % of Second Fleet''s seeded or loaded rows', other, n;
+    END IF;
+  END LOOP;
+
+  -- A load bound to BAC resolves names in BAC alone: Second Fleet's own
+  -- size is not one it can name. The control is the same file in Second
+  -- Fleet.
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  got := pg_temp.t74_load(probe);
+  IF got IS DISTINCT FROM 'TY024 casing_estimates row 1: this fleet has no size named ''T74 OWN SIZE''' THEN
+    RAISE EXCEPTION 'FAIL 74c: BAC''s load naming Second Fleet''s size answered %', got;
+  END IF;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  got := pg_temp.t74_load(probe);
+  IF got IS DISTINCT FROM 'sizes=0 brands=0 patterns=0 casing_estimates=1 price_list=0' THEN
+    RAISE EXCEPTION 'FAIL 74c: the same load in Second Fleet answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  74c BAC and Sandbox see none of Second Fleet''s seeded or loaded rows, and a load in BAC cannot name them';
+END $$;
+ROLLBACK;
+
+\echo '== 74d. a file loads sizes, brands, patterns, casing estimates and price rows with no lineage, resolving seeded and own names alike; every amount round-trips to the cent, every row names the bound actor or none, and every row is audited under Second Fleet (FR-CFG-001 to 003, FR-CFG-040, FR-CFG-042, FR-CFG-043, DR-007, FR-AUD-001, D4; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  got := pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'seeded 10' THEN
+    RAISE EXCEPTION 'FAIL 74d: the seed answered %', got;
+  END IF;
+  -- Every section optional, and an empty one loads nothing.
+  got := pg_temp.t74_load('{}') || ' ' || pg_temp.t74_load('{"sizes": [], "price_list": null}');
+  IF got IS DISTINCT FROM 'sizes=0 brands=0 patterns=0 casing_estimates=0 price_list=0 sizes=0 brands=0 patterns=0 casing_estimates=0 price_list=0'
+     OR pg_temp.t74_counts() <> '4/3/3/0/0' THEN
+    RAISE EXCEPTION 'FAIL 74d: an empty file answered % and left %', got, pg_temp.t74_counts();
+  END IF;
+
+  got := pg_temp.t74_load(
+    '{"sizes": [{"name": "T74 OWN SIZE", "construction": "CROSS_PLY"}, {"name": "T74 BARE SIZE"}],
+      "brands": [{"name": "T74 OWN BRAND"}],
+      "patterns": [{"name": "T74 OWN PATTERN", "brand": "T74 OWN BRAND", "applies_to": "RETREAD"},
+                   {"name": "T74 SEEDED BRAND", "brand": "Dunlop", "applies_to": "BOTH"}],
+      "casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1837.50", "effective_from": "2026-01-01"},
+                           {"size": "315/80R22.5", "estimated_value": "0.5", "effective_from": "2026-06-01"},
+                           {"size": "T74 OWN SIZE", "estimated_value": "9999999999.99", "effective_from": "2026-01-01"}],
+      "price_list": [{"size": "315/80R22.5", "brand": "Dunlop", "typical_price": "4319.91", "effective_from": "2026-01-01"},
+                     {"size": "315/80R22.5", "typical_price": "4000.00", "effective_from": "2026-01-01"},
+                     {"size": "315/80R22.5", "brand": "Dunlop", "typical_price": "4500.00", "effective_from": "2026-07-01"}]}');
+  IF got IS DISTINCT FROM 'sizes=2 brands=1 patterns=2 casing_estimates=3 price_list=3' THEN
+    RAISE EXCEPTION 'FAIL 74d: the file answered %', got;
+  END IF;
+
+  SELECT string_agg(s.name || ':' || COALESCE(s.construction, '-'), ' ' ORDER BY s.name) INTO got
+    FROM app.tyre_size s WHERE s.platform_catalogue_id IS NULL AND s.created_by IS NULL;
+  IF got IS DISTINCT FROM 'T74 BARE SIZE:- T74 OWN SIZE:CROSS_PLY' THEN
+    RAISE EXCEPTION 'FAIL 74d: the file''s sizes read %', got;
+  END IF;
+  SELECT string_agg(b.name, ' ') INTO got
+    FROM app.tyre_brand b WHERE b.platform_catalogue_id IS NULL AND b.created_by IS NULL;
+  IF got IS DISTINCT FROM 'T74 OWN BRAND' THEN
+    RAISE EXCEPTION 'FAIL 74d: the file''s brands read %', got;
+  END IF;
+  -- The second pattern names the seeded Dunlop and resolves to that copy.
+  SELECT string_agg(p.name || ':' || p.applies_to || ':' || b.name || ':' || (b.platform_catalogue_id IS NOT NULL),
+                    ' ' ORDER BY p.name) INTO got
+    FROM app.tyre_pattern p JOIN app.tyre_brand b ON b.id = p.brand_id
+   WHERE p.platform_catalogue_id IS NULL AND p.created_by IS NULL;
+  IF got IS DISTINCT FROM 'T74 OWN PATTERN:RETREAD:T74 OWN BRAND:false T74 SEEDED BRAND:BOTH:Dunlop:true' THEN
+    RAISE EXCEPTION 'FAIL 74d: the file''s patterns read %', got;
+  END IF;
+  -- Rule 2: the amounts as text, so a cent lost or a float's tail shows.
+  SELECT string_agg(s.name || '@' || to_char(e.effective_from, 'YYYY-MM-DD') || '=' || e.estimated_value,
+                    ' ' ORDER BY e.estimated_value) INTO got
+    FROM app.casing_estimate_by_size e JOIN app.tyre_size s ON s.id = e.size_id
+   WHERE e.created_by IS NULL;
+  IF got IS DISTINCT FROM '315/80R22.5@2026-06-01=0.50 315/80R22.5@2026-01-01=1837.50 T74 OWN SIZE@2026-01-01=9999999999.99' THEN
+    RAISE EXCEPTION 'FAIL 74d: the casing estimates read %', got;
+  END IF;
+  SELECT string_agg(s.name || '/' || COALESCE(b.name, '-') || '@' || to_char(l.effective_from, 'YYYY-MM-DD')
+                    || '=' || l.typical_price, ' ' ORDER BY l.typical_price) INTO got
+    FROM app.tyre_price_list l JOIN app.tyre_size s ON s.id = l.size_id
+    LEFT JOIN app.tyre_brand b ON b.id = l.brand_id
+   WHERE l.created_by IS NULL;
+  IF got IS DISTINCT FROM '315/80R22.5/-@2026-01-01=4000.00 315/80R22.5/Dunlop@2026-01-01=4319.91 315/80R22.5/Dunlop@2026-07-01=4500.00' THEN
+    RAISE EXCEPTION 'FAIL 74d: the price rows read %', got;
+  END IF;
+  -- ADR-0014, U12: the seed's ten rows and the file's eleven are each filed
+  -- once under Second Fleet, with no actor bound.
+  SELECT string_agg(x.entity_type || '=' || x.n, ' ' ORDER BY x.entity_type) INTO got
+    FROM (SELECT a.entity_type, count(*) AS n
+            FROM app.audit_log a
+            JOIN (SELECT id FROM app.tyre_size UNION ALL SELECT id FROM app.tyre_brand
+                  UNION ALL SELECT id FROM app.tyre_pattern UNION ALL SELECT id FROM app.casing_estimate_by_size
+                  UNION ALL SELECT id FROM app.tyre_price_list) r ON r.id = a.entity_id
+           WHERE a.action = 'INSERT' AND a.tenant_id = t2 AND a.actor_id IS NULL
+           GROUP BY a.entity_type) x;
+  IF got IS DISTINCT FROM 'casing_estimate_by_size=3 tyre_brand=4 tyre_pattern=5 tyre_price_list=3 tyre_size=6' THEN
+    RAISE EXCEPTION 'FAIL 74d: the audit entries for the seeded and loaded rows read %', got;
+  END IF;
+  -- With an actor bound, the catalogue row and the estimate both name it, and
+  -- so does each one's audit entry.
+  PERFORM set_config('app.actor_id', md5('driver2')::uuid::text, true);
+  got := pg_temp.t74_load(
+    '{"sizes": [{"name": "T74 ACTOR SIZE"}],
+      "casing_estimates": [{"size": "T74 ACTOR SIZE", "estimated_value": "1.00", "effective_from": "2026-01-01"}]}');
+  IF got IS DISTINCT FROM 'sizes=1 brands=0 patterns=0 casing_estimates=1 price_list=0' THEN
+    RAISE EXCEPTION 'FAIL 74d: the load with an actor bound answered %', got;
+  END IF;
+  SELECT count(*) INTO n
+    FROM app.tyre_size s
+    JOIN app.casing_estimate_by_size e ON e.size_id = s.id
+    JOIN app.audit_log sa ON sa.entity_id = s.id AND sa.action = 'INSERT'
+    JOIN app.audit_log ea ON ea.entity_id = e.id AND ea.action = 'INSERT'
+   WHERE s.name = 'T74 ACTOR SIZE'
+     AND s.created_by = md5('driver2')::uuid AND e.created_by = md5('driver2')::uuid
+     AND sa.actor_id = md5('driver2')::uuid AND ea.actor_id = md5('driver2')::uuid;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 74d: with an actor bound, the size, the estimate and their audit entries do not all name it';
+  END IF;
+  RAISE NOTICE 'PASS  74d a file loads every section with no lineage, resolves seeded and own names, keeps every amount to the cent, names the bound actor or none, and is audited under Second Fleet';
+END $$;
+ROLLBACK;
+
 \echo '== 74e. each refusal names its section, row and reason, under TY024 for a file and TY025 for a seed (DR-007, D3 to D5, TYRE-369 comment 13592; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        nofleet constant uuid := md5('t74-no-fleet')::uuid;
+        c record; got text; bad text := '';
+BEGIN
+  PERFORM set_config('app.actor_id', '', true);
+  -- Unbound, and bound to a tenant that does not exist.
+  PERFORM set_config('app.tenant_id', '', true);
+  got := pg_temp.t74_load('{}') || ' | ' || pg_temp.t74_seed();
+  IF got IS DISTINCT FROM 'TY024 a catalogue load needs app.tenant_id bound to the fleet it loads into | TY025 a seed needs app.tenant_id bound to the fleet it seeds' THEN
+    RAISE EXCEPTION 'FAIL 74e: an unbound load and seed answered %', got;
+  END IF;
+  PERFORM set_config('app.tenant_id', nofleet::text, true);
+  got := pg_temp.t74_load('{}') || ' | ' || pg_temp.t74_seed();
+  IF got IS DISTINCT FROM format('TY024 app.tenant_id %s names no fleet | TY025 app.tenant_id %s names no fleet', nofleet, nofleet) THEN
+    RAISE EXCEPTION 'FAIL 74e: a load and seed bound to no fleet answered %', got;
+  END IF;
+
+  -- The base the file refusals run against: the seed, one estimate and one
+  -- brandless price, each dated 2026-01-01.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  got := pg_temp.t74_seed() || ' ' || pg_temp.t74_load(
+    '{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1800.00", "effective_from": "2026-01-01"}],
+      "price_list": [{"size": "315/80R22.5", "typical_price": "4000.00", "effective_from": "2026-01-01"}]}');
+  IF got IS DISTINCT FROM 'seeded 10 sizes=0 brands=0 patterns=0 casing_estimates=1 price_list=1' THEN
+    RAISE EXCEPTION 'FAIL 74e: the base answered %', got;
+  END IF;
+
+  -- Where a good row comes before the bad one, the refusal still names the
+  -- bad row. Each call runs in t74_load's own subtransaction, so the count
+  -- after the loop checks that handler, not the load's atomicity.
+  FOR c IN SELECT * FROM (VALUES
+    ('[]', 'TY024 a catalogue file is one JSON object of sections: sizes, brands, patterns, casing_estimates and price_list'),
+    ('{"sizes": [{"name": "T74 E2"}], "size": []}', 'TY024 ''size'' is not a section; the sections are sizes, brands, patterns, casing_estimates and price_list'),
+    ('{"sizes": {"name": "T74 E3"}}', 'TY024 sizes is not a list; each section is a JSON array of rows'),
+    ('{"brands": ["T74 E4"]}', 'TY024 brands row 1 is not an object; each row is a JSON object of fields'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_valeu": "1800.00", "effective_from": "2026-02-01"}]}',
+     'TY024 casing_estimates row 1: ''estimated_valeu'' is not a field; the fields are size, estimated_value, effective_from'),
+    ('{"brands": [{}]}', 'TY024 brands row 1: name is required'),
+    ('{"sizes": [{"name": 315}]}', 'TY024 sizes row 1: name is written as a JSON string'),
+    ('{"sizes": [{"name": " T74 E8"}]}', 'TY024 sizes row 1: name '' T74 E8'' is empty or begins or ends with white space'),
+    ('{"sizes": [{"name": "T74 E9", "construction": "BIAS"}]}', 'TY024 sizes row 1: construction is RADIAL or CROSS_PLY, not ''BIAS'''),
+    ('{"patterns": [{"name": "T74 E10"}]}', 'TY024 patterns row 1: applies_to is required'),
+    ('{"patterns": [{"name": "T74 E11", "applies_to": "USED"}]}', 'TY024 patterns row 1: applies_to is NEW, RETREAD or BOTH, not ''USED'''),
+    ('{"sizes": [{"name": "T74 E12"}, {"name": "315/80R22.5"}]}',
+     'TY024 sizes row 2: this fleet already has the size ''315/80R22.5''; a load adds rows and never changes one'),
+    ('{"brands": [{"name": "T74 E13"}, {"name": "T74 E13"}]}',
+     'TY024 brands row 2: the name ''T74 E13'' repeats brands row 1; a file names each entry once'),
+    ('{"casing_estimates": [{"size": "999/99R99", "estimated_value": "1.00", "effective_from": "2026-02-01"}]}',
+     'TY024 casing_estimates row 1: this fleet has no size named ''999/99R99'''),
+    ('{"price_list": [{"size": "315/80R22.5", "brand": "T74 NO BRAND", "typical_price": "1.00", "effective_from": "2026-02-01"}]}',
+     'TY024 price_list row 1: this fleet has no brand named ''T74 NO BRAND'''),
+    ('{"patterns": [{"name": "T74 E16", "brand": "T74 NO BRAND", "applies_to": "NEW"}]}',
+     'TY024 patterns row 1: this fleet has no brand named ''T74 NO BRAND'''),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": 1800, "effective_from": "2026-02-01"}]}',
+     'TY024 casing_estimates row 1: estimated_value is a JSON number; write the amount as a string, such as "1837.50", so nothing reads it as a float'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1800.005", "effective_from": "2026-02-01"}]}',
+     'TY024 casing_estimates row 1: estimated_value ''1800.005'' has more than two decimal places; a load never rounds an amount'),
+    ('{"price_list": [{"size": "315/80R22.5", "typical_price": "-1.00", "effective_from": "2026-02-01"}]}',
+     'TY024 price_list row 1: typical_price ''-1.00'' is negative'),
+    ('{"price_list": [{"size": "315/80R22.5", "typical_price": "10000000000.00", "effective_from": "2026-02-01"}]}',
+     'TY024 price_list row 1: typical_price ''10000000000.00'' is above 9999999999.99, the most an amount can hold'),
+    ('{"price_list": [{"size": "315/80R22.5", "typical_price": "1,800.00", "effective_from": "2026-02-01"}]}',
+     'TY024 price_list row 1: typical_price ''1,800.00'' is not an amount in rand, such as "1837.50"'),
+    ('{"price_list": [{"size": "315/80R22.5", "typical_price": true, "effective_from": "2026-02-01"}]}',
+     'TY024 price_list row 1: typical_price is written as a JSON string, such as "1837.50"'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1800.00"}]}',
+     'TY024 casing_estimates row 1: effective_from is required'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1800.00", "effective_from": 20260201}]}',
+     'TY024 casing_estimates row 1: effective_from is written as a JSON string, such as "2026-11-01"'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1800.00", "effective_from": "2026-02-30"}]}',
+     'TY024 casing_estimates row 1: effective_from ''2026-02-30'' is not a date written YYYY-MM-DD'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1800.00", "effective_from": "01/02/2026"}]}',
+     'TY024 casing_estimates row 1: effective_from ''01/02/2026'' is not a date written YYYY-MM-DD'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1900.00", "effective_from": "2026-01-01"}]}',
+     'TY024 casing_estimates row 1: the size ''315/80R22.5'' already has a casing estimate effective 2026-01-01; a change is a new row with a later effective_from'),
+    ('{"casing_estimates": [{"size": "315/80R22.5", "estimated_value": "1.00", "effective_from": "2026-03-01"},
+                            {"size": "315/80R22.5", "estimated_value": "2.00", "effective_from": "2026-03-01"}]}',
+     'TY024 casing_estimates row 2: the size ''315/80R22.5'' effective 2026-03-01 repeats casing_estimates row 1'),
+    ('{"price_list": [{"size": "315/80R22.5", "typical_price": "4100.00", "effective_from": "2026-01-01"}]}',
+     'TY024 price_list row 1: the size ''315/80R22.5'' already has a price with no brand effective 2026-01-01; a change is a new row with a later effective_from'),
+    ('{"price_list": [{"size": "315/80R22.5", "brand": "Dunlop", "typical_price": "1.00", "effective_from": "2026-03-01"},
+                      {"size": "315/80R22.5", "brand": "Dunlop", "typical_price": "2.00", "effective_from": "2026-03-01"}]}',
+     'TY024 price_list row 2: the size ''315/80R22.5'' for the brand ''Dunlop'' effective 2026-03-01 repeats price_list row 1'),
+    ('{"sizes": [{"name": "T74 E31"}],
+       "price_list": [{"size": "T74 E31", "typical_price": 5, "effective_from": "2026-02-01"}]}',
+     'TY024 price_list row 1: typical_price is a JSON number; write the amount as a string, such as "1837.50", so nothing reads it as a float')
+  ) AS v(payload, expected) LOOP
+    got := pg_temp.t74_load(c.payload::jsonb);
+    IF got IS DISTINCT FROM c.expected THEN
+      bad := bad || format(E'\n  file %s answered %s', c.payload, got);
+    END IF;
+  END LOOP;
+  IF bad <> '' THEN
+    RAISE EXCEPTION 'FAIL 74e: %', bad;
+  END IF;
+  IF pg_temp.t74_counts() <> '4/3/3/1/1' THEN
+    RAISE EXCEPTION 'FAIL 74e: the refused files left the catalogue at %, not the base 4/3/3/1/1', pg_temp.t74_counts();
+  END IF;
+  RAISE NOTICE 'PASS  74e every file refusal is TY024 naming its section, row and reason';
+END $$;
+ROLLBACK;
+
 BEGIN;
 DO $$
 DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -12372,6 +12640,73 @@ BEGIN
     RAISE EXCEPTION 'FAIL 74f: the control rows did not land';
   END IF;
   RAISE NOTICE 'PASS  74f two brandless prices for one size and date are refused by tyre_price_list_one_row_per_date';
+END $$;
+ROLLBACK;
+
+\echo '== 74g. a seeded size''s tyre, received, fitted and inspected, values ESTIMATED at the per-size figure from the estimate''s date, and UNVALUED the day before (FR-CFG-043, FR-TYR-008, CR-012, FR-VAL-020; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        drv constant uuid := md5('driver2')::uuid;
+        cfg constant uuid := md5('22222222-2222-2222-2222-222222222222TRAILER_2AXLE')::uuid;
+        -- A unit of its own, so FR-INS-038's window cannot refuse the submit,
+        -- and a trailer, which owes no fitment odometer (TY009).
+        v   constant uuid := md5('t74g-unit')::uuid;
+        today date := (now() AT TIME ZONE 'UTC')::date;
+        ty uuid; pos uuid; got text; r record;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  -- The estimate is dated two days back, after the inspection six days
+  -- back, so one tyre shows both sides of the date.
+  got := pg_temp.t74_seed() || ' ' || pg_temp.t74_load(jsonb_build_object('casing_estimates', jsonb_build_array(
+           jsonb_build_object('size', '315/80R22.5', 'estimated_value', '2150.00',
+                              'effective_from', to_char(today - 2, 'YYYY-MM-DD')))));
+  IF got IS DISTINCT FROM 'seeded 10 sizes=0 brands=0 patterns=0 casing_estimates=1 price_list=0' THEN
+    RAISE EXCEPTION 'FAIL 74g: the seed and load answered %', got;
+  END IF;
+
+  -- Second Fleet is FREE, so the receive names its code. Every instant is
+  -- in the past: received ten days back, fitted eight, inspected six.
+  SELECT rt.tyre_id INTO ty FROM app.receive_tyres(jsonb_build_object(
+    'display_code', 'T74G-1',
+    'size_id', (SELECT s.id FROM app.tyre_size s WHERE s.name = '315/80R22.5'),
+    'pattern_id', (SELECT p.id FROM app.tyre_pattern p WHERE p.name = 'SP431'),
+    'new_tread_mm', '20.0',
+    'received_date', to_char(today - 10, 'YYYY-MM-DD'))) rt;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (v, t2, 'T74-G', 'CAA747401', cfg, 'TRAILER', 'ACTIVE');
+  SELECT p.id INTO pos FROM app.position p
+   WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
+  PERFORM app.fit_tyre(ty, v, pos, 20.0, 'MARK_OUTBOARD', NULL, now() - interval '8 days',
+                       'recorded late for suite section 74g');
+  PERFORM set_config('app.actor_id', drv::text, true);
+  PERFORM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', v,
+    'started_at', now() - interval '6 days' - interval '150 seconds',
+    'submitted_at', now() - interval '6 days',
+    'readings', jsonb_build_array(jsonb_build_object(
+      'vehicle_id', v, 'position_id', pos, 'tyre_id', ty, 'pressure_kpa', 800,
+      'treads', jsonb_build_array(12.0, 13.0, 14.0)))));
+
+  -- The day before the estimate's date: the reading prices the tread, and
+  -- the casing has no figure of any kind.
+  SELECT a.tread_source, a.current_tread_mm, a.casing_value, a.casing_basis INTO r
+    FROM app.tyre_valuation_asof(today - 3) a WHERE a.tyre_id = ty;
+  IF r.tread_source IS DISTINCT FROM 'READING' OR r.current_tread_mm IS DISTINCT FROM 12.0
+     OR r.casing_value IS NOT NULL OR r.casing_basis IS DISTINCT FROM 'UNVALUED' THEN
+    RAISE EXCEPTION 'FAIL 74g: the day before the estimate reads % / % / % / %',
+      r.tread_source, r.current_tread_mm, r.casing_value, r.casing_basis;
+  END IF;
+  -- On the estimate's date and after, the per-size figure, labelled.
+  SELECT string_agg(a.casing_value || ':' || a.casing_basis, ' ' ORDER BY d.n) INTO got
+    FROM unnest(ARRAY[today - 2, today]) WITH ORDINALITY AS d(at, n)
+    CROSS JOIN LATERAL app.tyre_valuation_asof(d.at) a
+   WHERE a.tyre_id = ty;
+  IF got IS DISTINCT FROM '2150.00:ESTIMATED 2150.00:ESTIMATED' THEN
+    RAISE EXCEPTION 'FAIL 74g: on and after the estimate''s date the casing reads %', got;
+  END IF;
+  RAISE NOTICE 'PASS  74g a seeded size''s casing is UNVALUED the day before its estimate and ESTIMATED at 2150.00 from that date';
 END $$;
 ROLLBACK;
 
