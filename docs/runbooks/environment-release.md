@@ -117,6 +117,11 @@ prints anything, stop.
    this whole block, never the apply line alone: alone it sends an empty
    `pgAdminPassword`.
 
+   Before any apply that changes `infra/platform.bicep`, run the same block
+   once with `az deployment group what-if` in place of `az deployment group
+   create -n ...` (drop `-n` and `-o none`), and read every Create, Delete
+   and Modify it lists before you apply.
+
    ```bash
    [ "$(az postgres flexible-server show -g $RG -n $PG --query state -o tsv)" = Stopped ] \
      && az postgres flexible-server start -g $RG -n $PG -o none
@@ -135,6 +140,11 @@ prints anything, stop.
    If the first `parameter show` lists an extension other than `PGCRYPTO` and
    `BTREE_GIST`, stop: add it to `platform.bicep` first. Expect the second to
    print `PGCRYPTO,BTREE_GIST` (order may differ).
+
+   After TYRE-402, the what-if must show no change to the API identity's
+   AcrPull assignment on `crtyrestaging`: the grant moved into the
+   `acr-pull.bicep` module with the same name, so a Create or Delete of it
+   means the name drifted. Stop and fix the template before applying.
 
    Then remove step 1's grant, now that Secrets Officer is live. Re-derive
    every value in this block, because step 1 may have run in another session,

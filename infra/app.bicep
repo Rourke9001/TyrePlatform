@@ -19,9 +19,11 @@ param apiImage string
 @maxLength(64)
 param revisionSuffix string
 
-// Production pulls from staging's registry (ADR-0017, Registry).
-param acrName string = 'crtyre${env}'
-param acrResourceGroup string = resourceGroup().name
+// Production pulls from staging's registry (ADR-0017, Registry). A string,
+// not an existing registry: production's deploy identity holds Contributor
+// on its own group only and cannot read rg-tyre-staging. The pull itself
+// runs as the API's identity, under platform.bicep's AcrPull grant.
+param acrLoginServer string = 'crtyrestaging${environment().suffixes.acrLoginServer}'
 
 // ADR-0016's six settings. All are public identifiers, not secrets.
 param authDiscoveryUrl string
@@ -48,11 +50,6 @@ resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
   name: 'kv-tyre-${env}'
 }
 
-resource acr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: acrName
-  scope: resourceGroup(acrResourceGroup)
-}
-
 // platform.bicep's kvSecretsForApi must be live before this applies, or the
 // database-url Key Vault reference fails revision activation with a
 // permission error, not a missing secret (runbook, bring-up step 4).
@@ -77,7 +74,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
       }
       registries: [
         {
-          server: acr.properties.loginServer
+          server: acrLoginServer
           identity: apiIdentity.id
         }
       ]

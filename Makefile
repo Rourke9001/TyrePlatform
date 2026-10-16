@@ -205,7 +205,7 @@ BICEP_RUN = MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR)/infra:/src" $(BICEP
 .PHONY: infra-lint
 infra-lint: ## Bicep lint on both templates (warnings fail), the staging param file builds, actionlint on the workflows
 	docker build -q -t $(BICEP_IMAGE) -f infra/bicep.Dockerfile infra
-	@for f in platform.bicep app.bicep; do \
+	@for f in platform.bicep app.bicep acr-pull.bicep; do \
 	  out=$$($(BICEP_RUN) lint $$f 2>&1); st=$$?; echo "$$out"; \
 	  [ $$st -eq 0 ] || { echo "bicep lint $$f exited $$st"; exit 1; }; \
 	  if grep -q "Warning" <<<"$$out"; then echo "bicep lint $$f: a warning fails the gate (TYRE-79)"; exit 1; fi; \
