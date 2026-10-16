@@ -39,10 +39,10 @@ void boot({
       </StrictMode>,
     );
   },
-  renderFailure: (retry) => {
+  renderFailure: (retry, busy) => {
     root.render(
       <StrictMode>
-        <ConfigFailure onRetry={retry} />
+        <ConfigFailure onRetry={retry} busy={busy} />
       </StrictMode>,
     );
   },
