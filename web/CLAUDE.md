@@ -49,6 +49,11 @@ Online-first with a durable submit outbox — not an offline sync engine.
 - Each inspection carries a client-generated UUID; the server treats
   submission as idempotent, so replaying the outbox is safe.
 - Photos queue separately from readings.
+- The API origin comes from `/config.json` at startup (ADR-0019,
+  `src/api/runtimeConfig.ts`), preloaded beside the entry. A production
+  build that cannot read it shows `ConfigFailure`, sends nothing, and
+  retries in place on "Try again" or when the signal returns
+  (`src/shell/boot.ts`). A dev build never fetches it.
 - Each draft and outbox entry is stamped with the capturing driver's Entra
   `oid` and sends only under that driver's session; a sign-in by anyone else
   is undone while one is held, and sign-out is refused while anything is
@@ -140,6 +145,10 @@ the next copy edit.
   self-hosted @fontsource — no CDN: the capture app must render on a flaky
   depot connection, and a font fetch is a third-party dependency the
   driver's flow must never wait on (ADR-0009).
+- The web origin's CSP and `Permissions-Policy`
+  (`web/staticwebapp.config.json`) never apply under `vite dev`, so a new
+  image source, camera or location use needs a header change that only the
+  production browser check or staging shows (ADR-0019).
 - Tenant branding (display name, primary colour, nullable logo) is tenant
   configuration in the database (`app.configuration` key `branding`), served
   by `GET /api/org/branding` and applied by `src/theme/ThemeProvider.tsx`,

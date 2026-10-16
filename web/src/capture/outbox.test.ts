@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/client";
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
+import { RuntimeConfigError } from "../api/runtimeConfig";
 import { MIRROR_KEY, SUBJECT_KEY } from "../api/token";
 import { bearerSession } from "../test/bearerSession";
 import { clearDraft, db, loadDraft, savePosition, startDraft } from "./draft";
@@ -102,6 +103,13 @@ describe("classify", () => {
   // acquired by waiting.
   it("treats an expired session as retryable", () => {
     expect(classify(new ApiError(401, "unauthorized"))).toBe("retryable");
+  });
+
+  // A pin, not a proof: any non-ApiError is already retryable. An inspection
+  // held while config.json could not be read must stay queued, so this fails
+  // if that rule ever narrows (ADR-0019).
+  it("treats an unread API origin as retryable", () => {
+    expect(classify(new RuntimeConfigError("no config"))).toBe("retryable");
   });
 });
 

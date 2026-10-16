@@ -3,6 +3,7 @@
 
 import { getDevActorId, getDevTenantId } from "./devTenant";
 import { ApiError } from "./apiError";
+import { apiUrl } from "./runtimeConfig";
 import { authUnavailable, isLatched, refused, sender, type Sender } from "./token";
 
 export { ApiError } from "./apiError";
@@ -47,7 +48,7 @@ async function send<T>(method: string, path: string, body?: unknown, as?: Sender
     if (devActor) headers["X-User-ID"] = devActor;
   }
 
-  const res = await fetch(path, {
+  const res = await fetch(apiUrl(path), {
     method,
     headers,
     ...(body !== undefined ? { body: JSON.stringify(body) } : {}),

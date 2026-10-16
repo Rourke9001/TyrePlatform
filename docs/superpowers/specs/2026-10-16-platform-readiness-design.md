@@ -192,11 +192,19 @@ example `{"apiOrigin": "https://ca-api-staging.<...>.azurecontainerapps.io"}`.
 everywhere else, the outbox included: the outbox stores payloads, and the
 base is applied at send time.
 
-**A missing or invalid file.** In a dev build, a missing file means a
-relative base, so the Vite proxy, vitest and e2e work unchanged. In a
-production build it is a visible failure the app reports, never a silent
-fall back to relative `/api` on the web origin, which 404s. The builder
-decides the shape of that failure and its tests.
+**A missing or invalid file.** A dev build never fetches the file and uses
+a relative base, because no deploy writes it there and vite dev's fallback
+would answer it with `index.html`. The Vite proxy, vitest and e2e work
+unchanged. In a production build a missing or invalid file is a visible
+failure the app reports, never a silent fall back to relative `/api` on the
+web origin, which 404s. The builder decides the shape of that failure and
+its tests.
+
+The production build fetches the file through a preload in `index.html`,
+so it downloads beside the entry rather than after it (NFR-PRF-001). A
+failure retries in place, on the driver's "Try again" or when the signal
+returns, never by a reload, which would strand a driver without signal on
+the browser's offline page (ADR-0009).
 
 **The file is written at deploy time.** The deploy's web job writes it from
 the API's deployed FQDN. That value is `app.bicep`'s `apiFqdn` output, or
