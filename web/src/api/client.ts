@@ -8,8 +8,7 @@ import { authUnavailable, isLatched, refused, sender, type Sender } from "./toke
 export { ApiError } from "./apiError";
 
 // The one name the bearer travels under here, and one constant in Go
-// (bearer.HeaderName). If Static Web Apps strips it on the linked backend,
-// the fallback header changes in those two places only (ADR-0016, TYRE-51).
+// (bearer.HeaderName), so the two sides cannot disagree (ADR-0016).
 export const AUTH_HEADER = "Authorization";
 
 // An unreadable body yields nulls, not a throw (ADR-0012): failing to parse

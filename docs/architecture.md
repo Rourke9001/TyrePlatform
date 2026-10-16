@@ -6,19 +6,18 @@ the ADRs say why each was chosen and what it costs.
 ## Shape
 
 ```
-   phone (PWA)                    browser
-        │                            │
-        │  online-first reads        │
-        │  durable submit outbox     │
-        ▼                            ▼
-   ┌─────────────────────────────────────┐
-   │  Azure Static Web Apps              │   React + Vite
-   │  capture app  │  manager dashboard  │
-   └──────────────────┬──────────────────┘
-                      │  HTTPS. An Entra External ID access token as
-                      │  a bearer (ADR-0016). The dev header resolver
-                      │  exists only in -tags devheader builds (U103)
-                      ▼
+   phone (PWA) or browser
+   online-first reads, durable submit outbox
+        │                         │
+        │  loads the app and      │  calls the API at the Container
+        │  /config.json           │  App's own origin over CORS
+        ▼                         │  (ADR-0019). HTTPS. An Entra
+   ┌──────────────────────────┐   │  External ID access token as a
+   │  Azure Static Web Apps   │   │  bearer (ADR-0016). The dev
+   │  React + Vite: capture   │   │  header resolver exists only in
+   │  app, manager dashboard  │   │  -tags devheader builds (U103)
+   └──────────────────────────┘   │
+                                  ▼
    ┌─────────────────────────────────────┐
    │  Azure Container Apps  (Go)         │   scale-to-zero
    │  auth → actor context → handlers    │
