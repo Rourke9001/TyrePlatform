@@ -493,7 +493,7 @@ func TestMaxConnsDefaultsWhenDSNNamesNone(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(s.Close)
 
-	require.EqualValues(t, 10, s.MaxConns())
+	require.EqualValues(t, 7, s.MaxConns())
 }
 
 // TestMaxConnsHonoursDSNOverride is TestTenantContextDoesNotLeakAcrossTransactions's

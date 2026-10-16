@@ -106,3 +106,24 @@ not a number read off the live server (ADR-0002's verification did not
 record `SHOW max_connections`); confirm both the raw default and the
 reserved-connection deduction against the deployed instance before raising
 either replica count or pool size.
+
+**Amended 2026-10-16 (TYRE-305, U71):** the 23 Sep arithmetic above
+counted all 50 of B1ms's connections. Azure reserves 15 of them for its own
+roles, so 35 are user connections, and 4 x 10 overruns them during a
+rolling deploy. `defaultMaxConns` is now 7 per replica:
+
+- steady state, 2 replicas x 7 = 14;
+- the rolling-deploy peak, 4 replicas x 7 = 28, which leaves 7 for
+  `migrate` and an admin `psql`;
+- the `TEST_ADMIN_DATABASE_URL` checks never connect to staging, so they
+  take none of it;
+- production runs its own B1ms server, and the same arithmetic holds there.
+
+A DSN that names `pool_max_conns` overrides the default (`store.New`,
+`api/internal/store/store.go`), so the Key Vault `database-url` secret must
+not name it. The runbook's bring-up step 2 reports whether it does, without
+printing the value.
+
+`max_connections` and the reserved settings have not been read off staging.
+TYRE-305 stays open until the owner runs the U94 query (TYRE-368 comment
+13436) and the DSN check, and posts both.

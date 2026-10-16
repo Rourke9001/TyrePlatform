@@ -74,6 +74,7 @@ prints anything, stop.
    dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
    docker run --rm -e DSN="$dsn" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea sh -c \
      'psql "$DSN" -At -F " " -c "SELECT current_user, rolsuper, rolbypassrls, pg_has_role(current_user, '"'tyreadmin'"', '"'MEMBER'"'), pg_has_role(current_user, '"'azure_pg_admin'"', '"'MEMBER'"') FROM pg_roles WHERE rolname = current_user;"'
+   case "$dsn" in *pool_max_conns*) echo "database-url names pool_max_conns" ;; *) echo "database-url names no pool_max_conns" ;; esac
    unset dsn
    ```
 
@@ -81,6 +82,12 @@ prints anything, stop.
    `app_login f f f f`. Anything else stops the bring-up: a revision cannot
    activate without a working `database-url`. Judge a failed connection only
    after Each release step 1 has run.
+
+   Then expect `database-url names no pool_max_conns`. The `case` prints a
+   verdict, never the value. If it prints `database-url names
+   pool_max_conns`, rewrite the secret without it before the next release:
+   a DSN's own `pool_max_conns` overrides the pool of 7 (ADR-0005,
+   TYRE-305). Post the result on TYRE-305.
 
 3. **The deploy identity's credential and the GitHub environment.**
 
