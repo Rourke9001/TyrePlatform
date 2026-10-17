@@ -53,21 +53,21 @@ db-down: ## Stop and remove the database container
 
 .PHONY: db-seeds
 db-seeds: ## Regenerate the machine-generated seed SQL
-	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_demo.py
 
 # Deliberately NOT in `make check` (needs a second regeneration and a hash
 # compare, doubling db-reset's cost on every run); CI pays for that once per
 # build (ci.yml, `database` job). This target is the same check, on demand,
 # for a contributor auditing a generator change locally (TYRE-188 F6).
 # gen_seed_volume.py is pure Python (random.Random(247), no DB connection,
-# db/CLAUDE.md) and CI hashes all three generators, so this does too.
+# db/CLAUDE.md) and CI hashes every generator, so this does too.
 .PHONY: db-seeds-check
-db-seeds-check: ## Assert all three seed generators are deterministic (mirrors the CI-only gate)
+db-seeds-check: ## Assert every seed generator is deterministic (mirrors the CI-only gate)
 	@tmp_a=$$(mktemp) && tmp_b=$$(mktemp) && trap 'rm -f "$$tmp_a" "$$tmp_b"' EXIT && \
-	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && cd ../.. && \
-	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql > "$$tmp_a" && \
-	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && cd ../.. && \
-	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql > "$$tmp_b" && \
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && $(PYTHON) gen_seed_demo.py && cd ../.. && \
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql db/seeds/demo_tenant.sql > "$$tmp_a" && \
+	cd db/seeds && $(PYTHON) gen_seed_configurations.py && $(PYTHON) gen_seed_fixture.py && $(PYTHON) gen_seed_volume.py && $(PYTHON) gen_seed_demo.py && cd ../.. && \
+	sha256sum db/seeds/002_seed_configurations.sql db/seeds/003_seed_fixture.sql db/seeds/006_seed_volume.sql db/seeds/demo_tenant.sql > "$$tmp_b" && \
 	diff "$$tmp_a" "$$tmp_b" && echo "seed generation is deterministic"
 
 .PHONY: db-migrate
