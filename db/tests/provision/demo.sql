@@ -5,7 +5,9 @@
 \set ON_ERROR_STOP on
 
 -- 1. One tenant, under the fixture's id and the demonstration names, loaded
--- ACTIVE with its horizon at the load date where the fleet is.
+-- ACTIVE with its horizon at the load date where the fleet is. The load ran
+-- in an earlier session, so its date is either this session's or, across the
+-- fleet's midnight, the one before.
 DO $$
 DECLARE
   r record;
@@ -18,7 +20,9 @@ BEGIN
   SELECT * INTO r FROM app.tenant;
   IF (r.id, r.name, r.subdomain, r.state::text)
      IS DISTINCT FROM ('11111111-1111-1111-1111-111111111111'::uuid, 'Demonstration Fleet', 'demo', 'ACTIVE')
-     OR r.history_horizon IS DISTINCT FROM app.tenant_today(r.timezone) THEN
+     OR r.history_horizon IS NULL
+     OR r.history_horizon NOT BETWEEN app.tenant_today(r.timezone, now() - interval '1 hour')
+                                  AND app.tenant_today(r.timezone) THEN
     RAISE EXCEPTION 'FAIL D1: tenant is %', row_to_json(r);
   END IF;
 END $$;

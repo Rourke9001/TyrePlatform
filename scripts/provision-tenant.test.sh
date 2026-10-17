@@ -107,14 +107,19 @@ for db in tyre_provision tyre_demo; do
     cat "$work/migrate-$db.log" >&2
     fail 3 "migrations on $db"
   }
-  # 4. provision_owner holds what the owning role holds in Azure but neither
-  # owns the tables nor bypasses RLS, so FORCE binds it as it binds tyreadmin.
+  # 4. provision_owner holds what the owning role holds in Azure but owns
+  # nothing, so ENABLE binds it. Whether RLS binds tyreadmin, which owns the
+  # tables, is TYRE-350, so the harness runs both kinds of role.
   $PSQL -d "$db" -v ON_ERROR_STOP=1 -q \
     -c "GRANT USAGE ON SCHEMA app TO provision_owner" \
     -c "GRANT ALL ON ALL TABLES IN SCHEMA app TO provision_owner" \
     -c "GRANT ALL ON ALL SEQUENCES IN SCHEMA app TO provision_owner" \
     -c "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA app TO provision_owner"
 done
+# A role left by a failed run is reused as it is, and one that bypassed RLS
+# would pass steps 7, 10, 13 and 15 without proving anything (check 0's rule).
+[ "$(super -tAc "SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname = 'provision_owner'")" = f ] ||
+  fail 3 "provision_owner is a superuser or bypasses RLS"
 ok 3 "tyre_provision and tyre_demo at head"
 
 # 5. The local fixture beside the provisioned tenants, and its counts before.
