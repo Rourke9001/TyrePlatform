@@ -213,6 +213,13 @@ def _bands(value, path):
         raise Refusal(
             f"{path} must start at 0 with lower bounds that rise band by band"
         )
+    # The band's label is built from its stored upper bound (000007), so an
+    # upper bound outside the band would print on every composition chart.
+    if any(not lo <= hi < nxt for (lo, hi), nxt in zip(value, lowers[1:])):
+        raise Refusal(
+            f"{path} has an upper bound below its own lower bound or at or above"
+            " the next band's lower bound"
+        )
 
 
 def _reasons(value, path):
@@ -349,6 +356,14 @@ def _pressures(section):
             row[key] = (
                 _whole(value, where) if key == "target_kpa" else _tenth(value, where)
             )
+        # v_exception raises FR-EXC-022 and 023 below 100 minus these (000045),
+        # so at 100 or more no pressure is ever under, at every date.
+        for key in ("warn_under_pct", "critical_under_pct"):
+            if row[key] >= 100:
+                raise Refusal(
+                    f"policy.target_pressure.{cls}.{key} is {row[key]}; at 100 or more"
+                    " no reading can fall under it, so the exception never fires"
+                )
         rows.append((cls, row))
     return rows
 

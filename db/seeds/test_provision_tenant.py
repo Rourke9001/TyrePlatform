@@ -227,6 +227,12 @@ REFUSALS = [
     ("band element", config("tread_bands", [[0, 4], ["5", None]]), "tread_bands"),
     ("band bool", config("tread_bands", [[0, True], [5, None]]), "tread_bands"),
     ("band width", config("tread_bands", [[0, 4, 5], [5, None]]), "tread_bands"),
+    (
+        "band upper below lower",
+        config("tread_bands", [[0, 4], [5, 3], [8, None]]),
+        "upper bound",
+    ),
+    ("band upper at next", config("tread_bands", [[0, 5], [5, None]]), "upper bound"),
     ("reasons empty", config("removal_reasons", []), "removal_reasons"),
     (
         "reason not a string",
@@ -273,6 +279,12 @@ REFUSALS = [
     ("target bool", target("STEER", {"target_kpa": True}), "target_kpa"),
     ("pct precision", target("STEER", {"warn_under_pct": Decimal("12.25")}), "12.25"),
     ("pct string", target("STEER", {"warn_under_pct": "10"}), "warn_under_pct"),
+    ("warn under 100", target("STEER", {"warn_under_pct": 100}), "warn_under_pct"),
+    (
+        "critical under 100",
+        target("DRIVE", {"critical_under_pct": 200}),
+        "critical_under_pct",
+    ),
     ("platform_owned not a bool", put("platform_owned", "yes"), "platform_owned"),
     ("client file, consent left out", drop("consent"), "platform_owned"),
     ("client file, consent empty", consent(), "platform_owned"),
