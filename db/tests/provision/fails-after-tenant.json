@@ -1,0 +1,11 @@
+{
+  "name": "Failing Test Fleet",
+  "subdomain": "provision-fails",
+  "depots": [{ "name": "Failing yard" }],
+  "policy": {
+    "threshold_policy": {
+      "DRIVE": { "warning_threshold_mm": 3.0 }
+    }
+  },
+  "platform_owned": true
+}
