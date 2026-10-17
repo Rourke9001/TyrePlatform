@@ -25,6 +25,12 @@ db/seeds/003_seed_fixture.sql
 db/seeds/006_seed_volume.sql
 db/seeds/demo_tenant.sql
 
+# A real tenant's provisioning file and its generated SQL carry the client's
+# policy and consent, and never belong in the repository
+# (docs/runbooks/provision-a-tenant.md, TYRE-374).
+*.tenant.json
+*.tenant.sql
+
 # The generators import seed_policy.py, so running one leaves bytecode behind.
 __pycache__/
 
