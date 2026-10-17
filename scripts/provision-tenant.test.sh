@@ -97,8 +97,8 @@ fi
   $PYTHON gen_seed_demo.py) >"$work/generators.log" || fail 2 "a seed generator"
 
 # 3. Two fresh databases at head, and a role standing in for tyreadmin.
-# One statement per -c: a multi-statement -c runs as one transaction, and
-# neither DROP DATABASE nor CREATE DATABASE runs inside one.
+# One statement per -c, because a multi-statement -c runs as one transaction
+# and neither DROP DATABASE nor CREATE DATABASE runs inside one.
 super -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'provision_owner') THEN CREATE ROLE provision_owner NOLOGIN NOSUPERUSER NOBYPASSRLS; END IF; END \$\$"
 for db in tyre_provision tyre_demo; do
   super -c "DROP DATABASE IF EXISTS $db WITH (FORCE)" -c "CREATE DATABASE $db"
@@ -123,7 +123,7 @@ must_run 5 tyre_provision postgres db/seeds/003_seed_fixture.sql
 run tyre_provision postgres db/tests/provision/fixture-counts.sql >"$work/counts-before.txt"
 ok 5 "fixture loaded"
 
-# 6. The count gate can fail: one row more than the generator wrote rolls the
+# 6. One row more than the generator wrote trips the count gate and rolls the
 # tenant back.
 Z=$(generate 6 db/tests/provision/free.json "$work/z.sql")
 probe="INSERT INTO app.configuration (tenant_id, key, value, effective_from) VALUES (app.current_tenant_id(), 'count_gate_probe', '1'::jsonb, '-infinity');"
@@ -178,7 +178,7 @@ must_run 13 tyre_provision provision_owner db/tests/provision/activated.sql \
   -v tenant="$F" -v role=provision_owner -v ahead="$G"
 ok 13 "both tenants activated, each with today where its fleet is"
 
-# 14. The control for step 15: the local fixture does name BAC.
+# 14. The control for step 15, since the local fixture does name BAC.
 must_run 14 tyre_provision postgres db/tests/provision/bac-strings.sql -v expect=some
 ok 14 "the probe finds BAC in the local fixture"
 

@@ -69,8 +69,8 @@ BEGIN
   IF (tp.retread_threshold_mm, tp.warning_threshold_mm) IS DISTINCT FROM (5.0, 7.0) THEN
     RAISE EXCEPTION 'FAIL 2: generated policy in force at % is %/%', at, tp.retread_threshold_mm, tp.warning_threshold_mm;
   END IF;
-  -- The STEER row starts from the fleet-wide figures (Decision 4), so a
-  -- changed fleet-wide threshold reaches steer positions.
+  -- The STEER row starts from the fleet-wide figures (provision_tenant.py,
+  -- _thresholds), so a changed fleet-wide threshold reaches steer positions.
   tp := app.threshold_policy_for(g, NULL, 'STEER', at);
   IF (tp.retread_threshold_mm, tp.warning_threshold_mm, tp.retreads_permitted) IS DISTINCT FROM (5.0, 7.0, false) THEN
     RAISE EXCEPTION 'FAIL 2: generated STEER policy is %/% permitted %', tp.retread_threshold_mm, tp.warning_threshold_mm, tp.retreads_permitted;

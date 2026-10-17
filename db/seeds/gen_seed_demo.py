@@ -25,8 +25,7 @@ def demo_sql():
         "SET client_encoding = 'UTF8';",
         "SET search_path = app, public;",
         "BEGIN;",
-        # tenant_self's WITH CHECK refuses the tenant row unless its id is
-        # bound first, under a role that does not bypass RLS (rule 1).
+        # Bound before the tenant row, as provision_tenant.py binds it (rule 1).
         f"SELECT set_config('app.tenant_id', '{T}', true);",
         f"INSERT INTO app.tenant (id,name,subdomain,state,display_code_policy) VALUES ('{T}','Demonstration Fleet','demo','ACTIVE','GENERATED');",
         "-- Loading it ACTIVE is its activation, so the horizon is the load date",

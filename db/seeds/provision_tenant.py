@@ -34,7 +34,7 @@ class Refusal(Exception):
     pass
 
 
-# app.axle_class, in enum order: class threshold rows are written in it.
+# app.axle_class in enum order, the order class threshold rows are written in.
 AXLE_CLASSES = ["STEER", "DRIVE", "TRAILER", "TAG", "SPARE"]
 DEPOT_TYPES = ["DEPOT", "STORE", "RETREADER", "BREAKDOWN_SUPPLIER"]
 # Adding a purpose is a code change, never file content (OR-LEG-005).
@@ -560,9 +560,9 @@ def provisioning_sql(p, tid, source=None):
     vals = [q, *(sql_literal(v) for v in tenant.values()), "'PROVISIONING'"]
     L.append(f"INSERT INTO app.tenant ({', '.join(cols)}) VALUES ({', '.join(vals)});")
     L.append("")
-    # Every baseline row is in force at any date an import can carry: a first
-    # row dated now() would leave everything older unvalued for good (SRS
-    # §5.1 errata E1, db/CLAUDE.md Append-only).
+    # Every baseline row is dated -infinity, so it is in force at any date an
+    # import can carry. A first row dated now() would leave everything older
+    # unvalued for good (SRS §5.1 errata E1, db/CLAUDE.md Append-only).
     for key, value in p["configuration"]:
         doc = sql_literal(json.dumps(value, default=float))
         L.append(
