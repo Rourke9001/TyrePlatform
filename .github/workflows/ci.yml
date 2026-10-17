@@ -99,8 +99,7 @@ jobs:
         run: |
           psql "postgres://postgres:postgres@localhost:5433/tyre" -v ON_ERROR_STOP=1 -f db/tests/005_privileged.sql
 
-      # Two databases of its own, never tyre, so it runs after the suite and
-      # leaves the suite's pins defined on the fixture (TYRE-374).
+      # make db-provision-test's proof (Makefile), on databases of its own.
       - name: Tenant provisioning and the demonstration load (TYRE-374)
         env:
           PGPASSWORD: postgres

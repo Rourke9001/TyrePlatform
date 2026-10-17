@@ -44,8 +44,8 @@ PRESSURE_TOLERANCE_PCT = {
 }
 
 # Every configuration key a tenant starts with, in emission order. Values keep
-# their Python types: the provisioning path checks a file's override against
-# the default's type.
+# their Python types, because the provisioning path checks a file's override
+# against the default's type.
 CONFIG_DEFAULTS = [
     ("tread_reading_count", 3),
     # TYRE-155 (owner, 6 Sep 2026): whether the capture app puts a

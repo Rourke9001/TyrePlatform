@@ -4,9 +4,9 @@ import unittest
 from gen_seed_demo import demo_sql
 from gen_seed_fixture import FIXTURE, fixture_body
 
-# Case-sensitive on purpose: ids are lowercase hex, and the fixture's strings
-# name BAC in capitals (U92: the readings must never read as findings about
-# BAC's vehicles).
+# Case-sensitive on purpose, because ids are lowercase hex and the fixture's
+# strings name BAC in capitals. The readings must never read as findings about
+# BAC's vehicles (U92).
 BAC = re.compile(r"BAC|Bac|\bbac\b")
 
 
