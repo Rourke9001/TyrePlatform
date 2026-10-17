@@ -8,7 +8,9 @@ estimates and price list. No route or screen writes these rows yet
 (TYRE-417 adds editing in the app), so every step here is an owner action.
 
 It starts once the tenant row exists. Creating the tenant, and the rest of
-what a new tenant needs, is not covered here.
+what a new tenant needs, is `provision-a-tenant.md`, which runs this
+runbook as its step 4. A tenant provisioned that way already holds the
+platform catalogue, so step 2 below inserts 0 for it.
 
 ## Before any SQL
 
@@ -186,6 +188,7 @@ One JSON object. Every section is optional:
 
 ## Not covered here
 
-- Creating the tenant row and the rest of a new tenant's defaults.
+- Creating the tenant row and the rest of a new tenant's defaults:
+  `provision-a-tenant.md`.
 - Adding, editing or deactivating catalogue rows in the app: TYRE-417.
 - Reading the price list at receipt: TYRE-283.

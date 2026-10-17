@@ -203,7 +203,9 @@ prints anything, stop.
    below: the image serving now is the one the merge replaces, and it never
    serves this schema. Production's database is new and empty, so production
    skips the drop, and records its first row once its first release is
-   serving (TYRE-397). Tenants come from TYRE-374.
+   serving (TYRE-397). Tenants come from `provision-a-tenant.md`: on staging,
+   Sandbox Fleet through that runbook and the demonstration tenant, and
+   nothing else (U116).
 
 6. **Merge TYRE-79.** The merge is the new pipeline's first run. Do not apply
    `infra/app.bicep` by hand first: the 21 Aug image has no `/readyz` and
