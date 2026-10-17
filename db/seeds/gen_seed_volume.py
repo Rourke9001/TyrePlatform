@@ -36,7 +36,7 @@ POSITIONS = ["OUTER", "CENTRE", "INNER"]
 # resolves to, so the directional path has rows where the dashboard looks.
 CONVENTION_FROM = dt.date(2026, 8, 22)
 # Own position codes per unit type, with the axle class the library gives
-# them (gen_seed_configurations.build): HORSE_6X4 is steer 1 and 2, drive 3
+# them (tenant_library.build): HORSE_6X4 is steer 1 and 2, drive 3
 # to 10; TRAILER_2AXLE is trailer 1 to 8; 'S' is the default spare (CHG-031).
 HORSE = [(str(i), "STEER" if i <= 2 else "DRIVE") for i in range(1, 11)] + [
     ("S", "SPARE")
