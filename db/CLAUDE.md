@@ -198,22 +198,33 @@ refused (CHG-011 as amended, TYRE-175). A history that cannot be numbered
 
 ## Seeds
 
-`gen_seed_configurations.py` and `gen_seed_fixture.py` are the **single source
-of truth** for the axle configuration library — SRS Appendix I was produced
-from the same model, so the spec and the seed data cannot drift. Change the
-generator, never the generated SQL. The output is gitignored and CI asserts it
-is deterministic. `seed_policy.py` holds the policy literals all three
-generators read.
+`tenant_library.py` is the **single source of truth** for the axle
+configuration library and the exception rule catalogue, and SRS Appendix I
+was produced from the same model, so the spec and the seed data cannot
+drift. `seed_policy.py` holds the policy values a tenant starts from. Every
+generator and the provisioning path read both, so a provisioned tenant and
+the fixture tenants cannot drift apart either. Change the generator, never
+the generated SQL. The output is gitignored and CI asserts it is
+deterministic.
 
 A real tenant's catalogue comes from two functions, never from a
 generator. `app.seed_tenant_catalogue()` copies the platform catalogue into
 the bound tenant, and `app.provision_catalogue(p_payload jsonb)` loads the
 tenant's own file (`docs/runbooks/provision-a-tenant-catalogue.md`,
-TYRE-369). The generators call neither, so each fixture tenant keeps
+TYRE-369). The fixture generators call neither, so each fixture tenant keeps
 exactly the catalogue its generator writes.
 
-`gen_seed_volume.py` is the third generator and the odd one out: it writes
-Sandbox Fleet's volume tenant for the dashboard read-path measurement
+`provision_tenant.py` writes one real tenant from a provisioning file kept
+out of the repository, and its SQL calls `app.seed_tenant_catalogue()`
+(`docs/runbooks/provision-a-tenant.md`, TYRE-374). `make db-provision-test`
+proves it, with activation and the demonstration load, on two databases of
+its own, never `tyre`.
+
+`gen_seed_volume.py` is the odd one out among the fixture generators: it
+writes Sandbox Fleet's volume tenant for the dashboard read-path measurement
 (TYRE-247) and is loaded only by `make db-volume`, never by `db-reset`, so
-the verification suite stays defined on the pinned fixture. It is hashed by
-CI like the other two.
+the verification suite stays defined on the pinned fixture. `gen_seed_demo.py`
+writes `demo_tenant.sql`, the fixture's BAC tenant under demonstration names
+for staging (U92, U116). `db-reset` never loads it, because it reuses the
+fixture's ids; `make db-provision-test` loads it into a database of its own.
+CI hashes both with the other seeds.
