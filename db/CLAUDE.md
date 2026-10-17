@@ -165,7 +165,10 @@ commits, so a read at an instant in between resolves without it and a later
 read of the same instant resolves to it. A rate stored or an exception
 judged inside that window can then re-resolve to another row (FR-VAL-020).
 The gap is bounded by the writing transaction, so a policy row is written
-by a transaction that does nothing else and commits at once (U131). A
+by a transaction that does nothing else and commits at once (U131). The
+transaction that inserts a tenant row is the exception: it may write that
+tenant's first policy rows beside everything else, because no other
+transaction can see the tenant before it commits (TYRE-374). A
 commit-time check against `clock_timestamp()` would close the gap but
 refuses `DEFAULT now()` rows; it waits for the first route that writes
 policy rows.
