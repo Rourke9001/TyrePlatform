@@ -122,6 +122,14 @@ db-test: ## Run the verification suite as a NON-SUPERUSER (the only valid way)
 db-test-privileged: ## Negative controls that need a superuser to STAGE (db/tests/005_privileged.sql)
 	$(PSQL_SUPER) -v ON_ERROR_STOP=1 < db/tests/005_privileged.sql
 
+# Two databases of its own, never tyre, so the suite's pins and its
+# tenant sweep stay defined on the fixture (TYRE-374).
+.PHONY: db-provision-test
+db-provision-test: db-up ## Tenant provisioning, activation and the demonstration load on fresh databases (TYRE-374)
+	PSQL="docker exec -i $(PG_CONTAINER) psql -U postgres" \
+	MIGRATE="docker compose run --rm migrate -path=/migrations" \
+	PG_HOSTPORT=postgres:5432 PYTHON="$(PYTHON)" bash scripts/provision-tenant.test.sh
+
 .PHONY: db-shell
 db-shell: ## Interactive psql as the application role
 	docker exec -it $(PG_CONTAINER) psql -U app_login -d $(PG_DB)
@@ -341,7 +349,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged api-test web-test web-production deploy-gate-test deploy-smoke-test pipeline-launch-test ## Every test in the repo
+test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-smoke-test pipeline-launch-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.

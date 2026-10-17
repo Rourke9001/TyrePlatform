@@ -1,0 +1,41 @@
+{
+  "name": "Harbour's Test Fleet",
+  "subdomain": "provision-test",
+  "timezone": "Pacific/Kiritimati",
+  "display_code_policy": "GENERATED",
+  "display_code_prefix": "PTF",
+  "depots": [
+    {
+      "name": "Harbour's main yard",
+      "type": "DEPOT",
+      "address": "1 Test Road"
+    },
+    { "name": "Test Retreaders", "type": "RETREADER" },
+    { "name": "Dépôt Sud", "type": "STORE" }
+  ],
+  "policy": {
+    "configuration": {
+      "reading_staleness_days": 21,
+      "capture_spares": false
+    },
+    "threshold_policy": {
+      "FLEET": { "retread_threshold_mm": 5.0, "warning_threshold_mm": 7.0 },
+      "DRIVE": { "max_retreads": 1 }
+    },
+    "target_pressure": {
+      "STEER": { "target_kpa": 820 }
+    }
+  },
+  "consent": [
+    {
+      "purpose": "SERVICE_DELIVERY",
+      "granted": true,
+      "notice_version": "test-notice-1"
+    },
+    {
+      "purpose": "ANONYMISED_BENCHMARKING",
+      "granted": false,
+      "notice_version": "test-notice-1"
+    }
+  ]
+}

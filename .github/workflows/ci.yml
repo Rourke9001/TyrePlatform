@@ -99,6 +99,17 @@ jobs:
         run: |
           psql "postgres://postgres:postgres@localhost:5433/tyre" -v ON_ERROR_STOP=1 -f db/tests/005_privileged.sql
 
+      # Two databases of its own, never tyre, so it runs after the suite and
+      # leaves the suite's pins defined on the fixture (TYRE-374).
+      - name: Tenant provisioning and the demonstration load (TYRE-374)
+        env:
+          PGPASSWORD: postgres
+          PSQL: psql -h localhost -p 5433 -U postgres
+          MIGRATE: docker run --rm --network host -v ${{ github.workspace }}/db/migrations:/migrations:ro migrate/migrate:v4.19.1@sha256:cc4ad8e19d66791e3689405d9a028ce6e9614f32032db14acda1469f7201d6e4 -path=/migrations
+          PG_HOSTPORT: localhost:5433
+          PYTHON: python3
+        run: bash scripts/provision-tenant.test.sh
+
   comments:
     name: Comment style
     runs-on: ubuntu-latest
