@@ -1,0 +1,97 @@
+{
+  "name": "Example Fleet",
+  "subdomain": "example",
+  "timezone": "Africa/Johannesburg",
+  "locale": "en-ZA",
+  "currency": "ZAR",
+  "pressure_unit": "KPA",
+  "distance_unit": "KM",
+  "display_code_policy": "GENERATED",
+  "display_code_prefix": "EXF",
+  "depots": [
+    { "name": "Main depot", "type": "DEPOT", "address": "1 Example Road" }
+  ],
+  "policy": {
+    "configuration": {
+      "tread_reading_count": 3,
+      "capture_spares": true,
+      "width_spread_warn_mm": 4,
+      "dual_mate_warn_mm": 3,
+      "axle_divergence_warn_mm": 3,
+      "tread_bands": [
+        [0, 4],
+        [5, 7],
+        [8, 10],
+        [11, 13],
+        [14, null]
+      ],
+      "removal_reasons": [
+        "worn_to_threshold",
+        "damage",
+        "irregular_wear",
+        "casing_failure",
+        "vehicle_disposal",
+        "rotation",
+        "correction",
+        "puncture"
+      ],
+      "reading_staleness_days": 28,
+      "wear_rate_min_distance_km": 1000,
+      "odometer_max_daily_km": 1600,
+      "duplicate_inspection_min_hours": 4,
+      "submitted_at_future_skew_minutes": 5,
+      "wear_rate_alert_multiple": 3,
+      "forecast_horizon_days": 30,
+      "inflation_compliance_window_days": 30,
+      "tread_capture_granularity_mm": 1.0
+    },
+    "threshold_policy": {
+      "FLEET": {
+        "retread_threshold_mm": 4.0,
+        "warning_threshold_mm": 6.0,
+        "max_retreads": 2,
+        "retreads_permitted": true
+      },
+      "STEER": { "retreads_permitted": false }
+    },
+    "target_pressure": {
+      "STEER": {
+        "target_kpa": 800,
+        "warn_under_pct": 10.0,
+        "critical_under_pct": 20.0,
+        "warn_over_pct": 10.0,
+        "critical_over_pct": 20.0
+      },
+      "DRIVE": {
+        "target_kpa": 750,
+        "warn_under_pct": 10.0,
+        "critical_under_pct": 20.0,
+        "warn_over_pct": 10.0,
+        "critical_over_pct": 20.0
+      },
+      "TRAILER": {
+        "target_kpa": 750,
+        "warn_under_pct": 10.0,
+        "critical_under_pct": 20.0,
+        "warn_over_pct": 10.0,
+        "critical_over_pct": 20.0
+      },
+      "TAG": {
+        "target_kpa": 750,
+        "warn_under_pct": 10.0,
+        "critical_under_pct": 20.0,
+        "warn_over_pct": 10.0,
+        "critical_over_pct": 20.0
+      }
+    }
+  },
+  "platform_owned": false,
+  "consent": [
+    { "purpose": "SERVICE_DELIVERY", "granted": true, "notice_version": "" },
+    {
+      "purpose": "ANONYMISED_BENCHMARKING",
+      "granted": false,
+      "notice_version": ""
+    }
+  ]
+}
