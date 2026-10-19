@@ -241,6 +241,10 @@ web-production: ## The production bundle in Chromium under its CSP and config.js
 deploy-gate-test: ## The staging deploy gate's pass and fail cases, with stub az and curl (TYRE-79)
 	bash scripts/deploy-gate.test.sh
 
+.PHONY: deploy-guard-test
+deploy-guard-test: ## The deploy refusals' cases, on real git history with a stub docker (TYRE-397, TYRE-403)
+	bash scripts/deploy-guard.test.sh
+
 .PHONY: deploy-smoke-test
 deploy-smoke-test: ## The post-deploy smoke's pass and fail cases, with a stub curl (TYRE-51)
 	bash scripts/deploy-smoke.test.sh
@@ -353,7 +357,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-smoke-test pipeline-launch-test ## Every test in the repo
+test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.
