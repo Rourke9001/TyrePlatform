@@ -42,6 +42,15 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
    `merge_commit_sha`. Read the PR body's gate section and check every
    unticked box: a PR can merge with a gate still open, and that open gate
    is usually the thing this pass has to resolve or record.
+
+   Then list the migrations the PR added, because staging's migrate is a
+   manual step that nothing else reminds anyone of (U94, TYRE-433):
+   `gh api 'repos/Rourke9001/TyrePlatform/pulls/<n>/files?per_page=100' --paginate --jq '.[] | select(.status == "added") | .filename | select(startswith("db/migrations/"))'`.
+   When it lists any file, the report and every ticket comment carry this
+   under a **Waiting on the owner** heading:
+   `Run environment-release.md Each release on staging, to <NNNNNN>`, where
+   `<NNNNNN>` is the highest six-digit prefix listed. Tickets are still
+   transitioned by the steps below.
 2. **Run the gate on the merged head**, not on the branch. A rebase merge
    rewrites every SHA, so the branch's green does not transfer unless the trees
    are identical. `make check`, unpiped, and read the real exit code.
@@ -97,10 +106,50 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
    CLAUDE.md's schedule test or is one of the two kinds it always tickets
    (U130). If more than two items qualify, raise none and list them in the
    report as a decision waiting on the owner.
-7. **Promote `main`** if the owner asks, and never in cloud mode: `git push origin origin/develop:main`,
-   never through a pull request, because the merge button cannot fast-forward
-   (ADR-0004). Verify `git merge-base --is-ancestor origin/main origin/develop`
-   first and compare **trees** afterwards, never hashes.
+7. **Promote to production** if the owner asks, and never in cloud mode.
+   This follows `docs/runbooks/environment-release.md`, Promote to
+   production, except that it never migrates production: production holds
+   real data, and the migrate runs as the database's admin.
+   - The commit, `<sha>`, is this PR's merge commit, unless the owner names
+     another `develop` commit.
+   - **Read each database's version; never write.** For staging and then
+     production, run only the reads of Each release step 1: the server's
+     state, and the `AllowDevMachine` rule beside the current IP. Skip that
+     step's start and firewall update. If the server is not `Ready`, or the
+     rule's IP differs from the current one, stop and list "start the
+     server" or "update `AllowDevMachine` (Each release step 1)" for that
+     environment under Waiting on the owner. Otherwise run Each release
+     step 3 on a clean checkout of `<sha>` (`git switch --detach <sha>`,
+     then `git switch -`).
+   - Stop before any push, and list the matching action under Waiting on
+     the owner, when any of these holds:
+     - `<sha>` is not an ancestor of `origin/develop`, or `origin/main` is
+       not an ancestor of `<sha>`;
+     - there is no `tyre-api:<sha>-staging-passed` tag
+       (`az acr repository show-tags`, as in the runbook's step 1);
+     - staging's version is below the commit's highest migration, read with
+       `git ls-tree --name-only <sha> db/migrations/`: list
+       "Run environment-release.md Each release on staging, to <NNNNNN>";
+     - production's version is dirty, which is a decision for the owner;
+     - production's version is below the commit's highest migration: list
+       "migrate production per Promote to production, step 2". At or above
+       is safe, because every migration leaves the schema usable by the
+       image production runs;
+     - `git diff --name-only --diff-filter=A origin/main <sha> -- db/migrations`
+       lists a file, and the SAST hour, `$(( (10#$(date -u +%H) + 2) % 24 ))`,
+       is from 6 to 17 inclusive: list "promote outside 06:00 to 18:00
+       SAST" (NFR-AVL-003). The `10#` matters: bash reads a zero-padded `08`
+       or `09` as invalid octal.
+   - Otherwise run `git push origin <sha>:main`, never through a pull
+     request (ADR-0004), then `git fetch origin main`;
+     `git rev-parse origin/main` must equal `<sha>`.
+   - Watch CI's `main` run for `<sha>` with step 2's bounded watch
+     (`--branch main --commit <sha>`) and cite its URL. Green means
+     production's gate and smoke passed.
+   - List "record the release row (Each release step 5, `ENV=prod`)" under
+     Waiting on the owner; the owner records it (U118).
+   - The owner can still run the runbook with Claude in a session. That is
+     the runbook path, with the owner present, not close-out's.
 8. **Append to `docs/lessons.md`** if something failed in a way that would fool
    the next session. Only that; it is a register, not a diary.
 
@@ -114,8 +163,9 @@ open the PR and label it:
 then `gh api -X POST repos/Rourke9001/TyrePlatform/issues/<that number>/labels -f 'labels[]=close-out'`.
 Never push to `develop` or `main`.
 
-Report what you changed on the board and what you left alone, and say plainly
-which decisions are waiting on the owner. In cloud mode, post this report as
+Report what you changed on the board and what you left alone. The decisions
+and actions waiting on the owner go under a **Waiting on the owner** heading,
+in the report and in its ticket comments. In cloud mode, post this report as
 a comment on the merged PR
 (`gh api -X POST repos/Rourke9001/TyrePlatform/issues/<n>/comments -F body=@<file>`)
 on every path past the guards, including each stop in step 2. The routine
