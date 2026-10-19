@@ -8,9 +8,10 @@
 # `image` runs before production applies the app template: the image is the
 # one staging's gate and smoke passed, by the record staging writes after
 # them, and PIN_FILE gets that image by digest, so production runs the bytes
-# checked here whatever the tag later names (U140). `serving` runs just before staging writes that record: staging's API
-# still runs the image, so a rollback since the api job cannot let the smoke
-# certify an image it never reached.
+# checked here whatever the tag later names (U140). `serving` runs just
+# before staging writes that record: staging's API still runs the image, so
+# a rollback since the api job cannot let the smoke certify an image it
+# never reached.
 #
 # usage: deploy-guard.sh commit TARGET REF RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]
 #        deploy-guard.sh image REGISTRY_HOST IMAGE_SHA PIN_FILE
