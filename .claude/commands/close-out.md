@@ -81,6 +81,12 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
      returning `ahead` or `identical`, wait for it the same way, and judge
      its result by these same cases. If none exists yet, wait as for a run
      not listed yet, then list again.
+   - `failure` where every failed job stopped at its deploy Guard step with
+     the `TYRE-403` refusal
+     (`gh run view <id> -R Rourke9001/TyrePlatform --log-failed` shows only
+     Guard steps, each with `TYRE-403: attempt`): the run was re-run after a later merge moved
+     `develop` on, which the guard refuses by design. Treat it as
+     `cancelled`.
    - anything else, including a failed staging deploy: comment the run URL
      on each ticket the PR names, transition nothing, post the report (at
      the end), and stop.
