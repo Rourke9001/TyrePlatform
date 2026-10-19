@@ -1,6 +1,6 @@
 # ADR-0005: Environments — staging is production for the pilot
 
-- **Status:** Accepted. Superseded by ADR-0017 when that merges (TYRE-397, U116).
+- **Status:** Superseded by ADR-0017.
 - **Date:** 2026-08-20
 - **Deciders:** Rourke (Delivery)
 
