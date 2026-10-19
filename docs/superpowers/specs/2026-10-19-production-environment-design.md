@@ -359,7 +359,9 @@ first platform apply. The runbook gains a production bring-up in this order:
    - Run the platform what-if with `env=prod` (TYRE-402). Read every Create,
      Delete and Modify. Confirm that the API identity's AcrPull assignment
      targets `crtyrestaging`.
-   - Expect the same what-if noise as staging's (TYRE-305).
+   - Into an empty resource group every line is a Create. Stop on any
+     Delete or Modify, and on any Create outside `rg-tyre-prod` other than
+     that AcrPull assignment.
    - Then apply. Geo-redundant backup is fixed at this moment: the runbook
      says so in bold.
 4. **The secrets:**
