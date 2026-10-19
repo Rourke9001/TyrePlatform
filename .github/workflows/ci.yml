@@ -134,6 +134,8 @@ jobs:
         run: make infra-lint
       - name: Deploy gate cases
         run: make deploy-gate-test
+      - name: Deploy guard cases
+        run: make deploy-guard-test
       - name: Deploy smoke cases
         run: make deploy-smoke-test
       - name: Pipeline launcher cases
