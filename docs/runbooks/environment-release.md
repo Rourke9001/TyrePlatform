@@ -634,8 +634,9 @@ Production has real data, so it migrates first and is promoted after:
    outside RLS (CLAUDE.md rule 1) with every gate green.
 
 5. **Record the release** in the release table on Confluence page 10682399
-   (U118): date, environment, image tag, schema version and dirty flag, who
-   ran it. The image tag, read live:
+   (U118): date, environment, image, schema version and dirty flag, who
+   ran it. Production runs its image by digest (U140), so its row also
+   names the promoted commit. The image, read live:
 
    ```bash
    az containerapp show -g $RG -n ca-api-$ENV --query "properties.template.containers[0].image" -o tsv

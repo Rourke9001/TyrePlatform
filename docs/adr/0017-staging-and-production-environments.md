@@ -280,8 +280,11 @@ per-environment setting" prescribes (ADR-0019).
   `tyre-api:<sha>-staging-passed` exists with the same digest as
   `tyre-api:<sha>`. Staging writes that record in the commit's own run,
   never a rollback's, after its gate and smoke pass and only while its API
-  still runs that image. It pushes `tyre-api:<sha>` once, so the tag never
-  moves to an image staging did not pass. A production rollback must name a commit
+  still runs that image. The workflow pushes `tyre-api:<sha>` once, so it
+  never moves the tag to an image staging did not pass, and production runs
+  the image by the digest the guard checked
+  (`tyre-api@sha256:<digest>`), so a hand push to the tag never reaches a
+  restart or scale-out (U140). A production rollback must name a commit
   `main` has had and carry the same record (`scripts/deploy-guard.sh`).
 - **A re-run cannot move an environment back** (TYRE-403). A re-run whose
   commit is no longer its branch's head is refused in both environments.
