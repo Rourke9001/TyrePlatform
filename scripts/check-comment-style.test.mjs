@@ -100,6 +100,33 @@ const CASES = [
     content: `${C} the row must exist before this insert runs\nfunc f() {}\n`,
     expectFail: false,
   },
+  {
+    name: 'bicepparam-is-checked',
+    file: 'prod.bicepparam',
+    content: `using './app.bicep'\n${C} the ${'old'} ${'version'} pinned this value\nparam env = 'prod'\n`,
+    expectRule: 'change-narration',
+    expectFail: true,
+  },
+  {
+    // A URL in a param value reads as a line comment; its text must not trip a rule.
+    name: 'bicepparam-url-value-is-clean',
+    file: 'clean.bicepparam',
+    content: `using './app.bicep'\nparam authIssuer = 'https:${C}login.example.test/v2.0'\n`,
+    expectFail: false,
+  },
+  {
+    name: 'dockerfile-suffix-is-checked',
+    file: 'bicep.Dockerfile',
+    content: `FROM scratch\n# ${'Task'} ${'4'} pins this image\n`,
+    expectRule: 'plan-step-reference',
+    expectFail: true,
+  },
+  {
+    name: 'dockerfile-suffix-clean-comment',
+    file: 'clean.Dockerfile',
+    content: `# Renovate cannot see this ADD (TYRE-304)\nFROM scratch\n`,
+    expectFail: false,
+  },
 ];
 
 const dir = mkdtempSync(join(tmpdir(), 'comment-style-'));

@@ -10,9 +10,11 @@ import { execSync } from 'node:child_process';
 import { argv, exit } from 'node:process';
 import { basename, extname } from 'node:path';
 
-const SLASH = new Set(['.go', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.bicep']);
+const SLASH = new Set(['.go', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.bicep', '.bicepparam']);
 const BLOCK_ONLY = new Set(['.css']);
-const HASH = new Set(['.py', '.sh', '.bash', '.yml', '.yaml', '.toml']);
+// markersFor lower-cases the extension, so '.dockerfile' also matches a
+// suffixed name such as bicep.Dockerfile (TYRE-401).
+const HASH = new Set(['.py', '.sh', '.bash', '.yml', '.yaml', '.toml', '.dockerfile']);
 // A bare dotfile has no extension as far as extname() is concerned, so these
 // are keyed by name.
 const HASH_NAMES = new Set(['Makefile', 'Dockerfile', '.gitignore', '.gitattributes', '.dockerignore', '.editorconfig', '.npmrc']);
