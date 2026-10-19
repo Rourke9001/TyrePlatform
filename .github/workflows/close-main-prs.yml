@@ -1,0 +1,35 @@
+# main advances only by a fast-forward push of a vetted develop commit
+# (ADR-0004, U73), so any pull request into main is closed with a pointer
+# to develop. pull_request_target runs this file from main with a write
+# token; that is safe only because no step checks out or runs the pull
+# request's code, and only its number reaches a shell (TYRE-313).
+#
+# GitHub reads pull_request_target workflows from the base branch, so this
+# takes effect once it is on main, which is production's first release.
+name: Close pull requests into main
+
+on:
+  pull_request_target:
+    # edited catches a pull request whose base is changed to main; the
+    # branches filter reads the new base.
+    types: [opened, reopened, edited]
+    branches: [main]
+
+# Pull requests (write) covers both the close and the comment (GitHub,
+# "Permissions required for fine-grained personal access tokens").
+permissions:
+  pull-requests: write
+
+jobs:
+  close:
+    name: Close
+    runs-on: ubuntu-latest
+    # An edited event can arrive for a pull request already closed.
+    if: github.event.pull_request.state == 'open'
+    steps:
+      - name: Close with a pointer to develop
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          MSG: Pull requests into main are closed automatically. main moves only by a fast-forward push of a develop commit that staging has passed (ADR-0004, U73). Open this against develop instead.
+        run: gh pr close "$PR" --repo "$GITHUB_REPOSITORY" --comment "$MSG"
