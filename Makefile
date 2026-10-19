@@ -242,7 +242,7 @@ deploy-gate-test: ## The deploy gate's pass and fail cases, with stub az and cur
 	bash scripts/deploy-gate.test.sh
 
 .PHONY: deploy-guard-test
-deploy-guard-test: ## The deploy refusals' cases, on real git history with a stub docker (TYRE-397, TYRE-403)
+deploy-guard-test: ## The deploy refusals' cases, on real git history with stub docker and az (TYRE-397, TYRE-403)
 	bash scripts/deploy-guard.test.sh
 
 .PHONY: deploy-smoke-test

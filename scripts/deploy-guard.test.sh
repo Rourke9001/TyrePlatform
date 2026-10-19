@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cases for scripts/deploy-guard.sh (TYRE-397, TYRE-403). Ancestry is real
-# git's answer on histories built here; only docker is stubbed. A case passes
+# git's answer on histories built here; only docker and az are stubbed. A case passes
 # on its exact exit code, and a refusal also on its ::error:: line and its
 # rule's text, so a missing script (127), a usage slip (2) or a set -e abort
 # (128) fails here rather than passing as a refusal.
@@ -33,6 +33,17 @@ esac
 printf '%s' "$(cat "$STUB_DIR/tags/$tag")"
 EOF
 chmod +x "$work/bin/docker"
+
+# az answers only the read `serving` makes, the same way.
+cat >"$work/bin/az" <<'EOF'
+#!/usr/bin/env bash
+if [ "$*" != "containerapp show -g rg-test -n ca-test --query properties.template.containers[0].image -o tsv" ]; then
+  echo "unexpected az call: $*" >>"$STUB_DIR/bad-call"; exit 3
+fi
+[ -f "$STUB_DIR/serving" ] || { echo "ERROR: (ResourceNotFound) ca-test" >&2; exit 1; }
+cat "$STUB_DIR/serving"
+EOF
+chmod +x "$work/bin/az"
 export STUB_DIR="$work" PATH="$work/bin:$PATH"
 
 # c1 <- c2 <- c3 on develop; main starts at c2; x is a child of c2 that
@@ -104,43 +115,44 @@ upper=ABCDE01234ABCDE01234ABCDE01234ABCDE01234
 
 # pairing
 set_main "$c2"
-case_run "staging deploys from develop" 0 - commit staging develop "$c3" 1
-case_run "staging refuses main" 1 "deploys only from" commit staging main "$c2" 1
-case_run "production refuses develop" 1 "deploys only from" commit prod develop "$c3" 1
-case_run "an unknown target is refused" 1 "unknown target" commit qa develop "$c3" 1
+case_run "staging deploys from develop" 0 - commit staging refs/heads/develop "$c3" 1
+case_run "staging refuses main" 1 "deploys only from" commit staging refs/heads/main "$c2" 1
+case_run "production refuses develop" 1 "deploys only from" commit prod refs/heads/develop "$c3" 1
+case_run "an unknown target is refused" 1 "unknown target" commit qa refs/heads/develop "$c3" 1
+case_run "a tag named main is refused" 1 "deploys only from branch" commit prod refs/tags/main "$c2" 1
 
 # ancestry
-case_run "production deploys a develop commit" 0 - commit prod main "$c2" 1
+case_run "production deploys a develop commit" 0 - commit prod refs/heads/main "$c2" 1
 set_main "$x"
-case_run "production refuses a commit authored on main" 1 "not an ancestor of origin/develop" commit prod main "$x" 1
-case_run "production refuses a rollback dispatched from a commit authored on main" 1 "not an ancestor of origin/develop" commit prod main "$x" 1 "$c1"
+case_run "production refuses a commit authored on main" 1 "not an ancestor of origin/develop" commit prod refs/heads/main "$x" 1
+case_run "production refuses a rollback dispatched from a commit authored on main" 1 "not an ancestor of origin/develop" commit prod refs/heads/main "$x" 1 "$c1"
 
 # re-runs (TYRE-403)
 set_main "$c2"
-case_run "a re-run of a commit no longer at develop's head is refused" 1 TYRE-403 commit staging develop "$c2" 2
-case_run "a first attempt of that same commit deploys" 0 - commit staging develop "$c2" 1
-case_run "a re-run at the head deploys" 0 - commit staging develop "$c3" 2
-case_run "a production re-run at main's head deploys" 0 - commit prod main "$c2" 2
+case_run "a re-run of a commit no longer at develop's head is refused" 1 TYRE-403 commit staging refs/heads/develop "$c2" 2
+case_run "a first attempt of that same commit deploys" 0 - commit staging refs/heads/develop "$c2" 1
+case_run "a re-run at the head deploys" 0 - commit staging refs/heads/develop "$c3" 2
+case_run "a production re-run at main's head deploys" 0 - commit prod refs/heads/main "$c2" 2
 set_main "$c3"
-case_run "a production re-run behind main is refused" 1 TYRE-403 commit prod main "$c2" 2
-case_run "a re-run of a rollback dispatch at main's head deploys" 0 - commit prod main "$c3" 2 "$c1"
-case_run "a re-run of a rollback dispatch behind main is refused" 1 TYRE-403 commit prod main "$c2" 2 "$c1"
+case_run "a production re-run behind main is refused" 1 TYRE-403 commit prod refs/heads/main "$c2" 2
+case_run "a re-run of a rollback dispatch at main's head deploys" 0 - commit prod refs/heads/main "$c3" 2 "$c1"
+case_run "a re-run of a rollback dispatch behind main is refused" 1 TYRE-403 commit prod refs/heads/main "$c2" 2 "$c1"
 
 # rollback
 set_main "$c3"
-case_run "production rolls back to a commit on main" 0 - commit prod main "$c3" 1 "$c1"
+case_run "production rolls back to a commit on main" 0 - commit prod refs/heads/main "$c3" 1 "$c1"
 set_main "$c2"
-case_run "production refuses a rollback main never had" 1 "not an ancestor of origin/main" commit prod main "$c2" 1 "$c3"
-case_run "production refuses a rollback to an unknown commit" 1 "not an ancestor of origin/main" commit prod main "$c2" 1 "$unknown"
-case_run "a short rollback sha is refused" 1 "full 40-character lower-case commit SHA" commit staging develop "$c3" 1 "${c1:0:7}"
-case_run "an upper-case rollback sha is refused" 1 "full 40-character lower-case commit SHA" commit staging develop "$c3" 1 "$upper"
-case_run "staging rolls back to any well-formed commit" 0 - commit staging develop "$c3" 1 "$c1"
+case_run "production refuses a rollback main never had" 1 "not an ancestor of origin/main" commit prod refs/heads/main "$c2" 1 "$c3"
+case_run "production refuses a rollback to an unknown commit" 1 "not an ancestor of origin/main" commit prod refs/heads/main "$c2" 1 "$unknown"
+case_run "a short rollback sha is refused" 1 "full 40-character lower-case commit SHA" commit staging refs/heads/develop "$c3" 1 "${c1:0:7}"
+case_run "an upper-case rollback sha is refused" 1 "full 40-character lower-case commit SHA" commit staging refs/heads/develop "$c3" 1 "$upper"
+case_run "staging rolls back to any well-formed commit" 0 - commit staging refs/heads/develop "$c3" 1 "$c1"
 
 # the guard cannot see
 set_main "$c2"
-case_in "$work/shallow" "a shallow checkout is refused" 1 "fetch-depth: 0" commit staging develop "$c3" 1
-case_in "$work/cut" "an unreachable origin is refused" 1 "cannot read origin" commit staging develop "$c3" 1
-case_run "a missing argument is usage" 2 - commit staging develop "$c3"
+case_in "$work/shallow" "a shallow checkout is refused" 1 "fetch-depth: 0" commit staging refs/heads/develop "$c3" 1
+case_in "$work/cut" "an unreachable origin is refused" 1 "cannot read origin" commit staging refs/heads/develop "$c3" 1
+case_run "a missing argument is usage" 2 - commit staging refs/heads/develop "$c3"
 case_run "no subcommand is usage" 2 -
 
 # staging's record
@@ -159,6 +171,19 @@ case_run "a record whose digest differs from the tag's is refused" 1 "does not m
 tags "$img" "" "$img-staging-passed" ""
 case_run "an empty digest is refused" 1 "no digest" image cr.example.test "$img"
 case_run "image usage" 2 - image cr.example.test
+
+# staging still runs the image when it records it
+serve() { rm -f "$work/serving"; [ "$#" -eq 0 ] || printf '%s\n' "$1" >"$work/serving"; }
+serve "cr.example.test/tyre-api:$img"
+case_run "staging running the image records it" 0 - serving rg-test ca-test cr.example.test "$img"
+serve "cr.example.test/tyre-api:$c1"
+case_run "staging rolled back since the api job is refused" 1 "the smoke proved nothing" serving rg-test ca-test cr.example.test "$img"
+serve "cr.example.test/tyre-api:$img-staging-passed"
+case_run "an image that only starts with the tag is refused" 1 "the smoke proved nothing" serving rg-test ca-test cr.example.test "$img"
+serve
+case_run "an app that cannot be read is refused" 1 "cannot read ca-test" serving rg-test ca-test cr.example.test "$img"
+case_run "a short image sha is refused" 1 "full 40-character lower-case commit SHA" serving rg-test ca-test cr.example.test "${img:0:7}"
+case_run "serving usage" 2 - serving rg-test ca-test cr.example.test
 
 [ "$fails" -eq 0 ] || { echo "$fails deploy-guard case(s) failed"; exit 1; }
 echo "deploy-guard: all cases pass"

@@ -82,7 +82,7 @@ jobs:
       - name: Guard
         env:
           ROLLBACK_SHA: ${{ inputs.image_sha }}
-        run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF_NAME" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
+        run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
 
       # Prints the token's subject claim, which id-tyre-deploy-<env>'s
       # federated credential must match byte for byte (runbook: staging's
@@ -211,7 +211,7 @@ jobs:
       - name: Guard
         env:
           ROLLBACK_SHA: ${{ inputs.image_sha }}
-        run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF_NAME" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
+        run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
 
       # The frontend matches the image: a rollback ships the old commit's web too.
       - name: Check out the image's commit
@@ -291,12 +291,15 @@ jobs:
           bash scripts/deploy-smoke.sh "$WEB_ORIGIN" "$API_ORIGIN" web/dist/staticwebapp.config.json
 
       # Production's deploy demands this record (ADR-0017's 2026-10-19
-      # amendment), so it is written only after the gate and the smoke pass.
-      # A carbon copy of the one image tyre-api:<sha> ever names, so its
-      # digest is the image staging served. Only staging's identity can push.
+      # amendment), so it is written only after the gate and the smoke pass,
+      # and only while staging's API still runs the image. A rollback dispatch
+      # writes none: a commit earns its record in its own run. A carbon copy
+      # of the one image tyre-api:<sha> ever names, so its digest is the image
+      # staging served. Only staging's identity can push.
       - name: Record that staging passed this image
-        if: inputs.target == 'staging'
+        if: inputs.target == 'staging' && inputs.image_sha == ''
         run: |
+          bash scripts/deploy-guard.sh serving "$RG" "$APP" "$ACR.azurecr.io" "$IMAGE_SHA"
           az acr login --name "$ACR"
           docker buildx imagetools create --prefer-index=false \
             --tag "$ACR.azurecr.io/tyre-api:$IMAGE_SHA-staging-passed" \
