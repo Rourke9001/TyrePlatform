@@ -108,6 +108,8 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: 'sttyre${env}'
   location: location
   tags: tags
+  // Locally redundant in both environments: NFR-BAK-005's one-hour RPO
+  // binds the database, and photos rely on NFR-BAK-007's versions (U140).
   sku: { name: 'Standard_LRS' }
   kind: 'StorageV2'
   properties: {
