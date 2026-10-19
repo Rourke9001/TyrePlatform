@@ -20,6 +20,7 @@ docs-only PR does not use, and say which one it is.
 
 - [ ] `make check` passes locally
 - [ ] `make db-test` reports ALL CHECKS PASSED **as a non-superuser** (check 0 confirms this)
+- [ ] **Migration:** the image production runs now still works on this schema, or the change ships in two releases (`docs/runbooks/environment-release.md`, Promote to production). Delete this line if the PR adds no migration.
 - [ ] Requirement IDs cited in comments for any non-obvious rule, taken from the SRS in Confluence, never invented
 - [ ] `/comment-audit` run over the branch diff; every comment states a constraint the code cannot, and reads per the Prose section of `docs/comments.md` (`/unslop`)
 
