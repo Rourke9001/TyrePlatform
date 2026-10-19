@@ -9,7 +9,7 @@ section 4) and production (TYRE-397, spec
 
 Run every block in Git Bash, from the repo root, in one shell: the `infra/`
 and `db/migrations` paths are relative, and later blocks use the `ENV`,
-`RG`, `PG` and `KV` the first one sets. That block also exports
+`RG`, `PG`, `KV` and `KVAPI` the first one sets. That block also exports
 `MSYS_NO_PATHCONV=1`, because Git Bash otherwise rewrites the `-v` mount,
 `-path=/migrations` and `/subscriptions/...` arguments into Windows paths.
 In a new shell, run **Before anything** again first.
@@ -21,7 +21,7 @@ export MSYS_NO_PATHCONV=1
 az login --tenant 9688ca2b-20f0-45ba-a560-11b5cfbde338
 az account show --query "{subscription:id, tenant:tenantId}" -o table
 ENV=staging   # or prod
-RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV
+RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV; KVAPI=kv-tyre-api-$ENV
 ```
 
 The subscription must be `5a61b832-e331-4529-95ed-ae7b07a9697d`. If
@@ -29,6 +29,9 @@ The subscription must be `5a61b832-e331-4529-95ed-ae7b07a9697d`. If
 `az account set --subscription 5a61b832-e331-4529-95ed-ae7b07a9697d`. The
 CLI's default tenant is the CIAM one, which has no subscription. Both
 environments live in this subscription (ADR-0017).
+
+`KV` is the owner's vault and holds the two passwords; `KVAPI` is the
+API's and holds `database-url` alone (TYRE-435).
 
 While an environment's Postgres is stopped, its API is down: the API
 pings the database at startup and exits without it. That is accepted for
@@ -65,15 +68,17 @@ prints anything, stop.
 
 2. **Prove the secrets.** This connects to Postgres, so first run **Each
    release** step 1 below: a stopped server or a stale firewall IP fails the
-   connection whatever `database-url` holds. All three secrets must be
-   listed, and `database-url` must connect as `app_login`, which is not a
-   superuser, does not bypass RLS and is a member of neither `tyreadmin` nor
-   `azure_pg_admin` (CLAUDE.md rule 1). Roles outlive the database drop in
-   step 5, so a hand change from an earlier bring-up would survive it:
+   connection whatever `database-url` holds. `$KV` must hold the two
+   passwords and `$KVAPI` only `database-url`, and `database-url` must
+   connect as `app_login`, which is not a superuser, does not bypass RLS and
+   is a member of neither `tyreadmin` nor `azure_pg_admin` (CLAUDE.md
+   rule 1). Roles outlive the database drop in step 5, so a hand change
+   from an earlier bring-up would survive it:
 
    ```bash
    az keyvault secret list --vault-name $KV --query "[].name" -o tsv
-   dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
+   az keyvault secret list --vault-name $KVAPI --query "[].name" -o tsv
+   dsn=$(az keyvault secret show --vault-name $KVAPI -n database-url --query value -o tsv)
    docker run --rm -e DSN="$dsn" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea sh -c \
      'psql "$DSN" -At -F " " -c "SELECT current_user, rolsuper, rolbypassrls, pg_has_role(current_user, '"'tyreadmin'"', '"'MEMBER'"'), pg_has_role(current_user, '"'azure_pg_admin'"', '"'MEMBER'"') FROM pg_roles WHERE rolname = current_user;"'
    case "$dsn" in *pool_max_conns*) echo "database-url names pool_max_conns" ;; *) echo "database-url names no pool_max_conns" ;; esac
@@ -81,12 +86,14 @@ prints anything, stop.
    unset dsn
    ```
 
-   Expect `psql-admin-password`, `pg-app-login-password`, `database-url`, then
-   `app_login f f f f`. Anything else stops the bring-up: a revision cannot
-   activate without a working `database-url`. Judge a failed connection only
-   after Each release step 1 has run. The last line must be
-   `database-url names psql-tyre-<env>`: an `app_login` on the other
-   environment's server passes the role check too.
+   The first list must show `psql-admin-password` and
+   `pg-app-login-password`, and no `database-url`. The second must show
+   `database-url` and nothing else, because the API can read whatever its
+   vault holds. Then expect `app_login f f f f`. Anything else stops the
+   bring-up: a revision cannot activate without a working `database-url`.
+   Judge a failed connection only after Each release step 1 has run. The
+   last line must be `database-url names psql-tyre-<env>`: an `app_login`
+   on the other environment's server passes the role check too.
 
    Then expect `database-url names no pool_max_conns`. The `case` prints a
    verdict, never the value. If it prints `database-url names
@@ -157,6 +164,22 @@ prints anything, stop.
    If the first `parameter show` lists an extension other than `PGCRYPTO` and
    `BTREE_GIST`, stop: add it to `platform.bicep` first. Expect the second to
    print `PGCRYPTO,BTREE_GIST` (order may differ).
+
+   After every platform apply, list the API identity's roles:
+
+   ```bash
+   apid=$(az identity show -g $RG -n id-tyre-api-$ENV --query principalId -o tsv)
+   echo "apid=$apid"   # must be non-empty
+   [ -n "$apid" ] && az role assignment list --assignee-object-id "$apid" --all \
+     --query "[].{role:roleDefinitionName, scope:scope}" -o table
+   ```
+
+   Expect exactly two rows: `AcrPull` on `crtyrestaging`, and
+   `Key Vault Secrets User` on `kv-tyre-api-<env>`. Any other row stops the
+   release: a role on `kv-tyre-<env>` lets the API read the admin password,
+   which bypasses RLS (TYRE-435, CLAUDE.md rule 1). The one exception is
+   staging's switch-over below, between its steps 1 and 4, which says what
+   it expects.
 
    After TYRE-402, the what-if must show no change to the API identity's
    AcrPull assignment on `crtyrestaging`: the grant moved into the
@@ -240,13 +263,227 @@ prints anything, stop.
    the release table's first row: the image read live then, with the version
    and dirty flag that Each release step 3 printed during step 5 above.
 
+### Switching staging to the API's own vault (TYRE-435)
+
+Staging's API moves to `kv-tyre-api-staging` around the TYRE-435 merge
+(spec `docs/superpowers/specs/2026-10-19-api-own-vault-design.md`,
+section 4.2). Every merge to `develop` applies `infra/app.bicep`, and from
+that merge on it names the new vault. So the vault, its grant and its
+secret exist, and the API identity has read the secret from the new vault,
+before the merge. The old grant goes only after the merge's deploy is
+green: until then it keeps any other deploy to staging working. The branch,
+`TYRE-435-scope-api-vault-grant`, adds no migration. Its PR stays a draft
+until steps 0 to 2 are done.
+
+0. **Staging's first apply after TYRE-397**, from `develop`, exactly as
+   bring-up step 4 says, if it has not run. It has run when
+   `az storage account blob-service-properties show --account-name sttyre$ENV -g $RG --query isVersioningEnabled -o tsv`
+   prints `true`.
+
+1. **Apply from the branch**, once stage 5 shows no open Critical or
+   Important finding and before the merge. First:
+
+   ```bash
+   git fetch origin
+   git switch TYRE-435-scope-api-vault-grant
+   git merge-base --is-ancestor origin/develop HEAD && echo "the branch contains develop"
+   ```
+
+   It must print the line. If it does not, rebase the branch onto `develop`
+   first. Then run the branch's **Before anything** again, so `KVAPI` is
+   set: step 0 ran under `develop`'s, which sets none. Then run bring-up
+   step 4's block in what-if form twice, from
+   `git switch --detach origin/develop` and then from the branch again
+   (`git switch TYRE-435-scope-api-vault-grant`). The branch's run adds
+   three Creates, `kv-tyre-api-staging` and two role assignments on it, and
+   no Delete or Modify beyond the first run's. The API identity's
+   assignment on `kv-tyre-staging` is absent from the branch's run, or
+   shows as Ignore: the template does not declare it. Anything else stops.
+   Then run bring-up step 4's apply block from the branch, and its role
+   listing, which shows three rows here: the two expected ones and Secrets
+   User on `kv-tyre-staging`. If a later review fix changes
+   `infra/platform.bicep`, run this step again before the merge.
+
+2. **Copy `database-url`, then read it as the API identity.**
+
+   ```bash
+   dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
+   echo "KV=$KV KVAPI=$KVAPI dsn-length=${#dsn}"   # both vault names, then a non-zero length
+   [ -n "$KV" ] && [ -n "$KVAPI" ] && [ -n "$dsn" ] && \
+     az keyvault secret set --vault-name $KVAPI -n database-url --value="$dsn" -o none && \
+     copy=$(az keyvault secret show --vault-name $KVAPI -n database-url --query value -o tsv) && \
+     { [ "$copy" = "$dsn" ] && echo "database-url copies match" || echo "database-url copies differ"; }
+   unset dsn copy
+   ```
+
+   Expect `database-url copies match`. A Forbidden on the write means the
+   new Secrets Officer grant is not in force yet: wait a few minutes and
+   re-run. Then run bring-up step 2's secrets proof, where
+   `kv-tyre-staging` still lists `database-url` too until step 4.
+
+   Then create the proof job and run it once (the blocks after this list),
+   at least ten minutes after step 1's apply. Expect the execution to be
+   `Failed` with `psql-admin-password: READ` and
+   `database-url: HTTP 200, length <n>`. The `READ` is the defect, seen as
+   the API identity, and shows the job can see a read. The `200` shows the
+   API identity reads the new vault before the merge relies on it: a
+   container app's secrets belong to the app, not to a revision, so a
+   reference that fails is not something to find out at the merge. Keep the
+   job until step 4. Then mark the PR ready for review.
+
+3. **Merge.** A green deploy means a revision started with `DATABASE_URL`
+   resolved from `kv-tyre-api-staging`. Confirm the reference it runs:
+
+   ```bash
+   az containerapp show -g $RG -n ca-api-$ENV --query "properties.configuration.secrets[?name=='database-url'].keyVaultUrl" -o tsv
+   ```
+
+   Expect `https://kv-tyre-api-staging.vault.azure.net/secrets/database-url`.
+   Until step 4, Each release on staging finds `database-url` in both
+   vaults, and the role listing shows three rows. Both are expected in this
+   window only.
+
+4. **After the deploy is green: the removals, then the proof again.** In
+   this order:
+   - Delete the old grant. The block checks that `$KV` is the owner's
+     vault, because a list scoped to either vault shows exactly one row,
+     and counts the rows rather than leaving the count to the eye:
+
+     ```bash
+     apid=$(az identity show -g $RG -n id-tyre-api-$ENV --query principalId -o tsv)
+     kvid=$(az keyvault show -n $KV --query id -o tsv)
+     echo "apid=$apid kvid=$kvid"   # both non-empty, and kvid ends in /vaults/kv-tyre-<env>
+     case "$kvid" in */vaults/kv-tyre-$ENV) ;; *) echo "not the owner's vault"; kvid="" ;; esac
+     [ -n "$apid" ] && [ -n "$kvid" ] && \
+       az role assignment list --assignee-object-id "$apid" --role "Key Vault Secrets User" --scope "$kvid" -o table
+     n=$([ -n "$apid" ] && [ -n "$kvid" ] && az role assignment list --assignee-object-id "$apid" \
+       --role "Key Vault Secrets User" --scope "$kvid" --query "length(@)" -o tsv)
+     echo "rows=$n"   # must be 1
+     [ "$n" = 1 ] && az role assignment delete --assignee-object-id "$apid" --role "Key Vault Secrets User" --scope "$kvid"
+     ```
+
+     The one row's scope ends in `/vaults/kv-tyre-staging`.
+   - Delete the old secret:
+     `[ -n "$KV" ] && az keyvault secret delete --vault-name $KV -n database-url -o none`.
+     Soft delete keeps it for 7 days, recoverable only by a Secrets
+     Officer, which the API identity is not. No purge.
+   - Wait ten minutes ("allow several minutes for role assignments to
+     refresh", Key Vault RBAC guide), then run the job again. Ten minutes
+     is enough, not the 24 hours the Container Apps managed identity page
+     mentions: that cache holds tokens, and Key Vault checks the role
+     assignment on each request, so a cached token carries no role. Expect
+     `Succeeded` with `psql-admin-password: refused` and
+     `database-url: HTTP 200, length <n>`, `<n>` as in step 2. A `READ`
+     after a further ten minutes is a finding: stop and post it on
+     TYRE-435.
+   - Delete the job:
+     `az containerapp job delete -g $RG -n job-tyre-kv-proof --yes -o none`.
+   - Run bring-up step 2's secrets proof and bring-up step 4's role
+     listing, both with their usual expectations: `database-url` only in
+     `kv-tyre-api-staging`, and two rows.
+   - Post on TYRE-435: both executions' statuses and log lines, the
+     listing, the secrets proof's names, and the merge's deploy run.
+
+**The proof job.** The API image is distroless with no shell, so the proof
+cannot run inside the API (TYRE-435 spec, section 4.4). It runs as a
+one-off Container Apps job with the API identity attached. Every value is
+checked, and the guard keeps it on staging. The script goes to a temporary
+file through a quoted heredoc, so nothing in it expands in your shell:
+
+```bash
+sub=$(az account show --query id -o tsv)
+apiid=$(az identity show -g $RG -n id-tyre-api-$ENV --query id -o tsv)
+apicid=$(az identity show -g $RG -n id-tyre-api-$ENV --query clientId -o tsv)
+caeid=$(az containerapp env show -g $RG -n cae-tyre-$ENV --query id -o tsv)
+echo "MSYS_NO_PATHCONV=$MSYS_NO_PATHCONV KV=$KV KVAPI=$KVAPI sub=$sub apiid=$apiid apicid=$apicid caeid=$caeid"   # 1, then six non-empty values
+s=$(cygpath -m "$(mktemp)"); f=$(cygpath -m "$(mktemp)")
+cat > "$s" <<'EOF'
+set -u
+tok=$(curl -s -H "X-IDENTITY-HEADER: $IDENTITY_HEADER" \
+  "$IDENTITY_ENDPOINT?resource=https://vault.azure.net&api-version=2019-08-01&client_id=$API_CLIENT_ID" |
+  jq -r '.access_token // empty')
+[ -n "$tok" ] || { echo "no token for the API identity"; exit 2; }
+admin=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $tok" \
+  "https://$KV_OWNER.vault.azure.net/secrets/psql-admin-password?api-version=7.4")
+api=$(curl -s -o /tmp/api.json -w '%{http_code}' -H "Authorization: Bearer $tok" \
+  "https://$KV_API.vault.azure.net/secrets/database-url?api-version=7.4")
+len=$(jq -r '.value // "" | length' /tmp/api.json 2>/dev/null)
+rm -f /tmp/api.json
+case $admin in
+  403) echo "psql-admin-password: refused" ;;
+  200) echo "psql-admin-password: READ" ;;
+  *) echo "psql-admin-password: HTTP $admin" ;;
+esac
+echo "database-url: HTTP $api, length ${len:-0}"
+[ "$admin" = 403 ] && [ "$api" = 200 ] && [ "${len:-0}" -gt 0 ]
+EOF
+[ "$ENV" = staging ] && [ "$MSYS_NO_PATHCONV" = 1 ] && [ -n "$KV" ] && [ -n "$KVAPI" ] && \
+  [ -n "$sub" ] && [ -n "$apiid" ] && [ -n "$apicid" ] && [ -n "$caeid" ] && \
+python -c 'import json, sys; \
+s, f, apiid, apicid, caeid, kv, kvapi = sys.argv[1:]; \
+env = [{"name": "API_CLIENT_ID", "value": apicid}, {"name": "KV_OWNER", "value": kv}, {"name": "KV_API", "value": kvapi}]; \
+job = {"location": "southafricanorth", \
+  "identity": {"type": "UserAssigned", "userAssignedIdentities": {apiid: {}}}, \
+  "properties": {"environmentId": caeid, \
+    "configuration": {"triggerType": "Manual", "replicaTimeout": 300, "replicaRetryLimit": 0, \
+      "manualTriggerConfig": {"parallelism": 1, "replicaCompletionCount": 1}}, \
+    "template": {"containers": [{"name": "job-tyre-kv-proof", \
+      "image": "mcr.microsoft.com/azure-cli:2.91.0@sha256:933eb8dcb81aecb6f77e03c5b8660f0a1dfa9e1d16525763a27f86ff3b83a044", \
+      "command": ["/bin/bash", "-c", open(s).read().replace("\r", "")], \
+      "env": env, "resources": {"cpu": 0.25, "memory": "0.5Gi"}}]}}}; \
+json.dump(job, open(f, "w")); print("job body written")' \
+  "$s" "$f" "$apiid" "$apicid" "$caeid" "$KV" "$KVAPI" && \
+az rest --method put \
+  --url "/subscriptions/$sub/resourceGroups/$RG/providers/Microsoft.App/jobs/job-tyre-kv-proof?api-version=2024-03-01" \
+  --body @"$f" -o none
+rm -f "$s" "$f"
+az containerapp job show -g $RG -n job-tyre-kv-proof --query properties.provisioningState -o tsv
+```
+
+Expect `job body written`, then re-run the last line until it prints
+`Succeeded`. The job's container is named `job-tyre-kv-proof`, which the
+log query below relies on. The image is pinned by digest, as the runbook's
+other images are. The admin password's response body goes to `/dev/null`,
+so its value is never stored or printed, and the API's secret is reduced
+to a length.
+
+Each run of the job:
+
+```bash
+ex=$(az containerapp job start -g $RG -n job-tyre-kv-proof --query name -o tsv)
+echo "execution=$ex"   # must be non-empty
+[ -n "$ex" ] && az containerapp job execution show -g $RG -n job-tyre-kv-proof \
+  --job-execution-name "$ex" --query properties.status -o tsv
+```
+
+Re-run the last command until it prints `Succeeded` or `Failed`. The
+status is the verdict: `Succeeded` only on `refused` with a non-empty
+`database-url`, so the log is evidence rather than the test. If `ex` comes
+back empty, list the executions instead:
+`az containerapp job execution list -g $RG -n job-tyre-kv-proof --query "[].{name:name, status:properties.status, start:properties.startTime}" -o table`.
+
+Then read the log from the workspace, a few minutes after the run ends.
+Your CLI has no `az containerapp job logs` (checked 19 Oct 2026 on
+2.88.0):
+
+```bash
+wid=$(az monitor log-analytics workspace show -g $RG -n log-tyre-$ENV --query customerId -o tsv)
+[ -n "$wid" ] && az monitor log-analytics query -w "$wid" -o tsv --analytics-query \
+  "ContainerAppConsoleLogs_CL | where ContainerName_s == 'job-tyre-kv-proof' and TimeGenerated > ago(2h) | order by TimeGenerated asc | project TimeGenerated, ContainerGroupName_s, Log_s"
+```
+
+The replica's `ContainerGroupName_s` starts with the execution's name,
+which tells the two runs' lines apart. `no token for the API identity`, or
+an `IDENTITY_HEADER` unbound error, means the job got no identity endpoint:
+stop and post the log on TYRE-435.
+
 ## Production bring-up
 
-The owner runs this after TYRE-397 merges, with `ENV=prod` set in Before
-anything. Production starts empty: no tenant is created here, and BAC's
-account is made at TYRE-321's live onboarding (U139). A new production has
-no vault and no secrets before its first platform apply, so the order
-differs from staging's.
+The owner runs this after TYRE-435 merges (U141), from a checkout at or
+after that merge, with `ENV=prod` set in Before anything. Production starts
+empty: no tenant is created here, and BAC's account is made at TYRE-321's
+live onboarding (U139). A new production has no vault and no secrets
+before its first platform apply, so the order differs from staging's.
 
 1. **The containers.** The resource group, the workspace with staging's
    retention, and the budget with staging's alerts. The budget CLI cannot
@@ -352,8 +589,8 @@ differs from staging's.
    password is generated here and kept in this shell for step 4. It is
    never echoed. Azure wants three character classes, so the block checks
    for an upper-case letter, a lower-case letter and a digit. Staging's
-   step 1 grant is not needed: this apply grants you Secrets Officer on the
-   new vault.
+   step 1 grant is not needed: this apply grants you Secrets Officer on both
+   new vaults, `kv-tyre-prod` and `kv-tyre-api-prod`.
 
    ```bash
    for _ in 1 2 3 4 5; do
@@ -377,6 +614,9 @@ differs from staging's.
      `lock-sttyreprod`.
    - The AcrPull assignment for `id-tyre-api-prod` is a Create in
      `rg-tyre-staging`, on `crtyrestaging`.
+   - `kv-tyre-api-prod` and its two role assignments, the API identity's
+     Key Vault Secrets User and your Secrets Officer, are Creates in
+     `rg-tyre-prod`.
    - Into an empty resource group, every line is a Create. Stop on any
      Delete or Modify, and on any Create outside `rg-tyre-prod` other than
      that AcrPull assignment.
@@ -413,8 +653,10 @@ differs from staging's.
 5. **Migrate, then `app_login`'s secrets.** Migration 000001 creates
    `app_login`, so its password can only be set after the migrate.
    - Run **Each release** steps 1 to 4 with `ENV=prod`, from a checkout of
-     the commit step 7 will promote (`git switch --detach <sha>`). Nothing
-     is dropped and no tenant is created.
+     the commit step 7 will promote (`git switch --detach <sha>`), but leave
+     step 4's last paragraph, the secrets proof, for the end of this step:
+     `database-url` does not exist yet, and the proof's read of it fails.
+     Nothing is dropped and no tenant is created.
    - Then set `app_login`'s password as `tyreadmin`. psql interpolates
      `:'apppw'` only on stdin, never inside `-c`, so the statement is piped
      in. Each write runs only if the one before it succeeded:
@@ -430,7 +672,7 @@ differs from staging's.
        "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require" \
        -v ON_ERROR_STOP=1 -v apppw="$apppw" -q && \
      az keyvault secret set --vault-name $KV -n pg-app-login-password --value="$apppw" -o none && \
-     az keyvault secret set --vault-name $KV -n database-url \
+     az keyvault secret set --vault-name $KVAPI -n database-url \
        --value "postgres://app_login:$enc@$PG.postgres.database.azure.com:5432/tyre?sslmode=require" -o none && \
      echo "app_login's password and both secrets are set"
    unset pw apppw enc
@@ -444,8 +686,9 @@ differs from staging's.
    password the closing `unset` has thrown away, and the re-run sets a new
    one and writes both secrets again.
 
-   Then prove all three secrets with staging's step 2 block, under
-   `ENV=prod`: the three secret names, `app_login f f f f`,
+   Then prove the secrets with staging's step 2 block, under `ENV=prod`:
+   the two passwords in `kv-tyre-prod` and no `database-url` there,
+   `database-url` alone in `kv-tyre-api-prod`, `app_login f f f f`,
    `database-url names no pool_max_conns` and
    `database-url names psql-tyre-prod`. This proof is not optional.
    `tyreadmin` has `rolbypassrls` true (TYRE-305 comment 13834), so an admin
@@ -510,8 +753,10 @@ differs from staging's.
    notice or none.
 
 7. **The first release.** **Promote to production**, below, with a commit
-   at or after TYRE-397's merge. Images from before it carry no staging
-   record, so the deploy refuses them.
+   at or after TYRE-435's merge. Images from before TYRE-397's merge carry
+   no staging record, so the deploy refuses them. An earlier commit's
+   `infra/app.bicep` points production's API at `kv-tyre-prod`, where the
+   API's identity holds no role, so its revision never starts.
 
 8. **Verify and record** (TYRE-397 spec, section 5). Each of these must
    hold:
@@ -525,6 +770,9 @@ differs from staging's.
      browser's network tab. Production has no tenant, so staging's
      account names one it does not have: the two environments are
      isolated.
+   - The role listing in staging's step 4, under `ENV=prod`, shows exactly
+     two rows: `AcrPull` on `crtyrestaging` and `Key Vault Secrets User` on
+     `kv-tyre-api-prod`.
    - The NFR-BAK settings read live:
 
    ```bash
@@ -674,7 +922,7 @@ production's schema yet (TYRE-434).
 
    Staging's version must be at or above that checkout's highest
    migration: run Each release step 3 with
-   `ENV=staging; RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV`
+   `ENV=staging; RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV; KVAPI=kv-tyre-api-$ENV`
    (step 1 first if staging's server is stopped). If it is below, run
    Each release on staging from `develop` first.
 
@@ -696,10 +944,10 @@ production's schema yet (TYRE-434).
      database that no one uses yet, and the diff against `main` would list
      every migration.
    - Still on the `$sha` checkout, set
-     `ENV=prod; RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV` and run
-     Each release steps 1 to 4. If step 3's first read shows production
-     already at the checkout's highest migration, step 2 changes nothing.
-     Stop on anything step 3 stops on. Then `git switch -`.
+     `ENV=prod; RG=rg-tyre-$ENV; PG=psql-tyre-$ENV; KV=kv-tyre-$ENV; KVAPI=kv-tyre-api-$ENV`
+     and run Each release steps 1 to 4. If step 3's first read shows
+     production already at the checkout's highest migration, step 2 changes
+     nothing. Stop on anything step 3 stops on. Then `git switch -`.
 
 3. **Fast-forward `main`:** `git push origin "$sha":main`, never through a
    pull request (ADR-0004). A pull request into `main` is closed
