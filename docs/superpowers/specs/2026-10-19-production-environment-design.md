@@ -180,7 +180,7 @@ group, app, server, static web app and parameter file. The registry is
 |---|---|---|
 | Runs on | CI, on a push to `develop`, after every gate job | CI, on a push to `main`, after every gate job |
 | GitHub environment | `staging` (branch `develop` only) | `production` (branch `main` only) |
-| API image | builds and pushes `tyre-api:<sha>`; after the gate passes, records that this image passed staging | builds nothing; deploys `tyre-api:<sha>` |
+| API image | builds and pushes `tyre-api:<sha>`; after the gate passes, records that this image passed staging | builds nothing; deploys the image staging passed, by its digest, `tyre-api@sha256:<digest>` (U140, 19 Oct 2026) |
 | Refuses unless | (no extra check) | the commit is an ancestor of `origin/develop` **and** staging's record says that image passed staging's gate |
 | Database not `Ready` | starts it and waits | fails: production's server is never stopped, so a stopped one is an incident, not a step (my call) |
 | Gate | `scripts/deploy-gate.sh`, unchanged | the same |
@@ -191,8 +191,9 @@ group, app, server, static web app and parameter file. The registry is
   its gate runs, so an image whose staging deploy failed still has one.
 - Production would accept it, against the first anti-goal.
 - So staging writes a second record, and only once its gate has passed for
-  that exact image. A staging rollback that passes the gate writes the
-  record for the image it rolled back to.
+  that exact image. Only the commit's own run writes it, while staging's
+  API still runs that image; a staging rollback writes none (stage 5 of
+  PR #131, 19 Oct 2026).
 - The builder chooses the mechanism. Two examples: a second registry tag,
   or a GitHub deployment record keyed by the image's commit. Whichever it
   is, production's deploy identity must be able to read it.
