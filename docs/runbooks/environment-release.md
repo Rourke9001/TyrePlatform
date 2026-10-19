@@ -77,13 +77,16 @@ prints anything, stop.
    docker run --rm -e DSN="$dsn" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea sh -c \
      'psql "$DSN" -At -F " " -c "SELECT current_user, rolsuper, rolbypassrls, pg_has_role(current_user, '"'tyreadmin'"', '"'MEMBER'"'), pg_has_role(current_user, '"'azure_pg_admin'"', '"'MEMBER'"') FROM pg_roles WHERE rolname = current_user;"'
    case "$dsn" in *pool_max_conns*) echo "database-url names pool_max_conns" ;; *) echo "database-url names no pool_max_conns" ;; esac
+   case "$dsn" in *"@$PG.postgres.database.azure.com"[:/]*) echo "database-url names $PG" ;; *) echo "database-url does not name $PG" ;; esac
    unset dsn
    ```
 
    Expect `psql-admin-password`, `pg-app-login-password`, `database-url`, then
    `app_login f f f f`. Anything else stops the bring-up: a revision cannot
    activate without a working `database-url`. Judge a failed connection only
-   after Each release step 1 has run.
+   after Each release step 1 has run. The last line must be
+   `database-url names psql-tyre-<env>`: an `app_login` on the other
+   environment's server passes the role check too.
 
    Then expect `database-url names no pool_max_conns`. The `case` prints a
    verdict, never the value. If it prints `database-url names
@@ -163,8 +166,12 @@ prints anything, stop.
    **Staging's first apply after TYRE-397.** That template adds the blob
    protections (NFR-BAK-007), and staging's usual what-if noise is
    recorded nowhere, so take a baseline first. Run the what-if twice:
-   - From a checkout of the parent of TYRE-397's merge
-     (`git switch --detach <merge sha>^`), with that template's own form:
+   - From a checkout of `develop` as it stood before TYRE-397 landed, the
+     parent of TYRE-397's spec commit. PRs rebase-merge, so `<merge sha>^`
+     is TYRE-397's own second-to-last commit, which already has the
+     protections:
+     `git switch --detach "$(git log origin/develop -1 --format=%H --grep='^docs(spec): TYRE-397 design the production environment$')^"`.
+     Use that template's own form:
      `az deployment group what-if -g $RG -f infra/platform.bicep -p env=$ENV pgAdminPassword="$pw" deployerObjectId="$me" devMachineIp="$ip"`,
      inside this block's guards.
    - From `develop` (`git switch develop`), with the form above.
@@ -392,14 +399,16 @@ differs from staging's.
 4. **The admin password secret.**
 
    ```bash
-   [ -n "$pw" ] && az keyvault secret set --vault-name $KV -n psql-admin-password --value "$pw" -o none \
+   [ -n "$pw" ] && az keyvault secret set --vault-name $KV -n psql-admin-password --value="$pw" -o none \
      && unset pw
    ```
 
-   On Forbidden, the Secrets Officer grant has not taken effect yet: wait a
-   few minutes and re-run. If the shell was lost and `pw` with it, generate
-   a new password and re-run step 3's apply block, which sets the admin's
-   password to it.
+   `--value=` keeps its equals sign in this step and the next: about one
+   generated password in 64 starts with `-`, which the CLI would read as a
+   flag. On Forbidden, the Secrets Officer grant has not taken effect yet:
+   wait a few minutes and re-run. If the shell was lost and `pw` with it,
+   generate a new password and re-run step 3's apply block, which sets the
+   admin's password to it.
 
 5. **Migrate, then `app_login`'s secrets.** Migration 000001 creates
    `app_login`, so its password can only be set after the migrate.
@@ -420,7 +429,7 @@ differs from staging's.
      docker run --rm -i -e PGPASSWORD="$pw" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
        "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require" \
        -v ON_ERROR_STOP=1 -v apppw="$apppw" -q && \
-     az keyvault secret set --vault-name $KV -n pg-app-login-password --value "$apppw" -o none && \
+     az keyvault secret set --vault-name $KV -n pg-app-login-password --value="$apppw" -o none && \
      az keyvault secret set --vault-name $KV -n database-url \
        --value "postgres://app_login:$enc@$PG.postgres.database.azure.com:5432/tyre?sslmode=require" -o none && \
      echo "app_login's password and both secrets are set"
@@ -430,9 +439,15 @@ differs from staging's.
    `database-url` names no `pool_max_conns` (PR #5's form, TYRE-23; the
    pool is the API's own, TYRE-305).
 
+   If the block does not print its last line, re-run the whole block. A
+   write that failed after the `ALTER ROLE` leaves `app_login` with a
+   password the closing `unset` has thrown away, and the re-run sets a new
+   one and writes both secrets again.
+
    Then prove all three secrets with staging's step 2 block, under
-   `ENV=prod`: the three secret names, `app_login f f f f`, and
-   `database-url names no pool_max_conns`. This proof is not optional.
+   `ENV=prod`: the three secret names, `app_login f f f f`,
+   `database-url names no pool_max_conns` and
+   `database-url names psql-tyre-prod`. This proof is not optional.
    `tyreadmin` has `rolbypassrls` true (TYRE-305 comment 13834), so an admin
    DSN in `database-url` would run the API outside RLS (CLAUDE.md rule 1).
 
@@ -596,7 +611,7 @@ Production has real data, so it migrates first and is promoted after:
    unset pw enc
    ```
 
-4. **The 000051 and 000054 checks** (TYRE-368 comment 13439, TYRE-299). As `tyreadmin`:
+4. **The 000051 and 000054 checks, and `database-url`** (TYRE-368 comment 13439, TYRE-299). As `tyreadmin`:
 
    ```bash
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
@@ -612,6 +627,11 @@ Production has real data, so it migrates first and is promoted after:
    return `f`. Otherwise the release stops. The third reads
    `has_any_column_privilege` so a column-level grant fails it too, as suite
    check 4 does.
+
+   Then run the block of One-time bring-up: staging, step 2, under this
+   `ENV`, and expect what it lists. Every release proves `database-url`
+   again, because a hand rotation to the admin's DSN would run the API
+   outside RLS (CLAUDE.md rule 1) with every gate green.
 
 5. **Record the release** in the release table on Confluence page 10682399
    (U118): date, environment, image tag, schema version and dirty flag, who
