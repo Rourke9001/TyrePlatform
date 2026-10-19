@@ -36,8 +36,9 @@ const (
 // replica: a full window's worth at its end, and again at the start of the
 // next. infra/app.bicep's scale block permits maxReplicas: 2, so with both
 // warm the bound is four times each constant above (240 submits per sliding
-// minute per account, not 60), and minReplicas: 0 means a cold start resets
-// every window to empty (TYRE-184 F7).
+// minute per account, not 60). Any replica that starts, whether staging's
+// cold start from zero or a new revision, begins with every window empty
+// (TYRE-184 F7).
 type rateLimiter struct {
 	mu      sync.Mutex
 	perMin  int
