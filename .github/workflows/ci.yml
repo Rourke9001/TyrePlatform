@@ -357,9 +357,8 @@ jobs:
     with:
       target: staging
 
-  # Production deploys only from main, after every gate job, and its guard
-  # admits only a commit staging has run and an image staging passed
-  # (ADR-0017).
+  # Production deploys only from main (ADR-0017); scripts/deploy-guard.sh
+  # holds the refusals that make that safe.
   deploy-prod:
     name: Deploy production
     needs: [database, comments, infra, api, web, e2e]

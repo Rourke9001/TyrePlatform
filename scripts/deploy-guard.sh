@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# The deploy's refusals (TYRE-397, spec section 4.2; ADR-0017's 2026-10-19
-# amendment). `commit` runs in both deploy jobs before anything touches
-# Azure: the environment matches its branch, a re-run cannot move an
-# environment back (TYRE-403), and production takes only a commit staging
-# has run, or rolls back only to one main has had. `image` runs before
-# production applies the app template: the image is the one staging's gate
-# and smoke passed, by the record staging writes after them.
+# The deploy's refusals (TYRE-397; section 4.2 of
+# docs/superpowers/specs/2026-10-19-production-environment-design.md, and
+# ADR-0017's 2026-10-19 amendment). `commit` runs in both deploy jobs
+# before anything touches Azure: the environment matches its branch, a
+# re-run cannot move an environment back (TYRE-403), and production takes
+# only a commit staging has run, or rolls back only to one main has had.
+# `image` runs before production applies the app template: the image is the
+# one staging's gate and smoke passed, by the record staging writes after
+# them.
 #
 # usage: deploy-guard.sh commit TARGET BRANCH RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]
 #        deploy-guard.sh image REGISTRY_HOST IMAGE_SHA
