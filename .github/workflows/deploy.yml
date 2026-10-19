@@ -129,9 +129,9 @@ jobs:
           echo "::error::$PG did not reach Ready (last state: $state)"
           exit 1
 
-      # A tag is pushed once: a re-run reuses the pushed image, so the image
-      # staging passed is the one production pulls on every restart or
-      # scale-out (ADR-0017's 2026-10-19 amendment).
+      # A tag is pushed once: a re-run reuses the pushed image, so staging's
+      # record and the tag always name the same image (ADR-0017's 2026-10-19
+      # amendment).
       - name: Build and push image
         if: inputs.image_sha == '' && inputs.target == 'staging'
         run: |
@@ -158,12 +158,16 @@ jobs:
           az acr login --name "$ACR"
           docker buildx imagetools inspect "$ACR.azurecr.io/tyre-api:$IMAGE_SHA" >/dev/null \
             || { echo "::error::tyre-api:$IMAGE_SHA is not in $ACR"; exit 1; }
+          echo "API_IMAGE=$ACR.azurecr.io/tyre-api:$IMAGE_SHA" >> "$GITHUB_ENV"
 
+      # Production runs the image by the digest the guard checked, so a later
+      # push to the tag never reaches a restart or scale-out (U140).
       - name: Staging passed this image
         if: inputs.target == 'prod'
         run: |
           az acr login --name "$ACR"
-          bash scripts/deploy-guard.sh image "$ACR.azurecr.io" "$IMAGE_SHA"
+          bash scripts/deploy-guard.sh image "$ACR.azurecr.io" "$IMAGE_SHA" "$RUNNER_TEMP/api-image"
+          echo "API_IMAGE=$(cat "$RUNNER_TEMP/api-image")" >> "$GITHUB_ENV"
 
       - name: Apply the app template
         env:
@@ -179,7 +183,8 @@ jobs:
           # three are bumped together (TYRE-304).
           az config set bicep.use_binary_from_path=false
           az bicep install --version v0.47.16
-          API_IMAGE="$ACR.azurecr.io/tyre-api:$IMAGE_SHA" REVISION_SUFFIX="$suffix" \
+          [ -n "${API_IMAGE:-}" ] || { echo "::error::no image was chosen for $TARGET"; exit 1; }
+          REVISION_SUFFIX="$suffix" \
             az deployment group create -g "$RG" -n "app-$suffix" \
               -p "infra/app.$TARGET.bicepparam" -o none
 

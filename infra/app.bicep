@@ -11,7 +11,7 @@ param env string
 
 // Required with no default: a template run without the release's image
 // must fail, not revert the app to a placeholder (TYRE-79).
-@description('Full image reference, tagged with the commit (crtyrestaging.azurecr.io/tyre-api:<sha>).')
+@description('Full image reference: on staging the commit tag (crtyrestaging.azurecr.io/tyre-api:<sha>), on production the digest the deploy pinned (crtyrestaging.azurecr.io/tyre-api@sha256:<digest>, U140).')
 param apiImage string
 
 @description('<c|d><run_number>-<run_attempt>-<sha7>: unique per deploy, so a rollback never reuses a revision name.')

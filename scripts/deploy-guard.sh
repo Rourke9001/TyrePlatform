@@ -7,12 +7,13 @@
 # only a commit staging has run, or rolls back only to one main has had.
 # `image` runs before production applies the app template: the image is the
 # one staging's gate and smoke passed, by the record staging writes after
-# them. `serving` runs just before staging writes that record: staging's API
+# them, and PIN_FILE gets that image by digest, so production runs the bytes
+# checked here whatever the tag later names (U140). `serving` runs just before staging writes that record: staging's API
 # still runs the image, so a rollback since the api job cannot let the smoke
 # certify an image it never reached.
 #
 # usage: deploy-guard.sh commit TARGET REF RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]
-#        deploy-guard.sh image REGISTRY_HOST IMAGE_SHA
+#        deploy-guard.sh image REGISTRY_HOST IMAGE_SHA PIN_FILE
 #        deploy-guard.sh serving RESOURCE_GROUP APP REGISTRY_HOST IMAGE_SHA
 # Exit 0 admits, 1 refuses with one ::error:: line, 2 is usage.
 set -euo pipefail
@@ -20,7 +21,7 @@ set -euo pipefail
 usage() {
   {
     echo "usage: $0 commit TARGET REF RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]"
-    echo "       $0 image REGISTRY_HOST IMAGE_SHA"
+    echo "       $0 image REGISTRY_HOST IMAGE_SHA PIN_FILE"
     echo "       $0 serving RESOURCE_GROUP APP REGISTRY_HOST IMAGE_SHA"
   } >&2
   exit 2
@@ -97,8 +98,8 @@ digest_of() {
 }
 
 check_image() {
-  [ "$#" -eq 2 ] || usage
-  local host=$1 sha=$2 image record out_image out_record
+  [ "$#" -eq 3 ] || usage
+  local host=$1 sha=$2 pin=$3 image record out_image out_record
   full_sha "$sha" \
     || refuse "image_sha must be a full 40-character lower-case commit SHA, got '$sha'"
   image="$host/tyre-api:$sha"
@@ -116,7 +117,10 @@ check_image() {
   [ "$out_image" = "$out_record" ] \
     || refuse "tyre-api:$sha does not match staging's record: the tag is $out_image, the record $out_record"
 
-  echo "deploy-guard: tyre-api:$sha is the image staging passed ($out_image), admitted"
+  if ! printf '%s\n' "$host/tyre-api@$out_image" >"$pin"; then
+    refuse "cannot write the pinned image to $pin"
+  fi
+  echo "deploy-guard: tyre-api:$sha is the image staging passed ($out_image), admitted and pinned"
 }
 
 check_serving() {

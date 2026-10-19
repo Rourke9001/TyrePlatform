@@ -160,17 +160,27 @@ img=$unknown
 d1=sha256:$(printf 'a%.0s' $(seq 64))
 d2=sha256:$(printf 'b%.0s' $(seq 64))
 tags() { rm -f "$work/tags/"*; while [ "$#" -ge 2 ]; do printf '%s' "$2" >"$work/tags/$1"; shift 2; done; }
+pin=$work/pin
+# The pin file holds exactly the reference production deploys, or nothing.
+pinned() { # name want
+  local got=""
+  [ -f "$pin" ] && got=$(cat "$pin")
+  if [ "$got" = "$2" ]; then echo "ok: $1"; else echo "FAIL: $1 (pin is '$got', wanted '$2')"; fails=$((fails + 1)); fi
+  rm -f "$pin"
+}
 tags "$img" "$d1" "$img-staging-passed" "$d1"
-case_run "an image with staging's matching record deploys" 0 - image cr.example.test "$img"
+case_run "an image with staging's matching record deploys" 0 - image cr.example.test "$img" "$pin"
+pinned "the admitted image is pinned by its digest" "cr.example.test/tyre-api@$d1"
 tags
-case_run "an image with no tag is refused" 1 "is not in cr.example.test" image cr.example.test "$img"
+case_run "an image with no tag is refused" 1 "is not in cr.example.test" image cr.example.test "$img" "$pin"
 tags "$img" "$d1"
-case_run "a production rollback image with no staging record is refused" 1 "staging never passed" image cr.example.test "$img"
+case_run "a production rollback image with no staging record is refused" 1 "staging never passed" image cr.example.test "$img" "$pin"
 tags "$img" "$d1" "$img-staging-passed" "$d2"
-case_run "a record whose digest differs from the tag's is refused" 1 "does not match staging's record" image cr.example.test "$img"
+case_run "a record whose digest differs from the tag's is refused" 1 "does not match staging's record" image cr.example.test "$img" "$pin"
+pinned "a refused image is not pinned" ""
 tags "$img" "" "$img-staging-passed" ""
-case_run "an empty digest is refused" 1 "no digest" image cr.example.test "$img"
-case_run "image usage" 2 - image cr.example.test
+case_run "an empty digest is refused" 1 "no digest" image cr.example.test "$img" "$pin"
+case_run "image usage" 2 - image cr.example.test "$img"
 
 # staging still runs the image when it records it
 serve() { rm -f "$work/serving"; [ "$#" -eq 0 ] || printf '%s\n' "$1" >"$work/serving"; }
