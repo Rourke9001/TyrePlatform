@@ -85,9 +85,9 @@ jobs:
         run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF_NAME" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
 
       # Prints the token's subject claim, which id-tyre-deploy-<env>'s
-      # federated credential must match byte for byte (runbook, bring-up
-      # step 3). The token itself is never printed. A diagnostic, so its own
-      # failure never stops a deploy.
+      # federated credential must match byte for byte (runbook: staging's
+      # bring-up step 3, Production bring-up step 2). The token itself is
+      # never printed. A diagnostic, so its own failure never stops a deploy.
       - name: OIDC subject
         continue-on-error: true
         run: |
