@@ -81,8 +81,10 @@ Owner actions, recorded on Confluence page 10682399.
 
 **tyre-pwa**
 
-- SPA redirect URIs `http://localhost:5173/` and the Static Web App's
-  origin followed by `/`, and nothing else, with implicit grant off. On
+- SPA redirect URIs `http://localhost:5173/` and each Static Web App's
+  origin, staging's and production's, followed by `/`, and nothing else,
+  with implicit grant off (`environment-release.md`, Production bring-up
+  step 6). On
   2 Oct 2026 the registration held `http://localhost:5173/auth` and
   `http://localhost:5173`; both are replaced when the Static Web App's
   origin is added for the first staging sign-in. `https://jwt.ms` and the
