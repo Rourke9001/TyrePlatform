@@ -173,6 +173,34 @@ resource kvSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@20
   }
 }
 
+// The API identity holds a role on this vault and on no other: kv holds
+// psql-admin-password, tyreadmin's, and that role bypasses RLS (rule 1,
+// TYRE-435). Only database-url goes here, since the API reads all it holds.
+// Same trade as kv above (TYRE-61).
+resource kvApi 'Microsoft.KeyVault/vaults@2023-07-01' = {
+  name: 'kv-tyre-api-${env}'
+  location: location
+  tags: tags
+  properties: {
+    sku: { family: 'A', name: 'standard' }
+    tenantId: tenant().tenantId
+    enableRbacAuthorization: true
+    enableSoftDelete: true
+    softDeleteRetentionInDays: 7
+  }
+}
+
+// The owner writes database-url here (runbook).
+resource kvApiSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(kvApi.id, deployerObjectId, roleKeyVaultSecretsOfficer)
+  scope: kvApi
+  properties: {
+    principalId: deployerObjectId
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleKeyVaultSecretsOfficer)
+    principalType: 'User'
+  }
+}
+
 // ------------------------------------------------------- managed identity --
 
 resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
@@ -191,9 +219,10 @@ module acrPullForApi 'acr-pull.bicep' = {
   }
 }
 
+// The API identity's only Key Vault role (TYRE-435); none is declared on kv.
 resource kvSecretsForApi 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(kv.id, apiIdentity.id, roleKeyVaultSecretsUser)
-  scope: kv
+  name: guid(kvApi.id, apiIdentity.id, roleKeyVaultSecretsUser)
+  scope: kvApi
   properties: {
     principalId: apiIdentity.properties.principalId
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roleKeyVaultSecretsUser)
@@ -319,5 +348,6 @@ resource swa 'Microsoft.Web/staticSites@2023-12-01' = {
 output pgFqdn string = pg.properties.fullyQualifiedDomainName
 output swaHostname string = swa.properties.defaultHostname
 output kvUri string = kv.properties.vaultUri
+output kvApiUri string = kvApi.properties.vaultUri
 output blobEndpoint string = storage.properties.primaryEndpoints.blob
 output apiIdentityClientId string = apiIdentity.properties.clientId

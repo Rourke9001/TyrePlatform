@@ -210,8 +210,8 @@ func main() {
 		port = "8080"
 	}
 
-	// Locally DATABASE_URL is set directly; in staging it is a Container Apps
-	// secret that references kv-tyre-staging via the API's managed identity
+	// Locally DATABASE_URL is set directly; in Azure it is a Container Apps
+	// secret that references kv-tyre-api-<env> via the API's managed identity
 	// (infra/app.bicep), so the credential never lives in this repo or CI.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
