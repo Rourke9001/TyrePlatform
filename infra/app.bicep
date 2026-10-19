@@ -51,8 +51,8 @@ resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-3
   name: 'id-tyre-api-${env}'
 }
 
-resource kv 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
-  name: 'kv-tyre-${env}'
+resource kvApi 'Microsoft.KeyVault/vaults@2023-07-01' existing = {
+  name: 'kv-tyre-api-${env}'
 }
 
 // The web origin CORS allows is read off the resource, so it cannot drift
@@ -61,9 +61,9 @@ resource swa 'Microsoft.Web/staticSites@2023-12-01' existing = {
   name: 'stapp-tyre-${env}'
 }
 
-// platform.bicep's kvSecretsForApi must be live before this applies, or the
-// database-url Key Vault reference fails revision activation with a
-// permission error, not a missing secret (runbook, bring-up step 4).
+// platform.bicep's kvSecretsForApi, on kv-tyre-api-<env>, must be live before
+// this applies, or the database-url reference fails revision activation with
+// a permission error, not a missing secret (runbook, bring-up step 4).
 resource api 'Microsoft.App/containerApps@2024-03-01' = {
   name: 'ca-api-${env}'
   location: location
@@ -94,7 +94,7 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
         // credential never exists in this repo, CI or the app config.
         {
           name: 'database-url'
-          keyVaultUrl: '${kv.properties.vaultUri}secrets/database-url'
+          keyVaultUrl: '${kvApi.properties.vaultUri}secrets/database-url'
           identity: apiIdentity.id
         }
       ]
