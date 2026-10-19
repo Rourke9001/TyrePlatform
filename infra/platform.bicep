@@ -16,10 +16,10 @@
 // Revisit before the first commercial contract, per NFR-SEC-014; tracked as
 // TYRE-61.
 //
-// Every apply re-sends pgAdminPassword and devMachineIp, now read from the
-// apply's environment through infra/platform.<env>.bicepparam (runbook,
-// bring-up step 4): a different password changes the admin's, and a stale IP
-// moves the firewall rule.
+// Every apply re-sends pgAdminPassword and devMachineIp, which
+// infra/platform.<env>.bicepparam reads from the apply's environment
+// (runbook, bring-up step 4): a different password changes the admin's, and
+// a stale IP moves the firewall rule.
 
 @description('Region for everything that stores data (ADR-0002).')
 param location string = 'southafricanorth'
