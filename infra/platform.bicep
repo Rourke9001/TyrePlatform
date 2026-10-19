@@ -58,10 +58,24 @@ param backupRetentionDays int = 7
 @allowed([ 'Disabled', 'Enabled' ])
 param geoRedundantBackup string = 'Disabled'
 
-// NFR-AVL-003: production patches outside 06:00 to 18:00 SAST. Empty keeps
+// The flexible server's custom window, in UTC.
+type maintenanceWindow = {
+  customWindow: 'Enabled'
+  @minValue(0)
+  @maxValue(6)
+  dayOfWeek: int
+  @minValue(0)
+  @maxValue(23)
+  startHour: int
+  @minValue(0)
+  @maxValue(59)
+  startMinute: int
+}
+
+// NFR-AVL-003: production patches outside 06:00 to 18:00 SAST. Unset keeps
 // staging system-managed, so it takes each update at least a week before
 // production does.
-param pgMaintenanceWindow object = {}
+param pgMaintenanceWindow maintenanceWindow?
 
 // Deleting a flexible server deletes its backups, so production locks it and
 // the photo store (NFR-BAK-003, NFR-BAK-007). Only the owner's apply can
@@ -211,7 +225,7 @@ resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
     highAvailability: { mode: 'Disabled' }
     // Spread, so a system-managed server's request carries no
     // maintenanceWindow key at all, not an empty one.
-    ...(empty(pgMaintenanceWindow) ? {} : { maintenanceWindow: pgMaintenanceWindow })
+    ...(pgMaintenanceWindow == null ? {} : { maintenanceWindow: pgMaintenanceWindow! })
   }
 }
 
