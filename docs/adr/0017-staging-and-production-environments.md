@@ -1,6 +1,6 @@
 # ADR-0017: Staging holds no real data; production is a second environment
 
-- **Status:** Proposed. Accepted when its PR merges.
+- **Status:** Accepted.
 - **Date:** 2026-10-09
 - **Deciders:** Rourke
 - **Supersedes:** ADR-0005 (environments and hosting)
@@ -251,3 +251,47 @@ production deploys worth its click.
 `/api`. Its origin is the first setting that differs per environment, and it
 moved to a fetched `config.json`, as "The web bundle carries no
 per-environment setting" prescribes (ADR-0019).
+
+**Amended 2026-10-19 (TYRE-397, U139):** production as built.
+
+- **Production's API stays awake.** `minReplicas` is 1 in production, for
+  about R100 a month, so the first driver of the day does not wait on a cold
+  start. Staging keeps 0. `maxReplicas` stays 2 in both, the bound the rate
+  limiter's per-process counters assume.
+- **Production's backups.** 30-day retention (NFR-BAK-002, 003) and
+  geo-redundant backup to South Africa West (NFR-BAK-005, NFR-PRV-008),
+  fixed by production's first platform apply. Blob versioning, blob soft
+  delete and container soft delete at 30 days in both environments
+  (NFR-BAK-007). `CanNotDelete` locks on production's server and storage
+  account, since deleting a flexible server deletes its backups. The lock
+  blocks deletes only: the runbook's firewall update and server start or
+  restart still run. Each environment's values live in a committed param
+  file, `infra/platform.<env>.bicepparam`.
+- **The deploy identity's read grant.** `id-tyre-deploy-prod` holds AcrPull
+  on `crtyrestaging` beside Contributor on its own group. AcrPull alone is
+  enough for `az acr login`: when the identity cannot list the registry,
+  the CLI falls back to `<name>.azurecr.io` (`_get_credentials` with
+  `get_login_server_suffix()`) and exchanges its Entra token on the data
+  plane, which AcrPull covers. If a deploy shows otherwise, Reader on the
+  registry is the recorded remediation (runbook, Production bring-up
+  step 2).
+- **Staging's record, not the tag.** Approval's second condition, "its
+  image tag exists", is stronger now: production admits an image only when
+  `tyre-api:<sha>-staging-passed` exists with the same digest as
+  `tyre-api:<sha>`. Staging writes that record after its gate and smoke
+  pass, and pushes `tyre-api:<sha>` once, so the tag never moves to an
+  image staging did not pass. A production rollback must name a commit
+  `main` has had and carry the same record (`scripts/deploy-guard.sh`).
+- **A re-run cannot move an environment back** (TYRE-403). A re-run whose
+  commit is no longer its branch's head is refused in both environments.
+  Going back is only by rollback dispatch.
+- **Release order.** Production migrates first, then `main` is promoted,
+  so every migration must leave the schema usable by the image production
+  runs; one that cannot ships in two releases. A release that carries a
+  migration goes out outside 06:00 to 18:00 SAST, and production's server
+  has a custom maintenance window, Sunday 02:00 to 03:00 SAST
+  (NFR-AVL-003). Staging keeps a system-managed window, so it takes each
+  update first. TYRE-434 adds the deploy's check of production's schema.
+- **BAC's account starts empty.** Production holds no tenant at its first
+  release. BAC's account is created at TYRE-321's live onboarding, not
+  provisioned with this ticket, and none of BAC's earlier data goes in.

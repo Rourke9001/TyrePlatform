@@ -42,25 +42,26 @@ ADR-0004 is explicit that `main` advances **only** by fast-forwarding to a
 `develop` commit that has already passed CI. GitHub's merge button cannot
 fast-forward — it always writes a merge, squash or rebase commit — so opening a
 PR into `main` is the one way to break the rule while appearing to follow it.
-Promote from the command line instead:
+A workflow closes any pull request opened into `main` (TYRE-313).
 
-```
-git fetch origin
-git push origin origin/develop:main
-```
+`main` is what production runs, so a promotion is a production release. It
+follows `docs/runbooks/environment-release.md`, Promote to production: choose
+a `develop` commit staging ran green, migrate production first if it is
+behind, then `git push origin <sha>:main`, and CI on `main` deploys
+production.
 
-If that is rejected as non-fast-forward, `main` has diverged and something has
-been committed or merged into it directly. Fix the divergence; do not force it
-away without checking what is on `main` that is not on `develop`.
+If that push is rejected as non-fast-forward, `main` has diverged and
+something has been committed or merged into it directly. Fix the divergence;
+do not force it away without checking what is on `main` that is not on
+`develop`.
 
 A ruleset on `main` enforces the mechanics that can be enforced — no deletion,
 no non-fast-forward push, linear history. It cannot tell that a commit came
 from `develop`, so the discipline above is still yours to keep.
 
-The promotion push starts CI on `main`; the staging deploy runs only if that
-CI run goes green, so expect two workflows and roughly twice the wall clock
-before staging moves. A deploy without CI — a rollback while `main` is red —
-is `workflow_dispatch` on "Deploy staging", which skips the gate deliberately.
+Going back is a rollback, a dispatch of **Deploy** with `target` and
+`image_sha` (the runbook's Roll back), never a re-run of an old CI run,
+which the deploy refuses (TYRE-403).
 
 ## Before you push
 

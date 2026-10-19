@@ -266,9 +266,10 @@ review covers them (U136, owner, 16 Oct 2026).
 
 ## Repo etiquette
 
-- Branches: `develop` is the integration branch; `main` mirrors what
-  production/staging runs and only advances by fast-forwarding to a vetted
-  `develop` commit (ADR-0004). Do not commit to `main` directly.
+- Branches: `develop` is the integration branch and what staging runs;
+  `main` is what production runs, and it only advances by fast-forwarding to
+  a vetted `develop` commit (ADR-0004, ADR-0017). Do not commit to `main`
+  directly.
 - Branch: `TYRE-123-short-description`, cut from `develop`. The Jira key is
   what links the branch, the commits and the PR back to the ticket.
 - Commits: conventional commits with the key — `feat(capture): TYRE-42 add

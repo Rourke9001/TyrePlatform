@@ -265,8 +265,8 @@ Go rather than a raw Postgres error.
 |---|---|
 | Local | docker-compose Postgres 16 on :5433. Same major version as production so RLS and `security_invoker` behave identically. |
 | CI | GitHub Actions. Ephemeral Postgres service container. The verification suite is the gate. |
-| Staging | Deploys from `develop` through CI's `deploy-staging` job, which calls `.github/workflows/deploy.yml`. The gate is `scripts/deploy-gate.sh` (ADR-0017). |
-| Production | Not stood up yet (TYRE-397). It will deploy from `main`, and only an image staging ran first (ADR-0017). |
+| Staging | Deploys from `develop` through CI's `deploy-staging` job, which calls `.github/workflows/deploy.yml` with `target` staging. The gate is `scripts/deploy-gate.sh` (ADR-0017). |
+| Production | Deploys from `main` through CI's `deploy-prod` job, the same workflow with `target` prod. `scripts/deploy-guard.sh` refuses a commit not on `develop` and an image staging did not pass (ADR-0017). The owner brings it up after TYRE-397 merges (`docs/runbooks/environment-release.md`, Production bring-up). |
 
 ## Decision record index
 
@@ -288,5 +288,5 @@ Go rather than a raw Postgres error.
 | [0014](adr/0014-audit-mechanism.md) | How mutations are audited | Accepted |
 | [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Proposed |
 | [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Proposed |
-| [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Proposed |
+| [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Accepted |
 | [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Proposed |
