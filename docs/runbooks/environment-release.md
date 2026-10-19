@@ -644,8 +644,9 @@ production's schema yet (TYRE-434).
    ```
 
    The first must print `on develop and ahead of main`, and the second the
-   tag `<sha>-staging-passed`, which staging's deploy writes only after its
-   gate and smoke pass; it is the check production's deploy makes. Then, on
+   tag `<sha>-staging-passed`, which staging's deploy writes only in the
+   commit's own run, after its gate and smoke pass against that image; it
+   is the check production's deploy makes. A staging rollback writes none. Then, on
    a clean tree, `git switch --detach "$sha"`. Each release step 3 compares
    the version against the current checkout's `db/migrations`, so every
    version read from here to step 2 runs on this checkout.

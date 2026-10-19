@@ -7,17 +7,21 @@
 # only a commit staging has run, or rolls back only to one main has had.
 # `image` runs before production applies the app template: the image is the
 # one staging's gate and smoke passed, by the record staging writes after
-# them.
+# them. `serving` runs just before staging writes that record: staging's API
+# still runs the image, so a rollback since the api job cannot let the smoke
+# certify an image it never reached.
 #
-# usage: deploy-guard.sh commit TARGET BRANCH RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]
+# usage: deploy-guard.sh commit TARGET REF RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]
 #        deploy-guard.sh image REGISTRY_HOST IMAGE_SHA
+#        deploy-guard.sh serving RESOURCE_GROUP APP REGISTRY_HOST IMAGE_SHA
 # Exit 0 admits, 1 refuses with one ::error:: line, 2 is usage.
 set -euo pipefail
 
 usage() {
   {
-    echo "usage: $0 commit TARGET BRANCH RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]"
+    echo "usage: $0 commit TARGET REF RUN_SHA RUN_ATTEMPT [ROLLBACK_SHA]"
     echo "       $0 image REGISTRY_HOST IMAGE_SHA"
+    echo "       $0 serving RESOURCE_GROUP APP REGISTRY_HOST IMAGE_SHA"
   } >&2
   exit 2
 }
@@ -31,19 +35,21 @@ refuse() {
 hex='[0123456789abcdef]'
 full_sha() { [[ "$1" =~ ^$hex{40}$ ]]; }
 
-# Every check is written as `if ! cmd`: under set -e a bare git or docker
-# failure would end the script before its ::error:: line names the rule.
+# Every check is written as `if ! cmd`: under set -e a bare git, docker or
+# az failure would end the script before its ::error:: line names the rule.
 check_commit() {
   [ "$#" -eq 4 ] || [ "$#" -eq 5 ] || usage
-  local target=$1 branch=$2 run_sha=$3 attempt=$4 rollback=${5:-} want head shallow
+  local target=$1 ref=$2 run_sha=$3 attempt=$4 rollback=${5:-} want branch head shallow
 
   case "$target" in
     staging) want=develop ;;
     prod) want=main ;;
     *) refuse "unknown target '$target': use staging or prod" ;;
   esac
-  [ "$branch" = "$want" ] \
-    || refuse "$target deploys only from $want, not '$branch': run it from $want"
+  # The full ref, because a tag named main has the short name main too.
+  [ "$ref" = "refs/heads/$want" ] \
+    || refuse "$target deploys only from branch $want, not '$ref': run it from $want"
+  branch=$want
 
   full_sha "$run_sha" \
     || refuse "the run's commit must be a full 40-character lower-case commit SHA, got '$run_sha'"
@@ -113,11 +119,28 @@ check_image() {
   echo "deploy-guard: tyre-api:$sha is the image staging passed ($out_image), admitted"
 }
 
+check_serving() {
+  [ "$#" -eq 4 ] || usage
+  local rg=$1 app=$2 host=$3 sha=$4 want live
+  full_sha "$sha" \
+    || refuse "image_sha must be a full 40-character lower-case commit SHA, got '$sha'"
+  want="$host/tyre-api:$sha"
+
+  if ! live=$(az containerapp show -g "$rg" -n "$app" --query 'properties.template.containers[0].image' -o tsv); then
+    refuse "cannot read $app's image, so the smoke cannot be tied to tyre-api:$sha (az's error is above)"
+  fi
+  [ "$live" = "$want" ] \
+    || refuse "$app now runs '$live', not $want, so the smoke proved nothing about tyre-api:$sha and staging does not pass it. A rollback or another deploy ran after the api job: $sha earns its record only in a run whose smoke reaches it"
+
+  echo "deploy-guard: $app runs tyre-api:$sha, admitted"
+}
+
 [ "$#" -ge 1 ] || usage
 sub=$1
 shift
 case "$sub" in
   commit) check_commit "$@" ;;
   image) check_image "$@" ;;
+  serving) check_serving "$@" ;;
   *) usage ;;
 esac
