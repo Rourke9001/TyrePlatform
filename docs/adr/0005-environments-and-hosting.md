@@ -124,6 +124,7 @@ A DSN that names `pool_max_conns` overrides the default (`store.New`,
 not name it. The runbook's bring-up step 2 reports whether it does, without
 printing the value.
 
-`max_connections` and the reserved settings have not been read off staging.
-TYRE-305 stays open until the owner runs the U94 query (TYRE-368 comment
-13436) and the DSN check, and posts both.
+Read off staging on 19 Oct 2026 (TYRE-305 comment 13834):
+`max_connections` 50, `reserved_connections` 5 and
+`superuser_reserved_connections` 10, so 35 user connections, as above. The
+`database-url` secret names no `pool_max_conns`.
