@@ -204,22 +204,26 @@ api-release-check: ## The release binary names no dev header (U103)
 # only a warning (BCP089), so any Warning line fails the target. The output
 # is captured, not piped, so the status read is bicep's own.
 #
-# The two env values only satisfy readEnvironmentVariable in the param
-# file; nothing deploys here.
+# The env values only satisfy readEnvironmentVariable in the param files;
+# nothing deploys here.
 BICEP_IMAGE ?= tyre-bicep:0.47.16
 ACTIONLINT_IMAGE ?= rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
 BICEP_RUN = MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE)
 
 .PHONY: infra-lint
-infra-lint: ## Bicep lint on both templates (warnings fail), the staging param file builds, actionlint on the workflows
+infra-lint: ## Bicep lint on both templates (warnings fail), every param file builds, actionlint on the workflows
 	docker build -q -t $(BICEP_IMAGE) -f infra/bicep.Dockerfile infra
 	@for f in platform.bicep app.bicep acr-pull.bicep; do \
 	  out=$$($(BICEP_RUN) lint $$f 2>&1); st=$$?; echo "$$out"; \
 	  [ $$st -eq 0 ] || { echo "bicep lint $$f exited $$st"; exit 1; }; \
 	  if grep -q "Warning" <<<"$$out"; then echo "bicep lint $$f: a warning fails the gate (TYRE-79)"; exit 1; fi; \
 	done
-	MSYS_NO_PATHCONV=1 docker run --rm -e API_IMAGE=lint.example/tyre-api:lint -e REVISION_SUFFIX=lint \
-	  -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE) build-params app.staging.bicepparam --stdout >/dev/null
+	@for p in app.staging app.prod platform.staging platform.prod; do \
+	  MSYS_NO_PATHCONV=1 docker run --rm -e API_IMAGE=lint.example/tyre-api:lint -e REVISION_SUFFIX=lint \
+	    -e PG_ADMIN_PASSWORD=lint -e DEPLOYER_OBJECT_ID=00000000-0000-0000-0000-000000000000 -e DEV_MACHINE_IP=192.0.2.1 \
+	    -v "$(CURDIR)/infra:/src" $(BICEP_IMAGE) build-params $$p.bicepparam --stdout >/dev/null \
+	    || { echo "bicep build-params $$p.bicepparam failed"; exit 1; }; \
+	done
 	MSYS_NO_PATHCONV=1 docker run --rm -v "$(CURDIR):/repo" -w /repo $(ACTIONLINT_IMAGE) -color
 
 .PHONY: web-test

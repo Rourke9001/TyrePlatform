@@ -25,6 +25,11 @@ param revisionSuffix string
 // runs as the API's identity, under platform.bicep's AcrPull grant.
 param acrLoginServer string = 'crtyrestaging${environment().suffixes.acrLoginServer}'
 
+@description('Production keeps one replica running so the first driver of the day does not wait on a cold start (U139); staging scales to zero (ADR-0001).')
+@minValue(0)
+@maxValue(2)
+param minReplicas int
+
 // ADR-0016's six settings. All are public identifiers, not secrets.
 param authDiscoveryUrl string
 param authIssuer string
@@ -145,10 +150,9 @@ resource api 'Microsoft.App/containerApps@2024-03-01' = {
           ]
         }
       ]
-      // Scale to zero: an idle POC costs nothing (ADR-0001). maxReplicas and
-      // minReplicas both bound the submit rate limiter's per-process
-      // counters; see ratelimit.go (TYRE-184 F7).
-      scale: { minReplicas: 0, maxReplicas: 2 }
+      // maxReplicas 2 is the bound the submit rate limiter's per-process
+      // counters assume; see ratelimit.go (TYRE-184 F7).
+      scale: { minReplicas: minReplicas, maxReplicas: 2 }
     }
   }
 }

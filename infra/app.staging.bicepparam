@@ -6,6 +6,7 @@ using './app.bicep'
 param env = 'staging'
 param apiImage = readEnvironmentVariable('API_IMAGE')
 param revisionSuffix = readEnvironmentVariable('REVISION_SUFFIX')
+param minReplicas = 0
 
 param authDiscoveryUrl = 'https://9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19.ciamlogin.com/9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19/v2.0/.well-known/openid-configuration?appid=7804c37b-de70-4e9d-8700-f7f7a70fc988'
 param authIssuer = 'https://9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19.ciamlogin.com/9f571f6c-5e2c-42ad-9cc2-e173ef4a0c19/v2.0'

@@ -16,9 +16,10 @@
 // Revisit before the first commercial contract, per NFR-SEC-014; tracked as
 // TYRE-61.
 //
-// Every apply re-sends pgAdminPassword read from kv-tyre-<env> and
-// devMachineIp read live: a different password changes the admin's, and a
-// stale IP moves the firewall rule (spec section 4).
+// Every apply re-sends pgAdminPassword and devMachineIp, now read from the
+// apply's environment through infra/platform.<env>.bicepparam (runbook,
+// bring-up step 4): a different password changes the admin's, and a stale IP
+// moves the firewall rule.
 
 @description('Region for everything that stores data (ADR-0002).')
 param location string = 'southafricanorth'
@@ -43,6 +44,30 @@ param deployerObjectId string
 
 @description('Developer machine IP allowed through the PG firewall for migrations and db-test.')
 param devMachineIp string
+
+// NFR-BAK-003's 30 days, set in production's param file, also cover
+// NFR-BAK-002's 7 days of point-in-time restore. Staging keeps 7 (ADR-0017).
+@minValue(7)
+@maxValue(35)
+param backupRetentionDays int = 7
+
+// NFR-BAK-005 and NFR-PRV-008: the copy goes to the paired region, South
+// Africa West, so backups stay in South Africa. Azure fixes this when the
+// server is created, so production's first apply decides it for the
+// server's life.
+@allowed([ 'Disabled', 'Enabled' ])
+param geoRedundantBackup string = 'Disabled'
+
+// NFR-AVL-003: production patches outside 06:00 to 18:00 SAST. Empty keeps
+// staging system-managed, so it takes each update at least a week before
+// production does.
+param pgMaintenanceWindow object = {}
+
+// Deleting a flexible server deletes its backups, so production locks it and
+// the photo store (NFR-BAK-003, NFR-BAK-007). Only the owner's apply can
+// write a lock (U117). CanNotDelete still allows the runbook's firewall PUT
+// and start or restart POST.
+param lockData bool = false
 
 var tags = {
   project: 'tyreplatform'
@@ -79,9 +104,17 @@ resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   }
 }
 
+// NFR-BAK-007: an overwritten or deleted photo, or a deleted container, is
+// recoverable for 30 days. The same in both environments, since the cost is
+// immaterial.
 resource blobService 'Microsoft.Storage/storageAccounts/blobServices@2023-05-01' = {
   parent: storage
   name: 'default'
+  properties: {
+    isVersioningEnabled: true
+    deleteRetentionPolicy: { enabled: true, days: 30 }
+    containerDeleteRetentionPolicy: { enabled: true, days: 30 }
+  }
 }
 
 // Inspection photos (FR-INS-023/024: photos and damage observations per
@@ -174,8 +207,29 @@ resource pg 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
       passwordAuth: 'Enabled'
     }
     storage: { storageSizeGB: 32, autoGrow: 'Enabled' }
-    backup: { backupRetentionDays: 7, geoRedundantBackup: 'Disabled' }
+    backup: { backupRetentionDays: backupRetentionDays, geoRedundantBackup: geoRedundantBackup }
     highAvailability: { mode: 'Disabled' }
+    // Spread, so a system-managed server's request carries no
+    // maintenanceWindow key at all, not an empty one.
+    ...(empty(pgMaintenanceWindow) ? {} : { maintenanceWindow: pgMaintenanceWindow })
+  }
+}
+
+resource pgLock 'Microsoft.Authorization/locks@2020-05-01' = if (lockData) {
+  name: 'lock-psql-tyre-${env}'
+  scope: pg
+  properties: {
+    level: 'CanNotDelete'
+    notes: 'Deleting the server deletes its backups (NFR-BAK-003).'
+  }
+}
+
+resource storageLock 'Microsoft.Authorization/locks@2020-05-01' = if (lockData) {
+  name: 'lock-sttyre${env}'
+  scope: storage
+  properties: {
+    level: 'CanNotDelete'
+    notes: 'Deleting the account deletes every photo and its versions (NFR-BAK-007).'
   }
 }
 
