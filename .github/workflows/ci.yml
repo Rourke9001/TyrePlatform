@@ -7,7 +7,7 @@ on:
 
 # A pull_request run executes repo scripts (seed generators, the comment
 # checker, npm lifecycle) against the token it is handed. Read-only is all any
-# job here needs, except deploy-staging, which grants its own id-token: write
+# job here needs, except the deploy jobs, which grant their own id-token: write
 # for OIDC (TYRE-79). Without this block the run inherits whatever the
 # repository default grants, which is a write token on many settings (TYRE-50).
 permissions:
@@ -15,9 +15,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # A develop run may be deploying staging; cancelling it mid-rollout would
-  # strand a half-applied release (TYRE-79). Every other ref still cancels.
-  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' }}
+  # A develop run may be deploying staging and a main run production;
+  # cancelling either mid-rollout would strand a half-applied release
+  # (TYRE-79, TYRE-397). Every other ref still cancels.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/main' }}
 
 jobs:
   database:
@@ -353,3 +354,22 @@ jobs:
       group: deploy-staging
       cancel-in-progress: false
     uses: ./.github/workflows/deploy.yml
+    with:
+      target: staging
+
+  # Production deploys only from main, after every gate job, and its guard
+  # admits only a commit staging has run and an image staging passed
+  # (ADR-0017).
+  deploy-prod:
+    name: Deploy production
+    needs: [database, comments, infra, api, web, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    permissions:
+      id-token: write
+      contents: read
+    concurrency:
+      group: deploy-prod
+      cancel-in-progress: false
+    uses: ./.github/workflows/deploy.yml
+    with:
+      target: prod

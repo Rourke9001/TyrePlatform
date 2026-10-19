@@ -1,20 +1,27 @@
-# The staging deploy (ADR-0017). ci.yml's deploy-staging job calls it once
-# every gate job has passed on a push to develop; a dispatch from develop
-# rolls back to an image already in the registry (NFR-MNT-006). Not on
-# workflow_run: that event runs as the default branch, main, which the
-# staging environment's branch rule refuses (TYRE-79).
+# The deploy for both environments (ADR-0017). ci.yml calls it with target
+# staging on a push to develop and target prod on a push to main, once every
+# gate job has passed. A dispatch with image_sha rolls back to an image
+# already in the registry (NFR-MNT-006): staging from develop, prod from
+# main. Not on workflow_run: that event runs as the default branch, main,
+# which the staging environment's branch rule refuses (TYRE-79).
 #
-# Auth is OIDC on id-tyre-deploy-staging through the GitHub environment
-# staging; no long-lived Azure secret exists in this repo. The identity holds
-# AcrPush and Contributor on the resource group only, so it applies
-# infra/app.bicep and never infra/platform.bicep (U117).
-name: Deploy staging
+# Auth is OIDC on id-tyre-deploy-<env> through the GitHub environment
+# staging or production; no long-lived Azure secret exists in this repo.
+# Each identity holds Contributor on its own resource group only, so the
+# workflow applies infra/app.bicep and never infra/platform.bicep (U117).
+# Staging's identity also holds AcrPush; production's reads crtyrestaging
+# with AcrPull and pushes nothing.
+name: Deploy
 
 on:
   # image_sha is declared on both triggers so the inputs context is typed
   # for a CI call too; a call leaves it empty, and IMAGE_SHA falls back.
   workflow_call:
     inputs:
+      target:
+        description: staging or prod
+        required: true
+        type: string
       image_sha:
         description: Leave empty. CI calls this workflow for a normal deploy.
         required: false
@@ -22,6 +29,11 @@ on:
         default: ''
   workflow_dispatch:
     inputs:
+      target:
+        description: staging from develop, prod from main
+        required: true
+        type: choice
+        options: [staging, prod]
       image_sha:
         description: Full commit SHA of an image already in the registry, to roll back to
         required: true
@@ -32,13 +44,14 @@ permissions:
   contents: read
 
 env:
-  RG: rg-tyre-staging
+  TARGET: ${{ inputs.target }}
+  RG: rg-tyre-${{ inputs.target }}
   ACR: crtyrestaging
-  APP: ca-api-staging
-  PG: psql-tyre-staging
-  SWA: stapp-tyre-staging
+  APP: ca-api-${{ inputs.target }}
+  PG: psql-tyre-${{ inputs.target }}
+  SWA: stapp-tyre-${{ inputs.target }}
   # TEMPLATE_SHA is the run's commit; IMAGE_SHA is the rollback input when
-  # set, else that commit (spec section 2, Rollback).
+  # set, else that commit (NFR-MNT-006).
   TEMPLATE_SHA: ${{ github.sha }}
   IMAGE_SHA: ${{ inputs.image_sha || github.sha }}
 
@@ -46,7 +59,7 @@ jobs:
   api:
     name: API to Container Apps
     runs-on: ubuntu-latest
-    environment: staging
+    environment: ${{ inputs.target == 'prod' && 'production' || 'staging' }}
     # The red proof makes ARM wait on a revision that never readies; this
     # bounds the run rather than leaving it to GitHub's six-hour default.
     # Budget: at least 10 min starting the database, a build, 10 min of gate.
@@ -54,21 +67,24 @@ jobs:
     # Job level, so a dispatch and a CI deploy also exclude each other; the
     # caller job in ci.yml carries its own group for the CI path.
     concurrency:
-      group: deploy-staging-api
+      group: deploy-${{ inputs.target }}-api
       cancel-in-progress: false
     steps:
-      - name: Rollback input is a full SHA
-        if: inputs.image_sha != ''
-        run: |
-          [[ "$IMAGE_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::image_sha must be a full 40-character lower-case commit SHA, got '$IMAGE_SHA'"; exit 1; }
-
       # Pinned to a commit SHA for the reason set out at the top of the
-      # database job in ci.yml.
+      # database job in ci.yml. Full history: the guard proves ancestry and
+      # reads each branch's head, which a shallow clone cannot. The guard's
+      # fetch uses the token the checkout stores (contents: read).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ env.TEMPLATE_SHA }}
+          fetch-depth: 0
 
-      # Prints the token's subject claim, which id-tyre-deploy-staging's
+      - name: Guard
+        env:
+          ROLLBACK_SHA: ${{ inputs.image_sha }}
+        run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF_NAME" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
+
+      # Prints the token's subject claim, which id-tyre-deploy-<env>'s
       # federated credential must match byte for byte (runbook, bring-up
       # step 3). The token itself is never printed. A diagnostic, so its own
       # failure never stops a deploy.
@@ -87,9 +103,18 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       # The owner stops staging's server while idle (ADR-0017); the API
-      # exits at startup without it, so a deploy starts it first.
+      # exits at startup without it, so a staging deploy starts it first.
+      # Production's server is never stopped, so anything but Ready fails
+      # at once rather than being waited out.
       - name: Database running
         run: |
+          if [ "$TARGET" = prod ]; then
+            state=$(az postgres flexible-server show -g "$RG" -n "$PG" --query state -o tsv)
+            echo "server state: $state"
+            [ "$state" = Ready ] && exit 0
+            echo "::error::$PG is '$state'. During its Sunday 00:00 UTC maintenance window Updating is expected: re-run the failed jobs once it is Ready. Any other state is an incident, since production's server is never stopped (runbook, Before anything)"
+            exit 1
+          fi
           for _ in $(seq 1 60); do
             state=$(az postgres flexible-server show -g "$RG" -n "$PG" --query state -o tsv)
             echo "server state: $state"
@@ -104,26 +129,48 @@ jobs:
           echo "::error::$PG did not reach Ready (last state: $state)"
           exit 1
 
+      # A tag is pushed once: a re-run reuses the pushed image, so the image
+      # staging passed is the one production pulls on every restart or
+      # scale-out (ADR-0017's 2026-10-19 amendment).
       - name: Build and push image
-        if: inputs.image_sha == ''
+        if: inputs.image_sha == '' && inputs.target == 'staging'
         run: |
           az acr login --name "$ACR"
           image="$ACR.azurecr.io/tyre-api:$IMAGE_SHA"
+          if out=$(docker buildx imagetools inspect "$image" 2>&1); then
+            echo "$image is already in the registry, so it is not rebuilt"
+            exit 0
+          fi
+          case "$out" in
+            *"not found"*) ;;
+            *)
+              echo "$out"
+              echo "::error::cannot read $image, so nothing is pushed over it"
+              exit 1
+              ;;
+          esac
           docker build --build-arg BUILD_SHA="$IMAGE_SHA" -t "$image" api
           docker push "$image"
 
       - name: Image exists
+        if: inputs.target == 'staging'
         run: |
           az acr login --name "$ACR"
           docker buildx imagetools inspect "$ACR.azurecr.io/tyre-api:$IMAGE_SHA" >/dev/null \
             || { echo "::error::tyre-api:$IMAGE_SHA is not in $ACR"; exit 1; }
+
+      - name: Staging passed this image
+        if: inputs.target == 'prod'
+        run: |
+          az acr login --name "$ACR"
+          bash scripts/deploy-guard.sh image "$ACR.azurecr.io" "$IMAGE_SHA"
 
       - name: Apply the app template
         env:
           ROLLBACK_SHA: ${{ inputs.image_sha }}
         run: |
           # c for a CI deploy, d for a dispatch: the two count runs
-          # separately, so the prefix keeps their suffixes apart (spec section 2).
+          # separately, so the prefix keeps their suffixes apart.
           kind=c; [ -n "$ROLLBACK_SHA" ] && kind=d
           suffix="${kind}${GITHUB_RUN_NUMBER}-${GITHUB_RUN_ATTEMPT}-${IMAGE_SHA:0:7}"
           echo "REVISION_SUFFIX=$suffix" >> "$GITHUB_ENV"
@@ -134,7 +181,7 @@ jobs:
           az bicep install --version v0.47.16
           API_IMAGE="$ACR.azurecr.io/tyre-api:$IMAGE_SHA" REVISION_SUFFIX="$suffix" \
             az deployment group create -g "$RG" -n "app-$suffix" \
-              -p infra/app.staging.bicepparam -o none
+              -p "infra/app.$TARGET.bicepparam" -o none
 
       - name: Gate
         run: bash scripts/deploy-gate.sh "$RG" "$APP" "$REVISION_SUFFIX" "$IMAGE_SHA" 600
@@ -144,20 +191,31 @@ jobs:
     # A frontend never ships ahead of an API that failed to activate.
     needs: api
     runs-on: ubuntu-latest
-    environment: staging
-    # A hung upload would otherwise hold deploy-staging-web, and develop CI
-    # behind it, for six hours. The smoke rides on top of the upload and
-    # stops at its first failed check, which takes at most about 8 minutes
-    # to fail: 12 tries, each a curl of up to 30 s, 10 s apart.
+    environment: ${{ inputs.target == 'prod' && 'production' || 'staging' }}
+    # A hung upload would otherwise hold deploy-<env>-web, and CI behind it,
+    # for six hours. The smoke rides on top of the upload and stops at its
+    # first failed check, which takes at most about 8 minutes to fail: 12
+    # tries, each a curl of up to 30 s, 10 s apart.
     timeout-minutes: 30
     concurrency:
-      group: deploy-staging-web
+      group: deploy-${{ inputs.target }}-web
       cancel-in-progress: false
     steps:
-      # The frontend matches the image: a rollback ships the old commit's web too.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ env.IMAGE_SHA }}
+          ref: ${{ env.TEMPLATE_SHA }}
+          fetch-depth: 0
+
+      # "Re-run failed jobs" can re-run this job alone, so it runs the guard
+      # too rather than trusting the api job's run.
+      - name: Guard
+        env:
+          ROLLBACK_SHA: ${{ inputs.image_sha }}
+        run: bash scripts/deploy-guard.sh commit "$TARGET" "$GITHUB_REF_NAME" "$TEMPLATE_SHA" "$GITHUB_RUN_ATTEMPT" "$ROLLBACK_SHA"
+
+      # The frontend matches the image: a rollback ships the old commit's web too.
+      - name: Check out the image's commit
+        run: git checkout --quiet --detach "$IMAGE_SHA"
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
@@ -231,3 +289,15 @@ jobs:
             exit 1
           fi
           bash scripts/deploy-smoke.sh "$WEB_ORIGIN" "$API_ORIGIN" web/dist/staticwebapp.config.json
+
+      # Production's deploy demands this record (ADR-0017's 2026-10-19
+      # amendment), so it is written only after the gate and the smoke pass.
+      # A carbon copy of the one image tyre-api:<sha> ever names, so its
+      # digest is the image staging served. Only staging's identity can push.
+      - name: Record that staging passed this image
+        if: inputs.target == 'staging'
+        run: |
+          az acr login --name "$ACR"
+          docker buildx imagetools create --prefer-index=false \
+            --tag "$ACR.azurecr.io/tyre-api:$IMAGE_SHA-staging-passed" \
+            "$ACR.azurecr.io/tyre-api:$IMAGE_SHA"

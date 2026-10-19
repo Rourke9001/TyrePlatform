@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# The staging deploy gate (TYRE-79, spec section 2). Green only when a
-# replica of the revision this deploy created answers /readyz with the
-# expected commit and its own revision name; /healthz answering through the
-# FQDN proves neither, because the old revision keeps traffic when a new
-# one fails, and a traffic weight of 100 does not prove a replica serves
-# (TYRE-79).
+# The deploy gate for both environments (TYRE-79); production reuses it
+# unchanged (TYRE-411). Green only when a replica of the revision this
+# deploy created answers /readyz with the expected commit and its own
+# revision name; /healthz answering through the FQDN proves neither,
+# because the old revision keeps traffic when a new one fails, and a
+# traffic weight of 100 does not prove a replica serves (TYRE-79).
 set -euo pipefail
 [ "$#" -ge 4 ] || { echo "usage: $0 RESOURCE_GROUP APP REVISION_SUFFIX EXPECTED_SHA [TIMEOUT_SECONDS]" >&2; exit 2; }
 rg=$1 app=$2 suffix=$3 want=$4 timeout=${5:-600}
@@ -18,8 +18,8 @@ fqdn=$(az containerapp show -g "$rg" -n "$app" --query properties.configuration.
 body=$(mktemp)
 trap 'rm -f "$body"' EXIT
 
-# One loop: with minReplicas 0 only a request wakes a replica, so /readyz is
-# polled on every pass. Only a Failed state stops early; Degraded and
+# One loop: under staging's minReplicas 0 only a request wakes a replica, so
+# /readyz is polled on every pass. Only a Failed state stops early; Degraded and
 # Unhealthy are normal during a cold start and ride to the timeout.
 prov="" run="" weight="" code="" got_sha="" got_rev=""
 while :; do

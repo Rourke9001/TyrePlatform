@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# The post-deploy smoke of both staging origins (TYRE-51; section 5 of
+# The post-deploy smoke of both origins of the environment just deployed
+# (TYRE-51; section 5 of
 # docs/superpowers/specs/2026-10-16-platform-readiness-design.md), and
 # TYRE-398's first post-deploy smoke tests. It proves routing, CORS and the
 # refusal shape. It does not prove that Authorization reaches Go unchanged:
