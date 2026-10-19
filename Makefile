@@ -238,7 +238,7 @@ web-production: ## The production bundle in Chromium under its CSP and config.js
 	cd web && npx playwright install chromium && npm run e2e:production
 
 .PHONY: deploy-gate-test
-deploy-gate-test: ## The staging deploy gate's pass and fail cases, with stub az and curl (TYRE-79)
+deploy-gate-test: ## The deploy gate's pass and fail cases, with stub az and curl (TYRE-79)
 	bash scripts/deploy-gate.test.sh
 
 .PHONY: deploy-guard-test
