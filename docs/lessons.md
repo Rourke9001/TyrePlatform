@@ -28,6 +28,24 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-20 - A cloud session has no Docker daemon and loads no project plugin (TYRE-445)
+
+**What happened:** in a claude.ai cloud session, `docker` and `dockerd`
+are installed but no daemon runs, so `make db-up`, `make db-test` and
+`make check` fail at their first Docker call (`docker.sock`: no such
+file). Starting `dockerd` from inside the session was refused as a
+containment escape. In the same session, `ui-ux-pro-max`, enabled in
+`.claude/settings.json` through `extraKnownMarketplaces`, never loaded:
+no skill was listed and `~/.claude/plugins/installed_plugins.json` was
+empty. Skills vendored under `.claude/skills/` did load.
+
+**The rule:** before planning stage 4 or `make check` in a cloud session,
+run `docker info`. If it fails, do the ticket locally or have the owner
+start the daemon in the environment's setup script; never start it from
+the session. Do not count on a project plugin (superpowers,
+`ui-ux-pro-max`) in a cloud session; vendor the skill under
+`.claude/skills/` or run the ticket locally.
+
 ## 2026-10-20 - Another session moved the shared checkout between two release blocks (TYRE-397)
 
 **What happened:** during production's bring-up, a close-out session
