@@ -178,8 +178,8 @@ prints anything, stop.
    `Key Vault Secrets User` on `kv-tyre-api-<env>`. Any other row stops the
    release: a role on `kv-tyre-<env>` lets the API read the admin password,
    which bypasses RLS (TYRE-435, CLAUDE.md rule 1). The one exception is
-   staging's switch-over below, between its steps 1 and 4, which says what
-   it expects.
+   staging's switch-over below, from its step 0 until its step 4, which
+   says what it expects.
 
    After TYRE-402, the what-if must show no change to the API identity's
    AcrPull assignment on `crtyrestaging`: the grant moved into the
@@ -278,7 +278,9 @@ until steps 0 to 2 are done.
 0. **Staging's first apply after TYRE-397**, from `develop`, exactly as
    bring-up step 4 says, if it has not run. It has run when
    `az storage account blob-service-properties show --account-name sttyre$ENV -g $RG --query isVersioningEnabled -o tsv`
-   prints `true`.
+   prints `true`. If it runs, its role listing shows two rows here:
+   `AcrPull` on `crtyrestaging` and `Key Vault Secrets User` on
+   `kv-tyre-staging`. Any other row stops.
 
 1. **Apply from the branch**, once stage 5 shows no open Critical or
    Important finding and before the merge. First:
@@ -287,13 +289,18 @@ until steps 0 to 2 are done.
    git fetch origin
    git switch TYRE-435-scope-api-vault-grant
    git merge-base --is-ancestor origin/develop HEAD && echo "the branch contains develop"
+   [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/TYRE-435-scope-api-vault-grant)" ] && [ -z "$(git status --porcelain)" ] && echo "the branch matches origin and is clean"
    ```
 
-   It must print the line. If it does not, rebase the branch onto `develop`
-   first. Then run the branch's **Before anything** again, so `KVAPI` is
-   set: step 0 ran under `develop`'s, which sets none. Then run bring-up
-   step 4's block in what-if form twice, from
-   `git switch --detach origin/develop` and then from the branch again
+   It must print both lines. If the first is missing, rebase the branch
+   onto `develop` first. If the second is missing, pull or stop: an apply
+   from a stale or edited checkout puts a `platform.bicep` on staging that
+   the PR does not hold.
+
+   Then run the branch's **Before anything** again, so `KVAPI` is set:
+   step 0 ran under `develop`'s, which sets none. Then run bring-up step 4's
+   block in what-if form twice, from `git switch --detach origin/develop`
+   and then from the branch again
    (`git switch TYRE-435-scope-api-vault-grant`). The branch's run adds
    three Creates, `kv-tyre-api-staging` and two role assignments on it, and
    no Delete or Modify beyond the first run's. The API identity's
@@ -316,10 +323,12 @@ until steps 0 to 2 are done.
    unset dsn copy
    ```
 
-   Expect `database-url copies match`. A Forbidden on the write means the
-   new Secrets Officer grant is not in force yet: wait a few minutes and
-   re-run. Then run bring-up step 2's secrets proof, where
-   `kv-tyre-staging` still lists `database-url` too until step 4.
+   Expect `database-url copies match`. On `database-url copies differ`,
+   stop and do not merge: re-run the block, and if the copies still
+   differ, post on TYRE-435. A Forbidden on the write means the new Secrets
+   Officer grant is not in force yet: wait a few minutes and re-run. Then
+   run bring-up step 2's secrets proof, where `kv-tyre-staging` still lists
+   `database-url` too until step 4.
 
    Then create the proof job and run it once (the blocks after this list),
    at least ten minutes after step 1's apply. Expect the execution to be
@@ -328,8 +337,15 @@ until steps 0 to 2 are done.
    the API identity, and shows the job can see a read. The `200` shows the
    API identity reads the new vault before the merge relies on it: a
    container app's secrets belong to the app, not to a revision, so a
-   reference that fails is not something to find out at the merge. Keep the
-   job until step 4. Then mark the PR ready for review.
+   reference that fails is not something to find out at the merge. If the
+   `database-url` line shows `HTTP 403`, the new grant is not in force yet:
+   wait ten minutes and run the job again. Any other HTTP code stops: keep
+   the PR a draft and post the log on TYRE-435.
+
+   Keep this run's execution name, status and log lines: post them on
+   TYRE-435 now, or paste them into the draft of step 4's comment. The log
+   query reaches back two hours, and step 4 deletes the job. Keep the job
+   until step 4. Then mark the PR ready for review.
 
 3. **Merge.** A green deploy means a revision started with `DATABASE_URL`
    resolved from `kv-tyre-api-staging`. Confirm the reference it runs:
@@ -339,6 +355,10 @@ until steps 0 to 2 are done.
    ```
 
    Expect `https://kv-tyre-api-staging.vault.azure.net/secrets/database-url`.
+   If the deploy is red, or the URL is any other, stop: keep the old grant
+   and secret in place, and post on TYRE-435. The old grant is what keeps
+   other deploys to staging working.
+
    Until step 4, Each release on staging finds `database-url` in both
    vaults, and the role listing shows three rows. Both are expected in this
    window only.
@@ -362,9 +382,11 @@ until steps 0 to 2 are done.
      [ "$n" = 1 ] && az role assignment delete --assignee-object-id "$apid" --role "Key Vault Secrets User" --scope "$kvid"
      ```
 
-     The one row's scope ends in `/vaults/kv-tyre-staging`.
-   - Delete the old secret:
-     `[ -n "$KV" ] && az keyvault secret delete --vault-name $KV -n database-url -o none`.
+     The one row's scope ends in `/vaults/kv-tyre-staging`. On any other
+     `rows=`, stop and delete nothing: post the listing on TYRE-435.
+   - Delete the old secret, in the same shell and after the block above,
+     whose `case` empties `kvid` unless `$KV` is the owner's vault:
+     `[ -n "$kvid" ] && az keyvault secret delete --vault-name $KV -n database-url -o none`.
      Soft delete keeps it for 7 days, recoverable only by a Secrets
      Officer, which the API identity is not. No purge.
    - Wait ten minutes ("allow several minutes for role assignments to
@@ -376,13 +398,15 @@ until steps 0 to 2 are done.
      `database-url: HTTP 200, length <n>`, `<n>` as in step 2. A `READ`
      after a further ten minutes is a finding: stop and post it on
      TYRE-435.
-   - Delete the job:
+   - Read this run's log lines (the log block after this list) and keep
+     them with its execution name and status. Then delete the job:
      `az containerapp job delete -g $RG -n job-tyre-kv-proof --yes -o none`.
    - Run bring-up step 2's secrets proof and bring-up step 4's role
      listing, both with their usual expectations: `database-url` only in
      `kv-tyre-api-staging`, and two rows.
    - Post on TYRE-435: both executions' statuses and log lines, the
-     listing, the secrets proof's names, and the merge's deploy run.
+     listing, the secrets proof's names, and the merge's deploy run. The
+     first execution's lines are the ones step 2 kept.
 
 **The proof job.** The API image is distroless with no shell, so the proof
 cannot run inside the API (TYRE-435 spec, section 4.4). It runs as a
@@ -441,11 +465,14 @@ az containerapp job show -g $RG -n job-tyre-kv-proof --query properties.provisio
 ```
 
 Expect `job body written`, then re-run the last line until it prints
-`Succeeded`. The job's container is named `job-tyre-kv-proof`, which the
-log query below relies on. The image is pinned by digest, as the runbook's
-other images are. The admin password's response body goes to `/dev/null`,
-so its value is never stored or printed, and the API's secret is reduced
-to a length.
+`Succeeded`. On `Failed`, post the error on TYRE-435 and stop. Any other
+state means Azure is still provisioning the job: wait and read it again.
+
+The job's container is named `job-tyre-kv-proof`, which the log query
+below relies on. The image is pinned by digest, as the runbook's other
+images are. The admin password's response body goes to `/dev/null`, so
+its value is never stored or printed, and the API's secret is reduced to a
+length.
 
 Each run of the job:
 
@@ -665,8 +692,8 @@ before its first platform apply, so the order differs from staging's.
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
    apppw=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
    enc=$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$apppw")
-   echo "pw-length=${#pw} apppw-length=${#apppw} enc-length=${#enc}"   # all three must be non-zero
-   [ -n "$pw" ] && [ -n "$apppw" ] && [ -n "$enc" ] && \
+   echo "KVAPI=$KVAPI pw-length=${#pw} apppw-length=${#apppw} enc-length=${#enc}"   # the API's vault name, then three non-zero lengths
+   [ -n "$KVAPI" ] && [ -n "$pw" ] && [ -n "$apppw" ] && [ -n "$enc" ] && \
      echo "ALTER ROLE app_login PASSWORD :'apppw';" | \
      docker run --rm -i -e PGPASSWORD="$pw" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
        "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require" \
