@@ -1,25 +1,24 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
 import { fetchTyreCatalogue, type TyreCatalogue, type TyrePattern } from "../api/catalogue";
 import { getDevTenantId } from "../api/devTenant";
+import { formatMoney, useCurrency } from "../api/money";
+import { fetchPriceEstimate } from "../api/receipts";
 import { refusalMessage } from "../api/refusal";
-import {
-  COST_SOURCES,
-  receiveTyres,
-  type CostSource,
-  type NewTyres,
-  type ReceivedTyre,
-} from "../api/tyres";
+import { receiveTyres, type NewTyres, type ReceivedTyre } from "../api/tyres";
 import { useActor } from "../auth/actorContext";
+import { useTenantDate } from "../time/tenantTime";
 import { byNaturalCode } from "./unit/naturalOrder";
-import { tyreCatalogueKey } from "./unit/queryKeys";
+import { priceEstimateKey, tyreCatalogueKey } from "./unit/queryKeys";
 import "./fleet.css";
 
 // app.receive_tyres answers TY011 for its display-code policy, quantity,
-// catalogue, tread and cost-source refusals (000053), and display_code_taken
-// is its conflict; the lifecycle's other codes belong to endpoints this
-// screen never calls.
+// catalogue, tread and cost-source refusals (000053), a received date after
+// the tenant's today (TYRE-418), an invoice number without an invoice price,
+// and an estimate off the price list or with no list entry in force
+// (000059); display_code_taken is its conflict. The lifecycle's other codes
+// belong to endpoints this screen never calls.
 const RECEIVE_WORDING = {
   speakable: ["display_code_taken", "TY011"],
   forbidden: "You do not have permission to receive tyres.",
@@ -64,11 +63,37 @@ export function ReceiveTyre() {
   const [brandFromPattern, setBrandFromPattern] = useState(false);
   const [patternId, setPatternId] = useState("");
   const [newTread, setNewTread] = useState("");
-  const [price, setPrice] = useState("");
-  // TYRE-370: empty until someone picks one. A recorded cost is never
-  // corrected (D5), so a source nobody chose is never sent.
-  const [costSource, setCostSource] = useState<CostSource | "">("");
+  // FR-CFG-041: null follows the price list; anything typed, even the list's
+  // own figure, is an invoice price, since the person took it from
+  // somewhere other than the list.
+  const [typed, setTyped] = useState<string | null>(null);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
+  // TYRE-418: both optional. A blank received date is the tenant's today,
+  // decided by the server, so no browser clock reaches a tenant-day
+  // comparison (rule 6).
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [receivedDate, setReceivedDate] = useState("");
   const [received, setReceived] = useState<ReceivedTyre[] | null>(null);
+  const currency = useCurrency();
+  const asDate = useTenantDate();
+  const queryClient = useQueryClient();
+
+  // Read once size and pattern are chosen, with the brand and date the
+  // receive will send: a receive always names a pattern, and a branded one
+  // supplies the brand the match uses (spec, The brand the match uses).
+  const estimateKey = priceEstimateKey(tenantKey, sizeId, patternId, brandId, receivedDate);
+  const estimateWanted = sizeId !== "" && patternId !== "";
+  const estimate = useQuery({
+    queryKey: estimateKey,
+    queryFn: () =>
+      fetchPriceEstimate({
+        sizeId,
+        patternId,
+        brandId: brandId === "" ? undefined : brandId,
+        receivedDate: receivedDate === "" ? undefined : receivedDate,
+      }),
+    enabled: estimateWanted,
+  });
 
   const receive = useMutation({
     mutationFn: receiveTyres,
@@ -81,8 +106,16 @@ export function ReceiveTyre() {
       setBrandFromPattern(false);
       setPatternId("");
       setNewTread("");
-      setPrice("");
-      setCostSource("");
+      setTyped(null);
+      setInvoiceNumber("");
+      setPurchaseDate("");
+      setReceivedDate("");
+    },
+    // A refusal may be the list moving under the form (the estimate is no
+    // longer the list's figure), so the estimate is read again and an
+    // untyped price follows it.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: estimateKey });
     },
   });
 
@@ -96,11 +129,19 @@ export function ReceiveTyre() {
   const patterns = loaded ? newTyrePatterns(loaded, brandId) : [];
   const ready = loaded !== null && sizes.length > 0 && newTyrePatterns(loaded, "").length > 0;
 
-  const priceEntered = price.trim() !== "";
   const treadEntered = newTread.trim() !== "";
   const treadShaped = TREAD_SHAPE.test(newTread.trim());
   const treadMisshapen = treadEntered && !treadShaped;
-  const sourceMissing = priceEntered && costSource === "";
+
+  const listed = estimateWanted ? (estimate.data ?? null) : null;
+  const estimateReading = estimateWanted && estimate.isFetching;
+  const estimateFailed = estimateWanted && estimate.isError && !estimate.isFetching;
+  const shownPrice = typed ?? listed?.typicalPrice ?? "";
+  const invoicePrice = typed !== null && typed.trim() !== "";
+  const listPrice = typed === null && listed !== null;
+  // Decision 22: a failed read is never read as "no list entry", so the
+  // receive waits until the read succeeds or the person types a price.
+  const priceUnsettled = estimateReading || (estimateFailed && !invoicePrice);
 
   function brandOf(id: string): string | null {
     return loaded?.patterns.find((p) => p.id === id)?.brandId ?? null;
@@ -132,12 +173,29 @@ export function ReceiveTyre() {
     if (brand !== null && brand !== id) setPatternId("");
   }
 
+  // What the price is and where it came from, in one line beside it.
+  function priceHint(): string {
+    if (invoicePrice) {
+      return listed === null
+        ? "This is an invoice price."
+        : `This is an invoice price, not the price list estimate of ${formatMoney(listed.typicalPrice, currency)}.`;
+    }
+    if (listPrice) {
+      const scope = listed.brandSpecific ? "this size and brand" : "this size, any brand";
+      return `Price list estimate for ${scope}, effective ${asDate(listed.effectiveFrom)}`;
+    }
+    // CFL-002: an unpriced receive is not an error, it is the normal shape
+    // of most intake. Most of what a tenant eventually knows about a tyre is
+    // not known yet at the workshop door.
+    return "Leave the price blank to add this tyre to the awaiting-cost queue.";
+  }
+
   function submit(e: FormEvent) {
     e.preventDefault();
     if (!ready) return;
     if (isFree && displayCode.trim() === "") return;
     if (!isFree && quantity.trim() === "") return;
-    if (sizeId === "" || patternId === "" || !treadShaped || sourceMissing) return;
+    if (sizeId === "" || patternId === "" || !treadShaped || priceUnsettled) return;
     setReceived(null);
 
     const body: NewTyres = {
@@ -150,10 +208,18 @@ export function ReceiveTyre() {
     // Price is the one field that must never round-trip through Number():
     // all money is decimal text end to end (rule 2), and the cent-exact
     // valuation gate is the whole reason a JS float never touches it here.
-    if (priceEntered && costSource !== "") {
-      body.purchasePrice = price;
-      body.costSource = costSource;
+    // The invoice number goes only with an invoice price, the one place it
+    // is shown (Decision 22).
+    if (invoicePrice) {
+      body.purchasePrice = typed;
+      body.costSource = "INVOICE";
+      if (invoiceNumber.trim() !== "") body.invoiceNumber = invoiceNumber.trim();
+    } else if (listPrice) {
+      body.purchasePrice = listed.typicalPrice;
+      body.costSource = "PRICE_LIST_ESTIMATE";
     }
+    if (purchaseDate !== "") body.purchaseDate = purchaseDate;
+    if (receivedDate !== "") body.receivedDate = receivedDate;
     receive.mutate(body);
   }
 
@@ -169,6 +235,7 @@ export function ReceiveTyre() {
             <label htmlFor="displayCode">Display code</label>
             <input
               id="displayCode"
+              name="displayCode"
               value={displayCode}
               onChange={(e) => setDisplayCode(e.target.value)}
               autoComplete="off"
@@ -189,6 +256,7 @@ export function ReceiveTyre() {
             <label htmlFor="quantity">Quantity</label>
             <input
               id="quantity"
+              name="quantity"
               type="number"
               min={1}
               max={200}
@@ -219,7 +287,13 @@ export function ReceiveTyre() {
         {ready && (
           <>
             <label htmlFor="sizeId">Size</label>
-            <select id="sizeId" value={sizeId} onChange={(e) => setSizeId(e.target.value)} required>
+            <select
+              id="sizeId"
+              name="sizeId"
+              value={sizeId}
+              onChange={(e) => setSizeId(e.target.value)}
+              required
+            >
               <option value="">Choose a size</option>
               {sizes.map((s) => (
                 <option key={s.id} value={s.id}>
@@ -229,7 +303,12 @@ export function ReceiveTyre() {
             </select>
 
             <label htmlFor="brandId">Brand</label>
-            <select id="brandId" value={brandId} onChange={(e) => chooseBrand(e.target.value)}>
+            <select
+              id="brandId"
+              name="brandId"
+              value={brandId}
+              onChange={(e) => chooseBrand(e.target.value)}
+            >
               <option value="">No brand chosen</option>
               {brands.map((b) => (
                 <option key={b.id} value={b.id}>
@@ -241,6 +320,7 @@ export function ReceiveTyre() {
             <label htmlFor="patternId">Pattern</label>
             <select
               id="patternId"
+              name="patternId"
               value={patternId}
               onChange={(e) => choosePattern(e.target.value)}
               required
@@ -258,6 +338,7 @@ export function ReceiveTyre() {
         <label htmlFor="newTreadMm">New tread (mm)</label>
         <input
           id="newTreadMm"
+          name="newTreadMm"
           inputMode="decimal"
           autoComplete="off"
           value={newTread}
@@ -273,50 +354,67 @@ export function ReceiveTyre() {
           </p>
         )}
 
-        <label htmlFor="purchasePrice">Purchase price</label>
+        <label htmlFor="receivedDate">Received date (optional, blank is today)</label>
         <input
-          id="purchasePrice"
-          inputMode="decimal"
+          id="receivedDate"
+          name="receivedDate"
+          type="date"
           autoComplete="off"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
+          value={receivedDate}
+          onChange={(e) => setReceivedDate(e.target.value)}
         />
 
-        {priceEntered ? (
-          <>
-            <label htmlFor="costSource">Cost source</label>
-            <select
-              id="costSource"
-              value={costSource}
-              onChange={(e) =>
-                setCostSource(COST_SOURCES.find((c) => c.value === e.target.value)?.value ?? "")
-              }
-              required
-              aria-describedby={sourceMissing ? "costSource-why" : undefined}
-            >
-              <option value="">Choose a source</option>
-              {COST_SOURCES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-            {sourceMissing && (
-              <p className="tyres-receive-hint" id="costSource-why">
-                Choose where this price came from. A cost cannot be corrected once it is recorded.
-              </p>
-            )}
-          </>
-        ) : (
-          // CFL-002: an unpriced receive is not an error, it is the normal
-          // shape of most intake. Most of what a tenant eventually knows
-          // about a tyre is not known yet at the workshop door.
-          <p className="tyres-receive-hint">
-            Leave the price blank to add this tyre to the awaiting-cost queue.
-          </p>
+        <label htmlFor="purchasePrice">Unit price</label>
+        <input
+          id="purchasePrice"
+          name="purchasePrice"
+          inputMode="decimal"
+          autoComplete="off"
+          value={shownPrice}
+          onChange={(e) => setTyped(e.target.value)}
+          aria-describedby="purchasePrice-source"
+        />
+        <p className="tyres-receive-hint" id="purchasePrice-source" aria-live="polite">
+          {priceHint()}
+        </p>
+        {estimateFailed && (
+          <div className="note-card" role="alert">
+            <p>The price list could not be read. Retry, or type the invoice price.</p>
+            <button className="btn-primary" type="button" onClick={() => void estimate.refetch()}>
+              Retry
+            </button>
+          </div>
         )}
 
-        <button className="btn-primary" type="submit" disabled={receive.isPending || !ready}>
+        {invoicePrice && (
+          <>
+            <label htmlFor="invoiceNumber">Invoice number (optional)</label>
+            <input
+              id="invoiceNumber"
+              name="invoiceNumber"
+              autoComplete="off"
+              spellCheck={false}
+              value={invoiceNumber}
+              onChange={(e) => setInvoiceNumber(e.target.value)}
+            />
+          </>
+        )}
+
+        <label htmlFor="purchaseDate">Purchase date (optional)</label>
+        <input
+          id="purchaseDate"
+          name="purchaseDate"
+          type="date"
+          autoComplete="off"
+          value={purchaseDate}
+          onChange={(e) => setPurchaseDate(e.target.value)}
+        />
+
+        <button
+          className="btn-primary"
+          type="submit"
+          disabled={receive.isPending || !ready || priceUnsettled}
+        >
           {receive.isPending ? "Receiving…" : "Receive"}
         </button>
       </form>

@@ -43,6 +43,18 @@ export function tyreCatalogueKey(tenantKey: string): QueryKey {
   return ["tyre-catalogue", tenantKey];
 }
 
+// The receive form's price list estimate (TYRE-283), keyed on everything
+// the match reads, so a change of any of them reads it again.
+export function priceEstimateKey(
+  tenantKey: string,
+  sizeId: string,
+  patternId: string,
+  brandId: string,
+  receivedDate: string,
+): QueryKey {
+  return ["price-estimate", tenantKey, sizeId, patternId, brandId, receivedDate];
+}
+
 export function depotsKey(tenantKey: string): QueryKey {
   return ["depots", tenantKey];
 }
