@@ -16,12 +16,12 @@ platform catalogue, so step 2 below inserts 0 for it.
 
 - Connect as `app_login`, the role the API uses, which does not bypass RLS
   (CLAUDE.md rule 1). Nothing here needs more. In Azure, set `$RG`, `$PG`
-  and `$KV` as `environment-release.md` does, and open psql with the Key
+  and `$KVAPI` as `environment-release.md` does, and open psql with the Key
   Vault `database-url` from the folder that holds the tenant's file. The
   folder is mounted read-only at `/load`:
 
   ```bash
-  dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
+  dsn=$(az keyvault secret show --vault-name $KVAPI -n database-url --query value -o tsv)
   MSYS_NO_PATHCONV=1 docker run --rm -it -e DSN="$dsn" -v "$(pwd -W):/load:ro" \
     postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea \
     sh -c 'psql "$DSN"'
