@@ -28,6 +28,38 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-20 - Another session moved the shared checkout between two release blocks (TYRE-397)
+
+**What happened:** during production's bring-up, a close-out session
+working in the same checkout switched it to its own branch,
+`TYRE-435-pr133-close-out`. The owner's next block, step 3's what-if,
+printed that branch in `git log`, and the shell still held `ENV=staging`
+from the switch-over. Only an added `[ "$ENV" = prod ]` guard kept the
+block from setting staging's admin password to a new one. The bring-up
+moved to a worktree detached at `origin/develop` and finished there.
+
+**The rule:** run a release from its own worktree
+(`git worktree add --detach ../TyrePlatform-release origin/develop`), never
+from a checkout another session uses. Every block that writes production
+checks `[ "$ENV" = prod ]` first.
+
+## 2026-10-20 - A PR merged before the apply its template needs is held by cancelling its queued run (TYRE-435)
+
+**What happened:** PR #133's merged `infra/app.bicep` named
+`kv-tyre-api-staging`, which only switch-over step 1 creates. The PR was
+merged before steps 0 to 2. Its `develop` run, 39399161984, was still
+queued behind the previous merge's run. It was cancelled before any job
+started, steps 0 to 2 ran from the merge commit, and `gh run rerun` then
+deployed it green. Develop runs are not cancel-in-progress, because
+cancelling a deploy mid-rollout strands a half-applied release.
+
+**The rule:** when a merge's deploy would name Azure state that does not
+exist yet, cancel its `develop` run while it is queued, never once its
+deploy job has started. Then apply from the merge commit, after
+`git diff --quiet <reviewed head> HEAD -- infra` succeeds, and
+`gh run rerun` the same run id. Close-out reads that id as `cancelled`
+until the re-run finishes (the entry below).
+
 ## 2026-10-20 - A cancelled CI run can come back under the same id (TYRE-435)
 
 **What happened:** the close-out routine for PR #133 read the merge
