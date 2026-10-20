@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
   await actAsOrgAdmin(page);
 });
 
-test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) => {
+test("an admin receives a tyre, prices its receipt and scraps it on Sandbox", async ({ page }) => {
   await page.goto("/fleet/tyres/new");
 
   // D12's UI contract: under GENERATED, the screen offers no field to
@@ -38,29 +38,31 @@ test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) =
   await expect(issuedCode).toHaveText(/^SBX-\d{5}$/);
   const displayCode = ((await issuedCode.textContent()) ?? "").trim();
 
-  // The register: the just-received tyre is flagged awaiting cost.
+  // The register: the just-received tyre is flagged awaiting cost, and is
+  // priced with its set on its receipt, never alone (FR-CFG-041).
   await page.goto("/fleet/tyres");
   const row = page.getByRole("row", { name: new RegExp(displayCode) });
   await expect(row.getByText("Yes", { exact: true })).toBeVisible();
-
-  // Cost it through the register's inline CostForm (TyreList.tsx), rendered
-  // only while awaitingCost is true.
-  await row.getByLabel(`Purchase price for ${displayCode}`).fill("550.00");
-  await row.getByLabel(`Cost source for ${displayCode}`).selectOption("INVOICE");
-  await Promise.all([
-    page.waitForResponse(
-      (res) =>
-        /\/api\/tyres\/.+\/cost$/.test(new URL(res.url()).pathname) &&
-        res.request().method() === "POST",
-    ),
-    row.getByRole("button", { name: /^set cost$/i }).click(),
-  ]);
-
-  // Costed: the query refetches, the flag flips, and the cost form is gone
-  // rather than offering a second submission (D5/TY013: a correction later is
-  // a decision this surface does not take).
-  await expect(row.getByText("No", { exact: true })).toBeVisible();
+  await expect(row.getByRole("link", { name: "Price it on its receipt" })).toBeVisible();
   await expect(row.getByLabel(`Purchase price for ${displayCode}`)).toHaveCount(0);
+
+  // Record the invoice on the receipt that holds the issued code.
+  await page.goto("/fleet/tyres/receipts");
+  const receipt = page.getByRole("row", { name: new RegExp(displayCode) });
+  await receipt.getByRole("button", { name: "Record invoice" }).click();
+  await receipt.getByLabel("Unit price").fill("550.00");
+  await Promise.all([
+    posted(page, /^\/api\/tyre-receipts\/[^/]+\/invoice$/),
+    receipt.getByRole("button", { name: "Save invoice" }).click(),
+  ]);
+  await expect(page.getByRole("status")).toHaveText("Invoice recorded. 1 tyre priced.");
+
+  // Priced: the register's flag flips, and no cost control is offered for a
+  // second submission (D5/TY013: a correction later is a decision this
+  // surface does not take).
+  await page.goto("/fleet/tyres");
+  await expect(row.getByText("No", { exact: true })).toBeVisible();
+  await expect(row.getByRole("link", { name: "Price it on its receipt" })).toHaveCount(0);
 
   // Scrap with a reason (app.dispose_tyre requires one for SCRAPPED): no
   // "active only" filter exists yet, so the row stays visible with its state
@@ -80,16 +82,17 @@ test("an admin receives, costs and scraps a tyre on Sandbox", async ({ page }) =
 });
 
 // TYRE-318's definition of done: a priced receive through the form, with its
-// catalogue entries and new tread, is rated, so the register shows a Rand/mm
-// where an unrated tyre shows a dash.
+// catalogue entries and new tread, is rated, so the register shows a cost
+// per mm where an unrated tyre shows a dash. Sandbox has no price list, so
+// the typed price is an invoice price (FR-CFG-041).
 test("a priced receive through the pickers is rated on the register", async ({ page }) => {
   await page.goto("/fleet/tyres/new");
   await page.getByLabel(/quantity/i).fill("1");
   await page.getByLabel("Size", { exact: true }).selectOption({ label: SANDBOX_SIZE });
   await page.getByLabel("Pattern", { exact: true }).selectOption({ label: SANDBOX_PATTERN });
   await page.getByLabel("New tread (mm)").fill("25.0");
-  await page.getByLabel("Purchase price").fill("4319.91");
-  await page.getByLabel("Cost source").selectOption("INVOICE");
+  await page.getByLabel("Unit price").fill("4319.91");
+  await expect(page.getByText("This is an invoice price.")).toBeVisible();
   await Promise.all([
     posted(page, /^\/api\/tyres$/),
     page.getByRole("button", { name: /^receive$/i }).click(),
@@ -100,9 +103,9 @@ test("a priced receive through the pickers is rated on the register", async ({ p
 
   await page.goto("/fleet/tyres");
   // allTextContents does not wait, so the table must be on screen first.
-  await expect(page.getByRole("columnheader", { name: "Rand/mm", exact: true })).toBeVisible();
+  await expect(page.getByRole("columnheader", { name: "Cost per mm", exact: true })).toBeVisible();
   const columns = await page.getByRole("columnheader").allTextContents();
-  const rateColumn = columns.indexOf("Rand/mm");
+  const rateColumn = columns.indexOf("Cost per mm");
   expect(rateColumn).toBeGreaterThan(0);
   // The code is a row header, which getByRole("cell") skips, so the cells
   // run one index behind the headers (fitments.spec.ts).
@@ -110,5 +113,5 @@ test("a priced receive through the pickers is rated on the register", async ({ p
   // Appendix E's 4319.91 over (25.0 - 4.0) mm, the figure suite section 7
   // pins, at Sandbox's seeded 4.0 threshold: a literal, so a wrong rate
   // fails here, not only a missing one.
-  await expect(row.getByRole("cell").nth(rateColumn - 1)).toHaveText("R 205.7100");
+  await expect(row.getByRole("cell").nth(rateColumn - 1)).toHaveText("R205.7100");
 });
