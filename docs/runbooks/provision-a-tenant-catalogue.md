@@ -160,7 +160,10 @@ One JSON object. Every section is optional:
   `effective_from`.
 - **Price list** rows need a `size`, a `typical_price` and an
   `effective_from`. `brand` is optional; a row without one is the size's
-  price with no brand named.
+  price with no brand named. Date a price row on or before every received
+  date onboarding will enter for that size: a receive dated earlier gets no
+  estimate, and its unpriced receipt cannot take the list price
+  (FR-CFG-041, TYRE-283).
 - **Names.** A size or brand a row names is one the fleet has, seeded or
   its own, or one an earlier section of the same file adds. Names match
   exactly, capitals included. A name that is empty or has a space at either
@@ -191,4 +194,5 @@ One JSON object. Every section is optional:
 - Creating the tenant row and the rest of a new tenant's defaults:
   `provision-a-tenant.md`.
 - Adding, editing or deactivating catalogue rows in the app: TYRE-417.
-- Reading the price list at receipt: TYRE-283.
+- Reading the price list at receipt: the Receive tyres form and the open
+  receipts list (TYRE-283).

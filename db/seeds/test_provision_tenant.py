@@ -171,6 +171,9 @@ REFUSALS = [
     ("prefix long", generated("ABCDEFGHI"), "display_code_prefix"),
     ("pressure unit", put("pressure_unit", "kPa"), "pressure_unit"),
     ("distance unit", put("distance_unit", "MILES"), "distance_unit"),
+    ("pressure unit PSI", put("pressure_unit", "PSI"), "conversion"),
+    ("pressure unit BAR", put("pressure_unit", "BAR"), "conversion"),
+    ("distance unit MI", put("distance_unit", "MI"), "conversion"),
     ("currency shape", put("currency", "ZA"), "currency"),
     ("timezone shape", put("timezone", "Africa/Johannesburg'"), "timezone"),
     ("no depot", depots(), "depot"),
@@ -512,9 +515,15 @@ class Sql(unittest.TestCase):
             with self.subTest(consent=doc.get("consent", "absent")):
                 p = validate(doc)
                 self.assertEqual(row_counts(p)["tenant_consent"], 0)
-                self.assertNotIn(
-                    "INSERT INTO app.tenant_consent", provisioning_sql(p, TID)
-                )
+                self.assertNotIn("app.record_consent(", provisioning_sql(p, TID))
+
+    def test_consent_goes_through_the_writer(self):
+        text = self.sql(consent(record(notice_version="O'Brien MSA v2"))(minimal()))
+        self.assertIn(
+            "SELECT app.record_consent('SERVICE_DELIVERY', true, 'O''Brien MSA v2');",
+            text,
+        )
+        self.assertNotIn("INSERT INTO app.tenant_consent", text)
 
     def test_counts_match_statements(self):
         doc = generated("PTF")(minimal())
@@ -530,6 +539,11 @@ class Sql(unittest.TestCase):
         lines = provisioning_sql(p, TID).split("\n")
 
         def inserts(table):
+            # Consent goes through its writer (000059), so it is a call.
+            if table == "tenant_consent":
+                return sum(
+                    1 for ln in lines if ln.startswith("SELECT app.record_consent(")
+                )
             return sum(1 for ln in lines if ln.startswith(f"INSERT INTO app.{table} "))
 
         counts = row_counts(p)
