@@ -10,6 +10,7 @@ import {
   type SpareRow,
 } from "../api/dashboard";
 import { getDevTenantId } from "../api/devTenant";
+import { formatTreadAge } from "../format/treadAge";
 import { sparesKey } from "../fleet/unit/queryKeys";
 import { useTenantDate } from "../time/tenantTime";
 import { BandChart } from "../ui/BandChart";
@@ -124,12 +125,17 @@ export function DashboardPanels({ body, depot, depotFiltered }: DashboardPanelsP
         s.measuredSource === null ? absenceLabel("unmeasured") : treadSourceLabel(s.measuredSource),
     },
     // The accepted mockup shows the day a spare was last measured, not the
-    // time: a spare is judged on the tenant's calendar (FR-RPT-041).
+    // time: a spare is judged on the tenant's calendar (FR-RPT-041). Its age
+    // (FR-TYR-017) joins the day in this cell, never a column of its own.
     {
       key: "measured",
       header: "Last measured",
       cell: (s) =>
-        s.lastMeasuredAt === null ? absenceLabel("neverMeasured") : formatDate(s.lastMeasuredAt),
+        s.lastMeasuredAt === null
+          ? absenceLabel("neverMeasured")
+          : s.daysSinceMeasured === null
+            ? formatDate(s.lastMeasuredAt)
+            : `${formatDate(s.lastMeasuredAt)}, ${formatTreadAge(s.daysSinceMeasured)}`,
     },
     {
       key: "age",

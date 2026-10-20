@@ -28,6 +28,10 @@ export interface CapturePosition {
   // FR-INS-034: the increase and the fitment that would excuse it.
   previousGoverningMm: number | null;
   previousReadingAt: string | null;
+  // FR-TYR-017: days since previousReadingAt in the tenant's calendar.
+  // Optional: the capture route must render against an API older than
+  // the field, which then reads as absent.
+  previousReadingAgeDays?: number | null;
   fitmentSincePrevious: boolean;
   // FR-INS-037 / FR-INS-031a. Null on a spare: FR-CFG-013 as amended gives
   // SPARE no target, and an unclassified spare pressure is deliberate.

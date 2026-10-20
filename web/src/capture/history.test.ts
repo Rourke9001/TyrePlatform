@@ -276,3 +276,22 @@ describe("distance labels", () => {
     );
   });
 });
+
+// FR-TYR-017 beside FR-INS-034: the previous figure names its age when the
+// server sends one, and only the figure when it does not.
+describe("FR-INS-034's age", () => {
+  it("FR-INS-034 names the previous reading's age", () => {
+    const aged = { ...position, previousReadingAgeDays: 30 };
+    const w = historyWarnings({ treads: [14, 14, 15], pressureKpa: 800 }, aged, ctx, NOW);
+    expect(w.find((x) => x.code === "FR-INS-034")?.message).toBe(
+      "Deeper than last time (12mm, 30 days ago). Was this tyre changed?",
+    );
+  });
+
+  it("FR-INS-034 is unchanged when the age is absent", () => {
+    const w = historyWarnings({ treads: [14, 14, 15], pressureKpa: 800 }, position, ctx, NOW);
+    expect(w.find((x) => x.code === "FR-INS-034")?.message).toBe(
+      "Deeper than last time (12mm). Was this tyre changed?",
+    );
+  });
+});

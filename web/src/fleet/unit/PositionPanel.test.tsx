@@ -651,21 +651,44 @@ describe("a position panel", () => {
         unitPosition({
           id: "p2",
           code: "POS2",
-          fitment: openFitment({ lastTreadMm, lastTreadSource }),
+          // The age is null exactly when the tread is, as the wire sends it.
+          fitment: openFitment({
+            lastTreadMm,
+            lastTreadSource,
+            lastTreadAgeDays: lastTreadMm === null ? null : 3,
+          }),
         }),
         {},
         ["ViewFleet"],
       );
 
     const reading = panel("11.0", "READING");
-    expect(lastTread()).toBe("11.0 mm (inspection reading)");
+    expect(lastTread()).toBe("11.0 mm (inspection reading, 3 days ago)");
     reading.unmount();
 
     const audit = panel("14.0", "AUDIT");
-    expect(lastTread()).toBe("14.0 mm (measured outside an inspection)");
+    expect(lastTread()).toBe("14.0 mm (measured outside an inspection, 3 days ago)");
     audit.unmount();
 
     panel(null, null);
     expect(lastTread()).toBe("—");
+  });
+});
+
+// FR-TYR-017: the last tread names its age with its source, in one cell.
+describe("a position panel's tread age", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("the last tread shows its age", async () => {
+    stubFetch();
+    renderPanel(
+      unitPosition({ id: "p1", code: "POS1", fitment: openFitment({ lastTreadAgeDays: 3 }) }),
+    );
+    expect(await screen.findByText("12.0 mm (inspection reading, 3 days ago)")).toBeInTheDocument();
   });
 });

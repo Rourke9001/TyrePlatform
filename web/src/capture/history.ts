@@ -2,6 +2,7 @@ import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { PositionEntry, Warning } from "./warnings";
 import { governingTread } from "./warnings";
 import { groupThousands } from "../format/groupThousands";
+import { formatTreadAge } from "../format/treadAge";
 import type { UnitLabels } from "../units/units";
 
 // The same figure app.wear_rate_mm_per_month uses to convert days to
@@ -31,7 +32,12 @@ export function historyWarnings(
     out.push({
       code: "FR-INS-034",
       requiresConfirmation: true,
-      message: `Deeper than last time (${previous}mm). Was this tyre changed?`,
+      // FR-TYR-017: the previous figure's age. Loose equality, so an API
+      // that predates the field reads as absent, not undefined.
+      message:
+        position.previousReadingAgeDays == null
+          ? `Deeper than last time (${previous}mm). Was this tyre changed?`
+          : `Deeper than last time (${previous}mm, ${formatTreadAge(position.previousReadingAgeDays)}). Was this tyre changed?`,
       enteredValue: String(governing),
     });
   }

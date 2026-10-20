@@ -112,3 +112,26 @@ describe("a fitment history's distance unit", () => {
     expect(within(rowFor("TY001")).getByText("900 XKM (Measured)")).toBeTruthy();
   });
 });
+
+// FR-TYR-017: each tread figure names its age, in its own cell.
+describe("a fitment history's tread ages", () => {
+  it("treads on and off show their age", () => {
+    renderHistory([
+      fitmentRow({ fitmentId: "f1", displayCode: "TY001", fittedAgeDays: 30, removedAgeDays: 1 }),
+    ]);
+    const row = rowFor("TY001");
+    expect(within(row).getByText("14.5 (30 days ago)")).toBeTruthy();
+    expect(within(row).getByText("9.0 (1 day ago)")).toBeTruthy();
+    expect(screen.getAllByRole("columnheader").map((h) => h.textContent)).toEqual([
+      "Tyre",
+      "Position",
+      "Fitted",
+      "Removed",
+      "Tread on",
+      "Tread off",
+      "Orientation",
+      "Reason",
+      "Distance",
+    ]);
+  });
+});
