@@ -50,6 +50,13 @@ export interface NewTyres {
   newTreadMm: string;
   purchasePrice?: string;
   costSource?: string;
+  // TYRE-418: the receipt's invoice number, sent only with an invoice price
+  // (app.receive_tyres refuses it with any other, TY011).
+  invoiceNumber?: string;
+  // Calendar dates, YYYY-MM-DD. A blank received date is the tenant's today,
+  // decided by the server (rule 6).
+  purchaseDate?: string;
+  receivedDate?: string;
 }
 
 // Mirrors app.tyre_state's disposal-reachable members (Appendix C's

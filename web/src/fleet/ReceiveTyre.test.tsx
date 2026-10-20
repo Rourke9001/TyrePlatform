@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,21 +29,39 @@ const CATALOGUE: TyreCatalogue = {
 
 type Reply = () => Response;
 
-// GET /api/tyre-catalogue answers `catalogue` (null: it never answers), and
-// each POST /api/tyres takes the next of `receives`. Anything else is a
-// request this screen should not make. A fresh Response per call, since a
-// body reads once.
+const noEstimate: Reply = () => respond(200, { estimate: null });
+
+// One price list answer (FR-CFG-041), Dunlop's own row unless brandSpecific
+// says the size's.
+function listed(price: string, from = "2026-06-01", brandSpecific = true): Reply {
+  return () =>
+    respond(200, { estimate: { typicalPrice: price, effectiveFrom: from, brandSpecific } });
+}
+
+// GET /api/tyre-catalogue answers `catalogue` (null: it never answers), each
+// estimate read takes the next of `estimates` and the last one keeps
+// answering (none given: no list entry; null: it never answers), and each
+// POST /api/tyres takes the next of `receives`. Anything else is a request
+// this screen should not make. A fresh Response per call, since a body
+// reads once.
 function mockApi({
   catalogue = () => respond(200, CATALOGUE),
   receives = [],
-}: { catalogue?: Reply | null; receives?: Reply[] } = {}) {
+  estimates = [],
+}: { catalogue?: Reply | null; receives?: Reply[]; estimates?: (Reply | null)[] } = {}) {
   const queue = [...receives];
+  const estimateQueue = [...estimates];
   vi.mocked(fetch).mockImplementation((input: RequestInfo | URL) => {
     const url = requestedUrl(input);
     if (url === "/api/tyre-catalogue") {
       return catalogue === null
         ? new Promise<Response>(() => undefined)
         : Promise.resolve(catalogue());
+    }
+    if (url.startsWith("/api/tyre-price-estimate")) {
+      const reply = estimateQueue.length > 1 ? estimateQueue.shift() : estimateQueue[0];
+      if (reply === null) return new Promise<Response>(() => undefined);
+      return Promise.resolve((reply ?? noEstimate)());
     }
     const reply = queue.shift();
     if (url === "/api/tyres" && reply !== undefined) return Promise.resolve(reply());
@@ -64,6 +82,14 @@ function receivedBodies(): Record<string, unknown>[] {
         throw new Error("a POST body is not an object");
       return body as Record<string, unknown>;
     });
+}
+
+// Every estimate read's URL, in order.
+function estimateUrls(): string[] {
+  return vi
+    .mocked(fetch)
+    .mock.calls.map(([input]) => requestedUrl(input))
+    .filter((u) => u.startsWith("/api/tyre-price-estimate"));
 }
 
 function minted(...codes: string[]): Reply {
@@ -291,7 +317,7 @@ describe("receiving tyres into the fleet", () => {
     },
   );
 
-  it("hints at the awaiting-cost queue while the price is blank and hides the cost source select", async () => {
+  it("hints at the awaiting-cost queue while the price is blank and offers no cost source to choose", async () => {
     renderScreen("FREE");
 
     expect(screen.getByText(/awaiting-cost queue/i)).toBeInTheDocument();
@@ -299,47 +325,249 @@ describe("receiving tyres into the fleet", () => {
     await screen.findByLabelText(/^size$/i);
   });
 
-  // TYRE-370: a recorded cost is never corrected, so no source is chosen
-  // for the operator.
-  it("shows the cost source once a price is entered, on no source, and hides the hint", async () => {
+  // FR-CFG-041: the price list's figure for this size, brand and day is the
+  // estimate, offered with where it came from, and received as one.
+  it("the price list estimate pre-fills and is labelled", async () => {
+    mockApi({ estimates: [listed("4319.91")], receives: [minted("TYRE1")] });
     renderScreen("FREE");
-    await screen.findByLabelText(/^size$/i);
-
-    await userEvent.type(screen.getByLabelText(/purchase price/i), "10.50");
-
-    expect(screen.getByLabelText(/cost source/i)).toHaveValue("");
-    expect(screen.queryByText(/awaiting-cost queue/i)).not.toBeInTheDocument();
-  });
-
-  it("blocks a priced receive until a source is chosen, and says why", async () => {
-    const { container } = renderScreen("FREE");
     await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
     await chooseEntries();
-    await userEvent.type(screen.getByLabelText(/purchase price/i), "500.00");
 
-    expect(screen.getByText(/choose where this price came from/i)).toBeInTheDocument();
-    await forceSubmit(container);
-    expect(receivedBodies()).toHaveLength(0);
+    await waitFor(() => expect(screen.getByLabelText(/unit price/i)).toHaveValue("4319.91"));
+    expect(
+      screen.getByText("Price list estimate for this size and brand, effective 01 Jun 2026"),
+    ).toBeInTheDocument();
+    await submit();
+    await screen.findByRole("status");
 
-    await userEvent.selectOptions(screen.getByLabelText(/cost source/i), "INVOICE");
-    expect(screen.queryByText(/choose where this price came from/i)).not.toBeInTheDocument();
+    expect(receivedBodies()[0]).toMatchObject({
+      purchasePrice: "4319.91",
+      costSource: "PRICE_LIST_ESTIMATE",
+    });
+    expect(receivedBodies()[0]).not.toHaveProperty("invoiceNumber");
   });
 
-  // A choice made while a price was entered stays in state after the price
-  // is cleared, and must not ride along (TYRE-370).
-  it("never sends a cost source the user did not choose, nor one left behind by a cleared price", async () => {
+  it("names a size-only estimate as any brand's", async () => {
+    mockApi({ estimates: [listed("3500.00", "2026-09-01", false)] });
+    renderScreen("FREE");
+    await chooseEntries();
+
+    expect(
+      await screen.findByText(
+        // ICU writes September as Sep or Sept depending on its version.
+        /^Price list estimate for this size, any brand, effective 01 Sept? 2026$/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  // A typed figure, even one equal to the list's, came from somewhere else:
+  // an invoice (spec, Receive tyres).
+  it("editing the price makes it an invoice price", async () => {
+    mockApi({ estimates: [listed("4319.91")], receives: [minted("TYRE1")] });
+    renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    const price = screen.getByLabelText(/unit price/i);
+    await waitFor(() => expect(price).toHaveValue("4319.91"));
+
+    await userEvent.clear(price);
+    await userEvent.type(price, "4500.00");
+
+    expect(
+      screen.getByText("This is an invoice price, not the price list estimate of R4,319.91."),
+    ).toBeInTheDocument();
+    await submit();
+    await screen.findByRole("status");
+    expect(receivedBodies()[0]).toMatchObject({
+      purchasePrice: "4500.00",
+      costSource: "INVOICE",
+    });
+  });
+
+  it("an invoice price offers the invoice number", async () => {
     mockApi({ receives: [minted("TYRE1")] });
     renderScreen("FREE");
     await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
     await chooseEntries();
-    await userEvent.type(screen.getByLabelText(/purchase price/i), "500.00");
-    await userEvent.selectOptions(screen.getByLabelText(/cost source/i), "PRICE_LIST_ESTIMATE");
-    await userEvent.clear(screen.getByLabelText(/purchase price/i));
+    expect(screen.queryByLabelText(/invoice number/i)).not.toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText(/unit price/i), "4500.00");
+    expect(screen.getByText("This is an invoice price.")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/invoice number/i), "INV-7");
     await submit();
     await screen.findByRole("status");
 
-    expect(receivedBodies()[0]).not.toHaveProperty("costSource");
+    expect(receivedBodies()[0]).toMatchObject({
+      purchasePrice: "4500.00",
+      costSource: "INVOICE",
+      invoiceNumber: "INV-7",
+    });
+  });
+
+  // Decision 22: the form never sends a value the person cannot see.
+  it("a cleared price drops the invoice number", async () => {
+    mockApi({ receives: [minted("TYRE1")] });
+    renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    await userEvent.type(screen.getByLabelText(/unit price/i), "4500.00");
+    await userEvent.type(screen.getByLabelText(/invoice number/i), "INV-1");
+    await userEvent.clear(screen.getByLabelText(/unit price/i));
+    expect(screen.queryByLabelText(/invoice number/i)).not.toBeInTheDocument();
+    await submit();
+    await screen.findByRole("status");
+
     expect(receivedBodies()[0]).not.toHaveProperty("purchasePrice");
+    expect(receivedBodies()[0]).not.toHaveProperty("costSource");
+    expect(receivedBodies()[0]).not.toHaveProperty("invoiceNumber");
+  });
+
+  // A failed read is not "no list entry": submitting through it would send
+  // an unpriced receive the person never meant.
+  it("a failed estimate read is shown, not read as no estimate", async () => {
+    mockApi({
+      estimates: [() => respond(500, { code: "internal", message: "no" })],
+      receives: [minted("TYRE1")],
+    });
+    const { container } = renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+
+    expect(
+      await screen.findByText(
+        "The price list could not be read. Retry, or type the invoice price.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^retry$/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^receive$/i })).toBeDisabled();
+    await forceSubmit(container);
+    expect(receivedBodies()).toHaveLength(0);
+
+    await userEvent.type(screen.getByLabelText(/unit price/i), "4500.00");
+    expect(screen.getByRole("button", { name: /^receive$/i })).toBeEnabled();
+    await submit();
+    await screen.findByRole("status");
+    expect(receivedBodies()[0]).toMatchObject({
+      purchasePrice: "4500.00",
+      costSource: "INVOICE",
+    });
+  });
+
+  it("clearing the price leaves the tyres awaiting cost", async () => {
+    mockApi({ estimates: [listed("4319.91")], receives: [minted("TYRE1")] });
+    renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    const price = screen.getByLabelText(/unit price/i);
+    await waitFor(() => expect(price).toHaveValue("4319.91"));
+
+    await userEvent.clear(price);
+    expect(screen.getByText(/awaiting-cost queue/i)).toBeInTheDocument();
+    await submit();
+    await screen.findByRole("status");
+
+    expect(receivedBodies()[0]).not.toHaveProperty("purchasePrice");
+    expect(receivedBodies()[0]).not.toHaveProperty("costSource");
+  });
+
+  it("no estimate leaves the price empty", async () => {
+    mockApi({ receives: [minted("TYRE1")] });
+    renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    await waitFor(() => expect(estimateUrls()).toHaveLength(1));
+
+    expect(screen.getByLabelText(/unit price/i)).toHaveValue("");
+    expect(screen.getByText(/awaiting-cost queue/i)).toBeInTheDocument();
+    await submit();
+    await screen.findByRole("status");
+    expect(receivedBodies()[0]).not.toHaveProperty("purchasePrice");
+  });
+
+  // The match is effective on the received date, so a back-dated receive
+  // asks again and the price follows the answer.
+  it("a change of received date re-reads the estimate", async () => {
+    mockApi({
+      estimates: [listed("4319.91"), listed("3000.00", "2026-01-01", false)],
+    });
+    renderScreen("FREE");
+    await chooseEntries();
+    await waitFor(() => expect(screen.getByLabelText(/unit price/i)).toHaveValue("4319.91"));
+    expect(estimateUrls()[0]).not.toContain("receivedDate");
+
+    fireEvent.change(screen.getByLabelText(/received date/i), {
+      target: { value: "2026-03-01" },
+    });
+
+    await waitFor(() => expect(screen.getByLabelText(/unit price/i)).toHaveValue("3000.00"));
+    expect(estimateUrls()[1]).toContain("receivedDate=2026-03-01");
+  });
+
+  // Review focus 1: a submit while the read is in flight would send an
+  // unpriced receive the person never meant.
+  it("submit waits for an estimate read in flight", async () => {
+    mockApi({ estimates: [null] });
+    const { container } = renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    await waitFor(() => expect(estimateUrls()).toHaveLength(1));
+
+    expect(screen.getByRole("button", { name: /^receive$/i })).toBeDisabled();
+    await forceSubmit(container);
+    expect(receivedBodies()).toHaveLength(0);
+  });
+
+  // Review focus 2: the list moved between pre-fill and submit, so the
+  // receive is refused naming the new figure, and the form follows it.
+  it("a refused receive re-reads the estimate", async () => {
+    mockApi({
+      estimates: [listed("4319.91"), listed("4500.00")],
+      receives: [
+        () =>
+          respond(422, {
+            code: "TY011",
+            message:
+              "the price list estimate for this size and brand on 2026-10-21 is 4500.00; a price list estimate is received at that figure, and any other figure is an invoice price",
+          }),
+      ],
+    });
+    renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    await waitFor(() => expect(screen.getByLabelText(/unit price/i)).toHaveValue("4319.91"));
+    await submit();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(/is 4500\.00/);
+    await waitFor(() => expect(screen.getByLabelText(/unit price/i)).toHaveValue("4500.00"));
+    expect(estimateUrls()).toHaveLength(2);
+  });
+
+  // TYRE-418: both dates are the person's to give; a blank received date is
+  // the tenant's today, decided by the server, so none is sent.
+  it("purchase and received dates are sent when given", async () => {
+    mockApi({ receives: [minted("TYRE1"), minted("TYRE2")] });
+    renderScreen("FREE");
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
+    await chooseEntries();
+    fireEvent.change(screen.getByLabelText(/purchase date/i), {
+      target: { value: "2026-09-30" },
+    });
+    fireEvent.change(screen.getByLabelText(/received date/i), {
+      target: { value: "2026-10-01" },
+    });
+    await submit();
+    await screen.findByRole("status");
+    expect(receivedBodies()[0]).toMatchObject({
+      purchaseDate: "2026-09-30",
+      receivedDate: "2026-10-01",
+    });
+
+    await userEvent.type(screen.getByLabelText(/display code/i), "TYRE2");
+    await chooseEntries();
+    await submit();
+    await screen.findByText(/TYRE2/);
+    expect(receivedBodies()[1]).not.toHaveProperty("purchaseDate");
+    expect(receivedBodies()[1]).not.toHaveProperty("receivedDate");
   });
 
   // The whole point of the money-stays-a-string rule: Number("10.50")
@@ -350,8 +578,7 @@ describe("receiving tyres into the fleet", () => {
     renderScreen("FREE");
     await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
     await chooseEntries({ tread: "25.0" });
-    await userEvent.type(screen.getByLabelText(/purchase price/i), "10.50");
-    await userEvent.selectOptions(screen.getByLabelText(/cost source/i), "INVOICE");
+    await userEvent.type(screen.getByLabelText(/unit price/i), "10.50");
     await submit();
     await screen.findByRole("status");
 
@@ -362,19 +589,18 @@ describe("receiving tyres into the fleet", () => {
     expect(body).not.toHaveProperty("quantity");
   });
 
-  it("sends the chosen cost source alongside the price, and omits it while the price is blank", async () => {
+  it("sends a typed price as an invoice price, and nothing while the price is blank", async () => {
     mockApi({ receives: [minted("TYRE1"), minted("TYRE2")] });
     renderScreen("FREE");
     await userEvent.type(screen.getByLabelText(/display code/i), "TYRE1");
     await chooseEntries();
-    await userEvent.type(screen.getByLabelText(/purchase price/i), "500.00");
-    await userEvent.selectOptions(screen.getByLabelText(/cost source/i), "PRICE_LIST_ESTIMATE");
+    await userEvent.type(screen.getByLabelText(/unit price/i), "500.00");
     await submit();
     await screen.findByRole("status");
 
     expect(receivedBodies()[0]).toMatchObject({
       purchasePrice: "500.00",
-      costSource: "PRICE_LIST_ESTIMATE",
+      costSource: "INVOICE",
     });
 
     // userEvent.type appends to whatever is already there, so a dropped
@@ -399,6 +625,7 @@ describe("receiving tyres into the fleet", () => {
     await userEvent.clear(screen.getByLabelText(/quantity/i));
     await userEvent.type(screen.getByLabelText(/quantity/i), "2");
     await chooseEntries();
+    await waitFor(() => expect(estimateUrls()).toHaveLength(1));
     await submit();
 
     const status = await screen.findByRole("status");
@@ -418,17 +645,22 @@ describe("receiving tyres into the fleet", () => {
     expect(screen.getByLabelText(/new tread/i)).toHaveValue("");
   });
 
-  it("clears the cost source on success, so nothing is chosen for the next receive", async () => {
-    mockApi({ receives: [minted("TP-00042")] });
+  // A typed price is the last receive's invoice; the next one follows the
+  // list again.
+  it("clears a typed price on success, so the next receive follows the list", async () => {
+    mockApi({ estimates: [listed("4319.91")], receives: [minted("TP-00042")] });
     renderScreen("GENERATED");
     await chooseEntries();
-    await userEvent.type(screen.getByLabelText(/purchase price/i), "500.00");
-    await userEvent.selectOptions(screen.getByLabelText(/cost source/i), "INVOICE");
+    const price = screen.getByLabelText(/unit price/i);
+    await waitFor(() => expect(price).toHaveValue("4319.91"));
+    await userEvent.clear(price);
+    await userEvent.type(price, "500.00");
     await submit();
     await screen.findByRole("status");
 
-    await userEvent.type(screen.getByLabelText(/purchase price/i), "600.00");
-    expect(screen.getByLabelText(/cost source/i)).toHaveValue("");
+    await chooseEntries();
+    await waitFor(() => expect(screen.getByLabelText(/unit price/i)).toHaveValue("4319.91"));
+    expect(screen.queryByLabelText(/invoice number/i)).not.toBeInTheDocument();
   });
 
   it("says the catalogue is loading and blocks submission until it arrives", async () => {
