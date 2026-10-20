@@ -33,6 +33,11 @@ type meJSON struct {
 	// all (a hand-typed one is refused server-side, TY011). It is sent here
 	// so ReceiveTyre.tsx can branch before the user ever sees the wrong form.
 	DisplayCodePolicy string `json:"displayCodePolicy"`
+	// FR-CFG-021, FR-CFG-022: the codes the client labels money, pressure
+	// and distance with, so no screen hard-codes R, kPa or km.
+	Currency     string `json:"currency"`
+	PressureUnit string `json:"pressureUnit"`
+	DistanceUnit string `json:"distanceUnit"`
 }
 
 // me tells the client what to render. Presentation only. Every other
@@ -54,10 +59,12 @@ func me(s *store.Store) http.HandlerFunc {
 			// In the actor's own transaction, so RLS answers for this tenant
 			// and the row cannot be another's.
 			if err := tx.QueryRow(ctx,
-				`SELECT app.current_tenant_id()::text, timezone, display_code_policy
+				`SELECT app.current_tenant_id()::text, timezone, display_code_policy,
+				        currency::text, pressure_unit, distance_unit
 				   FROM app.tenant WHERE id = app.current_tenant_id()`).
-				Scan(&body.TenantID, &body.Timezone, &body.DisplayCodePolicy); err != nil {
-				return fmt.Errorf("reading tenant id, timezone and display-code policy: %w", err)
+				Scan(&body.TenantID, &body.Timezone, &body.DisplayCodePolicy,
+					&body.Currency, &body.PressureUnit, &body.DistanceUnit); err != nil {
+				return fmt.Errorf("reading the tenant's settings: %w", err)
 			}
 			for _, c := range a.Capabilities() {
 				body.Capabilities = append(body.Capabilities, string(c))

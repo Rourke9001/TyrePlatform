@@ -41,6 +41,7 @@ type tyreRow struct {
 	purchasePrice *string
 	randPerMm     *string
 	casingValue   *string
+	receiptID     *string
 }
 
 // tyreJSON is the wire shape. Money fields carry omitempty: a nil pointer
@@ -62,6 +63,9 @@ type tyreJSON struct {
 	PurchasePrice *string `json:"purchasePrice,omitempty"`
 	RandPerMm     *string `json:"randPerMm,omitempty"`
 	CasingValue   *string `json:"casingValue,omitempty"`
+	// The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
+	// received before receipts existed, which keeps per-tyre costing.
+	ReceiptID *string `json:"receiptId"`
 }
 
 // tyreJSONFor is the FR-AUT-005a projection: every field copies straight
@@ -86,6 +90,7 @@ func tyreJSONFor(row tyreRow, canSeeMoney bool) tyreJSON {
 		PurchasePrice: row.purchasePrice,
 		RandPerMm:     row.randPerMm,
 		CasingValue:   row.casingValue,
+		ReceiptID:     row.receiptID,
 	}
 	if !canSeeMoney {
 		j.PurchasePrice = nil
@@ -138,7 +143,8 @@ func listTyres(s *store.Store) http.HandlerFunc {
 			sql := `SELECT t.id, t.display_code, t.state::text, t.status::text,
 			               t.retread_count, s.name, b.name, p.name,
 			               t.received_date::text, (v.tyre_id IS NOT NULL),
-			               t.purchase_price::text, t.rand_per_mm::text, t.casing_value::text
+			               t.purchase_price::text, t.rand_per_mm::text, t.casing_value::text,
+			               t.receipt_id::text
 			          FROM app.tyre t
 			          LEFT JOIN app.tyre_size    s ON s.id = t.size_id
 			          LEFT JOIN app.tyre_brand   b ON b.id = t.brand_id
@@ -164,7 +170,7 @@ func listTyres(s *store.Store) http.HandlerFunc {
 				if err := rows.Scan(&row.id, &row.displayCode, &row.state, &row.status,
 					&row.retreadCount, &row.sizeName, &row.brandName, &row.patternName,
 					&row.receivedDate, &row.awaitingCost,
-					&row.purchasePrice, &row.randPerMm, &row.casingValue); err != nil {
+					&row.purchasePrice, &row.randPerMm, &row.casingValue, &row.receiptID); err != nil {
 					return fmt.Errorf("scanning tyre: %w", err)
 				}
 				out = append(out, tyreJSONFor(row, canSeeMoney))
@@ -199,6 +205,7 @@ type receiveTyresRequest struct {
 	NewTreadMm    *string `json:"newTreadMm"`
 	ReceivedDate  *string `json:"receivedDate"`
 	DepotID       *string `json:"depotId"`
+	InvoiceNumber *string `json:"invoiceNumber"`
 }
 
 // payload builds app.receive_tyres's jsonb argument, snake_case and omitting
@@ -244,6 +251,9 @@ func (b receiveTyresRequest) payload() map[string]any {
 	}
 	if b.DepotID != nil {
 		p["depot_id"] = *b.DepotID
+	}
+	if b.InvoiceNumber != nil {
+		p["invoice_number"] = *b.InvoiceNumber
 	}
 	return p
 }
@@ -292,6 +302,13 @@ func receiveTyres(s *store.Store) http.HandlerFunc {
 			return
 		}
 		body.DisplayCode = displayCode
+		// TYRE-418: the receipt's invoice number, free text, carrying maxTextLen
+		// as every rendered field does.
+		invoiceNumber, err := text("invoiceNumber", body.InvoiceNumber)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		body.InvoiceNumber = invoiceNumber
 
 		raw, err := json.Marshal(body.payload())
 		if err != nil {

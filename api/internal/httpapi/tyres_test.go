@@ -34,6 +34,7 @@ type tyreBody struct {
 	PurchasePrice *string `json:"purchasePrice"`
 	RandPerMm     *string `json:"randPerMm"`
 	CasingValue   *string `json:"casingValue"`
+	ReceiptID     *string `json:"receiptId"`
 }
 
 type tyresListBody struct {
@@ -445,6 +446,92 @@ func TestReceiveTyresRefusesAFutureReceivedDateAsTY011(t *testing.T) {
 	rec = post(t, h, "/api/tyres", tenantID.String(), controller.String(),
 		cat.body(t, map[string]any{"displayCode": "FUT-" + uuid.NewString()[:8], "receivedDate": today}))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// A received tyre names its receipt (FR-CFG-041), and one with none, such
+// as a tyre received before receipts existed, reads null.
+func TestListTyresCarriesTheReceipt(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "tyres-receipt")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{"displayCode": "RCPT-" + uuid.NewString()[:8]}))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var received receivedTyresBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &received))
+	require.Len(t, received.Tyres, 1)
+	var receiptID string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT receipt_id::text FROM app.tyre WHERE id = $1`, received.Tyres[0].ID).Scan(&receiptID))
+	loose := plantTyre(t, ctx, admin, tenantID, "LOOSE-"+uuid.NewString()[:8], nil)
+
+	rec = get(t, h, "/api/tyres", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var list tyresListBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &list))
+	seen := map[string]*string{}
+	for _, ty := range list.Tyres {
+		seen[ty.ID] = ty.ReceiptID
+	}
+	require.Contains(t, seen, received.Tyres[0].ID)
+	require.NotNil(t, seen[received.Tyres[0].ID])
+	require.Equal(t, receiptID, *seen[received.Tyres[0].ID])
+	require.Contains(t, seen, loose.String())
+	require.Nil(t, seen[loose.String()], "a tyre with no receipt reads null")
+}
+
+// TYRE-418: an invoice price carries its invoice number to the receipt,
+// trimmed as every text field is.
+func TestReceiveTyresCarriesAnInvoiceNumber(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-invoice")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+	plantFleetRetreadPolicy(t, ctx, admin, tenantID, 2, "4.0")
+
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{
+			"displayCode": "INV-" + uuid.NewString()[:8], "purchasePrice": "4100.00",
+			"costSource": "INVOICE", "invoiceNumber": " INV-9 ",
+		}))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var received receivedTyresBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &received))
+	require.Len(t, received.Tyres, 1)
+	var number, state string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT r.invoice_number, r.price_state::text
+		   FROM app.tyre t JOIN app.tyre_receipt r ON r.id = t.receipt_id
+		  WHERE t.id = $1`, received.Tyres[0].ID).Scan(&number, &state))
+	require.Equal(t, "INV-9", number)
+	require.Equal(t, "INVOICED", state)
+}
+
+// An invoice number names the invoice a price came from, so with no invoice
+// price it is app.receive_tyres' own TY011, forwarded verbatim (ADR-0012).
+func TestReceiveTyresRefusesAnInvoiceNumberWithoutAnInvoice(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "receive-invoice-number")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	cat := plantReceiveCatalogue(t, ctx, admin, tenantID)
+
+	rec := post(t, h, "/api/tyres", tenantID.String(), controller.String(),
+		cat.body(t, map[string]any{"displayCode": "INVN-" + uuid.NewString()[:8], "invoiceNumber": "INV-1"}))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "TY011", ref.Code)
+	require.Equal(t,
+		"an invoice number is recorded with an invoice price; enter the price from the invoice, or leave the invoice number blank",
+		ref.Message)
 }
 
 // Gated on ManageAssets like the other write paths, a TECHNICIAN holds
