@@ -162,8 +162,10 @@ UPDATE path — the void. TYRE-98 (migration `000056`) attaches it to `app.tyre`
 (migration `000058`) attaches it to `app.tyre_size`, `app.tyre_brand`,
 `app.tyre_pattern`, `app.casing_estimate_by_size` and `app.tyre_price_list`,
 which `app.seed_tenant_catalogue()` and `app.provision_catalogue()` give
-their first write path. The tables that stay unaudited, and why, are listed
-under Consequences.
+their first write path. TYRE-283 (migration `000059`) attaches it to
+`app.tyre_receipt`, which `app.receive_tyres` writes and the receipt's moves
+update. The tables that stay unaudited, and why, are listed under
+Consequences.
 
 ## Consequences
 

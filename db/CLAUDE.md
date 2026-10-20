@@ -150,6 +150,20 @@ provisioning that writes a first row dated `DEFAULT now()` can never add a
 `-infinity` baseline afterwards, and the tenant's history before that row
 stays UNVALUED.
 
+`tenant_consent` is written once too: `UPDATE` and `DELETE` are revoked
+from `app_rw` (000012), and `tenant_consent_written_once` refuses an
+`UPDATE` from any role (`TY027`, 000059), because the runbook connects as
+the owning role. `DELETE` stays grant-only, since a tenant's deletion
+cascades through its ledger (DR-014). A change of consent is a new row
+through `app.record_consent`.
+
+`tyre_receipt` is edited in place, but only through `UPDATE (price_state,
+invoice_number)` (000059). `tyre_receipt_moves_once` allows four moves,
+never from a final state and never ahead of its tyres' prices, so the
+receipt's own functions are the way to move one. `tyre.receipt_id` is held
+fixed by the `tyre_receipt_fixed` trigger, since `app_rw` holds `UPDATE` on
+`app.tyre` at table level.
+
 `casing_estimate_by_size` and `tyre_price_list` are insert-only for
 `app_rw` (000058): a changed figure is a new row with a later
 `effective_from` (FR-CFG-042). `app.provision_catalogue` refuses an estimate

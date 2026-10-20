@@ -24,6 +24,15 @@
 -- keep them in the bound tenant. P12 writes a platform catalogue entry,
 -- which only a migration's role can, to stand in for a later platform
 -- migration (TYRE-369).
+--
+-- P13 sets a fleet's units to psi, bar and miles, and P14 edits a consent
+-- row, as postgres, which no grant binds, to watch tenant_metric_units and
+-- tenant_consent_written_once refuse it. P15 plants Second Fleet's receipts
+-- directly and calls the receipt moves, set_tyre_cost and record_consent as
+-- postgres bound to another fleet, so only the functions' own tenant
+-- predicates keep them in the bound one, then edits a receipt and a tyre's
+-- receipt link to watch both receipt triggers refuse a superuser
+-- (TYRE-283).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -832,6 +841,99 @@ BEGIN
     RAISE EXCEPTION 'FAIL P14: the consent row reads % after the refused UPDATE', got;
   END IF;
   RAISE NOTICE 'PASS  P14 a superuser cannot edit a consent row';
+END $$;
+ROLLBACK;
+
+\echo '== P15. TYRE-283: under a role that bypasses RLS the receipt moves, set_tyre_cost and record_consent stay in the bound fleet, and both receipt triggers bind a superuser (FR-TEN-003, FR-CFG-041)'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz2 constant uuid := md5('p15-sz')::uuid;
+        pt2 constant uuid := md5('p15-pt')::uuid;
+        r_un  constant uuid := md5('p15-unpriced')::uuid;
+        r_est constant uuid := md5('p15-estimated')::uuid;
+        r_inv constant uuid := md5('p15-invoiced')::uuid;
+        loose constant uuid := md5('p15-loose')::uuid;
+        before_j jsonb; after_j jsonb; e record; msg text; st text; n int;
+BEGIN
+  PERFORM set_config('app.actor_id', '', true);
+  -- Second Fleet's rows, planted as postgres, each one a move would take if
+  -- it saw it: a size with a price row, an unpriced, an estimated and an
+  -- invoiced receipt, and a tyre with no receipt.
+  INSERT INTO app.tyre_size (id, tenant_id, name) VALUES (sz2, t2, 'P15 SIZE');
+  INSERT INTO app.tyre_pattern (id, tenant_id, name, applies_to) VALUES (pt2, t2, 'P15 NEW', 'NEW');
+  INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from)
+  VALUES (t2, sz2, NULL, 1000.00, '2026-01-01');
+  INSERT INTO app.tyre_receipt (id, tenant_id, size_id, pattern_id, received_date, price_state) VALUES
+    (r_un,  t2, sz2, pt2, '2026-10-01', 'UNPRICED'),
+    (r_est, t2, sz2, pt2, '2026-10-01', 'ESTIMATED'),
+    (r_inv, t2, sz2, pt2, '2026-10-01', 'INVOICED');
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, pattern_id, status, retread_count, new_tread_mm,
+                        state, received_date, purchase_price, cost_source, rand_per_mm, receipt_id) VALUES
+    (t2, 'P15-UN',  sz2, pt2, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01', NULL,    'UNKNOWN',             NULL,     r_un),
+    (t2, 'P15-EST', sz2, pt2, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01', 1000.00, 'PRICE_LIST_ESTIMATE', 47.6190, r_est),
+    (t2, 'P15-INV', sz2, pt2, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01', 1000.00, 'INVOICE',             47.6190, r_inv);
+  INSERT INTO app.tyre (id, tenant_id, display_code, size_id, pattern_id, status, retread_count, new_tread_mm,
+                        state, received_date)
+  VALUES (loose, t2, 'P15-LOOSE', sz2, pt2, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01');
+  SELECT jsonb_build_object(
+           'receipts', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM app.tyre_receipt c WHERE c.tenant_id = t2),
+           'tyres', (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM app.tyre t
+                      WHERE t.tenant_id = t2 AND t.display_code LIKE 'P15-%'))
+    INTO before_j;
+
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  FOR e IN SELECT * FROM (VALUES
+    ('an invoice',     format('SELECT app.record_receipt_invoice(%L, 1100.00)', r_un), 'no such receipt in this fleet'),
+    ('the list price', format('SELECT app.apply_receipt_list_price(%L)', r_un),        'no such receipt in this fleet'),
+    ('a keep',         format('SELECT app.keep_receipt_estimate(%L)', r_est),          'no such receipt in this fleet'),
+    ('a cost',         format('SELECT app.set_tyre_cost(%L, 1100.00, ''INVOICE'')', loose), 'no such tyre in this fleet')
+  ) v(what, stmt, want) LOOP
+    st := NULL; msg := NULL;
+    BEGIN
+      EXECUTE e.stmt;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+    END;
+    IF st IS DISTINCT FROM 'TY012' OR msg IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL P15: bound to BAC, % on a Second Fleet row was answered %',
+        e.what, COALESCE(st || ' "' || msg || '"', 'by a write');
+    END IF;
+  END LOOP;
+  SELECT jsonb_build_object(
+           'receipts', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM app.tyre_receipt c WHERE c.tenant_id = t2),
+           'tyres', (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM app.tyre t
+                      WHERE t.tenant_id = t2 AND t.display_code LIKE 'P15-%'))
+    INTO after_j;
+  IF before_j IS DISTINCT FROM after_j THEN
+    RAISE EXCEPTION 'FAIL P15: Second Fleet''s receipts or tyres changed under BAC''s calls';
+  END IF;
+
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM app.record_consent('SERVICE_DELIVERY', true, 'P15 MSA v1', '2026-10-01T08:00:00Z');
+  SELECT count(*) INTO n FROM app.tenant_consent c WHERE c.notice_version = 'P15 MSA v1' AND c.tenant_id <> t2;
+  IF n <> 0 OR NOT EXISTS (SELECT 1 FROM app.tenant_consent c WHERE c.notice_version = 'P15 MSA v1' AND c.tenant_id = t2) THEN
+    RAISE EXCEPTION 'FAIL P15: record_consent bound to Second Fleet wrote % rows elsewhere', n;
+  END IF;
+
+  FOR e IN SELECT * FROM (VALUES
+    ('a move from INVOICED', format('UPDATE app.tyre_receipt SET price_state = ''ESTIMATED'' WHERE id = %L', r_inv),
+     'this receipt''s price is final and does not change'),
+    ('a tyre''s receipt cleared', format('UPDATE app.tyre SET receipt_id = NULL WHERE tenant_id = %L AND display_code = ''P15-UN''', t2),
+     'a tyre''s receipt is set when it is received and never changes')
+  ) v(what, stmt, want) LOOP
+    st := NULL; msg := NULL;
+    BEGIN
+      EXECUTE e.stmt;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+    END;
+    IF st IS DISTINCT FROM 'TY026' OR msg IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL P15: a superuser''s % was answered %', e.what, COALESCE(st || ' "' || msg || '"', 'by an edit');
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  P15 the receipt moves and set_tyre_cost find no other fleet''s row, record_consent writes the bound fleet''s alone, and both receipt triggers bind a superuser';
 END $$;
 ROLLBACK;
 

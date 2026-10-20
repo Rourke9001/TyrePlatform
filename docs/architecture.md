@@ -150,7 +150,7 @@ live schema (ADR-0012):
 | TY007 | 000023 | an unrecognised or cross-tenant `vehicle_id` |
 | TY008 | 000024 (widened 000028) | a configuration or unit-kind change on a unit with history; no route can reach it, so no `submitStatus` entry exists |
 | TY009 | 000025 | `fitment_odometer_matches_unit_kind`, on every fitment write |
-| TY011-013 | 000031, 000053, 000057 | the tyre lifecycle's refusals |
+| TY011-013 | 000031, 000053, 000057, 000059 | the tyre lifecycle's refusals |
 | TY014 | 000032 | a fitment write refused |
 | TY015 | 000033 | the retread cap |
 | TY016 | 000035 | a unit status transition refused |
@@ -163,6 +163,8 @@ live schema (ADR-0012):
 | TY023 | 000054 | a threshold policy row edited, or dated before the transaction that writes it; no route can reach it, so no entry exists |
 | TY024 | 000058 | a tenant's catalogue file refused; no route can reach it, so no entry exists |
 | TY025 | 000058 | a platform catalogue seed refused; no route can reach it, so no entry exists |
+| TY026 | 000059 | a receipt refused: a move its state does not allow, or a tyre's receipt changed |
+| TY027 | 000059 | a consent record refused; no route can reach it, so no entry exists |
 
 `httpapi.unitSource` is the one place a fleet handler chooses its relation
 for a unit, by `auth.Actor.Scope` and never by role name (ADR-0006). Every
