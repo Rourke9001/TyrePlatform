@@ -89,6 +89,17 @@ export function unavailableLabel(code: string, depotFiltered: boolean): string {
   }
 }
 
+// A receipt's open price states (000059). INVOICED and ESTIMATE_KEPT are
+// final and never listed open, so they carry no words here.
+const RECEIPT_STATE_LABELS: Record<string, string> = {
+  UNPRICED: "Awaiting its price",
+  ESTIMATED: "Price list estimate",
+};
+
+export function receiptStateLabel(code: string): string {
+  return RECEIPT_STATE_LABELS[code] ?? code;
+}
+
 // U29: AUDIT is the documented umbrella for every tread measured outside
 // an inspection (onboarding audit, fitment, removal, rotation, retread
 // return); the label says that rather than naming one of them.

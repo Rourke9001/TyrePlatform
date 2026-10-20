@@ -13,6 +13,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/exceptions", label: "Exceptions", capability: "ViewFleet" },
   { to: "/fleet", label: "Units", capability: "ViewFleet" },
   { to: "/fleet/tyres", label: "Tyres", capability: "ManageAssets" },
+  { to: "/fleet/tyres/receipts", label: "Receipts", capability: "ManageAssets" },
   { to: "/fleet/rigs", label: "Rigs", capability: "ViewFleet" },
   { to: "/fleet/fitments", label: "Fitments", capability: "ViewFleet" },
   { to: "/fleet/tyres/retreads", label: "Retreads", capability: "LogRetread" },

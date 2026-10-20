@@ -28,6 +28,9 @@ const ReceiveTyre = lazy(() =>
 const RigsScreen = lazy(() =>
   import("./fleet/rigs/RigsScreen").then((m) => ({ default: m.RigsScreen })),
 );
+const ReceiptList = lazy(() =>
+  import("./fleet/receipts/ReceiptList").then((m) => ({ default: m.ReceiptList })),
+);
 const TyreList = lazy(() =>
   import("./fleet/tyres/TyreList").then((m) => ({ default: m.TyreList })),
 );
@@ -142,6 +145,14 @@ export function AppRoutes() {
           element={
             <AdminRoute capability="ManageAssets">
               <ReceiveTyre />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/fleet/tyres/receipts"
+          element={
+            <AdminRoute capability="ManageAssets">
+              <ReceiptList />
             </AdminRoute>
           }
         />

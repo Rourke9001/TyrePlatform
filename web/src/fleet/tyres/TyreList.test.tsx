@@ -304,6 +304,23 @@ describe("the tyre register", () => {
   });
 
   // FR-TYR-041: the cost control discharges CFL-002's awaiting-cost backlog.
+  // FR-CFG-041: a received tyre is priced with its set, on its receipt.
+  it("a receipted tyre points to its receipt", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [tyre({ id: "t1", displayCode: "POS1", awaitingCost: true, receiptId: "r1" })],
+      }),
+    );
+    renderScreen();
+    await screen.findAllByRole("rowheader");
+
+    expect(screen.getByRole("link", { name: "Price it on its receipt" })).toHaveAttribute(
+      "href",
+      "/fleet/tyres/receipts",
+    );
+    expect(screen.queryByLabelText(/purchase price for pos1/i)).not.toBeInTheDocument();
+  });
+
   it("offers a price input, a cost-source select, and submit for a tyre still awaiting cost", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(200, {
