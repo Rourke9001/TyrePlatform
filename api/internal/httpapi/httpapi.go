@@ -111,6 +111,8 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Get("/axle-configurations", listAxleConfigurations(s))
 		r.Get("/tyre-catalogue", listTyreCatalogue(s))
 		r.Get("/tyres", listTyres(s))
+		r.Get("/tyre-price-estimate", priceEstimate(s))
+		r.Get("/tyre-receipts/open", listOpenReceipts(s))
 
 		// B7.2, the analytics read API (TYRE-36): read-only relays of the
 		// B7.1 views. Nothing here computes a figure.
@@ -130,6 +132,9 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Post("/tyres/{tyreID}/dispose", disposeTyre(s))
 		r.Post("/tyres/{tyreID}/dispatch", dispatchTyre(s))
 		r.Post("/tyres/{tyreID}/return", returnTyreToStock(s))
+		r.Post("/tyre-receipts/{receiptID}/invoice", recordReceiptInvoice(s))
+		r.Post("/tyre-receipts/{receiptID}/list-price", applyReceiptListPrice(s))
+		r.Post("/tyre-receipts/{receiptID}/keep-estimate", keepReceiptEstimate(s))
 		r.Post("/retread-jobs/{jobID}/return", logRetreadReturn(s))
 		r.Post("/vehicles/{vehicleID}/fitments", fitTyre(s))
 		r.Post("/fitments/{fitmentID}/remove", removeFitment(s))
