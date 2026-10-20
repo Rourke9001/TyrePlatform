@@ -41,32 +41,14 @@ type tyreCatalogueJSON struct {
 func listTyreCatalogue(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		// Initialised, not nil: an empty list is [], never null.
-		out := tyreCatalogueJSON{
-			Sizes:    []catalogueEntryJSON{},
-			Brands:   []catalogueEntryJSON{},
-			Patterns: []cataloguePatternJSON{},
-		}
+		var out tyreCatalogueJSON
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			// Who may read the catalogue is the receive spec's Q2.
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
 			var err error
-			// Active rows only, in every list (the receive spec's Q4, owner,
-			// 12 Oct 2026, over FR-CFG-007's deactivation).
-			if out.Sizes, err = loadCatalogueEntries(ctx, tx, "sizes",
-				// Length then name, as loadExceptions orders position codes
-				// (NFR-USE-012), is natural only among codes of one shape, so
-				// every consumer re-sorts by name.
-				`SELECT id, name, platform_catalogue_id FROM app.tyre_size WHERE active ORDER BY length(name), name`); err != nil {
-				return err
-			}
-			if out.Brands, err = loadCatalogueEntries(ctx, tx, "brands",
-				`SELECT id, name, platform_catalogue_id FROM app.tyre_brand WHERE active ORDER BY length(name), name`); err != nil {
-				return err
-			}
-			out.Patterns, err = loadCataloguePatterns(ctx, tx)
+			out, err = loadTyreCatalogue(ctx, tx)
 			return err
 		})
 		if !ok {
@@ -74,6 +56,28 @@ func listTyreCatalogue(s *store.Store) http.HandlerFunc {
 		}
 		writeJSON(ctx, w, out)
 	}
+}
+
+// loadTyreCatalogue reads the tenant's active sizes, brands and patterns,
+// for the receive form's pickers and the fleet settings page alike. Active
+// rows only, in every list (the receive spec's Q4, owner, 12 Oct 2026, over
+// FR-CFG-007's deactivation).
+func loadTyreCatalogue(ctx context.Context, tx pgx.Tx) (tyreCatalogueJSON, error) {
+	var out tyreCatalogueJSON
+	var err error
+	if out.Sizes, err = loadCatalogueEntries(ctx, tx, "sizes",
+		// Length then name, as loadExceptions orders position codes
+		// (NFR-USE-012), is natural only among codes of one shape, so every
+		// consumer re-sorts by name.
+		`SELECT id, name, platform_catalogue_id FROM app.tyre_size WHERE active ORDER BY length(name), name`); err != nil {
+		return out, err
+	}
+	if out.Brands, err = loadCatalogueEntries(ctx, tx, "brands",
+		`SELECT id, name, platform_catalogue_id FROM app.tyre_brand WHERE active ORDER BY length(name), name`); err != nil {
+		return out, err
+	}
+	out.Patterns, err = loadCataloguePatterns(ctx, tx)
+	return out, err
 }
 
 func loadCatalogueEntries(ctx context.Context, tx pgx.Tx, what, sql string) ([]catalogueEntryJSON, error) {
