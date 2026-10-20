@@ -66,6 +66,13 @@ are in the pipeline state file.
 | D4 | How is an invoice identified? | The owner defers to common practice; see "Receipt and invoice" |
 | D5 | The playback of consent, the settings page, units and currency, tread age and the receipt | Approved |
 
+Amended after the plan's red team, round 1 (20 Oct 2026), to match the code
+as it is: consent refuses `UPDATE` by trigger as well as by grant; the
+settings page shows the thresholds that exist (U68 dropped the scrap
+threshold); tread age sits in an existing cell, never a new column; the
+receipt stores what defined its set; the capture bundle's rise is recorded,
+not assumed away; and FR-CFG-022 joins the SRS consequences.
+
 ## Scope
 
 In:
@@ -111,9 +118,13 @@ Out, each with its owner:
 
 ### Consent
 
-`app.tenant_consent` (000012) keeps its shape. It is insert-only already:
-`UPDATE` and `DELETE` are revoked from the app role, and the suite's check 4
-covers it.
+`app.tenant_consent` (000012) keeps its shape. `UPDATE` and `DELETE` are
+revoked from the app role, and the suite's check 4 covers it. The ticket
+asks for append-only in practice, not just by grant, and the runbook
+connects as the owning role, which no revoke binds. So a trigger refuses
+`UPDATE` for every role, as `threshold_policy_written_once` does (000054),
+proved as a superuser in the privileged file. `DELETE` stays grant-only,
+because deleting a tenant cascades through its ledger.
 
 - **Purpose check.** `purpose_code` gains a check constraint holding it to
   `SERVICE_DELIVERY` and `ANONYMISED_BENCHMARKING`, the vocabulary
@@ -163,7 +174,10 @@ received together. Nothing records that grouping today.
 - **The receipt record.** A new tenant table, one row per receive, RLS
   forced, with its own uuid identity. It carries the optional invoice
   number and the receipt's price state (below), with when and by whom it
-  last moved. Each tyre gains a nullable link to its receipt, set at
+  last moved. It also stores what defined the set at receive: the size,
+  the resolved brand, the pattern and the received date. A retread return
+  can rewrite a tyre's pattern, so the list and the moves read the
+  receipt, never a tyre. Each tyre gains a nullable link to its receipt, set at
   receive and never changed. `app.tyre` is on check 4's `UPDATE` allow-list
   at table level, so a trigger, not a grant, holds the link fixed. The
   receipt table needs `UPDATE` for its state and joins that allow-list.
@@ -296,7 +310,9 @@ tyre on a receipt, its cost form sends the user to the receipt instead.
 - **Labels.** Every hardcoded "kPa" and "km" in the web (capture's position
   sheet, its warnings, the odometer entry and its checks, the fleet
   odometer forms, fitment history) reads its label from one units module
-  fed by `/api/me`. The capture route's bundle budget still passes.
+  fed by `/api/me`. The capture bundle sits exactly at its budget today,
+  so any rise this ticket causes is recorded with its measured size and
+  reason, and listed in the PR, as `web/CLAUDE.md` allows.
 
 ### Fleet settings page (the five reads)
 
@@ -308,8 +324,10 @@ read. Nothing on it is editable. It shows:
   history horizon (FR-TEN-021): the date live capture starts, or that the
   fleet has no imported history.
 - **Tread thresholds:** each threshold policy row in force, with its scope
-  (fleet-wide, operating group, axle class), removal threshold, scrap
-  threshold and warning threshold (FR-CFG-012), and its effective date.
+  (fleet-wide, operating group, axle class), removal threshold, warning
+  threshold (FR-CFG-012 as revised by TYRE-299), retread cap and whether
+  retreads are permitted, and its effective date. There is no scrap
+  threshold: U68 dropped it (000054).
 - **Consent:** each purpose with its current state, the notice version, and
   when it was given, from the current-consent view. A purpose never
   recorded reads "Not recorded".
@@ -322,7 +340,10 @@ read. Nothing on it is editable. It shows:
 ### Tread age (FR-TYR-017)
 
 Wherever a tread value is shown, the age in days of that measurement is
-shown beside it, counted in the tenant's calendar (rule 6). The known
+shown with it, counted in the tenant's calendar (rule 6). It goes inside
+an existing cell (the measurement's date, or the tread value), never a new
+column: the dashboard and exceptions layouts accepted at TYRE-238 are
+fixed, and those tables already carry the measurement's date. The known
 places: the at-risk list, the exceptions list, the spares panel, a unit's
 position panel, fitment history, and capture's previous reading. The
 planner sweeps the web for any other place a tread value renders. The spares
@@ -346,6 +367,8 @@ approved, as TYRE-439 and TYRE-440 do:
   no invoice will come; an unpriced receipt may take the list price.
 - FR-CFG-021: for the POC, pressure and distance are metric only.
   Conversion is built when a tenant needs it.
+- FR-CFG-022: for the POC, the display symbol follows the currency code
+  through a platform map, not a separate per-tenant setting.
 - FR-TEN-022 cites ADR-0003 action item 6, which the accepted ADR-0003 no
   longer carries. The requirement stands on its own; the citation is
   corrected.
@@ -356,7 +379,8 @@ Suite section 75, run as `app_login`:
 
 - **Consent:** a recorded row reads back. Each refusal fires: unbound
   tenant, unknown purpose, empty notice version, future time. `UPDATE` and
-  `DELETE` stay refused. The current view gives the latest row per purpose,
+  `DELETE` stay refused to the app role, and the privileged file proves
+  `UPDATE` refused to a superuser too. The current view gives the latest row per purpose,
   a withdrawal after a grant reads as withdrawn, and another tenant sees
   none of it.
 - **Match:** a brand row beats a size-only row, the latest row on or before
