@@ -181,6 +181,43 @@ Add the tenant id and name to the tenant list on Confluence page 10682399,
 for that environment. Every user's `platformTenantId` needs the id, and so
 does every later import.
 
+## Record or withdraw consent
+
+The tech team records consent at onboarding, from the agreement the client
+signed, and again whenever the contract records a change (U143 item 4).
+Provisioning writes the file's records itself; this is for any record
+after that. A withdrawal is a new record with `false`. The ledger is never
+edited: a trigger refuses an `UPDATE` from every role, this one included.
+
+Connect as **Before any SQL** says, then:
+
+```sql
+BEGIN;
+SELECT set_config('app.tenant_id', '<tenant id>', true);
+SELECT id, name FROM app.tenant WHERE id = app.current_tenant_id();
+```
+
+Expect one row with the fleet's name. Then:
+
+```sql
+SELECT app.record_consent('<PURPOSE>', <true|false>, '<notice version>',
+  '<YYYY-MM-DD>'::date::timestamp AT TIME ZONE
+    (SELECT timezone FROM app.tenant WHERE id = app.current_tenant_id()));
+SELECT purpose_code, granted, notice_version, occurred_at
+  FROM app.v_tenant_consent_current
+ WHERE tenant_id = app.current_tenant_id();
+```
+
+The purpose is `SERVICE_DELIVERY` or `ANONYMISED_BENCHMARKING`. The date is
+the agreement's, a day in the fleet's own calendar, recorded as that day's
+first instant in the fleet's timezone whatever the session's TimeZone. A
+date after today is refused. The read names the tenant because the admin
+role may bypass RLS. Expect the purpose with the state just recorded, then
+`COMMIT;`.
+
+Locally, `make record-consent T=<tenant id> P=<PURPOSE> G=<true|false>
+N="<notice version>" ON=<YYYY-MM-DD>` does the same.
+
 ## 7. First ORG_ADMIN
 
 `provision-a-user.md`, from step 1.
@@ -214,8 +251,10 @@ platform's defaults.
   unique across tenants. Left out, the others take the schema's defaults:
   `timezone` `Africa/Johannesburg` (an IANA zone name, checked against
   Postgres's list inside the transaction), `locale` `en-ZA`, `currency`
-  `ZAR` (three capitals), `pressure_unit` `KPA` (or `PSI`, `BAR`),
-  `distance_unit` `KM` (or `MI`), `display_code_policy` `FREE`.
+  `ZAR` (three capitals), `pressure_unit` `KPA`, `distance_unit` `KM`,
+  `display_code_policy` `FREE`. `KPA` and `KM` are the only units until
+  conversion is built: the generator refuses `PSI`, `BAR` and `MI`, and so
+  does the database (FR-CFG-021, TYRE-283).
 - **Display codes.** `GENERATED` needs `display_code_prefix`, 2 to 8
   capital letters or digits, and gets a counter starting at 1. `FREE`
   takes no prefix and gets no counter.

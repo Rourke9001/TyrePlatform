@@ -467,14 +467,25 @@ def validate(doc):
         if not isinstance(doc["currency"], str) or not CURRENCY.match(doc["currency"]):
             raise Refusal("currency must be a three-letter code such as ZAR")
         tenant["currency"] = doc["currency"]
+    # Nothing converts a stored kPa or km figure yet, so a known unit other
+    # than these is refused by name; tenant_metric_units holds the same line
+    # in the database (000059, FR-CFG-021).
     if "pressure_unit" in doc:
-        tenant["pressure_unit"] = _one_of(
-            doc["pressure_unit"], "pressure_unit", ["KPA", "PSI", "BAR"]
-        )
+        unit = _one_of(doc["pressure_unit"], "pressure_unit", ["KPA", "PSI", "BAR"])
+        if unit != "KPA":
+            raise Refusal(
+                f"pressure_unit is {unit}; pressure conversion is not built yet,"
+                " so a tenant is KPA (FR-CFG-021)"
+            )
+        tenant["pressure_unit"] = unit
     if "distance_unit" in doc:
-        tenant["distance_unit"] = _one_of(
-            doc["distance_unit"], "distance_unit", ["KM", "MI"]
-        )
+        unit = _one_of(doc["distance_unit"], "distance_unit", ["KM", "MI"])
+        if unit != "KM":
+            raise Refusal(
+                f"distance_unit is {unit}; distance conversion is not built yet,"
+                " so a tenant is KM (FR-CFG-021)"
+            )
+        tenant["distance_unit"] = unit
 
     prefix = None
     if "display_code_policy" in doc:
@@ -612,12 +623,13 @@ def provisioning_sql(p, tid, source=None):
             f"INSERT INTO app.depot ({', '.join(cols)}) VALUES ({', '.join(vals)});"
         )
     L.append("SELECT app.seed_tenant_catalogue() AS platform_catalogue_seeded;")
-    # No actor is bound at provisioning, so actor_id and created_by stay NULL.
+    # Through the one writer the runbook and make record-consent share
+    # (000059). No actor is bound at provisioning, so actor_id and created_by
+    # stay NULL, and consent is dated now.
     for rec in p["consent"]:
         L.append(
-            "INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version)"
-            f" VALUES ({q}, {sql_literal(rec['purpose'])}, {_sql_value(rec['granted'])},"
-            f" {sql_literal(rec['notice_version'])});"
+            f"SELECT app.record_consent({sql_literal(rec['purpose'])},"
+            f" {_sql_value(rec['granted'])}, {sql_literal(rec['notice_version'])});"
         )
     L.append("")
     expected = ",\n".join(

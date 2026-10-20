@@ -156,6 +156,32 @@ provision-catalogue: db-up ## Load a tenant's catalogue file locally (T=<tenant 
 	  -c "SELECT * FROM app.provision_catalogue((SELECT app.catalogue_file_parse(string_agg(line, E'\n' ORDER BY n)) FROM catalogue_file))" \
 	  < "$(F)"
 
+# Records or withdraws one consent purpose for a tenant through
+# app.record_consent, the writer provisioning and the runbook share (000059,
+# FR-TEN-022). Each value is read from the environment, where make exports a
+# command-line variable, and checked in the shell, so a quote in a value is
+# refused rather than spliced into the recipe. The statements go on stdin,
+# because psql interpolates a variable there and not inside -c
+# (docs/lessons.md, 2026-10-15). ON is a day in the tenant's calendar,
+# recorded as that day's first instant in the tenant's timezone whatever the
+# session's TimeZone (rule 6), so an agreement dated the tenant's today is
+# never refused as future (docs/lessons.md, 2026-09-01). With no ON, consent
+# is dated now. Staging and production follow
+# docs/runbooks/provision-a-tenant.md (TYRE-283).
+.PHONY: record-consent
+record-consent: db-up ## Record or withdraw a tenant's consent locally (T=<tenant uuid> P=<purpose> G=<true|false> N=<notice version> [ON=<YYYY-MM-DD>], TYRE-283)
+	@[[ "$$T" =~ ^[0-9a-fA-F]{8}-([0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}$$ ]] || { echo "usage: make record-consent T=<tenant uuid> P=<purpose> G=<true|false> N=<notice version> [ON=<YYYY-MM-DD>]"; exit 2; }
+	@[[ "$$P" =~ ^[A-Z_]+$$ ]] || { echo "P is a purpose code, such as SERVICE_DELIVERY"; exit 2; }
+	@[[ "$$G" =~ ^(true|false)$$ ]] || { echo "G is true to grant or false to withdraw"; exit 2; }
+	@notice_shape="^[A-Za-z0-9 ._:/()'-]+$$"; [[ "$$N" =~ $$notice_shape ]] || { echo "N is the notice version: letters, digits, spaces and . _ : / ( ) ' -"; exit 2; }
+	@[[ -z "$$ON" || "$$ON" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$$ ]] || { echo "ON is the agreement's date, YYYY-MM-DD"; exit 2; }
+	printf '%s\n' \
+	  "SELECT set_config('app.tenant_id', :'tenant', true) AS tenant;" \
+	  "SELECT name AS fleet FROM app.tenant WHERE id = app.current_tenant_id();" \
+	  "SELECT app.record_consent(:'purpose', :'granted'::boolean, :'notice', COALESCE(NULLIF(:'on', '')::date::timestamp AT TIME ZONE (SELECT t.timezone FROM app.tenant t WHERE t.id = app.current_tenant_id()), now())) AS consent;" \
+	  "SELECT purpose_code, granted, notice_version, occurred_at FROM app.v_tenant_consent_current WHERE tenant_id = app.current_tenant_id();" \
+	| $(PSQL_APP) -v ON_ERROR_STOP=1 -q -1 -v tenant="$$T" -v purpose="$$P" -v granted="$$G" -v notice="$$N" -v on="$$ON"
+
 ## ---------------------------------------------------------------- api / web
 
 # Go runs in docker (no host toolchain on Windows), joined to the compose
