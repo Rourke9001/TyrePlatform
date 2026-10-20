@@ -28,6 +28,21 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-19 - A Bash heredoc that holds another heredoc is cut short, with only a warning (TYRE-435)
+
+**What happened:** a plan section was written through the Bash tool as
+`cat > step4.md <<'PLAN'`. The section itself held a runbook block with
+`cat > "$s" <<'EOF'`. The file stopped at that inner line, cut inside its
+quote (`<<'EOF`), and the commands after the heredoc never ran. The only
+sign was bash's warning that the here-document ended at end-of-file while
+it wanted `PLAN`. In plain bash a quoted heredoc's body is inert text, so
+the cut happens before bash reads the command. The exact cause was not
+pinned down.
+
+**The rule:** write content that itself contains a heredoc with the Write
+tool, then run commands on the file. After any heredoc write, check the
+file's last line with `tail -1` before using it.
+
 ## 2026-10-16 - The Write and Edit tools turn a typed `\u` escape into the raw character (TYRE-369)
 
 **What happened:** a stage 5 fix typed `'[[:space:]\u00a0\u2007...]'` into
