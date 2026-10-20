@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 import type { Money } from "../api/money";
-import { formatRand } from "../api/money";
+import { formatMoney } from "../api/money";
 import { BandChart } from "./BandChart";
 import { Button } from "./Button";
 import { DataTable, type Column } from "./DataTable";
@@ -26,7 +26,7 @@ import {
 import "./gallery.css";
 
 // Example values only. The money strings are round amounts, typed as the
-// brand so the gallery exercises formatRand the way a page would; none is a
+// brand so the gallery exercises formatMoney the way a page would; none is a
 // fleet figure.
 const rand = (s: string) => s as Money;
 
@@ -62,7 +62,7 @@ const rows: SampleRow[] = [
     unit: "HORSE",
     position: "POS3",
     tread: `${formatMm(2)} of ${formatMm(4)}`,
-    value: formatRand(rand("15000.00")),
+    value: formatMoney(rand("15000.00"), "ZAR"),
     basis: basisLabel("AUDIT"),
   },
   {
@@ -70,7 +70,7 @@ const rows: SampleRow[] = [
     unit: "LINK12",
     position: "POS10",
     tread: `${formatMm(3.5)} of ${formatMm(4)}`,
-    value: formatRand(rand("4000.00")),
+    value: formatMoney(rand("4000.00"), "ZAR"),
     basis: basisLabel("ESTIMATED"),
   },
   {
@@ -78,7 +78,7 @@ const rows: SampleRow[] = [
     unit: "TRAILER7",
     position: "POS22",
     tread: `${formatMm(11)} of ${formatMm(4)}`,
-    value: formatRand(rand("22000.00")),
+    value: formatMoney(rand("22000.00"), "ZAR"),
     basis: basisLabel("ACTUAL"),
   },
   {
@@ -86,7 +86,7 @@ const rows: SampleRow[] = [
     unit: "LINK12",
     position: "POS2",
     tread: `${formatMm(6.5)} of ${formatMm(4)}`,
-    value: formatRand(rand("1000.00")),
+    value: formatMoney(rand("1000.00"), "ZAR"),
     basis: basisLabel("AUDIT"),
   },
 ];

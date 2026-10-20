@@ -3,7 +3,7 @@ import { Link, useSearchParams } from "react-router";
 
 import { fetchAtRisk, type AtRiskClass, type TyreAtRisk } from "../api/dashboard";
 import { getDevTenantId } from "../api/devTenant";
-import { moneyOrEmpty, moneyText } from "../api/money";
+import { moneyOrEmpty, moneyText, useCurrency } from "../api/money";
 import { fetchDepots } from "../api/units";
 import { useActor } from "../auth/actorContext";
 import { atRiskKey, depotsKey } from "../fleet/unit/queryKeys";
@@ -31,8 +31,8 @@ function classQualifier(c: AtRiskClass): string {
   return `${plural(c.tyreCount, "tyre", "tyres")}: ${formatCount(c.actualCount)} at actual cost, ${formatCount(c.estimatedOrAuditCount)} estimated or audit, of which ${formatCount(c.auditCount)} audit; ${formatCount(c.unvaluedCount)} unvalued`;
 }
 
-function classValue(c: AtRiskClass): string {
-  return moneyOrEmpty(c.casingValueAtRisk, true, c.tyreCount, absenceLabel("noneAtRisk"));
+function classValue(c: AtRiskClass, currency: string): string {
+  return moneyOrEmpty(c.casingValueAtRisk, true, c.tyreCount, absenceLabel("noneAtRisk"), currency);
 }
 
 // FR-DSH-017, U47: every tyre at or below the removal threshold today, with
@@ -44,6 +44,7 @@ export default function AtRisk() {
   const depot = readDashboardParams(search).depot;
   const tenantKey = getDevTenantId() ?? "default";
   const actor = useActor();
+  const currency = useCurrency();
   const formatInstant = useTenantInstant();
   const list = useQuery({
     queryKey: atRiskKey(tenantKey, depot),
@@ -90,7 +91,7 @@ export default function AtRisk() {
       key: "value",
       header: "Casing value",
       align: "right",
-      cell: (t) => moneyText(t.casingValue, true),
+      cell: (t) => moneyText(t.casingValue, true, currency),
     },
     { key: "basis", header: "Basis", basis: true, cell: (t) => basisLabel(t.casingBasis) },
   ];
@@ -114,14 +115,14 @@ export default function AtRisk() {
         <div className="tile-grid">
           <StatTile
             label="Running"
-            value={classValue(list.data.running)}
+            value={classValue(list.data.running, currency)}
             qualifier={classQualifier(list.data.running)}
             requirement="FR-RPT-040"
             headingLevel={2}
           />
           <StatTile
             label="Spares"
-            value={classValue(list.data.spare)}
+            value={classValue(list.data.spare, currency)}
             qualifier={classQualifier(list.data.spare)}
             headingLevel={2}
           />

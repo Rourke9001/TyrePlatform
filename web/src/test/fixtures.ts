@@ -30,6 +30,9 @@ export function me(overrides: Partial<Me> = {}): Me {
     timezone: "Africa/Johannesburg",
     displayCodePolicy: "FREE",
     tenantId: "t0",
+    currency: "ZAR",
+    pressureUnit: "KPA",
+    distanceUnit: "KM",
     ...overrides,
   };
 }

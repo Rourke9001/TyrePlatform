@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 
 import type { BelowThreshold, ValueAtRisk } from "../api/dashboard";
-import { moneyOrEmpty, moneyText } from "../api/money";
+import { moneyOrEmpty, moneyText, useCurrency } from "../api/money";
 import { ProvenanceSplit } from "../ui/ProvenanceSplit";
 import { absenceLabel, formatCount, judgedAtLabel, plural } from "../ui/vocabulary";
 import { withDepot } from "./dashboardParams";
@@ -22,6 +22,7 @@ export function ValueAtRiskHero({
   depot,
 }: ValueAtRiskHeroProps) {
   const { running, spare } = valueAtRisk;
+  const currency = useCurrency();
   return (
     <section className="hero" aria-labelledby="hero-title" data-requirement="FR-DSH-017">
       <h2 id="hero-title" className="hero-label">
@@ -33,6 +34,7 @@ export function ValueAtRiskHero({
           moneyVisible,
           running.tyreCount,
           absenceLabel("noneAtRisk"),
+          currency,
         )}
       </p>
       {/* U18: the register's today count, not the exception count, which is
@@ -61,7 +63,7 @@ export function ValueAtRiskHero({
           absenceLabel("noSparesAtRisk")
         ) : (
           <>
-            Spares: {moneyText(spare.casingValueAtRisk, moneyVisible)} from{" "}
+            Spares: {moneyText(spare.casingValueAtRisk, moneyVisible, currency)} from{" "}
             {plural(spare.tyreCount, "tyre", "tyres")}
             {spare.unvaluedCount > 0 && `, ${formatCount(spare.unvaluedCount)} unvalued`}
           </>

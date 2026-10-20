@@ -27,7 +27,7 @@ export function plural(n: number, one: string, many: string): string {
 }
 
 // en-ZA's decimal separator is a comma in current ICU (Intl.NumberFormat
-// would render "4,0 mm" beside formatRand's "R16,537.50"), so tread uses
+// would render "4,0 mm" beside formatMoney's "R16,537.50"), so tread uses
 // toFixed and a point instead. A tread value on the wire is whole or half
 // millimetres, the capture keypad has a half key and no decimal point, and
 // the owner fixed the display at one decimal always (TYRE-238 comment 12938).

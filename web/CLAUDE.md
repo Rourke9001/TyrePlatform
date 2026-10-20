@@ -190,8 +190,9 @@ before it is reviewed. Rules that are not visible in the code:
 - The word "roadworthy" appears in no label, legend or aria text; the
   platform reports the tenant's configured thresholds (CLAUDE.md).
 - A money figure is `Money` (`src/api/money.ts`) and rendered only by
-  `formatRand`. An absent one (`null` on the wire) must read "Hidden" or "Not
-  valued" with the unvalued count beside it, never 0 (U36, NFR-PRO-002/003).
+  `formatMoney`, in the tenant's currency (`useCurrency`). An absent one
+  (`null` on the wire) must read "Hidden" or "Not valued" with the
+  unvalued count beside it, never 0 (U36, NFR-PRO-002/003).
 - The dev tenant and actor switchers live in the collapsed dev bar after
   the content (`src/shell/DevBar.tsx`), never in the header (TYRE-242).
 - Below `breakpoint.phone` (640px, `src/theme/tokens.ts`) `DataTable` renders
@@ -206,7 +207,7 @@ before it is reviewed. Rules that are not visible in the code:
 - Every displayed number groups thousands with a comma, as money does:
   "1,234 tyres", "416,180 km", "R1,234.00" (U55). The separator is written
   once, in `groupThousands` (`src/format/groupThousands.ts`), which
-  `formatRand`, `formatCount`, `formatPct` and the capture route's
+  `formatMoney`, `formatCount`, `formatPct` and the capture route's
   kilometres all call. eslint refuses `Intl.NumberFormat`, whose en-ZA
   grouping is a no-break space.
 - Inflation band identifiers become words in `vocabulary.ts`

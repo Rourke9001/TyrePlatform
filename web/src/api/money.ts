@@ -1,3 +1,4 @@
+import { useActor } from "../auth/actorContext";
 import { groupThousands } from "../format/groupThousands";
 
 // Money over the wire is the exact decimal string the server sent, and it
@@ -14,21 +15,37 @@ export type Money = string & { readonly __money: "rand" };
 // A short scale is padded and a long one is shown whole. Rounding is a money
 // rule with exactly one implementation, in SQL (rule 2), and dropping a third
 // decimal here would hide a server scale nobody then fixes.
-export function formatRand(m: Money): string {
+export function formatMoney(m: Money, currency: string): string {
   const [whole, cents = "00"] = m.split(".");
   const negative = whole.startsWith("-");
   const digits = negative ? whole.slice(1) : whole;
   const grouped = groupThousands(digits);
-  return `${negative ? "-" : ""}R${grouped}.${cents.padEnd(2, "0")}`;
+  return `${negative ? "-" : ""}${symbolFor(currency)}${grouped}.${cents.padEnd(2, "0")}`;
+}
+
+// FR-CFG-022 for the POC: the symbol follows the tenant's currency code
+// through this platform map, not a per-tenant setting (TYRE-442). A code the
+// map does not hold prints as itself, and no code, before GET /api/me
+// answers, prints the bare figure rather than a symbol that may be wrong.
+const SYMBOLS: Readonly<Partial<Record<string, string>>> = { ZAR: "R" };
+
+function symbolFor(currency: string): string {
+  if (currency === "") return "";
+  return SYMBOLS[currency] ?? `${currency} `;
+}
+
+// The bound tenant's currency code, or "" until the actor arrives.
+export function useCurrency(): string {
+  return useActor()?.currency ?? "";
 }
 
 // U36: moneyVisible false means the actor may not see money, so even a
 // present value is hidden; true with null means no member was valued.
 // Neither renders as a number.
-export function moneyText(value: Money | null, visible: boolean): string {
+export function moneyText(value: Money | null, visible: boolean, currency: string): string {
   if (!visible) return "Hidden";
   if (value === null) return "Not valued";
-  return formatRand(value);
+  return formatMoney(value, currency);
 }
 
 // U36, U44: a set with no tyre sends null too, and that null means there is
@@ -39,7 +56,8 @@ export function moneyOrEmpty(
   visible: boolean,
   tyreCount: number,
   empty: string,
+  currency: string,
 ): string {
   if (visible && tyreCount === 0) return empty;
-  return moneyText(value, visible);
+  return moneyText(value, visible, currency);
 }

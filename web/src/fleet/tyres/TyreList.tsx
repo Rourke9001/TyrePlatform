@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 
 import { getDevTenantId } from "../../api/devTenant";
+import { formatMoney, useCurrency } from "../../api/money";
 import { fetchTyres, isDisposed, type Destination, type Tyre } from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
@@ -114,6 +115,7 @@ function rowActions(t: Tyre, tenantKey: string, onActed: (acted: ActedOn) => voi
 export function TyreList() {
   const tenantKey = getDevTenantId() ?? "default";
   const canSeeMoney = useCan("ViewValuation");
+  const currency = useCurrency();
   const canLogRetread = useCan("LogRetread");
   const asOf = useTenantDate();
 
@@ -245,7 +247,7 @@ export function TyreList() {
               <th scope="col">Awaiting cost</th>
               <th scope="col">Set cost</th>
               {canSeeMoney && <th scope="col">Purchase price</th>}
-              {canSeeMoney && <th scope="col">Rand/mm</th>}
+              {canSeeMoney && <th scope="col">Cost per mm</th>}
               {canSeeMoney && <th scope="col">Casing value</th>}
               <th scope="col">Actions</th>
             </tr>
@@ -271,9 +273,13 @@ export function TyreList() {
                     "—"
                   )}
                 </td>
-                {canSeeMoney && <td>{t.purchasePrice ? `R ${t.purchasePrice}` : "—"}</td>}
-                {canSeeMoney && <td>{t.randPerMm ? `R ${t.randPerMm}` : "—"}</td>}
-                {canSeeMoney && <td>{t.casingValue ? `R ${t.casingValue}` : "—"}</td>}
+                {canSeeMoney && (
+                  <td>{t.purchasePrice ? formatMoney(t.purchasePrice, currency) : "—"}</td>
+                )}
+                {canSeeMoney && <td>{t.randPerMm ? formatMoney(t.randPerMm, currency) : "—"}</td>}
+                {canSeeMoney && (
+                  <td>{t.casingValue ? formatMoney(t.casingValue, currency) : "—"}</td>
+                )}
                 {/* No active-only filter on this register (TYRE-91): a
                     disposed row stays visible, so rowActions hides every
                     form once the state is terminal, matching the Set-cost

@@ -45,7 +45,7 @@ export const moneyStaysString = {
     schema: [],
     messages: {
       money:
-        "{{what}} on a Money value. Money stays the server's decimal string (rule 2): format it with formatRand, and a total is a SQL column, never a client sum.",
+        "{{what}} on a Money value. Money stays the server's decimal string (rule 2): format it with formatMoney, and a total is a SQL column, never a client sum.",
       order:
         "{{what}} on a Money value compares text, so R999.00 ranks above R1000.00. Rank money in SQL and relay the order the server sent (rule 2).",
     },

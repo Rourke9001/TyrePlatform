@@ -17,6 +17,7 @@ const TYRE: Tyre = {
   patternName: "R150",
   receivedDate: "2026-01-05",
   awaitingCost: true,
+  receiptId: null,
 };
 
 function renderForm() {

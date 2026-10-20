@@ -25,6 +25,9 @@ interface Me {
   timezone: string;
   displayCodePolicy: string;
   tenantId: string;
+  currency: string;
+  pressureUnit: string;
+  distanceUnit: string;
 }
 
 interface Branding {
@@ -55,6 +58,9 @@ const ME: Me = {
   timezone: "Africa/Johannesburg",
   displayCodePolicy: "FREE",
   tenantId: "0c0ffee0-0000-4000-8000-0000000000b1",
+  currency: "ZAR",
+  pressureUnit: "KPA",
+  distanceUnit: "KM",
 };
 
 const BRANDING: Branding = {

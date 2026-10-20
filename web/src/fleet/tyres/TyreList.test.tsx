@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { TyreList } from "./TyreList";
+import type { Money } from "../../api/money";
 import type { Tyre } from "../../api/tyres";
 import { renderWithActor, requestedUrl, respond, sentBody } from "../../test/fixtures";
 
@@ -23,9 +24,10 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
     patternName: "R150",
     receivedDate: "2026-01-05",
     awaitingCost: false,
-    purchasePrice: "1200.00",
-    randPerMm: "150.25",
-    casingValue: "800.00",
+    purchasePrice: "1200.00" as Money,
+    randPerMm: "150.25" as Money,
+    casingValue: "800.00" as Money,
+    receiptId: null,
     ...overrides,
   };
 }
@@ -51,6 +53,30 @@ describe("the tyre register", () => {
 
     const rowHeaders = await screen.findAllByRole("rowheader");
     expect(rowHeaders.map((el) => el.textContent)).toEqual(["POS2", "POS10"]);
+  });
+
+  // FR-CFG-022: money renders through the one formatter in the tenant's
+  // currency, grouped, and the rate column names what it is, not a currency.
+  it("formats money in the tenant's currency under a cost per mm column", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      respond(200, {
+        tyres: [
+          tyre({
+            id: "t1",
+            purchasePrice: "4319.91" as Money,
+            randPerMm: "205.7100" as Money,
+            casingValue: "1837.50" as Money,
+          }),
+        ],
+      }),
+    );
+
+    renderScreen();
+
+    expect(await screen.findByRole("cell", { name: "R4,319.91" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "R205.7100" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "R1,837.50" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "Cost per mm" })).toBeInTheDocument();
   });
 
   it("filters to the awaiting-cost backlog when the toggle is switched on", async () => {
@@ -418,7 +444,7 @@ describe("the tyre register", () => {
     expect(screen.queryByRole("columnheader", { name: /purchase price/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: /rand\/mm/i })).not.toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: /casing value/i })).not.toBeInTheDocument();
-    expect(screen.queryByText(/1200\.00/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/1,200\.00/)).not.toBeInTheDocument();
   });
 
   it("shows the money columns to an actor with ViewValuation", async () => {
@@ -427,7 +453,7 @@ describe("the tyre register", () => {
 
     await screen.findAllByRole("rowheader");
     expect(screen.getByRole("columnheader", { name: /purchase price/i })).toBeInTheDocument();
-    expect(screen.getByText(/1200\.00/)).toBeInTheDocument();
+    expect(screen.getByText("R1,200.00")).toBeInTheDocument();
   });
 
   // ReceiveTyre (/fleet/tyres/new) is otherwise reachable by URL alone; the

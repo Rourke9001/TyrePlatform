@@ -17,6 +17,7 @@ function tyre(overrides: Partial<Tyre> & { id: string }): Tyre {
     patternName: "R150",
     receivedDate: "2026-01-05",
     awaitingCost: false,
+    receiptId: null,
     ...overrides,
   };
 }
