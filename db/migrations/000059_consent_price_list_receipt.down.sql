@@ -2,6 +2,13 @@
 -- proved by catalogue against a baseline taken before the up ran
 -- (docs/lessons.md, 2026-09-15 and 2026-10-01).
 
+-- The moves and the open list read app.tyre.receipt_id and
+-- app.tyre_receipt, so they go before either.
+DROP VIEW app.v_open_tyre_receipt;
+DROP FUNCTION app.record_receipt_invoice(uuid, numeric, text, date);
+DROP FUNCTION app.keep_receipt_estimate(uuid);
+DROP FUNCTION app.apply_receipt_list_price(uuid);
+
 -- receive_tyres and set_tyre_cost take back the bodies 000057 and 000053
 -- gave them, verbatim. No ALTER FUNCTION touches either after those, and
 -- each keeps its search_path pin.

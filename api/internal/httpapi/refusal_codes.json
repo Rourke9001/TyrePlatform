@@ -191,6 +191,7 @@
     "meaning": "an invalid lifecycle transition, or a row this tenant cannot see. One message covers both so a missing row and another tenant's row stay indistinguishable under RLS",
     "raisedBy": [
       "app.apply_composition_observation",
+      "app.apply_receipt_list_price",
       "app.create_combination_at",
       "app.create_inspection_task",
       "app.dismiss_composition_observation",
@@ -199,7 +200,9 @@
       "app.end_combination_at",
       "app.fit_tyre",
       "app.fitment_instant_ok",
+      "app.keep_receipt_estimate",
       "app.log_retread_return",
+      "app.record_receipt_invoice",
       "app.remove_tyre",
       "app.return_tyre_to_stock",
       "app.rotate_tyres",
@@ -321,7 +324,13 @@
     "source": "db",
     "httpStatus": 422,
     "meaning": "a receipt refused: a move from a final state or one its state does not allow, a state its tyres in the fleet are not priced for, an invoice price that is not a non-negative amount or an invoice dated after today, no list price in force for an unpriced receipt, an invoice number set outside the invoice, or a change to a tyre's receipt (TYRE-283)",
-    "raisedBy": ["app.tyre_receipt_is_fixed", "app.tyre_receipt_moves_once"]
+    "raisedBy": [
+      "app.apply_receipt_list_price",
+      "app.keep_receipt_estimate",
+      "app.record_receipt_invoice",
+      "app.tyre_receipt_is_fixed",
+      "app.tyre_receipt_moves_once"
+    ]
   },
   "TY027": {
     "source": "db",

@@ -686,3 +686,176 @@ BEGIN
      SET purchase_price = price, cost_source = p_source, rand_per_mm = rate
    WHERE id = p_tyre AND tenant_id = app.current_tenant_id();
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- The receipt's moves (FR-CFG-041, spec D2 and D3)
+-- ---------------------------------------------------------------------------
+-- Each move locks the receipt, then its tyres in display-code order, and
+-- applies to the whole set in one transaction. A tyre that has left the
+-- fleet keeps what it has, purchase date included, as app.set_tyre_cost
+-- leaves it, and is counted in left_fleet. Every tyre is written before the
+-- receipt moves, as tyre_receipt_moves_once requires. A receipt not in the
+-- bound fleet is not found, as a tyre is.
+CREATE FUNCTION app.apply_receipt_list_price(p_receipt uuid)
+RETURNS TABLE (priced int, left_fleet int)
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  rc  app.tyre_receipt;
+  est numeric;
+  t   record;
+BEGIN
+  SELECT * INTO rc FROM app.tyre_receipt r
+   WHERE r.id = p_receipt AND r.tenant_id = app.current_tenant_id()
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such receipt in this fleet';
+  END IF;
+  IF rc.price_state <> 'UNPRICED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY026',
+      MESSAGE = 'only an unpriced receipt takes the list price';
+  END IF;
+  -- The receipt's own size, brand and date, never a tyre's.
+  SELECT e.typical_price INTO est
+    FROM app.price_list_estimate(rc.size_id, rc.brand_id, rc.received_date) e;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY026',
+      MESSAGE = format('no price list entry for this size and brand was in force on %s, the day these tyres were received; record the invoice price instead',
+                       rc.received_date);
+  END IF;
+
+  priced := 0;
+  left_fleet := 0;
+  FOR t IN SELECT x.id, x.display_code, x.state, x.retread_count, x.new_tread_mm, x.rand_per_mm
+             FROM app.tyre x
+            WHERE x.tenant_id = app.current_tenant_id() AND x.receipt_id = rc.id
+            ORDER BY x.display_code
+              FOR UPDATE LOOP
+    IF t.state IN ('SCRAPPED', 'SOLD', 'LOST') THEN
+      left_fleet := left_fleet + 1;
+      CONTINUE;
+    END IF;
+    UPDATE app.tyre
+       SET purchase_price = est, cost_source = 'PRICE_LIST_ESTIMATE',
+           rand_per_mm = app.costed_rand_per_mm(t.retread_count, t.new_tread_mm, t.rand_per_mm, est,
+                                                format('tyre %s', t.display_code))
+     WHERE id = t.id AND tenant_id = app.current_tenant_id();
+    priced := priced + 1;
+  END LOOP;
+
+  UPDATE app.tyre_receipt SET price_state = 'ESTIMATED'
+   WHERE id = rc.id AND tenant_id = app.current_tenant_id();
+  RETURN NEXT;
+END $$;
+
+-- Records that no invoice will come, so the estimate is final. No tyre is
+-- written: the tyres already carry the estimate the receipt moved on.
+CREATE FUNCTION app.keep_receipt_estimate(p_receipt uuid)
+RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  st app.receipt_price_state;
+BEGIN
+  SELECT r.price_state INTO st FROM app.tyre_receipt r
+   WHERE r.id = p_receipt AND r.tenant_id = app.current_tenant_id()
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such receipt in this fleet';
+  END IF;
+  IF st <> 'ESTIMATED' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY026',
+      MESSAGE = 'only a receipt priced from the price list can keep its estimate';
+  END IF;
+  UPDATE app.tyre_receipt SET price_state = 'ESTIMATE_KEPT'
+   WHERE id = p_receipt AND tenant_id = app.current_tenant_id();
+END $$;
+
+-- The invoice is recorded once, before the receipt is final (spec D2). The
+-- invoice date is the tyres' purchase_date (spec, Calls made here 1), and a
+-- tyre still in the fleet has its past valuations restated at the invoice
+-- figure, as app.set_tyre_cost does (000008's header).
+CREATE FUNCTION app.record_receipt_invoice(p_receipt uuid, p_price numeric,
+                                           p_invoice_number text DEFAULT NULL,
+                                           p_invoice_date date DEFAULT NULL)
+RETURNS TABLE (priced int, left_fleet int)
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  st    app.receipt_price_state;
+  tz    text;
+  -- Rounded here, before the rate divides (docs/lessons.md, 2026-09-01).
+  price numeric(12,2);
+  t     record;
+BEGIN
+  SELECT r.price_state INTO st FROM app.tyre_receipt r
+   WHERE r.id = p_receipt AND r.tenant_id = app.current_tenant_id()
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such receipt in this fleet';
+  END IF;
+  IF st IN ('INVOICED', 'ESTIMATE_KEPT') THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY026',
+      MESSAGE = 'this receipt''s price is final and does not change';
+  END IF;
+  IF p_price IS NULL OR p_price < 0 THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY026', MESSAGE = 'an invoice price is a non-negative amount';
+  END IF;
+  -- Today is the fleet's (rule 6), as at app.receive_tyres.
+  SELECT tn.timezone INTO tz FROM app.tenant tn WHERE tn.id = app.current_tenant_id();
+  IF p_invoice_date > app.tenant_today(tz) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY026',
+      MESSAGE = 'an invoice is dated today or earlier, never in the future';
+  END IF;
+  price := p_price;
+
+  priced := 0;
+  left_fleet := 0;
+  FOR t IN SELECT x.id, x.display_code, x.state, x.retread_count, x.new_tread_mm, x.rand_per_mm
+             FROM app.tyre x
+            WHERE x.tenant_id = app.current_tenant_id() AND x.receipt_id = p_receipt
+            ORDER BY x.display_code
+              FOR UPDATE LOOP
+    IF t.state IN ('SCRAPPED', 'SOLD', 'LOST') THEN
+      left_fleet := left_fleet + 1;
+      CONTINUE;
+    END IF;
+    UPDATE app.tyre
+       SET purchase_price = price, cost_source = 'INVOICE',
+           rand_per_mm = app.costed_rand_per_mm(t.retread_count, t.new_tread_mm, t.rand_per_mm, price,
+                                                format('tyre %s', t.display_code)),
+           purchase_date = COALESCE(p_invoice_date, purchase_date)
+     WHERE id = t.id AND tenant_id = app.current_tenant_id();
+    priced := priced + 1;
+  END LOOP;
+
+  UPDATE app.tyre_receipt
+     SET price_state = 'INVOICED',
+         invoice_number = NULLIF(btrim(COALESCE(p_invoice_number, '')), '')
+   WHERE id = p_receipt AND tenant_id = app.current_tenant_id();
+  RETURN NEXT;
+END $$;
+
+-- The receipts still waiting for their price. Received date and names come
+-- from the receipt's own columns, the counts and codes from its tyres.
+-- unit_price is the price its priced tyres share; min() passes over a tyre
+-- that left the fleet unpriced. There is no cost source column: the state
+-- says it, and an aggregate over tyre sources would answer by alphabetical
+-- accident once a tyre left the fleet unpriced.
+CREATE VIEW app.v_open_tyre_receipt WITH (security_invoker = true) AS
+SELECT rc.tenant_id, rc.id AS receipt_id, rc.price_state, rc.depot_id, d.name AS depot_name,
+       rc.received_date, s.name AS size_name, b.name AS brand_name, p.name AS pattern_name,
+       count(t.id)::int AS quantity,
+       count(t.id) FILTER (WHERE t.state NOT IN ('SCRAPPED', 'SOLD', 'LOST'))::int AS in_fleet,
+       COALESCE(array_agg(t.display_code ORDER BY length(t.display_code), t.display_code)
+                  FILTER (WHERE t.id IS NOT NULL), '{}') AS display_codes,
+       min(t.purchase_price) AS unit_price,
+       rc.created_at
+  FROM app.tyre_receipt rc
+  JOIN app.tyre_size s ON s.tenant_id = rc.tenant_id AND s.id = rc.size_id
+  JOIN app.tyre_pattern p ON p.tenant_id = rc.tenant_id AND p.id = rc.pattern_id
+  LEFT JOIN app.tyre_brand b ON b.tenant_id = rc.tenant_id AND b.id = rc.brand_id
+  LEFT JOIN app.depot d ON d.tenant_id = rc.tenant_id AND d.id = rc.depot_id
+  LEFT JOIN app.tyre t ON t.tenant_id = rc.tenant_id AND t.receipt_id = rc.id
+ WHERE rc.price_state IN ('UNPRICED', 'ESTIMATED')
+ GROUP BY rc.tenant_id, rc.id, d.name, s.name, b.name, p.name;
