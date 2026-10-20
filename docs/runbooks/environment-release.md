@@ -76,6 +76,7 @@ prints anything, stop.
    from an earlier bring-up would survive it:
 
    ```bash
+   [ "$KV" = "kv-tyre-$ENV" ] && [ "$KVAPI" = "kv-tyre-api-$ENV" ] && echo "vaults match $ENV" || echo "vaults do not match $ENV"
    az keyvault secret list --vault-name $KV --query "[].name" -o tsv
    az keyvault secret list --vault-name $KVAPI --query "[].name" -o tsv
    dsn=$(az keyvault secret show --vault-name $KVAPI -n database-url --query value -o tsv)
@@ -86,7 +87,10 @@ prints anything, stop.
    unset dsn
    ```
 
-   The first list must show `psql-admin-password` and
+   The first line must be `vaults match <env>`. On `vaults do not match`,
+   stop and run Before anything again: every read below follows the two
+   variables, so a name left in the shell from the other environment
+   proves that environment's vault instead. The first list must show `psql-admin-password` and
    `pg-app-login-password`, and no `database-url`. The second must show
    `database-url` and nothing else, because the API can read whatever its
    vault holds. Then expect `app_login f f f f`. Anything else stops the
@@ -170,14 +174,16 @@ prints anything, stop.
    ```bash
    apid=$(az identity show -g $RG -n id-tyre-api-$ENV --query principalId -o tsv)
    echo "apid=$apid"   # must be non-empty
-   [ -n "$apid" ] && az role assignment list --assignee-object-id "$apid" --all \
+   [ -n "$apid" ] && az role assignment list --assignee-object-id "$apid" --all --include-groups \
      --query "[].{role:roleDefinitionName, scope:scope}" -o table
    ```
 
    Expect exactly two rows: `AcrPull` on `crtyrestaging`, and
    `Key Vault Secrets User` on `kv-tyre-api-<env>`. Any other row stops the
    release: a role on `kv-tyre-<env>` lets the API read the admin password,
-   which bypasses RLS (TYRE-435, CLAUDE.md rule 1). The one exception is
+   which bypasses RLS (TYRE-435, CLAUDE.md rule 1). `--include-groups`
+   also lists a role the identity holds through a group, which a direct
+   listing misses. The one exception is
    staging's switch-over below, from its step 0 until its step 4, which
    says what it expects.
 
@@ -320,8 +326,8 @@ until steps 0 to 2 are done.
 
    ```bash
    dsn=$(az keyvault secret show --vault-name $KV -n database-url --query value -o tsv)
-   echo "KV=$KV KVAPI=$KVAPI dsn-length=${#dsn}"   # both vault names, then a non-zero length
-   [ -n "$KV" ] && [ -n "$KVAPI" ] && [ -n "$dsn" ] && \
+   echo "KV=$KV KVAPI=$KVAPI dsn-length=${#dsn}"   # kv-tyre-staging, kv-tyre-api-staging, then a non-zero length
+   [ "$KV" = "kv-tyre-$ENV" ] && [ "$KVAPI" = "kv-tyre-api-$ENV" ] && [ -n "$dsn" ] && \
      az keyvault secret set --vault-name $KVAPI -n database-url --value="$dsn" -o none && \
      copy=$(az keyvault secret show --vault-name $KVAPI -n database-url --query value -o tsv) && \
      { [ "$copy" = "$dsn" ] && echo "database-url copies match" || echo "database-url copies differ"; }
@@ -379,6 +385,7 @@ until steps 0 to 2 are done.
      and counts the rows rather than leaving the count to the eye:
 
      ```bash
+     revoked=
      apid=$(az identity show -g $RG -n id-tyre-api-$ENV --query principalId -o tsv)
      kvid=$(az keyvault show -n $KV --query id -o tsv)
      echo "apid=$apid kvid=$kvid"   # both non-empty, and kvid ends in /vaults/kv-tyre-<env>
@@ -388,14 +395,17 @@ until steps 0 to 2 are done.
      n=$([ -n "$apid" ] && [ -n "$kvid" ] && az role assignment list --assignee-object-id "$apid" \
        --role "Key Vault Secrets User" --scope "$kvid" --query "length(@)" -o tsv)
      echo "rows=$n"   # must be 1
-     [ "$n" = 1 ] && az role assignment delete --assignee-object-id "$apid" --role "Key Vault Secrets User" --scope "$kvid"
+     [ "$n" = 1 ] && az role assignment delete --assignee-object-id "$apid" --role "Key Vault Secrets User" --scope "$kvid" && \
+       revoked=1 && echo "old grant deleted"
      ```
 
      The one row's scope ends in `/vaults/kv-tyre-staging`. On any other
      `rows=`, stop and delete nothing: post the listing on TYRE-435.
    - Delete the old secret, in the same shell and after the block above,
-     whose `case` empties `kvid` unless `$KV` is the owner's vault:
-     `[ -n "$kvid" ] && az keyvault secret delete --vault-name $KV -n database-url -o none`.
+     which sets `revoked` only once it has deleted the one grant on the
+     owner's vault:
+     `[ "${revoked:-}" = 1 ] && az keyvault secret delete --vault-name $KV -n database-url -o none`.
+     If the block did not print `old grant deleted`, this deletes nothing.
      Soft delete keeps it for 7 days, recoverable only by a Secrets
      Officer, which the API identity is not. No purge.
    - Wait ten minutes ("allow several minutes for role assignments to
@@ -428,7 +438,7 @@ sub=$(az account show --query id -o tsv)
 apiid=$(az identity show -g $RG -n id-tyre-api-$ENV --query id -o tsv)
 apicid=$(az identity show -g $RG -n id-tyre-api-$ENV --query clientId -o tsv)
 caeid=$(az containerapp env show -g $RG -n cae-tyre-$ENV --query id -o tsv)
-echo "MSYS_NO_PATHCONV=$MSYS_NO_PATHCONV KV=$KV KVAPI=$KVAPI sub=$sub apiid=$apiid apicid=$apicid caeid=$caeid"   # 1, then six non-empty values
+echo "MSYS_NO_PATHCONV=$MSYS_NO_PATHCONV KV=$KV KVAPI=$KVAPI sub=$sub apiid=$apiid apicid=$apicid caeid=$caeid"   # 1, kv-tyre-staging, kv-tyre-api-staging, then four non-empty values
 s=$(cygpath -m "$(mktemp)"); f=$(cygpath -m "$(mktemp)")
 cat > "$s" <<'EOF'
 set -u
@@ -450,7 +460,7 @@ esac
 echo "database-url: HTTP $api, length ${len:-0}"
 [ "$admin" = 403 ] && [ "$api" = 200 ] && [ "${len:-0}" -gt 0 ]
 EOF
-[ "$ENV" = staging ] && [ "$MSYS_NO_PATHCONV" = 1 ] && [ -n "$KV" ] && [ -n "$KVAPI" ] && \
+[ "$ENV" = staging ] && [ "$MSYS_NO_PATHCONV" = 1 ] && [ "$KV" = "kv-tyre-$ENV" ] && [ "$KVAPI" = "kv-tyre-api-$ENV" ] && \
   [ -n "$sub" ] && [ -n "$apiid" ] && [ -n "$apicid" ] && [ -n "$caeid" ] && \
 python -c 'import json, sys; \
 s, f, apiid, apicid, caeid, kv, kvapi = sys.argv[1:]; \
@@ -477,8 +487,8 @@ Expect `job body written`, then re-run the last line until it prints
 `Succeeded`. On `Failed`, post the error on TYRE-435 and stop. Any other
 state means Azure is still provisioning the job: wait and read it again.
 
-The job's container is named `job-tyre-kv-proof`, which the log query
-below relies on. The image is pinned by digest, as the runbook's other
+The job and its container are both named `job-tyre-kv-proof`, which the
+log query below relies on. The image is pinned by digest, as the runbook's other
 images are. The admin password's response body goes to `/dev/null`, so
 its value is never stored or printed, and the API's secret is reduced to a
 length.
@@ -506,11 +516,14 @@ Your CLI has no `az containerapp job logs` (checked 19 Oct 2026 on
 ```bash
 wid=$(az monitor log-analytics workspace show -g $RG -n log-tyre-$ENV --query customerId -o tsv)
 [ -n "$wid" ] && az monitor log-analytics query -w "$wid" -o tsv --analytics-query \
-  "ContainerAppConsoleLogs_CL | where ContainerName_s == 'job-tyre-kv-proof' and TimeGenerated > ago(2h) | order by TimeGenerated asc | project TimeGenerated, ContainerGroupName_s, Log_s"
+  "ContainerAppConsoleLogs_CL | where (ContainerName_s == 'job-tyre-kv-proof' or ContainerGroupName_s startswith 'job-tyre-kv-proof') and TimeGenerated > ago(2h) | order by TimeGenerated asc | project TimeGenerated, ContainerGroupName_s, Log_s"
 ```
 
-The replica's `ContainerGroupName_s` starts with the execution's name,
-which tells the two runs' lines apart. `no token for the API identity`, or
+The query matches either the container's name or the replica's
+`ContainerGroupName_s`, which starts with the execution's name and so with
+the job's. Microsoft's jobs quickstart filters on the second ("Create a job
+in Azure Container Apps", Query job run logs). The execution's name tells
+the two runs' lines apart. `no token for the API identity`, or
 an `IDENTITY_HEADER` unbound error, means the job got no identity endpoint:
 stop and post the log on TYRE-435.
 
@@ -673,6 +686,9 @@ before its first platform apply, so the order differs from staging's.
 
    Expect `PGCRYPTO,BTREE_GIST` (order may differ). Keep `pw` in this shell.
 
+   Then run the role listing in staging's step 4 and expect its two rows,
+   before step 4 puts the admin password into `kv-tyre-prod`.
+
 4. **The admin password secret.**
 
    ```bash
@@ -702,8 +718,8 @@ before its first platform apply, so the order differs from staging's.
    pw=$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)
    apppw=$(python -c 'import secrets; print(secrets.token_urlsafe(32))')
    enc=$(python -c 'import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$apppw")
-   echo "KVAPI=$KVAPI pw-length=${#pw} apppw-length=${#apppw} enc-length=${#enc}"   # the API's vault name, then three non-zero lengths
-   [ -n "$KVAPI" ] && [ -n "$pw" ] && [ -n "$apppw" ] && [ -n "$enc" ] && \
+   echo "KV=$KV KVAPI=$KVAPI pw-length=${#pw} apppw-length=${#apppw} enc-length=${#enc}"   # kv-tyre-prod, kv-tyre-api-prod, then three non-zero lengths
+   [ "$KV" = "kv-tyre-$ENV" ] && [ "$KVAPI" = "kv-tyre-api-$ENV" ] && [ -n "$pw" ] && [ -n "$apppw" ] && [ -n "$enc" ] && \
      echo "ALTER ROLE app_login PASSWORD :'apppw';" | \
      docker run --rm -i -e PGPASSWORD="$pw" postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea psql \
        "host=$PG.postgres.database.azure.com dbname=tyre user=tyreadmin sslmode=require" \
