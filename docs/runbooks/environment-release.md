@@ -292,10 +292,14 @@ until steps 0 to 2 are done.
    [ "$(git rev-parse HEAD)" = "$(git rev-parse origin/TYRE-435-scope-api-vault-grant)" ] && [ -z "$(git status --porcelain)" ] && echo "the branch matches origin and is clean"
    ```
 
-   It must print both lines. If the first is missing, rebase the branch
-   onto `develop` first. If the second is missing, pull or stop: an apply
-   from a stale or edited checkout puts a `platform.bicep` on staging that
-   the PR does not hold.
+   It must print both lines. If the first is missing, rebase onto
+   `origin/develop`, push with `git push --force-with-lease`, and re-run
+   this block. If the rebase brought in a change to `infra/`, stage 5 runs
+   again first. If only the second line is missing, `git status` says why:
+   stash a local edit, or commit and push it, or run `git pull --ff-only`
+   if origin is ahead. Do not apply until both lines print: an apply from a
+   stale or edited checkout puts a `platform.bicep` on staging that the PR
+   does not hold.
 
    Then run the branch's **Before anything** again, so `KVAPI` is set:
    step 0 ran under `develop`'s, which sets none. Then run bring-up step 4's
@@ -340,11 +344,15 @@ until steps 0 to 2 are done.
    reference that fails is not something to find out at the merge. If the
    `database-url` line shows `HTTP 403`, the new grant is not in force yet:
    wait ten minutes and run the job again. Any other HTTP code stops: keep
-   the PR a draft and post the log on TYRE-435.
+   the PR a draft and post the log on TYRE-435. A run that shows
+   `psql-admin-password: refused`, or no log lines at all, means the
+   control failed: check `KV=` in the creation block's echo line and the
+   role listing, post on TYRE-435, and stop.
 
    Keep this run's execution name, status and log lines: post them on
-   TYRE-435 now, or paste them into the draft of step 4's comment. The log
-   query reaches back two hours, and step 4 deletes the job. Keep the job
+   TYRE-435 now, or paste them into the draft of step 4's comment. The
+   lines stay in the workspace, but step 4 usually runs days later, beyond
+   the log query's `ago(2h)`: widen it if you need them again. Keep the job
    until step 4. Then mark the PR ready for review.
 
 3. **Merge.** A green deploy means a revision started with `DATABASE_URL`
@@ -360,8 +368,8 @@ until steps 0 to 2 are done.
    other deploys to staging working.
 
    Until step 4, Each release on staging finds `database-url` in both
-   vaults, and the role listing shows three rows. Both are expected in this
-   window only.
+   vaults, and the role listing after a platform apply shows three rows.
+   Both are expected in this window only.
 
 4. **After the deploy is green: the removals, then the proof again.** In
    this order:
@@ -483,10 +491,11 @@ echo "execution=$ex"   # must be non-empty
   --job-execution-name "$ex" --query properties.status -o tsv
 ```
 
-Re-run the last command until it prints `Succeeded` or `Failed`. The
-status is the verdict: `Succeeded` only on `refused` with a non-empty
-`database-url`, so the log is evidence rather than the test. If `ex` comes
-back empty, list the executions instead:
+Re-run the last command until it prints `Succeeded` or `Failed`. On
+step 4's run the status is the verdict: `Succeeded` only on `refused` with
+a non-empty `database-url`, so the log is evidence rather than the test.
+On step 2's run `Failed` is expected, so the log lines are the test. If
+`ex` comes back empty, list the executions instead:
 `az containerapp job execution list -g $RG -n job-tyre-kv-proof --query "[].{name:name, status:properties.status, start:properties.startTime}" -o table`.
 
 Then read the log from the workspace, a few minutes after the run ends.

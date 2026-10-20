@@ -174,9 +174,9 @@ resource kvSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@20
 }
 
 // The API identity holds a role on this vault and on no other: kv holds
-// psql-admin-password, tyreadmin's, and that role bypasses RLS (rule 1,
-// TYRE-435). Only database-url goes here, since the API reads all it holds.
-// Same trade as kv above (TYRE-61).
+// psql-admin-password, and tyreadmin bypasses RLS (rule 1, TYRE-435). Only
+// database-url goes here, since the API reads all it holds. Same trade as
+// kv above (TYRE-61).
 resource kvApi 'Microsoft.KeyVault/vaults@2023-07-01' = {
   name: 'kv-tyre-api-${env}'
   location: location
@@ -190,7 +190,8 @@ resource kvApi 'Microsoft.KeyVault/vaults@2023-07-01' = {
   }
 }
 
-// The owner writes database-url here (runbook).
+// The owner writes database-url here (runbook, staging's switch-over
+// step 2 and Production bring-up step 5).
 resource kvApiSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(kvApi.id, deployerObjectId, roleKeyVaultSecretsOfficer)
   scope: kvApi
