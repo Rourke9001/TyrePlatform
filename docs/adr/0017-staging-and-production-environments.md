@@ -299,3 +299,15 @@ per-environment setting" prescribes (ADR-0019).
 - **BAC's account starts empty.** Production holds no tenant at its first
   release. BAC's account is created at TYRE-321's live onboarding, not
   provisioned with this ticket, and none of BAC's earlier data goes in.
+
+**Amended 2026-10-19 (TYRE-435, U142):** each environment has two vaults.
+
+`kv-tyre-api-<env>` is the API's and holds `database-url` alone; the API
+identity's only Key Vault role is Secrets User on it. `kv-tyre-<env>` keeps
+`psql-admin-password` and `pg-app-login-password` and is the owner's. The
+reason: `tyreadmin` bypasses RLS, so a vault-wide grant on one shared vault
+let anything acting as the API read every tenant's rows (rule 1), and
+Microsoft recommends a vault per application per environment with roles at
+vault scope. The Names list above stays as it is; this amendment adds
+`kv-tyre-api-staging` and `kv-tyre-api-prod`. See
+`docs/superpowers/specs/2026-10-19-api-own-vault-design.md`.
