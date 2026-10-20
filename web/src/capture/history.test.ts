@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
 import { historyWarnings, odometerRejection, odometerWarnings } from "./history";
+import { unitLabels } from "../units/units";
 
 const NOW = new Date("2026-08-25T06:00:00Z");
+const metric = unitLabels("KPA", "KM");
 
 const position: CapturePosition = {
   id: "p1",
@@ -182,35 +184,35 @@ describe("odometerRejection", () => {
   // server raises TY001 for it. Refusing here saves the driver finding out
   // after the walk-around.
   it("refuses a reading below the last recorded one", () => {
-    expect(odometerRejection(412000, ctx)).toBe("Lower than the last recorded 412,180 km.");
+    expect(odometerRejection(412000, ctx, metric)).toBe("Lower than the last recorded 412,180 km.");
   });
 
   it("accepts a reading at or above it", () => {
-    expect(odometerRejection(412180, ctx)).toBeNull();
-    expect(odometerRejection(500000, ctx)).toBeNull();
+    expect(odometerRejection(412180, ctx, metric)).toBeNull();
+    expect(odometerRejection(500000, ctx, metric)).toBeNull();
   });
 
   // Boundary test: FR-INS-032 at exactly equal.
   // An odometer exactly equal to lastOdometerKm → expect odometerRejection to return null.
   it("accepts a reading exactly equal to the last recorded one", () => {
-    expect(odometerRejection(412180, ctx)).toBeNull();
+    expect(odometerRejection(412180, ctx, metric)).toBeNull();
   });
 
   // FR-INS-020: optional, and a trailer-only inspection has no field at all.
   it("accepts an absent odometer", () => {
-    expect(odometerRejection(null, ctx)).toBeNull();
+    expect(odometerRejection(null, ctx, metric)).toBeNull();
   });
 });
 
 describe("odometerWarnings", () => {
   // FR-INS-033: six days at a 1600km/day ceiling is 9600km of headroom.
   it("accepts a plausible distance", () => {
-    expect(odometerWarnings(420000, ctx, NOW)).toEqual([]);
+    expect(odometerWarnings(420000, ctx, NOW, metric)).toEqual([]);
   });
 
   // The transposed digit the requirement exists for.
   it("warns and requires confirmation on an implausible daily distance", () => {
-    const w = odometerWarnings(512180, ctx, NOW);
+    const w = odometerWarnings(512180, ctx, NOW, metric);
     expect(codes(w)).toEqual(["FR-INS-033"]);
     expect(w[0].requiresConfirmation).toBe(true);
     expect(w[0].enteredValue).toBe("512180");
@@ -224,7 +226,7 @@ describe("odometerWarnings", () => {
   // headroom); lastOdometerKm + 9600 should not warn.
   it("does not warn when daily distance exactly equals the configured ceiling", () => {
     const exactDailyDistanceKm = ctx.lastOdometerKm! + 6 * ctx.config.odometerMaxDailyKm;
-    const w = odometerWarnings(exactDailyDistanceKm, ctx, NOW);
+    const w = odometerWarnings(exactDailyDistanceKm, ctx, NOW, metric);
     expect(codes(w)).not.toContain("FR-INS-033");
   });
 
@@ -232,20 +234,20 @@ describe("odometerWarnings", () => {
   // One kilometre a day more → expect the warning.
   it("warns when daily distance exceeds the configured ceiling by one km", () => {
     const exceedsDaily = ctx.lastOdometerKm! + 6 * ctx.config.odometerMaxDailyKm + 1;
-    const w = odometerWarnings(exceedsDaily, ctx, NOW);
+    const w = odometerWarnings(exceedsDaily, ctx, NOW, metric);
     expect(codes(w)).toContain("FR-INS-033");
   });
 
   it("says nothing when there is no previous reading to divide by", () => {
     const fresh = { ...ctx, lastOdometerKm: null, lastOdometerAt: null };
-    expect(odometerWarnings(999999, fresh, NOW)).toEqual([]);
+    expect(odometerWarnings(999999, fresh, NOW, metric)).toEqual([]);
   });
 
   // Guard: zero elapsed time (lastOdometerAt exactly equal to now).
   // The days <= 0 guard should prevent FR-INS-033 when there is no time interval.
   it("does not compute daily distance when the last odometer timestamp equals now", () => {
     const sameTimeCtx = { ...ctx, lastOdometerAt: NOW.toISOString() };
-    const w = odometerWarnings(500000, sameTimeCtx, NOW);
+    const w = odometerWarnings(500000, sameTimeCtx, NOW, metric);
     expect(codes(w)).not.toContain("FR-INS-033");
   });
 
@@ -255,7 +257,22 @@ describe("odometerWarnings", () => {
   it("does not compute daily distance when the last odometer is in the future", () => {
     const futureTime = new Date(NOW.getTime() + 24 * 60 * 60 * 1000); // one day in the future
     const skewedCtx = { ...ctx, lastOdometerAt: futureTime.toISOString() };
-    const w = odometerWarnings(400000, skewedCtx, NOW);
+    const w = odometerWarnings(400000, skewedCtx, NOW, metric);
     expect(codes(w)).not.toContain("FR-INS-033");
+  });
+});
+
+// FR-CFG-021: a distance in an odometer check is captioned with the
+// tenant's unit. An unknown code is echoed (units.ts), so a hard-coded km
+// fails.
+describe("distance labels", () => {
+  const xkm = unitLabels("KPA", "XKM");
+  it("odometerRejection names the tenant's unit", () => {
+    expect(odometerRejection(412000, ctx, xkm)).toBe("Lower than the last recorded 412,180 XKM.");
+  });
+  it("odometerWarnings names the tenant's unit", () => {
+    expect(odometerWarnings(512180, ctx, NOW, xkm)[0]?.message).toBe(
+      "That is about 16,667 XKM a day since the last reading. Check the digits.",
+    );
   });
 });

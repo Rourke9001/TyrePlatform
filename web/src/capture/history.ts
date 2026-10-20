@@ -2,6 +2,7 @@ import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { PositionEntry, Warning } from "./warnings";
 import { governingTread } from "./warnings";
 import { groupThousands } from "../format/groupThousands";
+import type { UnitLabels } from "../units/units";
 
 // The same figure app.wear_rate_mm_per_month uses to convert days to
 // months: a unit conversion, not a threshold, but it must match the
@@ -72,10 +73,14 @@ export function projectedOdometerKm(ctx: CaptureContext, now: Date): number | nu
 // FR-INS-032 is a rejection, not a warning: BR-INS-002 is unconditional and
 // the timeline raises TY001 for it on submit. Refusing at entry means the
 // driver finds out while standing at the cab, not after the walk-around.
-export function odometerRejection(odometerKm: number | null, ctx: CaptureContext): string | null {
+export function odometerRejection(
+  odometerKm: number | null,
+  ctx: CaptureContext,
+  units: UnitLabels,
+): string | null {
   if (odometerKm === null || ctx.lastOdometerKm === null) return null;
   if (odometerKm >= ctx.lastOdometerKm) return null;
-  return `Lower than the last recorded ${groupThousands(String(ctx.lastOdometerKm))} km.`;
+  return `Lower than the last recorded ${groupThousands(String(ctx.lastOdometerKm))} ${units.distance}.`;
 }
 
 // FR-INS-033's confirmation governs capture only; DR-020 governs the
@@ -85,6 +90,7 @@ export function odometerWarnings(
   odometerKm: number | null,
   ctx: CaptureContext,
   now: Date,
+  units: UnitLabels,
 ): Warning[] {
   if (odometerKm === null || ctx.lastOdometerKm === null || ctx.lastOdometerAt === null) return [];
   const days = daysBetween(new Date(ctx.lastOdometerAt), now);
@@ -97,7 +103,7 @@ export function odometerWarnings(
     {
       code: "FR-INS-033",
       requiresConfirmation: true,
-      message: `That is about ${groupThousands(String(Math.round(perDay)))} km a day since the last reading. Check the digits.`,
+      message: `That is about ${groupThousands(String(Math.round(perDay)))} ${units.distance} a day since the last reading. Check the digits.`,
       enteredValue: String(odometerKm),
     },
   ];

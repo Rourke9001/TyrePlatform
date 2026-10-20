@@ -91,3 +91,24 @@ describe("a unit's fitment history", () => {
     expect(screen.getByText("This unit has no fitment history yet.")).toBeTruthy();
   });
 });
+
+// FR-CFG-021: a distance is captioned with the tenant's unit.
+describe("a fitment history's distance unit", () => {
+  it("labels a distance with the tenant's unit", () => {
+    render(
+      <ActorContext.Provider value={{ actor: me({ distanceUnit: "XKM" }), settled: true }}>
+        <FitmentHistory
+          rows={[
+            fitmentRow({
+              fitmentId: "f1",
+              displayCode: "TY001",
+              distanceKm: 900,
+              distanceSource: "MEASURED",
+            }),
+          ]}
+        />
+      </ActorContext.Provider>,
+    );
+    expect(within(rowFor("TY001")).getByText("900 XKM (Measured)")).toBeTruthy();
+  });
+});

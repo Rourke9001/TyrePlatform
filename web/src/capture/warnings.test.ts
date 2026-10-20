@@ -9,6 +9,7 @@ import {
   treadsRead,
   widthSpread,
 } from "./warnings";
+import { unitLabels } from "../units/units";
 
 const config: CaptureConfig = {
   treadReadingCount: 3,
@@ -19,6 +20,8 @@ const config: CaptureConfig = {
   removalThresholdMm: 4.0,
   captureSpares: true,
 };
+
+const metric = unitLabels("KPA", "KM");
 
 const steer: CapturePosition = {
   id: "p1",
@@ -80,25 +83,25 @@ describe("widthSpread", () => {
 
 describe("positionWarnings", () => {
   it("raises nothing on a healthy position", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 800 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 800 }, steer, config, metric);
     expect(w).toEqual([]);
   });
 
   // FR-INS-036 with BR-RPT-006's boundary: at the threshold is already a
   // problem, not the last safe millimetre.
   it("warns at the removal threshold, not one below it", () => {
-    const w = positionWarnings({ treads: [4, 5, 6], pressureKpa: 800 }, steer, config);
+    const w = positionWarnings({ treads: [4, 5, 6], pressureKpa: 800 }, steer, config, metric);
     expect(codes(w)).toContain("FR-INS-036");
   });
 
   it("does not warn just above the threshold", () => {
-    const w = positionWarnings({ treads: [5, 5, 6], pressureKpa: 800 }, steer, config);
+    const w = positionWarnings({ treads: [5, 5, 6], pressureKpa: 800 }, steer, config, metric);
     expect(codes(w)).not.toContain("FR-INS-036");
   });
 
   // FR-INS-041 with BR-ANL-007's boundary, and it must ask for a photograph.
   it("warns at the configured spread and prompts for a photograph", () => {
-    const w = positionWarnings({ treads: [15, 11, 15], pressureKpa: 800 }, steer, config);
+    const w = positionWarnings({ treads: [15, 11, 15], pressureKpa: 800 }, steer, config, metric);
     const spread = w.find((x) => x.code === "FR-INS-041");
     expect(spread).toBeDefined();
     expect(spread?.promptPhoto).toBe(true);
@@ -107,7 +110,7 @@ describe("positionWarnings", () => {
   // FR-INS-037: outside the warn band at 10% of an 800kPa target is <720 or
   // >880. Every number here comes from the payload; none is a literal in src.
   it("warns on a pressure outside the correct band", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 700 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 700 }, steer, config, metric);
     expect(codes(w)).toContain("FR-INS-037");
   });
 
@@ -115,7 +118,7 @@ describe("positionWarnings", () => {
   // under, both rules are true, and showing a gloved driver two rows about
   // one number costs seconds against the three-minute target.
   it("escalates to a confirmation instead of stacking two pressure warnings", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 600 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 600 }, steer, config, metric);
     expect(codes(w)).toContain("FR-INS-031a");
     expect(codes(w)).not.toContain("FR-INS-037");
     expect(w.find((x) => x.code === "FR-INS-031a")?.requiresConfirmation).toBe(true);
@@ -125,7 +128,7 @@ describe("positionWarnings", () => {
   // pressure is deliberate (BR-RPT-001, NFR-PRO-003). Inventing a band for
   // it would create a spare-pressure exception the SRS does not have.
   it("never raises a pressure warning on a spare", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 200 }, spare, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 200 }, spare, config, metric);
     expect(codes(w)).toEqual([]);
   });
 
@@ -133,12 +136,17 @@ describe("positionWarnings", () => {
   // by default, but a spare at threshold is the one that matters. It is the
   // vehicle's only replacement.
   it("still raises the tread warning on a spare", () => {
-    const w = positionWarnings({ treads: [3, 4, 4], pressureKpa: 200 }, spare, config);
+    const w = positionWarnings({ treads: [3, 4, 4], pressureKpa: 200 }, spare, config, metric);
     expect(codes(w)).toEqual(["FR-INS-036"]);
   });
 
   it("raises nothing until the position is complete", () => {
-    const w = positionWarnings({ treads: [3, null, null], pressureKpa: null }, steer, config);
+    const w = positionWarnings(
+      { treads: [3, null, null], pressureKpa: null },
+      steer,
+      config,
+      metric,
+    );
     expect(w).toEqual([]);
   });
 
@@ -146,21 +154,21 @@ describe("positionWarnings", () => {
   // Tread bands are final the moment the last reading is in; gating them on
   // a pressure would hide FR-INS-036 on a position that may never get one.
   it("raises the tread warning as soon as the treads are read, with no pressure", () => {
-    const w = positionWarnings({ treads: [3, 4, 4], pressureKpa: null }, steer, config);
+    const w = positionWarnings({ treads: [3, 4, 4], pressureKpa: null }, steer, config, metric);
     expect(codes(w)).toEqual(["FR-INS-036"]);
   });
 
   // The other half of the same rule, and the half that keeps it honest: a
   // pressure band must never be asserted from a reading that does not exist.
   it("bands no pressure when no pressure was taken", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: null }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: null }, steer, config, metric);
     expect(w).toEqual([]);
   });
 
   // FR-INS-040: the record needs the value that provoked the warning, not
   // just that one happened.
   it("carries the entered value that provoked it", () => {
-    const w = positionWarnings({ treads: [4, 5, 6], pressureKpa: 800 }, steer, config);
+    const w = positionWarnings({ treads: [4, 5, 6], pressureKpa: 800 }, steer, config, metric);
     expect(w.find((x) => x.code === "FR-INS-036")?.enteredValue).toBe("4");
   });
 
@@ -168,25 +176,25 @@ describe("positionWarnings", () => {
   // 720/640 under, 880/960 over. The strict-under/inclusive-over asymmetry
   // must be pinned to match the database (000013: pct < 100 - critical_under_pct).
   it("at exactly -20% critical under (640 kPa) stays in warn band", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 640 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 640 }, steer, config, metric);
     expect(codes(w)).toContain("FR-INS-037");
     expect(codes(w)).not.toContain("FR-INS-031a");
   });
 
   it("just under -20% critical (639 kPa) escalates to confirmation", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 639 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 639 }, steer, config, metric);
     expect(codes(w)).toContain("FR-INS-031a");
     expect(codes(w)).not.toContain("FR-INS-037");
   });
 
   it("at exactly +10% warn over (880 kPa) stays in warn band", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 880 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 880 }, steer, config, metric);
     expect(codes(w)).toContain("FR-INS-037");
     expect(codes(w)).not.toContain("FR-INS-031a");
   });
 
   it("at exactly +20% critical over (960 kPa) escalates to confirmation", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 960 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 960 }, steer, config, metric);
     expect(codes(w)).toContain("FR-INS-031a");
     expect(codes(w)).not.toContain("FR-INS-037");
   });
@@ -227,12 +235,28 @@ describe("severityFor", () => {
   });
 
   it("is below-removal whenever the tread rule fired", () => {
-    const w = positionWarnings({ treads: [4, 5, 6], pressureKpa: 800 }, steer, config);
+    const w = positionWarnings({ treads: [4, 5, 6], pressureKpa: 800 }, steer, config, metric);
     expect(severityFor(w, true)).toBe("below-removal");
   });
 
   it("is caution for any other warning", () => {
-    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 700 }, steer, config);
+    const w = positionWarnings({ treads: [12, 12, 13], pressureKpa: 700 }, steer, config, metric);
     expect(severityFor(w, true)).toBe("caution");
+  });
+});
+
+// FR-CFG-021: the pressure in a warning is captioned with the tenant's
+// unit. An unknown code is echoed (units.ts), so a hard-coded kPa fails.
+describe("pressure labels", () => {
+  it("pressure labels follow the tenant's unit", () => {
+    const w = positionWarnings(
+      { treads: [12, 12, 13], pressureKpa: 700 },
+      steer,
+      config,
+      unitLabels("XKPA", "KM"),
+    );
+    expect(w.find((x) => x.code === "FR-INS-037")?.message).toBe(
+      "700 XKPA against a 800 XKPA target.",
+    );
   });
 });

@@ -5,6 +5,7 @@ import { historyWarnings } from "./history";
 import { absentCells, capturedCells } from "./payload";
 import type { Severity } from "./warnings";
 import { governingTread, positionWarnings, severityFor, treadsRead } from "./warnings";
+import type { UnitLabels } from "../units/units";
 
 export interface RigPosition {
   position: CapturePosition;
@@ -125,6 +126,7 @@ export function deriveProgress(
   contexts: CaptureContext[] | null,
   draft: Draft | null,
   openedAt: number,
+  labels: UnitLabels,
 ): Progress {
   const rig = contexts ? rigPositions(contexts) : [];
   const byCell = new Map(rig.map((r) => [r.key, r]));
@@ -148,7 +150,7 @@ export function deriveProgress(
     const entry = { treads: saved.treads, pressureKpa: saved.pressureKpa };
     return severityFor(
       [
-        ...positionWarnings(entry, r.position, r.context.config),
+        ...positionWarnings(entry, r.position, r.context.config, labels),
         ...historyWarnings(entry, r.position, r.context, new Date(openedAt)),
       ],
       treadsRead(saved.treads),

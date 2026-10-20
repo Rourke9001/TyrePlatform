@@ -5,7 +5,8 @@ import { removeFitment, type Removal, type Unit, type UnitPosition } from "../..
 import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
-import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
+import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
+import { useUnitLabels } from "../../units/units";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { formatCount } from "../../ui/vocabulary";
 
@@ -39,6 +40,7 @@ export function RemoveForm({
   onRefused: (message: string) => void;
 }) {
   const tenantKey = getDevTenantId() ?? "default";
+  const labels = useUnitLabels();
 
   const [reason, setReason] = useState("");
   const [removeTread, setRemoveTread] = useState("");
@@ -80,7 +82,7 @@ export function RemoveForm({
     }
     const odometer = readOdometer(unit.hasOdometer ? removeOdometer : "");
     if (!odometer.ok) {
-      onRefused(ODOMETER_REFUSAL);
+      onRefused(odometerRefusal(labels));
       return;
     }
     if (

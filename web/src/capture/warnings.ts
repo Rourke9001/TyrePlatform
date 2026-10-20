@@ -1,4 +1,5 @@
 import type { CaptureConfig, CapturePosition } from "./captureContext";
+import type { UnitLabels } from "../units/units";
 
 // The code IS the requirement id, travelling to app.inspection_warning
 // (DR-021) for a controller to read later. FR-INS-032 is deliberately
@@ -68,6 +69,7 @@ export function positionWarnings(
   entry: PositionEntry,
   position: CapturePosition,
   config: CaptureConfig,
+  units: UnitLabels,
 ): Warning[] {
   // Gated on treads, not the whole sheet: warning on a half-entered
   // position trains drivers to dismiss warnings, and holding FR-INS-036
@@ -122,14 +124,14 @@ export function positionWarnings(
       out.push({
         code: "FR-INS-031a",
         requiresConfirmation: true,
-        message: `${entry.pressureKpa} kPa against a ${target} kPa target. Check the gauge and confirm.`,
+        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target. Check the gauge and confirm.`,
         enteredValue: String(entry.pressureKpa),
       });
     } else if (pct < -warnUnder || pct >= warnOver) {
       out.push({
         code: "FR-INS-037",
         requiresConfirmation: false,
-        message: `${entry.pressureKpa} kPa against a ${target} kPa target.`,
+        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target.`,
         enteredValue: String(entry.pressureKpa),
       });
     }
