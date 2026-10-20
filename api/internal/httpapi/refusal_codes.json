@@ -182,7 +182,7 @@
   "TY011": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a receive refused by app.receive_tyres: a received date after the tenant's today (FR-TYR-040 as amended by TYRE-418; TYRE-175), the display-code policy (D12), a quantity outside 1 to 200, a missing size, pattern or new tread, a new tread outside 0 to app.max_tread_mm(), an inactive size, pattern or brand (a pattern's own brand included), a retread-only pattern, a brand the pattern does not belong to, a new tread at or below the removal threshold, a price with no cost source or with UNKNOWN, a cost source other than UNKNOWN with no price (TYRE-318, U128), a price with no removal threshold in force (U129), or a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421)",
+    "meaning": "a receive refused by app.receive_tyres: a received date after the tenant's today (FR-TYR-040 as amended by TYRE-418; TYRE-175), the display-code policy (D12), a quantity outside 1 to 200, a missing size, pattern or new tread, a new tread outside 0 to app.max_tread_mm(), an inactive size, pattern or brand (a pattern's own brand included), a retread-only pattern, a brand the pattern does not belong to, a new tread at or below the removal threshold, a price with no cost source or with UNKNOWN, a cost source other than UNKNOWN with no price (TYRE-318, U128), a price with no removal threshold in force (U129), a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421), an invoice number with any price but an invoice price, or a price list estimate that is not the list's figure or has no list entry in force on the received date (FR-CFG-041, TYRE-283)",
     "raisedBy": ["app.receive_tyres"]
   },
   "TY012": {
@@ -211,8 +211,8 @@
   "TY013": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a cost entry refused: already recorded, not a non-negative amount, a price with UNKNOWN as its source (U128, TYRE-422), or a cost the threshold in force cannot rate (U129), or a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421)",
-    "raisedBy": ["app.set_tyre_cost"]
+    "meaning": "a cost entry refused: a tyre received on a receipt, whose price is recorded on the receipt (TYRE-283), already recorded, not a non-negative amount, a price with UNKNOWN as its source (U128, TYRE-422), or a cost the threshold in force cannot rate (U129), or a rate past what rand_per_mm's numeric(12,4) carries (TYRE-421)",
+    "raisedBy": ["app.costed_rand_per_mm", "app.set_tyre_cost"]
   },
   "TY014": {
     "source": "db",
@@ -316,6 +316,12 @@
     "meaning": "a platform catalogue seed refused by app.seed_tenant_catalogue: no tenant bound or one that does not exist, or a platform entry whose name the fleet already holds as a row of its own, which a seed never adopts (FR-CFG-005, TYRE-369 D4)",
     "note": "no route seeds a catalogue; docs/runbooks/provision-a-tenant-catalogue.md does, so an entry would carry no test able to fail (ADR-0012, TY008's reasoning)",
     "raisedBy": ["app.seed_tenant_catalogue"]
+  },
+  "TY026": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a receipt refused: a move from a final state or one its state does not allow, a state its tyres in the fleet are not priced for, an invoice price that is not a non-negative amount or an invoice dated after today, no list price in force for an unpriced receipt, an invoice number set outside the invoice, or a change to a tyre's receipt (TYRE-283)",
+    "raisedBy": ["app.tyre_receipt_is_fixed", "app.tyre_receipt_moves_once"]
   },
   "TY027": {
     "source": "db",

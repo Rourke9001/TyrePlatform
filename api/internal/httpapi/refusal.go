@@ -120,6 +120,10 @@ var submitStatus = map[string]int{
 	// and stops (ADR-0012).
 	"TY022": http.StatusUnprocessableEntity,
 
+	// TY026 is a receipt refused (000059): a move its state does not allow,
+	// or a tyre's receipt changed. 422 like its neighbours.
+	"TY026": http.StatusUnprocessableEntity,
+
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
 	// (units.go's patchUnitRequest). An entry could carry no test able to
