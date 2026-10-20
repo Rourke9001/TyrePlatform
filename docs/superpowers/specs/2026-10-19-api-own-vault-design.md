@@ -252,9 +252,14 @@ User on `kv-tyre-api-<env>`. The block checks that the principal id is
 non-empty first, as the runbook's other role commands do.
 
 **Why there is no automated test.** The defect is a live Azure role
-assignment. CI cannot see Azure state, and the old assignment survives in
-Azure after the template stops declaring it, so a check over the template
-would pass while the live grant stayed wide. The gates are the what-if
+assignment. CI's test jobs cannot see Azure state, and the old assignment
+survives in Azure after the template stops declaring it, so a check over
+the template would pass while the live grant stayed wide. The deploy job
+can see it, since it signs in as Contributor on its environment's group,
+but a check there would fail this change's own merge deploy while the old
+grant stands (switch-over steps 1 to 4), so it cannot land with this
+change. The owner scheduled that check before the pilot as TYRE-438,
+which lands after switch-over step 4 (U130, 20 Oct 2026). The gates are the what-if
 expectation in section 4.2, the proof in section 4.4 and the listing
 above, which the runbook repeats on every platform apply.
 

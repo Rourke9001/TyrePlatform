@@ -266,7 +266,7 @@ Go rather than a raw Postgres error.
 | Local | docker-compose Postgres 16 on :5433. Same major version as production so RLS and `security_invoker` behave identically. |
 | CI | GitHub Actions. Ephemeral Postgres service container. The verification suite is the gate. |
 | Staging | Deploys from `develop` through CI's `deploy-staging` job, which calls `.github/workflows/deploy.yml` with `target` staging. The gate is `scripts/deploy-gate.sh` (ADR-0017). |
-| Production | Deploys from `main` through CI's `deploy-prod` job, the same workflow with `target` prod. `scripts/deploy-guard.sh` refuses a commit not on `develop` and an image staging did not pass (ADR-0017). The owner brings it up after TYRE-397 merges (`docs/runbooks/environment-release.md`, Production bring-up). |
+| Production | Deploys from `main` through CI's `deploy-prod` job, the same workflow with `target` prod. `scripts/deploy-guard.sh` refuses a commit not on `develop` and an image staging did not pass (ADR-0017). The owner brings it up after TYRE-435 merges (U141, `docs/runbooks/environment-release.md`, Production bring-up). |
 
 ## Decision record index
 
