@@ -263,7 +263,11 @@ export function TyreList() {
                 <td>{t.receivedDate ? asOf(t.receivedDate) : "Not received"}</td>
                 <td>{t.awaitingCost ? "Yes" : "No"}</td>
                 <td>
-                  {t.awaitingCost ? (
+                  {/* FR-CFG-041: a received tyre is priced with its set,
+                      on its receipt; set_tyre_cost refuses it alone. */}
+                  {t.awaitingCost && t.receiptId !== null ? (
+                    <Link to="/fleet/tyres/receipts">Price it on its receipt</Link>
+                  ) : t.awaitingCost ? (
                     <CostForm
                       tyre={t}
                       tenantKey={tenantKey}

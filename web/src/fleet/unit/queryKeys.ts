@@ -55,6 +55,12 @@ export function priceEstimateKey(
   return ["price-estimate", tenantKey, sizeId, patternId, brandId, receivedDate];
 }
 
+// The receipts still waiting for their price (TYRE-283), made stale by every
+// move on one.
+export function openReceiptsKey(tenantKey: string): QueryKey {
+  return ["tyre-receipts", tenantKey, "open"];
+}
+
 export function depotsKey(tenantKey: string): QueryKey {
   return ["depots", tenantKey];
 }

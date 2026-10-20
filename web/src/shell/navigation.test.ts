@@ -66,6 +66,14 @@ describe("navItemsFor", () => {
     expect(items).not.toContain("/admin/units/new");
   });
 
+  // FR-CFG-041: open receipts are priced by whoever receives tyres.
+  it("offers Receipts to an actor holding ManageAssets, and not otherwise", () => {
+    expect(navItemsFor(["ManageAssets"]).map((i) => i.to)).toContain("/fleet/tyres/receipts");
+    expect(navItemsFor(["ViewFleet", "ViewValuation"]).map((i) => i.to)).not.toContain(
+      "/fleet/tyres/receipts",
+    );
+  });
+
   // TYRE-91: the fleet vocabulary is Units · Tyres · Rigs · Fitments.
   it("labels the /fleet entry Units, not Vehicles", () => {
     const fleet = navItemsFor(["ViewFleet"]).find((i) => i.to === "/fleet");
@@ -134,8 +142,8 @@ describe("navItemsFor", () => {
 
   // ManageAssets alone, without ViewFleet, must not surface Units. Tyres
   // and its own Add-a-unit gate are independent of the fleet read.
-  it("gives a ManageAssets holder Tyres and Add a unit, without Units", () => {
+  it("gives a ManageAssets holder Tyres, Receipts and Add a unit, without Units", () => {
     const labels = navItemsFor(["ManageAssets"]).map((i) => i.label);
-    expect(labels).toEqual(["Tyres", "Add a unit"]);
+    expect(labels).toEqual(["Tyres", "Receipts", "Add a unit"]);
   });
 });
