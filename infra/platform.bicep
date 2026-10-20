@@ -173,8 +173,8 @@ resource kvSecretsOfficerForDeployer 'Microsoft.Authorization/roleAssignments@20
   }
 }
 
-// The API identity holds a role on this vault and on no other: kv holds
-// psql-admin-password, and tyreadmin bypasses RLS (rule 1, TYRE-435). Only
+// The API identity reads this vault and no other, because kv holds
+// psql-admin-password and tyreadmin bypasses RLS (rule 1, TYRE-435). Only
 // database-url goes here, since the API reads all it holds. Same trade as
 // kv above (TYRE-61).
 resource kvApi 'Microsoft.KeyVault/vaults@2023-07-01' = {

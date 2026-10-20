@@ -296,10 +296,11 @@ until steps 0 to 2 are done.
    `origin/develop`, push with `git push --force-with-lease`, and re-run
    this block. If the rebase brought in a change to `infra/`, stage 5 runs
    again first. If only the second line is missing, `git status` says why:
-   stash a local edit, or commit and push it, or run `git pull --ff-only`
-   if origin is ahead. Do not apply until both lines print: an apply from a
-   stale or edited checkout puts a `platform.bicep` on staging that the PR
-   does not hold.
+   stash a local edit, or run `git pull --ff-only` if origin is ahead. An
+   edit you mean to keep goes on the PR and through stage 5 first, because
+   the apply must be of the reviewed branch. Do not apply until both lines
+   print: an apply from a stale or edited checkout puts a `platform.bicep`
+   on staging that the PR does not hold.
 
    Then run the branch's **Before anything** again, so `KVAPI` is set:
    step 0 ran under `develop`'s, which sets none. Then run bring-up step 4's
