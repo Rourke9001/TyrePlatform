@@ -13,9 +13,11 @@ describe("fetchTyreCatalogue", () => {
 
   it("reads the catalogue in one GET and hands back its three lists as sent", async () => {
     const body = {
-      sizes: [{ id: "s1", name: "315/80R22.5" }],
+      sizes: [{ id: "s1", name: "315/80R22.5", platformCatalogueId: "ps1" }],
       brands: [],
-      patterns: [{ id: "p1", name: "SP431", brandId: null, appliesTo: "NEW" }],
+      patterns: [
+        { id: "p1", name: "SP431", brandId: null, appliesTo: "NEW", platformCatalogueId: null },
+      ],
     };
     vi.mocked(fetch).mockResolvedValue(respond(200, body));
 

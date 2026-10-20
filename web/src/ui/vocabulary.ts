@@ -89,6 +89,51 @@ export function unavailableLabel(code: string, depotFiltered: boolean): string {
   }
 }
 
+// FR-TEN-022's purposes, the CHECK on app.tenant_consent (000059) and
+// provision_tenant.py hold the authoritative list (OR-LEG-005). A purpose
+// the server sends that this list does not know shows under its code.
+const CONSENT_PURPOSE_LABELS: Record<string, string> = {
+  SERVICE_DELIVERY: "Service delivery",
+  ANONYMISED_BENCHMARKING: "Anonymised benchmarking",
+};
+
+export const CONSENT_PURPOSES: readonly string[] = Object.keys(CONSENT_PURPOSE_LABELS);
+
+export function consentPurposeLabel(code: string): string {
+  return CONSENT_PURPOSE_LABELS[code] ?? code;
+}
+
+// An empty ledger is not consent: a purpose with no record says so.
+export function consentStateLabel(granted: boolean | null): string {
+  if (granted === null) return "Not recorded";
+  return granted ? "Granted" : "Withdrawn";
+}
+
+const AXLE_CLASS_LABELS: Record<string, string> = {
+  STEER: "Steer",
+  DRIVE: "Drive",
+  TRAILER: "Trailer",
+  TAG: "Tag",
+  SPARE: "Spare",
+};
+
+// A threshold policy row's scope: the whole fleet, an operating group, an
+// axle class, or both.
+export function thresholdScopeLabel(
+  operatingGroupName: string | null,
+  axleClass: string | null,
+): string {
+  const parts: string[] = [];
+  if (operatingGroupName !== null) parts.push(`Operating group: ${operatingGroupName}`);
+  if (axleClass !== null) parts.push(`Axle class: ${AXLE_CLASS_LABELS[axleClass] ?? axleClass}`);
+  return parts.length === 0 ? "Whole fleet" : parts.join(", ");
+}
+
+// FR-CFG-005: a catalogue row seeded from the platform, or the fleet's own.
+export function lineageLabel(platformCatalogueId: string | null): string {
+  return platformCatalogueId === null ? "Added for this fleet" : "Platform catalogue";
+}
+
 // A receipt's open price states (000059). INVOICED and ESTIMATE_KEPT are
 // final and never listed open, so they carry no words here.
 const RECEIPT_STATE_LABELS: Record<string, string> = {

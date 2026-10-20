@@ -18,6 +18,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { to: "/fleet/fitments", label: "Fitments", capability: "ViewFleet" },
   { to: "/fleet/tyres/retreads", label: "Retreads", capability: "LogRetread" },
   { to: "/my", label: "My inspections", capability: "CaptureInspection" },
+  { to: "/settings", label: "Fleet settings", capability: "ManageConfig" },
   // Add-a-unit and add-a-user stay two items, never one "Admin" group: they
   // gate on different capabilities, and the second's is an any-of array
   // (D9, ADR-0011). A merged group has no single capability to gate on.

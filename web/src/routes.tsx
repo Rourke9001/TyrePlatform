@@ -37,6 +37,9 @@ const TyreList = lazy(() =>
 const UnitDetail = lazy(() =>
   import("./fleet/unit/UnitDetail").then((m) => ({ default: m.UnitDetail })),
 );
+const FleetSettings = lazy(() =>
+  import("./settings/FleetSettings").then((m) => ({ default: m.FleetSettings })),
+);
 const Dashboard = lazy(() => import("./dashboard/Dashboard"));
 const Exceptions = lazy(() => import("./dashboard/Exceptions"));
 const AtRisk = lazy(() => import("./dashboard/AtRisk"));
@@ -193,6 +196,14 @@ export function AppRoutes() {
           element={
             <AdminRoute capability="ViewValuation">
               <AtRisk />
+            </AdminRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <AdminRoute capability="ManageConfig">
+              <FleetSettings />
             </AdminRoute>
           }
         />

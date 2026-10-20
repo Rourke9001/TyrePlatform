@@ -34,6 +34,13 @@ function symbolFor(currency: string): string {
   return SYMBOLS[currency] ?? `${currency} `;
 }
 
+// A currency code with the symbol money renders under, "ZAR (R)", or the
+// code alone where the map holds none.
+export function currencyName(currency: string): string {
+  const symbol = SYMBOLS[currency];
+  return symbol === undefined ? currency : `${currency} (${symbol})`;
+}
+
 // The bound tenant's currency code, or "" until the actor arrives.
 export function useCurrency(): string {
   return useActor()?.currency ?? "";
