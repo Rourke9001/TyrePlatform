@@ -74,6 +74,11 @@ describe("navItemsFor", () => {
     );
   });
 
+  it("offers Fleet settings to an actor holding ManageConfig, and not otherwise", () => {
+    expect(navItemsFor(["ManageConfig"]).map((i) => i.to)).toEqual(["/settings"]);
+    expect(navItemsFor(["ViewFleet", "ManageAssets"]).map((i) => i.to)).not.toContain("/settings");
+  });
+
   // TYRE-91: the fleet vocabulary is Units · Tyres · Rigs · Fitments.
   it("labels the /fleet entry Units, not Vehicles", () => {
     const fleet = navItemsFor(["ViewFleet"]).find((i) => i.to === "/fleet");

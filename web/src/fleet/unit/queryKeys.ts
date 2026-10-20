@@ -61,6 +61,12 @@ export function openReceiptsKey(tenantKey: string): QueryKey {
   return ["tyre-receipts", tenantKey, "open"];
 }
 
+// The read-only fleet settings page (TYRE-283). Nothing in the app writes a
+// setting, so nothing invalidates it.
+export function fleetSettingsKey(tenantKey: string): QueryKey {
+  return ["fleet-settings", tenantKey];
+}
+
 export function depotsKey(tenantKey: string): QueryKey {
   return ["depots", tenantKey];
 }

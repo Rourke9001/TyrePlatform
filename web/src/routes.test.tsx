@@ -269,6 +269,31 @@ describe("AppRoutes", () => {
     expect(await screen.findByRole("heading", { name: /tyres/i })).toBeInTheDocument();
   });
 
+  // The settings page is a manager's (ManageConfig); nothing on it is
+  // editable, but it shows prices and consent.
+  it("is reachable only with ManageConfig", async () => {
+    renderAt("/settings", actor(["ViewFleet", "ManageAssets"]));
+    expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);
+    cleanup();
+
+    mockFetchJson(200, {
+      fleet: {
+        timezone: "Africa/Johannesburg",
+        currency: "ZAR",
+        pressureUnit: "KPA",
+        distanceUnit: "KM",
+        historyHorizon: null,
+      },
+      thresholds: [],
+      consent: [],
+      priceList: [],
+      catalogue: { sizes: [], brands: [], patterns: [] },
+      moneyVisible: true,
+    });
+    renderAt("/settings", actor(["ViewFleet", "ManageConfig"]));
+    expect(await screen.findByRole("heading", { name: "Fleet settings" })).toBeInTheDocument();
+  });
+
   it("tells an actor without the capability, rather than blanking the screen, at /fleet/tyres/new", () => {
     renderAt("/fleet/tyres/new", actor(["ViewFleet"]));
     expect(screen.getByRole("alert")).toHaveTextContent(/permission/i);

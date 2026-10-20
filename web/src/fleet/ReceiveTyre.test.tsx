@@ -12,18 +12,18 @@ import { ReceiveTyre } from "./ReceiveTyre";
 // SZ2, Dunlop before Apollo (NFR-USE-012).
 const CATALOGUE: TyreCatalogue = {
   sizes: [
-    { id: "s10", name: "SZ10" },
-    { id: "s2", name: "SZ2" },
+    { id: "s10", name: "SZ10", platformCatalogueId: null },
+    { id: "s2", name: "SZ2", platformCatalogueId: null },
   ],
   brands: [
-    { id: "b1", name: "Dunlop" },
-    { id: "b2", name: "Apollo" },
+    { id: "b1", name: "Dunlop", platformCatalogueId: null },
+    { id: "b2", name: "Apollo", platformCatalogueId: null },
   ],
   patterns: [
-    { id: "p1", name: "SP431", brandId: "b1", appliesTo: "NEW" },
-    { id: "p2", name: "All Position", brandId: null, appliesTo: "BOTH" },
-    { id: "p3", name: "Recap", brandId: null, appliesTo: "RETREAD" },
-    { id: "p4", name: "Haul", brandId: "b2", appliesTo: "NEW" },
+    { id: "p1", name: "SP431", brandId: "b1", appliesTo: "NEW", platformCatalogueId: null },
+    { id: "p2", name: "All Position", brandId: null, appliesTo: "BOTH", platformCatalogueId: null },
+    { id: "p3", name: "Recap", brandId: null, appliesTo: "RETREAD", platformCatalogueId: null },
+    { id: "p4", name: "Haul", brandId: "b2", appliesTo: "NEW", platformCatalogueId: null },
   ],
 };
 
@@ -689,7 +689,15 @@ describe("receiving tyres into the fleet", () => {
       lacking: "no new-tyre patterns",
       catalogue: {
         ...CATALOGUE,
-        patterns: [{ id: "p3", name: "Recap", brandId: null, appliesTo: "RETREAD" }],
+        patterns: [
+          {
+            id: "p3",
+            name: "Recap",
+            brandId: null,
+            appliesTo: "RETREAD",
+            platformCatalogueId: null,
+          },
+        ],
       },
     },
   ])(
