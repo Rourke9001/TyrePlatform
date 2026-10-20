@@ -5,6 +5,7 @@ import { odometerRejection, odometerWarnings, projectedOdometerKm } from "./hist
 import type { RecordedWarning } from "./draft";
 import { Keypad } from "./Keypad";
 import { groupThousands } from "../format/groupThousands";
+import { useUnitLabels } from "../units/units";
 import "./capture.css";
 
 // The keypad's granularity is the field's own unit (whole km), never the
@@ -66,14 +67,15 @@ export function CaptureStart({
   // finer than day granularity, so the clock must not depend on when React
   // re-renders (FR-INS-033's denominator included).
   const [openedAt] = useState(() => Date.now());
+  const labels = useUnitLabels();
 
   // FR-INS-020's three clauses in one expression: typed is a correction,
   // tapped is acceptance, else the odometer is absent. Every check reads
   // this, so an unconfirmed projection gates and blocks nothing.
   const projected = projectedOdometerKm(motive, new Date(openedAt));
   const value = typed !== "" ? parseInt(typed, 10) : accepted ? projected : null;
-  const rejection = odometerRejection(value, motive);
-  const warnings = odometerWarnings(value, motive, new Date(openedAt));
+  const rejection = odometerRejection(value, motive, labels);
+  const warnings = odometerWarnings(value, motive, new Date(openedAt), labels);
   // What the readout shows: the driver's digits, else the projection offered
   // for confirmation, else nothing. Dimmed until it is the recorded value, so
   // a provisional number never looks like an entered one (NFR-USE-005).
@@ -155,12 +157,12 @@ export function CaptureStart({
               against ungrouped. */}
           <p className={`cap-odo${value === null ? " is-empty" : ""}`} aria-live="polite">
             {groupThousands(shown === "" ? "000000" : shown)}
-            <span className="cap-odo-unit">km</span>
+            <span className="cap-odo-unit">{labels.distance}</span>
           </p>
           <p className="cap-hint">
             {motive.lastOdometerKm === null
               ? "No reading on record yet. This one starts the count."
-              : `Last reading ${groupThousands(String(motive.lastOdometerKm))} km`}
+              : `Last reading ${groupThousands(String(motive.lastOdometerKm))} ${labels.distance}`}
             {motive.lastOdometerAt
               ? `, ${Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000)} days ago`
               : ""}
@@ -170,7 +172,7 @@ export function CaptureStart({
               Disappears once the value is the driver's. */}
           {value === null && projected !== null && (
             <button type="button" className="cap-secondary" onClick={() => setAccepted(true)}>
-              Confirm {groupThousands(String(projected))} km
+              Confirm {groupThousands(String(projected))} {labels.distance}
             </button>
           )}
           {value === null && projected !== null && (

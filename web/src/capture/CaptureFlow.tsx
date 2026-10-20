@@ -17,6 +17,7 @@ import { attemptSend, listOutbox, queueDraft } from "./outbox";
 import { absentCells, appVersion, capturedCells, deviceId } from "./payload";
 import { PositionSheet } from "./PositionSheet";
 import { deriveProgress } from "./rig";
+import { useUnitLabels } from "../units/units";
 import { useDraftLifecycle } from "./useDraftLifecycle";
 import { useEntryHandlers } from "./useEntryHandlers";
 import { useRigComposition } from "./useRigComposition";
@@ -54,7 +55,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
   const rigComp = useRigComposition(motive.data, vehicleId, resumed, attachedIds, setAttachedIds);
   const { confirmedIds, contexts, membersFailed, toggleAttached } = rigComp;
 
-  const progress = deriveProgress(contexts, draft, openedAt);
+  // The tenant's unit words, read once for every position's warnings.
+  const labels = useUnitLabels();
+  const progress = deriveProgress(contexts, draft, openedAt, labels);
   const { doneCells, absent, units, doneCount, totalPositions, severityOf, governingOf } = progress;
   const motiveCtx = contexts?.find((c) => c.vehicleId === vehicleId) ?? contexts?.[0];
   const active = activeKey === null ? undefined : progress.byCell.get(activeKey);

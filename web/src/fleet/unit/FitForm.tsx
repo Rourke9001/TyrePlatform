@@ -8,7 +8,8 @@ import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
 import { byNaturalCode } from "./naturalOrder";
-import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
+import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
+import { useUnitLabels } from "../../units/units";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import { MOUNT_ORIENTATIONS, ORIENTATION_UNKNOWN } from "./vocabulary";
 
@@ -37,6 +38,7 @@ export function FitForm({
   onRefused: (message: string) => void;
 }) {
   const tenantKey = getDevTenantId() ?? "default";
+  const labels = useUnitLabels();
 
   const [tyreId, setTyreId] = useState("");
   const [fitTread, setFitTread] = useState("");
@@ -95,7 +97,7 @@ export function FitForm({
     }
     const odometer = readOdometer(unit.hasOdometer ? fitOdometer : "");
     if (!odometer.ok) {
-      onRefused(ODOMETER_REFUSAL);
+      onRefused(odometerRefusal(labels));
       return;
     }
     onRefused("");

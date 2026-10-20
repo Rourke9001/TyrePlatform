@@ -13,7 +13,8 @@ import {
   type UnitPosition,
 } from "../../api/units";
 import { useFormMutation } from "../useFormMutation";
-import { ODOMETER_REFUSAL, ODOMETER_REQUIRED, readOdometer } from "./odometer";
+import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
+import { useUnitLabels } from "../../units/units";
 import { openFitmentsKey, rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 
 // app.rotate_tyres refuses the whole set or none, reaching TY009/TY012/
@@ -42,6 +43,7 @@ function pairKey(unitId: string, positionId: string): string {
 // (U20), never the same value twice (NFR-USE-006).
 export function RotateForm({ unit }: { unit: Unit }) {
   const tenantKey = getDevTenantId() ?? "default";
+  const labels = useUnitLabels();
   const occupied = unit.positions.filter((p) => p.fitment !== null);
 
   const [picked, setPicked] = useState<Record<string, boolean>>({});
@@ -171,7 +173,7 @@ export function RotateForm({ unit }: { unit: Unit }) {
       }
       const reading = readOdometer(typed);
       if (!reading.ok || reading.value === undefined) {
-        setRefused(ODOMETER_REFUSAL);
+        setRefused(odometerRefusal(labels));
         return;
       }
       readings[u.id] = reading.value;

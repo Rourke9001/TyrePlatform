@@ -2,14 +2,15 @@ import type { FitmentHistoryRow } from "../../api/units";
 import { useTenantDate } from "../../time/tenantTime";
 import { distanceSourceLabel, orientationLabel } from "./vocabulary";
 import { formatCount } from "../../ui/vocabulary";
+import { useUnitLabels, type UnitLabels } from "../../units/units";
 
 // CR-012: a distance and its provenance are one fact, rendered in one cell.
 // A bare number reads as measured, which for an inferred one is a claim
 // the register never made.
-function distanceCell(row: FitmentHistoryRow): string {
+function distanceCell(row: FitmentHistoryRow, units: UnitLabels): string {
   if (row.removedAt === null) return "Fitted";
   if (row.distanceKm === null) return distanceSourceLabel(row.distanceSource);
-  return `${formatCount(row.distanceKm)} km (${distanceSourceLabel(row.distanceSource)})`;
+  return `${formatCount(row.distanceKm)} ${units.distance} (${distanceSourceLabel(row.distanceSource)})`;
 }
 
 // FR-FIT's history read, in the server's own order: most recent first is
@@ -17,6 +18,7 @@ function distanceCell(row: FitmentHistoryRow): string {
 // about which fitment is the latest.
 export function FitmentHistory({ rows }: { rows: FitmentHistoryRow[] }) {
   const asDate = useTenantDate();
+  const labels = useUnitLabels();
 
   if (rows.length === 0) {
     return <p className="note-card">This unit has no fitment history yet.</p>;
@@ -48,7 +50,7 @@ export function FitmentHistory({ rows }: { rows: FitmentHistoryRow[] }) {
             <td>{row.removedTreadMm ?? "—"}</td>
             <td>{orientationLabel(row.mountOrientation)}</td>
             <td>{row.removalReason ?? "—"}</td>
-            <td>{distanceCell(row)}</td>
+            <td>{distanceCell(row, labels)}</td>
           </tr>
         ))}
       </tbody>

@@ -9,6 +9,8 @@ import { cellKey } from "./draft";
 import type { RigPosition } from "./rig";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { PositionSheet } from "./PositionSheet";
+import { ActorContext } from "../auth/actorContext";
+import { me } from "../test/fixtures";
 
 const position: CapturePosition = {
   id: "p1",
@@ -625,5 +627,17 @@ describe("PositionSheet", () => {
     const spare = { ...position, isSpare: true, axleClass: "SPARE", axleNumber: null, side: null };
     render(<PositionSheet {...props({})} rig={{ ...rig, position: spare, displayNumber: null }} />);
     expect(screen.queryByRole("img")).toBeNull();
+  });
+});
+
+// FR-CFG-021: the pressure field is captioned with the tenant's unit.
+describe("the pressure field's unit", () => {
+  it("shows the tenant's pressure unit beside the field", () => {
+    render(
+      <ActorContext.Provider value={{ actor: me({ pressureUnit: "XKPA" }), settled: true }}>
+        <PositionSheet {...props({})} />
+      </ActorContext.Provider>,
+    );
+    expect(screen.getByText("XKPA")).toBeInTheDocument();
   });
 });

@@ -9,6 +9,7 @@ import { governingTread, isComplete, positionWarnings, severityFor, treadsRead }
 import { historyWarnings } from "./history";
 import { Keypad } from "./Keypad";
 import { TreadGlyph } from "./TreadGlyph";
+import { useUnitLabels } from "../units/units";
 import "./capture.css";
 
 // FR-INS-029a and decision D-A: numbered, not named. The driver never sees
@@ -67,11 +68,12 @@ export function PositionSheet({
   const [openedAt] = useState(() => Date.now());
   const carried = useRef(initial?.seconds ?? 0);
 
+  const labels = useUnitLabels();
   const opts = { treadReadingCount: count, granularityMm: ctx.config.treadGranularityMm };
   const entry = { treads: state.treads, pressureKpa: state.pressureKpa };
   const warnings = useMemo(
     () => [
-      ...positionWarnings(entry, rig.position, ctx.config),
+      ...positionWarnings(entry, rig.position, ctx.config, labels),
       // Frozen at open, like CaptureFlow/CaptureStart/CaptureReview:
       // FR-INS-035's rate has elapsed time as its denominator, and a
       // render-time read would drift from the diagram's.
@@ -81,7 +83,7 @@ export function PositionSheet({
     // the fresh entry object) is what actually makes this a memo rather than
     // a recompute-on-every-render in disguise.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [state, rig.position, ctx],
+    [state, rig.position, ctx, labels],
   );
   const complete = isComplete(entry, count);
   const held = complete && warnings.length > 0 && !acknowledged;
@@ -300,7 +302,7 @@ export function PositionSheet({
           onClick={() => press({ type: "focus", field: count })}
         >
           <span className="cap-fld-k">Press.</span>
-          <span className="cap-fld-u">kPa</span>
+          <span className="cap-fld-u">{labels.pressure}</span>
           <span className={`cap-fld-v${state.pressureKpa === null ? " is-empty" : ""}`}>
             {state.pressureKpa ?? "–"}
           </span>

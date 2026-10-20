@@ -3,6 +3,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { CaptureStart } from "./CaptureStart";
+import { ActorContext } from "../auth/actorContext";
+import { me } from "../test/fixtures";
 import type { CaptureContext } from "./captureContext";
 
 // FR-INS-020's three pre-fill inputs; frozen clock because 8 days at
@@ -152,5 +154,25 @@ describe("CaptureStart's odometer", () => {
     expect(screen.queryByText(/000,000/)).toBeNull();
     expect(screen.queryByText(/416,180/)).toBeNull();
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
+  });
+});
+
+// FR-CFG-021: the odometer field is captioned with the tenant's distance
+// unit.
+describe("CaptureStart's odometer unit", () => {
+  it("shows the tenant's distance unit beside the field", () => {
+    render(
+      <ActorContext.Provider value={{ actor: me({ distanceUnit: "XKM" }), settled: true }}>
+        <CaptureStart
+          motive={motive}
+          storageBlocked={false}
+          attachedIds={["v1"]}
+          onToggleAttached={vi.fn()}
+          onStart={vi.fn()}
+        />
+      </ActorContext.Provider>,
+    );
+    expect(screen.getAllByText(/XKM/).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/\bkm\b/)).not.toBeInTheDocument();
   });
 });

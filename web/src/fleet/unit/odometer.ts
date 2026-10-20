@@ -1,11 +1,14 @@
+import type { UnitLabels } from "../../units/units";
+
 // A fitment event can never be edited (rule 3), and CR-012 turns the pair
 // of readings into distance, so a truncating parse would write a wrong
 // reading no compensating event can fix: Number.parseInt reads "125 000"
 // as 125, "125.7" as 125, "12a" as 12. capture/entry.ts's keypad hands
 // digits it produced itself; this is a free-text field a manager types
 // into.
-export const ODOMETER_REFUSAL =
-  "Enter the odometer in whole kilometres, digits only, no spaces, commas, decimal point or units.";
+export function odometerRefusal(units: UnitLabels): string {
+  return `Enter the odometer in whole ${units.distanceWord}, digits only, no spaces, commas, decimal point or units.`;
+}
 
 // FR-FIT-002: a unit with an odometer needs the reading on every fitment
 // write, or 000025's trigger refuses the whole write. readOdometer("")
