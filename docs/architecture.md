@@ -292,3 +292,5 @@ Go rather than a raw Postgres error.
 | [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Proposed |
 | [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Accepted |
 | [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Proposed |
+| [0019](adr/0019-web-calls-api-over-cors.md) | The web calls the API at its own origin, over CORS | Proposed |
+| [0020](adr/0020-tread-design-system.md) | The Tread design system replaces the TYRE-238 kit | Proposed |
