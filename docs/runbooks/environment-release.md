@@ -14,6 +14,11 @@ and `db/migrations` paths are relative, and later blocks use the `ENV`,
 `-path=/migrations` and `/subscriptions/...` arguments into Windows paths.
 In a new shell, run **Before anything** again first.
 
+Run a release from its own worktree, never from a checkout another session
+shares: `git worktree add --detach ../TyrePlatform-release origin/develop`,
+then `cd` there. Another session's `git switch` moves a shared checkout
+between two of your blocks (`docs/lessons.md`, 2026-10-20).
+
 ## Before anything
 
 ```bash
@@ -183,31 +188,24 @@ prints anything, stop.
    release: a role on `kv-tyre-<env>` lets the API read the admin password,
    which bypasses RLS (TYRE-435, CLAUDE.md rule 1). `--include-groups`
    also lists a role the identity holds through a group, which a direct
-   listing misses. The one exception is
-   staging's switch-over below, from its step 0 until its step 4, which
-   says what it expects.
+   listing misses.
 
-   After TYRE-402, the what-if must show no change to the API identity's
-   AcrPull assignment on `crtyrestaging`: the grant moved into the
-   `acr-pull.bicep` module with the same name, so a Create or Delete of it
-   means the name drifted. Stop and fix the template before applying.
+   After TYRE-402, the what-if must show no Create or Delete of the API
+   identity's AcrPull assignment on `crtyrestaging`: the grant moved into
+   the `acr-pull.bicep` module with the same name, so either means the name
+   drifted. Stop and fix the template before applying. A Modify of its
+   `principalId` to a `reference(...)` is noise, listed below.
 
-   **Staging's first apply after TYRE-397.** That template adds the blob
-   protections (NFR-BAK-007), and staging's usual what-if noise is
-   recorded nowhere, so take a baseline first. Run the what-if twice:
-   - From a checkout of `develop` as it stood before TYRE-397 landed, the
-     parent of TYRE-397's spec commit. PRs rebase-merge, so `<merge sha>^`
-     is TYRE-397's own second-to-last commit, which already has the
-     protections:
-     `git switch --detach "$(git log origin/develop -1 --format=%H --grep='^docs(spec): TYRE-397 design the production environment$')^"`.
-     Use that template's own form:
-     `az deployment group what-if -g $RG -f infra/platform.bicep -p env=$ENV pgAdminPassword="$pw" deployerObjectId="$me" devMachineIp="$ip"`,
-     inside this block's guards.
-   - From `develop` (`git switch develop`), with the form above.
-
-   The expected changes are whatever both runs list, plus the second run's
-   Modify of `blobServices/default` (versioning and the two soft deletes).
-   Anything else stops the apply.
+   **Staging's what-if noise**, read on 20 Oct 2026 from `d2bd08c`
+   (TYRE-435 comment 13861): six Modifies and nothing else. They are
+   `cae-tyre-staging` (`peerAuthentication`, `peerTrafficConfiguration`,
+   `customerId`), the AcrPull assignment on `crtyrestaging` (`principalId`),
+   `psql-tyre-staging` (read-only properties), `blobServices/default`
+   (`allowPermanentDelete`), the `photos` container (encryption scope) and
+   `stapp-tyre-staging` (its repository properties). Anything beyond them is
+   a real change: read it before applying. Staging's first apply after
+   TYRE-397, which added the blob protections, ran on 20 Oct 2026 as step 0
+   of the switch-over below.
 
    Then remove step 1's grant, now that Secrets Officer is live. Re-derive
    every value in this block, because step 1 may have run in another session,
@@ -271,6 +269,10 @@ prints anything, stop.
 
 ### Switching staging to the API's own vault (TYRE-435)
 
+Done on 20 Oct 2026 (TYRE-435 comments 13861 and 13865). The steps stay
+as the record of how a vault split reaches a running environment, and they
+are not run again.
+
 Staging's API moves to `kv-tyre-api-staging` around the TYRE-435 merge
 (spec `docs/superpowers/specs/2026-10-19-api-own-vault-design.md`,
 section 4.2). Every merge to `develop` applies `infra/app.bicep`, and from
@@ -281,8 +283,12 @@ green: until then it keeps any other deploy to staging working. The branch,
 `TYRE-435-scope-api-vault-grant`, adds no migration. Its PR stays a draft
 until steps 0 to 2 are done.
 
-0. **Staging's first apply after TYRE-397**, from `develop`, exactly as
-   bring-up step 4 says, if it has not run. It has run when
+0. **Staging's first apply after TYRE-397**, from `develop` as it stood
+   before the TYRE-435 merge, if it has not run. Its what-if was read
+   against a baseline from the parent of TYRE-397's spec commit, in that
+   template's own form (`-f infra/platform.bicep -p env=$ENV ...`), and the
+   two runs differed only in the Modify of `blobServices/default`. It has
+   run when
    `az storage account blob-service-properties show --account-name sttyre$ENV -g $RG --query isVersioningEnabled -o tsv`
    prints `true`. If it runs, its role listing shows two rows here:
    `AcrPull` on `crtyrestaging` and `Key Vault Secrets User` on
@@ -307,6 +313,13 @@ until steps 0 to 2 are done.
    the apply must be of the reviewed branch. Do not apply until both lines
    print: an apply from a stale or edited checkout puts a `platform.bicep`
    on staging that the PR does not hold.
+
+   If the PR merged before this step, the first line can never print. Cancel
+   the merge's `develop` run while it is still queued (`gh run cancel <id>`),
+   so its deploy never applies `infra/app.bicep`. Apply from the merge
+   commit once `git diff --quiet <reviewed head> HEAD -- infra` succeeds,
+   run step 2, and then `gh run rerun <id>` as step 3's deploy
+   (`docs/lessons.md`, 2026-10-20).
 
    Then run the branch's **Before anything** again, so `KVAPI` is set:
    step 0 ran under `develop`'s, which sets none. Then run bring-up step 4's
@@ -404,8 +417,9 @@ until steps 0 to 2 are done.
    - Delete the old secret, in the same shell and after the block above,
      which sets `revoked` only once it has deleted the one grant on the
      owner's vault:
-     `[ "${revoked:-}" = 1 ] && az keyvault secret delete --vault-name $KV -n database-url -o none`.
-     If the block did not print `old grant deleted`, this deletes nothing.
+     `[ "${revoked:-}" = 1 ] && az keyvault secret delete --vault-name $KV -n database-url -o none && echo "old secret deleted"`.
+     If the block did not print `old grant deleted`, this deletes nothing
+     and prints nothing.
      Soft delete keeps it for 7 days, recoverable only by a Secrets
      Officer, which the API identity is not. No purge.
    - Wait ten minutes ("allow several minutes for role assignments to
@@ -650,11 +664,14 @@ before its first platform apply, so the order differs from staging's.
    done
    ip=$(curl -s https://api.ipify.org)
    me=$(az ad signed-in-user show --query id -o tsv)
-   echo "ip=$ip me=$me pw-length=${#pw}"   # all three must be non-empty
-   [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && \
+   echo "ENV=$ENV RG=$RG ip=$ip me=$me pw-length=${#pw}"   # prod, rg-tyre-prod, then three non-empty values
+   [ "$ENV" = prod ] && [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && \
      PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" \
      az deployment group what-if -g $RG -p infra/platform.$ENV.bicepparam
    ```
+
+   The `ENV` guard matters here: in a shell left on staging, this block and
+   the apply below would set staging's admin password to a new one.
 
    Read every line of the what-if (TYRE-402) before the apply:
    - `psql-tyre-prod` shows `backupRetentionDays` 30, `geoRedundantBackup`
@@ -667,9 +684,10 @@ before its first platform apply, so the order differs from staging's.
    - `kv-tyre-api-prod` and its two role assignments, the API identity's
      Key Vault Secrets User and your Secrets Officer, are Creates in
      `rg-tyre-prod`.
-   - Into an empty resource group, every line is a Create. Stop on any
-     Delete or Modify, and on any Create outside `rg-tyre-prod` other than
-     that AcrPull assignment.
+   - Every other line is a Create, apart from two Ignores for what steps 1
+     and 2 made: `log-tyre-prod` and `id-tyre-deploy-prod`. The first apply
+     listed 19 Creates. Stop on any Delete or Modify, and on any Create
+     outside `rg-tyre-prod` other than that AcrPull assignment.
 
    A later re-apply is read the way staging's step 4 says. Then apply:
 
@@ -677,7 +695,7 @@ before its first platform apply, so the order differs from staging's.
    rebuilding the server.**
 
    ```bash
-   [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && \
+   [ "$ENV" = prod ] && [ -n "$pw" ] && [ -n "$ip" ] && [ -n "$me" ] && \
      PG_ADMIN_PASSWORD="$pw" DEPLOYER_OBJECT_ID="$me" DEV_MACHINE_IP="$ip" \
      az deployment group create -g $RG -n platform-$(date +%Y%m%d%H%M) \
        -p infra/platform.$ENV.bicepparam -o none
@@ -685,6 +703,7 @@ before its first platform apply, so the order differs from staging's.
    ```
 
    Expect `PGCRYPTO,BTREE_GIST` (order may differ). Keep `pw` in this shell.
+   The first apply took under seven minutes.
 
    Then run the role listing in staging's step 4 and expect its two rows,
    before step 4 puts the admin password into `kv-tyre-prod`.
@@ -692,9 +711,15 @@ before its first platform apply, so the order differs from staging's.
 4. **The admin password secret.**
 
    ```bash
-   [ "$KV" = "kv-tyre-$ENV" ] && [ -n "$pw" ] && \
-     az keyvault secret set --vault-name $KV -n psql-admin-password --value="$pw" -o none && unset pw
+   echo "ENV=$ENV KV=$KV pw-length=${#pw}"   # prod, kv-tyre-prod, then a non-zero length
+   [ "$ENV" = prod ] && [ "$KV" = "kv-tyre-$ENV" ] && [ -n "$pw" ] && \
+     az keyvault secret set --vault-name $KV -n psql-admin-password --value="$pw" -o none && \
+     { [ "$(az keyvault secret show --vault-name $KV -n psql-admin-password --query value -o tsv)" = "$pw" ] \
+       && echo "admin password stored and matches" && unset pw || echo "stored password differs"; }
    ```
+
+   Expect `admin password stored and matches`. On `stored password differs`,
+   stop: `pw` stays in the shell, so nothing is lost.
 
    `--value=` keeps its equals sign in this step and the next: about one
    generated password in 64 starts with `-`, which the CLI would read as a
