@@ -1,16 +1,13 @@
-import { render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { dashboardBody } from "../test/fixtures";
+import { dashboardBody, renderWithActor } from "../test/fixtures";
 import { DashboardTiles } from "./DashboardTiles";
 
 function renderTiles(overrides: Parameters<typeof dashboardBody>[0] = {}, depot?: string) {
-  return render(
-    <MemoryRouter>
-      <DashboardTiles body={dashboardBody(overrides)} depot={depot} />
-    </MemoryRouter>,
-  );
+  return renderWithActor(<DashboardTiles body={dashboardBody(overrides)} depot={depot} />, {
+    withRouter: true,
+  });
 }
 
 const follows = (a: Node, b: Node) =>

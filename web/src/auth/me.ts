@@ -23,6 +23,12 @@ export interface Me {
   // The tenant RLS proved for this request (ADR-0016), never the token's
   // claim. The mirror keeps it for the branding cache key.
   tenantId: string;
+  // FR-CFG-021, FR-CFG-022: the codes money, pressure and distance render
+  // with (src/api/money.ts, src/units/units.ts). Optional because an API
+  // older than this client omits them, and each reader has a fallback.
+  currency?: string;
+  pressureUnit?: string;
+  distanceUnit?: string;
 }
 
 export async function fetchMe(): Promise<Me> {

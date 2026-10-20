@@ -1,7 +1,7 @@
 import { Link } from "react-router";
 
 import type { DashboardBody } from "../api/dashboard";
-import { moneyOrEmpty, type Money } from "../api/money";
+import { moneyOrEmpty, useCurrency, type Money } from "../api/money";
 import { Panel } from "../ui/Panel";
 import { ProvenanceSplit } from "../ui/ProvenanceSplit";
 import { SeverityBadge } from "../ui/SeverityBadge";
@@ -19,11 +19,12 @@ import { withDepot } from "./dashboardParams";
 
 export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: string }) {
   const { exceptions, belowThreshold, estate, units, moneyVisible } = body;
+  const currency = useCurrency();
   const severities = SEVERITY_CODES.filter((s) => s in exceptions.bySeverity).concat(
     Object.keys(exceptions.bySeverity).filter((s) => !SEVERITY_CODES.includes(s)),
   );
   const estateMoney = (value: Money | null) =>
-    moneyOrEmpty(value, moneyVisible, estate.tyreCount, absenceLabel("noTyres"));
+    moneyOrEmpty(value, moneyVisible, estate.tyreCount, absenceLabel("noTyres"), currency);
   // U44: an empty estate's total line is the absence alone; "across 0
   // tyres" would only restate it.
   const estateEmpty = moneyVisible && estate.tyreCount === 0;

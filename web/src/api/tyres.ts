@@ -1,4 +1,5 @@
 import { apiGet, apiPost } from "./client";
+import type { Money } from "./money";
 
 // Wire shapes of the tyre register (api/internal/httpapi/tyres.go, TYRE-91).
 // Tyre mirrors the server's projection exactly, so a screen that just
@@ -22,9 +23,12 @@ export interface Tyre {
   patternName: string | null;
   receivedDate: string | null;
   awaitingCost: boolean;
-  purchasePrice?: string;
-  randPerMm?: string;
-  casingValue?: string;
+  purchasePrice?: Money;
+  randPerMm?: Money;
+  casingValue?: Money;
+  // The receipt a received tyre is priced on (FR-CFG-041); null for a tyre
+  // received before receipts existed.
+  receiptId: string | null;
 }
 
 export interface ReceivedTyre {

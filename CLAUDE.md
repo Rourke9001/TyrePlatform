@@ -147,7 +147,7 @@ PR. Where either one contradicts the repo, the repo wins:
 - Copy stays straight-quoted and sentence case (`/unslop`), not curly quotes
   or Title Case.
 - Dates render through `web/src/time/tenantTime.ts` (rule 6) and money through
-  `formatRand` in `web/src/api/money.ts` (rule 2), never through `Intl`
+  `formatMoney` in `web/src/api/money.ts` (rule 2), never through `Intl`
   directly.
 - The capture route is designed to the three-minute target and held to its
   bundle budget first. NFR-USE-004 floors its targets at 44px, and the keypad and tiles sit

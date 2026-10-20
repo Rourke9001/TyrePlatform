@@ -1,9 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
-import { MemoryRouter } from "react-router";
+import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { AtRiskClass } from "../api/dashboard";
-import { dashboardBody } from "../test/fixtures";
+import { dashboardBody, renderWithActor } from "../test/fixtures";
 import { ValueAtRiskHero } from "./ValueAtRiskHero";
 
 // What valuation.go sends for a class with no tyre at or below the
@@ -19,15 +18,14 @@ const emptyClass: AtRiskClass = {
 
 function renderHero(overrides: Parameters<typeof dashboardBody>[0] = {}, depot?: string) {
   const body = dashboardBody(overrides);
-  return render(
-    <MemoryRouter>
-      <ValueAtRiskHero
-        valueAtRisk={body.valueAtRisk}
-        belowThreshold={body.belowThreshold}
-        moneyVisible={body.moneyVisible}
-        depot={depot}
-      />
-    </MemoryRouter>,
+  return renderWithActor(
+    <ValueAtRiskHero
+      valueAtRisk={body.valueAtRisk}
+      belowThreshold={body.belowThreshold}
+      moneyVisible={body.moneyVisible}
+      depot={depot}
+    />,
+    { withRouter: true },
   );
 }
 
