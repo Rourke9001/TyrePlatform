@@ -986,6 +986,32 @@ func TestMeCarriesTheTenantDisplayCodePolicy(t *testing.T) {
 	require.Equal(t, "GENERATED", body.DisplayCodePolicy)
 }
 
+// FR-CFG-021, FR-CFG-022: the client labels money and units from the
+// tenant. USD is not the column's default, so a handler that hard-codes ZAR
+// fails here; the units cannot vary (tenant_metric_units, 000059).
+func TestMeCarriesTheTenantCurrencyAndUnits(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	tenantID, _ := plantTenant(t, ctx, admin, "me-currency")
+	_, err := admin.Exec(ctx, `UPDATE app.tenant SET currency = 'USD' WHERE id = $1`, tenantID)
+	require.NoError(t, err)
+
+	actor := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	rec := get(t, h, "/api/me", tenantID.String(), actor.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Currency     string `json:"currency"`
+		PressureUnit string `json:"pressureUnit"`
+		DistanceUnit string `json:"distanceUnit"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.Equal(t, "USD", body.Currency)
+	require.Equal(t, "KPA", body.PressureUnit)
+	require.Equal(t, "KM", body.DistanceUnit)
+}
+
 // bacTenant is the acceptance fixture (CLAUDE.md, "Not an audit"): the
 // analytics tests read it for the figures the suite pins and never write
 // into it. Anything a test needs to plant goes in a throwaway tenant.

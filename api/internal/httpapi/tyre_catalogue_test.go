@@ -135,6 +135,63 @@ func TestTyreCatalogueOffersOneTenantsActiveRowsInOrder(t *testing.T) {
 	rec = get(t, h, "/api/tyre-catalogue", otherID.String(), otherTech.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 	require.JSONEq(t,
-		`{"sizes":[{"id":"`+otherSize.String()+`","name":"7R22.5"}],"brands":[],"patterns":[]}`,
+		`{"sizes":[{"id":"`+otherSize.String()+`","name":"7R22.5","platformCatalogueId":null}],"brands":[],"patterns":[]}`,
 		rec.Body.String())
+}
+
+// FR-CFG-005: each row says whether it came from the platform catalogue,
+// by the platform entry it was seeded from, or was added for this fleet.
+// The seed runs on the admin connection inside one transaction that binds
+// the tenant, so no later query on that connection inherits the binding.
+func TestTyreCatalogueCarriesPlatformLineage(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "catalogue-lineage")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	tx, err := admin.Begin(ctx)
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SELECT set_config('app.tenant_id', $1, true)`, tenantID.String())
+	require.NoError(t, err)
+	_, err = tx.Exec(ctx, `SELECT app.seed_tenant_catalogue()`)
+	require.NoError(t, err)
+	require.NoError(t, tx.Commit(ctx))
+	plantNamed(t, ctx, admin, "tyre_size", tenantID, "T283 OWN", true)
+
+	var platformSize, platformPattern string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT md5('platform_tyre_size:315/80R22.5')::uuid::text, md5('platform_tyre_pattern:SP431')::uuid::text`).
+		Scan(&platformSize, &platformPattern))
+
+	tech := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	rec := get(t, h, "/api/tyre-catalogue", tenantID.String(), tech.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Sizes []struct {
+			ID                  string  `json:"id"`
+			Name                string  `json:"name"`
+			PlatformCatalogueID *string `json:"platformCatalogueId"`
+		} `json:"sizes"`
+		Patterns []struct {
+			Name                string  `json:"name"`
+			PlatformCatalogueID *string `json:"platformCatalogueId"`
+		} `json:"patterns"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	lineage := map[string]*string{}
+	for _, e := range body.Sizes {
+		lineage[e.Name] = e.PlatformCatalogueID
+	}
+	require.Contains(t, lineage, "T283 OWN")
+	require.Nil(t, lineage["T283 OWN"], "a size added for this fleet has no lineage")
+	require.NotNil(t, lineage["315/80R22.5"])
+	require.Equal(t, platformSize, *lineage["315/80R22.5"])
+	var sp431 *string
+	for _, p := range body.Patterns {
+		if p.Name == "SP431" {
+			sp431 = p.PlatformCatalogueID
+		}
+	}
+	require.NotNil(t, sp431, "the seeded SP431 is offered with its lineage")
+	require.Equal(t, platformPattern, *sp431)
 }

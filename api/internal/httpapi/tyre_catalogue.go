@@ -12,18 +12,22 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
+// platformCatalogueId names the platform entry a row was seeded from, and is
+// null for a row added for this fleet (FR-CFG-005).
 type catalogueEntryJSON struct {
-	ID   uuid.UUID `json:"id"`
-	Name string    `json:"name"`
+	ID                  uuid.UUID  `json:"id"`
+	Name                string     `json:"name"`
+	PlatformCatalogueID *uuid.UUID `json:"platformCatalogueId"`
 }
 
 // brandId is null for a pattern no brand owns; appliesTo is NEW, RETREAD or
 // BOTH (FR-CFG-004), and the receive form offers only the first and last.
 type cataloguePatternJSON struct {
-	ID        uuid.UUID  `json:"id"`
-	Name      string     `json:"name"`
-	BrandID   *uuid.UUID `json:"brandId"`
-	AppliesTo string     `json:"appliesTo"`
+	ID                  uuid.UUID  `json:"id"`
+	Name                string     `json:"name"`
+	BrandID             *uuid.UUID `json:"brandId"`
+	AppliesTo           string     `json:"appliesTo"`
+	PlatformCatalogueID *uuid.UUID `json:"platformCatalogueId"`
 }
 
 type tyreCatalogueJSON struct {
@@ -55,11 +59,11 @@ func listTyreCatalogue(s *store.Store) http.HandlerFunc {
 				// Length then name, as loadExceptions orders position codes
 				// (NFR-USE-012), is natural only among codes of one shape, so
 				// every consumer re-sorts by name.
-				`SELECT id, name FROM app.tyre_size WHERE active ORDER BY length(name), name`); err != nil {
+				`SELECT id, name, platform_catalogue_id FROM app.tyre_size WHERE active ORDER BY length(name), name`); err != nil {
 				return err
 			}
 			if out.Brands, err = loadCatalogueEntries(ctx, tx, "brands",
-				`SELECT id, name FROM app.tyre_brand WHERE active ORDER BY length(name), name`); err != nil {
+				`SELECT id, name, platform_catalogue_id FROM app.tyre_brand WHERE active ORDER BY length(name), name`); err != nil {
 				return err
 			}
 			out.Patterns, err = loadCataloguePatterns(ctx, tx)
@@ -81,7 +85,7 @@ func loadCatalogueEntries(ctx context.Context, tx pgx.Tx, what, sql string) ([]c
 	out := []catalogueEntryJSON{}
 	for rows.Next() {
 		var e catalogueEntryJSON
-		if err := rows.Scan(&e.ID, &e.Name); err != nil {
+		if err := rows.Scan(&e.ID, &e.Name, &e.PlatformCatalogueID); err != nil {
 			return nil, fmt.Errorf("scanning tyre %s: %w", what, err)
 		}
 		out = append(out, e)
@@ -91,7 +95,7 @@ func loadCatalogueEntries(ctx context.Context, tx pgx.Tx, what, sql string) ([]c
 
 func loadCataloguePatterns(ctx context.Context, tx pgx.Tx) ([]cataloguePatternJSON, error) {
 	rows, err := tx.Query(ctx, `
-		SELECT p.id, p.name, p.brand_id, p.applies_to
+		SELECT p.id, p.name, p.brand_id, p.applies_to, p.platform_catalogue_id
 		  FROM app.tyre_pattern p
 		 WHERE p.active
 		   -- app.receive_tyres refuses a pattern whose brand is deactivated.
@@ -105,7 +109,7 @@ func loadCataloguePatterns(ctx context.Context, tx pgx.Tx) ([]cataloguePatternJS
 	out := []cataloguePatternJSON{}
 	for rows.Next() {
 		var p cataloguePatternJSON
-		if err := rows.Scan(&p.ID, &p.Name, &p.BrandID, &p.AppliesTo); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.BrandID, &p.AppliesTo, &p.PlatformCatalogueID); err != nil {
 			return nil, fmt.Errorf("scanning tyre pattern: %w", err)
 		}
 		out = append(out, p)
