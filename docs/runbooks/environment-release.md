@@ -692,8 +692,8 @@ before its first platform apply, so the order differs from staging's.
 4. **The admin password secret.**
 
    ```bash
-   [ -n "$pw" ] && az keyvault secret set --vault-name $KV -n psql-admin-password --value="$pw" -o none \
-     && unset pw
+   [ "$KV" = "kv-tyre-$ENV" ] && [ -n "$pw" ] && \
+     az keyvault secret set --vault-name $KV -n psql-admin-password --value="$pw" -o none && unset pw
    ```
 
    `--value=` keeps its equals sign in this step and the next: about one
