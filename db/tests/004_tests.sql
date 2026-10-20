@@ -12808,5 +12808,283 @@ DROP FUNCTION pg_temp.t74_seed();
 DROP FUNCTION pg_temp.t74_load(jsonb);
 DROP FUNCTION pg_temp.t74_counts();
 
+\echo '== 75. TYRE-283: consent has one writer and a current view, a fleet is metric, tread age counts the fleet''s days, the settings views show what is in force, a receive takes its estimate from the price list and makes a receipt, and a receipt is priced once (FR-TEN-021, FR-TEN-022, FR-CFG-012, FR-CFG-021, FR-CFG-040 to 042, FR-TYR-017, FR-TYR-040, FR-TYR-041)'
+
+-- One statement, answered 'ok' or 'SQLSTATE message'. The handler is the
+-- subtransaction a refused statement rolls back to, so a refusal leaves the
+-- check's transaction as it was.
+CREATE FUNCTION pg_temp.t75_try(p_sql text) RETURNS text
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE st text; msg text;
+BEGIN
+  EXECUTE p_sql;
+  RETURN 'ok';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  RETURN st || ' ' || msg;
+END $fn$;
+
+-- BAC's price rows for 315/80R22.5, planted in the caller's transaction: a
+-- size-only row superseded on 2026-09-01, one dated past any test date, and
+-- a Dunlop row in force from 2026-06-01. No fixture tenant has a price list.
+CREATE FUNCTION pg_temp.t75_prices() RETURNS void
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from) VALUES
+    ('11111111-1111-1111-1111-111111111111', md5('sz1')::uuid, NULL, 3000.00, '2026-01-01'),
+    ('11111111-1111-1111-1111-111111111111', md5('sz1')::uuid, NULL, 3500.00, '2026-09-01'),
+    ('11111111-1111-1111-1111-111111111111', md5('sz1')::uuid, NULL, 9999.00, '2099-01-01'),
+    ('11111111-1111-1111-1111-111111111111', md5('sz1')::uuid, md5('br1')::uuid, 4319.91, '2026-06-01');
+$fn$;
+
+\echo '== 75a. app.record_consent writes one row for the bound fleet with no actor, refuses each bad input as TY027, and the app role can neither edit nor delete a row (FR-TEN-022, OR-LEG-005, ADR-0012; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        nofleet constant uuid := md5('t75a-no-fleet')::uuid;
+        cid uuid; r record; got text; e record;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  cid := app.record_consent('SERVICE_DELIVERY', true, 'T75 MSA v1', '2026-10-01T08:00:00Z');
+  SELECT c.* INTO r FROM app.tenant_consent c WHERE c.id = cid;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'FAIL 75a: the writer returned % and no row of that id is visible', cid;
+  END IF;
+  IF (r.tenant_id, r.purpose_code, r.granted, r.notice_version, r.actor_id, r.occurred_at, r.created_at)
+     IS DISTINCT FROM (t2, 'SERVICE_DELIVERY', true, 'T75 MSA v1', NULL::uuid,
+                       '2026-10-01T08:00:00Z'::timestamptz, now()) THEN
+    RAISE EXCEPTION 'FAIL 75a: the recorded row reads %', row_to_json(r);
+  END IF;
+  cid := app.record_consent('ANONYMISED_BENCHMARKING', false, 'T75 MSA v1');
+  IF (SELECT c.occurred_at FROM app.tenant_consent c WHERE c.id = cid) IS DISTINCT FROM now() THEN
+    RAISE EXCEPTION 'FAIL 75a: a record with no time given is dated %, not now()',
+      (SELECT c.occurred_at FROM app.tenant_consent c WHERE c.id = cid);
+  END IF;
+
+  PERFORM set_config('app.tenant_id', '', true);
+  got := pg_temp.t75_try($q$SELECT app.record_consent('SERVICE_DELIVERY', true, 'T75 MSA v1')$q$);
+  IF got IS DISTINCT FROM 'TY027 a consent record needs app.tenant_id bound to the fleet it records for' THEN
+    RAISE EXCEPTION 'FAIL 75a: a record with no tenant bound was answered %', got;
+  END IF;
+  PERFORM set_config('app.tenant_id', nofleet::text, true);
+  got := pg_temp.t75_try($q$SELECT app.record_consent('SERVICE_DELIVERY', true, 'T75 MSA v1')$q$);
+  IF got IS DISTINCT FROM format('TY027 app.tenant_id %s names no fleet', nofleet) THEN
+    RAISE EXCEPTION 'FAIL 75a: a record bound to no fleet was answered %', got;
+  END IF;
+  PERFORM set_config('app.tenant_id', t2::text, true);
+
+  FOR e IN SELECT * FROM (VALUES
+    ('a purpose outside the vocabulary',
+     $q$SELECT app.record_consent('MARKETING', true, 'T75 MSA v1')$q$,
+     $q$TY027 'MARKETING' is not a consent purpose; the purposes are SERVICE_DELIVERY and ANONYMISED_BENCHMARKING$q$),
+    ('no granted or withdrawn',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', NULL, 'T75 MSA v1')$q$,
+     'TY027 a consent record states whether consent was granted or withdrawn'),
+    ('an empty notice version',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', true, '')$q$,
+     'TY027 a consent record names the notice version the client signed'),
+    ('a blank notice version',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', true, '  ')$q$,
+     'TY027 a consent record names the notice version the client signed'),
+    ('no notice version',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', true, NULL)$q$,
+     'TY027 a consent record names the notice version the client signed'),
+    ('no time',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', true, 'T75 MSA v1', NULL)$q$,
+     'TY027 a consent record states when consent was given'),
+    ('a future time',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', true, 'T75 MSA v1', now() + interval '1 minute')$q$,
+     'TY027 consent is recorded as given now or earlier, never at a future time')
+  ) v(what, stmt, want) LOOP
+    got := pg_temp.t75_try(e.stmt);
+    IF got IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL 75a: % was answered %', e.what, got;
+    END IF;
+  END LOOP;
+
+  got := pg_temp.t75_try($q$INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version)
+                           VALUES ('22222222-2222-2222-2222-222222222222', 'MARKETING', true, 'T75 MSA v1')$q$);
+  IF got NOT LIKE '23514 %"tenant_consent_purpose_code_check"%' THEN
+    RAISE EXCEPTION 'FAIL 75a: a direct insert of an unknown purpose was answered %', got;
+  END IF;
+  got := pg_temp.t75_try(format('UPDATE app.tenant_consent SET granted = false WHERE id = %L', cid));
+  IF got NOT LIKE '42501 %' THEN
+    RAISE EXCEPTION 'FAIL 75a: the app role''s UPDATE of a consent row was answered %', got;
+  END IF;
+  got := pg_temp.t75_try(format('DELETE FROM app.tenant_consent WHERE id = %L', cid));
+  IF got NOT LIKE '42501 %' THEN
+    RAISE EXCEPTION 'FAIL 75a: the app role''s DELETE of a consent row was answered %', got;
+  END IF;
+  -- The grant refuses the app role first; P14 proves the trigger behind it.
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger tg
+                  WHERE tg.tgrelid = 'app.tenant_consent'::regclass
+                    AND tg.tgname = 'tenant_consent_written_once'
+                    AND tg.tgenabled = 'O'
+                    AND tg.tgfoid = 'app.tenant_consent_is_written_once()'::regprocedure) THEN
+    RAISE EXCEPTION 'FAIL 75a: tenant_consent_written_once is missing, disabled or calls another function';
+  END IF;
+  RAISE NOTICE 'PASS  75a the writer records one row with no actor, refuses each bad input as TY027, and the app role cannot edit or delete it';
+END $$;
+ROLLBACK;
+
+\echo '== 75b. the current-consent view gives the latest row per fleet and purpose by when consent was given, then when it was recorded, a recorded NULL last; a purpose never recorded is absent, and another fleet sees none of it (FR-TEN-022; as Second Fleet, rolled back)'
+BEGIN;
+DO $$
+DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+        bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM app.record_consent('ANONYMISED_BENCHMARKING', true,  'T75 v1', '2026-09-01T00:00:00Z');
+  PERFORM app.record_consent('ANONYMISED_BENCHMARKING', false, 'T75 v2', '2026-10-01T00:00:00Z');
+  -- Recorded last, given first: when it was given decides, not when it
+  -- was recorded.
+  PERFORM app.record_consent('ANONYMISED_BENCHMARKING', true,  'T75 v0', '2026-08-01T00:00:00Z');
+  SELECT string_agg(v.purpose_code || ':' || v.granted || ':' || v.notice_version, ' ' ORDER BY v.purpose_code)
+    INTO got FROM app.v_tenant_consent_current v WHERE v.tenant_id = t2;
+  IF got IS DISTINCT FROM 'ANONYMISED_BENCHMARKING:false:T75 v2' THEN
+    RAISE EXCEPTION 'FAIL 75b: after a grant, a withdrawal and a back-dated grant the view reads %', got;
+  END IF;
+
+  INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version, occurred_at, created_at) VALUES
+    (t2, 'ANONYMISED_BENCHMARKING', true,  'T75 tie later',   '2026-10-05T00:00:00Z', '2026-10-03T00:00:00Z'),
+    (t2, 'ANONYMISED_BENCHMARKING', false, 'T75 tie earlier', '2026-10-05T00:00:00Z', '2026-10-02T00:00:00Z'),
+    (t2, 'ANONYMISED_BENCHMARKING', false, 'T75 tie undated', '2026-10-05T00:00:00Z', NULL);
+  SELECT string_agg(v.purpose_code || ':' || v.granted || ':' || v.notice_version, ' ' ORDER BY v.purpose_code)
+    INTO got FROM app.v_tenant_consent_current v WHERE v.tenant_id = t2;
+  IF got IS DISTINCT FROM 'ANONYMISED_BENCHMARKING:true:T75 tie later' THEN
+    RAISE EXCEPTION 'FAIL 75b: three rows given at one instant resolve to %, not the latest recorded', got;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  IF EXISTS (SELECT 1 FROM app.v_tenant_consent_current)
+     OR EXISTS (SELECT 1 FROM app.tenant_consent) THEN
+    RAISE EXCEPTION 'FAIL 75b: bound to BAC, the view or the ledger shows a consent row';
+  END IF;
+  RAISE NOTICE 'PASS  75b the view gives the latest row by given then recorded time, omits an unrecorded purpose, and another fleet sees none of it';
+END $$;
+ROLLBACK;
+
+\echo '== 75c. tenant_metric_units holds every fleet to KPA and KM, and every fixture fleet is metric (FR-CFG-021)'
+DO $$
+DECLARE got text := '';
+        tid uuid;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint c
+                  WHERE c.conrelid = 'app.tenant'::regclass
+                    AND c.conname = 'tenant_metric_units'
+                    AND c.contype = 'c' AND c.convalidated) THEN
+    RAISE EXCEPTION 'FAIL 75c: app.tenant carries no validated check named tenant_metric_units';
+  END IF;
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222',
+                             '33333333-3333-3333-3333-333333333333']::uuid[] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    got := got || COALESCE((SELECT t.pressure_unit || '/' || t.distance_unit FROM app.tenant t WHERE t.id = tid), 'none') || ' ';
+  END LOOP;
+  IF got IS DISTINCT FROM 'KPA/KM KPA/KM KPA/KM ' THEN
+    RAISE EXCEPTION 'FAIL 75c: the fixture fleets'' units read %', got;
+  END IF;
+  RAISE NOTICE 'PASS  75c tenant_metric_units is validated and every fixture fleet is KPA and KM';
+END $$;
+
+\echo '== 75d. app.tenant_days_since counts days in the bound fleet''s calendar, and answers NULL for no instant or no fleet (FR-TYR-017, rule 6; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        tz text; midnight timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  IF tz IS NULL THEN
+    RAISE EXCEPTION 'FAIL 75d: BAC''s timezone is not visible';
+  END IF;
+  midnight := app.tenant_today(tz)::timestamp AT TIME ZONE tz;
+  IF app.tenant_days_since(now()) IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'FAIL 75d: now is % days ago', app.tenant_days_since(now());
+  END IF;
+  IF app.tenant_days_since(NULL) IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 75d: no instant gives %', app.tenant_days_since(NULL);
+  END IF;
+  IF app.tenant_days_since(((app.tenant_today(tz) - 3)::timestamp AT TIME ZONE tz) + interval '12 hours') IS DISTINCT FROM 3 THEN
+    RAISE EXCEPTION 'FAIL 75d: noon three fleet days back gives %',
+      app.tenant_days_since(((app.tenant_today(tz) - 3)::timestamp AT TIME ZONE tz) + interval '12 hours');
+  END IF;
+  -- One second either side of the fleet's midnight, so a UTC calendar or a
+  -- 24-hour count fails here.
+  IF app.tenant_days_since(midnight - interval '1 second') IS DISTINCT FROM 1
+     OR app.tenant_days_since(midnight + interval '1 second') IS DISTINCT FROM 0 THEN
+    RAISE EXCEPTION 'FAIL 75d: either side of the fleet''s midnight gives % and %',
+      app.tenant_days_since(midnight - interval '1 second'), app.tenant_days_since(midnight + interval '1 second');
+  END IF;
+  PERFORM set_config('app.tenant_id', '', true);
+  IF app.tenant_days_since(now()) IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 75d: with no fleet bound, now gives %', app.tenant_days_since(now());
+  END IF;
+  RAISE NOTICE 'PASS  75d tread age counts the bound fleet''s calendar days and is NULL with no instant or no fleet';
+END $$;
+ROLLBACK;
+
+\echo '== 75e. the settings views show each policy scope''s row in force now and each price list row in force on the fleet''s today, while the table keeps what they supersede (FR-CFG-012, FR-CFG-042; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        got text; n_view int; n_scopes int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  INSERT INTO app.threshold_policy (tenant_id, retread_threshold_mm, warning_threshold_mm, max_retreads, effective_from)
+  VALUES (bac, 5.0, 7.0, 1, now()), (bac, 6.0, 8.0, 1, now() + interval '1 day');
+  SELECT v.retread_threshold_mm || '/' || v.warning_threshold_mm || '/' || v.max_retreads INTO got
+    FROM app.v_threshold_policy_in_force v
+   WHERE v.tenant_id = bac AND v.operating_group_id IS NULL AND v.axle_class IS NULL;
+  IF got IS DISTINCT FROM '5.0/7.0/1' THEN
+    RAISE EXCEPTION 'FAIL 75e: BAC''s fleet-wide row in force reads %', got;
+  END IF;
+  SELECT count(*) INTO n_view FROM app.v_threshold_policy_in_force v WHERE v.tenant_id = bac;
+  SELECT count(DISTINCT (p.operating_group_id, p.axle_class)) INTO n_scopes
+    FROM app.threshold_policy p WHERE p.tenant_id = bac AND p.effective_from <= now();
+  IF n_view <> n_scopes OR n_scopes < 2 THEN
+    RAISE EXCEPTION 'FAIL 75e: the view holds % rows for % scopes in force', n_view, n_scopes;
+  END IF;
+
+  PERFORM pg_temp.t75_prices();
+  SELECT string_agg(v.size_name || ':' || COALESCE(v.brand_name, '-') || ':' || v.typical_price || ':' || v.effective_from,
+                    ' ' ORDER BY v.brand_name NULLS FIRST)
+    INTO got FROM app.v_tyre_price_list_in_force v WHERE v.tenant_id = bac;
+  IF got IS DISTINCT FROM '315/80R22.5:-:3500.00:2026-09-01 315/80R22.5:Dunlop:4319.91:2026-06-01' THEN
+    RAISE EXCEPTION 'FAIL 75e: BAC''s price list in force reads %', got;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM app.tyre_price_list p
+                  WHERE p.tenant_id = bac AND p.brand_id IS NULL AND p.typical_price = 3000.00) THEN
+    RAISE EXCEPTION 'FAIL 75e: the superseded 3000.00 row is gone from the table';
+  END IF;
+  RAISE NOTICE 'PASS  75e the views show the rows in force per scope and per size and brand, and the table keeps the superseded row';
+END $$;
+ROLLBACK;
+
+\echo '== 75o. nothing section 75 planted outlives its rollback'
+DO $$
+DECLARE got text := '';
+        tid uuid;
+BEGIN
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222',
+                             '33333333-3333-3333-3333-333333333333']::uuid[] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    got := got || (SELECT count(*) FROM app.tenant_consent) || '/'
+               || (SELECT count(*) FROM app.tyre_price_list) || ' ';
+  END LOOP;
+  IF got IS DISTINCT FROM '0/0 0/0 0/0 ' THEN
+    RAISE EXCEPTION 'FAIL 75o: consent and price rows per fixture fleet read %', got;
+  END IF;
+  RAISE NOTICE 'PASS  75o section 75 leaves no residue';
+END $$;
+DROP FUNCTION pg_temp.t75_prices();
+DROP FUNCTION pg_temp.t75_try(text);
+
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

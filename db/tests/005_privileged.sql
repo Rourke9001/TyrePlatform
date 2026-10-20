@@ -774,5 +774,60 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== P13. TYRE-283: tenant_metric_units refuses psi, bar and miles to a superuser, which the older per-column checks admit (FR-CFG-021)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        e record; cname text;
+BEGIN
+  FOR e IN SELECT * FROM (VALUES
+    ('pressure PSI', $q$UPDATE app.tenant SET pressure_unit = 'PSI' WHERE id = '11111111-1111-1111-1111-111111111111'$q$),
+    ('pressure BAR', $q$UPDATE app.tenant SET pressure_unit = 'BAR' WHERE id = '11111111-1111-1111-1111-111111111111'$q$),
+    ('distance MI',  $q$UPDATE app.tenant SET distance_unit = 'MI' WHERE id = '11111111-1111-1111-1111-111111111111'$q$)
+  ) v(what, stmt) LOOP
+    cname := NULL;
+    BEGIN
+      EXECUTE e.stmt;
+    EXCEPTION WHEN check_violation THEN
+      GET STACKED DIAGNOSTICS cname = CONSTRAINT_NAME;
+    END;
+    IF cname IS DISTINCT FROM 'tenant_metric_units' THEN
+      RAISE EXCEPTION 'FAIL P13: a superuser setting BAC''s % was answered %',
+        e.what, COALESCE('a check violation of ' || cname, 'by an accepted row');
+    END IF;
+  END LOOP;
+  IF (SELECT t.pressure_unit || '/' || t.distance_unit FROM app.tenant t WHERE t.id = bac) <> 'KPA/KM' THEN
+    RAISE EXCEPTION 'FAIL P13: BAC''s units moved';
+  END IF;
+  RAISE NOTICE 'PASS  P13 a superuser cannot set psi, bar or miles on a fleet';
+END $$;
+ROLLBACK;
+
+\echo '== P14. TYRE-283: tenant_consent_written_once refuses a superuser''s UPDATE of a consent row, which no grant does (FR-TEN-022)'
+BEGIN;
+DO $$
+DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
+        cid uuid; msg text; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  cid := app.record_consent('SERVICE_DELIVERY', true, 'P14 MSA v1', '2026-10-01T08:00:00Z');
+  msg := NULL;
+  BEGIN
+    UPDATE app.tenant_consent SET granted = false WHERE id = cid;
+  EXCEPTION WHEN sqlstate 'TY027' THEN msg := SQLERRM;
+  END;
+  IF msg IS DISTINCT FROM 'a consent record is written once; a change of consent is a new record' THEN
+    RAISE EXCEPTION 'FAIL P14: a superuser UPDATE of a consent row was answered %',
+      COALESCE('TY027 "' || msg || '"', 'by an edit');
+  END IF;
+  SELECT c.granted || ':' || c.notice_version INTO got FROM app.tenant_consent c WHERE c.id = cid;
+  IF got IS DISTINCT FROM 'true:P14 MSA v1' THEN
+    RAISE EXCEPTION 'FAIL P14: the consent row reads % after the refused UPDATE', got;
+  END IF;
+  RAISE NOTICE 'PASS  P14 a superuser cannot edit a consent row';
+END $$;
+ROLLBACK;
+
 \echo ''
 \echo '================  PRIVILEGED CONTROLS PASSED  ================'
