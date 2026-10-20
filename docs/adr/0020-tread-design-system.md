@@ -6,7 +6,8 @@
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and
   supersedes its kit, its light-only rule and its fixed mockups) · ADR-0009
   (client platform and on-device data) · ADR-0010 (provenance) · TYRE-443
-  (epic), TYRE-444 (this record), TYRE-445, TYRE-446, TYRE-447 · TYRE-272,
+  (epic), TYRE-444 (this record), TYRE-445, TYRE-446, TYRE-447, TYRE-449 ·
+  BR-VEH-001, FR-VEH-034 (position numbering) · TYRE-272,
   TYRE-240, TYRE-238 · TYRE-26, TYRE-27, TYRE-276 (branding, U53) · TYRE-152,
   TYRE-448 (photos, damage) · the design artifact,
   https://claude.ai/artifact/ENPBvfmt7wqw6naPwxQZ6c
@@ -90,8 +91,8 @@ manager's hard controls, inline SVG charts.
 
 Why it is attractive: it answers the brief and the gaps together. One
 library serves every screen. The driver gets a shell and controls designed
-for gloves and glare. Both sides draw a rig the same way, nose up with
-unit-local codes. The brand derivation and U53 carry over unchanged, and
+for gloves and glare. Both sides draw a rig the same way, in BR-VEH-001's
+plan view with its per-unit position numbers. The brand derivation and U53 carry over unchanged, and
 the substrate does too, so no second styling system arrives.
 
 **Its real downside:** it is a rewrite of every screen's styling.
@@ -103,9 +104,8 @@ the substrate does too, so no second styling system arrives.
 - The font swap moves the capture bundle.
 - The accepted dashboard and exceptions mockups, and the TYRE-239 work
   built on them, are redone.
-- The new position codes are a display convention that must still be
-  checked against the axle configuration reference and the codes the
-  database stores.
+- A theme preference is a new piece of state, kept per device, with a
+  settings screen to change it.
 
 ### Option C: a styled component library themed with Tread's tokens (Mantine, Radix Themes)
 
@@ -140,9 +140,14 @@ What carries over from ADR-0015, unchanged:
 
 What this record settles beyond ADR-0015:
 
-- **Themes.** Daylight is the default. Night shift applies on
-  `[data-theme="dark"]` and on `prefers-color-scheme: dark`. A manual
-  toggle waits for the owner (TYRE-445).
+- **Themes.** Each person chooses Follow phone, Daylight or Night shift
+  on a settings screen (owner, 20 Oct 2026). The choice is a per-device
+  preference, kept in local storage rather than on the server, because it
+  is about the screen in front of them, not about the tenant. Follow phone
+  is the default and reads `prefers-color-scheme`. Daylight is what
+  renders before the preference is read and wherever it cannot be.
+  `[data-theme]` on the root element carries the result (TYRE-445; the
+  screen is TYRE-449).
 - **Brand.** The tenant colour reaches chrome only: the app bar band, the
   logo tile, the one primary action per screen, the keypad's go key and the
   active nav marker. It never reaches status, charts, links or focus.
@@ -154,11 +159,15 @@ What this record settles beyond ADR-0015:
 - **Shells.** `DriverShell` for actors without `ViewFleet`; `AppShell`,
   with grouped navigation filtered by capability, for the rest. Hiding a
   nav item stays a courtesy (NFR-SEC-006).
-- **Rig picture.** One diagram, plan view, nose up, positions labelled by
-  unit-local axle, side and inner or outer (`2LO`), on both the capture and
-  vehicle screens. This is display only. The port maps stored position
-  codes to it, after the check against the axle configuration reference
-  that TYRE-447 carries.
+- **Rig picture.** One diagram on both the capture and vehicle screens,
+  in the frame BR-VEH-001 sets:
+  - plan view, nose up, per unit;
+  - positions numbered from 1, foremost axle first, then left to right;
+  - a dual axle reads left outer, left inner, right inner, right outer.
+
+  Each tile shows that number. The tyre sheet adds the place in words
+  ("axle 1, right inner"), so nobody has to learn a code. Rig-level
+  numbers stay a computed projection (FR-VEH-034), never a label.
 - **Capture select.** Tread's native `Select` serves the capture route,
   because the platform picker suits gloves and keeps Radix out of the
   entry chunk.
@@ -200,8 +209,8 @@ erode them:
 - One library and one type family across every route.
 - The driver gets controls sized to NFR-USE-004's glove targets throughout:
   56px for controls, 64px for keypad keys.
-- A manager and a driver talk about the same tyre with the same code and
-  the same picture.
+- A manager and a driver talk about the same tyre with the same number
+  and the same picture, the one BR-VEH-001 already describes.
 - Problems are the loudest thing on a screen: an OK tyre is a pale tint,
   an at-limit tyre is the strongest fill.
 - Photo and damage capture have a design that adds no taps to a clean
@@ -223,12 +232,18 @@ erode them:
   be re-cut.
 - The font swap may move the capture bundle either way. The budget only
   ratchets down, so a rise needs `--record` and a reason in the PR.
-- Unit-local codes are a convention drivers and managers must learn once,
-  and a mismatch with stored codes would surface late.
+- Capture today numbers a rig 1 to 27 across its units, a display
+  projection drivers have used. Moving to per-unit numbers changes what
+  they see, for the driver training OR-TRN-001 bounds at 10 minutes.
+- The theme preference is per device. A manager who switches on a laptop
+  sees Follow phone on their phone until they switch there too.
 
 **Revisit when:**
 
-- the position-code check against the axle configuration reference fails;
+- drivers in the field trial (NFR-USE-002) find per-unit numbers slower to
+  place than the rig-wide ones;
+- people ask for the theme to follow them across devices, which would move
+  it to a per-user setting on the server;
 - the capture flow measured on a phone is slower than today's;
 - the capture bundle cannot stay within budget without a lazy boundary in
   front of capture;
