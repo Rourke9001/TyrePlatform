@@ -113,6 +113,7 @@ func New(s *store.Store, resolver ActorResolver, opts ...Option) http.Handler {
 		r.Get("/tyres", listTyres(s))
 		r.Get("/tyre-price-estimate", priceEstimate(s))
 		r.Get("/tyre-receipts/open", listOpenReceipts(s))
+		r.Get("/fleet-settings", fleetSettings(s))
 
 		// B7.2, the analytics read API (TYRE-36): read-only relays of the
 		// B7.1 views. Nothing here computes a figure.
