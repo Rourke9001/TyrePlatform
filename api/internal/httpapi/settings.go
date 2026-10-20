@@ -26,8 +26,8 @@ type fleetSettingsFleetJSON struct {
 	HistoryHorizon *string `json:"historyHorizon"`
 }
 
-// effectiveFrom is null for a scope's -infinity baseline, which in force at
-// every instant has no date to show (SRS 5.1, errata E1).
+// effectiveFrom is null for a scope's -infinity baseline: it is in force at
+// every instant, so it has no date to show (SRS 5.1, errata E1).
 type fleetSettingsThresholdJSON struct {
 	OperatingGroupName *string  `json:"operatingGroupName"`
 	AxleClass          *string  `json:"axleClass"`
