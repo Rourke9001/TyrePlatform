@@ -43,6 +43,10 @@ type openFitmentJSON struct {
 	// READING or AUDIT, the register's tread_source vocabulary (000005, U29);
 	// nil exactly when LastTreadMm is.
 	LastTreadSource *string `json:"lastTreadSource"`
+	// FR-TYR-017: days since the measurement behind LastTreadMm, the
+	// reading's or else the fit's, in the tenant's calendar
+	// (app.tenant_days_since, rule 6); nil exactly when LastTreadMm is.
+	LastTreadAgeDays *int `json:"lastTreadAgeDays"`
 }
 
 // unitPositionJSON is one row of the unit's configuration, carrying its
@@ -105,6 +109,11 @@ type fitmentHistoryJSON struct {
 	DistanceKm       *int64  `json:"distanceKm"`
 	DistanceSource   string  `json:"distanceSource"`
 	MountOrientation string  `json:"mountOrientation"`
+	// FR-TYR-017: days since the tread on and the tread off were measured,
+	// at the fit and the removal, in the tenant's calendar
+	// (app.tenant_days_since, rule 6).
+	FittedAgeDays  int  `json:"fittedAgeDays"`
+	RemovedAgeDays *int `json:"removedAgeDays"`
 }
 
 // fleetFitmentJSON is one row of GET /api/fitments?open=true, the Fitments
@@ -236,14 +245,16 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 		       f.mount_orientation::text, t.status::text, t.retread_count, s.name,
 		       COALESCE(lr.governing_tread_mm, f.fitted_tread_mm)::text,
 		       CASE WHEN lr.governing_tread_mm IS NOT NULL THEN 'READING'
-		            WHEN f.fitted_tread_mm IS NOT NULL THEN 'AUDIT' END
+		            WHEN f.fitted_tread_mm IS NOT NULL THEN 'AUDIT' END,
+		       CASE WHEN lr.governing_tread_mm IS NOT NULL THEN app.tenant_days_since(lr.submitted_at)
+		            WHEN f.fitted_tread_mm IS NOT NULL THEN app.tenant_days_since(f.fitted_at) END
 		  FROM app.vehicle v
 		  JOIN app.position p ON p.configuration_id = v.configuration_id
 		  LEFT JOIN app.fitment f ON f.position_id = p.id AND f.vehicle_id = v.id AND f.removed_at IS NULL
 		  LEFT JOIN app.tyre t ON t.id = f.tyre_id
 		  LEFT JOIN app.tyre_size s ON s.id = t.size_id
 		  LEFT JOIN LATERAL (
-		    SELECT d.governing_tread_mm
+		    SELECT d.governing_tread_mm, d.submitted_at
 		      FROM app.v_reading_detail d
 		      JOIN app.inspection i ON i.id = d.inspection_id
 		     WHERE d.tyre_id = f.tyre_id AND d.vehicle_id = v.id
@@ -272,11 +283,13 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 			fittedOdometer                            *int64
 			fittedTreadMm, sizeName, lastTreadMm      *string
 			lastTreadSource                           *string
+			lastTreadAgeDays                          *int
 			retreadCount                              *int
 		)
 		if err := prows.Scan(&posID, &code, &sequence, &axleNumber, &axleClass, &side, &slot, &isSpare,
 			&fitmentID, &tyreID, &displayCode, &fittedAt, &fittedOdometer, &fittedTreadMm,
-			&mountOrientation, &tyreStatus, &retreadCount, &sizeName, &lastTreadMm, &lastTreadSource); err != nil {
+			&mountOrientation, &tyreStatus, &retreadCount, &sizeName, &lastTreadMm, &lastTreadSource,
+			&lastTreadAgeDays); err != nil {
 			return unitJSON{}, fmt.Errorf("scanning unit position: %w", err)
 		}
 		pos := unitPositionJSON{
@@ -297,6 +310,7 @@ func unitByID(ctx context.Context, tx pgx.Tx, source string, id uuid.UUID) (unit
 				SizeName:         sizeName,
 				LastTreadMm:      lastTreadMm,
 				LastTreadSource:  lastTreadSource,
+				LastTreadAgeDays: lastTreadAgeDays,
 			}
 		}
 		u.Positions = append(u.Positions, pos)
@@ -367,7 +381,8 @@ func listUnitFitments(s *store.Store) http.HandlerFunc {
 			rows, err := tx.Query(ctx, `
 				SELECT f.id, f.tyre_id, t.display_code, p.code, f.fitted_at, f.removed_at,
 				       f.fitted_odometer, f.removed_odometer, f.fitted_tread_mm, f.removed_tread_mm,
-				       f.removal_reason, f.distance_km, f.distance_source::text, f.mount_orientation::text
+				       f.removal_reason, f.distance_km, f.distance_source::text, f.mount_orientation::text,
+				       app.tenant_days_since(f.fitted_at), app.tenant_days_since(f.removed_at)
 				  FROM app.fitment f
 				  JOIN app.position p ON p.id = f.position_id
 				  JOIN app.tyre t     ON t.id = f.tyre_id
@@ -389,10 +404,13 @@ func listUnitFitments(s *store.Store) http.HandlerFunc {
 					removalReason                    *string
 					distanceKm                       *int64
 					distanceSource, mountOrientation string
+					fittedAgeDays                    int
+					removedAgeDays                   *int
 				)
 				if err := rows.Scan(&fitmentID, &tyreID, &displayCode, &positionCode, &fittedAt, &removedAt,
 					&fittedOdometer, &removedOdometer, &fittedTreadMm, &removedTreadMm,
-					&removalReason, &distanceKm, &distanceSource, &mountOrientation); err != nil {
+					&removalReason, &distanceKm, &distanceSource, &mountOrientation,
+					&fittedAgeDays, &removedAgeDays); err != nil {
 					return fmt.Errorf("scanning fitment history row: %w", err)
 				}
 				row := fitmentHistoryJSON{
@@ -402,6 +420,7 @@ func listUnitFitments(s *store.Store) http.HandlerFunc {
 					FittedTreadMm: fittedTreadMm, RemovedTreadMm: removedTreadMm,
 					RemovalReason: removalReason, DistanceKm: distanceKm, DistanceSource: distanceSource,
 					MountOrientation: mountOrientation,
+					FittedAgeDays:    fittedAgeDays, RemovedAgeDays: removedAgeDays,
 				}
 				if removedAt != nil {
 					ts := removedAt.UTC().Format(time.RFC3339)

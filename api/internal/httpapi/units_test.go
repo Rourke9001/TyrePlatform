@@ -153,6 +153,21 @@ func tenantDaysAgo(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID 
 	return at
 }
 
+// tenantDaysSince is the age app.tenant_days_since should answer for an
+// instant, computed on the admin connection from the tenant's own calendar.
+// The admin connection binds no tenant, so the function itself would read
+// NULL there (docs/lessons.md, 2026-09-19).
+func tenantDaysSince(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID, at string) int {
+	t.Helper()
+	var days int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT (app.tenant_today(timezone) - app.tenant_today(timezone, $2::timestamptz))::int
+		   FROM app.tenant WHERE id = $1`,
+		tenantID, at,
+	).Scan(&days))
+	return days
+}
+
 type unitPositionBody struct {
 	ID         string  `json:"id"`
 	Code       string  `json:"code"`
@@ -175,6 +190,7 @@ type unitPositionBody struct {
 		SizeName         *string `json:"sizeName"`
 		LastTreadMm      *string `json:"lastTreadMm"`
 		LastTreadSource  *string `json:"lastTreadSource"`
+		LastTreadAgeDays *int    `json:"lastTreadAgeDays"`
 	} `json:"fitment"`
 }
 
@@ -418,6 +434,75 @@ type fitmentHistoryBody struct {
 	DistanceKm       *int64  `json:"distanceKm"`
 	DistanceSource   string  `json:"distanceSource"`
 	MountOrientation string  `json:"mountOrientation"`
+	FittedAgeDays    int     `json:"fittedAgeDays"`
+	RemovedAgeDays   *int    `json:"removedAgeDays"`
+}
+
+// FR-TYR-017: a position's last tread carries the age of the measurement
+// behind it, in the tenant's calendar: the reading's when one exists since
+// the fit, else the fit's.
+func TestGetUnitLastTreadCarriesItsAge(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, leftPos, rightPos, _ := plantUnitFixture(t, ctx, admin, "unit-tread-age")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+
+	read := plantTyre(t, ctx, admin, tenantID, "AGE-READ", nil)
+	fitted := plantTyre(t, ctx, admin, tenantID, "AGE-FITTED", nil)
+	fitTyreAtViaActor(t, ctx, s, tenantID, controller, read, mine, leftPos, "12.0", "MARK_OUTBOARD",
+		int64Ptr(40000), tenantDaysAgo(t, ctx, admin, tenantID, 5), "backdated for fixture repeatability")
+	fitTyreAtViaActor(t, ctx, s, tenantID, controller, fitted, mine, rightPos, "13.0", "MARK_OUTBOARD",
+		int64Ptr(40000), tenantDaysAgo(t, ctx, admin, tenantID, 5), "backdated for fixture repeatability")
+	// Noon, so the reading sits mid-day three tenant days back.
+	plantSheetAt(t, ctx, admin, tenantID, mine, driver,
+		tenantDaysAgo(t, ctx, admin, tenantID, 3).Add(12*time.Hour), 40100,
+		plantedReading{leftPos, read, [3]string{"9.0", "9.5", "10.0"}})
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	rec := get(t, h, "/api/vehicles/"+mine.String(), tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body unitBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	ages := map[string]*int{}
+	for _, p := range body.Positions {
+		if p.Fitment != nil {
+			ages[p.Code] = p.Fitment.LastTreadAgeDays
+		}
+	}
+	require.NotNil(t, ages["1L"])
+	require.Equal(t, 3, *ages["1L"], "the reading's age")
+	require.NotNil(t, ages["1R"])
+	require.Equal(t, 5, *ages["1R"], "with no reading since the fit, the fit's age")
+}
+
+// FR-TYR-017: the tread on and the tread off each carry their own age.
+func TestUnitFitmentsCarryTreadAges(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, mine, _, leftPos, _, _ := plantUnitFixture(t, ctx, admin, "fitment-tread-age")
+	plantRemovalReasons(t, ctx, admin, tenantID, "WORN")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+
+	tyre := plantTyre(t, ctx, admin, tenantID, "AGE-HISTORY", nil)
+	fit := fitTyreAtViaActor(t, ctx, s, tenantID, controller, tyre, mine, leftPos, "14.5", "MARK_OUTBOARD",
+		int64Ptr(30000), tenantDaysAgo(t, ctx, admin, tenantID, 6), "backdated for fixture repeatability")
+	removedAt := tenantDaysAgo(t, ctx, admin, tenantID, 2)
+	require.NoError(t, s.InActorTx(ctx, store.ActorKey{TenantID: tenantID, UserID: controller}, func(tx pgx.Tx, _ auth.Actor) error {
+		_, err := tx.Exec(ctx, `SELECT app.remove_tyre($1, 'WORN', 9.0, 30500, $2, 'backdated for fixture repeatability')`,
+			fit, removedAt)
+		return err
+	}))
+
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	rec := get(t, h, "/api/vehicles/"+mine.String()+"/fitments", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var rows []fitmentHistoryBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
+	require.Len(t, rows, 1)
+	require.Equal(t, 6, rows[0].FittedAgeDays)
+	require.NotNil(t, rows[0].RemovedAgeDays)
+	require.Equal(t, 2, *rows[0].RemovedAgeDays)
 }
 
 // CR-012: a closed row never shows a distance without the provenance it was

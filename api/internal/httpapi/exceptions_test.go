@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"tyreplatform/api/internal/auth"
@@ -105,6 +106,32 @@ func TestListExceptionsRelaysTheAppendixJFixture(t *testing.T) {
 	require.NotEmpty(t, body.Exceptions)
 	for _, e := range body.Exceptions {
 		require.Equal(t, "HORSE", e.FleetNumber)
+	}
+}
+
+// FR-TYR-017: each exception carries the age of the sheet it was observed
+// on, in the fleet's calendar.
+func TestListExceptionsCarriesObservedAge(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	requireSeed(t, ctx, admin)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/exceptions", bacTenant, seedID("controller1").String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Exceptions []struct {
+			RuleCode        string `json:"ruleCode"`
+			ObservedAt      string `json:"observedAt"`
+			ObservedAgeDays int    `json:"observedAgeDays"`
+		} `json:"exceptions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NotEmpty(t, body.Exceptions)
+	for _, e := range body.Exceptions {
+		want := tenantDaysSince(t, ctx, admin, uuid.MustParse(bacTenant), e.ObservedAt)
+		require.GreaterOrEqual(t, want, 2, "the premise: the fixture's sheets are days back")
+		require.Equal(t, want, e.ObservedAgeDays, e.RuleCode)
 	}
 }
 

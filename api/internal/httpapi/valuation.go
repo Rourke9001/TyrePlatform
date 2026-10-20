@@ -94,15 +94,18 @@ type tyreAtRiskJSON struct {
 	RemovalThresholdMm float64    `json:"removalThresholdMm"`
 	TreadSource        string     `json:"treadSource"`
 	ReadAt             *time.Time `json:"readAt"`
-	CasingValue        *string    `json:"casingValue"`
-	CasingBasis        string     `json:"casingBasis"`
+	// FR-TYR-017: days since ReadAt in the tenant's calendar
+	// (app.tenant_days_since, rule 6); nil when ReadAt is.
+	TreadAgeDays *int    `json:"treadAgeDays"`
+	CasingValue  *string `json:"casingValue"`
+	CasingBasis  string  `json:"casingBasis"`
 }
 
 func loadTyresAtRisk(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.UUID) ([]tyreAtRiskJSON, error) {
 	rows, err := tx.Query(ctx, `
 		SELECT r.tyre_id, r.display_code, r.vehicle_id, r.fleet_number, r.depot_id, r.position_code, r.is_spare,
 		       r.current_tread_mm::float8, r.removal_threshold_mm::float8, r.tread_source, r.read_at,
-		       r.casing_value::text, r.casing_basis
+		       app.tenant_days_since(r.read_at), r.casing_value::text, r.casing_basis
 		  FROM app.v_tyre_at_risk r
 		 WHERE true`+unitScope(a, "r.vehicle_id")+`
 		 ORDER BY r.fleet_number, length(r.position_code), r.position_code`, depot)
@@ -114,7 +117,8 @@ func loadTyresAtRisk(ctx context.Context, tx pgx.Tx, a auth.Actor, depot *uuid.U
 	for rows.Next() {
 		var t tyreAtRiskJSON
 		if err := rows.Scan(&t.TyreID, &t.DisplayCode, &t.VehicleID, &t.FleetNumber, &t.DepotID, &t.PositionCode, &t.IsSpare,
-			&t.CurrentTreadMm, &t.RemovalThresholdMm, &t.TreadSource, &t.ReadAt, &t.CasingValue, &t.CasingBasis); err != nil {
+			&t.CurrentTreadMm, &t.RemovalThresholdMm, &t.TreadSource, &t.ReadAt, &t.TreadAgeDays,
+			&t.CasingValue, &t.CasingBasis); err != nil {
 			return nil, fmt.Errorf("scanning tyre at risk: %w", err)
 		}
 		out = append(out, t)
