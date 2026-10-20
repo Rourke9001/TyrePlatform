@@ -30,7 +30,7 @@ BEGIN
   SELECT * INTO r FROM app.tenant WHERE id = f;
   IF NOT FOUND THEN RAISE EXCEPTION 'FAIL 1: no tenant %', f; END IF;
   IF (r.state::text, r.display_code_policy::text, r.timezone, r.pressure_unit, r.distance_unit, r.created_by)
-     IS DISTINCT FROM ('PROVISIONING', 'FREE', 'Pacific/Pago_Pago', 'PSI', 'MI', NULL::uuid) THEN
+     IS DISTINCT FROM ('PROVISIONING', 'FREE', 'Pacific/Pago_Pago', 'KPA', 'KM', NULL::uuid) THEN
     RAISE EXCEPTION 'FAIL 1: free tenant is %', row_to_json(r);
   END IF;
 END $$;

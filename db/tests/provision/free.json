@@ -2,8 +2,8 @@
   "name": "Free Test Fleet",
   "subdomain": "provision-free",
   "timezone": "Pacific/Pago_Pago",
-  "pressure_unit": "PSI",
-  "distance_unit": "MI",
+  "pressure_unit": "KPA",
+  "distance_unit": "KM",
   "display_code_policy": "FREE",
   "depots": [{ "name": "Free yard" }],
   "platform_owned": true
