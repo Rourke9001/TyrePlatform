@@ -231,10 +231,14 @@ BEGIN
   END IF;
   PERFORM set_config('app.tenant_id', bac::text, true);
   SELECT x.timezone INTO tz FROM app.tenant x WHERE x.id = bac;
-  -- Received ten days back so the dated send and return follow it.
-  SELECT tyre_id INTO rt FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-    'received_date', (app.tenant_today(tz) - 10)::text));
+  -- Planted with no receipt, since a received tyre is priced on its
+  -- receipt (000059), and dated ten days back so the dated send and return
+  -- follow it.
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'P5-RETREAD', sz1, md5('br1')::uuid, pt1, 'NEW', 0, 25.0, 'IN_STOCK',
+          app.tenant_today(tz) - 10)
+  RETURNING id INTO rt;
   INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'P5 Retreaders', 'RETREADER');
   UPDATE app.tyre SET state = 'AT_RETREADER' WHERE id = rt;
   INSERT INTO app.retread_job (id, tenant_id, tyre_id, retreader_depot_id, sent_at)
@@ -265,8 +269,10 @@ BEGIN
     RAISE EXCEPTION 'FAIL P5: BAC still has a removal threshold in force, so the refusal cannot be probed';
   END IF;
 
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'P5-NEW', sz1, md5('br1')::uuid, pt1, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01')
+  RETURNING id AS tyre_id INTO r;
   got := NULL;
   BEGIN
     PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');

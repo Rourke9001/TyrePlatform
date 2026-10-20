@@ -143,7 +143,10 @@ BEGIN
        'vehicle', 'vehicle_driver', 'vehicle_tag', 'vehicle_tag_map',
        -- inspection's grant is (state, void_reason) alone (000040, FR-INS-012);
        -- section 51 pins that column shape.
-       'inspection');
+       'inspection',
+       -- tyre_receipt's grant is (price_state, invoice_number) alone, and
+       -- tyre_receipt_moves_once holds its moves (000059, section 75h).
+       'tyre_receipt');
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: app role can UPDATE a table off the allow-list: %', bad;
   END IF;
@@ -4132,7 +4135,7 @@ ROLLBACK;
 BEGIN;
 DO $$
 DECLARE r record; a uuid; b uuid; c uuid; d uuid; e uuid; n int; rate numeric;
-        stored_price numeric; stored_rate numeric;
+        stored_price numeric; stored_rate numeric; tcost uuid; tgone uuid;
         -- What app.receive_tyres requires a receive to name (FR-TYR-031):
         -- BAC's seeded entries, and a size and pattern Second Fleet is given
         -- below.
@@ -4171,14 +4174,29 @@ BEGIN
   -- implementation (rule: check 7 pins the arithmetic, this pins the wiring)
   SELECT count(*) INTO n FROM app.v_tyre_awaiting_cost WHERE tyre_id = a;
   IF n <> 1 THEN RAISE EXCEPTION 'FAIL: unpriced tyre not in awaiting-cost queue'; END IF;
-  PERFORM app.set_tyre_cost(a, 4319.91, 'INVOICE');
-  SELECT rand_per_mm INTO rate FROM app.tyre WHERE id = a;
+  -- A received tyre is priced on its receipt (000059), so set_tyre_cost's
+  -- own path is costed on a tyre planted with no receipt.
+  BEGIN
+    PERFORM app.set_tyre_cost(a, 4319.91, 'INVOICE');
+    RAISE EXCEPTION 'FAIL 39c: a received tyre was costed one by one';
+  EXCEPTION WHEN sqlstate 'TY013' THEN
+    IF SQLERRM <> 'this tyre was received on a receipt, so its price is recorded on the receipt for the whole set; open the receipt to record it' THEN
+      RAISE EXCEPTION 'FAIL 39c: TY013 fired for another reason: %', SQLERRM;
+    END IF;
+  END;
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T39-COST', md5('sz1')::uuid, md5('br1')::uuid, md5('pt1')::uuid,
+          'NEW', 0, 25.0, 'IN_STOCK', '2026-08-25')
+  RETURNING id INTO tcost;
+  PERFORM app.set_tyre_cost(tcost, 4319.91, 'INVOICE');
+  SELECT rand_per_mm INTO rate FROM app.tyre WHERE id = tcost;
   IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, app.current_removal_threshold_mm()) THEN
     RAISE EXCEPTION 'FAIL: costing did not recompute rand_per_mm through app.rand_per_mm';
   END IF;
-  RAISE NOTICE 'PASS  39c awaiting-cost discharged, rate recomputed: %', rate;
+  RAISE NOTICE 'PASS  39c a received tyre is sent to its receipt, and a tyre with none is costed with its rate recomputed: %', rate;
   BEGIN
-    PERFORM app.set_tyre_cost(a, 1.00, 'INVOICE');
+    PERFORM app.set_tyre_cost(tcost, 1.00, 'INVOICE');
     RAISE EXCEPTION 'FAIL: a second costing was accepted';
   EXCEPTION WHEN sqlstate 'TY013' THEN RAISE NOTICE 'PASS  39d re-pricing refused';
   END;
@@ -4272,8 +4290,11 @@ BEGIN
   -- each rounds the price into its column before dividing. Pinned at 3dp
   -- deliberately: a 2dp price cannot fail this.
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
-  SELECT tyre_id INTO d FROM app.receive_tyres(
-    cat2 || '{"display_code":"RATE-3DP","new_tread_mm":"25.0","received_date":"2026-01-05"}'::jsonb);
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'RATE-3DP', md5('t39t2sz')::uuid, NULL, md5('t39t2pt')::uuid,
+          'NEW', 0, 25.0, 'IN_STOCK', '2026-01-05')
+  RETURNING id INTO d;
   PERFORM app.set_tyre_cost(d, 4319.915, 'INVOICE');
   SELECT purchase_price, rand_per_mm INTO stored_price, stored_rate
     FROM app.tyre WHERE id = d;
@@ -4313,18 +4334,33 @@ BEGIN
 
   -- Costing recomputes rand_per_mm, so a tyre that has left the estate must
   -- not be re-rated behind valuations already taken against it. Extends D5,
-  -- which specified no state guard; e is the tyre 39p just scrapped.
+  -- which specified no state guard. The tyre is planted with no receipt,
+  -- because a received one is refused first for its receipt (000059), and
+  -- the message pins the state guard.
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T39-GONE', md5('t39t2sz')::uuid, NULL, md5('t39t2pt')::uuid,
+          'NEW', 0, 25.0, 'IN_STOCK', '2026-01-05')
+  RETURNING id INTO tgone;
+  PERFORM app.dispose_tyre(tgone, 'SCRAPPED', 'audit', NULL, now());
   BEGIN
-    PERFORM app.set_tyre_cost(e, 500.00, 'INVOICE');
+    PERFORM app.set_tyre_cost(tgone, 500.00, 'INVOICE');
     RAISE EXCEPTION 'FAIL: a scrapped tyre was costed';
   EXCEPTION WHEN sqlstate 'TY013' THEN
+    IF SQLERRM <> 'this tyre is SCRAPPED and has left the fleet; its cost cannot be recorded now' THEN
+      RAISE EXCEPTION 'FAIL 39q: TY013 fired for another reason: %', SQLERRM;
+    END IF;
     RAISE NOTICE 'PASS  39q a disposed tyre cannot be costed';
   END;
 
   -- A FITTED tyre is unpriced-but-in-service: still in v_tyre_awaiting_cost
   -- (CFL-002) and still costable. This is the check that keeps 39q's guard
   -- from being written as "not IN_STOCK".
-  SELECT tyre_id INTO d FROM app.receive_tyres(cat2 || '{"display_code":"FITGUARD-1","new_tread_mm":"20.0"}'::jsonb);
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'FITGUARD-1', md5('t39t2sz')::uuid, NULL, md5('t39t2pt')::uuid,
+          'NEW', 0, 20.0, 'IN_STOCK', '2026-01-05')
+  RETURNING id INTO d;
   UPDATE app.tyre SET state = 'FITTED' WHERE id = d;
   PERFORM app.set_tyre_cost(d, 900.00, 'INVOICE');
   RAISE NOTICE 'PASS  39r a fitted tyre is still costable';
@@ -9804,10 +9840,15 @@ BEGIN
     RAISE EXCEPTION 'FAIL 63b: receive_tyres stored % where the 6.0 in force gives % (4.0 gives %)',
       rate, app.rand_per_mm(4319.91, 25.0, 6.0), app.rand_per_mm(4319.91, 25.0, 4.0);
   END IF;
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
-  PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
-  SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = r.tyre_id;
+  -- Planted with no receipt, since a received tyre is priced on its
+  -- receipt (000059) and set_tyre_cost's own path is the one under test.
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T63-COST', sz1, md5('br1')::uuid, pt1, 'NEW', 0, 25.0, 'IN_STOCK',
+          app.tenant_today(tz))
+  RETURNING id INTO r;
+  PERFORM app.set_tyre_cost(r.id, 4319.91, 'INVOICE');
+  SELECT t.rand_per_mm INTO rate FROM app.tyre t WHERE t.id = r.id;
   IF rate IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 6.0) THEN
     RAISE EXCEPTION 'FAIL 63b: set_tyre_cost stored % where the 6.0 in force gives %',
       rate, app.rand_per_mm(4319.91, 25.0, 6.0);
@@ -10709,10 +10750,12 @@ BEGIN
 
   -- FR-VAL-006 on the receive path: a third decimal is rounded into the
   -- price column before app.rand_per_mm divides, so the stored rate
-  -- reproduces from the stored price. A 2dp price cannot fail this.
+  -- reproduces from the stored price. A 2dp price cannot fail this. The
+  -- rounding is the same whatever the source, and an estimate must equal
+  -- the price list's figure (75g), so this is an invoice price.
   SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
     'size_id', sz1, 'pattern_id', ptu, 'new_tread_mm', '25.0',
-    'purchase_price', '6969.695', 'cost_source', 'PRICE_LIST_ESTIMATE'));
+    'purchase_price', '6969.695', 'cost_source', 'INVOICE'));
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
   IF t.purchase_price <> 6969.70
      OR t.rand_per_mm IS DISTINCT FROM
@@ -10767,23 +10810,29 @@ BEGIN;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
         sz1 constant uuid := md5('sz1')::uuid;
+        br1 constant uuid := md5('br1')::uuid;
         pt1 constant uuid := md5('pt1')::uuid;
-        unpriced constant jsonb := jsonb_build_object('size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0');
         src app.cost_source; r record; t app.tyre; got text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
 
-  SELECT * INTO r FROM app.receive_tyres(unpriced);
+  -- Each costed tyre is planted with no receipt, since a received one is
+  -- priced on its receipt (000059), and carries what an unpriced receive of
+  -- size, pattern and tread would store.
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T69E-UNKNOWN', sz1, br1, pt1, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01')
+  RETURNING id INTO r;
   got := NULL;
   BEGIN
-    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'UNKNOWN');
+    PERFORM app.set_tyre_cost(r.id, 4319.91, 'UNKNOWN');
   EXCEPTION WHEN sqlstate 'TY013' THEN got := SQLERRM;
   END;
   IF got IS DISTINCT FROM 'a purchase price needs a known cost source; choose invoice or price list estimate' THEN
     RAISE EXCEPTION 'FAIL 69e: a price with UNKNOWN was answered %, not TY013 with receipt''s message',
       coalesce('TY013 "' || got || '"', 'by a stored cost');
   END IF;
-  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  SELECT * INTO t FROM app.tyre WHERE id = r.id;
   IF t.purchase_price IS NOT NULL OR t.rand_per_mm IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 69e: a refused cost stored price % and rate %', t.purchase_price, t.rand_per_mm;
   END IF;
@@ -10791,9 +10840,12 @@ BEGIN
   -- The refusal's controls: each known source is stored with its price
   -- and rated, so the row above could not pass by refusing every cost.
   FOREACH src IN ARRAY ARRAY['INVOICE', 'PRICE_LIST_ESTIMATE']::app.cost_source[] LOOP
-    SELECT * INTO r FROM app.receive_tyres(unpriced);
-    PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, src);
-    SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+    INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                          new_tread_mm, state, received_date)
+    VALUES (app.current_tenant_id(), 'T69E-' || src, sz1, br1, pt1, 'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01')
+    RETURNING id INTO r;
+    PERFORM app.set_tyre_cost(r.id, 4319.91, src);
+    SELECT * INTO t FROM app.tyre WHERE id = r.id;
     IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.cost_source IS DISTINCT FROM src
        OR t.rand_per_mm IS DISTINCT FROM
           app.rand_per_mm(4319.91, 25.0, app.current_removal_threshold_mm()) THEN
@@ -10818,10 +10870,14 @@ BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   SELECT x.timezone INTO tz FROM app.tenant x WHERE x.id = bac;
 
-  -- Received ten days back so the dated send and return follow it.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
-    'received_date', (app.tenant_today(tz) - 10)::text));
+  -- Planted with no receipt, since a received tyre is priced on its
+  -- receipt (000059), and dated ten days back so the dated send and return
+  -- follow it.
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T69F-1', sz1, md5('br1')::uuid, pt1, 'NEW', 0, 25.0, 'IN_STOCK',
+          app.tenant_today(tz) - 10)
+  RETURNING id AS tyre_id INTO r;
   -- A dispatch is from REMOVED only, so the casing and a raw job are
   -- planted at the retreader, 63b's way.
   INSERT INTO app.depot (id, tenant_id, name, type) VALUES (d_rt, bac, 'T69F Retreaders', 'RETREADER');
@@ -10865,8 +10921,13 @@ BEGIN
 
   -- 0.1 mm of usable tread puts R10 000 000.00 at 10^8 a millimetre, past
   -- rand_per_mm's numeric(12,4), so the bound answers before a bare 22003.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', (thr + 0.1)::text));
+  -- Each tyre here is planted with no receipt, since a received one is
+  -- priced on its receipt (000059).
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T69G-BOUND', sz1, md5('br1')::uuid, pt1, 'NEW', 0, thr + 0.1,
+          'IN_STOCK', '2026-10-01')
+  RETURNING id AS tyre_id INTO r;
   got := NULL;
   BEGIN
     PERFORM app.set_tyre_cost(r.tyre_id, 10000000.00, 'INVOICE');
@@ -10891,8 +10952,11 @@ BEGIN
   -- A tread received above one threshold sits at the next one: 6.0 mm
   -- clears the seeded 4.0 and equals the 6.0 planted after it, the
   -- boundary BR-VAL-002 cannot rate.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '6.0'));
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T69G-AT-THR', sz1, md5('br1')::uuid, pt1, 'NEW', 0, 6.0,
+          'IN_STOCK', '2026-10-01')
+  RETURNING id AS tyre_id INTO r;
   INSERT INTO app.threshold_policy (id, tenant_id, retread_threshold_mm,
                                     warning_threshold_mm, max_retreads, effective_from)
   VALUES (pol, bac, 6.0, 8.0, 2, now());
@@ -10912,11 +10976,13 @@ BEGIN
       t.purchase_price, t.rand_per_mm;
   END IF;
 
-  -- receive_tyres refuses a missing new tread (U93), so the tread is
-  -- cleared after receipt to plant a tyre app.rand_per_mm cannot rate.
-  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
-    'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0'));
-  UPDATE app.tyre SET new_tread_mm = NULL WHERE id = r.tyre_id;
+  -- receive_tyres refuses a missing new tread (U93), so the tyre is
+  -- planted without one, a tyre app.rand_per_mm cannot rate.
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T69G-NO-TREAD', sz1, md5('br1')::uuid, pt1, 'NEW', 0, NULL,
+          'IN_STOCK', '2026-10-01')
+  RETURNING id AS tyre_id INTO r;
   got := NULL;
   BEGIN
     PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
@@ -11513,7 +11579,7 @@ BEGIN
   RETURN a;
 END $fn$;
 
-\echo '== 72a. the twenty audited tables call app.audit_row_change() AFTER each row, DELETE and an argument on the tag map alone, and the function keeps invoker rights and its pinned search_path (ADR-0014, db/CLAUDE.md)'
+\echo '== 72a. the twenty-one audited tables call app.audit_row_change() AFTER each row, DELETE and an argument on the tag map alone, and the function keeps invoker rights and its pinned search_path (ADR-0014, db/CLAUDE.md)'
 DO $$
 DECLARE r record; n int;
 BEGIN
@@ -11535,7 +11601,8 @@ BEGIN
       ('app.tyre_size', 'tyre_size_audited', 21), ('app.tyre_brand', 'tyre_brand_audited', 21),
       ('app.tyre_pattern', 'tyre_pattern_audited', 21),
       ('app.casing_estimate_by_size', 'casing_estimate_by_size_audited', 21),
-      ('app.tyre_price_list', 'tyre_price_list_audited', 21)
+      ('app.tyre_price_list', 'tyre_price_list_audited', 21),
+      ('app.tyre_receipt', 'tyre_receipt_audited', 21)
     ) v(tbl, tgname, tgtype)
   LOOP
     SELECT count(*) INTO n FROM pg_trigger t
@@ -11569,7 +11636,7 @@ BEGIN
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL 72a: app.audit_row_change() lost its invoker rights or its pinned search_path';
   END IF;
-  RAISE NOTICE 'PASS  72a twenty audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
+  RAISE NOTICE 'PASS  72a twenty-one audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
 END $$;
 
 \echo '== 72b. each of the nine tables files a real write through the path that writes it: action, entity, before and after, under the bound tenant and actor; a seeded row is filed with no actor (FR-AUD-001; as BAC, rolled back)'
@@ -11591,7 +11658,7 @@ DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         pt1  constant uuid := md5('pt1')::uuid;
         tag_names constant text[] := ARRAY['T72B Tag'];
         cfg uuid; pos uuid; tz text; ta uuid; fit uuid; job uuid; usr uuid; vd uuid;
-        tg uuid; tg_again uuid; a app.audit_log; n int;
+        tg uuid; tg_again uuid; a app.audit_log; n int; tcost uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', act::text, true);
@@ -11607,7 +11674,9 @@ BEGIN
                            unit_kind, home_depot_id, status)
   VALUES (vu, bac, 'T72-B', 'T72B GP', cfg, 'TRAILER', md5('depot1')::uuid, 'ACTIVE');
 
-  -- tyre: app.receive_tyres inserts it, app.set_tyre_cost updates it.
+  -- tyre: app.receive_tyres inserts it, and app.set_tyre_cost updates one
+  -- received before receipts existed, planted here with no receipt, since
+  -- a received tyre is priced on its receipt (000059).
   SELECT r.tyre_id INTO ta FROM app.receive_tyres(jsonb_build_object(
     'size_id', sz1, 'pattern_id', pt1, 'new_tread_mm', '25.0',
     'received_date', '2026-08-25')) r;
@@ -11615,8 +11684,12 @@ BEGIN
   IF a.before IS NOT NULL OR a.after->>'state' IS DISTINCT FROM 'IN_STOCK' THEN
     RAISE EXCEPTION 'FAIL 72b: the received tyre is filed with before % and state %', a.before, a.after->>'state';
   END IF;
-  PERFORM app.set_tyre_cost(ta, 4319.91, 'INVOICE');
-  a := pg_temp.t72_one('tyre', ta, 'UPDATE', bac, act);
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T72B-COST', sz1, md5('br1')::uuid, pt1, 'NEW', 0, 25.0, 'IN_STOCK', '2026-08-25')
+  RETURNING id INTO tcost;
+  PERFORM app.set_tyre_cost(tcost, 4319.91, 'INVOICE');
+  a := pg_temp.t72_one('tyre', tcost, 'UPDATE', bac, act);
   IF a.before->>'purchase_price' IS NOT NULL
      OR a.after->>'purchase_price' IS DISTINCT FROM '4319.91' THEN
     RAISE EXCEPTION 'FAIL 72b: the costing is filed as % to %', a.before->>'purchase_price', a.after->>'purchase_price';
@@ -13066,6 +13139,245 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 75f. app.price_list_estimate takes a brand row over a size-only row whatever their dates, the latest row on or before the date within each, the brand from the pattern when one is named, and the fleet''s today for no date (FR-CFG-040, FR-CFG-041; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1 constant uuid := md5('sz1')::uuid;
+        br1 constant uuid := md5('br1')::uuid;
+        pt1 constant uuid := md5('pt1')::uuid;
+        tz text; e record; got text; today_got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  PERFORM pg_temp.t75_prices();
+  FOR e IN SELECT * FROM (VALUES
+    ('Dunlop on 2026-10-20, where a later size-only row exists', br1, '2026-10-20'::date, NULL::uuid, '4319.91:2026-06-01:' || br1),
+    ('Dunlop on 2026-03-01, before its own row',                 br1, '2026-03-01'::date, NULL::uuid, '3000.00:2026-01-01:-'),
+    ('any brand on 2026-10-20',                                  NULL, '2026-10-20'::date, NULL::uuid, '3500.00:2026-09-01:-'),
+    ('Dunlop on 2025-12-31, before every row',                   br1, '2025-12-31'::date, NULL::uuid, NULL),
+    ('no brand but SP431, on 2026-10-20',                        NULL, '2026-10-20'::date, pt1, '4319.91:2026-06-01:' || br1)
+  ) v(what, brand, on_date, pattern, want) LOOP
+    SELECT p.typical_price || ':' || p.effective_from || ':' || COALESCE(p.brand_id::text, '-') INTO got
+      FROM app.price_list_estimate(sz1, e.brand, e.on_date, e.pattern) p;
+    IF got IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL 75f: % gives %, not %', e.what, COALESCE(got, 'no row'), COALESCE(e.want, 'no row');
+    END IF;
+  END LOOP;
+  SELECT p.typical_price || ':' || p.effective_from INTO got FROM app.price_list_estimate(sz1, br1, NULL) p;
+  SELECT p.typical_price || ':' || p.effective_from INTO today_got
+    FROM app.price_list_estimate(sz1, br1, app.tenant_today(tz)) p;
+  IF got IS DISTINCT FROM today_got OR got IS NULL THEN
+    RAISE EXCEPTION 'FAIL 75f: no date gives %, the fleet''s today gives %', got, today_got;
+  END IF;
+  SELECT p.typical_price::text INTO got FROM app.price_list_estimate(sz1, NULL, NULL) p;
+  IF got IS DISTINCT FROM '3500.00' THEN
+    RAISE EXCEPTION 'FAIL 75f: any brand today gives %, where the row dated 2099 must not be chosen', got;
+  END IF;
+  RAISE NOTICE 'PASS  75f the match takes a brand row first, the latest on or before the date, the pattern''s brand, and the fleet''s today for no date';
+END $$;
+ROLLBACK;
+
+\echo '== 75g. a receive at a price list estimate stores the list''s figure and refuses any other, an invoice number comes only with an invoice price, and every receive makes one receipt holding what defined its set (FR-CFG-041, FR-TYR-040 as amended by TYRE-418; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        sz1 constant uuid := md5('sz1')::uuid;
+        br1 constant uuid := md5('br1')::uuid;
+        pt1 constant uuid := md5('pt1')::uuid;
+        dp1 constant uuid := md5('depot1')::uuid;
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        r record; t app.tyre; rc app.tyre_receipt; got text; e record; n int; ids uuid[];
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', md5('controller1')::text, true);
+  PERFORM pg_temp.t75_prices();
+
+  SELECT * INTO r FROM app.receive_tyres(base || jsonb_build_object(
+    'purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE'));
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.cost_source IS DISTINCT FROM 'PRICE_LIST_ESTIMATE'
+     OR t.rand_per_mm IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 4.0) THEN
+    RAISE EXCEPTION 'FAIL 75g: a list-price receive stored price %, source %, rate %',
+      t.purchase_price, t.cost_source, t.rand_per_mm;
+  END IF;
+  SELECT * INTO rc FROM app.tyre_receipt WHERE id = t.receipt_id;
+  IF NOT FOUND OR rc.price_state IS DISTINCT FROM 'ESTIMATED' OR rc.invoice_number IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 75g: the list-price receive''s receipt is % with invoice number %',
+      COALESCE(rc.price_state::text, 'missing'), rc.invoice_number;
+  END IF;
+
+  FOR e IN SELECT * FROM (VALUES
+    ('an estimate off the list',
+     base || jsonb_build_object('purchase_price', '4319.90', 'cost_source', 'PRICE_LIST_ESTIMATE'),
+     'TY011 the price list estimate for this size and brand on 2026-10-01 is 4319.91; a price list estimate is received at that figure, and any other figure is an invoice price'),
+    ('an estimate with no row in force',
+     base || jsonb_build_object('purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE',
+                                'received_date', '2025-12-31'),
+     'TY011 this size and brand have no price list entry in force on 2025-12-31, so the tyres cannot be received at a price list estimate; enter the invoice price, or leave the price blank'),
+    ('an invoice number with no price',
+     base || jsonb_build_object('cost_source', 'UNKNOWN', 'invoice_number', 'INV-1'),
+     'TY011 an invoice number is recorded with an invoice price; enter the price from the invoice, or leave the invoice number blank'),
+    ('an invoice number with an estimate',
+     base || jsonb_build_object('purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE',
+                                'invoice_number', 'INV-1'),
+     'TY011 an invoice number is recorded with an invoice price; enter the price from the invoice, or leave the invoice number blank')
+  ) v(what, payload, want) LOOP
+    got := pg_temp.t75_try(format('SELECT app.receive_tyres(%L::jsonb)', e.payload));
+    IF got IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL 75g: % was answered %', e.what, got;
+    END IF;
+  END LOOP;
+
+  SELECT * INTO r FROM app.receive_tyres(base || jsonb_build_object(
+    'purchase_price', '4100.00', 'cost_source', 'INVOICE', 'invoice_number', ' INV-0042 '));
+  SELECT c.* INTO rc FROM app.tyre_receipt c JOIN app.tyre x ON x.receipt_id = c.id WHERE x.id = r.tyre_id;
+  IF rc.price_state IS DISTINCT FROM 'INVOICED' OR rc.invoice_number IS DISTINCT FROM 'INV-0042' THEN
+    RAISE EXCEPTION 'FAIL 75g: an invoice receive''s receipt is % holding %', rc.price_state, rc.invoice_number;
+  END IF;
+
+  -- Three unpriced tyres from one depot, the brand left to SP431's own.
+  -- The ids are read first: a statement that joins the receive's result to
+  -- app.tyre reads a snapshot taken before the receive's own inserts.
+  SELECT array_agg(q.tyre_id) INTO ids
+    FROM app.receive_tyres(base || jsonb_build_object('quantity', 3, 'depot_id', dp1)) q;
+  SELECT count(DISTINCT x.receipt_id) || '/' || count(*) || '/' || count(x.receipt_id) INTO got
+    FROM app.tyre x WHERE x.id = ANY (ids);
+  IF got IS DISTINCT FROM '1/3/3' THEN
+    RAISE EXCEPTION 'FAIL 75g: a receive of three reads receipts/tyres/linked %', got;
+  END IF;
+  SELECT c.* INTO rc FROM app.tyre_receipt c
+   WHERE c.id = (SELECT x.receipt_id FROM app.tyre x WHERE x.id = ids[1]);
+  IF (rc.price_state, rc.size_id, rc.brand_id, rc.pattern_id, rc.received_date, rc.depot_id, rc.tenant_id)
+     IS DISTINCT FROM ('UNPRICED'::app.receipt_price_state, sz1, br1, pt1, '2026-10-01'::date, dp1, bac) THEN
+    RAISE EXCEPTION 'FAIL 75g: the unpriced receipt holds %', row_to_json(rc);
+  END IF;
+  SELECT count(*) INTO n FROM app.tyre_receipt;
+  IF n <> 3 THEN
+    RAISE EXCEPTION 'FAIL 75g: three receives landed and % receipts exist', n;
+  END IF;
+  RAISE NOTICE 'PASS  75g an estimate is the list''s figure or refused, an invoice number needs an invoice price, and each receive makes one receipt of its set';
+END $$;
+ROLLBACK;
+
+\echo '== 75h. a receipt moves only UNPRICED to ESTIMATED or INVOICED and ESTIMATED to INVOICED or ESTIMATE_KEPT, never from a final state, never ahead of its tyres'' prices, with its invoice number only on the invoice; a tyre''s receipt never changes; and the app role edits nothing else (FR-CFG-041, CR-012, rule 1; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        base constant jsonb := jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid,
+                                                  'new_tread_mm', '25.0', 'received_date', '2026-10-01');
+        unpriced uuid; staged uuid; listed uuid; ty uuid; got text; e record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', md5('controller1')::text, true);
+  PERFORM pg_temp.t75_prices();
+  -- Each receive's tyre is read in a statement of its own, after the one
+  -- that inserted it (75g).
+  SELECT q.tyre_id INTO ty FROM app.receive_tyres(base || jsonb_build_object('quantity', 2)) q LIMIT 1;
+  SELECT x.receipt_id INTO unpriced FROM app.tyre x WHERE x.id = ty;
+  SELECT q.tyre_id INTO staged FROM app.receive_tyres(base) q;
+  SELECT x.receipt_id INTO staged FROM app.tyre x WHERE x.id = staged;
+  SELECT q.tyre_id INTO listed
+    FROM app.receive_tyres(base || jsonb_build_object('purchase_price', '4319.91', 'cost_source', 'PRICE_LIST_ESTIMATE')) q;
+  SELECT x.receipt_id INTO listed FROM app.tyre x WHERE x.id = listed;
+  -- The staged receipt's tyre carries an estimate, so only the invoice
+  -- number rule can refuse its move.
+  UPDATE app.tyre SET purchase_price = 4319.91, cost_source = 'PRICE_LIST_ESTIMATE' WHERE receipt_id = staged;
+
+  FOR e IN SELECT * FROM (VALUES
+    ('a tyre''s receipt cleared',
+     format('UPDATE app.tyre SET receipt_id = NULL WHERE id = %L', ty),
+     'TY026 a tyre''s receipt is set when it is received and never changes'),
+    ('a tyre moved to another receipt',
+     format('UPDATE app.tyre SET receipt_id = %L WHERE id = %L', listed, ty),
+     'TY026 a tyre''s receipt is set when it is received and never changes'),
+    ('UNPRICED to ESTIMATE_KEPT',
+     format('UPDATE app.tyre_receipt SET price_state = ''ESTIMATE_KEPT'' WHERE id = %L', unpriced),
+     'TY026 a receipt moves from UNPRICED to ESTIMATE_KEPT only through its own moves'),
+    ('UNPRICED to itself',
+     format('UPDATE app.tyre_receipt SET price_state = ''UNPRICED'' WHERE id = %L', unpriced),
+     'TY026 a receipt moves from UNPRICED to UNPRICED only through its own moves'),
+    ('an invoice number on a move to ESTIMATED',
+     format('UPDATE app.tyre_receipt SET price_state = ''ESTIMATED'', invoice_number = ''X'' WHERE id = %L', staged),
+     'TY026 an invoice number is recorded with the receipt''s invoice'),
+    ('INVOICED ahead of its tyres',
+     format('UPDATE app.tyre_receipt SET price_state = ''INVOICED'' WHERE id = %L', unpriced),
+     'TY026 a receipt is INVOICED only once every tyre on it still in the fleet carries that price; move it through its own function'),
+    ('ESTIMATED ahead of its tyres',
+     format('UPDATE app.tyre_receipt SET price_state = ''ESTIMATED'' WHERE id = %L', unpriced),
+     'TY026 a receipt is ESTIMATED only once every tyre on it still in the fleet carries that price; move it through its own function')
+  ) v(what, stmt, want) LOOP
+    got := pg_temp.t75_try(e.stmt);
+    IF got IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL 75h: % was answered %', e.what, got;
+    END IF;
+  END LOOP;
+  IF (SELECT c.price_state FROM app.tyre_receipt c WHERE c.id = unpriced) <> 'UNPRICED'
+     OR (SELECT x.receipt_id FROM app.tyre x WHERE x.id = ty) IS DISTINCT FROM unpriced THEN
+    RAISE EXCEPTION 'FAIL 75h: a refused move left the receipt or its tyre changed';
+  END IF;
+
+  -- The trigger's control: an allowed move whose tyres carry its price.
+  UPDATE app.tyre_receipt SET price_state = 'ESTIMATE_KEPT' WHERE id = listed;
+  got := pg_temp.t75_try(format('UPDATE app.tyre_receipt SET price_state = ''INVOICED'' WHERE id = %L', listed));
+  IF got IS DISTINCT FROM 'TY026 this receipt''s price is final and does not change' THEN
+    RAISE EXCEPTION 'FAIL 75h: a move from ESTIMATE_KEPT was answered %', got;
+  END IF;
+
+  FOR e IN SELECT * FROM (VALUES
+    ('its size',  format('UPDATE app.tyre_receipt SET size_id = size_id WHERE id = %L', unpriced)),
+    ('its depot', format('UPDATE app.tyre_receipt SET depot_id = NULL WHERE id = %L', unpriced)),
+    ('a delete',  format('DELETE FROM app.tyre_receipt WHERE id = %L', unpriced))
+  ) v(what, stmt) LOOP
+    got := pg_temp.t75_try(e.stmt);
+    IF got NOT LIKE '42501 %' THEN
+      RAISE EXCEPTION 'FAIL 75h: the app role''s write to % was answered %', e.what, got;
+    END IF;
+  END LOOP;
+  IF NOT EXISTS (SELECT 1 FROM pg_class c
+                  WHERE c.oid = 'app.tyre_receipt'::regclass AND c.relrowsecurity AND c.relforcerowsecurity)
+     OR NOT EXISTS (SELECT 1 FROM pg_policy p
+                     WHERE p.polrelid = 'app.tyre_receipt'::regclass
+                       AND p.polqual IS NOT NULL AND p.polwithcheck IS NOT NULL) THEN
+    RAISE EXCEPTION 'FAIL 75h: app.tyre_receipt is not RLS forced with a USING and WITH CHECK policy';
+  END IF;
+  RAISE NOTICE 'PASS  75h each move outside the four, ahead of its tyres or from a final state is TY026, a tyre''s receipt is fixed, and the app role edits only the state and invoice number';
+END $$;
+ROLLBACK;
+
+\echo '== 75i. set_tyre_cost sends a received tyre to its receipt as TY013 and still costs a tyre with no receipt (FR-CFG-041, FR-TYR-041; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        r record; t app.tyre; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', md5('controller1')::text, true);
+  SELECT * INTO r FROM app.receive_tyres(jsonb_build_object(
+    'size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid, 'new_tread_mm', '25.0',
+    'received_date', '2026-10-01'));
+  got := pg_temp.t75_try(format('SELECT app.set_tyre_cost(%L, 4319.91, ''INVOICE'')', r.tyre_id));
+  IF got IS DISTINCT FROM 'TY013 this tyre was received on a receipt, so its price is recorded on the receipt for the whole set; open the receipt to record it' THEN
+    RAISE EXCEPTION 'FAIL 75i: costing a received tyre was answered %', got;
+  END IF;
+  INSERT INTO app.tyre (tenant_id, display_code, size_id, brand_id, pattern_id, status, retread_count,
+                        new_tread_mm, state, received_date)
+  VALUES (app.current_tenant_id(), 'T75I-NO-RECEIPT', md5('sz1')::uuid, md5('br1')::uuid, md5('pt1')::uuid,
+          'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01')
+  RETURNING id AS tyre_id INTO r;
+  PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
+  SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
+  IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.cost_source IS DISTINCT FROM 'INVOICE'
+     OR t.rand_per_mm IS DISTINCT FROM app.rand_per_mm(4319.91, 25.0, 4.0) THEN
+    RAISE EXCEPTION 'FAIL 75i: a tyre with no receipt was costed at %, %, rate %',
+      t.purchase_price, t.cost_source, t.rand_per_mm;
+  END IF;
+  RAISE NOTICE 'PASS  75i a received tyre is sent to its receipt and a tyre with none is costed';
+END $$;
+ROLLBACK;
+
 \echo '== 75o. nothing section 75 planted outlives its rollback'
 DO $$
 DECLARE got text := '';
@@ -13076,10 +13388,12 @@ BEGIN
                              '33333333-3333-3333-3333-333333333333']::uuid[] LOOP
     PERFORM set_config('app.tenant_id', tid::text, true);
     got := got || (SELECT count(*) FROM app.tenant_consent) || '/'
-               || (SELECT count(*) FROM app.tyre_price_list) || ' ';
+               || (SELECT count(*) FROM app.tyre_price_list) || '/'
+               || (SELECT count(*) FROM app.tyre_receipt) || '/'
+               || (SELECT count(*) FROM app.tyre WHERE receipt_id IS NOT NULL) || ' ';
   END LOOP;
-  IF got IS DISTINCT FROM '0/0 0/0 0/0 ' THEN
-    RAISE EXCEPTION 'FAIL 75o: consent and price rows per fixture fleet read %', got;
+  IF got IS DISTINCT FROM '0/0/0/0 0/0/0/0 0/0/0/0 ' THEN
+    RAISE EXCEPTION 'FAIL 75o: consent, price, receipt and receipted tyre rows per fixture fleet read %', got;
   END IF;
   RAISE NOTICE 'PASS  75o section 75 leaves no residue';
 END $$;
