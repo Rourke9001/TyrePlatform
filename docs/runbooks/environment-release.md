@@ -196,10 +196,12 @@ prints anything, stop.
    drifted. Stop and fix the template before applying. A Modify of its
    `principalId` to a `reference(...)` is noise, listed below.
 
-   **Staging's what-if noise**, read on 20 Oct 2026 from `d2bd08c`
-   (TYRE-435 comment 13861): six Modifies and nothing else. They are
-   `cae-tyre-staging` (`peerAuthentication`, `peerTrafficConfiguration`,
-   `customerId`), the AcrPull assignment on `crtyrestaging` (`principalId`),
+   **Staging's what-if noise**, read on 20 Oct 2026 from `develop` at
+   `8d92270`, after TYRE-435's switch-over: seven Modifies and nothing
+   else. They are `cae-tyre-staging` (`peerAuthentication`,
+   `peerTrafficConfiguration`, `customerId`), the API identity's two role
+   assignments, AcrPull on `crtyrestaging` and Secrets User on
+   `kv-tyre-api-staging` (`principalId`, `principalType`),
    `psql-tyre-staging` (read-only properties), `blobServices/default`
    (`allowPermanentDelete`), the `photos` container (encryption scope) and
    `stapp-tyre-staging` (its repository properties). Anything beyond them is
