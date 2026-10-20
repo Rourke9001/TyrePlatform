@@ -42,9 +42,12 @@ type capturePosition struct {
 	// FR-INS-034 evaluates offline against this position's own history, so
 	// both halves of the rule travel: the previous governing value and
 	// whether a fitment since then explains an increase (BR-INS-001).
-	PreviousMm           *float64   `json:"previousGoverningMm"`
-	PreviousAt           *time.Time `json:"previousReadingAt"`
-	FitmentSincePrevious bool       `json:"fitmentSincePrevious"`
+	PreviousMm *float64   `json:"previousGoverningMm"`
+	PreviousAt *time.Time `json:"previousReadingAt"`
+	// FR-TYR-017: days since PreviousAt in the tenant's calendar
+	// (app.tenant_days_since, rule 6); nil when PreviousAt is.
+	PreviousAgeDays      *int `json:"previousReadingAgeDays"`
+	FitmentSincePrevious bool `json:"fitmentSincePrevious"`
 
 	// FR-INS-037 and FR-INS-031a both need the position's own resolved
 	// target, not a tenant scalar. Null for a spare: FR-CFG-013 as amended
@@ -187,7 +190,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	rows, err := tx.Query(ctx, `
 		SELECT p.id, v.id, p.code, p.sequence, p.axle_class::text, p.axle_type::text,
 		       p.side::text, p.axle_number, p.is_spare, p.unit_label, f.tyre_id, t.display_code,
-		       prev.governing_tread_mm, prev.submitted_at,
+		       prev.governing_tread_mm, prev.submitted_at, app.tenant_days_since(prev.submitted_at),
 		       EXISTS (SELECT 1 FROM app.fitment fx
 		                WHERE fx.position_id = p.id AND fx.vehicle_id = v.id
 		                  AND prev.submitted_at IS NOT NULL
@@ -221,7 +224,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		var p capturePosition
 		if err := rows.Scan(&p.ID, &p.VehicleID, &p.Code, &p.Sequence, &p.AxleClass,
 			&p.AxleType, &p.Side, &p.AxleNumber, &p.IsSpare, &p.UnitLabel, &p.TyreID, &p.TyreCode,
-			&p.PreviousMm, &p.PreviousAt, &p.FitmentSincePrevious,
+			&p.PreviousMm, &p.PreviousAt, &p.PreviousAgeDays, &p.FitmentSincePrevious,
 			&p.TargetKpa, &p.WarnUnderPct, &p.CriticalUnderPct,
 			&p.WarnOverPct, &p.CriticalOverPct); err != nil {
 			return fmt.Errorf("scanning capture position: %w", err)

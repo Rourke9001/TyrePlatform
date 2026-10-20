@@ -39,6 +39,9 @@ type exceptionJSON struct {
 	DisplayCode   *string    `json:"displayCode"`
 	InspectionID  uuid.UUID  `json:"inspectionId"`
 	ObservedAt    time.Time  `json:"observedAt"`
+	// FR-TYR-017: days since ObservedAt in the tenant's calendar
+	// (app.tenant_days_since, rule 6).
+	ObservedAgeDays int `json:"observedAgeDays"`
 	// Millimetres and percentages, not money: float64 is the house type for
 	// a measurement (capture.go). Null where the rule has no such measure.
 	MeasureMm    *float64 `json:"measureMm"`
@@ -105,7 +108,7 @@ func loadExceptions(ctx context.Context, tx pgx.Tx, a auth.Actor, f exceptionFil
 		SELECT e.rule_code, e.rule_name, e.severity::text, e.urgent,
 		       e.subject_type, e.subject_id, e.vehicle_id, e.fleet_number, e.unit_label,
 		       e.depot_id, e.axle_class::text, e.position_code, e.position_code_2, e.is_spare,
-		       e.tyre_id, e.display_code, e.inspection_id, e.observed_at,
+		       e.tyre_id, e.display_code, e.inspection_id, e.observed_at, app.tenant_days_since(e.observed_at),
 		       e.measure_mm::float8, e.measure_pct::float8, e.threshold_mm::float8, e.threshold_pct::float8,
 		       e.detail, e.resolved_by_fitment
 		  FROM app.v_exception e
@@ -126,7 +129,7 @@ func loadExceptions(ctx context.Context, tx pgx.Tx, a auth.Actor, f exceptionFil
 		if err := rows.Scan(&e.RuleCode, &e.RuleName, &e.Severity, &e.Urgent,
 			&e.SubjectType, &e.SubjectID, &e.VehicleID, &e.FleetNumber, &e.UnitLabel,
 			&e.DepotID, &e.AxleClass, &e.PositionCode, &e.PositionCode2, &e.IsSpare,
-			&e.TyreID, &e.DisplayCode, &e.InspectionID, &e.ObservedAt,
+			&e.TyreID, &e.DisplayCode, &e.InspectionID, &e.ObservedAt, &e.ObservedAgeDays,
 			&e.MeasureMm, &e.MeasurePct, &e.ThresholdMm, &e.ThresholdPct,
 			&e.Detail, &e.ResolvedByFitment); err != nil {
 			return nil, fmt.Errorf("scanning exception: %w", err)

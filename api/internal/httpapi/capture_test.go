@@ -497,6 +497,40 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 // "last" means the most recent by reading date rather than whichever row the
 // planner happened to reach first.
 //
+// FR-TYR-017: each position's previous reading carries its age in the
+// fleet's calendar, beside FR-INS-034's previous figure. The fixture's
+// sheets are months back, so a field left at zero cannot pass.
+func TestCaptureContextCarriesPreviousReadingAge(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	requireSeed(t, ctx, admin)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/capture/vehicles/"+seedID("veh1").String(), bacTenant, seedID("controller1").String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Positions []struct {
+			Code                   string  `json:"code"`
+			PreviousReadingAt      *string `json:"previousReadingAt"`
+			PreviousReadingAgeDays *int    `json:"previousReadingAgeDays"`
+		} `json:"positions"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	read := 0
+	for _, p := range body.Positions {
+		if p.PreviousReadingAt == nil {
+			require.Nil(t, p.PreviousReadingAgeDays, p.Code)
+			continue
+		}
+		want := tenantDaysSince(t, ctx, admin, uuid.MustParse(bacTenant), *p.PreviousReadingAt)
+		require.GreaterOrEqual(t, want, 2, "the premise: %s was read days back", p.Code)
+		require.NotNil(t, p.PreviousReadingAgeDays, p.Code)
+		require.Equal(t, want, *p.PreviousReadingAgeDays, p.Code)
+		read++
+	}
+	require.Positive(t, read, "the fixture's veh1 has read positions")
+}
+
 // The same two rows settle FR-INS-020's pre-fill, which is why it is asserted
 // here rather than apart: the projection the driver confirms is this reading
 // carried forward at averageDailyKm, so the rate has to be derived from the

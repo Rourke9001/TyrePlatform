@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/stretchr/testify/require"
 
@@ -85,6 +86,35 @@ func TestValueAtRiskRelaysTheFixtureToTheCent(t *testing.T) {
 	// The wire carries the decimal string, never a number: a JSON number here
 	// would have been decoded as a double by every client (FR-VAL-005).
 	require.Contains(t, rec.Body.String(), `"casingValueAtRisk":"16537.50"`)
+}
+
+// FR-TYR-017: each tyre at risk carries the age of the read behind its
+// tread, in the fleet's calendar. The fixture's reads are months back, so a
+// field left at zero or never scanned cannot pass.
+func TestValueAtRiskCarriesTreadAge(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	requireSeed(t, ctx, admin)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/valuation/at-risk", bacTenant, seedID("controller1").String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var body struct {
+		Tyres []struct {
+			DisplayCode  string  `json:"displayCode"`
+			ReadAt       *string `json:"readAt"`
+			TreadAgeDays *int    `json:"treadAgeDays"`
+		} `json:"tyres"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+	require.NotEmpty(t, body.Tyres)
+	for _, ty := range body.Tyres {
+		require.NotNil(t, ty.ReadAt, "every fixture tyre at risk was read")
+		want := tenantDaysSince(t, ctx, admin, uuid.MustParse(bacTenant), *ty.ReadAt)
+		require.GreaterOrEqual(t, want, 2, "the premise: %s was read days back", ty.DisplayCode)
+		require.NotNil(t, ty.TreadAgeDays, ty.DisplayCode)
+		require.Equal(t, want, *ty.TreadAgeDays, ty.DisplayCode)
+	}
 }
 
 func TestValueAtRiskSumsAcrossTheActorsDepots(t *testing.T) {
