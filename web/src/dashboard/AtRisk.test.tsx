@@ -96,7 +96,9 @@ describe("AtRisk", () => {
     expect(within(table).getByRole("cell", { name: "not valued" })).toBeInTheDocument();
     expect(within(table).getByRole("cell", { name: "not dated" })).toBeInTheDocument();
     // Rule 6: 05:46Z is 07:46 in the tenant's zone.
-    expect(within(table).getByRole("cell", { name: "23 Jul 2026 07:46" })).toBeInTheDocument();
+    expect(
+      within(table).getByRole("cell", { name: "23 Jul 2026 07:46, 90 days ago" }),
+    ).toBeInTheDocument();
     expect(screen.getByRole("article", { name: "Running" })).toHaveTextContent("R16,537.50");
     expect(screen.getByRole("article", { name: "Spares" })).toHaveTextContent("R1,837.50");
     expect(screen.getByText(/judged today/)).toBeInTheDocument();
@@ -263,5 +265,58 @@ describe("AtRisk", () => {
       await waitFor(() => expect(list).not.toHaveAttribute("aria-busy"));
       expect(within(list).getAllByRole("heading", { level: 2 })).toHaveLength(2);
     });
+  });
+});
+
+// FR-TYR-017: a read's age sits in its date's cell, never a new column
+// (TYRE-238's layout is fixed). A dated read the server sends no age for
+// shows its date alone; an undated one keeps its absence.
+describe("AtRisk tread age", () => {
+  const headers = (t: HTMLElement) =>
+    within(t)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent);
+
+  it("each read shows its age beside its date", async () => {
+    stubAtRisk(
+      atRiskBody({
+        tyres: [
+          atRiskTyre({ tyreId: "t1", treadAgeDays: 1 }),
+          atRiskTyre({
+            tyreId: "t3",
+            displayCode: "2102BAC9",
+            positionCode: "9",
+            treadAgeDays: null,
+          }),
+          atRiskTyre({
+            tyreId: "t2",
+            positionCode: "S",
+            treadSource: "AUDIT",
+            readAt: null,
+            treadAgeDays: null,
+          }),
+        ],
+      }),
+    );
+    renderWithActor(<AtRisk />, { capabilities: ["ViewFleet", "ViewValuation"], withRouter: true });
+    const table = await screen.findByRole("table", {
+      name: "Tyres at or below the removal threshold",
+    });
+    await waitFor(() => expect(table).not.toHaveAttribute("aria-busy"));
+    expect(
+      within(table).getByRole("cell", { name: "23 Jul 2026 07:46, 1 day ago" }),
+    ).toBeInTheDocument();
+    expect(within(table).getByRole("cell", { name: "23 Jul 2026 07:46" })).toBeInTheDocument();
+    expect(within(table).getByRole("cell", { name: "not dated" })).toBeInTheDocument();
+    expect(headers(table)).toEqual([
+      "Tyre",
+      "Unit",
+      "Position",
+      "Tread against threshold",
+      "Tread source",
+      "Read at",
+      "Casing value",
+      "Basis",
+    ]);
   });
 });

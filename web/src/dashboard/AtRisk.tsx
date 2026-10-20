@@ -5,6 +5,7 @@ import { fetchAtRisk, type AtRiskClass, type TyreAtRisk } from "../api/dashboard
 import { getDevTenantId } from "../api/devTenant";
 import { moneyOrEmpty, moneyText, useCurrency } from "../api/money";
 import { fetchDepots } from "../api/units";
+import { formatTreadAge } from "../format/treadAge";
 import { useActor } from "../auth/actorContext";
 import { atRiskKey, depotsKey } from "../fleet/unit/queryKeys";
 import { useTenantInstant } from "../time/tenantTime";
@@ -85,7 +86,14 @@ export default function AtRisk() {
     {
       key: "read",
       header: "Read at",
-      cell: (t) => (t.readAt === null ? absenceLabel("undated") : formatInstant(t.readAt)),
+      // FR-TYR-017: the read's age joins its date in this cell, never a
+      // column of its own (TYRE-238's layout is fixed).
+      cell: (t) =>
+        t.readAt === null
+          ? absenceLabel("undated")
+          : t.treadAgeDays === null
+            ? formatInstant(t.readAt)
+            : `${formatInstant(t.readAt)}, ${formatTreadAge(t.treadAgeDays)}`,
     },
     {
       key: "value",

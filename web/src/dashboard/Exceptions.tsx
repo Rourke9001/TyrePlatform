@@ -4,6 +4,7 @@ import { Link, useSearchParams } from "react-router";
 import { fetchExceptions, type ExceptionRow, type ExceptionsParams } from "../api/dashboard";
 import { getDevTenantId } from "../api/devTenant";
 import { fetchDepots } from "../api/units";
+import { formatTreadAge } from "../format/treadAge";
 import { useActor } from "../auth/actorContext";
 import { depotsKey, exceptionsKey } from "../fleet/unit/queryKeys";
 import { useTenantInstant } from "../time/tenantTime";
@@ -124,7 +125,13 @@ export default function Exceptions() {
       cell: (r) => subjectPositionLabel(r.subjectType, r.positionCode, r.positionCode2, r.isSpare),
     },
     { key: "measure", header: "Measure against threshold", align: "right", cell: measure },
-    { key: "seen", header: "Last seen", cell: (r) => formatInstant(r.observedAt) },
+    // FR-TYR-017: the sheet's age joins its time in this cell, never a
+    // column of its own (TYRE-238's layout is fixed).
+    {
+      key: "seen",
+      header: "Last seen",
+      cell: (r) => `${formatInstant(r.observedAt)}, ${formatTreadAge(r.observedAgeDays)}`,
+    },
     {
       key: "resolved",
       header: "Replaced since",

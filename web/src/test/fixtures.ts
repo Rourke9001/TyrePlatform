@@ -95,6 +95,7 @@ export function openFitment(overrides: Partial<OpenFitment> = {}): OpenFitment {
     sizeName: "295/80R22.5",
     lastTreadMm: "12.0",
     lastTreadSource: "READING",
+    lastTreadAgeDays: 3,
     ...overrides,
   };
 }
@@ -149,6 +150,8 @@ export function fitmentRow(
     removedOdometer: 112000,
     fittedTreadMm: "14.5",
     removedTreadMm: "9.0",
+    fittedAgeDays: 30,
+    removedAgeDays: 10,
     removalReason: "Worn out",
     distanceKm: 12000,
     distanceSource: "MEASURED",
@@ -429,6 +432,7 @@ export function exceptionRow(
     displayCode: "2102BAC7",
     inspectionId: "i1",
     observedAt: "2026-07-23T05:46:30Z",
+    observedAgeDays: 90,
     measureMm: 1,
     measurePct: null,
     thresholdMm: 4,
@@ -453,6 +457,7 @@ export function atRiskTyre(overrides: Partial<TyreAtRisk> & { tyreId: string }):
     removalThresholdMm: 4,
     treadSource: "READING",
     readAt: "2026-07-23T05:46:30Z",
+    treadAgeDays: 90,
     casingValue: "1837.50" as Money,
     casingBasis: "AUDIT",
     ...overrides,

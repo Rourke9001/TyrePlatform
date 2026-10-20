@@ -247,7 +247,9 @@ describe("DashboardPanels", () => {
     expect(panel).toHaveTextContent("on the tenant's calendar day");
     expect(within(panel).getByRole("cell", { name: "2.0 mm" })).toBeInTheDocument();
     expect(within(panel).getByRole("cell", { name: "inspection reading" })).toBeInTheDocument();
-    expect(within(panel).getByRole("cell", { name: "23 Jul 2026" })).toBeInTheDocument();
+    expect(
+      within(panel).getByRole("cell", { name: "23 Jul 2026, 61 days ago" }),
+    ).toBeInTheDocument();
     expect(within(panel).getByRole("cell", { name: "935" })).toBeInTheDocument();
   });
 
@@ -269,7 +271,9 @@ describe("DashboardPanels", () => {
       withRouter: true,
     });
     const panel = await screen.findByRole("region", { name: "Spares" });
-    expect(await within(panel).findByRole("cell", { name: "24 Jul 2026" })).toBeInTheDocument();
+    expect(
+      await within(panel).findByRole("cell", { name: "24 Jul 2026, 61 days ago" }),
+    ).toBeInTheDocument();
   });
 
   it("names an empty spares list", async () => {
@@ -293,5 +297,47 @@ describe("DashboardPanels", () => {
     expect(
       within(panel).getByText("No spare position carries a tyre in this view."),
     ).toBeInTheDocument();
+  });
+});
+
+// FR-TYR-017: a spare's measurement age, which the server already sends as
+// daysSinceMeasured, sits in its Last measured cell, never a new column.
+describe("DashboardPanels spare age", () => {
+  it("a spare's last measured shows its age", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve(
+          respond(200, {
+            scope: { level: "TENANT", depotCount: 0, depot: null },
+            judgedAt: "TENANT_TODAY",
+            spares: [
+              spareRow({ tyreId: "s1", daysSinceMeasured: 4 }),
+              spareRow({
+                tyreId: "s2",
+                displayCode: "2102BACT",
+                lastMeasuredAt: null,
+                measuredSource: null,
+                daysSinceMeasured: null,
+              }),
+            ],
+          }),
+        ),
+      ),
+    );
+    renderWithActor(<DashboardPanels body={dashboardBody()} depotFiltered={false} />, {
+      withRouter: true,
+    });
+    const panel = await screen.findByRole("region", { name: "Spares" });
+    expect(
+      await within(panel).findByRole("cell", { name: "23 Jul 2026, 4 days ago" }),
+    ).toBeInTheDocument();
+    expect(within(panel).getByRole("cell", { name: "never" })).toBeInTheDocument();
+    const table = within(panel).getByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent),
+    ).toEqual(["Tyre", "Unit", "Position", "Tread", "Source", "Last measured", "Age (days)"]);
   });
 });

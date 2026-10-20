@@ -106,7 +106,9 @@ describe("Exceptions", () => {
     expect(within(table).getByRole("cell", { name: "27% of 80%" })).toBeInTheDocument();
     expect(within(table).getByRole("cell", { name: "8 and 7" })).toBeInTheDocument();
     expect(within(table).getAllByText("Warning")).toHaveLength(2);
-    expect(within(table).getAllByRole("cell", { name: "23 Jul 2026 07:46" })).toHaveLength(4);
+    expect(
+      within(table).getAllByRole("cell", { name: "23 Jul 2026 07:46, 90 days ago" }),
+    ).toHaveLength(4);
     expect(within(table).getAllByRole("cell", { name: "No" })).toHaveLength(4);
     expect(screen.getByText("4 exceptions, as inspected")).toBeInTheDocument();
     // Rule 6: the zone is named once, under the table.
@@ -223,5 +225,32 @@ describe("Exceptions", () => {
       await waitFor(() => expect(list).not.toHaveAttribute("aria-busy"));
       expect(within(list).getAllByRole("heading", { level: 2 })).toHaveLength(4);
     });
+  });
+});
+
+// FR-TYR-017: the sheet's age sits in the Last seen cell, never a new
+// column (TYRE-238's layout is fixed).
+describe("Exceptions observed age", () => {
+  it("each row's last seen shows its age", async () => {
+    stubExceptions([exceptionRow({ subjectId: "a", observedAgeDays: 12 })]);
+    renderWithActor(<Exceptions />, { capabilities: ["ViewFleet"], withRouter: true });
+    const table = await screen.findByRole("table", { name: "Exceptions" });
+    await waitFor(() => expect(table).not.toHaveAttribute("aria-busy"));
+    expect(
+      within(table).getByRole("cell", { name: "23 Jul 2026 07:46, 12 days ago" }),
+    ).toBeInTheDocument();
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent),
+    ).toEqual([
+      "Rule",
+      "Severity",
+      "Unit",
+      "Position",
+      "Measure against threshold",
+      "Last seen",
+      "Replaced since",
+    ]);
   });
 });

@@ -172,6 +172,9 @@ export interface ExceptionRow {
   displayCode: string | null;
   inspectionId: string;
   observedAt: string;
+  // FR-TYR-017: days since observedAt in the tenant's calendar, counted by
+  // the server (app.tenant_days_since).
+  observedAgeDays: number;
   measureMm: number | null;
   measurePct: number | null;
   thresholdMm: number | null;
@@ -206,6 +209,9 @@ export interface TyreAtRisk {
   removalThresholdMm: number;
   treadSource: string;
   readAt: string | null;
+  // FR-TYR-017: days since readAt in the tenant's calendar; null when
+  // readAt is.
+  treadAgeDays: number | null;
   casingValue: Money | null;
   casingBasis: string;
 }

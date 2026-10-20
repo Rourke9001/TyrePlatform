@@ -22,6 +22,9 @@ export interface OpenFitment {
   lastTreadMm: string | null;
   // READING or AUDIT (U29), null exactly when lastTreadMm is.
   lastTreadSource: string | null;
+  // FR-TYR-017: days since the measurement behind lastTreadMm, in the
+  // tenant's calendar; null exactly when lastTreadMm is.
+  lastTreadAgeDays: number | null;
 }
 
 // unitPositionJSON: side and slot are null for a spare, mirroring
@@ -75,6 +78,10 @@ export interface FitmentHistoryRow {
   removedOdometer: number | null;
   fittedTreadMm: string | null;
   removedTreadMm: string | null;
+  // FR-TYR-017: days since the fit and since the removal, the instants the
+  // treads on and off were measured, in the tenant's calendar.
+  fittedAgeDays: number;
+  removedAgeDays: number | null;
   removalReason: string | null;
   distanceKm: number | null;
   distanceSource: string;

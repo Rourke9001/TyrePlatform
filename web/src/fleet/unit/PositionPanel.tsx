@@ -4,6 +4,7 @@ import type { FitWarning, OpenFitment, Unit, UnitPosition } from "../../api/unit
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
 import { formatMm, treadSourceLabel } from "../../ui/vocabulary";
+import { formatTreadAge } from "../../format/treadAge";
 import { RefusalAlert } from "../RefusalAlert";
 import { FitForm } from "./FitForm";
 import { orientationLabel } from "./vocabulary";
@@ -15,7 +16,10 @@ function lastTreadCell(fitment: OpenFitment): string {
   if (fitment.lastTreadMm === null) return "—";
   const mm = formatMm(Number(fitment.lastTreadMm));
   if (fitment.lastTreadSource === null) return mm;
-  return `${mm} (${treadSourceLabel(fitment.lastTreadSource)})`;
+  // FR-TYR-017: the measurement's age, with its source.
+  const age =
+    fitment.lastTreadAgeDays === null ? "" : `, ${formatTreadAge(fitment.lastTreadAgeDays)}`;
+  return `${mm} (${treadSourceLabel(fitment.lastTreadSource)}${age})`;
 }
 
 // Which write was made last, what it named, and which fitment it acted on:
