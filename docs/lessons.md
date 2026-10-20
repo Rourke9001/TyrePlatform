@@ -28,6 +28,22 @@ or `cat -n`, never from a grep's output.
 
 Newest first.
 
+## 2026-10-20 - A cancelled CI run can come back under the same id (TYRE-435)
+
+**What happened:** the close-out routine for PR #133 read the merge
+commit's CI run, 39399161984, as `cancelled`. It found no later `develop`
+push run and stopped at step 2 eight minutes later. Attempt 1 had been
+cancelled before any job started. The owner re-ran it about an hour later,
+and attempt 2 went green under the same run id, so the close-out had to be
+run by hand. Step 2's `cancelled` case looks only for a later push run, and
+a re-run creates none.
+
+**The rule:** when the merge commit's run reads `cancelled`, read its
+`run_attempt` and the attempt's job count
+(`gh api repos/Rourke9001/TyrePlatform/actions/runs/<id>/attempts/<n>/jobs --jq .total_count`)
+before deciding. While no later push run contains the merge commit, keep
+watching that same id for the full 60 minutes, because a re-run reuses it.
+
 ## 2026-10-19 - A Bash heredoc that holds another heredoc is cut short, with only a warning (TYRE-435)
 
 **What happened:** a plan section was written through the Bash tool as
