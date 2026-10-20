@@ -42,12 +42,12 @@ type capturePosition struct {
 	// FR-INS-034 evaluates offline against this position's own history, so
 	// both halves of the rule travel: the previous governing value and
 	// whether a fitment since then explains an increase (BR-INS-001).
-	PreviousMm *float64   `json:"previousGoverningMm"`
-	PreviousAt *time.Time `json:"previousReadingAt"`
+	PreviousMm           *float64   `json:"previousGoverningMm"`
+	PreviousAt           *time.Time `json:"previousReadingAt"`
+	FitmentSincePrevious bool       `json:"fitmentSincePrevious"`
 	// FR-TYR-017: days since PreviousAt in the tenant's calendar
 	// (app.tenant_days_since, rule 6); nil when PreviousAt is.
-	PreviousAgeDays      *int `json:"previousReadingAgeDays"`
-	FitmentSincePrevious bool `json:"fitmentSincePrevious"`
+	PreviousAgeDays *int `json:"previousReadingAgeDays"`
 
 	// FR-INS-037 and FR-INS-031a both need the position's own resolved
 	// target, not a tenant scalar. Null for a spare: FR-CFG-013 as amended
