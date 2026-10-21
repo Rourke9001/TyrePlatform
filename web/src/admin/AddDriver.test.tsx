@@ -46,6 +46,18 @@ describe("adding a driver", () => {
     expect(await screen.findByLabelText(/unit/i)).toBeInTheDocument();
   });
 
+  it("offers a technician no assign step, which the server would refuse", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(201, { ...CREATED, role: "TECHNICIAN" }));
+
+    renderScreen();
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "TECHNICIAN");
+    await fillAndSubmit();
+
+    expect(await screen.findByRole("status")).toHaveTextContent(/New Driver was added/);
+    expect(screen.queryByRole("heading", { name: "Assign to a unit" })).toBeNull();
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("names an active collision as an address already in use", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(409, {
