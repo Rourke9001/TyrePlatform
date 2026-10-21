@@ -11,13 +11,9 @@ export const RECEIPT_WORDING = {
 };
 
 // The confirmation for a whole set (spec D3). A tyre that has left the
-// fleet keeps what it had: the estimate on a receipt priced from the list,
-// nothing on one still unpriced.
-export function moveMessage(
-  move: "invoice" | "list-price",
-  result: MoveResult,
-  wasEstimated: boolean,
-): string {
+// fleet keeps what it had, which the receipt's state does not tell: one
+// that left before the list price was applied has no price.
+export function moveMessage(move: "invoice" | "list-price", result: MoveResult): string {
   const lead = move === "invoice" ? "Invoice recorded." : "List price applied.";
   if (result.priced === 0) {
     return `${lead} No tyre on this receipt is still in the fleet, so none was priced.`;
@@ -25,12 +21,6 @@ export function moveMessage(
   const priced = `${lead} ${plural(result.priced, "tyre", "tyres")} priced.`;
   if (result.leftFleet === 0) return priced;
   const one = result.leftFleet === 1;
-  const kept = wasEstimated
-    ? one
-      ? "keeps its estimate"
-      : "keep their estimate"
-    : one
-      ? "stays unpriced"
-      : "stay unpriced";
+  const kept = one ? "keeps what it had" : "keep what they had";
   return `${priced} ${plural(result.leftFleet, "tyre", "tyres")} ${one ? "has" : "have"} left the fleet and ${kept}.`;
 }

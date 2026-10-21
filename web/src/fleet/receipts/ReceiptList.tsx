@@ -46,7 +46,7 @@ function ReceiptRow({
   const listPrice = useFormMutation<void, MoveResult>({
     mutate: () => applyReceiptListPrice(receipt.id),
     invalidate,
-    onSuccess: (result) => onMoved(moveMessage("list-price", result, false)),
+    onSuccess: (result) => onMoved(moveMessage("list-price", result)),
   });
   const keep = useFormMutation<void, void>({
     mutate: () => keepReceiptEstimate(receipt.id),
@@ -107,7 +107,7 @@ function ReceiptRow({
           <InvoiceForm
             receipt={receipt}
             tenantKey={tenantKey}
-            onRecorded={(result) => onMoved(moveMessage("invoice", result, estimated))}
+            onRecorded={(result) => onMoved(moveMessage("invoice", result))}
           />
         )}
         <RefusalAlert error={listPrice.error} wording={RECEIPT_WORDING} />

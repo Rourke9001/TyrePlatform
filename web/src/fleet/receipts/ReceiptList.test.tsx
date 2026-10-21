@@ -154,7 +154,7 @@ describe("open receipts", () => {
     await userEvent.click(within(unpriced).getByRole("button", { name: "Apply list price" }));
 
     expect(await screen.findByRole("status")).toHaveTextContent(
-      "List price applied. 1 tyre priced. 1 tyre has left the fleet and stays unpriced.",
+      "List price applied. 1 tyre priced. 1 tyre has left the fleet and keeps what it had.",
     );
     expect(posts()).toEqual([{ url: "/api/tyre-receipts/r1/list-price", body: {} }]);
   });
