@@ -77,6 +77,10 @@ database in one place, and Go only names the refusal for a client.
    exists. Where a rule is genuinely missing from the schema, it is added to
    the schema, as migrations `000024`–`000026` did, never implemented in Go.
 
+   *(Amended 2026-10-21 (the roles review): one exception, a refusal that
+   turns on a named user's capability. See the amendment in Consequences
+   below.)*
+
 2. **`tenant_id` on any insert comes from `app.current_tenant_id()`, never
    from the request.** The insert statement calls the session-bound
    function directly rather than threading a tenant value through Go, so
@@ -320,6 +324,17 @@ none. Every 201 body above carries the new id, except the breakdown-supplier
 dispatch's `{}`, whose one new row is a tyre event with no read of its own.
 Nothing in `web/` reads a response's `Location`, so a header would serve one
 create out of ten and no reader.
+
+**Amended 2026-10-21 (the roles review):** decision 1 sends a missing rule
+to the schema. A rule that turns on whether a named user's role holds a
+capability cannot go there, because the capability table exists only in
+`api/internal/auth/auth.go` and role names stay out of SQL (ADR-0011). So
+that one kind of rule is written in Go, inside the write's transaction,
+through `auth.Holds`. It has one instance today: `refuseNonCapturer`
+refuses an assignment or a task whose assignee cannot capture, for
+`assignDriver` and `scheduleInspectionTask`, and `listUnitDrivers` leaves
+those people off the list it offers. Any other missing rule still goes to
+the schema.
 
 ## Constraints on later work
 

@@ -1,10 +1,11 @@
 // The inspection task (TYRE-90): a controller schedules an ad-hoc inspection
-// for a driver on a unit. Who may capture which unit, which day a task may
-// be due on, and what is overdue are app.v_user_capture_vehicle's,
-// app.create_inspection_task's and app.v_inspection_task's alone (000038);
-// this file validates shape, gates the capability and projects rows
-// (ADR-0013 decision 5). It decides nothing about tasks. The U-codes cited
-// below are docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md's.
+// for a driver on a unit. Which units a user's assignments reach, which day
+// a task may be due on, and what is overdue are app.v_user_capture_vehicle's,
+// app.create_inspection_task's and app.v_inspection_task's (000038). This
+// file validates shape, gates the capability and projects rows (ADR-0013
+// decision 5), and refuses an assignee whose role cannot capture, the one
+// rule the schema cannot hold (ADR-0013, amended 2026-10-21). The U-codes
+// cited below are docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md's.
 package httpapi
 
 import (
