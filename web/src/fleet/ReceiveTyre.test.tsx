@@ -384,6 +384,34 @@ describe("receiving tyres into the fleet", () => {
     });
   });
 
+  // The typed figure was for the tyres chosen before; another size, pattern
+  // or brand follows its own estimate, or the person could only retype it
+  // as an invoice price.
+  // The brand case starts unbranded, so the new brand keeps its pattern.
+  it.each([
+    ["size", /^size$/i, "s10", "p1"],
+    ["pattern", /^pattern$/i, "p2", "p1"],
+    ["brand", /^brand$/i, "b2", "p2"],
+  ])(
+    "a change of %s drops a typed price and follows the new estimate",
+    async (_, label, value, pattern) => {
+      mockApi({ estimates: [listed("4319.91"), listed("3000.00", "2026-01-01", false)] });
+      renderScreen("FREE");
+      await chooseEntries({ pattern });
+      const price = screen.getByLabelText(/unit price/i);
+      await waitFor(() => expect(price).toHaveValue("4319.91"));
+      await userEvent.clear(price);
+      await userEvent.type(price, "4500.00");
+      expect(screen.getByLabelText(/invoice number/i)).toBeInTheDocument();
+
+      await userEvent.selectOptions(screen.getByLabelText(label), value);
+
+      await waitFor(() => expect(screen.getByLabelText(/unit price/i)).toHaveValue("3000.00"));
+      expect(screen.queryByText(/this is an invoice price/i)).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(/invoice number/i)).not.toBeInTheDocument();
+    },
+  );
+
   it("an invoice price offers the invoice number", async () => {
     mockApi({ receives: [minted("TYRE1")] });
     renderScreen("FREE");

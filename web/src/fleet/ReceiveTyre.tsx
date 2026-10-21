@@ -65,7 +65,8 @@ export function ReceiveTyre() {
   const [newTread, setNewTread] = useState("");
   // FR-CFG-041: null follows the price list; anything typed, even the list's
   // own figure, is an invoice price, since the person took it from
-  // somewhere other than the list.
+  // somewhere other than the list. A new size, pattern or brand sets it
+  // back to null: what was typed priced the tyres chosen before.
   const [typed, setTyped] = useState<string | null>(null);
   const [invoiceNumber, setInvoiceNumber] = useState("");
   // TYRE-418: both optional. A blank received date is the tenant's today,
@@ -147,11 +148,17 @@ export function ReceiveTyre() {
     return loaded?.patterns.find((p) => p.id === id)?.brandId ?? null;
   }
 
+  function chooseSize(id: string) {
+    setSizeId(id);
+    setTyped(null);
+  }
+
   // NFR-USE-006: a branded pattern names its brand, so it is not asked twice.
   // A brand filled in that way leaves with its pattern, so no tyre is stored
   // with a brand nobody chose (TYRE-318).
   function choosePattern(id: string) {
     setPatternId(id);
+    setTyped(null);
     const brand = brandOf(id);
     if (brand !== null) {
       if (brand !== brandId) {
@@ -169,6 +176,7 @@ export function ReceiveTyre() {
   function chooseBrand(id: string) {
     setBrandId(id);
     setBrandFromPattern(false);
+    setTyped(null);
     const brand = brandOf(patternId);
     if (brand !== null && brand !== id) setPatternId("");
   }
@@ -291,7 +299,7 @@ export function ReceiveTyre() {
               id="sizeId"
               name="sizeId"
               value={sizeId}
-              onChange={(e) => setSizeId(e.target.value)}
+              onChange={(e) => chooseSize(e.target.value)}
               required
             >
               <option value="">Choose a size</option>
