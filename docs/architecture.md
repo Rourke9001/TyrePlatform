@@ -292,3 +292,4 @@ Go rather than a raw Postgres error.
 | [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Proposed |
 | [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Accepted |
 | [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Proposed |
+| [0021](adr/0021-governing-tread-definer-owner.md) | The governing-tread definer runs as the migrating role | Accepted |

@@ -3,7 +3,8 @@
 The record of what landed, in which batch, on which pull request, and what
 each batch found that changed the batch after it. Until 9 Sep 2026 this was
 the body of `docs/implementation-order.md`; that page now holds only the
-queue, and this one holds the batches it has already retired. Citations of
+queue, and this one holds the batches it has already retired, through B7
+and the B9 and platform-lane PRs to 21 Oct 2026. Citations of
 the form `docs/implementation-order.md §B5` (migration 000035, ADR-0012, the
 B5 and B6 design specs) resolve to the same-named section here.
 
@@ -523,3 +524,78 @@ Two standing rules from B5's close-out apply to every branch from here: the
 API container is restarted immediately before every `make e2e` and never
 reused across two runs, and no test derives a tenant-relative date from the
 browser or CI clock (`docs/lessons.md`, 2026-09-03).
+
+### B7 - analytics and dashboard - **delivered**
+
+Cut 10 Sep 2026 on the owner's call. Design:
+`docs/superpowers/specs/2026-09-10-b7-analytics-dashboard-design.md`.
+
+| Slice | Tickets | State |
+|---|---|---|
+| B7.1 | TYRE-41, 183, 193 (view), 38 | **merged** 15 Sep 2026, PR [#55](https://github.com/Rourke9001/TyrePlatform/pull/55), migration 000045 |
+| B7.1.5 | TYRE-252, TYRE-247 | **merged** 16 and 17 Sep 2026, PRs [#58](https://github.com/Rourke9001/TyrePlatform/pull/58) and [#61](https://github.com/Rourke9001/TyrePlatform/pull/61), migrations 000046 and 000047. On 29 Sep, after TYRE-259, `GET /api/dashboard` took 42.6 to 49.7 s on the 24-month volume tenant against its 500 ms budget, and 0.145 to 0.200 s on the fixture (TYRE-239 comment 13398). TYRE-256 (an ADR first), 257 and 258 own it, `post-poc` (U88): the pilot is 25 vehicles over four weeks, fuel records do not reach the read path, and TYRE-256 blocks only a tenant loaded with months of history |
+| B7.2 | TYRE-36, TYRE-193 (endpoint) | **merged** 20 Sep 2026, PR [#64](https://github.com/Rourke9001/TyrePlatform/pull/64), no migration |
+| B7.3 | TYRE-238, then TYRE-239 | **merged**. TYRE-238 is Done: PR [#66](https://github.com/Rourke9001/TyrePlatform/pull/66), PR [#70](https://github.com/Rourke9001/TyrePlatform/pull/70) and close-out PR [#71](https://github.com/Rourke9001/TyrePlatform/pull/71), 23 Sep 2026, ADR-0015 Accepted, mockups accepted (TYRE-238 comment 12936). The rider PR merged 25 Sep 2026, PR [#81](https://github.com/Rourke9001/TyrePlatform/pull/81), migration 000049. TYRE-239 merged 30 Sep 2026, PR [#87](https://github.com/Rourke9001/TyrePlatform/pull/87), no migration, with the chart half of TYRE-275; TYRE-193 and TYRE-271 closed with it |
+| B7.4 | TYRE-240 | Re-cut on 21 Oct 2026 (U147 A23): the restyle moved to the Tread rework (ADR-0020, epic TYRE-443), and TYRE-240 keeps only the behaviour fixes it carried, scheduled in `docs/implementation-order.md`'s sprint 2 |
+
+### B9 and the platform lane - 30 Sep to 21 Oct 2026
+
+The owner set the order on 24 Sep 2026 (U80, on TYRE-239) and revised it on
+30 Sep (U88, U99): two lanes side by side, web, API and infrastructure on
+the left and the database on the right, with the items whose loss is
+permanent once real rows exist taken first. What merged, in order:
+
+| When | PR | What |
+|---|---|---|
+| 25 Sep | [#81](https://github.com/Rourke9001/TyrePlatform/pull/81) | The rider PR: TYRE-276 (U53), 282 (U55), 280 (U54) and 269 (migration 000049), with 338 |
+| 29 Sep | [#83](https://github.com/Rourke9001/TyrePlatform/pull/83) | TYRE-259 with 348, migration 000050, suite sections 65 and 66. The definer chain's MIN() and latest-reading lookup name their tenant; the volume load went from 862 s to 248 s |
+| 30 Sep | [#87](https://github.com/Rourke9001/TyrePlatform/pull/87) | TYRE-239, the dashboard, with the chart half of TYRE-275. The capture entry budget rose once, from 135255 to 135877 gzip bytes (U84) |
+| 30 Sep | [#89](https://github.com/Rourke9001/TyrePlatform/pull/89) | TYRE-346 with 300: the definer's EXECUTE is revoked from PUBLIC and app_rw (migration 000051, suite section 67) |
+| 2 Oct | [#92](https://github.com/Rourke9001/TyrePlatform/pull/92), [#93](https://github.com/Rourke9001/TyrePlatform/pull/93), [#94](https://github.com/Rourke9001/TyrePlatform/pull/94) | Sign-in (TYRE-317, ADR-0016, spec `2026-09-30-b9-sign-in-design.md`): a bearer token validated in Go, the tenant as an Entra claim proven by the RLS lookup by `oid`, the dev header resolver compiled out, held inspections stamped with their driver. Migration 000052, suite section 68; TYRE-376 closed with it. The CIAM checks a, b, c and c2 passed on 2 Oct (comment 13468); the first staging sign-ins ran on 19 Oct (comments 13832 and 13836); TYRE-317 closed 21 Oct (U147 A1) |
+| 9 Oct | #101 | TYRE-396, U111 B: renewal keeps the driver (overtook 382) |
+| 11 Oct | [#105](https://github.com/Rourke9001/TyrePlatform/pull/105) | Staging (TYRE-79 with 368 and 53, ADR-0017): staging deploys from `develop` through CI, and `docs/runbooks/environment-release.md` brings an environment up and migrates it |
+| 13 Oct | [#110](https://github.com/Rourke9001/TyrePlatform/pull/110) | TYRE-318 with 370, 421 and 422 (migration 000053), the first ticket through `make pipeline` (TYRE-412, ADR-0018): `GET /api/tyre-catalogue` and the Receive pickers; `receive_tyres` refuses a tyre it cannot rate |
+| 14 Oct | [#114](https://github.com/Rourke9001/TyrePlatform/pull/114) | TYRE-299 with 298 and 310, and 189 F5: threshold policy rows are written once and never back-dated (migration 000054, section 70, U69, U70) |
+| 14 Oct | [#116](https://github.com/Rourke9001/TyrePlatform/pull/116) | TYRE-201 with 383 (migration 000055, section 71): the audit trigger and `app.record_session_start()` record the bound address and session |
+| 15 Oct | [#118](https://github.com/Rourke9001/TyrePlatform/pull/118) | TYRE-98 (migration 000056, section 72): the audit trigger reaches nine more tables (ADR-0014); its erratum is TYRE-427 |
+| 15 Oct | [#120](https://github.com/Rourke9001/TyrePlatform/pull/120) | TYRE-175 with 224 and 213's view (migration 000057, section 73): `orientation_known` has no default, a future receive date is TY011, `app.v_axle_side_divergence` is dropped |
+| 16 Oct | [#122](https://github.com/Rourke9001/TyrePlatform/pull/122) | TYRE-369 (migration 000058, section 74): the tenant's catalogue, per-size casing estimates and price list; closed TYRE-427 |
+| 16 Oct | [#124](https://github.com/Rourke9001/TyrePlatform/pull/124) | Small fixes TYRE-419, 324 and 241 (U136): the cost form's pre-selected INVOICE, the unit screen's tread, and a sheet-fit test (`web/e2e/sheetFit.spec.ts`) |
+| 16 Oct | [#126](https://github.com/Rourke9001/TyrePlatform/pull/126) | TYRE-51 (U137, ADR-0019): the web calls the API at the Container App's own origin over CORS, the Static Web App on the Free SKU; TYRE-341, 402, 405 and 408 closed with it |
+| 17 Oct | [#128](https://github.com/Rourke9001/TyrePlatform/pull/128) | TYRE-374's provisioning procedure (`db/seeds/provision_tenant.py`, `docs/runbooks/provision-a-tenant.md`). On 19 Oct staging went from 000054 to 000058, and Sandbox Fleet and Demonstration Fleet were provisioned and made ACTIVE (U92, U116) |
+| 19 Oct | [#131](https://github.com/Rourke9001/TyrePlatform/pull/131) | TYRE-397, production, deployed from `main` with only images staging passed; TYRE-203's Bicep half, 313, 401, 402, 403, 411 and 433 folded in. The owner brought production up on 20 Oct, and `main` was first promoted to `d2bd08c` (ADR-0017, U89) |
+| 20 Oct | [#133](https://github.com/Rourke9001/TyrePlatform/pull/133) | TYRE-435: each environment gets `kv-tyre-api-<env>` holding `database-url` alone, the API identity's only Key Vault role (U141); staging switched over the same day |
+| 21 Oct | [#139](https://github.com/Rourke9001/TyrePlatform/pull/139) | TYRE-283 with 418 (migration 000059, section 75): the consent writer, receipts priced once, the price list read at receipt, the fleet settings page, tenant unit labels and `formatMoney`; `inspection.tyres_created` moved to TYRE-286 (U143) |
+
+### Board prunes - 24 Sep to 21 Oct 2026
+
+On 24 Sep 2026 a checkpoint audit read every open ticket against `develop`
+and SRS Appendix H.1 and walked every screen in a browser: 21 tickets closed,
+10 were parked, 17 were raised (TYRE-315 to TYRE-331), and the owner
+answered 23 decisions (U57 to U79). Its main finding: the database and the
+API were well ahead of the screens, and six groups of H.1 Musts sat in no
+batch (login, onboarding with the catalogue, driver self-start and
+schedules, photos, reports with export, and import). B9 became their home.
+
+On 30 Sep 2026 the owner read a review of the POC against Appendix H.3 and
+answered U88 to U99, which raised TYRE-368 to 374. Nothing was live then:
+no user could sign in on staging, and its database was about 42 migrations
+behind. B9 started at once, and the before-data items went ahead of W5b.
+
+On 8 Oct 2026 a second prune took the board from 213 open tickets to 172:
+33 small tickets folded into the 21 whose PR would carry them, and eight
+parked tickets closed for the POC. TYRE-392 closed as not needed, because
+phones are personally owned (U115).
+
+On 13 Oct 2026 a third prune, TYRE-423, put every open ticket through U130's
+schedule test and took the board from 181 open tickets to 126. Priority
+started to mean something: High is the pilot path, Medium is before the
+pilot, Low only just passes.
+
+On 21 Oct 2026 the pilot audit, TYRE-452, read every open ticket against
+`develop` again, with a second agent told to refute each proposed close.
+The owner approved its 25 board changes and 43 product answers (U147),
+accepted ADR-0020 with the capture rulings that keep Tread inside the SRS
+(U145), and replaced U130's fix-in-branch test with U146: a bug found on a
+branch is fixed on that branch. The queue became the sprint plan in
+`docs/implementation-order.md`.
