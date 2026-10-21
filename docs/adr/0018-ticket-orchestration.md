@@ -1,7 +1,7 @@
 # ADR-0018: An agent team runs each ticket to its PR; a routine runs close-out
 
 - **Status:** Accepted. Its PR, #107, merged on 12 Oct 2026.
-- **Date:** 2026-10-11
+- **Date:** 2026-10-12
 - **Deciders:** Rourke
 - **Related:** TYRE-412, TYRE-394 (the five stages), TYRE-395 (the stage 5
   CI check) · spec `docs/superpowers/specs/2026-10-11-pipeline-orchestration-design.md`
