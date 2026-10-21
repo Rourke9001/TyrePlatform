@@ -99,8 +99,8 @@ func TestRoleCapabilities(t *testing.T) {
 
 // Holds answers for an assignee, who is not the caller. TECHNICIAN is the
 // case that matters. It reads the fleet but holds no CaptureInspection, so
-// it could be assigned a unit it could not capture (refuseNonCapturer). An
-// unknown role holds nothing, as for Can.
+// assigning it a unit is refused (refuseNonCapturer), and Holds is what
+// answers. An unknown role holds nothing, as for Can.
 func TestHoldsAnswersForARoleNotTheCaller(t *testing.T) {
 	require.False(t, auth.Holds(auth.RoleTechnician, auth.CaptureInspection))
 	require.True(t, auth.Holds(auth.RoleTechnician, auth.ViewFleet))

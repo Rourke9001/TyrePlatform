@@ -3,8 +3,9 @@
 // a task may be due on, and what is overdue are app.v_user_capture_vehicle's,
 // app.create_inspection_task's and app.v_inspection_task's (000038). This
 // file validates shape, gates the capability and projects rows (ADR-0013
-// decision 5), and holds the one role rule the schema cannot (ADR-0013,
-// decision 1 as amended 2026-10-21). The U-codes cited below are
+// decision 5), and applies the one role rule the schema cannot
+// (refuseNonCapturer, admin.go; ADR-0013, decision 1 as amended 2026-10-21).
+// The U-codes cited below are
 // docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md's.
 package httpapi
 
