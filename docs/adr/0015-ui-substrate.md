@@ -1,6 +1,8 @@
 # ADR-0015: UI substrate
 
-- **Status:** Accepted
+- **Status:** Accepted; superseded in part by ADR-0020, which keeps this
+  substrate and replaces the TYRE-238 kit, the light-only rule and the
+  fixed mockups.
 - **Date:** 2026-09-21
 - **Deciders:** Rourke (engineer); the owner's answer of 10 Sep 2026 (tokens plus CSS with Radix for the hard controls)
 - **Related:** ADR-0001 (React + Vite) · ADR-0009 (online-first PWA) · ADR-0010 (provenance) · TYRE-27 (tokens and tenant theming) · TYRE-238 · NFR-USE-001/003/009 · IR-UI-001

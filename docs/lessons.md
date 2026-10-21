@@ -42,8 +42,8 @@ empty. Skills vendored under `.claude/skills/` did load.
 **The rule:** before planning stage 4 or `make check` in a cloud session,
 run `docker info`. If it fails, do the ticket locally or have the owner
 start the daemon in the environment's setup script; never start it from
-the session. Do not count on a project plugin (superpowers,
-`ui-ux-pro-max`) in a cloud session; vendor the skill under
+the session. Do not count on a plugin (superpowers at user scope,
+`ui-ux-pro-max` at project scope) in a cloud session; vendor the skill under
 `.claude/skills/` or run the ticket locally.
 
 ## 2026-10-20 - Another session moved the shared checkout between two release blocks (TYRE-397)

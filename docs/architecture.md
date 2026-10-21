@@ -288,7 +288,7 @@ Go rather than a raw Postgres error.
 | [0012](adr/0012-api-error-envelope.md) | The API error envelope | Accepted |
 | [0013](adr/0013-write-surface-contract.md) | The write-surface contract | Accepted |
 | [0014](adr/0014-audit-mechanism.md) | How mutations are audited | Accepted |
-| [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Accepted |
+| [0015](adr/0015-ui-substrate.md) | UI substrate: tokens, plain CSS, three Radix primitives, inline SVG charts | Accepted; superseded in part by 0020 |
 | [0016](adr/0016-identity-provider-and-token-to-actor.md) | Identity provider and token-to-actor resolution | Accepted |
 | [0017](adr/0017-staging-and-production-environments.md) | Staging holds no real data; production is a second environment | Accepted |
 | [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Accepted |

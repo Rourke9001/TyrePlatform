@@ -1,6 +1,7 @@
 # ADR-0020: The Tread design system replaces the TYRE-238 kit
 
-- **Status:** Accepted (owner, 21 Oct 2026).
+- **Status:** Accepted (owner, 21 Oct 2026, U145), with the capture rulings
+  under Decision that keep Tread inside the SRS.
 - **Date:** 2026-10-20
 - **Deciders:** Rourke (owner decision of 20 Oct 2026)
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and
@@ -28,7 +29,7 @@ What makes the choice hard:
   `btn-primary`. Four type families (Archivo, Barlow, Barlow Condensed, IBM
   Plex Mono) carry one product. A restyle onto the existing kit keeps the
   kit's gaps: no tyre-position component, no driver shell, no photo control.
-- **The two audiences pull apart.** A driver reads 27 positions on a phone
+- **The two audiences pull apart.** A driver reads up to 26 positions on a phone
   in sun with gloves in about three minutes (NFR-USE-001, the capture
   target); a manager reads money and work at a desk. Today both get the
   manager's header and a ten-item flat menu, and the driver's diagram and
@@ -92,8 +93,8 @@ manager's hard controls, inline SVG charts.
 Why it is attractive: it answers the brief and the gaps together. One
 library serves every screen. The driver gets a shell and controls designed
 for gloves and glare. Both sides draw a rig the same way, in BR-VEH-001's
-plan view with its per-unit position numbers. The brand derivation and U53 carry over unchanged, and
-the substrate does too, so no second styling system arrives.
+plan view. The brand derivation and U53 carry over unchanged, and the
+substrate does too, so no second styling system arrives.
 
 **Its real downside:** it is a rewrite of every screen's styling.
 
@@ -146,14 +147,16 @@ What this record settles beyond ADR-0015:
   is about the screen in front of them, not about the tenant. Follow phone
   is the default and reads `prefers-color-scheme`. Daylight is what
   renders before the preference is read and wherever it cannot be.
-  `[data-theme]` on the root element carries the result (TYRE-445; the
-  screen is TYRE-449).
+  `[data-theme]` on the root element carries the result (TYRE-445). The
+  screen is TYRE-449, on its own route, after the pilot: `/settings` is
+  the fleet's settings page.
 - **Brand.** The tenant colour reaches chrome only: the app bar band, the
   logo tile, the one primary action per screen, the keypad's go key and the
   active nav marker. It never reaches status, charts, links or focus.
 - **Status.** Condition and severity share one scale, so one colour means
   one thing on both sides of the app. Every use carries an icon and a word
-  (NFR-USE-009). `ok` and `critical` differ by at least 3:1 in lightness.
+  (NFR-USE-009). The `ok` and `critical` fills differ by at least 3:1
+  (WCAG 1.4.11), and text on each holds 4.5:1.
 - **Type.** Atkinson Hyperlegible Next and Mono only. Fonts stay
   self-hosted, never a CDN (TYRE-446).
 - **Shells.** `DriverShell` for actors without `ViewFleet`; `AppShell`,
@@ -165,12 +168,33 @@ What this record settles beyond ADR-0015:
   - positions numbered from 1, foremost axle first, then left to right;
   - a dual axle reads left outer, left inner, right inner, right outer.
 
-  Each tile shows that number. The tyre sheet adds the place in words
-  ("axle 1, right inner"), so nobody has to learn a code. Rig-level
-  numbers stay a computed projection (FR-VEH-034), never a label.
+  The vehicle screen's tiles show that number. Capture keeps the rig-wide
+  continuous number on each tile, the computed projection (FR-VEH-034)
+  that FR-INS-060 and Appendix I require, with the per-unit place in words
+  under it ("unit 2, axle 1, right inner"). Drivers keep the numbers they
+  already use, and nobody has to learn a code.
 - **Capture select.** Tread's native `Select` serves the capture route,
   because the platform picker suits gloves and keeps Radix out of the
   entry chunk.
+- **Capture follows the SRS where Tread's previews do not** (U145):
+  - Tread cells on capture are numbered left to right as seen from above,
+    never labelled Outer, Centre or Inner (IR-UI-014, FR-INS-029a).
+    Manager screens may name them.
+  - The capture tyre sheet stays non-modal (`web/CLAUDE.md`), the keypad
+    has no decimal key, and the flagged-tyre step appears only where the
+    tenant requires a photo.
+  - The driver's Today screen has no vehicle search: a driver starts only
+    from a task on the trip's vehicle (U143, TYRE-319).
+- **Navigation.** Until the pilot ends, Tread changes how screens look and
+  the two shells, not the navigation: Exceptions keeps its name, and the
+  rigs and fitments pages stay.
+- **Sequence.** U16 is retired: capture moves to Tread in one slice, before
+  driver training, and does not change during the pilot. The colour and
+  type tokens come first (TYRE-445, 446), then the core and manager
+  components, then the capture slice with photos, damage and the found-tyre
+  flag (TYRE-447, 152, 448, 285). The older screens move after the pilot.
+  Capture is timed before and after the slice, informally, not as a gate
+  (TYRE-70).
 - **Existing web rules that Tread's previews do not show stay binding**
   (`web/CLAUDE.md`):
   - `DataTable` stacks on a phone by rendering cards, not by CSS
@@ -209,8 +233,9 @@ erode them:
 - One library and one type family across every route.
 - The driver gets controls sized to NFR-USE-004's glove targets throughout:
   56px for controls, 64px for keypad keys.
-- A manager and a driver talk about the same tyre with the same number
-  and the same picture, the one BR-VEH-001 already describes.
+- A manager and a driver talk about the same tyre with the same picture,
+  the one BR-VEH-001 already describes, and capture's place words name the
+  unit and axle the manager sees.
 - Problems are the loudest thing on a screen: an OK tyre is a pale tint,
   an at-limit tyre is the strongest fill.
 - Photo and damage capture have a design that adds no taps to a clean
@@ -232,16 +257,16 @@ erode them:
   be re-cut.
 - The font swap may move the capture bundle either way. The budget only
   ratchets down, so a rise needs `--record` and a reason in the PR.
-- Capture today numbers a rig 1 to 27 across its units, a display
-  projection drivers have used. Moving to per-unit numbers changes what
-  they see, for the driver training OR-TRN-001 bounds at 10 minutes.
+- Capture and the vehicle screen number positions differently: rig-wide
+  on capture, per unit on the vehicle screen. The place words carry a
+  driver from one to the other.
 - The theme preference is per device. A manager who switches on a laptop
   sees Follow phone on their phone until they switch there too.
 
 **Revisit when:**
 
-- drivers in the field trial (NFR-USE-002) find per-unit numbers slower to
-  place than the rig-wide ones;
+- drivers in the field trial (NFR-USE-002) misplace tyres between the
+  rig-wide and per-unit numbers;
 - people ask for the theme to follow them across devices, which would move
   it to a per-user setting on the server;
 - the capture flow measured on a phone is slower than today's;
