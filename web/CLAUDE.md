@@ -180,6 +180,9 @@ before it is reviewed. Rules that are not visible in the code:
 - Every wire code becomes words in `src/ui/vocabulary.ts` and nowhere
   else: severity, `judgedAt`, `unavailable`, tread source, band range. A
   band is labelled from its bounds, never from `bandLabel` (TYRE-270).
+  The two exceptions are unit codes (`src/units/units.ts`) and the currency
+  symbol (`src/api/money.ts`): the capture entry imports both, and
+  `vocabulary.ts` stays out of its budget.
 - Select and Dialog import Radix, so a screen that uses them loads behind
   `React.lazy` in `routes.tsx`. The capture route's JavaScript is gated:
   `npm run bundle:check` (also in `make lint` and CI) fails when the entry
