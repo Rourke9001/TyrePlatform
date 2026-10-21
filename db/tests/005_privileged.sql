@@ -28,7 +28,8 @@
 -- P13 sets a fleet's units to psi, bar and miles, and P14 edits a consent
 -- row, as postgres, which no grant binds, to watch tenant_metric_units and
 -- tenant_consent_written_once refuse it. P15 plants Second Fleet's receipts
--- directly and calls the receipt moves, set_tyre_cost and record_consent as
+-- directly and calls the receipt moves, set_tyre_cost, receive_tyres and
+-- record_consent as
 -- postgres bound to another fleet, so only the functions' own tenant
 -- predicates keep them in the bound one, then edits a receipt and a tyre's
 -- receipt link to watch both receipt triggers refuse a superuser
@@ -844,13 +845,14 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== P15. TYRE-283: under a role that bypasses RLS the receipt moves, set_tyre_cost and record_consent stay in the bound fleet, and both receipt triggers bind a superuser (FR-TEN-003, FR-CFG-041)'
+\echo '== P15. TYRE-283: under a role that bypasses RLS the receipt moves, set_tyre_cost, receive_tyres and record_consent stay in the bound fleet, and both receipt triggers bind a superuser (FR-TEN-003, FR-CFG-041)'
 BEGIN;
 DO $$
 DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
         bac constant uuid := '11111111-1111-1111-1111-111111111111';
         sz2 constant uuid := md5('p15-sz')::uuid;
         pt2 constant uuid := md5('p15-pt')::uuid;
+        br2 constant uuid := md5('p15-br')::uuid;
         r_un  constant uuid := md5('p15-unpriced')::uuid;
         r_est constant uuid := md5('p15-estimated')::uuid;
         r_inv constant uuid := md5('p15-invoiced')::uuid;
@@ -901,6 +903,28 @@ BEGIN
         e.what, COALESCE(st || ' "' || msg || '"', 'by a write');
     END IF;
   END LOOP;
+  -- receive_tyres answers another fleet's catalogue row as no row, not
+  -- from that row's own state.
+  INSERT INTO app.tyre_brand (id, tenant_id, name) VALUES (br2, t2, 'P15 BRAND');
+  FOR e IN SELECT * FROM (VALUES
+    ('a size',    jsonb_build_object('size_id', sz2, 'pattern_id', md5('pt1')::uuid),
+                  'that size is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('a pattern', jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', pt2),
+                  'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it'),
+    ('a brand',   jsonb_build_object('size_id', md5('sz1')::uuid, 'pattern_id', md5('pt1')::uuid, 'brand_id', br2),
+                  'that brand is not in this fleet''s active catalogue; choose another, leave it blank, or ask an administrator to add it')
+  ) v(what, payload, want) LOOP
+    st := NULL; msg := NULL;
+    BEGIN
+      PERFORM app.receive_tyres(e.payload || jsonb_build_object('new_tread_mm', '25.0', 'received_date', '2026-10-01'));
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+    END;
+    IF st IS DISTINCT FROM 'TY011' OR msg IS DISTINCT FROM e.want THEN
+      RAISE EXCEPTION 'FAIL P15: bound to BAC, a receive naming % of Second Fleet''s was answered %',
+        e.what, COALESCE(st || ' "' || msg || '"', 'by a write');
+    END IF;
+  END LOOP;
   SELECT jsonb_build_object(
            'receipts', (SELECT jsonb_agg(to_jsonb(c) ORDER BY c.id) FROM app.tyre_receipt c WHERE c.tenant_id = t2),
            'tyres', (SELECT jsonb_agg(to_jsonb(t) ORDER BY t.id) FROM app.tyre t
@@ -933,7 +957,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL P15: a superuser''s % was answered %', e.what, COALESCE(st || ' "' || msg || '"', 'by an edit');
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  P15 the receipt moves and set_tyre_cost find no other fleet''s row, record_consent writes the bound fleet''s alone, and both receipt triggers bind a superuser';
+  RAISE NOTICE 'PASS  P15 the receipt moves, set_tyre_cost and receive_tyres find no other fleet''s row, record_consent writes the bound fleet''s alone, and both receipt triggers bind a superuser';
 END $$;
 ROLLBACK;
 

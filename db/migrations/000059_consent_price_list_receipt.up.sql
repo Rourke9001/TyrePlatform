@@ -469,17 +469,19 @@ BEGIN
 
   -- A receive offers active entries only (the receive spec's Q4, owner,
   -- 12 Oct 2026), the deactivation FR-CFG-007 provides for. A missing id,
-  -- another tenant's (hidden by RLS) and a deactivated row get one message
-  -- per kind, so the refusal is no oracle for another tenant's ids.
+  -- another tenant's (hidden by RLS, and by the tenant named under a role
+  -- that bypasses it) and a deactivated row get one message per kind, so
+  -- the refusal is no oracle for another tenant's ids.
   sz := (payload->>'size_id')::uuid;
-  IF NOT EXISTS (SELECT 1 FROM app.tyre_size s WHERE s.id = sz AND s.active) THEN
+  IF NOT EXISTS (SELECT 1 FROM app.tyre_size s
+                  WHERE s.id = sz AND s.tenant_id = app.current_tenant_id() AND s.active) THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
       MESSAGE = 'that size is not in this fleet''s active catalogue; choose another, or ask an administrator to add it';
   END IF;
   pt := (payload->>'pattern_id')::uuid;
   SELECT p.brand_id, p.applies_to INTO pt_brand, pt_use
     FROM app.tyre_pattern p
-   WHERE p.id = pt AND p.active;
+   WHERE p.id = pt AND p.tenant_id = app.current_tenant_id() AND p.active;
   IF NOT FOUND THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
       MESSAGE = 'that pattern is not in this fleet''s active catalogue; choose another, or ask an administrator to add it';
@@ -488,13 +490,15 @@ BEGIN
   -- offers (TYRE-318). The brand is this tenant's own row, so naming it is
   -- no oracle.
   IF pt_brand IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM app.tyre_brand b WHERE b.id = pt_brand AND b.active) THEN
+     AND NOT EXISTS (SELECT 1 FROM app.tyre_brand b
+                      WHERE b.id = pt_brand AND b.tenant_id = app.current_tenant_id() AND b.active) THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
       MESSAGE = 'that pattern''s brand is not in this fleet''s active catalogue; choose another pattern, or ask an administrator to restore the brand';
   END IF;
   br := (payload->>'brand_id')::uuid;
   IF br IS NOT NULL
-     AND NOT EXISTS (SELECT 1 FROM app.tyre_brand b WHERE b.id = br AND b.active) THEN
+     AND NOT EXISTS (SELECT 1 FROM app.tyre_brand b
+                      WHERE b.id = br AND b.tenant_id = app.current_tenant_id() AND b.active) THEN
     RAISE EXCEPTION USING ERRCODE = 'TY011',
       MESSAGE = 'that brand is not in this fleet''s active catalogue; choose another, leave it blank, or ask an administrator to add it';
   END IF;
