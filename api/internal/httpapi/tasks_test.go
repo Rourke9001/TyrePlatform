@@ -97,6 +97,30 @@ func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 	require.Equal(t, bothDriver.String(), trailerRows[0].UserID)
 }
 
+// The technician is assigned directly, as a row written before assignDriver
+// checked would be. The list offers only people a task may name, so it drops
+// them; the driver on the same unit is the control.
+func TestUnitDriversOmitsAnAssigneeWhoCannotCapture(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "drivers-capturer")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	assignVehicleDriver(t, ctx, admin, tenantID, horseID, driver)
+	assignVehicleDriver(t, ctx, admin, tenantID, horseID, technician)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := get(t, h, "/api/vehicles/"+horseID.String()+"/drivers", tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var rows []struct {
+		UserID string `json:"userId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
+	require.Len(t, rows, 1, rec.Body.String())
+	require.Equal(t, driver.String(), rows[0].UserID)
+}
+
 // The unit's task list: OPEN and ESCALATED by due date, each with its
 // assignee, overdue computed by the view and never here. Fixed literals for
 // the dates (lessons 2026-09-03); rows are planted directly rather than

@@ -73,9 +73,10 @@ func listUnitDrivers(s *store.Store) http.HandlerFunc {
 			// assignment, or the motive's assignment), into one row, own
 			// assignment first.
 			rows, err := tx.Query(ctx, `
-				SELECT d.user_id, d.display_name, d.staff_number, d.via_vehicle_id, d.via_fleet_number
+				SELECT d.user_id, d.display_name, d.staff_number, d.via_vehicle_id, d.via_fleet_number, d.role
 				  FROM (SELECT DISTINCT ON (ucv.user_id)
-				               ucv.user_id, u.display_name, u.staff_number, ucv.via_vehicle_id, vv.fleet_number AS via_fleet_number
+				               ucv.user_id, u.display_name, u.staff_number, ucv.via_vehicle_id, vv.fleet_number AS via_fleet_number,
+				               u.role::text AS role
 				          FROM app.v_user_capture_vehicle ucv
 				          JOIN app.app_user u ON u.id = ucv.user_id
 				          JOIN app.vehicle vv ON vv.id = ucv.via_vehicle_id
@@ -92,10 +93,17 @@ func listUnitDrivers(s *store.Store) http.HandlerFunc {
 					userID, viaVehicleID uuid.UUID
 					displayName          string
 					staffNumber          *string
-					viaFleetNumber       string
+					viaFleetNumber, role string
 				)
-				if err := rows.Scan(&userID, &displayName, &staffNumber, &viaVehicleID, &viaFleetNumber); err != nil {
+				if err := rows.Scan(&userID, &displayName, &staffNumber, &viaVehicleID, &viaFleetNumber, &role); err != nil {
 					return fmt.Errorf("scanning driver row: %w", err)
+				}
+				// An assignment row can name a role that cannot capture (one
+				// written before refuseNonCapturer, or kept through a
+				// reactivation, TYRE-377), and scheduleInspectionTask would
+				// refuse them, so they are not offered.
+				if !auth.Holds(auth.Role(role), auth.CaptureInspection) {
+					continue
 				}
 				out = append(out, unitDriverJSON{
 					UserID: userID.String(), DisplayName: displayName, StaffNumber: staffNumber,
