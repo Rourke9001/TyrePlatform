@@ -14,8 +14,8 @@ interface Task {
   overdue: boolean;
 }
 
-// FR-DSH-012: the driver's landing view is their own units and their own
-// outstanding work, not the fleet, which they cannot read at all.
+// FR-DSH-012: the driver's landing view is the inspection tasks assigned to
+// them, not the fleet, which they cannot read at all.
 export function DriverHome() {
   const tenantKey = getDevTenantId() ?? "default";
   const tenantDate = useTenantDate();

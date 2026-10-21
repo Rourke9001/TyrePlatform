@@ -240,8 +240,8 @@ is the one in-progress inspection.
 - Each inspection carries a client-generated `client_uuid`, unique per tenant
   in the schema, so submission is idempotent: replaying an outbox entry is a
   no-op and an uncertain network is safe.
-- Photos queue separately from readings. A slow photo upload must never hold up
-  a completed inspection.
+- Photos are to queue separately from readings, so a slow photo upload never
+  holds up a completed inspection. Photo capture is unbuilt (TYRE-152).
 
 `submitInspection` re-applies FR-AUT-005's narrowing on the write path: the
 read composes `app.v_capture_vehicle`, and without the same check on the
