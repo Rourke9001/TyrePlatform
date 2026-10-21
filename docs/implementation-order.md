@@ -139,11 +139,11 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 **The owner, this week:** merge #142 and this page's PR (#140 and #141
 merged and #138 closed on 21 Oct); migrate staging to 000059
-(`environment-release.md`, Each release); paste the SRS rows drafted on
-TYRE-442 (six), TYRE-430, TYRE-322 and TYRE-448 (TYRE-378's revoke and
-page edits, and the TYRE-76 and TYRE-372 rows, were done on 21 Oct); run the
-restore rehearsal (TYRE-321); add yourself as required reviewer on the GitHub
-production environment (TYRE-413). Production stays
+(`environment-release.md`, Each release); run the restore rehearsal
+(TYRE-321); add yourself as required reviewer on the GitHub production
+environment (TYRE-413). TYRE-378's revoke and page edits, and the SRS rows
+drafted on TYRE-442, 430, 322, 448, 76 and 372, were done on 21 Oct.
+Production stays
 at 58 until the next promotion, which must migrate first. TYRE-371's custom
 sender domain needs the platform domain, which the team registers outside
 Jira.
