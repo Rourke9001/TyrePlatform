@@ -2,7 +2,8 @@
 // Two checks, both read from dist/.vite/manifest.json:
 // 1. The entry's static closure, in gzip bytes, stays within
 //    web/bundle-budget.json. A lazy chunk loads with its route, so it is not
-//    counted; the budget only ratchets down, and --record writes the figure.
+//    counted. A rise fails until --record writes the new figure, with the
+//    reason given in the PR.
 // 2. No module under src/capture/ or src/driver/ is reachable from the entry
 //    only through a dynamic import (ADR-0009): the driver's flow never waits
 //    on a chunk fetch.
