@@ -31,11 +31,18 @@ runs). Do not start a stage until the one before it is done.
    agent again until it returns no Critical. Keep the verdict for the PR body.
 10. **Implement**: `superpowers:subagent-driven-development`. Business rules
     go in SQL with a test in `db/tests/`; transport and auth go in Go.
-11. Anything you find that is not this ticket's to fix: fix it in this branch
-    if it sits in code the branch already changes and is small, and name it
-    under Decisions in the PR body. Otherwise
-    apply CLAUDE.md's schedule test: a ticket linked to this one if it
-    passes, a line under "Set aside" in the PR body if it does not (U130).
+11. A bug you find that is not this ticket's: fix it in this branch with a
+    regression test, whatever its file or age, and name it under Decisions
+    in the PR body (CLAUDE.md, U146). If it is outside every file
+    `git diff --name-only origin/develop...HEAD` lists and needs a
+    migration, endpoint, route, screen or deploy step this branch does not
+    add, raise one ticket linked to this one, after searching the board,
+    and say why under Decisions. If the fix needs a live environment step
+    or a decision you cannot make, or would take a small fix past
+    CLAUDE.md's definition, stop and put it to the owner as a comment on
+    this ticket. Anything that is not a bug goes through CLAUDE.md's
+    schedule test: a ticket linked to this one if it passes, a line under
+    "Set aside" in the PR body if it does not (U130).
 12. `make check`, then open the PR. Stop there. The code review is stage 5,
     and it runs in a separate session: tell the owner to run
     `/review-pr <n>` in a new session.

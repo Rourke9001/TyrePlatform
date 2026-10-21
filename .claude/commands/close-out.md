@@ -66,8 +66,8 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
    - To wait for a run to finish, watch it, then read
      `gh api repos/Rourke9001/TyrePlatform/actions/runs/<id> --jq '.status, .conclusion'`,
      and repeat until `status` is `completed`.
-   - To wait for a run that is not listed yet (GitHub queues develop runs
-     for minutes), watch develop's newest CI run, used only as a wait, then
+   - To wait for a run that is not listed yet (a develop run can take
+     minutes to appear in the list), watch develop's newest CI run, used only as a wait, then
      list again:
      `gh run list -R Rourke9001/TyrePlatform --branch develop --workflow CI --limit 1 --json databaseId --jq '.[0].databaseId'`.
 
@@ -80,12 +80,16 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
      `gh api repos/Rourke9001/TyrePlatform/compare/<merge_commit_sha>...<headSha> --jq .status`
      returning `ahead` or `identical`, wait for it the same way, and judge
      its result by these same cases. If none exists yet, wait as for a run
-     not listed yet, then list again.
+     not listed yet, then list again. A re-run reuses the run id: before
+     deciding, read the run's `run_attempt` and that attempt's job count
+     (`gh api repos/Rourke9001/TyrePlatform/actions/runs/<id>/attempts/<n>/jobs --jq .total_count`).
+     While no later push run contains the merge commit, keep watching that
+     same id for the full 60 minutes (docs/lessons.md, 2026-10-20).
    - `failure` where every failed job stopped at its deploy Guard step with
      the `TYRE-403` refusal
      (`gh run view <id> -R Rourke9001/TyrePlatform --log-failed` shows only
-     Guard steps, each with `TYRE-403: attempt`): the run was re-run after a later merge moved
-     `develop` on, which the guard refuses by design. Treat it as
+     Guard steps, each with `TYRE-403: attempt`): the run was re-run after
+     a later merge moved `develop` on, which the guard refuses by design. Treat it as
      `cancelled`.
    - anything else, including a failed staging deploy: comment the run URL
      on each ticket the PR names, transition nothing, post the report (at
@@ -106,12 +110,17 @@ stage is not "handed over", stop: a pipeline is working in this checkout.
    section**, not only the row for this batch. Check every key the page lists as
    pending against `statusCategory = Done`; a hit means the page is stale
    somewhere else too. Correct any premise the batch has falsified, and prune
-   what has stopped being about the queue.
+   what has stopped being about the queue. List every key checked and its
+   status in the report, even when none changed.
 6. **Residuals.** The PR body's "Set aside" list is their record; chat is
-   not. Raise a ticket, linked to its parent, only for an item that passes
-   CLAUDE.md's schedule test or is one of the two kinds it always tickets
-   (U130). If more than two items qualify, raise none and list them in the
-   report as a decision waiting on the owner.
+   not. Read it for bugs first, by CLAUDE.md's definition. A bug there
+   means the branch merged with one unfixed: raise no ticket for it, and
+   list it under Waiting on the owner with the PR's key, as a miss for the
+   owner to rule on (U146). Raise a ticket, linked to its parent, only for
+   an item that is not a bug and passes CLAUDE.md's schedule test, or is an
+   SRS change (U130). Search the board first, and comment on an open ticket
+   rather than raise a second. If more than two items qualify, raise none
+   and list them in the report as a decision waiting on the owner.
 7. **Promote to production** if the owner asks, and never in cloud mode.
    This follows `docs/runbooks/environment-release.md`, Promote to
    production, except that it never migrates production: production holds
@@ -178,5 +187,6 @@ on every path past the guards, including each stop in step 2. The routine
 acts as the owner, and neither GitHub nor Jira notifies the owner of their
 own comment, so when the run stops early or leaves a decision waiting on
 the owner, also send the owner a push notification with the session's
-notification tool. Do not mark a ticket Done to tidy the board: an unmet
-definition of done is the finding, not an obstacle.
+notification tool, and say in the report whether it was sent. Do not mark
+a ticket Done to tidy the board: an unmet definition of done is the
+finding, not an obstacle.

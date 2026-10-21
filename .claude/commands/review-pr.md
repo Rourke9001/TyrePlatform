@@ -28,11 +28,16 @@ come from a session that does not share the author's context.
    (docs/lessons.md, 2026-09-23). Drop what does not survive, and say why.
 5. **Report.** Write `.superpowers/sdd/<date>-review-pr<n>/report.md`. For
    each surviving finding give the severity, `file:line`, what is wrong and
-   why it matters, the evidence, and the fix. List what you set aside, with
-   the reason. A Minor is non-blocking: give at most five, each with a
-   one-line fix, and count the rest. It is fixed in the PR or goes under
-   the PR's "Set aside", never into a ticket of its own (CLAUDE.md, U130).
+   why it matters, the evidence, and the fix, and mark it bug or not a bug
+   by CLAUDE.md's definition. List every bug, whatever its severity and
+   whether or not it predates the PR: each one blocks the merge and is
+   fixed in the PR, unless it meets CLAUDE.md's exception, which the report
+   names with its reason (U146). A Minor that is not a bug is non-blocking:
+   give at most five, each with a one-line fix, and count the rest. It is
+   fixed in the PR or goes under the PR's "Set aside", never into a ticket
+   of its own (CLAUDE.md, U130). List what you set aside, with the reason.
 
-Reply with the counts by severity, the merge verdict (merge, merge after
-fixes, or do not merge) and the report path. Fixes run in the authoring
+Reply with the counts by severity and the number of bugs, the merge verdict
+(merge, merge after fixes, or do not merge; any open bug means merge after
+fixes) and the report path. Fixes run in the authoring
 session or a fresh one, then a scoped re-review runs here.
