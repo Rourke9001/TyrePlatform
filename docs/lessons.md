@@ -30,6 +30,22 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-10-21 - A capture entry a byte over budget can be filename noise (#146)
+
+**What happened:** #146 failed `bundle:check` at 140374 gzip bytes against
+a budget of 140373, with no new import in the entry. Built from the branch
+and from develop, the entry chunk was 436555 raw bytes both times. The only
+difference was the lazy chunks' content-hashed filenames in its preload
+map, which change whenever a lazy route's source does, and gzip sized the
+new names a byte or two differently. The budget is recorded with no
+headroom, so a new hash alone can cross it.
+
+**The rule:** when the entry goes over by a few bytes, build develop's
+`web/src` in the same tree and compare the raw entry size and its text
+before suspecting the change. If the raw bytes match and only filenames
+differ, run `--record` and say so in the commit. Anything else is real
+growth: move the import behind `React.lazy`.
+
 ## 2026-10-20 - A cloud session has no Docker daemon and loads no project plugin (TYRE-445)
 
 **What happened:** in a claude.ai cloud session, `docker` and `dockerd`
