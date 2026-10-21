@@ -12923,7 +12923,7 @@ BEGIN
   RETURN rc;
 END $fn$;
 
-\echo '== 75a. app.record_consent writes one row for the bound fleet with no actor, refuses each bad input as TY027, and the app role can neither edit nor delete a row (FR-TEN-022, OR-LEG-005, ADR-0012; as Second Fleet, rolled back)'
+\echo '== 75a. app.record_consent writes one row for the bound fleet with no actor, refuses each bad input and a time not after the purpose''s latest record (U144) as TY027, and the app role can neither edit nor delete a row (FR-TEN-022, OR-LEG-005, ADR-0012; as Second Fleet, rolled back)'
 BEGIN;
 DO $$
 DECLARE t2 constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -12981,7 +12981,16 @@ BEGIN
      'TY027 a consent record states when consent was given'),
     ('a future time',
      $q$SELECT app.record_consent('SERVICE_DELIVERY', true, 'T75 MSA v1', now() + interval '1 minute')$q$,
-     'TY027 consent is recorded as given now or earlier, never at a future time')
+     'TY027 consent is recorded as given now or earlier, never at a future time'),
+    -- U144: the purpose's latest row is cid's, at 2026-10-01T08:00Z.
+    ('the time of the purpose''s latest record',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', false, 'T75 MSA v2', '2026-10-01T08:00:00Z')$q$,
+     format('TY027 the latest SERVICE_DELIVERY consent record is dated %s; a new one is dated after it',
+            '2026-10-01T08:00:00Z'::timestamptz)),
+    ('a time before the purpose''s latest record',
+     $q$SELECT app.record_consent('SERVICE_DELIVERY', false, 'T75 MSA v2', '2026-09-01T00:00:00Z')$q$,
+     format('TY027 the latest SERVICE_DELIVERY consent record is dated %s; a new one is dated after it',
+            '2026-10-01T08:00:00Z'::timestamptz))
   ) v(what, stmt, want) LOOP
     got := pg_temp.t75_try(e.stmt);
     IF got IS DISTINCT FROM e.want THEN
@@ -13014,7 +13023,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 75b. the current-consent view gives the latest row per fleet and purpose by when consent was given, then when it was recorded, a recorded NULL last; a purpose never recorded is absent, and another fleet sees none of it (FR-TEN-022; as Second Fleet, rolled back)'
+\echo '== 75b. the current-consent view gives the latest row per fleet and purpose by when consent was given, then when it was recorded, a recorded NULL last, for rows a direct insert can leave out of order; a purpose never recorded is absent, and another fleet sees none of it (FR-TEN-022; as Second Fleet, rolled back)'
 BEGIN;
 DO $$
 DECLARE t2  constant uuid := '22222222-2222-2222-2222-222222222222';
@@ -13026,8 +13035,10 @@ BEGIN
   PERFORM app.record_consent('ANONYMISED_BENCHMARKING', true,  'T75 v1', '2026-09-01T00:00:00Z');
   PERFORM app.record_consent('ANONYMISED_BENCHMARKING', false, 'T75 v2', '2026-10-01T00:00:00Z');
   -- Recorded last, given first: when it was given decides, not when it
-  -- was recorded.
-  PERFORM app.record_consent('ANONYMISED_BENCHMARKING', true,  'T75 v0', '2026-08-01T00:00:00Z');
+  -- was recorded. The writer refuses this (U144, 75a), so it is inserted
+  -- directly, as the owning role can.
+  INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version, occurred_at)
+  VALUES (t2, 'ANONYMISED_BENCHMARKING', true, 'T75 v0', '2026-08-01T00:00:00Z');
   SELECT string_agg(v.purpose_code || ':' || v.granted || ':' || v.notice_version, ' ' ORDER BY v.purpose_code)
     INTO got FROM app.v_tenant_consent_current v WHERE v.tenant_id = t2;
   IF got IS DISTINCT FROM 'ANONYMISED_BENCHMARKING:false:T75 v2' THEN
@@ -13359,7 +13370,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 75i. set_tyre_cost sends a received tyre to its receipt as TY013 and still costs a tyre with no receipt (FR-CFG-041, FR-TYR-041; as BAC, rolled back)'
+\echo '== 75i. set_tyre_cost sends a received tyre to its receipt as TY013, refuses a NaN cost, and still costs a tyre with no receipt (FR-CFG-041, FR-TYR-041; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -13379,6 +13390,10 @@ BEGIN
   VALUES (app.current_tenant_id(), 'T75I-NO-RECEIPT', md5('sz1')::uuid, md5('br1')::uuid, md5('pt1')::uuid,
           'NEW', 0, 25.0, 'IN_STOCK', '2026-10-01')
   RETURNING id AS tyre_id INTO r;
+  got := pg_temp.t75_try(format('SELECT app.set_tyre_cost(%L, ''NaN'', ''INVOICE'')', r.tyre_id));
+  IF got IS DISTINCT FROM 'TY013 a cost is a non-negative amount' THEN
+    RAISE EXCEPTION 'FAIL 75i: a NaN cost was answered %', got;
+  END IF;
   PERFORM app.set_tyre_cost(r.tyre_id, 4319.91, 'INVOICE');
   SELECT * INTO t FROM app.tyre WHERE id = r.tyre_id;
   IF t.purchase_price IS DISTINCT FROM 4319.91 OR t.cost_source IS DISTINCT FROM 'INVOICE'
@@ -13386,7 +13401,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 75i: a tyre with no receipt was costed at %, %, rate %',
       t.purchase_price, t.cost_source, t.rand_per_mm;
   END IF;
-  RAISE NOTICE 'PASS  75i a received tyre is sent to its receipt and a tyre with none is costed';
+  RAISE NOTICE 'PASS  75i a received tyre is sent to its receipt, a NaN cost is refused and a tyre with no receipt is costed';
 END $$;
 ROLLBACK;
 
@@ -13596,6 +13611,7 @@ BEGIN
     ('an invoice on ESTIMATE_KEPT',     format('SELECT app.record_receipt_invoice(%L, 4200.00)', r_kept), 'TY026 this receipt''s price is final and does not change'),
     ('no invoice price',                format('SELECT app.record_receipt_invoice(%L, NULL)', r_est),     'TY026 an invoice price is a non-negative amount'),
     ('a negative invoice price',        format('SELECT app.record_receipt_invoice(%L, -1.00)', r_est),    'TY026 an invoice price is a non-negative amount'),
+    ('a NaN invoice price',             format('SELECT app.record_receipt_invoice(%L, ''NaN'')', r_est),  'TY026 an invoice price is a non-negative amount'),
     ('an invoice dated 2099-01-01',     format('SELECT app.record_receipt_invoice(%L, 4200.00, NULL, ''2099-01-01'')', r_est),
                                         'TY026 an invoice is dated today or earlier, never in the future'),
     ('the list price on no receipt',    format('SELECT app.apply_receipt_list_price(%L)', nowhere),        'TY012 no such receipt in this fleet'),

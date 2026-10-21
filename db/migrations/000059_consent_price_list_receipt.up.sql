@@ -54,6 +54,7 @@ LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
 DECLARE
   tid    uuid := app.current_tenant_id();
+  latest timestamptz;
   new_id uuid;
 BEGIN
   IF tid IS NULL THEN
@@ -83,10 +84,19 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY027',
       MESSAGE = 'a consent record states when consent was given';
   END IF;
-  -- Consent cannot be granted retroactively, nor ahead of the agreement.
   IF p_occurred_at > now() THEN
     RAISE EXCEPTION USING ERRCODE = 'TY027',
       MESSAGE = 'consent is recorded as given now or earlier, never at a future time';
+  END IF;
+  -- U144: each record is dated after the purpose's latest, so the history
+  -- reads in order and the current record is never a tie. Two concurrent
+  -- writers can both pass; the writers are the tech team's, one at a time.
+  SELECT max(c.occurred_at) INTO latest FROM app.tenant_consent c
+   WHERE c.tenant_id = tid AND c.purpose_code = p_purpose;
+  IF p_occurred_at <= latest THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY027',
+      MESSAGE = format('the latest %s consent record is dated %s; a new one is dated after it',
+                       p_purpose, latest);
   END IF;
 
   INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version, actor_id, occurred_at)
@@ -96,7 +106,8 @@ BEGIN
 END $$;
 
 -- The latest row per fleet and purpose: by when consent was given, then by
--- when it was recorded, a row a direct insert left undated last. A purpose
+-- when it was recorded, a row a direct insert left undated last. The writer
+-- leaves no tie (U144); a direct insert can. A purpose
 -- with no row has no current consent, since an empty ledger is not consent.
 -- TYRE-428 reads the same shape.
 CREATE VIEW app.v_tenant_consent_current WITH (security_invoker = true) AS
@@ -671,7 +682,9 @@ BEGIN
       MESSAGE = 'this tyre''s cost is already recorded',
       HINT    = 'a correction is a decision this surface does not take; raise it against TYRE-48';
   END IF;
-  IF p_price IS NULL OR p_price < 0 THEN
+  -- NaN sorts above every number, so < 0 passes it; a retreaded tyre's
+  -- kept rate would then store it unchecked.
+  IF p_price IS NULL OR p_price < 0 OR p_price = 'NaN' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY013', MESSAGE = 'a cost is a non-negative amount';
   END IF;
   -- U128 (TYRE-422), stated at receive_tyres' cost-source checks above.
@@ -798,7 +811,8 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY026',
       MESSAGE = 'this receipt''s price is final and does not change';
   END IF;
-  IF p_price IS NULL OR p_price < 0 THEN
+  -- NaN, as at app.set_tyre_cost.
+  IF p_price IS NULL OR p_price < 0 OR p_price = 'NaN' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY026', MESSAGE = 'an invoice price is a non-negative amount';
   END IF;
   -- Today is the fleet's (rule 6), as at app.receive_tyres.

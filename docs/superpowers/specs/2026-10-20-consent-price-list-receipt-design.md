@@ -73,6 +73,10 @@ threshold); tread age sits in an existing cell, never a new column; the
 receipt stores what defined its set; the capture bundle's rise is recorded,
 not assumed away; and FR-CFG-022 joins the SRS consequences.
 
+Amended after the code review of PR #139 (21 Oct 2026): a consent record
+is dated after its purpose's latest record (U144), so call 9's back-dating
+reaches only a purpose's first record or a date after the last one.
+
 ## Scope
 
 In:
@@ -440,4 +444,4 @@ The owner deferred these to common practice or left them to the lead:
 8. The settings page also shows the catalogue with its lineage, because
    FR-CFG-005 has to be visible to a manager somewhere.
 9. Consent's `occurred_at` may be back-dated to the agreement date, never
-   future.
+   future, and is always after the purpose's latest record (U144).
