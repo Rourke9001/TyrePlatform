@@ -934,6 +934,10 @@ BEGIN
     RAISE EXCEPTION 'FAIL P15: Second Fleet''s receipts or tyres changed under BAC''s calls';
   END IF;
 
+  -- U144's read names its fleet: BAC's later record does not hold Second
+  -- Fleet's earlier one back.
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM app.record_consent('SERVICE_DELIVERY', true, 'P15 BAC later', '2026-10-02T08:00:00Z');
   PERFORM set_config('app.tenant_id', t2::text, true);
   PERFORM app.record_consent('SERVICE_DELIVERY', true, 'P15 MSA v1', '2026-10-01T08:00:00Z');
   SELECT count(*) INTO n FROM app.tenant_consent c WHERE c.notice_version = 'P15 MSA v1' AND c.tenant_id <> t2;
