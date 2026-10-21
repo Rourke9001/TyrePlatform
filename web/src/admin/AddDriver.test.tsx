@@ -58,6 +58,19 @@ describe("adding a driver", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the assign step when the role select changes after a driver is added", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(respond(201, CREATED))
+      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]));
+
+    renderScreen();
+    await fillAndSubmit();
+    await screen.findByRole("heading", { name: "Assign to a unit" });
+    await userEvent.selectOptions(screen.getByLabelText("Role"), "TECHNICIAN");
+
+    expect(screen.getByRole("heading", { name: "Assign to a unit" })).toBeInTheDocument();
+  });
+
   it("names an active collision as an address already in use", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(
       respond(409, {

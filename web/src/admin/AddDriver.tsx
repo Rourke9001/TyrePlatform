@@ -14,8 +14,8 @@ import "./admin.css";
 // creatable through a tenant surface at all (ADR-0011, ADR-0013). This is the
 // full list; the component narrows it per actor before rendering (D9).
 // assignable mirrors CaptureInspection in api/internal/auth/auth.go's table,
-// which decides. The server refuses an assignee without it
-// (refuseNonCapturer).
+// which decides. The assign step shows only for an assignable role, because
+// the server refuses anyone else (refuseNonCapturer).
 const ROLES: { value: TenantRole; label: string; assignable: boolean }[] = [
   { value: "DRIVER", label: "Driver", assignable: true },
   { value: "TECHNICIAN", label: "Technician", assignable: false },
