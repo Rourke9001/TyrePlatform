@@ -303,6 +303,28 @@ func TestScheduleTaskRefusesAnUnassignedDriver(t *testing.T) {
 	require.Equal(t, 0, countTasks(t, ctx, admin, tenantID))
 }
 
+// The technician is assigned directly, as a row written before assignDriver
+// checked would be, so TY018's own assignment check passes and the refusal
+// under test is the capability one.
+func TestScheduleTaskRefusesAnAssigneeWhoCannotCapture(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "task-capturer")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	assignVehicleDriver(t, ctx, admin, tenantID, horseID, technician)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	rec := post(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), controller.String(),
+		fmt.Sprintf(`{"assigneeUserId":%q}`, technician))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "assigneeUserId")
+	require.Equal(t, 0, countTasks(t, ctx, admin, tenantID))
+}
+
 // FR-AUT-008's depot narrowing for a write that predates it; TestFitTyreIsDepotScoped
 // carries why, and why the controller is the control (TYRE-226). The assignee
 // is planted onto both units first (spec U4): an unassigned driver would be

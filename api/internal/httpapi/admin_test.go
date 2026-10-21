@@ -518,6 +518,42 @@ func TestAssignDriverIsDepotScoped(t *testing.T) {
 		post(t, h, "/api/vehicles/"+elsewhere.String()+"/drivers", tenantID.String(), controller.String(), body).Code)
 }
 
+// An assignment exists so its holder can capture the unit (v_capture_vehicle),
+// and TECHNICIAN holds no CaptureInspection: before refuseNonCapturer it was
+// assigned, then refused when it opened the unit (ADR-0013, Accepted gaps).
+func TestAssignDriverRefusesAUserWhoCannotCapture(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, fleet := plantTenantWithVehicle(t, ctx, admin, "assign-capturer")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
+	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	var unit uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet).Scan(&unit))
+	path := "/api/vehicles/" + unit.String() + "/drivers"
+
+	rec := post(t, h, path, tenantID.String(), orgAdmin.String(),
+		`{"userId":"`+technician.String()+`","fromDate":"2026-01-01"}`)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	var ref refusalBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "userId")
+
+	// the refused write must not have written
+	var landed int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1`, unit).Scan(&landed))
+	require.Zero(t, landed)
+
+	// control: a driver on the same unit lands
+	require.Equal(t, http.StatusCreated, post(t, h, path, tenantID.String(), orgAdmin.String(),
+		`{"userId":"`+driver.String()+`","fromDate":"2026-01-01"}`).Code)
+}
+
 // app.vehicle_driver carries three composite tenant FKs (000004, 000017), not
 // tenant_isolation's usual one: (tenant_id, vehicle_id), (tenant_id, user_id)
 // and (tenant_id, created_by). Leaving any of the three to a default or to a

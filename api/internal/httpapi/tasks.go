@@ -293,6 +293,12 @@ func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
 				}
 			}
+			// An assignment written before assignDriver checked, or kept
+			// through a reactivation that changed the role, still names a
+			// non-capturer, so the task checks its assignee as well.
+			if err := refuseNonCapturer(ctx, tx, "assigneeUserId", assignee); err != nil {
+				return err
+			}
 			var taskID uuid.UUID
 			if err := tx.QueryRow(ctx,
 				`SELECT app.create_inspection_task($1, $2, $3::date)`,

@@ -7,6 +7,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -447,10 +448,8 @@ type assignmentJSON struct {
 }
 
 // assignDriver opens a driver-to-unit assignment (FR-VEH-007), the step
-// v_capture_vehicle reads. The assignee's role is unchecked: no constraint
-// says an assignment names a DRIVER, and every assignable role already holds
-// CaptureInspection, so asserting it here would add a Go-side rule the
-// schema does not hold (ADR-0013).
+// v_capture_vehicle reads. Its assignee must be able to capture
+// (refuseNonCapturer).
 func assignDriver(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -506,6 +505,9 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
 				}
 			}
+			if err := refuseNonCapturer(ctx, tx, "userId", userID); err != nil {
+				return err
+			}
 			var id uuid.UUID
 			var fromDate time.Time
 			err := tx.QueryRow(ctx,
@@ -529,4 +531,29 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 		}
 		writeStatus(ctx, w, http.StatusCreated, created)
 	}
+}
+
+// refuseNonCapturer refuses an assignee whose role holds no
+// CaptureInspection: an assignment or a task exists so its holder can
+// capture the unit, and a TECHNICIAN given one is refused when it opens it
+// (ADR-0013, Accepted gaps). The capability table is Go's alone (ADR-0011),
+// so this cannot be a constraint. A user the tenant cannot see is left to
+// the write's own refusal.
+func refuseNonCapturer(ctx context.Context, tx pgx.Tx, field string, userID uuid.UUID) error {
+	var role string
+	err := tx.QueryRow(ctx, `SELECT role::text FROM app.app_user WHERE id = $1`, userID).Scan(&role)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("reading the role of user %s: %w", userID, err)
+	}
+	if !auth.Holds(auth.Role(role), auth.CaptureInspection) {
+		return refusalError{refusal{
+			status:  http.StatusUnprocessableEntity,
+			code:    codeInvalidSubmission,
+			message: field + " names a user whose role cannot capture inspections",
+		}}
+	}
+	return nil
 }
