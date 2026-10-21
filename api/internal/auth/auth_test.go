@@ -98,7 +98,7 @@ func TestRoleCapabilities(t *testing.T) {
 }
 
 // Holds answers for an assignee, who is not the caller. TECHNICIAN is the
-// case that matters: it reads the fleet but holds no CaptureInspection, so
+// case that matters. It reads the fleet but holds no CaptureInspection, so
 // it could be assigned a unit it could not capture (refuseNonCapturer). An
 // unknown role holds nothing, as for Can.
 func TestHoldsAnswersForARoleNotTheCaller(t *testing.T) {

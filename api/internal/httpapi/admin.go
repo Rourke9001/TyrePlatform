@@ -534,11 +534,10 @@ func assignDriver(s *store.Store) http.HandlerFunc {
 }
 
 // refuseNonCapturer refuses an assignee whose role holds no
-// CaptureInspection: an assignment or a task exists so its holder can
-// capture the unit, and a TECHNICIAN given one is refused when it opens it
-// (ADR-0013, Accepted gaps). The capability table is Go's alone (ADR-0011),
-// so this cannot be a constraint. A user the tenant cannot see is left to
-// the write's own refusal.
+// CaptureInspection, because an assignment or a task exists so its holder
+// can capture the unit. The rule is Go's, not a constraint (ADR-0013,
+// decision 1 as amended 2026-10-21). A user the tenant cannot see is left
+// to the write's own refusal.
 func refuseNonCapturer(ctx context.Context, tx pgx.Tx, field string, userID uuid.UUID) error {
 	var role string
 	err := tx.QueryRow(ctx, `SELECT role::text FROM app.app_user WHERE id = $1`, userID).Scan(&role)
