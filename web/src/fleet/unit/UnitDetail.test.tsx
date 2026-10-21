@@ -141,7 +141,7 @@ describe("the unit screen", () => {
   });
 
   // A TECHNICIAN reads this screen, so the prompt offers only what the
-  // reader can do: the position panel shows them the tyre and no form.
+  // reader can do. The position panel shows them the tyre and no form.
   it("prompts a reader to look and a manager to fit or remove", async () => {
     const reader = renderScreen(["ViewFleet"]);
     await screen.findByRole("heading", { name: "HORSE-1" });

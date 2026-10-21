@@ -14,8 +14,8 @@ import "./admin.css";
 // creatable through a tenant surface at all (ADR-0011, ADR-0013). This is the
 // full list; the component narrows it per actor before rendering (D9).
 // assignable mirrors CaptureInspection in api/internal/auth/auth.go's table,
-// which decides: the server refuses an assignee without it
-// (refuseNonCapturer), so a technician is not offered the assign step.
+// which decides. The server refuses an assignee without it
+// (refuseNonCapturer).
 const ROLES: { value: TenantRole; label: string; assignable: boolean }[] = [
   { value: "DRIVER", label: "Driver", assignable: true },
   { value: "TECHNICIAN", label: "Technician", assignable: false },
@@ -66,8 +66,8 @@ export function AddDriver() {
   // keeps the form from expressing a request it knows will be refused.
   const canManageUsers = useCan("ManageUsers");
   const roles = canManageUsers ? ROLES : ROLES.filter((r) => r.value === "DRIVER");
-  // The server's answer, not the form's: a reactivation returns the role
-  // the user now holds.
+  // Read from the created user, not the form, because the role select stays
+  // editable after a user is added.
   const assignable = ROLES.find((r) => r.value === created?.role)?.assignable ?? false;
 
   const vehicles = useQuery({
