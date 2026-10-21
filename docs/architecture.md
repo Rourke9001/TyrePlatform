@@ -294,3 +294,4 @@ Go rather than a raw Postgres error.
 | [0018](adr/0018-ticket-orchestration.md) | An agent team runs each ticket to its PR; a routine runs close-out | Accepted |
 | [0019](adr/0019-web-calls-api-over-cors.md) | The web calls the API at its own origin, over CORS | Accepted |
 | [0020](adr/0020-tread-design-system.md) | The Tread design system replaces the TYRE-238 kit | Accepted |
+| [0021](adr/0021-governing-tread-definer-owner.md) | The governing-tread definer runs as the migrating role | Accepted |

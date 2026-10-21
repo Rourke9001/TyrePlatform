@@ -26,7 +26,9 @@ or `cat -n`, never from a grep's output.
 **The rule:** the behaviour that prevents a repeat, stated imperatively.
 ```
 
-Newest first.
+Newest first. An entry that merges several lessons is dated by its newest
+one and names the older dates and tickets in its heading, so a citation by
+date still finds it; each rule bullet carries its own source date.
 
 ## 2026-10-20 - A cloud session has no Docker daemon and loads no project plugin (TYRE-445)
 
@@ -61,68 +63,96 @@ moved to a worktree detached at `origin/develop` and finished there.
 from a checkout another session uses. Every block that writes production
 checks `[ "$ENV" = prod ]` first.
 
-## 2026-10-20 - A PR merged before the apply its template needs is held by cancelling its queued run (TYRE-435)
+## 2026-10-20 - A merge's deploy that needs unapplied state is held by cancelling its queued run, and a re-run keeps the run id (TYRE-435)
 
-**What happened:** PR #133's merged `infra/app.bicep` named
-`kv-tyre-api-staging`, which only switch-over step 1 creates. The PR was
-merged before steps 0 to 2. Its `develop` run, 39399161984, was still
-queued behind the previous merge's run. It was cancelled before any job
-started, steps 0 to 2 ran from the merge commit, and `gh run rerun` then
-deployed it green. Develop runs are not cancel-in-progress, because
-cancelling a deploy mid-rollout strands a half-applied release.
+**What happened:**
 
-**The rule:** when a merge's deploy would name Azure state that does not
-exist yet, cancel its `develop` run while it is queued, never once its
-deploy job has started. Then apply from the merge commit, after
-`git diff --quiet <reviewed head> HEAD -- infra` succeeds, and
-`gh run rerun` the same run id. Close-out reads that id as `cancelled`
-until the re-run finishes (the entry below).
+- PR #133's merged `infra/app.bicep` named `kv-tyre-api-staging`, which
+  only switch-over step 1 creates. Its `develop` run, 39399161984, still
+  queued behind the previous merge's run, was cancelled before any job
+  started; steps 0 to 2 ran from the merge commit, and `gh run rerun` then
+  deployed it green. Develop runs are not cancel-in-progress, because
+  cancelling a deploy mid-rollout strands a half-applied release.
+- The close-out routine read that run as `cancelled`, found no later
+  `develop` push run and stopped at step 2. Attempt 2 went green an hour
+  later under the same run id, so the close-out was run by hand: step 2's
+  `cancelled` case looks only for a later push run, and a re-run creates
+  none.
 
-## 2026-10-20 - A cancelled CI run can come back under the same id (TYRE-435)
+**The rule:**
 
-**What happened:** the close-out routine for PR #133 read the merge
-commit's CI run, 39399161984, as `cancelled`. It found no later `develop`
-push run and stopped at step 2 eight minutes later. Attempt 1 had been
-cancelled before any job started. The owner re-ran it about an hour later,
-and attempt 2 went green under the same run id, so the close-out had to be
-run by hand. Step 2's `cancelled` case looks only for a later push run, and
-a re-run creates none.
+- When a merge's deploy would name Azure state that does not exist yet,
+  cancel its `develop` run while it is queued, never once its deploy job
+  has started. Then apply from the merge commit, after
+  `git diff --quiet <reviewed head> HEAD -- infra` succeeds, and
+  `gh run rerun` the same run id.
+- When the merge commit's run reads `cancelled`, read its `run_attempt`
+  and the attempt's job count
+  (`gh api repos/Rourke9001/TyrePlatform/actions/runs/<id>/attempts/<n>/jobs --jq .total_count`)
+  before deciding. While no later push run contains the merge commit, keep
+  watching that same id for the full 60 minutes, because a re-run reuses
+  it.
 
-**The rule:** when the merge commit's run reads `cancelled`, read its
-`run_attempt` and the attempt's job count
-(`gh api repos/Rourke9001/TyrePlatform/actions/runs/<id>/attempts/<n>/jobs --jq .total_count`)
-before deciding. While no later push run contains the merge commit, keep
-watching that same id for the full 60 minutes, because a re-run reuses it.
+## 2026-10-19 - Text written through the Bash, Write and Edit tools is not always the text typed (2026-09-05, 2026-09-08, 2026-09-30, 2026-10-16; TYRE-101, TYRE-75, TYRE-346, TYRE-369, TYRE-435)
 
-## 2026-10-19 - A Bash heredoc that holds another heredoc is cut short, with only a warning (TYRE-435)
+**What happened:**
 
-**What happened:** a plan section was written through the Bash tool as
-`cat > step4.md <<'PLAN'`. The section itself held a runbook block with
-`cat > "$s" <<'EOF'`. The file stopped at that inner line, cut inside its
-quote (`<<'EOF`), and the commands after the heredoc never ran. The only
-sign was bash's warning that the here-document ended at end-of-file while
-it wanted `PLAN`. In plain bash a quoted heredoc's body is inert text, so
-the cut happens before bash reads the command. The exact cause was not
-pinned down.
+- 2026-09-05 (TYRE-101): a plan written through `cat > file <<'EOF'` in
+  the Bash tool failed with `ENAMETOOLONG: name too long, uv_spawn`. The
+  heredoc is part of the spawned command line, so a few tens of KB overrun
+  the argument limit, and the error names a path problem for a size
+  problem.
+- 2026-09-08 (TYRE-75):
+  `sed -n "/^\\\\echo '== 58\\./,/^ROLLBACK;$/p" db/tests/004_tests.sql`
+  printed nothing though the section was there. A script invoked as
+  `probe.sh 'x\\y'`, in single quotes, reported its argument as
+  `x\y`: every doubled backslash loses one before bash parses the
+  command, so sed received `\e`. The same collapse silently rewrites
+  heredoc bodies.
+- 2026-09-30 (TYRE-346): suite section 67, spliced into
+  `db/tests/004_tests.sql` with `node -e` and `String.prototype.replace`,
+  lost a dollar from every `DO $$` body (in a replacement string `$$` means
+  a literal `$`), and the halved backslashes turned `\echo` into
+  `echo`. The mangled section reached a commit.
+- 2026-10-16 (TYRE-369): `'[[:space:]\u00a0\u2007...]'` typed
+  into 000058 through the Edit tool became six raw invisible characters,
+  because the tool decodes `\uXXXX` in its input. The suite passed;
+  only the re-review saw that no reader could see them and an editor could
+  strip them. A doubled backslash and `\x` arrive as typed. Bash is
+  the reverse: a single `\u` arrives as typed, and a doubled backslash
+  before `u` collapses to one.
+- 2026-10-19 (TYRE-435): a plan section written as
+  `cat > step4.md <<'PLAN'` held a runbook block with
+  `cat > "$s" <<'EOF'`. The file stopped at that inner line, cut inside its
+  quote (`<<'EOF`), and the commands after the heredoc never ran; the only
+  sign was bash's warning that the here-document ended at end-of-file while
+  it wanted `PLAN`. The exact cause was not pinned down.
 
-**The rule:** write content that itself contains a heredoc with the Write
-tool, then run commands on the file. After any heredoc write, check the
-file's last line with `tail -1` before using it.
+**The rule:**
 
-## 2026-10-16 - The Write and Edit tools turn a typed `\u` escape into the raw character (TYRE-369)
-
-**What happened:** a stage 5 fix typed `'[[:space:]\u00a0\u2007...]'` into
-000058 through the Edit tool. The tool decodes `\uXXXX` in its input, so
-the file got six raw invisible characters instead of the escapes. The suite
-passed, since the characters were the right ones, and only the re-review
-saw that no reader could see them and an editor could strip them. A doubled
-backslash and `\x` arrive as typed. Bash is the reverse: a single `\u`
-arrives as typed, and a doubled backslash before `u` collapses to one.
-
-**The rule:** never type a `\u` escape into Write or Edit. Name the
-character by code point (`chr(160)` in SQL), or write the line through
-Bash. After any edit meant to add an escape, run `grep -nP '[^\x00-\x7F]'`
-on the file before committing.
+- Write long files, and any content that itself contains a heredoc, with
+  the Write tool, then run commands on the file. Reserve heredocs for short
+  fragments, and after any heredoc write check the file's last line with
+  `tail -1` before using it. If `uv_spawn` says `ENAMETOOLONG` and the path
+  is plainly short, stop reading the path and look at the payload size
+  (2026-09-05, 2026-10-19).
+- Never spell a literal backslash as `\\` through the Bash tool.
+  In a regex use a bracket expression, which survives because it holds a
+  single backslash: `sed -n "/^[\]echo '== NN\./,/^ROLLBACK;$/p"`.
+  Prove any such cut before trusting it: diff the extracted text against
+  the section as it stands in the suite, because an empty cut piped into
+  psql exits 0 and reads like a pass. For file content that must contain
+  backslashes, use the Write or Edit tool rather than a heredoc
+  (2026-09-08).
+- Never type a `\u` escape into Write or Edit. Name the character by
+  code point (`chr(160)` in SQL), or write the line through Bash. After any
+  edit meant to add an escape, run `grep -nP '[^\x00-\x7F]'` on
+  the file before committing (2026-10-16).
+- Never splice SQL through a string `replace` or a quoted `-e` script.
+  Write the new section to its own file with the Write tool and join the
+  pieces by line number (`head -n`, `cat`, `tail -n +`), or use Edit. Then
+  check `git diff` for `$$` and `\echo` before committing
+  (2026-09-30).
 
 ## 2026-10-15 - psql does not interpolate a variable inside `-c` (TYRE-369)
 
@@ -137,6 +167,55 @@ looks right.
 in the shell against a strict pattern and write it into the SQL, as `make
 provision-catalogue` does with its uuid, or put the statements in a file
 psql reads.
+
+## 2026-10-12 — A teammate's subagents and forks report to the lead, not to the teammate (TYRE-412)
+
+**What happened:** in the TYRE-412 spike (Claude Code 2.1.296, agent teams
+on), a teammate dispatched a subagent and blocked on it. The subagent's
+`SubagentHandback` was refused with "the agent that spawned you is no
+longer running" while the teammate was still waiting, and the teammate's
+Agent call returned "no report was delivered". The subagent's later
+hand-back reached the lead. The teammate's `/code-review` fork also
+completed to the lead and never to the teammate. Separately, the lead
+wrote that the teammate had not answered a message: the teammate had sent
+its reply 30 seconds earlier, and it had not reached the lead yet.
+
+**The rule:** never give a teammate work that dispatches a subagent or a
+background fork, such as subagent-driven development, `/code-review` or
+`/review-pr`; it runs inline or stays outside the team (ADR-0018, U125). A
+lead waits for a teammate's explicit report and never reads silence as an
+answer.
+
+## 2026-10-12 - A routine's trigger filter and its Run now settings are not what the API or develop say (TYRE-412, TYRE-416)
+
+**What happened:**
+
+- TYRE-412: the close-out routine's GitHub trigger, created with
+  RemoteTrigger `create_webhook_trigger` and a filter for merged PRs into
+  `develop` whose title names a `TYRE-` key, came back without the filter
+  and fires on every closed PR. The API has no delete for a webhook
+  trigger, and neither the create's response nor `get` on the routine
+  shows its webhook triggers.
+- TYRE-416: the push probe, started with Run now, sat at a permission
+  prompt until the owner approved it on the session page; nobody was
+  notified. Run now starts on `main` (the PR 53 run began at `08c6d2b`,
+  main's head), whose `.claude/settings.json` then still asked before
+  `git push`, which `develop` allowed since U126. The run on #108's merge
+  started on that PR's head branch, with `develop`'s settings, and ran
+  `git checkout --detach origin/develop` with no prompt, although no allow
+  rule names that command.
+
+**The rule:**
+
+- Set and confirm a routine's trigger filters on its claude.ai routine
+  page, never through the API. Never create a second trigger to correct the
+  first: there is no delete, and both would fire (TYRE-412).
+- Run now starts on `main`, whose settings lag `develop`'s between
+  promotions. Test a routine with a real merge into `develop`, not Run now,
+  whenever `main` does not yet carry the settings under test. Before adding
+  allow rules for a routine's prompt, read the `ask` rules on the branch the
+  run started on. Since the 20 Oct promotion (`d2bd08c`) `main` allows
+  `git push` as well, so that particular prompt is gone (TYRE-416).
 
 ## 2026-10-11 — A failing Container Apps revision reads 100% traffic while the old one serves
 
@@ -183,127 +262,280 @@ read it back. Create a passcode user only through Graph, with no password,
 `creationType` and `passwordPolicies` null and a `federated` / `mail`
 identity (TYRE-317 comment 13468), never in the admin center.
 
-## 2026-10-02 - TanStack Query tells its observers on a later tick, so an assertion straight after `act(refetchQueries)` reads the old render (TYRE-317)
+## 2026-10-02 - A TanStack call count or refetch is read only after the render that proves it (2026-09-03; TYRE-92, TYRE-317)
 
-**What happened:** a test that a 401 never unmounts the capture asserted
-straight after `client.refetchQueries()` in `act()`, and passed against a
-provider changed to drop the actor. query-core 5.101.4's `notifyManager`
-schedules observers with `setTimeout(0)` (`build/modern/notifyManager.js`,
-line 3), so the provider had not re-rendered yet.
+**What happened:**
 
-**The rule:** the 2026-09-03 entry below holds the general rule. Here, assert
-only after the provider re-renders on the refetch, with a `findBy` on what
-it derives from the new result.
+- 2026-09-03 (TYRE-92): a double-submit test asserted the `mutate` spy's
+  call count straight after `fireEvent.click`, inside the click's own
+  synchronous `act()`. It read `1` with or without the guard, because
+  neither the guard nor its absence had run yet.
+- 2026-10-02 (TYRE-317): a test that a 401 never unmounts the capture
+  asserted straight after `client.refetchQueries()` in `act()`, and passed
+  against a provider changed to drop the actor. query-core 5.101.4's
+  `notifyManager` schedules observers with `setTimeout(0)`
+  (`build/modern/notifyManager.js`, line 3), so the provider had not
+  re-rendered yet.
 
-## 2026-10-02 - In a git worktree, `make db-up` names its compose project after the folder and collides with `tyre-pg` (TYRE-317)
+**The rule:**
 
-**What happened:** `make check` in the worktree `tp-fix-92` failed at
-`make db-up` with a container-name conflict on `tyre-pg`. Docker compose
-names the project after the folder, so the worktree asked for project
-`tp-fix-92`, while the running `tyre-pg` (the fixed `container_name` in
-`docker-compose.yml`) belongs to project `tyreplatform`. With
-`COMPOSE_PROJECT_NAME=tyreplatform` a dry run showed `Container tyre-pg
-Running` and no recreate, and the gate ran.
+- A mutation call count proves nothing until the mutation has actually
+  resolved. Assert after the success text renders
+  (`await findByText(...)`), not inside the event's synchronous `act`, and
+  confirm the assertion fails with the guard removed before trusting it
+  (2026-09-03).
+- After a refetch, assert only once the provider re-renders on it, with a
+  `findBy` on what it derives from the new result (2026-10-02).
 
-**The rule:** run gates in a worktree as `COMPOSE_PROJECT_NAME=tyreplatform
-VITEST_MAX_WORKERS=4 make check`. A worktree's gate loads that branch's
-schema into the shared `tyre-pg`, so another checkout runs `make db-reset`
-before it next uses the database.
+## 2026-10-02 - Parallel agents and worktrees share more state than they seem to (2026-08-26, 2026-09-03, 2026-09-09, 2026-09-23; TYRE-4, TYRE-92, TYRE-237, TYRE-180, TYRE-317)
 
-## 2026-10-02 - oidc-client-ts's request timeout ends when the headers arrive, not the body (TYRE-317)
+**What happened:**
 
-**What happened:** the 2026-10-01 fix passed the timeout per call and kept a
-test that the refresh request carries an abort signal, and both the code
-comment and the spec then said the refresh was bounded. In oidc-client-ts
-3.5.0 `fetchWithTimeout` clears its abort timer in a `finally` as soon as
-`fetch()` resolves (`dist/esm/oidc-client-ts.js` 685-706), and `postForm`
-then awaits `response.text()` (784) with no signal, as `getJson` does with
-`response.json()` (739). A response whose headers arrive and whose body stalls
-held the token store's shared renewal, and every API call behind it, until
-a reload.
+- 2026-08-26 (TYRE-4): a resumed subagent found HEAD past its own commit,
+  read the author `Rourke Amiss` as the owner working alongside it, and
+  declined to run `make check`. The commit was a sibling subagent's: every
+  agent commits under the repo's configured git identity.
+- 2026-09-03 (TYRE-92): two agents in one checkout each staged only their
+  own files, and `git add <my files>` then `git commit` still swept in the
+  sibling's staged files, because both commands use the one `.git/index`.
+- 2026-09-03 (TYRE-92): two agents each told to wait for the other's commit
+  before touching `web/src/fleet/fleet.css` deadlocked. It was broken by
+  staging one agent's hunks directly into the index, built as `HEAD` plus
+  its own hunks via `hash-object`/`update-index`, never touching the
+  sibling's working copy.
+- 2026-09-03 (TYRE-92): two implementers held their database gates until a
+  verifier's report file existed, but it was written section by section
+  while its probes still ran, so a `make db-reset` would have wiped a probe
+  mid-flight had the hold not been re-sent against a terminal marker.
+- 2026-09-09 (TYRE-237): seven agents dispatched in one message each wrote
+  `edits.json` and `checker-before.txt` to the scratchpad root; two had
+  their before-state files overwritten by a sibling and reported "before"
+  numbers from memory.
+- 2026-09-23 (TYRE-180): Agent isolation "worktree" created worktrees at
+  08c6d2b while the session sat on develop 6ce7444. Two of four lanes built
+  on that stale tree and reported "cut from develop"; one ran a green
+  `make check` against a tree three weeks old.
+- 2026-10-02 (TYRE-317): `make db-up` in the worktree `tp-fix-92` failed on
+  a container-name conflict: compose names the project after the folder,
+  while the running `tyre-pg` (the fixed `container_name` in
+  `docker-compose.yml`) belongs to project `tyreplatform`. With
+  `COMPOSE_PROJECT_NAME=tyreplatform` a dry run showed
+  `Container tyre-pg Running` and no recreate, and the gate ran.
 
-**The rule:** a library timeout that aborts `fetch()` bounds only the wait
-for headers. Bound the caller's wait yourself (the token store's `bounded()`
-in `web/src/api/token.ts`), and when checking a library's timeout, read
-where its timer is cleared as well as whether a signal is passed.
+**The rule:**
 
-## 2026-10-01 - oidc-client-ts sends the refresh POST unbounded unless the timeout is passed per call (TYRE-317)
+- When HEAD has moved unexpectedly, do not infer a concurrent human from
+  the commit author: it is the same name either way. Ask the controller,
+  or read the commit message and the ledger, which name the task that
+  produced it. The caution is right, the inference is not (2026-08-26).
+- When more than one agent shares a worktree, commit with
+  `git commit -m "…" -- <paths>` (the message before the `--`, the
+  pathspec after it), which takes the working-tree contents of exactly
+  those paths and ignores the rest of the index. Never `git add` followed
+  by a bare `git commit`. A file the commit is creating needs
+  `git add -N <file>` (intent-to-add) first, or the pathspec matches
+  nothing and the commit fails; intent-to-add stages no content, so the
+  pathspec commit still takes the working tree and still ignores whatever
+  a sibling has staged, and it is not the `git add` this forbids. Verify with `git show --stat HEAD` immediately afterwards, and if
+  a commit has already swallowed a sibling's work, report it rather than
+  rewrite history the sibling is still committing onto (2026-09-03).
+- When two agents share one file in one worktree, name which one commits
+  first; never tell both sides to wait for the other. If a deadlock happens
+  anyway, write only your own hunks to the index, never commit or revert
+  the sibling's working tree (2026-09-03).
+- When agents share one database, gate a handoff on a terminal marker in
+  the report (`VERDICT`), never on the file existing. Tell long-running
+  reviewers to write incrementally, since a usage-limit cut loses an
+  unwritten report, and tell everyone waiting on them what the last line
+  is (2026-09-03).
+- Give every parallel agent its own scratch subdirectory in the packet
+  (`scratchpad/<slice>/`), and have it record its baseline inside the
+  report, not only in a file (2026-09-09).
+- First thing in any agent worktree, run `git merge-base HEAD develop`. If
+  it is not develop's tip, rebuild the branch onto develop before editing.
+  The orchestrator re-checks the merge-base before trusting any lane's gate
+  (2026-09-23).
+- Run gates in a worktree as
+  `COMPOSE_PROJECT_NAME=tyreplatform VITEST_MAX_WORKERS=4 make check`. A
+  worktree's gate loads that branch's schema into the shared `tyre-pg`, so
+  another checkout runs `make db-reset` before it next uses the database
+  (2026-10-02).
 
-**What happened:** `renew()` called `signinSilent()` with no arguments, and
-the plan's library check took `silentRequestTimeoutInSeconds` in the
-settings to bound the refresh. In oidc-client-ts 3.5.0 `signinSilent()`
-destructures that option from its own arguments and passes it on as
-`timeoutInSeconds`; `_useRefreshToken` then spreads those arguments over its
-settings default, so the explicit `undefined` wins and `fetchWithTimeout`
-calls bare `fetch` with no abort signal. A node probe showed no signal with
-the setting alone and a signal only with
-`signinSilent({ silentRequestTimeoutInSeconds: 10 })`. The token store
-shares one renewal, so one stalled refresh would have held every API call on
-the page.
+## 2026-10-02 - oidc-client-ts bounds a request only when the timeout is passed per call, and then only until the headers arrive (2026-10-01; TYRE-317)
 
-**The rule:** pass `silentRequestTimeoutInSeconds` to `signinSilent()` on
-every call, never rely on the settings for it, and keep a test that the
-refresh request carries an abort signal (`web/src/auth/oidc.test.ts`). On a
-library bump, re-check that a request the design bounds still gets a signal
-before trusting a setting's name.
+**What happened:**
 
-## 2026-10-01 - vitest's default worker count times out untouched jsdom tests on this host (TYRE-317)
+- 2026-10-01: `renew()` called `signinSilent()` with no arguments, trusting
+  `silentRequestTimeoutInSeconds` in the settings. In oidc-client-ts 3.5.0
+  `signinSilent()` passes that option on from its own arguments as
+  `timeoutInSeconds`, `_useRefreshToken` spreads the explicit `undefined`
+  over its settings default, and `fetchWithTimeout` calls bare `fetch` with
+  no abort signal. A node probe showed a signal only with
+  `signinSilent({ silentRequestTimeoutInSeconds: 10 })`. The token store
+  shares one renewal, so one stalled refresh would hold every API call on
+  the page.
+- 2026-10-02: with the timeout passed per call, the code comment and the
+  spec said the refresh was bounded. But `fetchWithTimeout` clears its
+  abort timer in a `finally` once `fetch()` resolves
+  (`dist/esm/oidc-client-ts.js` 685-706), and `postForm` then awaits
+  `response.text()` (784) with no signal, as `getJson` does with
+  `response.json()` (739). Headers that arrived ahead of a stalled body held
+  the shared renewal, and every API call behind it, until a reload.
 
-**What happened:** `make check` on a branch that touched no web file failed
-`web-test` three runs in a row with `Test timed out in 5000ms` in
-CaptureFlow, Exceptions and Dashboard tests, a different handful each run,
-plus one Dashboard debounce assertion (3 calls against 2). Vitest 4.1 starts
-about 15 workers on the 16-core host, each building a jsdom environment,
-with about 3.6 GB of RAM free: setup summed 200 s and environment 400 s
-inside an 86 s run. The same three files passed alone in 32 s, and
-`VITEST_MAX_WORKERS=4 make check` passed 837 of 837.
+**The rule:**
 
-**The rule:** on this host run the gate as `VITEST_MAX_WORKERS=4 make check`.
-When web tests time out in files the branch did not touch, cap the workers
-and re-run before reading the diff for a cause. Never raise a test timeout or
-add `maxWorkers` to `vite.config.ts` to get there: the limit is the host's,
-not the repo's. This differs from 2026-09-24, where workers exited; here they
-ran and were too slow.
+- Pass `silentRequestTimeoutInSeconds` to `signinSilent()` on every call,
+  never rely on the settings for it, and keep a test that the refresh
+  request carries an abort signal (`web/src/auth/oidc.test.ts`). On a
+  library bump, re-check that a request the design bounds still gets a
+  signal before trusting a setting's name (2026-10-01).
+- A library timeout that aborts `fetch()` bounds only the wait for headers.
+  Bound the caller's wait yourself (the token store's `bounded()` in
+  `web/src/api/token.ts`), and when checking a library's timeout, read
+  where its timer is cleared as well as whether a signal is passed
+  (2026-10-02).
 
-## 2026-10-01 - A down-file proof that moves migration files aside through a Windows temp-path glob loses them, and `migrate down 1` then reverts the wrong migration (TYRE-317)
+## 2026-10-01 - Web tests failing in files the branch did not touch are the runner or the host first (2026-08-26, 2026-09-24; TYRE-4, TYRE-211, TYRE-317)
 
-**What happened:** to take a pre-000052 baseline, the migration files were
-moved to `$TMP/hold` and brought back with an unquoted glob on the Windows
-temp path (`C:\Users\ROURKE~1\...`). The glob did not match, so the files
-stayed in scratch, `make db-reset` stopped at the seeds (which already
-named the new column), the database sat at 000051, and `migrate down 1`
-reverted 000051 while the diff still printed "grants restored".
+**What happened:**
 
-**The rule:** never prove a down file by moving its migration out of
-`db/migrations/`. Take the baseline from a copy of the catalogue taken
-before the up is applied (migrate to the prior version, query, then up); and
-before trusting a `down 1`, read the `NN/d name` line it prints
-and check it is the migration under test.
+- 2026-08-26 (TYRE-4): `npx vitest run` from the repo root resolved a
+  different vitest than the project's pinned one, from the wrong working
+  directory, picked up files vitest excludes (the Playwright e2e spec among
+  them), and every test failed identically on `document is not defined`
+  and `__APP_VERSION__ is not defined`, untouched files included.
+- 2026-09-24 (TYRE-211): a `make check` left running while the session sat
+  idle was reaped by the harness for low host memory. The orphaned `make`
+  carried on and its vitest step reported
+  `Error: Worker exited unexpectedly`, 58 errors, 15 of 73 files run and
+  every test that ran passing, on a branch with no web change; the same
+  tree passed 702/702 once memory was free. It recurred on 25 Sep (PR #81)
+  with a backgrounded `make check`.
+- 2026-10-01 (TYRE-317): `make check` on a branch with no web change failed
+  `web-test` three runs in a row with `Test timed out in 5000ms`, a
+  different handful of CaptureFlow, Exceptions and Dashboard tests each
+  run. Vitest 4.1 starts about 15 jsdom workers on the 16-core host with
+  about 3.6 GB of RAM free; the same files passed alone, and
+  `VITEST_MAX_WORKERS=4 make check` passed 837 of 837.
 
-## 2026-09-30 - `String.replace` turns a SQL `$$` into `$` when splicing a suite section (TYRE-346)
+**The rule:**
 
-**What happened:** suite section 67 was spliced into `db/tests/004_tests.sql`
-with `node -e` and `String.prototype.replace`. In a replacement string `$$`
-means a literal `$`, so every `DO $$` body lost a dollar sign. The Bash tool
-also halved the section's backslashes (lesson 2026-09-08), so `\echo` came
-out as `echo`. The mangled section reached a commit and had to be rebuilt
-from a clean copy.
+- Run the web suite through the project's own scripts from `web/`
+  (`cd web && npx vitest run`, or `make check` from the root), never
+  `npx vitest` from the repo root. When a run fails in files the diff does
+  not touch, and fails the same way in all of them, suspect the runner's
+  resolution and working directory before the code: check the reported
+  vitest version against `package.json` first (2026-08-26).
+- When vitest fails with worker exits and no assertion failure, read it as
+  the host, not the code. Do not debug it and do not re-run it while memory
+  is short. Re-run the whole `make check` when the machine is quiet, and
+  quote that run as the gate. Run it in the foreground in two halves,
+  `make fmt lint` then `make test`, each inside the tool's 10-minute limit,
+  so an idle session never holds it (2026-09-24).
+- On this host run the gate as `VITEST_MAX_WORKERS=4 make check`. When web
+  tests time out in files the branch did not touch, cap the workers and
+  re-run before reading the diff for a cause. Never raise a test timeout or
+  add `maxWorkers` to `vite.config.ts` to get there: the limit is the
+  host's, not the repo's. Here the workers ran and were too slow, where on
+  2026-09-24 they exited (2026-10-01).
 
-**The rule:** never splice SQL through a string `replace` or a quoted `-e`
-script. Write the new section to its own file with the Write tool and join
-the pieces by line number (`head -n`, `cat`, `tail -n +`), or use Edit. Then
-check `git diff` for `$$` and `\echo` before committing.
+## 2026-10-01 - Down files restore state, not text, and one migration file is not the schema (2026-08-26, 2026-09-05, 2026-09-15; TYRE-4, TYRE-101, TYRE-252, TYRE-317)
 
-## 2026-09-29 - a stopped `npm run dev` can leave vite's node child on the port (TYRE-239)
+**What happened:**
 
-**What happened:** `TaskStop`, and killing the Git Bash shell it ran in, stops
-the shell but leaves vite's `node` child listening on 5173; twice in this
-session it had to be stopped by process id, found with `Get-CimInstance
-Win32_Process` and stopped with `Stop-Process -Id`.
+- 2026-08-26 (TYRE-4): a reviewer read
+  `app.inspection.odometer bigint NOT NULL` in `000001_init.up.sql` and
+  raised a blocking finding; migration `000011` had dropped that
+  constraint, and the live column is nullable.
+- 2026-09-05 (TYRE-101):
+  `docker compose run --rm migrate -path=/migrations … down 1` from Git
+  Bash failed with
+  `failed to open source, "file://C:/Program Files/Git/migrations"` (MSYS
+  rewrote the container path), so neither `down 1` nor `up 1` ran, and the
+  green `make db-test` afterwards read as a passing round-trip proof.
+- 2026-09-15 (TYRE-252): the plan said to restore
+  `app.check_measurement_ordinals()` in the down file from
+  `000001_init.up.sql` verbatim, but 000043 had pinned
+  `search_path = app, pg_temp` on it with `ALTER FUNCTION`.
+  `CREATE OR REPLACE FUNCTION` assigns every property the command does not
+  carry: without a `SET` clause `proconfig` goes from
+  `{"search_path=app, pg_temp"}` to `NULL`. The suite runs at the up state
+  and section 8d sweeps only what is installed there, so the gate would not
+  have caught it.
+- 2026-10-01 (TYRE-317): migration files moved to `$TMP/hold` for a
+  pre-000052 baseline came back through an unquoted glob on the Windows
+  temp path (`C:\Users\ROURKE~1\...`) that did not match.
+  The database sat at 000051, and `migrate down 1` reverted 000051 while
+  the diff still printed "grants restored".
 
-**The rule:** after stopping a dev server, confirm the port is closed
-(`curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/` prints 000)
-before any `npm ci` or `npm install`, and stop a survivor by pid.
+**The rule:**
+
+- In a migration chain, the initial migration states what a column was,
+  never what it is: later migrations relax and re-tighten. Before asserting
+  a constraint exists, query the running database
+  (`information_schema.columns` via `docker exec tyre-pg psql`), or at
+  minimum grep the whole of `db/migrations/` for later `ALTER`s on that
+  column. One file is never the answer (2026-08-26).
+- A down file restores **the state the up migration found**, which is the
+  initial definition plus every `ALTER` since, not the text of the
+  migration that first created the object. Before writing one, grep the
+  whole migration chain for the object's name and fold in what you find
+  (2026-09-15).
+- Prove a down file or a round-trip by catalogue, not by a suite run:
+  execute `migrate down 1` and read back `schema_migrations.version` and
+  the property the later migration set (`proconfig`, `prosecdef`, grants, a
+  dropped function, a restored signature), then again after `up 1`. The
+  suite cannot run at the down state, a green gate at the up state says
+  nothing about it, and a green suite after a down/up that printed an
+  error is not evidence (2026-09-05, 2026-09-15).
+- Prefix any hand-typed `docker compose run` that passes a container path
+  with `MSYS_NO_PATHCONV=1`. The Makefile's `MIGRATE` carries the
+  workaround; a typed command does not (2026-09-05).
+- Never prove a down file by moving its migration out of `db/migrations/`.
+  Take the baseline from the catalogue before the up is applied (migrate to
+  the prior version, query, then up), and before trusting a `down 1`, read
+  the `NN/d name` line it prints and check it is the migration under test
+  (2026-10-01).
+
+## 2026-09-29 - `npm ci` can leave `node_modules` short, and the failure surfaces in a later tool (2026-09-23; TYRE-143, TYRE-180, TYRE-239)
+
+**What happened:**
+
+- 2026-09-23 (TYRE-143): `npm ci` beside a running Vite dev server from the
+  same checkout deleted `node_modules`, then failed with `EPERM ... unlink`
+  on `node_modules/@esbuild/win32-x64/esbuild.exe`, which the server held
+  open on Windows. `make lint` then failed with "'prettier' is not
+  recognized"; `npm install` repaired it without touching the locked
+  binary.
+- 2026-09-23 (TYRE-180): `npm ci` in a fresh worktree reported
+  `added 259 packages` and exit 0, then `make lint` failed on untouched
+  `web/src/ui/Dialog.tsx` with
+  `@typescript-eslint/no-unsafe-call`/`no-unsafe-member-access`, because
+  `node_modules/@radix-ui/` did not exist though `package-lock.json` names
+  it. A second `npm ci` reported `added 302 packages` and lint passed.
+- 2026-09-29 (TYRE-239): a stopped `npm run dev` can leave vite's node
+  child on the port. `TaskStop`, or killing its Git Bash shell, stops the
+  shell but leaves vite's `node` child listening on 5173, found with
+  `Get-CimInstance Win32_Process` and stopped with `Stop-Process -Id`.
+
+**The rule:**
+
+- Never run `npm ci` in a checkout whose dev server is running. Run gates
+  in a worktree with its own `node_modules`, or stop the server first. If it
+  has already happened, run `npm install` (not `npm ci`) to put back what
+  was deleted, then confirm `git status` shows no lockfile drift you did not
+  mean (2026-09-23).
+- After stopping a dev server, confirm the port is closed
+  (`curl -s -o /dev/null -w "%{http_code}" http://localhost:5173/` prints
+  000) before any `npm ci` or `npm install`, and stop a survivor by pid
+  (2026-09-29).
+- When `make lint`'s TypeScript-aware eslint fails on a file the branch
+  never touched, check whether the failing import actually resolves
+  (`node -e "require('./node_modules/<pkg>/package.json')"`) before reading
+  the diff for a cause. If it does not, re-run `npm ci` rather than
+  debugging the lint rule: a short-counted `npm ci` is a silent partial
+  install, not a reported failure, and a package's absence surfaces as a
+  type-resolution error two tools later (2026-09-23).
 
 ## 2026-09-29 - `toContainText` runs sibling block text together with no separator (TYRE-239)
 
@@ -319,40 +551,123 @@ dashboard's open-exceptions tile read "...1911 urgent..." because its value
 assertion on the real page with a planted wrong value, never against a
 string you wrote.
 
-## 2026-09-29 - `make db-volume` after a suite run can plan its load quadratically (TYRE-348)
+## 2026-09-29 - A database measurement counts only when taken alone, on a fresh reset, and attributed by pg_stat_statements (2026-09-16, 2026-09-17; TYRE-247, TYRE-257, TYRE-348)
 
-**What happened:** a `make db-volume` run straight after `make db-test` on
-a freshly reset database was cancelled at 23 minutes, against 248 s the day
-before. The first suspect was the change under test, a tiebreaker added to
-the register's latest-reading sort. It was not the cause: both sort orders
-planned identically. The suite's rolled-back inserts had set off
-autoanalyze on `reading` and `reading_measurement` 35 seconds before the
-load started, so the load's single transaction planned on statistics that
-said 53 rows. The reconcile's latest-reading lookup then seq-scanned every
-inspection and probed `reading_by_tyre` once for each, so every statement
-cost more than the one before it. Re-run as `make db-reset` then `make
-db-volume` with nothing in between, the same code loaded in 281 s.
+**What happened:**
 
-**The rule:** load the volume state only as `make db-reset` immediately
-followed by `make db-volume`, with nothing that writes in between: no suite
-run, Go integration test or `make e2e`, since rolled-back inserts count
-toward autoanalyze too. When a load runs long, compare
-`pg_stat_user_tables.last_autoanalyze` with the load's start time, and
-`EXPLAIN` the suspect lookup under both versions on the same state, before
-blaming the change.
+- 2026-09-16 (TYRE-247): the dashboard read-path measurement took three
+  attempts. The first blamed stale statistics for `app.v_exception` not
+  finishing, though the `lr` CTE costed identically to the cent before and
+  after `ANALYZE`: a backgrounded `make db-explain` was still running, and
+  alone the statement took 4.9 seconds. Then auditor agents ran during a
+  `make db-volume` load, and one's `make db-reset` queued a
+  `DROP SCHEMA app CASCADE` behind the load's transaction and, cancelled,
+  left `public.schema_migrations` dirty at version 1. The load's 977
+  seconds against 328 before was then blamed on the contention; alone it
+  took 923.
+- 2026-09-17 (TYRE-257): the 328 to 923 second delta had been put down to
+  000047's index being maintained once per `reading_measurement_governs`
+  update. One instrumented run
+  (`ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'`,
+  `pg_stat_statements.track = all` so statements nested in plpgsql triggers
+  are counted, `track_functions = all`, `log_min_duration_statement = 0`,
+  container restarted, all reset afterwards) attributed every second. The
+  largest term was `refresh_governing_tread`'s MIN() subquery seq-scanning
+  the whole measurement table per row, because the SECURITY DEFINER
+  function's query carried no tenant column (TYRE-259). The delta was the
+  foreign-key check `reading_measurement -> reading`: planned once at the
+  top of one transaction against an empty, never-analysed table, its
+  cached generic plan walked the new index on `tenant_id` alone for all
+  90,480 checks. Index maintenance did not register, and the same file
+  took 524 seconds alone on the same box a day later.
+- 2026-09-29 (TYRE-348): a `make db-volume` straight after `make db-test`
+  on a fresh reset was cancelled at 23 minutes, against 248 s the day
+  before. The suite's rolled-back inserts had set off autoanalyze on
+  `reading` and `reading_measurement` 35 seconds before the load, which
+  then planned on statistics that said 53 rows and probed
+  `reading_by_tyre` once per inspection. Run as `make db-reset` then
+  `make db-volume`, the same code loaded in 281 s; the change under test, a
+  tiebreaker on the register's latest-reading sort, planned identically
+  either way.
 
-## 2026-09-25 — A focused Go test run on an unreset database fails the Appendix E pins (TYRE-269)
+**The rule:**
 
-**What happened:** during the PR #81 review fixes, a focused `go test -run
-"TestEstate|TestValuation|TestDashboard"` failed `TestEstateRelaysAppendixEToTheCent`
-and `TestDashboardRelaysEveryPinnedFigure`, which read as a valuation
-regression. The database had been written to since its last reset (an
-earlier `make e2e`, whose capture spec submits into the seed, is the likely
-writer). After `make db-reset` the same tests passed unchanged.
+- Nothing else touches the database while `make db-volume` or
+  `make db-explain` is in flight, including a suite run, a second
+  measurement pass and any subagent. Dispatch auditors before the load or
+  after the measurement, never during, and check `ListAgents` before
+  starting a run. `db-volume` holds one transaction for its whole load, so
+  a concurrent `db-reset` blocks the entire database and then destroys the
+  load when it unblocks. The Makefile's `db-reset` now runs with
+  `ON_ERROR_STOP`, so a cancelled reset no longer leaves
+  `schema_migrations` dirty; the rule stands (2026-09-16).
+- When a timing looks pathological, the first question is what else was
+  running, not what the planner did: confirm by re-running alone before
+  diagnosing, because a plan that is identical cost for cost was not the
+  thing that changed (2026-09-16).
+- Load the volume state only as `make db-reset` immediately followed by
+  `make db-volume`, with nothing that writes in between: no suite run, Go
+  integration test or `make e2e`, since rolled-back inserts count toward
+  autoanalyze too. When a load runs long, compare
+  `pg_stat_user_tables.last_autoanalyze` with the load's start time, and
+  `EXPLAIN` the suspect lookup under both versions on the same state,
+  before blaming the change (2026-09-29).
+- Before attributing a load or a query to a schema change, switch on
+  `pg_stat_statements` with `track = all` and `track_functions = all`,
+  reset the counters, run once, and read the nested statement totals and
+  `pg_stat_user_tables` / `pg_stat_user_indexes`; that one run costs less
+  than one wrong diagnosis. Inside a single-transaction bulk load, every
+  plan the trigger chain and the RI checks cache is built against the
+  statistics the table had when the transaction began, so interleave
+  `ANALYZE` of the growing tables in the file (legal inside a transaction)
+  before blaming an index. `make db-volume` runs `ANALYZE` after the load,
+  which settles the plan `db-explain` prints, not the plans cached inside
+  the load. A delta is only a delta between two runs taken back to back on
+  the same box (2026-09-17).
 
-**The rule:** before a focused Go or suite run, `make db-reset`. A red pin on
-a database another run has written to says nothing about the change; only
-the reset run counts. `make test` resets first, which is why it is the gate.
+## 2026-09-25 - A run on a database something else wrote to proves nothing: reset first (2026-08-27, 2026-09-01; TYRE-85, TYRE-97, TYRE-269)
+
+**What happened:**
+
+- 2026-08-27 (TYRE-85): two `make db-test` runs passed with a `TY009`
+  defect live, because suite section 24 planted its rows behind
+  `IF NOT EXISTS (… 'T2TRL1')` without a `BEGIN`/`ROLLBACK` wrap, so on a
+  warm database the whole block was skipped. Only `make db-reset` ever ran
+  it.
+- 2026-09-01 (TYRE-97): eight sections had that shape, and two (20 and 23)
+  kept their assertions inside the guard, never reached on a warm database.
+  Six were wrapped; the three that could not be had consumers elsewhere in
+  the file, one (section 26 scheduling section 21's `t2veh3`) 400 lines
+  away, missed by a static identifier trace and caught only by the
+  per-section cold run.
+- 2026-09-25 (TYRE-269): a focused
+  `go test -run "TestEstate|TestValuation|TestDashboard"` failed
+  `TestEstateRelaysAppendixEToTheCent` and
+  `TestDashboardRelaysEveryPinnedFigure`, reading as a valuation
+  regression, on a database an earlier `make e2e` had likely written to.
+  After `make db-reset` the same tests passed unchanged.
+
+**The rule:**
+
+- A suite section that persists rows behind an existence guard is only
+  exercised on a fresh database. Verify anything touching one with
+  `make db-reset && make db-test`, never `make db-test` alone, and when a
+  new constraint plausibly conflicts with existing fixtures, reset before
+  believing a green run (2026-08-27).
+- Before a focused Go or suite run, `make db-reset`. A red pin on a
+  database another run has written to says nothing about the change; only
+  the reset run counts (2026-09-25).
+- A suite section stages its rows inside `BEGIN;`/`ROLLBACK;`, never
+  behind a bare existence guard, and never puts an assertion inside the
+  guard. Before wrapping an existing unwrapped section, `rg` every
+  identifier it plants across the whole file, then wrap one section at a
+  time with `make db-reset && make db-test` between: a green run after each
+  is the attribution; a trace, from a person or an agent, is a lead. Keep
+  the trailing `set_config(..., false)` reset when you wrap: a session GUC
+  survives the rollback (2026-09-01).
+- `make test`, and so `make check`, runs `db-reset` before `db-test`
+  (Makefile, `test` target), which is the reason it is the gate and a bare
+  suite or focused run is not (2026-09-25, 2026-08-27).
 
 ## 2026-09-25 — vitest stubs every CSS import to `""`, `?raw` included, unless `test.css.include` matches (TYRE-276)
 
@@ -369,85 +684,79 @@ files. Without that guard, a config gap that stubs every sheet to `""`
 passes silently, because an empty haystack also satisfies "found no
 offenders".
 
-## 2026-09-24 - `gate-not-piped.sh` refuses a `go test -run 'A|B'` because the `|` is inside a quoted regex (TYRE-303)
+## 2026-09-24 - A gate's verdict is its own exit code, never the status of whatever wraps it (2026-08-26, 2026-08-31, 2026-09-05, 2026-09-06, 2026-09-16; TYRE-4, TYRE-101, TYRE-250, TYRE-252, TYRE-303)
 
-**What happened:** a lane fixing the refusal registry gate ran
-`go test -run 'TestA|TestB' ./internal/httpapi/` to run two tests, and the
-hook refused it as a piped gate. The hook splits the command on `;`, `&&`
-and `||` and then refuses any gate segment containing a `|`. It does not
-parse quoting, so an alternation inside a `-run` regex reads as a pipe. The
-lane fell back to running the whole package.
+**What happened:**
 
-**The rule:** to run several Go tests by name, put `set -o pipefail;` first
-(the hook lets any command naming pipefail through), or run the package.
-Do not rewrite the regex to dodge the `|`, and do not weaken the hook to
-parse quotes: a false refusal costs one retry, and a missed pipe costs a
-green gate that never ran.
+- 2026-08-26 (TYRE-4): a failing `make check` was reported as success twice
+  in one session: as `make check | tail -60`, which exits with `tail`'s
+  status since this shell runs without `pipefail`, and as
+  `(make check > log 2>&1; echo "EXIT=$?" >> log)`, whose subshell exits
+  with `echo`'s status whatever `make` did.
+- 2026-08-31: `gh pr merge 35 --rebase --delete-branch` ended in
+  `fatal: Not possible to fast-forward, aborting.` after the merge had
+  landed: the failure was gh's post-merge update of a local `develop` that
+  still pointed at pre-promotion hashes.
+- 2026-09-05 (TYRE-101): `make db-test 2>&1 | tail -25` was reported as
+  "completed (exit code 0)" on a suite whose output ended
+  `make: *** [Makefile:63: db-test] Error 3`. It recurred on 2026-09-15 in
+  a session with this rule in context (`make check 2>&1 | tail -40`, docker
+  down, `fmt` failed), so TYRE-250 made it a hook.
+- 2026-09-06: a background command ran `make e2e`, wrote `EXIT=0` to its
+  log, then ended with a `grep -c` for `make: ***` lines. The count was 0,
+  `grep` exits 1 when it matches nothing, and the harness reported the
+  passed gate as failed.
+- 2026-09-16 (TYRE-252):
+  `gh pr checks 58 --watch --interval 20 --fail-fast | tail -20`, run to
+  decide whether PR #58 could be merged, ended on
+  `Post "https://api.github.com/graphql": ... connection was aborted` with
+  `Browser smoke` still `pending` and exit 0, read as every check passing.
+  The 0 was `tail`'s: `(exit 3) | tail -1; echo $?` prints `0`, and
+  `set -o pipefail` makes it print `3`. The hook's pattern matches `make`,
+  `npm` and `go test`, so it let `gh` through.
+- 2026-09-24 (TYRE-303): the hook refused
+  `go test -run 'TestA|TestB' ./internal/httpapi/` as a piped gate. It
+  splits the command on `;`, `&&` and `||` and refuses any gate segment
+  containing a `|`, without parsing quotes, so a `-run` alternation reads
+  as a pipe.
 
-## 2026-09-24 — vitest's "Worker exited unexpectedly" under host memory pressure is not a test result (TYRE-211)
+**The rule:**
 
-**What happened:** a `make check` on the W5a branch was left running while
-the session sat idle. The harness then reaped the wrapper for low host
-memory. The orphaned `make` carried on, and its vitest step reported
-`Error: Worker exited unexpectedly`, 58 errors, with only 15 of 73 files run
-and every test that ran passing. The branch touched no web file. The same
-tree passed 702/702 once memory was free.
-
-**The rule:** when vitest fails with worker exits and no assertion failure,
-read it as the host, not the code. Do not debug it and do not re-run it
-while memory is short. Re-run the whole `make check` when the machine is
-quiet, and quote that run as the gate. It recurred on 25 Sep (PR #81): a
-backgrounded `make check` was reaped while the session sat idle. Run it in
-the foreground in two halves, `make fmt lint` then `make test`, each inside
-the tool's 10-minute limit, so an idle session never holds it.
-
-## 2026-09-23 — `npm ci` beside a running dev server deletes `node_modules` and then stops (TYRE-143)
-
-**What happened:** during the sweep close-out, `npm ci` ran in the main
-checkout while a Vite dev server from that same checkout was serving :5173.
-npm deletes `node_modules` before it installs. On Windows the running server
-holds `node_modules/@esbuild/win32-x64/esbuild.exe` open, so the delete
-failed with `EPERM ... unlink` after most of the tree was already gone.
-`make lint` then failed with "'prettier' is not recognized". `npm install`
-repaired it without touching the locked binary.
-
-**The rule:** never run `npm ci` in a checkout whose dev server is running.
-Run gates in a worktree with its own `node_modules`, or stop the server
-first. If it has already happened, run `npm install` (not `npm ci`) to put
-back what was deleted, then confirm `git status` shows no lockfile drift you
-did not mean.
-
-## 2026-09-23 — A silently short `npm ci` reports its own success and fails eslint two steps later (TYRE-180)
-
-**What happened:** `npm ci` in a fresh worktree reported `added 259 packages`
-and exit 0. `make lint` then failed on `web/src/ui/Dialog.tsx` with
-`@typescript-eslint/no-unsafe-call`/`no-unsafe-member-access` on
-`event.preventDefault()` inside a Radix `onCloseAutoFocus` callback, a file
-untouched by the branch. `node_modules/@radix-ui/` did not exist at all,
-though `package-lock.json` names it. A second `npm ci` in the same directory
-reported `added 302 packages` and the whole `@radix-ui` scope appeared; the
-same `make lint` then passed clean. Nothing about the first run's exit code
-or output named a missing package.
-
-**The rule:** when `make lint`'s TypeScript-aware eslint fails on a file the
-branch never touched, check whether the failing import actually resolves
-(`node -e "require('./node_modules/<pkg>/package.json')"`) before reading the
-diff for a cause. If it does not, re-run `npm ci` rather than debugging the
-lint rule; a short-counted `npm ci` is a silent partial install, not a
-reported failure, and a package's absence surfaces as a type-resolution
-error two tools later.
-
-## 2026-09-23 — An agent worktree can start on main, not the branch you are on (TYRE-180)
-
-**What happened:** Agent isolation "worktree" created worktrees at 08c6d2b
-while the session sat on develop 6ce7444. Two of four lanes built on that
-stale tree and reported "cut from develop"; one ran a green `make check`
-against a tree three weeks old.
-
-**The rule:** first thing in any agent worktree, run `git merge-base HEAD
-develop`. If it is not develop's tip, rebuild the branch onto develop before
-editing. The orchestrator re-checks the merge-base before trusting any
-lane's gate.
+- Never judge a gate by the exit status of anything wrapping it: a
+  pipeline, a subshell, a backgrounded compound. Write the status into the
+  artifact and read it back from there:
+  `make check > check.log 2>&1; echo "EXIT=$?" >> check.log`, then
+  `grep EXIT= check.log`. Treat any agent that reports "exit 0" for a
+  command containing a pipe as having reported nothing about that gate
+  (2026-08-26, 2026-09-05).
+- Enforced in part: `.claude/hooks/gate-not-piped.sh` refuses a piped
+  `make`, `npm` or `go test` gate at PreToolUse (TYRE-250). `set -o pipefail`
+  or an explicit `${PIPESTATUS[0]}` read is the way through, or run the
+  gate unpiped and let its own status stand; read the output for the
+  `make: *** … Error` line either way (2026-09-05).
+- A gate is anything whose exit code you are about to believe, not the
+  commands the hook can spell. `gh pr checks`, `gh run watch` and
+  `gh run view` are gates the hook does not know: never pipe one. Redirect
+  to a file and read the file, or put `set -o pipefail` first. Whatever the
+  watch reported, re-read plain `gh pr checks <n>` before merging and
+  require every row to carry a terminal state. A `pending` row means only
+  that the watch stopped before that check finished, which `--fail-fast`, a
+  dropped connection and an interrupted terminal all produce; in every one
+  the run was never seen through (2026-09-16).
+- A gate's verdict is the `EXIT=` line written to its log immediately after
+  the gate, never the exit status of whatever ran last in the same command.
+  Put diagnostics such as a match count before the `EXIT=` write or in a
+  separate command, and read the log before believing a "failed"
+  notification (2026-09-06).
+- To run several Go tests by name, put `set -o pipefail;` first (the hook
+  lets any command naming pipefail through), or run the package. Do not
+  rewrite the regex to dodge the `|`, and do not weaken the hook to parse
+  quotes: a false refusal costs one retry, and a missed pipe costs a green
+  gate that never ran (2026-09-24).
+- After any `gh pr merge` failure, check
+  `gh pr view <n> --json state,mergeCommit` before concluding anything or
+  retrying. gh's exit code covers the local housekeeping as well as the
+  merge, and the two fail independently (2026-08-31).
 
 ## 2026-09-23 — A focusable SVG chart mark takes focus on mousedown, so a focus-driven tooltip sticks after a click (TYRE-238)
 
@@ -462,16 +771,45 @@ focus with `onMouseDown={(e) => e.preventDefault()}` on the focusable mark,
 and test that mechanism (`createEvent.mouseDown`, assert `defaultPrevented`),
 since jsdom cannot show the stuck tooltip.
 
-## 2026-09-23 — A review finding about a library's behaviour was written from memory and was wrong for the installed version (TYRE-238)
+## 2026-09-23 - A finding's premise about a tool, a library or the data is reproduced before anyone acts on it (2026-08-31, 2026-09-19; TYRE-36, TYRE-238)
 
-**What happened:** the PR #70 review said `@radix-ui/react-select` throws on
-an Item with `value=""`. The installed 2.3.7 has no such guard; it treats
-`""` as no selection and shows the placeholder. The fix was still right,
-but the finding claimed the app would blank when it would only mislabel.
+**What happened:**
 
-**The rule:** before a finding states what a dependency does, grep its
-installed `dist` under `web/node_modules` (or run it) and cite the line.
-Severity follows the behaviour you saw, not the behaviour you remember.
+- 2026-08-31: a reviewer failed a task because the pasted lint transcript
+  read `(rule 6)` where the rule's committed message ends `(rule 6).`,
+  reasoning that the stylish formatter prints messages unmodified.
+  Re-running the planted violation showed eslint strips the trailing
+  period; the evidence was genuine.
+- 2026-09-19 (TYRE-36): a review said the analytics API renormalised the
+  tread distribution because the seeded `tread_bands` `[[0,4],[5,7],...]`
+  leave gaps, naming a 4.5 mm tyre. The regression test written on that
+  sentence passed before the fix: `app.tread_band_list` takes
+  `upper_exclusive_mm` from `lead(lower)`, so the bands partition
+  [0, infinity). The defect was real for another reason (nothing pins the
+  lowest band to zero). The same review found the money gate blind to a
+  tagged struct field, a shape its own `--self-test` control did not
+  contain, so it had reported green over it on every run.
+- 2026-09-23 (TYRE-238): the PR #70 review said `@radix-ui/react-select`
+  throws on an Item with `value=""`. The installed 2.3.7 treats `""` as no
+  selection and shows the placeholder, so the app would mislabel, not
+  blank.
+
+**The rule:**
+
+- When a finding turns on how a tool formats its output, reproduce it
+  before acting: a minute of running beats an hour of adjudicating, and a
+  confident byte-level argument can still rest on a false premise about the
+  tool. Ask reviewers to say out loud when a finding depends on such a
+  premise (2026-08-31).
+- Before writing the regression test, reproduce the finding's premise
+  against the source or the running database, not against the review text;
+  a test that passes before the fix is the premise failing, not the fix
+  being unnecessary (2026-09-19).
+- A gate's control carries the shape its real input has, tags and all, or
+  the run proves only that the control fires (2026-09-19).
+- Before a finding states what a dependency does, grep its installed `dist`
+  under `web/node_modules` (or run it) and cite the line. Severity follows
+  the behaviour you saw, not the behaviour you remember (2026-09-23).
 
 ## 2026-09-23 — A dev-only route written as `{x && <Route/>}` survives the production build and fails the capture budget (TYRE-238)
 
@@ -482,7 +820,9 @@ the minifier kept `null` in the route children and the entry went over budget.
 children array (`!1`, or a kept `null` const). When a dev-only guard must
 leave nothing, fold it into a sibling that exists anyway, so both branches
 build to the same output. Prove any dev-only guard with
-`npm run bundle:check`, never by a missing chunk.
+`npm run bundle:check`, never by a missing chunk. `make lint` runs it
+through the `web-bundle` target, so an over-budget capture entry fails the
+gate.
 
 ## 2026-09-19 — A control query on the admin connection reads a tenant-scoped function as empty, and passes (TYRE-36)
 
@@ -502,49 +842,24 @@ rolled back), and asserts the control is non-zero before comparing it to
 what the endpoint returned. A control whose expected value could be the
 empty answer is not a control.
 
-## 2026-09-16 — `gate-not-piped.sh` does not know `gh` is a gate, so the piped-gate trap walks back in (TYRE-252)
+## 2026-09-18 — An audit's drafted replacement comment drops requirement IDs (TYRE-260)
 
-**What happened:** `gh pr checks 58 --watch --interval 20 --fail-fast | tail -20`
-was run to decide whether PR #58 could be merged. It ended with
-`Post "https://api.github.com/graphql": ... connection was aborted`, a last
-table still showing `Browser smoke` as `pending`, and a reported exit of 0 —
-which was read as "the watch finished and every check passed". The 0 was
-`tail`'s. A pipeline reports its last stage, so gh's own status never survived
-the pipe; `(exit 3) | tail -1; echo $?` prints `0`, and `set -o pipefail` makes
-the same line print `3`. TYRE-250's hook exists to refuse exactly this, but its
-pattern matches `make`, `npm` and `go test`, so a `gh` invocation is not a gate
-as far as the hook is concerned and the command was allowed.
+**What happened:** the repo-wide comment trim ran as read-only audits that
+drafted replacement text per block, then executors that applied it. Every
+executor, across all six slices, found drafts that had dropped a requirement
+or ticket ID the original carried: about fifteen cases, from `NFR-USE-005`
+in a dashboard test to `TYRE-80` in an e2e header to `BR-VAL-002` in a seed
+generator's emitted comment. The drafts read well and passed the style
+checker; the ID was simply gone, and shorthand such as `FR-INS-030a/030b`
+had also stopped matching the second ID's token. The audits had been told
+to preserve IDs and believed they had.
 
-**The rule:** a gate is anything whose exit code you are about to believe, not
-the four commands the hook can spell. `gh pr checks`, `gh run watch` and
-`gh run view` are gates; never pipe one. Redirect to a file and read the file,
-or put `set -o pipefail` first. Then, whatever the watch reported, re-read
-plain `gh pr checks <n>` before merging and require every row to carry a
-terminal state. A row still saying `pending` means only that the watch stopped
-before that check finished, which `--fail-fast`, a dropped connection and an
-interrupted terminal all produce; the reason does not matter, because in every
-one of them the run was never seen through.
-
-## 2026-09-15 — A down file that copies a function "verbatim" from 000001 reverts every later ALTER FUNCTION (TYRE-252)
-
-**What happened:** TYRE-252's plan told the down file to restore
-`app.check_measurement_ordinals()` from `000001_init.up.sql` verbatim. 000001
-predates 000043, which had pinned `search_path = app, pg_temp` on that exact
-function with `ALTER FUNCTION`. `CREATE OR REPLACE FUNCTION` assigns every
-property the command does not carry, so the verbatim copy would have dropped
-the pin. Proved directly: replacing without a `SET` clause takes `proconfig`
-from `{"search_path=app, pg_temp"}` to `NULL`. It would not have been caught
-by the branch's own gate, because the suite runs at the migrated-up state and
-section 8d only sweeps what is installed there.
-
-**The rule:** a down file restores **the state the up migration found**, which
-is the initial definition plus every `ALTER` since, not the text of the
-migration that first created the object. Before writing one, grep the whole
-migration chain for the object's name and fold in what you find. Prove it by
-catalogue at the down state, not by a suite run: execute `migrate down 1` and
-read back the property the later migration set (`proconfig`, `prosecdef`,
-grants), because the suite cannot run there and a green gate at the up state
-says nothing about it.
+**The rule:** never accept a comment edit, hand-written or delegated, without
+a per-file diff of the ID set against `HEAD` (the regex is in
+`docs/comments.md`'s ID list plus `TY[0-9]{3}` and bare `D`/`U`/`Q`
+numbers). Run it after the edit and before the gate, per file, because a
+package-level union hides a loss that moved between files. A shorthand
+range is two IDs written out in full.
 
 ## 2026-09-11 — PostgreSQL pulls up a no-FROM LATERAL and re-runs the resolver at every reference site (TYRE-41)
 
@@ -588,30 +903,83 @@ say so in the block's comment so the next author does not undo it.
 (000054), except an empty scope's first row at `-infinity`: plant
 `-infinity` in an empty scope, or ask at an as-at bound after `now()`.
 
-## 2026-09-09 — A punctuation rule anchored to a neighbouring letter misses the line end (TYRE-237)
+## 2026-09-09 - A green comment check is a floor: it reads only the files it is given and catches only the phrasings it names (2026-08-26, 2026-08-27; TYRE-4, TYRE-82, TYRE-237)
 
-**What happened:** the first em-dash rule in `scripts/check-comment-style.mjs`
-required a letter or digit beside the dash so a quoted lone glyph would pass.
-It reported 0 findings on files that still held about twenty em dashes: a
-dash after `"`, `)` or `}` at the end of a wrapped comment line has no
-letter on either side. Three slice agents found them by a plain `grep`
-after the checker had said clean.
+**What happened:**
 
-**The rule:** a gate for a character matches the character, then subtracts
-the one legal form (`strip` the quoted lone glyph before matching), never
-the other way round. After changing a checker, confirm it with the dumbest
-possible grep over the same files before trusting its zero.
+- 2026-08-26 (TYRE-4): `scripts/check-comment-style.mjs` flagged "used to
+  have" but passed "used to render" and "One entry read…" in the same
+  commit, which narrate a change just as plainly. Its change-narration list
+  is deliberately narrow: precision over recall.
+- 2026-08-27 (TYRE-82): `node scripts/check-comment-style.mjs` with no
+  arguments exited 0 over three new, unstaged migrations holding two
+  narration violations: with no arguments it enumerates `git ls-files`.
+- 2026-09-09 (TYRE-237): the first em-dash rule required a letter or digit
+  beside the dash so a quoted lone glyph would pass, and reported 0 on
+  files still holding about twenty em dashes after `"`, `)` or `}` at the
+  end of a wrapped line. Three slice agents found them with a plain `grep`.
 
-## 2026-09-09 — Parallel agents share the session scratchpad as well as the git index (TYRE-237)
+**The rule:**
 
-**What happened:** seven agents dispatched in one message each wrote
-`edits.json` and `checker-before.txt` to the session scratchpad root. Two
-reported their before-state files overwritten by a sibling mid-run; their
-"before" numbers came from memory rather than from disk.
+- Treat the comment gate as a floor, not a ceiling. Before closing a
+  branch, read the comments the diff adds and ask of each whether it
+  explains a constraint or merely narrates the edit; `/comment-audit` exists
+  for this. Do not widen the checker's patterns to catch a phrasing you just
+  hit: precision is the design, and a noisy gate gets ignored, which is
+  worse than a narrow one (2026-08-26).
+- A no-argument run proves something only about files git already tracks.
+  When auditing new files, run `node scripts/check-comment-style.mjs <paths>`
+  or stage them first. The PostToolUse hook `.claude/hooks/comment-style.sh`
+  checks each file Write or Edit touches by its path, tracked or not;
+  `make lint`'s no-argument run still does not see untracked files
+  (2026-08-27).
+- A gate for a character matches the character, then subtracts the one
+  legal form (`strip` the quoted lone glyph before matching), never the
+  other way round; the checker's em-dash rule now does this. After changing
+  a checker, confirm it with the dumbest possible grep over the same files
+  before trusting its zero (2026-09-09).
 
-**The rule:** give every parallel agent its own scratch subdirectory in the
-packet (`scratchpad/<slice>/`), and have it record its baseline inside the
-report, not only in a file.
+## 2026-09-08 — Dropping a policy's WITH CHECK weakens nothing, and an audited table refuses twice (TYRE-75)
+
+**What happened:** a red proof was meant to show suite section 58g's
+cross-tenant INSERT probe has teeth, by re-creating
+`app.composition_observation`'s policy with `USING` only. The section stayed
+green. Two probes explained it, and both are traps a mutation-testing pass
+will hit again. First, a `FOR ALL` policy that omits `WITH CHECK` reuses its
+`USING` expression for writes, so the "mutation" was the original policy —
+the refusal named `composition_observation` itself. Second, with the honest
+mutation `WITH CHECK (true)`, the row landed and the table's ADR-0014 audit
+trigger then inserted an `app.audit_log` row carrying the *other* tenant's
+`tenant_id`, which `audit_log`'s own policy refused with the identical
+42501. An `EXCEPTION WHEN insufficient_privilege THEN NULL` probe cannot
+tell the two apart, so the assertion — and the comment above it claiming to
+prove "WITH CHECK, not merely USING" — asserted less than it said.
+
+**The rule:** to isolate a policy's WITH CHECK half, mutate it to
+`WITH CHECK (true)`; omitting the clause is a no-op (`polwithcheck` stores
+NULL and the executor falls back to `polqual`, which is why the catalogue
+shape sweep still flags it). And on any audited tenant table, trap the
+refusal's message text for the table under test —
+`… for table "composition_observation"` — never the bare
+`insufficient_privilege`, because the audit chain answers with the same
+SQLSTATE from a different table.
+
+## 2026-09-07 — A grant restored for a teeth proof trips the catalogue sweep first (TYRE-158)
+
+**What happened:** to prove suite section 55 detects a landed write, a fix
+wave re-granted `UPDATE ON app.tenant` to `app_rw` and ran `make db-test`
+expecting section 55 to fail. Section 37b's catalogue sweep — which reads
+`information_schema` for exactly that grant — stopped the suite twenty
+sections earlier, so section 55's own detector never ran under the exploited
+grant, and the implementer could only report "not disproven".
+
+**The rule:** a behavioural probe of a grant or a policy sits behind the
+catalogue sweeps that assert the same fact, so a teeth proof that restores
+the privilege must run the target section standalone: cut the section from
+its `\echo` banner to its `ROLLBACK;` and pipe it through
+`docker exec -i tyre-pg psql -U app_login -d tyre -v ON_ERROR_STOP=1`. Expect
+the section's own attributable FAIL line, then REVOKE and re-run the cut
+section for its PASS before the full gate.
 
 ## 2026-09-05 — A control character in source passes every gate and turns `git diff` into "Binary files differ" (TYRE-101)
 
@@ -630,99 +998,80 @@ endings and the repo's non-ASCII punctuation alone) and replace it. Never use
 a control character as a composite-key separator; pick one the domain's ids
 cannot contain.
 
-## 2026-09-05 — A migration round-trip that never left the tip is still green (TYRE-101)
+## 2026-09-05 - Windows hosts lie about their toolchain (2026-08-20; TYRE-101, TYRE-369)
 
-**What happened:** `docker compose run --rm migrate -path=/migrations … down 1`
-from Git Bash failed with `failed to open source, "file://C:/Program
-Files/Git/migrations"` — MSYS rewrote the container path into a host path —
-so neither `down 1` nor `up 1` ran. `make db-test` afterwards was fully green,
-because the database had never moved off the tip, and the run read as a
-passing round-trip proof.
+**What happened:**
 
-**The rule:** prefix any `docker compose run` that passes a container path
-with `MSYS_NO_PATHCONV=1` (the 2026-08-20 entry below already names it: the
-Makefile carries the workaround, a hand-typed command does not), and prove a
-round-trip by reading state, not the suite: `schema_migrations.version` and a catalog fact the down must undo
-(a dropped function, a restored signature) after `down 1`, then again after
-`up 1`. A green suite after a down/up that printed an error is not evidence.
-A `docker run -v` typed in Git Bash needs a Windows host path as well,
-`$(pwd -W)` or make's `$(CURDIR)`, because with `$(pwd)` the folder never
-reaches the container. List the mount before anything reads from it
-(TYRE-369).
+- 2026-08-20: `python3` on stock Windows is a Microsoft Store stub that
+  opens a browser, and Git Bash rewrites `/migrations` into a Windows path
+  and breaks container mounts. Both failed far from the cause.
+- 2026-09-05 (TYRE-101): a script comparing the suite's pin sections
+  between `git show origin/develop:db/tests/004_tests.sql` and the working
+  tree reported sections 8, 17 and 18 moved on an untouched file (`git diff`
+  empty, both sides 360121 bytes). `subprocess.run(..., text=True)` decodes
+  with the locale codec, cp1252 here, so every section holding an em dash
+  decoded differently; pure-ASCII section 7 looked clean. A false moved pin
+  costs the rest of the session on any branch touching money.
+- TYRE-369: a `docker run -v` typed in Git Bash with `$(pwd)` mounted a
+  folder the container never saw.
 
-## 2026-09-05 — A gate piped to `tail` always succeeds (TYRE-101)
+**The rule:**
 
-**What happened:** `make db-test 2>&1 | tail -25` was reported by the harness
-as "completed (exit code 0)" on a run where the suite had aborted — the
-output itself ended `make: *** [Makefile:63: db-test] Error 3`. A pipeline's
-status is its LAST command's, so `tail` succeeding masks `make` failing. The
-run was a deliberate red state, so the wrong reading was harmless; on a green
-check it would have been a false pass reported as verified.
+- On this host, route every command through the Makefile, which already
+  carries the workarounds (`PYTHON` detection, `MSYS_NO_PATHCONV`). When
+  adding a new command, assume the host toolchain is hostile and pin the
+  workaround in the Makefile, not in a shell history (2026-08-20).
+- A `docker run -v` typed in Git Bash needs a Windows host path,
+  `$(pwd -W)` or make's `$(CURDIR)`, because with `$(pwd)` the folder never
+  reaches the container. List the mount before anything reads from it
+  (TYRE-369).
+- Never let `subprocess` or `open()` pick an encoding on this host: read
+  bytes and `.decode("utf-8")` explicitly on both sides of any comparison
+  (2026-09-05).
+- Give any comparison script a control that reports what it found
+  differing everywhere, not just in the range you care about: "three of my
+  four pins moved and nothing else did" is the shape of a decoding bug, and
+  the control is what makes that visible instead of alarming (2026-09-05).
 
-**The rule:** never judge a gate by the exit status of a pipeline it is piped
-into. Read the output for the `make: *** … Error` line, or run the gate
-unpiped and let its own status stand. Treat any agent that reports "exit 0"
-for a command containing a pipe as having reported nothing about that gate.
+## 2026-09-03 - An e2e failure in a spec the branch did not touch is the environment until shown otherwise (TYRE-72, TYRE-92)
 
-**Recurred 2026-09-15**, in a session with this entry already in context:
-`make check 2>&1 | tail -40` reported exit 0 while docker was down and `fmt`
-had failed. Written down was not enough, so `.claude/hooks/gate-not-piped.sh`
-now refuses the command at PreToolUse (TYRE-250). `set -o pipefail` or an
-explicit `${PIPESTATUS[0]}` read is the way through it.
+**What happened:**
 
-## 2026-09-05 — A Python comparison of two identical files reports a moved Appendix E pin (TYRE-101)
+- TYRE-72: four `make e2e` runs each failed a different spec the branch
+  never touched, decisively `fitments.spec.ts` with
+  `TY012 this tyre was fitted at 19:31:05.13; a removal cannot predate its own fitment`
+  on a removal posted 1.2 s after the fitment, both stamped `now()`.
+  `docker exec tyre-pg date` drifted by up to a second against a host that
+  `w32tm` showed steady; `hwclock -s` in the docker-desktop distro and a
+  Docker Desktop restart did not settle it. Forty minutes went on correct
+  fitment SQL.
+- TYRE-92: `make e2e` ran against a long-lived `make api-run` container
+  that had served across earlier reseeds. The reseed re-creates schema
+  `app`, minting new type OIDs, while the API's pgx pool kept its prepared
+  statements, so `admin.spec.ts` showed "The unit could not be added" and
+  the API log
+  `creating vehicle: ERROR: cache lookup failed for type 908424 (SQLSTATE XX000)`
+  and `cached plan must not change result type (SQLSTATE 0A000)`. A
+  restart, giving a cold pool, made the identical suite green.
 
-**What happened:** a script comparing the suite's pin sections between
-`git show origin/develop:db/tests/004_tests.sql` and the working tree
-reported sections 8, 17 and 18 as changed on a branch that had not touched
-the file — `git diff` was empty and both sides were 360121 bytes. The cause
-was `subprocess.run(..., text=True)`, which decodes with the *locale* codec:
-cp1252 on this host, not UTF-8. Every section containing an em-dash decoded
-differently on the two sides. Section 7 was the only pin that looked clean,
-because it is the only one that is pure ASCII. A moved pin is a hard stop on
-any branch touching money, so a false one costs the rest of the session.
+**The rule:**
 
-**The rule:** never let `subprocess` or `open()` pick an encoding on this
-host — read bytes and `.decode("utf-8")` explicitly on both sides of any
-comparison. And give any comparison script a control that reports what it
-found differing *everywhere*, not just in the range you care about: "three
-of my four pins moved and nothing else did" is the shape of a decoding bug,
-and the control is what makes that visible instead of alarming.
-
-## 2026-09-05 — A long heredoc dies as `ENAMETOOLONG`, not as a write error (TYRE-101)
-
-**What happened:** writing a plan document through `cat > file <<'EOF'` in the
-Bash tool failed with `ENAMETOOLONG: name too long, uv_spawn`. The path was
-fine and the shell never ran: the whole heredoc is part of the spawned
-command line, so a document of a few tens of KB overruns the process
-argument limit. The error names a path problem for what is a size problem,
-which is the part that wastes time.
-
-**The rule:** write long files with the Write tool, not a heredoc. Reserve
-heredocs for short fragments. If `uv_spawn` says `ENAMETOOLONG` and the path
-is plainly short, stop reading the path and look at the payload size.
-
-## 2026-09-03 — A "later write predates an earlier one" refusal in an untouched e2e step is the Docker VM clock (TYRE-72)
-
-**What happened:** four full `make e2e` runs each failed one spec, never the
-same one and never one the branch touched. The decisive one was
-`fitments.spec.ts`: `TY012 this tyre was fitted at 19:31:05.13; a removal
-cannot predate its own fitment` on a removal posted 1.2 s after the rotation
-that opened the fitment, with neither side sending an instant — both were
-`now()`. `docker exec tyre-pg date` against the host drifted by up to a second
-between samples eight seconds apart (-0.72, -0.03, -0.35, -0.65, +0.02, -0.33 s)
-while `w32tm` showed the host itself steady; `hwclock -s` in the docker-desktop
-distro and a Docker Desktop restart did not settle it. Forty minutes went on
-reading fitment SQL that was correct.
-
-**The rule:** when an e2e refusal says a later event predates an earlier one,
-or a date step fails on a spec the branch did not touch, compare the
-container clock to the host before opening the code. The container's busybox
-`date` prints `%N` literally, so ask Postgres for the instant instead:
-`docker exec -i tyre-pg psql -U postgres -d tyre -Atc "select extract(epoch from clock_timestamp())"`
-against the host's `date -u +%s.%N`, a few times. A jitter of tenths of a
-second between samples is the WSL 2 VM clock, seen after a PC restart; take
-CI's Browser smoke job as the e2e line and say so in the PR.
+- When an e2e refusal says a later event predates an earlier one, or a date
+  step fails on a spec the branch did not touch, compare the container
+  clock to the host before opening the code. The container's busybox `date`
+  prints `%N` literally, so ask Postgres for the instant instead:
+  `docker exec -i tyre-pg psql -U postgres -d tyre -Atc "select extract(epoch from clock_timestamp())"`
+  against the host's `date -u +%s.%N`, a few times. A jitter of tenths of a
+  second between samples is the WSL 2 VM clock, seen after a PC restart;
+  take CI's Browser smoke job as the e2e line and say so in the PR
+  (TYRE-72).
+- Restart the API immediately before `make e2e`, every time, and never
+  reuse one that has already served a query: one warmed request is enough,
+  and the first reseed is as dangerous as the fifth. When a spec you did
+  not touch fails with a generic "could not be added"/"could not be saved"
+  fallback, read `docker logs` on the API before reading the spec: a `0A000`
+  or `XX000` there means the process predates the schema it is querying,
+  not that anything in the branch is wrong (TYRE-92).
 
 ## 2026-09-03 — A gate run in the background ends a subagent's turn before the result exists (TYRE-72)
 
@@ -737,90 +1086,63 @@ and `make e2e` in the foreground and wait for them. Backgrounding is for the
 orchestrator, which stays alive; a subagent's turn is over the moment it has
 no foreground work, and a gate it did not wait for is a gate it did not run.
 
-## 2026-09-03 — A "tomorrow" read off the browser clock is the tenant's today for two hours a day (TYRE-92)
+## 2026-09-03 - A calendar date is not an instant, and the tenant's day runs ahead of UTC's (2026-09-01; TYRE-91, TYRE-92, TYRE-93, TYRE-121)
 
-**What happened:** an e2e step meant to trip `app.dispatch_tyre`'s future-date
-refusal built its date from `new Date()` plus one UTC day. The guard compares
-against `app.tenant_today` (Africa/Johannesburg, UTC+2), which already reads
-tomorrow's date between 22:00 and 24:00 UTC, so in that window the "future"
-dispatch would have succeeded and the real one after it would have refused.
-The step had never been run: it was added in a fix wave and reviewed on paper.
+**What happened:**
 
-**The rule:** a test that needs a date the tenant will call future uses a
-fixed far-future literal, never arithmetic on the browser or CI clock. Any
-`new Date()` in a spec that reaches a tenant-day comparison is a finding.
+- 2026-09-01 (TYRE-91): `app.receive_tyres` stamped its events at
+  `received_date::timestamptz`, midnight of that date, which outruns
+  `now()` for a future date and simply east of UTC, where the tenant's day
+  begins up to 14 hours before UTC midnight. `app.tyre_in_estate_asof`
+  reads the latest `to_state` event, so a tyre disposed afterwards stayed in
+  the valuation estate. Suite section 39b had sidestepped the hazard by
+  pinning `received_date` to the past.
+- 2026-09-03 (TYRE-93): `dispatch_tyre`'s instant,
+  `least(p_sent_on::timestamptz, now())` cast in the session's zone,
+  stamped a same-day dispatch at midnight, behind the removal it follows,
+  so `app.tyre_in_estate_asof` read `REMOVED` while `app.tyre.state` read
+  `AT_RETREADER`.
+- 2026-09-03 (TYRE-92): an e2e step meant to trip `app.dispatch_tyre`'s
+  future-date refusal built its date as `new Date()` plus one UTC day, but `app.tenant_today` (Africa/Johannesburg, UTC+2)
+  already reads that date between 22:00 and 24:00 UTC, when the step would
+  have passed the wrong way. It had never been run.
+- 2026-09-03 (TYRE-121): `make db-test` passed cold and failed warm with
+  `FAIL: a disposed tyre is back in the estate`. `app.receive_tyres` stamps
+  `least(tenant_today::timestamptz, now())`, which clamps to `now()`, the
+  disposal's instant, while the tenant day runs ahead of UTC;
+  `tyre_event.recorded_at` also defaults to `now()`, so
+  `tyre_in_estate_asof` orders by two keys that tie and heap order decides.
 
-## 2026-09-03 — A report file's existence is not a handoff signal (TYRE-92)
+**The rule:**
 
-**What happened:** two fix implementers were told to hold their database
-gates until the valuation-verifier's report file existed. The verifier wrote
-the report section by section, so the file existed while its probes were
-still running against the same Postgres; the DB implementer's `make db-reset`
-would have wiped a probe mid-flight had the hold not been re-sent against a
-terminal marker.
-
-**The rule:** when agents share one database, gate a handoff on a terminal
-marker in the report (`VERDICT`), never on the file existing. Tell
-long-running reviewers to write incrementally, since a usage-limit cut loses
-an unwritten report, and tell everyone waiting on them what the last line is.
-
-## 2026-09-03 — Suite section 39p is a coin flip between 22:00 and 24:00 UTC (TYRE-121)
-
-**What happened:** `make db-test` passed cold and failed warm at the branch base
-with `FAIL: a disposed tyre is back in the estate`, which reads as a
-warm-database regression and is not one. `app.receive_tyres` stamps
-`least(tenant_today::timestamptz, now())`; while the tenant calendar day runs
-ahead of UTC, that cast is in the future and `least()` clamps the receipt onto
-`now()` — the same instant the disposal carries. `tyre_event.recorded_at` also
-defaults to `now()`, so `tyre_in_estate_asof` orders by two keys that tie and
-the estate answer follows heap order.
-
-**The rule:** before treating a 39p failure as a regression, read the clock
-(`SELECT now()` in the container). Between 22:00 and 24:00 UTC the section
-proves nothing either way; re-run after the UTC day rolls over. The fix is a
-tie-break the two events cannot share and belongs to the merged 000031
-(TYRE-121), never to the suite.
-
-## 2026-09-03 — Parallel agents in one worktree share one git index (TYRE-92)
-
-**What happened:** two fix-wave agents worked concurrently in the same
-checkout, each staging only the files it owned. `git add <my files>` followed
-by `git commit` still committed the sibling's files: `git add` and `git commit`
-write and read the one `.git/index`, so anything the sibling staged in between
-was swept into the commit under the wrong message and author intent. Staging by
-name is not enough — the index is shared state, not per-agent.
-
-**The rule:** when more than one agent shares a worktree, commit with
-`git commit -m "…" -- <paths>` (the message before the `--`, the pathspec after it), which takes the working-tree contents of exactly those
-paths and ignores the rest of the index. Never `git add` followed by a bare
-`git commit`. Verify with `git show --stat HEAD` immediately afterwards, and if
-a commit has already swallowed a sibling's work, report it rather than
-rewriting history the sibling is still committing onto. A file the commit is
-creating needs `git add -N <file>` (intent-to-add) first, or the pathspec
-matches nothing and the commit fails; intent-to-add stages no content, so the
-pathspec commit still takes the working tree and still ignores whatever a
-sibling has staged — it is not the `git add` this entry forbids.
-
-## 2026-09-03 — A long-lived `make api-run` cannot survive `make e2e`'s reseed (TYRE-92)
-
-**What happened:** `make e2e` was run against an API container that had been
-serving for seven hours across earlier reseeds. `make e2e` reseeds by dropping
-and re-creating schema `app`, which mints new OIDs for every enum and composite
-type, but the API's pgx pool still held prepared statements and type OIDs from
-before the drop. The suite failed on `admin.spec.ts` — "The unit could not be
-added" on screen, `creating vehicle: ERROR: cache lookup failed for type 908424
-(SQLSTATE XX000)` and `cached plan must not change result type (SQLSTATE 0A000)`
-in the API log — which reads exactly like a regression in a spec nobody touched.
-A restart of the same container, giving it a cold pool, made the identical suite
-green.
-
-**The rule:** restart the API immediately before `make e2e`, every time, and
-never reuse one that has already served a query — one warmed request is enough,
-and the first reseed is as dangerous as the fifth. When
-a spec you did not touch fails with a generic "could not be added"/"could not be
-saved" fallback, read `docker logs` on the API before reading the spec: a
-`0A000` or `XX000` there means the process predates the schema it is querying,
-not that anything in the branch is wrong.
+- An event instant is `least(derived_date::timestamptz, now())`, never a
+  bare date cast, and a user-supplied date that drives one is bounded
+  against `app.tenant_today()` (2026-09-01). Where the caller supplies a
+  date rather than a timestamp, the instant is `now()` when the date equals
+  the tenant's today, otherwise `least(date::timestamptz, now())` cast in
+  the tenant's zone, and the function refuses the write when that instant
+  is earlier than the tyre's latest recorded movement rather than clamping
+  to it: a clamp ties two events at the same instant, which makes
+  `tyre_in_estate_asof` ambiguous (2026-09-03). `app.tenant_day_instant`
+  (000037) computes that instant: `now()` for the tenant's today,
+  tenant-local midnight for an earlier day, and NULL for a future day so the
+  caller refuses.
+- Comparing `occurred_at::date` reads the session `TimeZone`, which nothing
+  in this deployment pins: use the `< ((d + 1)::timestamp AT TIME ZONE 'UTC')`
+  boundary `000016` uses, so two predicates in one `WHERE` cannot disagree
+  by a day. And when a test avoids a shape rather than asserting on it, ask
+  what it is avoiding (2026-09-01).
+- A test that needs a date the tenant will call future uses a fixed
+  far-future literal, never arithmetic on the browser or CI clock. Any
+  `new Date()` in a spec that reaches a tenant-day comparison is a finding
+  (2026-09-03).
+- Before treating a suite section 39p failure as a regression, read the
+  clock (`SELECT now()` in the container). Between 22:00 and 24:00 UTC the
+  section proves nothing either way; re-run after the UTC day rolls over.
+  The fix is a tie-break the two events cannot share and belongs to the
+  merged 000031 (TYRE-121), never to the suite. `app.tyre_in_estate_asof`
+  (000016) still orders by `occurred_at DESC, recorded_at DESC`, so the tie
+  stands (2026-09-03).
 
 ## 2026-09-03 — A banner-delimited slice of `make db-test` output is not a stable baseline (TYRE-93)
 
@@ -852,85 +1174,6 @@ whatever the guard keys on (here: cancel the existing tasks, and move the
 as-of date past the due-date window) and pair the claim with a control the
 same call still acts on. If the assertion cannot fail when the rule under
 test is removed, it is testing the guard, not the rule.
-
-## 2026-09-03 — A date-driven event instant needs a floor at the tyre's own history, not just today (TYRE-93)
-
-**What happened:** `dispatch_tyre`'s event instant was `least(p_sent_on::timestamptz, now())`, cast in the session's time zone rather than the
-tenant's, which stamped a same-day dispatch at midnight — behind the removal
-it follows. `app.tyre_in_estate_asof` then read `REMOVED` while
-`app.tyre.state` read `AT_RETREADER` for the gap between midnight and the
-removal's real timestamp: two views of the same tyre disagreeing about where
-it was.
-
-**The rule:** a date-driven event instant is `now()` when the date equals
-the tenant's today, otherwise `least(date::timestamptz, now())` cast in the
-*tenant's* zone — and the function must refuse the write when that instant
-is earlier than the tyre's latest recorded movement, rather than clamping to
-it (a clamp ties two events at the same instant, which makes
-`tyre_in_estate_asof` ambiguous). Applies to any event whose caller supplies
-a date rather than a timestamp.
-
-## 2026-09-03 — A TanStack `mutate` spy read inside `fireEvent`'s act is blind to a missing guard (TYRE-92)
-
-**What happened:** a double-submit test asserted the mutate spy's call count
-immediately after `fireEvent.click`, inside the click's own synchronous
-`act()`. It read `1` whether or not the double-submit guard was present,
-because neither the guard nor its absence had run yet at that point — the
-assertion passed for a component that could not have failed it.
-
-**The rule:** a mutation call count proves nothing until the mutation has
-actually resolved. Assert after the success text renders (`await
-findByText(...)`), not inside the event's synchronous `act`, and confirm the
-assertion fails with the guard removed before trusting it.
-
-## 2026-09-03 — "Wait for the sibling" on both sides of a shared file deadlocks (TYRE-92)
-
-**What happened:** two agents were both told to wait for the other's commit
-before touching a file they shared (`web/src/fleet/fleet.css`) mid-round.
-After several minutes of polling, neither had committed, because each was
-waiting on the other by the same rule. The deadlock was broken by staging one
-agent's two hunks directly into the git index — built as `HEAD` plus its own
-hunks only, via `hash-object`/`update-index`, never touching the sibling's
-working copy — rather than committing the sibling's uncommitted work.
-
-**The rule:** when two agents share one file in one worktree, name which one
-commits first; do not tell both sides to wait for the other. If a deadlock
-happens anyway, resolve it by writing only your own hunks to the index, never
-by committing or reverting the sibling's working tree.
-
-## 2026-09-03 — `scripts/check-comment-style.mjs` does not see `.css` (TYRE-110)
-
-**What happened:** a narrating comment ("no longer …") slipped into
-`dashboard.css` and passed every gate — `make lint`, the pre-commit hook, and
-CI — because `scripts/check-comment-style.mjs` only checks the file
-extensions it was written against, and `.css` is not one of them. The
-comment-style standard (`docs/comments.md`) applies to every language in the
-repo; the gate does not yet enforce that.
-
-**The rule:** until the gate covers `.css`, check CSS comments by eye —
-during review and at `/comment-audit` time — rather than trusting a clean
-`make lint` to mean CSS narration was caught.
-
-## 2026-09-01 — A staging guard with assertions inside it is a test that runs once (TYRE-97)
-
-**What happened:** the TYRE-85 entry below recorded one suite section that
-persisted its probe rows behind `IF NOT EXISTS` and so ran only on a fresh
-database. A structural audit found the same shape in eight sections, and
-two of them (20 and 23) kept their assertions *inside* the guard — on a warm
-database those assertions were not vacuous, they were never reached. Six
-were wrapped in `BEGIN`/`ROLLBACK`. The three that could not be had a
-consumer of their persisted rows elsewhere in the file — one of them
-(section 26 scheduling section 21's `t2veh3`) 400 lines away and missed by
-a static identifier trace; only the per-section cold run caught it.
-
-**The rule:** a suite section stages its rows inside `BEGIN;`/`ROLLBACK;`,
-never behind a bare existence guard, and never puts an assertion inside the
-guard. Before wrapping an existing unwrapped section, `rg` every identifier
-it plants across the whole file, then wrap one section at a time with
-`make db-reset && make db-test` between — a green run after each is the
-attribution; a trace, from a person or an agent, is a lead. Keep the
-trailing `set_config(..., false)` reset when you wrap: a session GUC
-survives the rollback.
 
 ## 2026-09-01 — Renaming a CSS class is unchecked by every gate we have (TYRE-91)
 
@@ -972,26 +1215,6 @@ or with `round(x, 2)`, before any arithmetic whose result is stored. And
 when two writers must agree to the cent, pin the invariant with a value that
 can actually break it: the existing check used a 2dp price, which no
 rounding-order bug can fail.
-
-## 2026-09-01 — A calendar date cast to `timestamptz` can land in the future (TYRE-91)
-
-**What happened:** `app.receive_tyres` stamped its `RECEIVED` and `BRANDED`
-events at `received_date::timestamptz` — midnight of that date. Two ways
-that outruns `now()`: a caller-supplied future date, which nothing bounded,
-and simply being east of UTC, where the tenant's calendar day begins up to
-14 hours before UTC midnight. `app.tyre_in_estate_asof` reads the *latest*
-`to_state` event, so a tyre disposed afterwards kept `RECEIVED` as its
-governing event and sat in the valuation estate permanently. The suite's own
-section 39b had already sidestepped the hazard by pinning `received_date` to
-the past — the workaround was written, the defect was not seen.
-
-**The rule:** an event instant is `least(derived_date::timestamptz, now())`,
-never a bare date cast, and a user-supplied date that drives one is bounded
-against `app.tenant_today()`. Separately: comparing `occurred_at::date`
-reads the session `TimeZone`, which nothing in this deployment pins — use
-the `< ((d + 1)::timestamp AT TIME ZONE 'UTC')` boundary `000016` uses, so
-two predicates in one `WHERE` cannot disagree by a day. And when a test
-avoids a shape rather than asserting on it, ask what it is avoiding.
 
 ## 2026-09-01 — `display_code_counter` has no `ON DELETE CASCADE` on `tenant_id`, unlike every other tenant FK (TYRE-91)
 
@@ -1038,24 +1261,53 @@ carrying the whole proof. Extends the 2026-08-20 "a test that cannot fail is
 worse than no test" entry and the 2026-08-28 WITH-CHECK-mask entry: same
 family — a security-relevant assertion that passes for the wrong reason.
 
-## 2026-09-01 — A flow narrated in a plan is a claim about UI, not a fact (TYRE-91)
+## 2026-09-01 - What a plan or a handover states is a hypothesis until checked against the code (2026-08-26; TYRE-4, TYRE-91)
 
-**What happened:** B5's Task 13 brief described an e2e flow — "set its cost
-via the register's inline flow," "a hand-typed code shows the TY011
-message," "scrap it and see it leave the active register" — that read as
-settled fact but wasn't: no landed task had built a cost-setting control,
-Task 11's own DoD required the hand-typed code field be *absent* under
-GENERATED (so nothing could ever type into it), and the register has no
-"active only" filter to leave. All three surfaced only by reading Tasks
-10/11/12's actual briefs and the landed component files line by line, not
-by trusting the plan's prose.
+**What happened:**
 
-**The rule:** before writing a spec against a flow a plan narrates, check
-each step against the specific task brief that was supposed to build that
-step's UI surface — not against the plan document's description of the
-flow. A plan's prose is written once, ahead of implementation, and nothing
-re-verifies it against what actually landed; the task briefs and the
-component source are the only things that do.
+- 2026-08-26 (TYRE-4): three times on one plan, a task's summary
+  "Interfaces"/"Files" block disagreed with the verbatim code in the same
+  task: a component attributed to the wrong task, a type the code never
+  imports, a required `meta` field omitted.
+- 2026-08-26 (TYRE-4): three times in one branch a value the controller
+  handed over as settled was wrong (a test count of eleven that a `grep -c`
+  made thirteen; a predicted mutation result of `Infinity` that was `100`,
+  because a clamp added in the same ruling absorbed it), caught only
+  because the implementer re-ran the derivation.
+- 2026-08-26 (TYRE-4): handed "type the full `1200`, it must not settle at
+  three digits", an implementer wrote a test carrying that sentence as its
+  title and comment while typing `120`, a byte-for-byte duplicate of the
+  test above it. Its self-review and a skim of the diff both read it as
+  done.
+- 2026-09-01 (TYRE-91): B5's Task 13 brief narrated an e2e flow (setting a
+  cost through an inline register control, a hand-typed code showing the
+  TY011 message, a scrapped tyre leaving an "active" register) that no
+  landed task had built and one task's DoD forbade. Only reading the task
+  briefs and the landed component files line by line showed it.
+
+**The rule:**
+
+- Where a plan describes an interface in prose and also shows the code, the
+  code wins: check the two against each other before dispatching, and treat
+  a prose/code disagreement as a defect in the prose, not a choice. Never
+  build a file list from a summary block alone (2026-08-26).
+- Before writing a spec against a flow a plan narrates, check each step
+  against the specific task brief that was meant to build that step's UI
+  surface, and against the component source, not against the plan's
+  description of the flow. A plan's prose is written once, ahead of
+  implementation, and nothing re-verifies it against what landed
+  (2026-09-01).
+- Hand over the derivation, not just the result, and say which values are
+  expected rather than observed: an implementer can only check reasoning it
+  can see. Count with a command, never by eye. When a prediction and an
+  observation disagree, work out why before assuming the observation is the
+  error; the mismatch above exposed that two guards were each load-bearing
+  for a different failure, which the original reasoning had missed
+  (2026-08-26).
+- Hand over the literal input and the complete list of assertions, never
+  the intent alone: an intent restated in a comment is indistinguishable
+  from an intent implemented. When reviewing a test, read its inputs against
+  its name; never let its comment stand in for either (2026-08-26).
 
 ## 2026-09-01 — A ban proven against the forms that were written is unproven against the forms that are reachable (TYRE-95)
 
@@ -1136,35 +1388,6 @@ that throws, never a cast: the cast silences the linter and keeps the vacuous
 assertion. To hold a request in flight, use a deferred whose executor assigns
 the resolver, and release it before the test ends.
 
-## 2026-08-31 — eslint strips a trailing period, and a transcript missing one is not a forgery
-
-**What happened:** a reviewer compared a rule's committed message, ending
-`(rule 6).`, against the implementer's pasted lint transcript, which read
-`(rule 6)` with no period. It reasoned that the stylish formatter prints
-messages unmodified, concluded the evidence for the lint gate was not an
-authentic capture, and failed the task on that alone. Re-running the planted
-violation showed eslint does strip the trailing period. The evidence had been
-genuine and the code was never in question.
-
-**The rule:** when a finding turns on how a tool formats its output, reproduce
-it before acting — a minute of running beats an hour of adjudicating, and a
-confident byte-level argument can still rest on a false premise about the
-tool. Ask reviewers to say out loud when a finding depends on such a premise.
-
-## 2026-08-31 — `gh pr merge` reports failure after the merge has already landed
-
-**What happened:** `gh pr merge 35 --rebase --delete-branch` ended in
-`fatal: Not possible to fast-forward, aborting.` The merge had in fact
-succeeded — the failure came from gh's *post*-merge step, updating the local
-`develop`, which could not fast-forward because local `develop` still pointed
-at pre-promotion hashes. Re-running the merge would have hit an already-merged
-PR, and reading the exit code alone would have reported the work as unmerged.
-
-**The rule:** after any `gh pr merge` failure, check
-`gh pr view <n> --json state,mergeCommit` before concluding anything or
-retrying. gh's exit code covers the local housekeeping as well as the merge,
-and the two fail independently.
-
 ## 2026-08-31 — A promotion through the merge button deletes the branch it promotes
 
 **What happened:** `develop` was promoted to `main` through pull request #34.
@@ -1180,8 +1403,9 @@ two branches agree after any promotion, compare
 `git rev-parse <ref>^{tree}` — **trees, never hashes**, because a rebase leaves
 the tree equal and every hash different. Cut feature branches as
 `git checkout -b <name> origin/develop`, naming the remote, so a stale local
-`develop` cannot seed one. A ruleset now blocks deletion of `develop`; nothing
-yet blocks a pull request into `main`.
+`develop` cannot seed one. A ruleset now blocks deletion of `develop`, and
+`.github/workflows/close-main-prs.yml`, on `main` since the first production
+release, closes any pull request into `main` (TYRE-313).
 
 ## 2026-08-28 — A WITH CHECK kill can be masked by an unrelated FK (TYRE-81)
 
@@ -1207,7 +1431,7 @@ reason. Before trusting a RED, confirm which constraint produced it.
 
 **What happened:** the B3 plan's Task 2 test code imports
 `"github.com/stretchr/testify/require"` unaliased into a new white-box test
-file declaring `package httpapi`. `httpapi.go:257` already defines a
+file declaring `package httpapi`. `refusal.go:322` already defines a
 package-level function `require(a auth.Actor, c auth.Capability) error` (the
 capability-check helper `api/CLAUDE.md` documents). Go merges identifiers
 across every file sharing one package name, so the build fails:
@@ -1221,38 +1445,6 @@ comment. This is a permanent property of the package, not a one-off typo:
 every future white-box test file in `internal/httpapi` hits it. Check for an
 existing same-name package-level identifier before trusting a plan's
 unaliased import block for an internal test file.
-
-## 2026-08-27 — A guarded, non-transactional test section is dead on a warm database (TYRE-85)
-
-**What happened:** `TY009` should have refused suite section 24's odometer-less
-fitment immediately — the section hangs it on a unit the seed declares `HORSE`.
-Two full `make db-test` runs passed with the migration applied and the defect
-live. Section 24 wraps its inserts in `IF NOT EXISTS (… 'T2TRL1')` and, unlike
-sections 29–34, is not `BEGIN`/`ROLLBACK`-wrapped, so its rows persisted from an
-earlier run and the whole block was skipped. Only `make db-reset` ever ran it.
-The same shape hides any regression in every guarded section of the suite.
-
-**The rule:** a suite section that persists rows behind an existence guard is
-only exercised on a fresh database. Verify anything touching one with `make
-db-reset && make db-test`, never `make db-test` alone — and when a new
-constraint plausibly conflicts with existing fixtures, reset before believing a
-green run. `make check` does reset, which is the reason it is the gate and a
-bare suite run is not.
-
-## 2026-08-27 — The comment checker sees only tracked files (TYRE-82)
-
-**What happened:** `node scripts/check-comment-style.mjs` was run with no
-arguments over a tree holding three new, unstaged migrations and exited 0. The
-migrations contained two change-narration violations. With no arguments the
-script enumerates `git ls-files`, so untracked files are invisible to it; the
-green run said nothing about the only files under review. `make lint` inherits
-the same blind spot for work that is not yet staged.
-
-**The rule:** run the comment checker with explicit paths when auditing new
-files — `node scripts/check-comment-style.mjs <paths>` — or stage them first.
-A no-argument run proves something only about files git already tracks. This
-compounds the 2026-08-26 entry below: that one says a green run is not evidence
-of no narration; this one says a green run may not have read the file at all.
 
 ## 2026-08-27 — A requirement declared unbuildable was never re-read (TYRE-4, CS-4)
 
@@ -1284,22 +1476,6 @@ the exotic one.
 both directions. A test suite that only ever plants the older event first
 cannot see a missing bound, and "within N hours of each other" is symmetric
 whatever order the payloads happen to arrive in.
-
-## 2026-08-26 — A sibling agent's commit is indistinguishable from a human's (TYRE-4)
-
-**What happened:** a subagent resumed, found HEAD had moved past its own commit,
-read the author as `Rourke Amiss` and concluded the repo owner was working
-alongside it. It then declined to run `make check`, reasonably not wanting to
-reseed a person's live database to verify their in-progress commit. The commit
-was another subagent's, dispatched by the same controller. Every agent commits
-under the repo's configured git identity, so authorship cannot tell a sibling
-from a person.
-
-**The rule:** when HEAD has moved unexpectedly, do not infer a concurrent human
-from the commit author — it is the same name either way. Ask the controller, or
-read the commit message and the ledger, which name the task that produced it. A
-gate declined on a wrong premise costs a verification the work needed; the
-caution is right, the inference is not.
 
 ## 2026-08-26 — A mutation check is only as wide as the run you check it with (TYRE-4)
 
@@ -1345,36 +1521,6 @@ every multi-unit fixture from two units of the *same* configuration so they
 share ids — that is the ordinary superlink, and a fixture with per-unit distinct
 ids is blind to this whole class of bug.
 
-## 2026-08-26 — A wrapper reports its own exit code, not the gate's (TYRE-4)
-
-**What happened:** twice in one session, a failing `make check` was reported as
-success. First as `make check | tail -60`, which exits with `tail`'s status —
-this shell runs without `pipefail`. Then, subtler, as
-`(make check > log 2>&1; echo "EXIT=$?" >> log)`: the subshell exits with the
-status of `echo`, so the tool reports 0 no matter what `make` did. That one reads
-like a harness bug and is not one — the wrapper genuinely succeeded.
-
-**The rule:** never judge a gate by the exit status of anything wrapping it — a
-pipeline, a subshell, a backgrounded compound. Write the status into the artifact
-and read it back from there: `make check > check.log 2>&1; echo "EXIT=$?" >>
-check.log`, then `grep EXIT= check.log`. The reported status of the outer command
-answers a different question from the one being asked.
-
-## 2026-08-26 — A green comment-style run is not evidence of no narration (TYRE-4)
-
-**What happened:** `scripts/check-comment-style.mjs` flagged a comment reading
-"used to have" but passed two others in the same commit reading "used to render"
-and "One entry read…", which narrate a change just as plainly. Its
-change-narration verb list is deliberately narrow — the checker's stated posture
-is precision over recall, so it catches the phrasings it knows and stays silent
-on the rest rather than drowning real code in false positives.
-
-**The rule:** treat the comment gate as a floor, not a ceiling. Before closing a
-branch, read the comments the diff adds and ask of each whether it explains a
-constraint or merely narrates the edit — `/comment-audit` exists for this. Do
-not widen the checker's patterns to catch a phrasing you just hit: precision is
-the design, and a noisy gate gets ignored, which is worse than a narrow one.
-
 ## 2026-08-26 — `dexie-react-hooks` will not typecheck here, and the reason is not in its own types (TYRE-4)
 
 **What happened:** a plan called for `npm install dexie-react-hooks` to get
@@ -1394,55 +1540,55 @@ twenty lines and no new dependency. More generally: before adding a dependency
 for one hook, check what its `.d.ts` files import, because `skipLibCheck` is off
 here and a transitive optional peer will fail the build.
 
-## 2026-08-26 — A wall of identical failures in untouched files is a resolution bug, not a regression (TYRE-4)
+## 2026-08-26 - Fake timers deadlock IndexedDB, skip testing-library's drain and fire outside act() (TYRE-4)
 
-**What happened:** a reviewer ran `npx vitest run` from the repo root while
-other vitest processes were running. `npx` resolved a *different* vitest than
-the project's pinned one and ran from the wrong working directory, so it picked
-up files vitest normally excludes (the Playwright e2e spec among them) and every
-test failed identically on `document is not defined` and
-`__APP_VERSION__ is not defined` — including files the change under review never
-touched. Read at face value it looks like the branch is broken end to end.
+**What happened:**
 
-**The rule:** run the web suite through the project's own scripts from `web/`
-(`cd web && npx vitest run`, or `make check` from the root), never `npx vitest`
-from the repo root. When a run fails in files the diff does not touch, and fails
-the same way in all of them, suspect the runner's resolution and working
-directory before you suspect the code — check the reported vitest version
-against `package.json` first.
+- A heartbeat test's unrestricted `vi.useFakeTimers()` deadlocked every
+  IndexedDB operation, because Dexie and `fake-indexeddb` complete their
+  requests on a real `setTimeout`. Vitest's 5s timeout fired before the
+  test's own `vi.useRealTimers()` line, the leaked fake timers hung the
+  next `beforeEach` on `db.open()`, and six tests failed for one defect.
+- The first `userEvent` call after `vi.useFakeTimers()` hung forever.
+  `@testing-library/react`'s `asyncWrapper` drains microtasks after every
+  `userEvent`/`waitFor` call through a real `setTimeout(resolve, 0)` and
+  advances a fake clock to fire it only
+  if it detects fake timers, and both `@testing-library/react/dist/pure.js`
+  and `@testing-library/dom/dist/helpers.js` detect them by
+  `typeof jest !== "undefined"`. Vitest has no `jest` global, and no
+  `toFake` list can reach the pending call, which is real whatever is
+  faked.
+- A test drove a 200ms auto-advance with `vi.advanceTimersByTimeAsync` and
+  then read the DOM. The timer's `setState` ran outside testing-library's
+  `act()` and never flushed, so every `aria-current` read was stale and a
+  helper branching on it took the wrong branch: a green test over an entry
+  path no driver takes.
 
-## 2026-08-26 — testing-library's fake-timer detection only looks for a `jest` global (TYRE-4)
+**The rule:**
 
-**What happened:** the first `userEvent` call after `vi.useFakeTimers()` hung
-forever, and the obvious diagnosis — a wrong `toFake` list — was wrong.
-`@testing-library/react`'s `asyncWrapper` drains microtasks after every
-`userEvent`/`waitFor` call through a real `setTimeout(resolve, 0)`, and advances
-a fake clock to fire it only if it detects fake timers. Both
-`@testing-library/react/dist/pure.js` and `@testing-library/dom/dist/helpers.js`
-gate that detection on `typeof jest !== "undefined"`. Vitest has no `jest`
-global, so the advance is silently skipped and the awaited promise has nothing
-left to resolve it. Changing `toFake` cannot reach this: the pending call is
-real whatever is faked.
-
-**The rule:** a Vitest project combining `vi.useFakeTimers()` with
-`@testing-library/react` needs a `jest` shim in shared test setup, satisfying
-the detection gate without claiming to be jest. `web/src/test/setup.ts` already
-carries one — do not remove it, and do not diagnose a fake-timer hang by
-reaching for `toFake` first.
-
-## 2026-08-26 — `vi.advanceTimersByTimeAsync` fires timer callbacks outside `act()` (TYRE-4)
-
-**What happened:** a test drove a component's 200ms auto-advance with
-`vi.advanceTimersByTimeAsync` and then read the DOM. testing-library's `act()`
-wrapping applies only to its own APIs, so the `setState` the timer callback
-triggered never flushed. The DOM kept showing the pre-timer field, every
-`aria-current` read after it was stale, and a helper that branched on that
-attribute took the wrong branch — a green test over an entry path no driver
-takes.
-
-**The rule:** wrap every `vi.advanceTimersByTime`/`advanceTimersByTimeAsync`
-that can fire a React state update in `await act(async () => { ... })`. A bare
-advance is only safe when nothing it fires touches component state.
+- When faking timers around code that touches IndexedDB, restrict `toFake`
+  to exactly what you need (`["setInterval", "clearInterval", "Date"]`),
+  and do the IndexedDB setup under real timers before switching.
+- Wait for the condition rather than for a fixed number of ticks before
+  asserting on fire-and-forget async work: `vi.waitFor(...)`, not one
+  `await new Promise((r) => setTimeout(r, 0))`. A single real tick is
+  enough on an idle machine and not under a loaded full-suite run, where
+  the same sequence needs several: a fixed sleep there is a flaky test that
+  teaches people to re-run the suite, which is how a real regression gets
+  waved through. (This rule once prescribed the single tick, and that
+  advice produced exactly such a flake in the outbox heartbeat test.)
+- Always put `vi.useRealTimers()` in a shared `afterEach`, not only at the
+  end of the test that enabled them: a test that times out never reaches
+  its own cleanup, and leaked timer state misattributes the failure to
+  whatever runs next.
+- A Vitest project combining `vi.useFakeTimers()` with
+  `@testing-library/react` needs a `jest` shim in shared test setup,
+  satisfying the detection gate without claiming to be jest.
+  `web/src/test/setup.ts` already carries one: do not remove it, and do not
+  diagnose a fake-timer hang by reaching for `toFake` first.
+- Wrap every `vi.advanceTimersByTime`/`advanceTimersByTimeAsync` that can
+  fire a React state update in `await act(async () => { ... })`. A bare
+  advance is only safe when nothing it fires touches component state.
 
 ## 2026-08-26 — A finished subagent cannot be resumed unless you wrote its id down (TYRE-4)
 
@@ -1460,65 +1606,6 @@ line as the commit it produced, at dispatch time, not when you next need it.
 The id is unrecoverable once the agent finishes and your own context has moved
 on, and every recovery route from there is a guess.
 
-## 2026-08-26 — Fake timers deadlock IndexedDB, and the failure lands on the wrong test (TYRE-4)
-
-**What happened:** a heartbeat test called `vi.useFakeTimers()` with no
-`toFake` restriction. Dexie and `fake-indexeddb` complete their requests on a
-real `setTimeout`, so faking it deadlocked every IndexedDB operation and the
-test hit vitest's 5s timeout. The timeout fired *before* the test's own
-`vi.useRealTimers()` line ran, so fake timers leaked into the next
-`beforeEach`, which hung on `db.open()` — cascading into five more failures in
-unrelated `describe` blocks. The real defect was in one test; the report showed
-six, none of them obviously the culprit.
-
-**The rule:** when faking timers around code that touches IndexedDB, restrict
-`toFake` to exactly what you need (`["setInterval", "clearInterval", "Date"]`),
-do the IndexedDB setup under real timers before switching, and **wait for the
-condition rather than for a fixed number of ticks** before asserting on
-fire-and-forget async work — `vi.waitFor(...)`, not one
-`await new Promise((r) => setTimeout(r, 0))`. A single real tick is enough on an
-idle machine and not enough under a loaded full-suite run, where the same
-sequence needs several: a fixed sleep there is a flaky test that teaches people
-to re-run the suite, which is how a real regression gets waved through. (This
-sentence originally prescribed the single tick, and that advice produced exactly
-such a flake in the outbox heartbeat test.) Always put `vi.useRealTimers()` in a
-shared
-`afterEach`, not only at the end of the test that enabled them: a test that
-times out never reaches its own cleanup, and leaked timer state misattributes
-the failure to whatever runs next.
-
-## 2026-08-26 — The column definition in 000001 is not the schema (TYRE-4)
-
-**What happened:** a reviewer read `app.inspection.odometer bigint NOT NULL` in
-`000001_init.up.sql` and raised a blocking finding that a null-odometer payload
-would die on a `not_null_violation`. Migration `000011` had dropped that
-constraint eleven migrations earlier; the live schema reports the column
-nullable, and the db suite already covers trailer inspections recording without
-one. The finding would have produced a ticket and a spurious blocker.
-
-**The rule:** in a repo with a migration chain, the initial migration states
-what a column *was*, never what it *is* — later migrations relax and re-tighten.
-Before asserting a constraint exists, query the running database
-(`information_schema.columns` via `docker exec tyre-pg psql`), or at minimum
-grep the whole of `db/migrations/` for later `ALTER`s on that column. One file
-is never the answer.
-
-## 2026-08-26 — A handed-over derived value is a hypothesis, not a fact (TYRE-4)
-
-**What happened:** three times in one branch, a value derived by the controller
-and handed to an implementer as settled turned out to be wrong — a test count
-stated as eleven that a `grep -c` showed was thirteen, and a predicted mutation
-result of `Infinity` that was really `100`, because a clamp added in the same
-ruling absorbed it. Each time the implementer caught it only because it re-ran
-the derivation instead of transcribing the number.
-
-**The rule:** hand over the derivation, not just the result, and say which
-values are expected rather than observed — an implementer can only check
-reasoning it can see. Count with a command, never by eye. When a prediction and
-an observation disagree, work out why before assuming the observation is the
-error: the mismatch above exposed that two guards were each load-bearing for a
-different failure, which the original reasoning had missed.
-
 ## 2026-08-26 — An expected value can be correct and still prove nothing (TYRE-4)
 
 **What happened:** a boundary expectation was derived by hand, verified to be
@@ -1533,44 +1620,32 @@ assertion, name the mutation it is supposed to catch and confirm that mutation
 would flip it. Extends the 2026-08-20 entry below beyond security tests: prove
 the test can fail, not just that it currently passes.
 
-## 2026-08-26 — A comment restating the intent reads as done work (TYRE-4)
+## 2026-08-21 - A control nothing enforces is decoration (2026-08-20; TYRE-21)
 
-**What happened:** an implementer was handed a boundary case — "type the full
-`1200`, it must not settle at three digits" — and produced a test carrying that
-sentence as its comment and its title, while typing `120`. The result was a
-byte-for-byte duplicate of the test above it, so the sharpest case in the file
-was the one case with no coverage, and both the implementer's self-review and a
-skim of the diff read it as done.
+**What happened:**
 
-**The rule:** hand over the literal input and the complete list of assertions,
-never the intent alone — an intent restated in a comment is indistinguishable
-from an intent implemented. When reviewing a test, read its *inputs* against
-its *name*; never let its comment stand in for either.
+- 2026-08-20 (TYRE-21): `web/.npmrc` set `min-release-age=14`, but the npm
+  bundled with Node 22 predates the key and ignores unknown config without
+  a warning, and `npm config get` echoes the value back even on an npm that
+  ignores it. The supply-chain gate read as configured while enforcing
+  nothing.
+- 2026-08-21: an earlier comment-style document changed nothing: generated
+  comments kept violating it because it was never in context when comments
+  were written, and nothing checked the output.
 
-## 2026-08-26 — A plan that states an interface twice will state it wrong once (TYRE-4)
+**The rule:**
 
-**What happened:** three separate times on one plan, a task's summary
-"Interfaces"/"Files" block disagreed with the verbatim code in the same task's
-implementation step — a component attributed to the wrong task, a consumed type
-the code never imports, and a required `meta` field omitted. Each would have
-produced a wrong file list or a missing dependency if followed.
-
-**The rule:** where a plan describes an interface in prose and also shows the
-code, the code wins — check the two against each other before dispatching, and
-treat a prose/code disagreement as a defect in the prose, not a choice. Never
-build a file list from a summary block alone.
-
-## 2026-08-20 — A tool silently ignoring config is not enforcement (TYRE-21)
-
-**What happened:** `web/.npmrc` set `min-release-age=14`, but the npm bundled
-with Node 22 predates the key and ignores unknown config without a warning.
-The supply-chain gate read as configured while enforcing nothing. Worse,
-`npm config get` echoes the value back even on an npm that ignores it.
-
-**The rule:** never verify a control by checking its configuration is
-present; verify the enforcing tool's version supports it, or better, test
-the artefact the control is supposed to protect. Presence proves the file
-was read, not that anything is enforced.
+- Never verify a control by checking its configuration is present; verify
+  the enforcing tool's version supports it, or better, test the artefact
+  the control is supposed to protect. Presence proves the file was read,
+  not that anything is enforced (2026-08-20). The release-age case is now
+  refused by `make lint`'s `npm-release-age-check` and by ci.yml's
+  "Release-age gate is active" step, which both require npm 11.10.0 or
+  later, and `scripts/check-release-age.mjs` checks the lockfile in CI.
+- A convention only holds if it is either in the writer's context at write
+  time (CLAUDE.md) or enforced on the artefact afterwards (hook, lint, CI),
+  ideally both. A standalone standards document with neither is decoration.
+  See `docs/comments.md` for the pattern applied (2026-08-21).
 
 ## 2026-08-20 — A test that cannot fail is worse than no test
 
@@ -1582,262 +1657,3 @@ looked wrong until the suite was made to assert its own runtime identity
 **The rule:** for any test guarding a security property, first prove the
 test *can* fail — run it in the broken configuration, or make it assert the
 preconditions that give it teeth.
-
-## 2026-08-20 — Windows hosts lie about their toolchain
-
-**What happened:** `python3` on stock Windows is a Microsoft Store stub that
-opens a browser; Git Bash rewrites `/migrations` into a Windows path and
-breaks container mounts. Both produced confusing failures far from the cause.
-
-**The rule:** on this host, route every command through the Makefile, which
-already carries the workarounds (`PYTHON` detection, `MSYS_NO_PATHCONV`).
-When adding a new command, assume the host toolchain is hostile and pin the
-workaround in the Makefile, not in a shell history.
-
-## 2026-08-21 — A standard nobody's context window contains does not exist
-
-**What happened:** a previous attempt at a comment-style document changed
-nothing: generated comments kept violating it because the document was never
-in context at the moment comments were written, and nothing checked the
-output.
-
-**The rule:** a convention only holds if it is either in the writer's context
-at write time (CLAUDE.md) or enforced on the artefact afterwards (hook,
-lint, CI) — ideally both. A standalone standards document with neither is
-decoration. See `docs/comments.md` for the pattern applied.
-
-## 2026-09-06 — A trailing count makes a green gate look red
-
-**What happened:** a background command ran `make e2e`, wrote `EXIT=0` to
-its log, then ended with a `grep -c` for `make: ***` lines. The count was
-0, `grep` exits 1 when it matches nothing, and the harness reported the
-whole command as failed. The gate had passed.
-
-**The rule:** a gate's verdict is the `EXIT=` line written to its log
-immediately after the gate, never the exit status of whatever ran last in
-the same command. Put diagnostics such as a match count before the `EXIT=`
-write or in a separate command, and read the log before believing a
-"failed" notification.
-
-## 2026-09-07 — A grant restored for a teeth proof trips the catalogue sweep first (TYRE-158)
-
-**What happened:** to prove suite section 55 detects a landed write, a fix
-wave re-granted `UPDATE ON app.tenant` to `app_rw` and ran `make db-test`
-expecting section 55 to fail. Section 37b's catalogue sweep — which reads
-`information_schema` for exactly that grant — stopped the suite twenty
-sections earlier, so section 55's own detector never ran under the exploited
-grant, and the implementer could only report "not disproven".
-
-**The rule:** a behavioural probe of a grant or a policy sits behind the
-catalogue sweeps that assert the same fact, so a teeth proof that restores
-the privilege must run the target section standalone: cut the section from
-its `\echo` banner to its `ROLLBACK;` and pipe it through
-`docker exec -i tyre-pg psql -U app_login -d tyre -v ON_ERROR_STOP=1`. Expect
-the section's own attributable FAIL line, then REVOKE and re-run the cut
-section for its PASS before the full gate.
-
-## 2026-09-08 — The Bash tool halves doubled backslashes before the shell sees them (TYRE-75)
-
-**What happened:** cutting a suite section with the entry above's recipe,
-`sed -n "/^\\\\echo '== 58\\./,/^ROLLBACK;$/p" db/tests/004_tests.sql`
-printed nothing — which reads as "that section is not in the file" rather
-than as a broken pattern. The section was there. A probe settled it: a
-script invoked as `probe.sh 'x\\y'` — single quotes, where bash preserves
-both characters — reported its argument as `x\y`. Every doubled backslash
-loses one before bash parses the command, so sed received `\e`, which is
-not a literal backslash, and the range never opened. The same collapse
-silently rewrites heredoc bodies, so a file written that way is wrong in
-the same invisible way.
-
-**The rule:** never spell a literal backslash as `\\` through the Bash
-tool. In a regex use a bracket expression, which survives because it holds
-a single backslash: `sed -n "/^[\]echo '== NN\./,/^ROLLBACK;$/p"`. Prove
-any such cut before trusting it — diff the extracted text against the
-section as it stands in the suite, because an empty cut piped into psql
-exits 0 and reads like a pass. For file content that must contain
-backslashes, write it with the Write or Edit tool rather than a heredoc.
-
-## 2026-09-08 — Dropping a policy's WITH CHECK weakens nothing, and an audited table refuses twice (TYRE-75)
-
-**What happened:** a red proof was meant to show suite section 58g's
-cross-tenant INSERT probe has teeth, by re-creating
-`app.composition_observation`'s policy with `USING` only. The section stayed
-green. Two probes explained it, and both are traps a mutation-testing pass
-will hit again. First, a `FOR ALL` policy that omits `WITH CHECK` reuses its
-`USING` expression for writes, so the "mutation" was the original policy —
-the refusal named `composition_observation` itself. Second, with the honest
-mutation `WITH CHECK (true)`, the row landed and the table's ADR-0014 audit
-trigger then inserted an `app.audit_log` row carrying the *other* tenant's
-`tenant_id`, which `audit_log`'s own policy refused with the identical
-42501. An `EXCEPTION WHEN insufficient_privilege THEN NULL` probe cannot
-tell the two apart, so the assertion — and the comment above it claiming to
-prove "WITH CHECK, not merely USING" — asserted less than it said.
-
-**The rule:** to isolate a policy's WITH CHECK half, mutate it to
-`WITH CHECK (true)`; omitting the clause is a no-op (`polwithcheck` stores
-NULL and the executor falls back to `polqual`, which is why the catalogue
-shape sweep still flags it). And on any audited tenant table, trap the
-refusal's message text for the table under test —
-`… for table "composition_observation"` — never the bare
-`insufficient_privilege`, because the audit chain answers with the same
-SQLSTATE from a different table.
-
-## 2026-09-16 — A measurement shares the database with whatever else you started (TYRE-247)
-
-**What happened:** the dashboard read-path measurement was taken three
-times before it was taken correctly. The first run appeared to show
-`app.v_exception` failing to finish in ten minutes, and the obvious
-diagnosis, stale statistics after a bulk load, was wrong: comparing the two
-plans showed the `lr` CTE costed identically to the cent before and after
-`ANALYZE`, so the plan had not changed at all. What differed was that a
-backgrounded `make db-explain` was still running and a cancelled query had
-let its warm pass start early, so two passes were competing. Run alone, the
-same statement took 4.9 seconds.
-
-The second attempt repeated it from the other side. Two auditor agents were
-dispatched while `make db-volume` was loading. One of them ran `make
-db-reset`, which queued a `DROP SCHEMA app CASCADE` behind the load's
-transaction and left `public.schema_migrations` dirty at version 1 when it
-was cancelled, because the target fed two statements to psql without
-`ON_ERROR_STOP` (it carries it from TYRE-247 on, so only the rule below
-survives the fix). Every read figure from that window was contaminated.
-
-That run's load time was 977 seconds against the 328 the file had taken
-before, and attributing the gap to the contention was the third wrong
-diagnosis in the same session. Re-run alone, with nothing else on the box,
-the same load took 923 seconds. Contention was real and cost about 50
-seconds of it. The rest was first attributed to migration 000047's index
-being maintained once per `reading_measurement_governs` update; the entry
-below, a day later, measured it and found the cause was the foreign-key
-check's cached plan choosing that index on stale statistics, and that the
-same file takes 524 seconds on a different day of the same box.
-
-**The rule:** nothing else touches the database while `make db-volume` or
-`make db-explain` is in flight, including a suite run, a second measurement
-pass and any subagent. Dispatch auditors before the load or after the
-measurement, never during, and check `ListAgents` before starting a run.
-`db-volume` holds one transaction for its whole load, so a concurrent
-`db-reset` blocks the entire database and then destroys the load when it
-unblocks. When a timing looks pathological, the first question is what else
-was running, not what the planner did: confirm by re-running alone before
-diagnosing, because a plan that is identical cost-for-cost was not the
-thing that changed.
-
-## 2026-09-17 — A load figure is attributed by pg_stat_statements, never by the last migration that landed (TYRE-257)
-
-**What happened:** the volume load's 328 to 923 second delta had been
-attributed, in migration 000047's header and in the entry above, to the
-new index being maintained once per governing update. One instrumented run
-(`ALTER SYSTEM SET shared_preload_libraries = 'pg_stat_statements'`,
-`pg_stat_statements.track = all` so statements nested in plpgsql triggers
-are counted, `track_functions = all`, `log_min_duration_statement = 0`,
-container restarted, all reset afterwards) attributed every second of the
-load in one pass, and the story was wrong twice over. The largest term was
-`refresh_governing_tread`'s MIN() subquery seq-scanning the whole
-measurement table per row, because the function is SECURITY DEFINER and its
-query carries no tenant column (TYRE-259, a production defect). The delta
-itself was the foreign-key check `reading_measurement -> reading`: the RI
-machinery plans it once per session, the load plans it at the top of one
-transaction against an empty, never-analysed table, and on those statistics
-the cached generic plan walks the new index on `tenant_id` alone instead of
-probing the unique key, for all 90,480 checks. On an analysed table the same
-check plans on the primary key. Index maintenance did not register. The
-same file also took 524 seconds alone on the same box a day after it took
-923, so a single figure is not a baseline either.
-
-**The rule:** before attributing a load or a query to a schema change,
-switch on `pg_stat_statements` with `track = all` and `track_functions =
-all`, reset the counters, run once, and read the nested statement totals
-and `pg_stat_user_tables` / `pg_stat_user_indexes`; that one run costs
-less than one wrong diagnosis. Inside a single-transaction bulk load, every
-plan the trigger chain and the RI checks cache is built against the
-statistics the table had when the transaction began, so interleave
-`ANALYZE` of the growing tables in the file (legal inside a transaction)
-before blaming an index. And a delta is only a delta between two runs
-taken back to back on the same box.
-
-## 2026-09-18 — An audit's drafted replacement comment drops requirement IDs (TYRE-260)
-
-**What happened:** the repo-wide comment trim ran as read-only audits that
-drafted replacement text per block, then executors that applied it. Every
-executor, across all six slices, found drafts that had dropped a requirement
-or ticket ID the original carried: about fifteen cases, from `NFR-USE-005`
-in a dashboard test to `TYRE-80` in an e2e header to `BR-VAL-002` in a seed
-generator's emitted comment. The drafts read well and passed the style
-checker; the ID was simply gone, and shorthand such as `FR-INS-030a/030b`
-had also stopped matching the second ID's token. The audits had been told
-to preserve IDs and believed they had.
-
-**The rule:** never accept a comment edit, hand-written or delegated, without
-a per-file diff of the ID set against `HEAD` (the regex is in
-`docs/comments.md`'s ID list plus `TY[0-9]{3}` and bare `D`/`U`/`Q`
-numbers). Run it after the edit and before the gate, per file, because a
-package-level union hides a loss that moved between files. A shorthand
-range is two IDs written out in full.
-
-## 2026-09-19 — A review finding's premise is not evidence, and a self-test proves only the shapes its control carries (TYRE-36)
-
-**What happened:** a review of the analytics API reported that the API
-renormalised the tread distribution because the seeded `tread_bands`
-`[[0,4],[5,7],...]` leave gaps, and named a 4.5 mm tyre as the case.
-The first regression test was written on that sentence and passed before
-the fix, because `app.tread_band_list` takes `upper_exclusive_mm` from
-`lead(lower)`, not from the pair's second element: the seeded bands
-partition [0, infinity) and 4.5 mm lands in band 1. The defect was real
-for another reason (nothing pins the lowest band to zero), so the fix
-stood and only the test was wrong. The same review found the money gate
-blind to a tagged struct field, a shape its own `--self-test` control did
-not contain, so the gate had reported green over it on every run.
-
-**The rule:** before writing the regression test, reproduce the finding's
-premise against the source or the running database, not against the review
-text; a test that passes before the fix is the premise failing, not the
-fix being unnecessary. And a gate's control carries the shape its real
-input has, tags and all, or the run proves only that the control fires.
-
-## 2026-10-12 — A teammate's subagents and forks report to the lead, not to the teammate (TYRE-412)
-
-**What happened:** in the TYRE-412 spike (Claude Code 2.1.296, agent teams
-on), a teammate dispatched a subagent and blocked on it. The subagent's
-`SubagentHandback` was refused with "the agent that spawned you is no
-longer running" while the teammate was still waiting, and the teammate's
-Agent call returned "no report was delivered". The subagent's later
-hand-back reached the lead. The teammate's `/code-review` fork also
-completed to the lead and never to the teammate. Separately, the lead
-wrote that the teammate had not answered a message: the teammate had sent
-its reply 30 seconds earlier, and it had not reached the lead yet.
-
-**The rule:** never give a teammate work that dispatches a subagent or a
-background fork, such as subagent-driven development, `/code-review` or
-`/review-pr`; it runs inline or stays outside the team (ADR-0018, U125). A
-lead waits for a teammate's explicit report and never reads silence as an
-answer.
-
-## 2026-10-12 — A routine's webhook trigger drops the filter the API was sent (TYRE-412)
-
-**What happened:** the close-out routine's GitHub trigger was created with
-RemoteTrigger `create_webhook_trigger`, with a filter for merged PRs into
-`develop` whose title names a `TYRE-` key. The call succeeded, but the
-trigger came back without the filter and fires on every closed PR. The API
-has no delete for a webhook trigger, and `get` on the routine does not show
-its webhook triggers, so neither the create's response nor a read-back
-shows the loss.
-
-**The rule:** set and confirm a routine's trigger filters on its claude.ai
-routine page, never through the API. Never create a second trigger to
-correct the first: there is no delete, and both would fire.
-
-## 2026-10-12 — A routine's Run now loads main's settings, and only an ask rule stopped its Bash (TYRE-416)
-
-**What happened:** the TYRE-412 push probe, started with Run now, stopped
-at a permission prompt and waited until the owner approved it on the
-session page. Nobody was notified. Run now starts on `main` (the PR 53 run
-began at `08c6d2b`, main's head), and `main`'s `.claude/settings.json`
-still asks before `git push`, which `develop` allows since U126. The run on
-#108's merge started on that PR's head branch, which carries `develop`'s
-settings, and ran `git checkout --detach origin/develop` with no prompt,
-although no allow rule names that command.
-
-**The rule:** test a routine with a real merge into `develop`, never Run
-now, until `main` is promoted. Before adding allow rules for a routine's
-prompt, read the `ask` rules on the branch the run started on.
