@@ -13,12 +13,15 @@ import "./admin.css";
 // The roles a tenant may create. PLATFORM_ADMIN is absent because it is not
 // creatable through a tenant surface at all (ADR-0011, ADR-0013). This is the
 // full list; the component narrows it per actor before rendering (D9).
-const ROLES: { value: TenantRole; label: string }[] = [
-  { value: "DRIVER", label: "Driver" },
-  { value: "TECHNICIAN", label: "Technician" },
-  { value: "CONTROLLER", label: "Controller" },
-  { value: "DEPOT_MANAGER", label: "Depot manager" },
-  { value: "ORG_ADMIN", label: "Organisation admin" },
+// assignable mirrors CaptureInspection in api/internal/auth/auth.go's table,
+// which decides: the server refuses an assignee without it
+// (refuseNonCapturer), so a technician is not offered the assign step.
+const ROLES: { value: TenantRole; label: string; assignable: boolean }[] = [
+  { value: "DRIVER", label: "Driver", assignable: true },
+  { value: "TECHNICIAN", label: "Technician", assignable: false },
+  { value: "CONTROLLER", label: "Controller", assignable: true },
+  { value: "DEPOT_MANAGER", label: "Depot manager", assignable: true },
+  { value: "ORG_ADMIN", label: "Organisation admin", assignable: true },
 ];
 
 // Shared by both mutations so the message names the action refused:
@@ -63,12 +66,15 @@ export function AddDriver() {
   // keeps the form from expressing a request it knows will be refused.
   const canManageUsers = useCan("ManageUsers");
   const roles = canManageUsers ? ROLES : ROLES.filter((r) => r.value === "DRIVER");
+  // The server's answer, not the form's: a reactivation returns the role
+  // the user now holds.
+  const assignable = ROLES.find((r) => r.value === created?.role)?.assignable ?? false;
 
   const vehicles = useQuery({
     queryKey: vehiclesKey(tenantKey),
     queryFn: fetchVehicles,
     // The list is only needed once there is somebody to assign.
-    enabled: created !== null,
+    enabled: assignable,
   });
 
   const create = useMutation({
@@ -198,7 +204,7 @@ export function AddDriver() {
         </p>
       )}
 
-      {created && (
+      {created && assignable && (
         <form onSubmit={submitAssignment}>
           <h2>Assign to a unit</h2>
           {vehicles.isPending && <p>Loading units…</p>}
