@@ -191,8 +191,7 @@ when a gap appears.
   managers detect nothing), 255, 311 (U72), 361 (carrying 331), 395 (CI
   holds a code PR until its separate review is recorded, TYRE-394),
   TYRE-413 (the allow list lets a session merge a PR or push to `develop`
-  with no prompt), 414 (the pipeline and close-out leftovers from TYRE-412,
-  carrying 409 and TYRE-415's question), and the confinement gap from the
+  with no prompt), and the confinement gap from the
   rider PR's review: TYRE-343 (carrying 336). TYRE-263 carries TYRE-192's
   leftover pattern under the applied-migration exemption and TYRE-110's
   `.css` fixture case. TYRE-313's guard on PRs into `main` (U73) rides
@@ -212,9 +211,7 @@ when a gap appears.
 sign-in, and TYRE-381's device check; decide whether the live pressure entry groups thousands (TYRE-342);
 decide whether the governing-tread definer runs as an owner that RLS binds
 (TYRE-350), now that the staging query is in (TYRE-305 comment 13834: the
-definer's owner is `tyreadmin`, which bypasses RLS); and decide
-whether a fresh reviewer teammate checks a pipeline branch before its PR
-opens (TYRE-414, from 415). TYRE-154
+definer's owner is `tyreadmin`, which bypasses RLS). TYRE-154
 needs the platform domain, which the team registers outside Jira.
 
 Sponsor, commercial, IP and legal questions are handled by the team outside
