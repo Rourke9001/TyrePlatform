@@ -1,7 +1,7 @@
 # ADR-0016: Identity provider and token-to-actor resolution
 
-- **Status:** Proposed. Accepted once checks b and c2 on TYRE-317 pass (the
-  design's stage 2).
+- **Status:** Accepted. Checks b and c2 on TYRE-317 passed on 2 Oct 2026
+  (comment 13468), the design's stage 2.
 - **Date:** 2026-09-30
 - **Deciders:** Rourke
 - **Related:** ADR-0011 (actor context, Option B; this closes its revisit

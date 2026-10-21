@@ -166,10 +166,11 @@ the next copy edit.
   which derives hover/pressed shades and a contrast-safe on-primary from the
   one colour a tenant picks (TYRE-26/27).
 
-## The design system (ADR-0015)
+## The design system (ADR-0015, ADR-0020)
 
-The design skills advise, `tokens.ts` and ADR-0015 decide; the accepted mockups
-are fixed.
+The design skills advise; `tokens.ts`, ADR-0015's substrate and ADR-0020's
+Tread system decide. Tread replaces the kit below route by route (epic
+TYRE-443); until a route moves, the kit's rules hold for it.
 
 `src/ui/` is the component set: PageHeader, StatTile, SeverityBadge,
 ProvenanceSplit, DataTable, Panel, EmptyState, FormField, Button, Select and

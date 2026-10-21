@@ -1,6 +1,6 @@
 # ADR-0020: The Tread design system replaces the TYRE-238 kit
 
-- **Status:** Proposed. Accepted when the owner accepts it and its PR merges.
+- **Status:** Accepted (owner, 21 Oct 2026).
 - **Date:** 2026-10-20
 - **Deciders:** Rourke (owner decision of 20 Oct 2026)
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and
@@ -185,7 +185,7 @@ erode them:
   read through `GET /api/org/branding` under RLS. The brand cache stays
   keyed by tenant (ADR-0016).
 - **Rule 2, money.** Not touched. Components receive money already
-  formatted by `formatRand` and do no arithmetic.
+  formatted by `formatMoney` and do no arithmetic.
 - **Rule 3, immutability.** Not touched. "Tap a tyre to read or fix it"
   edits the unsent draft on the phone. A submitted reading has no edit
   control anywhere, and a correction stays a compensating event.
