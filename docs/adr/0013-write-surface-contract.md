@@ -334,7 +334,11 @@ through `auth.Holds`. It has one instance today: `refuseNonCapturer`
 refuses an assignment or a task whose assignee cannot capture, for
 `assignDriver` and `scheduleInspectionTask`, and `listUnitDrivers` leaves
 those people off the list it offers. Any other missing rule still goes to
-the schema.
+the schema. One writer is still open: `app.generate_inspection_tasks`
+(000012) gives a due task to the unit's latest current assignment, with no
+role test, so it can hand an OPEN task to a technician whose assignment row
+exists. That is SQL and needs a migration, so it is TYRE-133's, the
+generator's ticket.
 
 ## Constraints on later work
 
@@ -407,12 +411,16 @@ more than writing the assumption down first.
   suite legs that depended on a NULL kind (33c, 36's backfill) assert the
   refusal instead.
 - **The driver-assignment endpoint did not check that its assignee could
-  capture: closed in Go on 21 Oct 2026 (the roles review).** This entry
+  capture: closed in Go on 21 Oct 2026 for the two endpoints and the driver
+  list (the roles review), still open in the task generator.** This entry
   called the gap inert because every assignable role held
   `CaptureInspection`. `TECHNICIAN` never did and was always assignable, so
   a technician could be given a unit and a task, then be refused on opening
   it. `assignDriver` and `scheduleInspectionTask` now refuse an assignee
-  whose role does not hold `CaptureInspection` (`refuseNonCapturer`). The
-  check lives in Go because the capability table does (ADR-0011). No
-  constraint says an `app.vehicle_driver` row's user must be a `DRIVER`:
-  assigning a controller to a unit stays odd, not unsafe.
+  whose role does not hold `CaptureInspection` (`refuseNonCapturer`), and
+  `listUnitDrivers` does not offer one. The check lives in Go because the
+  capability table does (ADR-0011). `app.generate_inspection_tasks` still
+  assigns by assignment row alone (TYRE-133), and a reactivation keeps a
+  user's rows whatever their new role (TYRE-377). No constraint says an
+  `app.vehicle_driver` row's user must be a `DRIVER`: assigning a
+  controller to a unit stays odd, not unsafe.
