@@ -519,8 +519,8 @@ func TestAssignDriverIsDepotScoped(t *testing.T) {
 }
 
 // An assignment exists so its holder can capture the unit (v_capture_vehicle),
-// and TECHNICIAN holds no CaptureInspection: before refuseNonCapturer it was
-// assigned, then refused when it opened the unit (ADR-0013, Accepted gaps).
+// and TECHNICIAN holds no CaptureInspection, so assigning one would give it a
+// unit it is refused on opening (ADR-0013, Accepted gaps).
 func TestAssignDriverRefusesAUserWhoCannotCapture(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
