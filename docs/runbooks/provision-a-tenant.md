@@ -211,7 +211,9 @@ SELECT purpose_code, granted, notice_version, occurred_at
 The purpose is `SERVICE_DELIVERY` or `ANONYMISED_BENCHMARKING`. The date is
 the agreement's, a day in the fleet's own calendar, recorded as that day's
 first instant in the fleet's timezone whatever the session's TimeZone. A
-date after today is refused. The read names the tenant because the admin
+date after today is refused, and so is one not after the purpose's latest
+record (U144): a second change on the same day is recorded without the
+date, as `now()`. The read names the tenant because the admin
 role may bypass RLS. Expect the purpose with the state just recorded, then
 `COMMIT;`.
 

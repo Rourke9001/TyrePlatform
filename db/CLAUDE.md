@@ -155,7 +155,7 @@ from `app_rw` (000012), and `tenant_consent_written_once` refuses an
 `UPDATE` from any role (`TY027`, 000059), because the runbook connects as
 the owning role. `DELETE` stays grant-only, since a tenant's deletion
 cascades through its ledger (DR-014). A change of consent is a new row
-through `app.record_consent`.
+through `app.record_consent`, dated after the purpose's latest row (U144).
 
 `tyre_receipt` is edited in place, but only through `UPDATE (price_state,
 invoice_number)` (000059). `tyre_receipt_moves_once` allows four moves,
