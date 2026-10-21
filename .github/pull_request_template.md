@@ -43,6 +43,9 @@ Tick only what this change actually touches; delete the rest.
 
 ## Set aside
 
-<!-- Problems found that this PR does not fix and that fail CLAUDE.md's
-     schedule test, one line each with file:line. This list is their
-     record; close-out tickets only what passes the test (U130). -->
+<!-- Findings this PR does not act on that are not bugs by CLAUDE.md's
+     definition: nits, wording, untested paths that hide no bug, rejected
+     alternatives, accepted trades, and improvements that fail the schedule
+     test. One line each with file:line. A bug is fixed in this PR and never
+     listed here; one that meets CLAUDE.md's exception is named under
+     Decisions with its ticket (U146). -->

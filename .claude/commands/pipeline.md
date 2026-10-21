@@ -171,8 +171,11 @@ Spawn a teammate named `implementer` (general-purpose) with:
 > `Final review: self-review (teammate; a subagent's result reaches the lead)`.
 > Work in place on branch `<branch>` in this checkout; do not create a
 > worktree. Business rules go in SQL with a test in `db/tests/`; transport
-> and auth go in Go (CLAUDE.md). Run `make check` in the foreground,
-> unpiped, and read its real exit code. Where the skill says to stop and
+> and auth go in Go (CLAUDE.md). Run every command that finishes in the
+> foreground, unpiped, with the Bash timeout up to 600000 ms, and read its
+> real exit code. Never end your turn to wait on a background job: nothing
+> wakes you when it finishes. Check `make api-run` readiness with a
+> foreground `curl`. Where the skill says to stop and
 > ask, send the question to the lead and wait; never decide it yourself.
 > When the skill reaches finishing-a-development-branch, send the lead
 > "ready to push <branch>" with the `make check` exit code and wait for its
@@ -180,18 +183,24 @@ Spawn a teammate named `implementer` (general-purpose) with:
 > the branch and open a PR into develop from
 > `.github/pull_request_template.md`, leaving "How it ran" and the review
 > line for others. Never merge, locally or on GitHub.
-> Anything you find that is not this ticket's to fix: fix it in this
-> branch if it sits in code the branch already changes and is small
-> (CLAUDE.md), and list it with your rulings; otherwise send it to the
-> lead with the evidence. Report the PR number, the `make check` exit
+> A bug you find that is not this ticket's: fix it in this branch with a
+> regression test, whatever its file or age, and list it with your rulings
+> (CLAUDE.md, U146). A bug that meets CLAUDE.md's exception, or whose fix
+> needs a live environment step or a decision you cannot make, goes to the
+> lead with the evidence; wait for its answer. Send anything that is not a
+> bug to the lead with the evidence. Report the PR number, the `make check` exit
 > code, the final-review line, and the rulings and deferred minors the
 > skill lists.
 
 When the implementer reports, write its report verbatim to
 `<state dir>/implementer-report.md` before anything else: the skill deletes
-its own ledger when it finishes. Put each finding the implementer sends
-through CLAUDE.md's schedule test: raise a ticket linked to $ARGUMENTS for
-one that passes, and keep the rest for the PR's "Set aside" list (U130).
+its own ledger when it finishes. A bug sent up under CLAUDE.md's exception
+gets one ticket linked to $ARGUMENTS, after a board search, and a Decisions
+line saying why. Any other bug the implementer sends up is a stop: put it
+to the owner with the evidence and send the ruling back. Put each finding
+that is not a bug through CLAUDE.md's schedule test: a ticket linked to
+$ARGUMENTS for one that passes, the PR's "Set aside" list for the rest
+(U130).
 
 When the PR is open, move the ticket to In Review and comment the PR link.
 
@@ -208,14 +217,16 @@ Fill the PR's "How it ran" section. Start from its current body
 - "Final review: self-review", because the implementer could not dispatch
   a fresh reviewer
 
-Put the deferred minors and the findings kept back above under "Set aside".
+Put the deferred minors that are not bugs, and the findings kept back above
+that are not bugs, under "Set aside". A bug never goes there (U146).
 
 Leave the "Code review by a separate session" line unticked: CLAUDE.md
 stage 5 (code review) is the owner's (U125). Ask `implementer` to shut down
 and wait for its confirmation. Set the last finished stage to "handed
 over". Tell the owner: the PR link, the red-team verdict, the `make check`
 result, and the next steps: run `/review-pr <n>` in a separate session,
-make its fixes outside this run as for a `/ticket` PR, then merge;
+make its fixes outside this run as for a `/ticket` PR, every bug in its
+report included, then merge;
 close-out runs by itself once they merge. Under `make pipeline`, CLAUDE.md
 stage 5 (code review) applies to every PR that is not docs-only, because
 the final review was a self-review. Until that PR merges or closes, a new

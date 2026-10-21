@@ -14,19 +14,33 @@ never from a local copy: anything under `docs/spec/` is untracked and may be
 stale. Read the project brief before substantive design work. Search the SRS;
 do not read it end to end.
 
-A problem found along the way is fixed in the branch that found it when it
-sits in code the branch already changes and the fix is small: no migration,
-endpoint, route or screen beyond the branch's own. The PR's Decisions name
-each such fix, so the code review sees it. Anything else gets one
-test: would the owner schedule it before the pilot? If so, raise one Jira
-ticket linked to the parent, with the evidence. If not, list it under "Set
-aside" in the PR body and let it go (U130, owner, 13 Oct 2026). Two kinds
-are always ticketed when not fixed: a requirement that does not fit or a
-better approach than the SRS describes, where the ticket proposes the SRS
-change and the SRS is updated rather than worked around (owner, 29 Sep
-2026); and a finding against rules 1 to 3 below. A question for the owner is
-a comment on the parent ticket, not a ticket, and a Minor never becomes a
-ticket on its own.
+A bug found on a feature branch is fixed on that branch, with a regression
+test, whatever file it sits in and however old it is: "predates this PR" is
+never a reason (U146, owner, 21 Oct 2026). The branch's own work, its red
+team and its stage 5 review all count as finding it. A bug is behaviour
+that is wrong for an input or state the system can reach, a raw call as the
+app role included; a refusal with the wrong code or message; or a comment,
+runbook or doc line the code proves false. A missing feature, an untested
+path that hides no bug, a nit and a rejected alternative are not bugs. The
+PR's Decisions name each fix, so the code review sees it.
+
+One exception: a bug outside every file the branch changes (`git diff
+--name-only origin/develop...HEAD`) whose fix needs a migration, endpoint,
+route, screen or deploy step the branch does not already add gets one
+ticket, linked to the parent, and Decisions says why it was not fixed here.
+A fix that needs a live environment step or a decision the branch cannot
+make stops for the owner, as a comment on the parent. A finding against
+rules 1 to 3 below is a bug at any severity.
+
+A requirement that does not fit, or a better approach than the SRS
+describes, is always ticketed: the ticket proposes the SRS change and the
+SRS is updated rather than worked around (owner, 29 Sep 2026). Anything
+found that is not a bug gets one test: would the owner schedule it before
+the pilot? If so, one ticket linked to the parent; if not, one line under
+"Set aside" in the PR body (U130). Search the board before raising any
+ticket, and add the evidence to an open one rather than raise a second. A
+question for the owner is a comment on the parent ticket, not a ticket, and
+a Minor never becomes a ticket on its own.
 
 ## The capture target
 
@@ -77,7 +91,7 @@ make db-test        # the verification suite, as a non-superuser
 make db-test-privileged  # negative controls that need a superuser to stage
 make test           # everything: db, api, web
 make fmt            # gofmt + prettier, in place
-make lint           # gofmt/prettier check, vet, staticcheck, eslint, tsc, comments
+make lint           # gofmt/prettier check, vet, staticcheck, Bicep lint, actionlint, eslint, tsc, comments, money paths, bundle
 make check          # fmt + lint + test. Run before every commit.
 make pipeline T=TYRE-123  # one ticket from triage to its PR with an agent team
 ```
@@ -245,10 +259,10 @@ when the PR opens (TYRE-412, ADR-0018). `/ticket` walks them by hand.
    (U125). A subagent or teammate cannot collect what `/code-review`
    dispatches, and a reviewer that shares the author's context shares its
    blind spots. The owner merges only once the report shows no open
-   Critical or Important finding. `/code-review ultra` is the owner's to
-   launch. A `make pipeline` PR gets this stage unless it is docs-only,
-   wherever it touches, because its implementer's final review was a
-   self-review.
+   Critical or Important finding and no open bug (U146, above).
+   `/code-review ultra` is the owner's to launch. Every `make pipeline` PR
+   gets this stage, whatever folders it touches, unless it changes docs
+   only, because its implementer's final review was a self-review.
 
 When a PR merges into `develop`, a Claude Code routine runs
 `/close-out <n> cloud` (ADR-0018). Run `/close-out <n>` by hand only when
@@ -258,7 +272,9 @@ By hand it does the same with a local gate.
 **Small fixes** skip stages 1 and 3 and keep a short plan in the PR body. A
 small fix is one defect with a regression test, no migration, no new endpoint,
 route or screen, and no change to a non-negotiable rule. When in doubt, it is
-not a small fix. `/ticket` waits for the owner to confirm the call; under
+not a small fix. A bug found on a small fix whose fix would break this
+definition stops for the owner: the PR becomes a full one, or the bug takes
+U146's exception. `/ticket` waits for the owner to confirm the call; under
 `make pipeline` the lead makes it and states the reason in the PR body. Stage
 5 applies to every PR that touches `api/`, `db/`, `web/` or `infra/`. A PR
 that only touches docs is exempt. Related small fixes may share one PR, each
