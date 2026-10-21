@@ -140,6 +140,20 @@ describe("the unit screen", () => {
     expect(screen.queryByRole("button", { name: "Set status" })).toBeNull();
   });
 
+  // A TECHNICIAN reads this screen, so the prompt offers only what the
+  // reader can do: the position panel shows them the tyre and no form.
+  it("prompts a reader to look and a manager to fit or remove", async () => {
+    const reader = renderScreen(["ViewFleet"]);
+    await screen.findByRole("heading", { name: "HORSE-1" });
+    expect(screen.getByText("Pick a position on the plan to see its tyre.")).toBeTruthy();
+    expect(screen.queryByText(/fit or remove/)).toBeNull();
+    reader.unmount();
+
+    renderScreen();
+    await screen.findByRole("heading", { name: "HORSE-1" });
+    expect(screen.getByText("Pick a position on the plan to fit or remove a tyre.")).toBeTruthy();
+  });
+
   it("gives a controller the rotate, edit and status forms", async () => {
     renderScreen();
     await screen.findByRole("heading", { name: "HORSE-1" });

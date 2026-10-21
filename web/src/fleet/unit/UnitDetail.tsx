@@ -82,7 +82,11 @@ export function UnitDetail({ unitId }: { unitId: string }) {
       />
 
       {selected === null ? (
-        <p className="unit-panel-empty">Pick a position on the plan to fit or remove a tyre.</p>
+        <p className="unit-panel-empty">
+          {canManage
+            ? "Pick a position on the plan to fit or remove a tyre."
+            : "Pick a position on the plan to see its tyre."}
+        </p>
       ) : (
         // Keyed on the position so picking another one starts its panel
         // clean: a warning or a confirmation belongs to the position it was
