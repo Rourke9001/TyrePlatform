@@ -391,12 +391,13 @@ more than writing the assumption down first.
   `db/tests/004_tests.sql` and the Go fixtures each name a kind, and the two
   suite legs that depended on a NULL kind (33c, 36's backfill) assert the
   refusal instead.
-- **The driver-assignment endpoint does not check that its assignee holds
-  the `DRIVER` role.** No constraint says an `app.vehicle_driver` row's user
-  must be a driver, and none is added here. The gap is inert today: every
-  role that can be assigned already holds `CaptureInspection`, so assigning
-  a controller to a unit is odd, not unsafe. No ticket owns this one — it
-  should be revisited the day a role becomes assignable, or gains
-  `ManageAssignments`, without also holding `CaptureInspection`, at which
-  point an assignee's role stops being something a client can rely on by
-  construction.
+- **The driver-assignment endpoint did not check that its assignee could
+  capture: closed in Go on 21 Oct 2026 (the roles review).** This entry
+  called the gap inert because every assignable role held
+  `CaptureInspection`. `TECHNICIAN` never did and was always assignable, so
+  a technician could be given a unit and a task, then be refused on opening
+  it. `assignDriver` and `scheduleInspectionTask` now refuse an assignee
+  whose role does not hold `CaptureInspection` (`refuseNonCapturer`). The
+  check lives in Go because the capability table does (ADR-0011). No
+  constraint says an `app.vehicle_driver` row's user must be a `DRIVER`:
+  assigning a controller to a unit stays odd, not unsafe.

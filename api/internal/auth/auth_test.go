@@ -99,6 +99,24 @@ func TestRoleCapabilities(t *testing.T) {
 
 // Capabilities feeds GET /api/me, so a caller mutating the returned slice
 // must not be able to grant itself something on the next request.
+// Holds reads the table Can reads, so the caller's rights and an assignee's
+// cannot disagree about a role. TECHNICIAN is the case that matters: it can
+// be assigned to a unit but holds no CaptureInspection.
+func TestHoldsAgreesWithCan(t *testing.T) {
+	roles := []auth.Role{auth.RoleDriver, auth.RoleTechnician, auth.RoleController,
+		auth.RoleDepotManager, auth.RoleOrgAdmin, auth.RolePlatformAdmin, "UNKNOWN"}
+	caps := []auth.Capability{auth.ViewFleet, auth.CaptureInspection, auth.ManageAssignments,
+		auth.ManageAssets, auth.LogRetread, auth.ViewValuation, auth.ManageConfig,
+		auth.ManageTemplates, auth.ManageUsers, auth.InviteDriver, auth.VoidInspection}
+	for _, r := range roles {
+		for _, c := range caps {
+			require.Equal(t, auth.Actor{Role: r}.Can(c), auth.Holds(r, c), "%s %s", r, c)
+		}
+	}
+	require.False(t, auth.Holds(auth.RoleTechnician, auth.CaptureInspection))
+	require.True(t, auth.Holds(auth.RoleDriver, auth.CaptureInspection))
+}
+
 func TestCapabilitiesIsACopy(t *testing.T) {
 	a := auth.Actor{Role: auth.RoleDriver}
 	got := a.Capabilities()

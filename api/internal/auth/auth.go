@@ -113,8 +113,13 @@ type Actor struct {
 	DepotIDs    []uuid.UUID
 }
 
-func (a Actor) Can(c Capability) bool {
-	for _, held := range capabilities[a.Role] {
+func (a Actor) Can(c Capability) bool { return Holds(a.Role, c) }
+
+// Holds is Can for a user who is not the caller: an assignment or a task
+// names someone who must be able to act on it, and only this table says
+// whether their role can.
+func Holds(r Role, c Capability) bool {
+	for _, held := range capabilities[r] {
 		if held == c {
 			return true
 		}
