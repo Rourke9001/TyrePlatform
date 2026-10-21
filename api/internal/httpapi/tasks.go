@@ -3,9 +3,11 @@
 // a task may be due on, and what is overdue are app.v_user_capture_vehicle's,
 // app.create_inspection_task's and app.v_inspection_task's (000038). This
 // file validates shape, gates the capability and projects rows (ADR-0013
-// decision 5), and refuses an assignee whose role cannot capture, the one
-// rule the schema cannot hold (ADR-0013, amended 2026-10-21). The U-codes
-// cited below are docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md's.
+// decision 5). It also applies the one rule the schema cannot hold (ADR-0013,
+// amended 2026-10-21): scheduling refuses an assignee whose role cannot
+// capture (refuseNonCapturer, admin.go), and listUnitDrivers does not offer
+// one. The U-codes cited below are
+// docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md's.
 package httpapi
 
 import (
@@ -98,10 +100,10 @@ func listUnitDrivers(s *store.Store) http.HandlerFunc {
 				if err := rows.Scan(&userID, &displayName, &staffNumber, &viaVehicleID, &viaFleetNumber, &role); err != nil {
 					return fmt.Errorf("scanning driver row: %w", err)
 				}
-				// An assignment row can name a role that cannot capture (one
-				// written before refuseNonCapturer, or kept through a
-				// reactivation, TYRE-377), and scheduleInspectionTask would
-				// refuse them, so they are not offered.
+				// An assignment row can name a role that cannot capture: a
+				// reactivation keeps a user's rows whatever their new role
+				// (TYRE-377). scheduleInspectionTask would refuse that person,
+				// so the list does not offer them.
 				if !auth.Holds(auth.Role(role), auth.CaptureInspection) {
 					continue
 				}
@@ -302,9 +304,9 @@ func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
 				}
 			}
-			// An assignment written before assignDriver checked, or kept
-			// through a reactivation that changed the role, still names a
-			// non-capturer, so the task checks its assignee as well.
+			// An assignment row can name a role that cannot capture (a
+			// reactivation keeps it, TYRE-377), so the task checks its
+			// assignee as well as assignDriver does.
 			if err := refuseNonCapturer(ctx, tx, "assigneeUserId", assignee); err != nil {
 				return err
 			}

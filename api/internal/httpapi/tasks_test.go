@@ -97,9 +97,9 @@ func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
 	require.Equal(t, bothDriver.String(), trailerRows[0].UserID)
 }
 
-// The technician is assigned directly, as a row written before assignDriver
-// checked would be. The list offers only people a task may name, so it drops
-// them; the driver on the same unit is the control.
+// The technician is assigned directly, the row a reactivation can leave
+// (TYRE-377). The list offers only people a task may name, so it drops them;
+// the driver on the same unit is the control.
 func TestUnitDriversOmitsAnAssigneeWhoCannotCapture(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -327,9 +327,9 @@ func TestScheduleTaskRefusesAnUnassignedDriver(t *testing.T) {
 	require.Equal(t, 0, countTasks(t, ctx, admin, tenantID))
 }
 
-// The technician is assigned directly, as a row written before assignDriver
-// checked would be, so TY018's own assignment check passes and the refusal
-// under test is the capability one.
+// The technician is assigned directly, the row a reactivation can leave
+// (TYRE-377), so TY018's own assignment check passes and the refusal under
+// test is the capability one.
 func TestScheduleTaskRefusesAnAssigneeWhoCannotCapture(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
