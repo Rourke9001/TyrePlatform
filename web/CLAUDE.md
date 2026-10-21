@@ -48,7 +48,8 @@ Online-first with a durable submit outbox — not an offline sync engine.
   Safari has no Background Sync API and evicts storage aggressively.
 - Each inspection carries a client-generated UUID; the server treats
   submission as idempotent, so replaying the outbox is safe.
-- Photos queue separately from readings.
+- Photos are to queue separately from readings. Photo capture is unbuilt
+  (TYRE-152), so nothing queues one yet.
 - The API origin comes from `/config.json` at startup (ADR-0019,
   `src/api/runtimeConfig.ts`), preloaded beside the entry. A production
   build that cannot read it shows `ConfigFailure`, sends nothing, and
