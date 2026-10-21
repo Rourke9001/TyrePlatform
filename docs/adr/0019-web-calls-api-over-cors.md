@@ -1,6 +1,6 @@
 # ADR-0019: The web calls the API at its own origin, over CORS
 
-- **Status:** Proposed. Accepted when its PR merges.
+- **Status:** Accepted. Its PR, #126, merged on 16 Oct 2026.
 - **Date:** 2026-10-16
 - **Deciders:** Rourke
 - **Related:** ADR-0016 (identity; this takes its recorded fallback) ·
