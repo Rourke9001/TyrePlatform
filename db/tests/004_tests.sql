@@ -13036,7 +13036,7 @@ BEGIN
   PERFORM app.record_consent('ANONYMISED_BENCHMARKING', false, 'T75 v2', '2026-10-01T00:00:00Z');
   -- Recorded last, given first: when it was given decides, not when it
   -- was recorded. The writer refuses this (U144, 75a), so it is inserted
-  -- directly, as the owning role can.
+  -- directly, as app_rw's INSERT grant allows (000012).
   INSERT INTO app.tenant_consent (tenant_id, purpose_code, granted, notice_version, occurred_at)
   VALUES (t2, 'ANONYMISED_BENCHMARKING', true, 'T75 v0', '2026-08-01T00:00:00Z');
   SELECT string_agg(v.purpose_code || ':' || v.granted || ':' || v.notice_version, ' ' ORDER BY v.purpose_code)
@@ -13405,7 +13405,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 75j. applying the list price prices every tyre on an unpriced receipt at the match for the receipt''s own size, brand and date, keeps a retreaded tyre''s rate, files each write in the audit log, and is refused with no row in force (FR-CFG-041, FR-TYR-019, FR-AUD-001; as BAC, rolled back)'
+\echo '== 75j. applying the list price prices every tyre on an unpriced receipt at the match for the receipt''s own size, brand and date, keeps a retreaded tyre''s rate, files each write in the audit log, and is refused with no row in force or a NaN entry (FR-CFG-041, FR-TYR-019, FR-AUD-001; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -13472,7 +13472,17 @@ BEGIN
                                  app.rand_per_mm(4319.91, 25.0, 4.0)::numeric(12,4)) THEN
     RAISE EXCEPTION 'FAIL 75j: a set whose first tyre was re-patterned reads %', got;
   END IF;
-  RAISE NOTICE 'PASS  75j the list price follows the receipt''s own match, keeps a retread''s rate, is audited per row, and is refused with no row in force';
+
+  -- The list's CHECK (>= 0) passes NaN, and only hand-written SQL plants
+  -- one; the move refuses it rather than store it on a retreaded tyre.
+  INSERT INTO app.tyre_price_list (tenant_id, size_id, brand_id, typical_price, effective_from)
+  VALUES (bac, md5('sz1')::uuid, md5('br1')::uuid, 'NaN', '2026-10-02');
+  rc := pg_temp.t75_receive(base || jsonb_build_object('received_date', '2026-10-02'));
+  got := pg_temp.t75_try(format('SELECT app.apply_receipt_list_price(%L)', rc));
+  IF got IS DISTINCT FROM 'TY026 the price list entry in force for this size and brand on 2026-10-02 is not an amount; correct the price list, or record the invoice price instead' THEN
+    RAISE EXCEPTION 'FAIL 75j: the list price at a NaN list entry was answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  75j the list price follows the receipt''s own match, keeps a retread''s rate, is audited per row, and is refused with no row in force or a NaN entry';
 END $$;
 ROLLBACK;
 

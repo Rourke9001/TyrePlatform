@@ -241,8 +241,9 @@ received together. Nothing records that grouping today.
     force, under the same refusals and the same rule as `app.set_tyre_cost`.
     A retreaded tyre keeps its rate, which is its retread cost's
     (FR-TYR-019).
-  - A tyre that has left the fleet (scrapped, sold or lost) keeps its
-    estimate, and the others take the price. This is the line
+  - A tyre that has left the fleet (scrapped, sold or lost) keeps what it
+    had, and the others take the price. One that left before the list
+    price was applied stays unpriced. This is the line
     `app.set_tyre_cost` already draws: a tyre that has left the estate is
     not re-costed. The same holds for applying the list price.
   - For a tyre still in the fleet, the new rate also restates its past
@@ -423,8 +424,9 @@ The owner deferred these to common practice or left them to the lead:
 
 1. The invoice reference is a free-text number with no uniqueness rule, and
    the invoice date is the existing purchase date.
-2. A tyre that has left the fleet keeps its estimate when the invoice is
-   recorded. This corrects what the owner was told in the session (that it
+2. A tyre that has left the fleet keeps what it had when the invoice is
+   recorded: its estimate, or no price if it left before the list price
+   was applied. This corrects what the owner was told in the session (that it
    would take the invoice price): `app.set_tyre_cost` already draws that
    line. Tyres still in the fleet have their past valuations restated to
    the invoice figure, as `app.set_tyre_cost` does today (000008).

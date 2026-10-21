@@ -740,6 +740,12 @@ BEGIN
       MESSAGE = format('no price list entry for this size and brand was in force on %s, the day these tyres were received; record the invoice price instead',
                        rc.received_date);
   END IF;
+  -- NaN, as at app.set_tyre_cost: the list's CHECK (>= 0) passes it.
+  IF est = 'NaN' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY026',
+      MESSAGE = format('the price list entry in force for this size and brand on %s is not an amount; correct the price list, or record the invoice price instead',
+                       rc.received_date);
+  END IF;
 
   priced := 0;
   left_fleet := 0;
