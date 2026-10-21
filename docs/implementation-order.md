@@ -22,7 +22,7 @@ section there.
 
 Dependency first. Then, more sharply: an integrity rule is cheap before pilot
 data exists and expensive after, because afterwards it has to be retrofitted
-around rows that already violate it. That is why TYRE-432 (with 425) makes
+around rows that already violate it. That is why TYRE-432 (425 folded in) makes
 configuration rows written once before BAC's are provisioned, why TYRE-168
 fixes distance coverage before TYRE-322 imports odometer history, and why
 the register batch lands before the measured window.
@@ -48,8 +48,8 @@ whichever database branch is cut first.
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
 | 0 | 21 to 23 Oct | #141 (ADR-0020, TYRE-444); #142 (U146, TYRE-452); this page's PR with ADR-0021 (TYRE-350) | | A board with only build work on it |
-| 1. Foundations and trips | 22 to 30 Oct | TYRE-445 colour and themes (with 281, 343); 446 type; the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334; the network PR (389, 381, 388); 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips; 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
-| 2. Driver path and manager views | 31 Oct to 7 Nov | 447a core components (with 275); 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 with 425; 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
+| 1. Foundations and trips | 22 to 30 Oct | TYRE-445 colour and themes (with 281; 343 folded in); 446 type; the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334; the network PR (389, 381, 388); 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips; 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
+| 2. Driver path and manager views | 31 Oct to 7 Nov | 447a core components (275 folded in); 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 (425 folded in); 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
 | 3. Capture slice and reports | 8 to 16 Nov | The Tread capture slice: 447b with 152's screens, 448, 285 and 319's Today screen; 320 reports and export (ADR first); 354, 363 and 367 | 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
 | 4. Hardening | 17 to 24 Nov | 115 with 140; 159; 377; 366 if BAC runs two or more operating groups; 434; 398 as a release step | The register batch (123, 120, 121, 244, 131, 113, 105); the suite PR (245, 112); 76 depot capture; 441; 243 slice 3, rule administration | Money and dates right per tenant; the suite covering exceptions |
 | Readiness | 25 Nov to 1 Dec | TYRE-321: production migrated and promoted, BAC onboarded live (U139), driver training, the 7-day live run | | The measured window |
@@ -61,16 +61,17 @@ committed (U147 B34).
 
 ### Feature work and fixes
 
-Of the 72 tickets in sprints 1 to 4 and readiness, 27 are features, 8 are
-platform pieces and 37 are fixes; the fixes travel in about a dozen batched
+Of the 69 tickets in sprints 1 to 4 and readiness, 27 are features, 8 are
+platform pieces and 34 are fixes; the fixes travel in about a dozen batched
 PRs, so feature work sets the pace.
 
 - **Features:** 76, 99, 100, 102, 109, 133, 152, 154, 243, 284, 285, 286,
   287, 292, 319, 320, 322, 325, 326, 366, 367, 377, 441, 445, 446, 447, 448.
 - **Platform:** 321, 371, 379, 398, 410, 413, 434, 438.
 - **Fixes:** 105, 112, 113, 115, 120, 121, 123, 129, 131, 140, 159, 168,
-  171, 173, 176, 190, 207, 218, 240, 244, 245, 270, 275, 323, 329, 334, 342,
-  343, 354, 363, 372, 381, 388, 389, 425, 432, 450.
+  171, 173, 176, 190, 207, 218, 240, 244, 245, 270, 323, 329, 334, 342, 354,
+  363, 372, 381, 388, 389, 432, 450. TYRE-275 folded into 447, 343 into 445
+  and 425 into 432 on 21 Oct.
 
 TYRE-453, the backfill of BAC's paper sheets (FR-IMP-009, from TYRE-430),
 lands during the pilot after 322, 432 and 168; it is not a pilot gate (U147
@@ -138,11 +139,11 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 **The owner, this week:** merge #142 and this page's PR (#140 and #141
 merged and #138 closed on 21 Oct); migrate staging to 000059
-(`environment-release.md`, Each release); revoke tyre-api's Graph
-`User.Read.All` grant and apply the page edits drafted on TYRE-378; paste the
-SRS rows drafted on TYRE-442 (six), TYRE-430, TYRE-322, TYRE-76, TYRE-448
-and TYRE-372; run the restore rehearsal (TYRE-321); add yourself as required
-reviewer on the GitHub production environment (TYRE-413). Production stays
+(`environment-release.md`, Each release); paste the SRS rows drafted on
+TYRE-442 (six), TYRE-430, TYRE-322 and TYRE-448 (TYRE-378's revoke and
+page edits, and the TYRE-76 and TYRE-372 rows, were done on 21 Oct); run the
+restore rehearsal (TYRE-321); add yourself as required reviewer on the GitHub
+production environment (TYRE-413). Production stays
 at 58 until the next promotion, which must migrate first. TYRE-371's custom
 sender domain needs the platform domain, which the team registers outside
 Jira.
