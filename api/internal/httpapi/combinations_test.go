@@ -98,7 +98,7 @@ func TestCreateCombinationIsOfferedToTheDriver(t *testing.T) {
 	tenantID, horseID, trailerID := plantRigUnits(t, ctx, admin, "rig-dod")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, driver)
+	plantTrip(t, ctx, admin, tenantID, horseID, driver)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	rec := post(t, h, "/api/combinations", tenantID.String(), controller.String(),

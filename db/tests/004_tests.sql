@@ -616,46 +616,49 @@ BEGIN
   IF ok THEN RAISE NOTICE 'PASS  fleet numbers collide within a tenant, coexist across tenants'; END IF;
 END $$;
 
-\echo '== 15. Driver assignment: current set, history, attribution, scoping (FR-VEH-007/008, FR-AUT-005)'
+\echo '== 15. Trips: the open set, history, attribution, scoping (FR-VEH-007/008 as amended, FR-AUT-005)'
 DO $$
 DECLARE got text; n int;
 BEGIN
   -- Self-contained: pin tenant 1 rather than inherit check 14's session state.
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', false);
-  -- Multi-driver (HORSE) and multi-vehicle (Melusi) at once; the ended LINK6
-  -- assignment must not appear.
-  SELECT string_agg(fleet_number || '=' || display_name, ',' ORDER BY fleet_number || '=' || display_name) INTO got
-    FROM app.v_current_assignment;
-  IF got IS DISTINCT FROM 'HORSE=Melusi,HORSE=Sipho,LINK12=Melusi' THEN
-    RAISE EXCEPTION 'FAIL: current assignments wrong: [%]', got; END IF;
+  -- One driver per motive at an instant (U143); Sipho's ended trip must not
+  -- appear.
+  SELECT string_agg(v.fleet_number || '=' || u.display_name, ',' ORDER BY v.fleet_number) INTO got
+    FROM app.trip t
+    JOIN app.vehicle v ON v.id = t.vehicle_id
+    JOIN app.app_user u ON u.id = t.user_id
+   WHERE t.ended_at IS NULL;
+  IF got IS DISTINCT FROM 'HORSE=Melusi' THEN
+    RAISE EXCEPTION 'FAIL: open trips wrong: [%]', got; END IF;
 
-  -- FR-VEH-008: the ended assignment stays queryable history.
-  SELECT count(*) INTO n FROM app.vehicle_driver;
-  IF n <> 4 THEN RAISE EXCEPTION 'FAIL: expected 4 assignment rows including history, got %', n; END IF;
+  -- FR-VEH-008: the ended trip stays queryable history.
+  SELECT count(*) INTO n FROM app.trip;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL: expected 2 trips including history, got %', n; END IF;
 
-  -- FR-VEH-008: the fixture inspection's driver was among those assigned to
-  -- that vehicle on the day it happened.
+  -- FR-VEH-008: the fixture inspection's driver held a trip on that vehicle
+  -- when it started.
   SELECT u.display_name INTO got
     FROM app.inspection i
-    JOIN app.vehicle_driver vd ON vd.vehicle_id = i.vehicle_id
-                              AND vd.from_date <= i.started_at::date
-                              AND (vd.to_date IS NULL OR vd.to_date >= i.started_at::date)
-    JOIN app.app_user u ON u.id = vd.user_id
+    JOIN app.trip t ON t.vehicle_id = i.vehicle_id
+                   AND tstzrange(t.started_at, t.ended_at, '[)') @> i.started_at
+    JOIN app.app_user u ON u.id = t.user_id
    WHERE i.id = md5('insp1')::uuid AND u.id = i.user_id;
   IF got IS DISTINCT FROM 'Melusi' THEN
-    RAISE EXCEPTION 'FAIL: inspection driver not assigned at the time, got [%]', got; END IF;
-  RAISE NOTICE 'PASS  current assignments, retained history and attribution all hold';
+    RAISE EXCEPTION 'FAIL: inspection driver held no trip at the time, got [%]', got; END IF;
+  RAISE NOTICE 'PASS  open trips, retained history and attribution all hold';
 END $$;
 
 DO $$
 DECLARE got text; n int;
 BEGIN
-  -- FR-AUT-005 through the one predicate the API composes (ADR-0006).
+  -- FR-AUT-005 through the one predicate the API composes (ADR-0006): the
+  -- trip's motive and the units its open rig tows.
   PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, false);
   SELECT string_agg(DISTINCT fleet_number, ',' ORDER BY fleet_number) INTO got
     FROM app.v_driver_vehicle;
-  IF got IS DISTINCT FROM 'HORSE,LINK12' THEN
-    RAISE EXCEPTION 'FAIL: driver sees [%], expected HORSE,LINK12', got; END IF;
+  IF got IS DISTINCT FROM 'HORSE,LINK12,LINK6' THEN
+    RAISE EXCEPTION 'FAIL: driver sees [%], expected HORSE,LINK12,LINK6', got; END IF;
   -- A tenant-1 session carrying tenant-2's driver id must see nothing: the
   -- tenant predicate binds before the actor predicate, so a stale or stolen
   -- actor id cannot cross the tenant boundary.
@@ -664,8 +667,8 @@ BEGIN
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: foreign-tenant actor sees % vehicles', n; END IF;
   PERFORM set_config('app.actor_id', '', false);
   SELECT count(*) INTO n FROM app.v_driver_vehicle;
-  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unset actor sees % assigned vehicles', n; END IF;
-  RAISE NOTICE 'PASS  a driver sees exactly their current vehicles; foreign or unset actor sees none';
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL: unset actor sees % vehicles', n; END IF;
+  RAISE NOTICE 'PASS  a driver sees exactly their trip''s units; foreign or unset actor sees none';
 END $$;
 
 -- The predicate reads "today" from the tenant's calendar (FR-AUT-005,
@@ -689,24 +692,28 @@ BEGIN
   RAISE NOTICE 'PASS  tenant_today puts 00:30 SAST on the tenant''s civil date';
 END $$;
 
--- The live path: an assignment starting on the tenant's civil date is
--- current through v_current_assignment. Transaction-scoped: nothing persists.
+-- The live path: a handover at now moves the unit and its rig to the new
+-- driver at once. Transaction-scoped: nothing persists.
 BEGIN;
 DO $$
-DECLARE n int;
+DECLARE got text; n int;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-  SELECT v.tenant_id, v.id, md5('driver3')::uuid, app.tenant_today(t.timezone)
-    FROM app.vehicle v
-    JOIN app.tenant t ON t.id = v.tenant_id
-   WHERE v.fleet_number = 'LINK6'
-     AND v.tenant_id = '11111111-1111-1111-1111-111111111111';
-  SELECT count(*) INTO n FROM app.v_current_assignment
-   WHERE user_id = md5('driver3')::uuid AND fleet_number = 'LINK6';
-  IF n <> 1 THEN
-    RAISE EXCEPTION 'FAIL: same-day assignment not current in the tenant timezone (saw %)', n;
+  UPDATE app.trip SET ended_at = now() WHERE id = md5('trip1')::uuid;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES ('11111111-1111-1111-1111-111111111111', md5('veh1')::uuid, md5('driver3')::uuid, now());
+  PERFORM set_config('app.actor_id', md5('driver3')::uuid::text, true);
+  SELECT string_agg(DISTINCT fleet_number, ',' ORDER BY fleet_number) INTO got FROM app.v_driver_vehicle;
+  IF got IS DISTINCT FROM 'HORSE,LINK12,LINK6' THEN
+    RAISE EXCEPTION 'FAIL: the new driver sees [%] after a handover at now, expected HORSE,LINK12,LINK6', got;
   END IF;
+  PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
+  SELECT count(*) INTO n FROM app.v_driver_vehicle;
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: the old driver still sees % vehicles after the handover', n;
+  END IF;
+  PERFORM set_config('app.actor_id', '', true);
+  RAISE NOTICE 'PASS  a handover at now moves the unit and its rig to the new driver';
 END $$;
 ROLLBACK;
 
@@ -3320,6 +3327,13 @@ BEGIN
         'readings', jsonb_build_array(jsonb_build_object(
           'vehicle_id', v_probe, 'position_id', pos_probe,
           'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0))))),
+      -- inspection.started_at is NOT NULL, and the column's own 23502 would
+      -- reach the driver canned (000060, FR-OFF-013).
+      jsonb_build_object('why', 'no started_at', 'payload', jsonb_build_object(
+        'client_uuid', gen_random_uuid(), 'vehicle_id', v_probe, 'submitted_at', t_now,
+        'readings', jsonb_build_array(jsonb_build_object(
+          'vehicle_id', v_probe, 'position_id', pos_probe,
+          'pressure_kpa', 750, 'treads', jsonb_build_array(7.0, 7.0, 7.0))))),
       -- FR-INS-020: an inspection is its readings. All three shapes below
       -- landed a SYNCED inspection at 100% completeness recording nothing, or
       -- reached jsonb_array_elements as a scalar.
@@ -3374,7 +3388,7 @@ BEGIN
     END IF;
   END LOOP;
 
-  -- Ten more refusals, still nothing written: each was reached and refused on
+  -- Eleven more refusals, still nothing written: each was reached and refused on
   -- its own terms rather than masked by an earlier one quietly succeeding.
   SELECT count(*) INTO n FROM app.reading WHERE vehicle_id = v_probe;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL: a refused payload left % reading rows on v_probe', n; END IF;
@@ -6046,8 +6060,8 @@ BEGIN
   INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
   VALUES (drv, bac, 't45drv@example.invalid', 'T45 Driver', 'DRIVER'),
          (ctl, bac, 't45ctl@example.invalid', 'T45 Controller', 'CONTROLLER');
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-  VALUES (bac, h, drv, today);
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h, drv, now() - interval '1 minute');
   PERFORM set_config('app.actor_id', ctl::text, true);
 
   -- (a) Create. The motive is member 1 (U7), the towed follow in the order
@@ -6330,9 +6344,9 @@ DECLARE
   ta    uuid := md5('t46ta')::uuid;   -- TRAILER in h's rig: reachable by drv only through the rig (U4)
   hx    uuid := md5('t46hx')::uuid;   -- HORSE, drv3's unit, never in a rig
   hd    uuid := md5('t46hd')::uuid;   -- HORSE, DISPOSED: the retired-unit probe
-  drv   uuid := md5('t46drv')::uuid;  -- assigned to h
-  drv2  uuid := md5('t46drv2')::uuid; -- assigned to nothing
-  drv3  uuid := md5('t46drv3')::uuid; -- assigned to hx, then deactivated
+  drv   uuid := md5('t46drv')::uuid;  -- on a trip on h
+  drv2  uuid := md5('t46drv2')::uuid; -- on no trip
+  drv3  uuid := md5('t46drv3')::uuid; -- on a trip on hx, then deactivated
   ctl   uuid := md5('t46ctl')::uuid;  -- planted, not assumed: created_by is a composite FK (000017)
   t2drv uuid := md5('t46t2drv')::uuid;
   t2ctl uuid := md5('t46t2ctl')::uuid;
@@ -6357,20 +6371,20 @@ BEGIN
          (drv2, bac, 't46drv2@example.invalid', 'T46 Driver Two', 'DRIVER'),
          (drv3, bac, 't46drv3@example.invalid', 'T46 Driver Three', 'DRIVER'),
          (ctl,  bac, 't46ctl@example.invalid',  'T46 Controller', 'CONTROLLER');
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-  VALUES (bac, h, drv, today), (bac, hx, drv3, today);
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h, drv, now() - interval '1 minute'), (bac, hx, drv3, now() - interval '1 minute');
   PERFORM set_config('app.actor_id', ctl::text, true);
   rig := app.create_combination(h, jsonb_build_array(jsonb_build_object('vehicle_id', ta)));
 
   -- (a) The predicate, asked about someone else (U4, FR-AUT-005 as amended
-  -- by D3): drv reaches h by assignment and ta through the rig; drv2
-  -- reaches nothing; and v_capture_vehicle answers the same set for the
+  -- by D3 and TYRE-326): drv reaches h by the trip and ta through the rig;
+  -- drv2 reaches nothing; and v_capture_vehicle answers the same set for the
   -- acting driver. The capture read and the predicate are one rule
   -- (FR-AUT-005/D3).
-  IF NOT app.user_can_capture(drv, h)  THEN RAISE EXCEPTION 'FAIL 46a: the assigned driver cannot capture the horse'; END IF;
-  IF NOT app.user_can_capture(drv, ta) THEN RAISE EXCEPTION 'FAIL 46a: the horse''s driver cannot capture its trailer'; END IF;
-  IF app.user_can_capture(drv2, h)     THEN RAISE EXCEPTION 'FAIL 46a: an unassigned driver can capture the horse'; END IF;
-  IF app.user_can_capture(drv, hx)     THEN RAISE EXCEPTION 'FAIL 46a: the driver can capture a unit they are not assigned to'; END IF;
+  IF NOT app.user_could_capture(drv, h, now(), now())  THEN RAISE EXCEPTION 'FAIL 46a: the trip driver cannot capture the horse'; END IF;
+  IF NOT app.user_could_capture(drv, ta, now(), now()) THEN RAISE EXCEPTION 'FAIL 46a: the horse''s driver cannot capture its trailer'; END IF;
+  IF app.user_could_capture(drv2, h, now(), now())     THEN RAISE EXCEPTION 'FAIL 46a: a driver on no trip can capture the horse'; END IF;
+  IF app.user_could_capture(drv, hx, now(), now())     THEN RAISE EXCEPTION 'FAIL 46a: the driver can capture a unit their trip does not cover'; END IF;
   SELECT string_agg(ucv.vehicle_id::text || '<' || ucv.via_vehicle_id::text, ',' ORDER BY ucv.vehicle_id::text)
     INTO msg FROM app.v_user_capture_vehicle ucv WHERE ucv.user_id = drv;
   IF msg IS DISTINCT FROM (SELECT string_agg(x, ',' ORDER BY x) FROM unnest(ARRAY[h::text || '<' || h::text, ta::text || '<' || h::text]) x) THEN
@@ -6380,7 +6394,7 @@ BEGIN
   SELECT count(*) INTO n FROM app.v_capture_vehicle cv WHERE cv.vehicle_id IN (h, ta, hx);
   IF n <> 2 THEN RAISE EXCEPTION 'FAIL 46a: v_capture_vehicle reads % of the driver''s 2 units', n; END IF;
   PERFORM set_config('app.actor_id', ctl::text, true);
-  RAISE NOTICE 'PASS  46a a user can capture a unit by assignment or through the rig its horse heads, and the capture read agrees';
+  RAISE NOTICE 'PASS  46a a user can capture a unit by its trip or through the rig its horse heads, and the capture read agrees';
 
   -- (b) Schedule (FR-INS-051/052): OPEN, assigned, requested and created by
   -- the controller, due at the tenant-local end of today, not overdue now
@@ -6442,17 +6456,16 @@ BEGIN
       RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
     END IF;
   END;
-  -- The base view's active leg, proven by the change alone: drv3's
-  -- assignment to hx is untouched across the deactivation, so the predicate
-  -- answering true before and false after is the u.active join and nothing
-  -- else. Without the control above it, the second probe would pass on any
-  -- predicate that answered false for this pair.
-  IF NOT app.user_can_capture(drv3, hx) THEN
-    RAISE EXCEPTION 'FAIL 46c: an active driver assigned to the unit fails the predicate';
+  -- Capture never reads app_user.active, which keeps no history, so a
+  -- deactivation leaves drv3's trip covering hx; withActor refuses an
+  -- inactive actor before any query runs (ADR-0011). The write still
+  -- refuses an inactive driver by name.
+  IF NOT app.user_could_capture(drv3, hx, now(), now()) THEN
+    RAISE EXCEPTION 'FAIL 46c: an active driver on the unit''s trip fails the predicate';
   END IF;
   UPDATE app.app_user SET active = false WHERE id = drv3;
-  IF app.user_can_capture(drv3, hx) THEN
-    RAISE EXCEPTION 'FAIL 46c: a deactivated driver still passes the predicate';
+  IF NOT app.user_could_capture(drv3, hx, now(), now()) THEN
+    RAISE EXCEPTION 'FAIL 46c: the predicate read the active flag';
   END IF;
   BEGIN
     PERFORM app.create_inspection_task(hx, drv3);
@@ -6534,9 +6547,6 @@ BEGIN
   INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
   VALUES (t2drv, t2, 't46t2drv@example.invalid', 'T46 Tenant Two Driver', 'DRIVER'),
          (t2ctl, t2, 't46t2ctl@example.invalid', 'T46 Tenant Two Controller', 'CONTROLLER');
-  -- md5('t2veh1') is the fixture's ACTIVE tenant-2 horse (gen_seed_fixture.py:143).
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-  VALUES (t2, md5('t2veh1')::uuid, t2drv, app.tenant_today((SELECT timezone FROM app.tenant WHERE id = t2)));
   PERFORM set_config('app.actor_id', t2ctl::text, true);
   BEGIN
     PERFORM app.create_inspection_task(h, drv);
@@ -6553,12 +6563,14 @@ BEGIN
     IF msg <> 'no such user in this fleet' THEN RAISE EXCEPTION 'FAIL 46g: wrong message %', msg; END IF;
   END;
   -- The predicate itself, below the refusals that name it: under tenant 2's
-  -- session app.v_user_capture_vehicle must answer no row for BAC's pair, so
-  -- user_can_capture is false rather than reading BAC's assignment.
-  IF app.user_can_capture(drv, h) THEN
+  -- session app.v_capture_span must answer no row for BAC's pair, so
+  -- user_could_capture is false rather than reading BAC's trip.
+  IF app.user_could_capture(drv, h, now(), now()) THEN
     RAISE EXCEPTION 'FAIL 46g: the predicate answers true across tenants';
   END IF;
-  PERFORM app.create_inspection_task(md5('t2veh1')::uuid, t2drv);
+  -- Thabo's fixture trip covers md5('t2veh1'), the fixture's ACTIVE tenant-2
+  -- horse, so the control schedules him.
+  PERFORM app.create_inspection_task(md5('t2veh1')::uuid, md5('driver2')::uuid);
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', ctl::text, true);
   BEGIN
@@ -8537,8 +8549,8 @@ BEGIN
     (t15, t_id, 'T58-T15', cfg, 'TRAILER', 'ACTIVE'),
     (h9, t_id, 'T58-H9', cfg, 'HORSE', 'ACTIVE'), (t16, t_id, 'T58-T16', cfg, 'TRAILER', 'ACTIVE'),
     (t17, t_id, 'T58-T17', cfg, 'TRAILER', 'ACTIVE');
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-  VALUES (t_id, h1, drv, (now() AT TIME ZONE 'UTC')::date - 1);
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (t_id, h1, drv, now() - interval '1 day');
   SELECT p.id INTO p_run FROM app.position p
    WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
 
@@ -13845,6 +13857,36 @@ BEGIN
   END IF;
 END $fn$;
 
+-- A capture payload with one reading at the first running position of each
+-- unit named, the first being the payload's own unit (every T76 unit is on
+-- HORSE's configuration), and a fresh client_uuid each call.
+CREATE FUNCTION pg_temp.t76_capture(p_units uuid[], p_started timestamptz, p_submitted timestamptz)
+RETURNS jsonb
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  SELECT jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', p_units[1],
+    'started_at', p_started, 'submitted_at', p_submitted,
+    'readings', (SELECT jsonb_agg(jsonb_build_object(
+                          'vehicle_id', x.u, 'position_id', pos.id, 'pressure_kpa', 800,
+                          'treads', jsonb_build_array(8.0, 8.0, 8.0)) ORDER BY x.o)
+                   FROM unnest(p_units) WITH ORDINALITY x(u, o)
+                   CROSS JOIN LATERAL (
+                     SELECT p.id FROM app.position p
+                       JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+                      WHERE v.id = x.u AND NOT p.is_spare
+                      ORDER BY p.sequence LIMIT 1) pos));
+$fn$;
+
+-- The own-units answer for a payload, asked as the actor named.
+CREATE FUNCTION pg_temp.t76_could(p_payload jsonb, p_actor uuid) RETURNS boolean
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+BEGIN
+  PERFORM set_config('app.actor_id', p_actor::text, true);
+  RETURN app.actor_could_capture(p_payload);
+END $fn$;
+
 \echo '== 76a. a trip and a nomination are tenant rows under forced RLS; the app role inserts both, ends a trip by its two end columns alone, and edits or deletes neither otherwise (rule 1, rule 3; as BAC, rolled back)'
 BEGIN;
 DO $$
@@ -14237,7 +14279,413 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 76h. a submit is judged by who could capture each unit it names at some instant of the capture, not at its arrival: a trip or task closed mid-capture still passes, a unit never held does not, a nominee reaches the motive''s rig, every unit the payload attributes is checked, and a replay is a replay (FR-OFF-015 as amended, FR-AUT-005; as BAC, each case rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h1, d1, now() - interval '2 hours', now() - interval '30 minutes');
+  IF NOT pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '40 minutes', now() - interval '10 minutes'), d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: a trip closed between start and submit refused the capture';
+  END IF;
+  IF app.user_could_capture(d1, h1, now() - interval '20 minutes', now() - interval '10 minutes') THEN
+    RAISE EXCEPTION 'FAIL 76h: the control window after the trip ended passed';
+  END IF;
+  RAISE NOTICE 'PASS  76h a trip closed between start and submit passes; a window wholly after it does not';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h2 constant uuid := md5('t76h2')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  d3 constant uuid := md5('t76d3')::uuid;
+  k uuid; p jsonb; r record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k, d2, now() - interval '2 hours');
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76h' WHERE id = k;
+  p := pg_temp.t76_capture(ARRAY[h2], now() - interval '40 minutes', now()) || jsonb_build_object('task_id', k);
+  IF NOT pg_temp.t76_could(p, d2) THEN
+    RAISE EXCEPTION 'FAIL 76h: a task cancelled between start and submit refused its nominee';
+  END IF;
+  IF app.user_could_capture(d2, h2, now(), now()) THEN
+    RAISE EXCEPTION 'FAIL 76h: the nominee of a cancelled task can capture after the cancel';
+  END IF;
+  -- Never held: D3 had no trip and no nomination on H2.
+  IF app.user_could_capture(d3, h2, now() - interval '1 hour', now()) OR pg_temp.t76_could(p, d3) THEN
+    RAISE EXCEPTION 'FAIL 76h: a driver who never held the unit passes';
+  END IF;
+  PERFORM set_config('app.actor_id', d2::text, true);
+  SELECT * INTO r FROM app.submit_inspection(p);
+  IF NOT r.created THEN RAISE EXCEPTION 'FAIL 76h: the nominee''s submit did not land'; END IF;
+  SELECT t.state::text AS state, t.completed_inspection_id INTO r FROM app.inspection_task t WHERE t.id = k;
+  IF r.state <> 'CANCELLED' OR r.completed_inspection_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76h: the cancelled task reads % citing % after the submit', r.state, r.completed_inspection_id;
+  END IF;
+  RAISE NOTICE 'PASS  76h a task cancelled mid-capture passes its nominee and stays cancelled; a driver who never held the unit does not pass';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; h4 constant uuid := md5('t76h4')::uuid;
+  t3 constant uuid := md5('t76t3')::uuid;
+  d2 constant uuid := md5('t76d2')::uuid; d3 constant uuid := md5('t76d3')::uuid;
+  rig uuid; k uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h4, now() - interval '10 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h4, 1), (bac, rig, t3, 2);
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h4, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k, d2, now() - interval '1 hour');
+  IF NOT app.user_could_capture(d2, h4, now(), now()) OR NOT app.user_could_capture(d2, t3, now(), now())
+     OR app.user_could_capture(d2, h1, now(), now()) THEN
+    RAISE EXCEPTION 'FAIL 76h: a motive''s nominee does not reach exactly the motive and its coupled trailer';
+  END IF;
+  -- A trip then takes the nomination over (decision 6).
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h4, d3, now() - interval '30 minutes');
+  IF app.user_could_capture(d2, h4, now() - interval '20 minutes', now()) THEN
+    RAISE EXCEPTION 'FAIL 76h: the nominee passes a window wholly after a trip took the task over';
+  END IF;
+  IF NOT app.user_could_capture(d2, h4, now() - interval '50 minutes', now()) THEN
+    RAISE EXCEPTION 'FAIL 76h: the nominee fails a window that began before the trip took over';
+  END IF;
+  RAISE NOTICE 'PASS  76h a motive''s nominee captures it and its coupled trailers until a trip takes the task over';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; h2 constant uuid := md5('t76h2')::uuid;
+  h4 constant uuid := md5('t76h4')::uuid;
+  t1 constant uuid := md5('t76t1')::uuid; t2 constant uuid := md5('t76t2')::uuid;
+  t3 constant uuid := md5('t76t3')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  rig uuid; old_rig uuid; h4_rig uuid; p jsonb;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '5 hours');
+  -- A partial window across an uncouple: T2 was towed from three hours ago
+  -- to two hours ago.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '3 hours') RETURNING id INTO old_rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, old_rig, h1, 1), (bac, old_rig, t2, 2);
+  UPDATE app.combination SET effective_to = now() - interval '2 hours' WHERE id = old_rig;
+  IF NOT app.user_could_capture(d1, t2, now() - interval '150 minutes', now() - interval '60 minutes') THEN
+    RAISE EXCEPTION 'FAIL 76h: a window spanning the uncouple refused the trailer held for part of it';
+  END IF;
+  IF app.user_could_capture(d1, t2, now() - interval '90 minutes', now() - interval '60 minutes') THEN
+    RAISE EXCEPTION 'FAIL 76h: a window wholly after the uncouple passed the trailer';
+  END IF;
+
+  -- Every unit the payload attributes is checked (Decision 25).
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '90 minutes') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  p := pg_temp.t76_capture(ARRAY[h1, t1], now() - interval '30 minutes', now());
+  IF NOT pg_temp.t76_could(p, d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: a capture of the trip''s motive and its trailer was refused';
+  END IF;
+  IF pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1, t1, h2], now() - interval '30 minutes', now()), d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: a reading on a unit the driver never held passed';
+  END IF;
+  IF pg_temp.t76_could(p || jsonb_build_object('absent_spares', jsonb_build_array(
+         jsonb_build_object('vehicle_id', h2, 'position_id', gen_random_uuid()))), d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: an absent spare on a unit the driver never held passed';
+  END IF;
+
+  -- combination_id names a rig of the payload's unit, at any time: a tab's
+  -- cached context can name a rig a trip start has since re-formed.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h4, now() - interval '10 hours') RETURNING id INTO h4_rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, h4_rig, h4, 1), (bac, h4_rig, t3, 2);
+  IF NOT pg_temp.t76_could(p || jsonb_build_object('combination_id', rig), d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: the payload unit''s open rig was refused';
+  END IF;
+  IF NOT pg_temp.t76_could(p || jsonb_build_object('combination_id', old_rig), d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: the payload unit''s rig ended before the capture was refused';
+  END IF;
+  IF pg_temp.t76_could(p || jsonb_build_object('combination_id', h4_rig), d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: a rig headed by another unit passed';
+  END IF;
+  IF pg_temp.t76_could(p || jsonb_build_object('combination_id', gen_random_uuid()), d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: an unknown rig passed';
+  END IF;
+  IF NOT pg_temp.t76_could(p || '{"combination_id": null}'::jsonb, d1) THEN
+    RAISE EXCEPTION 'FAIL 76h: an explicit null combination_id, which every solo capture sends, was refused';
+  END IF;
+  RAISE NOTICE 'PASS  76h a window across an uncouple passes the trailer, every attributed unit is checked, and combination_id names a rig of the payload''s unit';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h5 constant uuid := md5('t76h5')::uuid;
+  d2 constant uuid := md5('t76d2')::uuid; d3 constant uuid := md5('t76d3')::uuid;
+  cu uuid := gen_random_uuid(); p jsonb;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  VALUES (bac, h5, d2, cu, now() - interval '3 hours', now() - interval '170 minutes');
+  p := pg_temp.t76_capture(ARRAY[h5], now() - interval '3 hours', now() - interval '170 minutes')
+       || jsonb_build_object('client_uuid', cu);
+  IF NOT pg_temp.t76_could(p, d2) THEN
+    RAISE EXCEPTION 'FAIL 76h: a replay of the actor''s own stored capture was refused';
+  END IF;
+  IF pg_temp.t76_could(p, d3) THEN
+    RAISE EXCEPTION 'FAIL 76h: another driver''s client_uuid passed as a replay';
+  END IF;
+  RAISE NOTICE 'PASS  76h a replay of the actor''s own stored capture is answered as a replay, and no one else''s is';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; t1 constant uuid := md5('t76t1')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  rig uuid; got text; bad text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '1 hour');
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '1 hour') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  PERFORM set_config('app.actor_id', d1::text, true);
+  SELECT string_agg(v.fleet_number, ',' ORDER BY v.fleet_number) INTO got
+    FROM app.v_capture_vehicle cv JOIN app.vehicle v ON v.id = cv.vehicle_id
+   WHERE v.fleet_number LIKE 'T76-%';
+  IF got IS DISTINCT FROM 'T76-H1,T76-T1' THEN
+    RAISE EXCEPTION 'FAIL 76h: the capture read at now reads %, not T76-H1,T76-T1', got;
+  END IF;
+  SELECT string_agg(v.fleet_number, ',' ORDER BY v.fleet_number) INTO bad
+    FROM app.vehicle v
+   WHERE v.fleet_number LIKE 'T76-%'
+     AND app.user_could_capture(d1, v.id, now(), now()) <> (v.fleet_number IN ('T76-H1', 'T76-T1'));
+  IF bad IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76h: the predicate at now disagrees with T76-H1,T76-T1 on %', bad;
+  END IF;
+  RAISE NOTICE 'PASS  76h the capture read at now and the predicate both answer exactly the trip''s motive and its trailer';
+END $$;
+ROLLBACK;
+
+\echo '== 76i. the window judged runs to submitted_at from started_at or the tenant''s setting before it, whichever is later, and from submitted_at when started_at is after it; no capture is refused for its length, and an absent started_at is a named refusal (U148, rule 5, FR-OFF-013; as BAC, each case rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid;
+  p jsonb; w tstzrange; st text; msg text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  p := pg_temp.t76_capture(ARRAY[h1], now() - interval '14 hours', now());
+  w := app.capture_window(p);
+  IF w IS DISTINCT FROM tstzrange(now() - interval '12 hours', now(), '[]') THEN
+    RAISE EXCEPTION 'FAIL 76i: a 14 hour capture is judged over %, not its last 12 hours', w;
+  END IF;
+  w := app.capture_window(pg_temp.t76_capture(ARRAY[h1], now() - interval '1 hour', now()));
+  IF w IS DISTINCT FROM tstzrange(now() - interval '1 hour', now(), '[]') THEN
+    RAISE EXCEPTION 'FAIL 76i: a one hour capture is judged over %', w;
+  END IF;
+  w := app.capture_window(pg_temp.t76_capture(ARRAY[h1], now() + interval '2 minutes', now()));
+  IF w IS DISTINCT FROM tstzrange(now(), now(), '[]') THEN
+    RAISE EXCEPTION 'FAIL 76i: a started_at after submitted_at is judged over %, not at submitted_at', w;
+  END IF;
+  IF app.capture_window_between(now() - interval '14 hours', now()) IS DISTINCT FROM tstzrange(now() - interval '12 hours', now(), '[]')
+     OR app.capture_window_between(now(), now() - interval '1 hour') IS DISTINCT FROM tstzrange(now() - interval '1 hour', now() - interval '1 hour', '[]') THEN
+    RAISE EXCEPTION 'FAIL 76i: capture_window_between disagrees with the payload window';
+  END IF;
+  -- Dated a second back: config_for reads rows strictly before its instant
+  -- (lesson 2026-09-11).
+  INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+  VALUES (bac, 'inspection_max_duration_hours', '2'::jsonb, now() - interval '1 second');
+  w := app.capture_window(p);
+  IF w IS DISTINCT FROM tstzrange(now() - interval '2 hours', now(), '[]') THEN
+    RAISE EXCEPTION 'FAIL 76i: the tenant setting of 2 hours judged the capture over %', w;
+  END IF;
+  BEGIN
+    PERFORM app.capture_window(p - 'started_at');
+    RAISE EXCEPTION 'FAIL 76i: a payload with no started_at was given a window';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  END;
+  IF st IS DISTINCT FROM 'TY005' OR msg IS DISTINCT FROM 'the payload carries no started_at' THEN
+    RAISE EXCEPTION 'FAIL 76i: a payload with no started_at answered % %', st, msg;
+  END IF;
+  RAISE NOTICE 'PASS  76i the window is the capture''s last setting-hours, from submitted_at when started_at is after it, and an absent started_at is TY005';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  -- The trip covers the capture's last five hours only.
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '5 hours');
+  IF NOT pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '14 hours', now()), d1) THEN
+    RAISE EXCEPTION 'FAIL 76i: a capture longer than the setting was refused though the driver held the unit at its end';
+  END IF;
+  RAISE NOTICE 'PASS  76i a capture longer than the setting is accepted on its last part';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h1, d1, now() - interval '14 hours', now() - interval '13 hours');
+  IF pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '14 hours', now()), d1) THEN
+    RAISE EXCEPTION 'FAIL 76i: a driver who held the unit only before the judged window passed';
+  END IF;
+  RAISE NOTICE 'PASS  76i a driver who held the unit only before the judged window is refused';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h1, d1, now() - interval '1 hour', now() - interval '10 minutes');
+  IF pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now() - interval '5 minutes'), d1) THEN
+    RAISE EXCEPTION 'FAIL 76i: a started_at after submitted_at was judged at started_at, not at submitted_at';
+  END IF;
+  RAISE NOTICE 'PASS  76i a started_at after submitted_at is judged at submitted_at, after the trip ended';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '1 hour');
+  IF NOT pg_temp.t76_could(pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now() - interval '5 minutes'), d1) THEN
+    RAISE EXCEPTION 'FAIL 76i: the control, the same capture with the trip open, was refused';
+  END IF;
+  RAISE NOTICE 'PASS  76i the control: the same capture passes with the trip open at submitted_at';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  p jsonb; r record; st timestamptz; n int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM set_config('app.actor_id', d1::text, true);
+  p := pg_temp.t76_capture(ARRAY[h1], now() - interval '14 hours', now());
+  SELECT * INTO r FROM app.submit_inspection(p);
+  SELECT i.started_at INTO st FROM app.inspection i WHERE i.id = r.inspection_id;
+  IF NOT r.created OR st IS DISTINCT FROM now() - interval '14 hours' THEN
+    RAISE EXCEPTION 'FAIL 76i: a 14 hour capture landed % with started_at %, not the phone''s', r.created, st;
+  END IF;
+  SELECT * INTO r FROM app.submit_inspection(p);
+  IF r.created THEN RAISE EXCEPTION 'FAIL 76i: a resubmitted client_uuid was stored twice'; END IF;
+  BEGIN
+    PERFORM app.submit_inspection(pg_temp.t76_capture(ARRAY[h1], NULL, now()) - 'started_at');
+    RAISE EXCEPTION 'FAIL 76i: a submit with no started_at landed';
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE;
+    got := got || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'TY005 the payload carries no started_at' THEN
+    RAISE EXCEPTION 'FAIL 76i: a submit with no started_at answered %', got;
+  END IF;
+  SELECT count(*) INTO n FROM app.inspection WHERE vehicle_id = h1;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 76i: H1 holds % inspections, not the one stored', n; END IF;
+  RAISE NOTICE 'PASS  76i a raw submit stores a long capture''s own started_at, answers a replay as one, and refuses an absent started_at by name';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  r record;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM set_config('app.actor_id', d1::text, true);
+  SELECT * INTO r FROM app.submit_inspection(
+    pg_temp.t76_capture(ARRAY[h1], now() - interval '2 minutes', now() - interval '5 minutes'));
+  IF NOT r.created THEN RAISE EXCEPTION 'FAIL 76i: a capture whose started_at follows its submitted_at did not land'; END IF;
+  RAISE NOTICE 'PASS  76i a raw submit whose started_at follows its submitted_at lands';
+END $$;
+ROLLBACK;
+
 \echo '== 76z. nothing section 76 planted outlives its rollback'
+DROP FUNCTION pg_temp.t76_could(jsonb, uuid);
+DROP FUNCTION pg_temp.t76_capture(uuid[], timestamptz, timestamptz);
 DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
 DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
 DROP FUNCTION pg_temp.t76_units();

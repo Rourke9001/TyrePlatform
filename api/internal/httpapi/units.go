@@ -892,8 +892,9 @@ func listVehicles(s *store.Store) http.HandlerFunc {
 }
 
 // listMyVehicles is the driver's own list, through the single predicate that
-// defines "currently assigned to me" (FR-AUT-005, app.v_driver_vehicle).
-// A driver assigned nothing gets an empty list: asking is legitimate, and the
+// defines the units they hold now, their trip's and their nominations'
+// (FR-AUT-005 as amended, app.v_driver_vehicle). A driver on no trip and
+// nominated for nothing gets an empty list: asking is legitimate, and the
 // answer is legitimately nothing.
 func listMyVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

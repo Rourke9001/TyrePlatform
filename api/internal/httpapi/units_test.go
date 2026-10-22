@@ -1528,7 +1528,6 @@ func TestUnitByIDSurfaceIsDepotScoped(t *testing.T) {
 
 	// one row of each kind on the OUT-OF-DEPOT unit, so [] means narrowed
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, elsewhere, driver)
 	var configID, posID uuid.UUID
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT configuration_id FROM app.vehicle WHERE id = $1`, elsewhere).Scan(&configID))
@@ -1561,9 +1560,9 @@ func TestUnitByIDSurfaceIsDepotScoped(t *testing.T) {
 	require.Equal(t, http.StatusOK, get(t, h, path(elsewhere, ""), tn, ctl).Code,
 		"a controller reads the whole tenant (FR-AUT-007)")
 
-	// the three sub-resource lists answer [] for a unit outside the depot to
+	// the two sub-resource lists answer [] for a unit outside the depot to
 	// both depot-scoped roles, and the controller sees the planted row
-	for _, suffix := range []string{"/fitments", "/drivers", "/inspection-tasks"} {
+	for _, suffix := range []string{"/fitments", "/inspection-tasks"} {
 		t.Run("list"+suffix, func(t *testing.T) {
 			for _, actor := range []string{mgr, technician.String()} {
 				rec := get(t, h, path(elsewhere, suffix), tn, actor)

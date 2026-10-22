@@ -134,19 +134,21 @@ func captureContext(s *store.Store) http.HandlerFunc {
 // loadCaptureContext runs four queries on the transaction: the vehicle
 // header, the positions, the cohort wear rates, and the tenant
 // configuration. It composes the matching scope view so a driver reads only
-// assigned units, exactly as listVehicles and listMyVehicles already do
+// the units they hold, exactly as listVehicles and listMyVehicles already do
 // (ADR-0006).
 func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, out *captureContextBody) error {
 	// ADR-0006: the scope predicate lives in SQL and the handler composes the
-	// matching view. A DRIVER reaches only currently assigned units
-	// (FR-AUT-005); a tenant-scoped role reads the register. Refusing through
+	// matching view. A DRIVER reaches only the units their trip or
+	// nomination covers now (FR-AUT-005 as amended); a tenant-scoped role
+	// reads the register. Refusing through
 	// an empty result is what keeps "you may not see this" and "this does not
 	// exist" indistinguishable (ADR-0011).
 	from := `app.vehicle v`
 	if a.Scope() != auth.ScopeTenant {
-		// v_capture_vehicle, not v_driver_vehicle: a driver must reach the
-		// trailers of a rig they are responsible for, or a superlink cannot
-		// be inspected at all (migration 000022).
+		// v_capture_vehicle, the capture set at now (000060): the trip's units
+		// and a nominee's, the trailers of a rig among them, or a superlink
+		// could not be inspected at all. It carries no fleet columns, which
+		// this read joins for itself.
 		from = `app.v_capture_vehicle cv JOIN app.vehicle v ON v.id = cv.vehicle_id`
 	}
 	// The average is derived from the odometer timeline (v_removal_forecast's
@@ -349,31 +351,25 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
 			}
-			// FR-AUT-005 on the write path: without the same v_capture_vehicle
-			// narrowing the read uses, a driver could submit against any unit
-			// in the tenant, wider than the read ever exposed. Every
-			// vehicle_id referenced anywhere in the payload (the top-level
-			// one plus every readings[].vehicle_id) must resolve through it,
+			// FR-AUT-005 on the write path, judged over the capture
+			// (FR-OFF-015 as amended; the owner's 20 Oct answer): a driver may
+			// submit a unit they held at some instant of the capture window,
+			// app.capture_window's span ending at submitted_at, not one they
+			// hold when the outbox delivers it. Every unit the payload
+			// attributes is checked: its own vehicle_id, every
+			// readings[].vehicle_id and every absent_spares[].vehicle_id,
 			// because app.submit_inspection's own TY004 confirms a position
 			// belongs to its vehicle's configuration but never that the actor
-			// may write to that vehicle, the same narrowing TY007 states for
-			// the top-level id (000023). Answered 422
-			// (errVehicleNotVisible), not 403; httpapi.go's sentinel says
-			// why. See docs/architecture.md's capture-write section for the
-			// superlink example and the COALESCE walkthrough.
+			// may write to that vehicle; and a combination_id must name a rig
+			// of the payload's unit. The rule is app.actor_could_capture's;
+			// only the ScopeTenant exemption is Go's, since the Scope table
+			// lives in auth. Answered 422 (errVehicleNotVisible), not 403;
+			// refusal.go's sentinel says why. See docs/architecture.md's
+			// capture-write section for the superlink example.
 			if a.Scope() != auth.ScopeTenant {
 				var authorized bool
-				if err := tx.QueryRow(r.Context(), `
-					SELECT NOT EXISTS (
-					  SELECT vehicle_id FROM (
-					    SELECT $1::uuid AS vehicle_id
-					    UNION
-					    SELECT (e ->> 'vehicle_id')::uuid
-					      FROM jsonb_array_elements(COALESCE($2::jsonb -> 'readings', '[]'::jsonb)) e
-					  ) referenced
-					  WHERE vehicle_id NOT IN (SELECT vehicle_id FROM app.v_capture_vehicle)
-					)`,
-					body.VehicleID, string(raw)).Scan(&authorized); err != nil {
+				if err := tx.QueryRow(r.Context(),
+					`SELECT app.actor_could_capture($1::jsonb)`, string(raw)).Scan(&authorized); err != nil {
 					return fmt.Errorf("checking capture scope: %w", err)
 				}
 				if !authorized {

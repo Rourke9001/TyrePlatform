@@ -259,7 +259,7 @@ func requiredText(field, raw string) (string, error) {
 }
 
 // instantField parses an optional instant before any transaction opens, the
-// way listTyres and assignDriver already parse their dates. A string that
+// way listTyres already parses its date. A string that
 // will not parse would otherwise reach $n::timestamptz raw, and Postgres's
 // 22007/22008 would then be the refusal, canned as invalid_submission,
 // which names no field; the check here is what names one. The parsed value

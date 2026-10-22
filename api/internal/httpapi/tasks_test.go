@@ -16,111 +16,6 @@ import (
 	"tyreplatform/api/internal/httpapi"
 )
 
-// The drivers read is FR-INS-053's chain as a list: the unit's own current
-// drivers first, then, for a trailer in an open rig, the motive's, each row
-// saying which unit the assignment is on. The horse's driver appears once
-// for the horse (U4: the horse's own assignment satisfies the capture
-// predicate directly, so the rig leg adds no second row for it), and a
-// driver assigned to both units appears once for the trailer, own
-// assignment first.
-func TestUnitDriversListsOwnAndMotiveAssignments(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, horseID, trailerID := plantRigUnits(t, ctx, admin, "drivers")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	horseDriver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	bothDriver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, horseDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, bothDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, trailerID, bothDriver)
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-
-	rec := post(t, h, "/api/combinations", tenantID.String(), controller.String(),
-		fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}]}`, horseID, trailerID))
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	var rig rigBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rig))
-
-	type driverRow struct {
-		UserID       string `json:"userId"`
-		DisplayName  string `json:"displayName"`
-		ViaVehicleID string `json:"viaVehicleId"`
-	}
-	rec = get(t, h, "/api/vehicles/"+horseID.String()+"/drivers", tenantID.String(), controller.String())
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var horseRows []driverRow
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &horseRows))
-	require.Len(t, horseRows, 2, "the horse lists its two drivers once each: %s", rec.Body.String())
-	for _, row := range horseRows {
-		require.Equal(t, horseID.String(), row.ViaVehicleID)
-	}
-
-	rec = get(t, h, "/api/vehicles/"+trailerID.String()+"/drivers", tenantID.String(), controller.String())
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var trailerRows []driverRow
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trailerRows))
-	require.Len(t, trailerRows, 2, "the trailer lists the horse's driver and its own once each: %s", rec.Body.String())
-	via := map[string]string{}
-	for _, row := range trailerRows {
-		via[row.UserID] = row.ViaVehicleID
-	}
-	require.Equal(t, horseID.String(), via[horseDriver.String()], "the horse's driver reaches the trailer through the rig")
-	require.Equal(t, trailerID.String(), via[bothDriver.String()], "own assignment wins over the rig leg")
-	require.Equal(t, bothDriver.String(), trailerRows[0].UserID, "own assignment lists first")
-
-	// The rig leg's own active filter, with the rig still open and the
-	// assignment untouched: a deactivated driver is not one a task may name
-	// (ADR-0011), so they leave the list the rig put them on. The assertion
-	// above is the control that they were on it a moment earlier.
-	_, err := admin.Exec(ctx, `UPDATE app.app_user SET active = false WHERE id = $1`, horseDriver)
-	require.NoError(t, err)
-	rec = get(t, h, "/api/vehicles/"+trailerID.String()+"/drivers", tenantID.String(), controller.String())
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trailerRows))
-	require.Len(t, trailerRows, 1, "a deactivated driver still reaches the trailer through the rig: %s", rec.Body.String())
-	require.Equal(t, bothDriver.String(), trailerRows[0].UserID)
-
-	// Reactivated before the rig is ended: the two filters remove the same
-	// row, so leaving the driver inactive here would let the rig end prove
-	// nothing, the list would already be down to one either way.
-	_, err = admin.Exec(ctx, `UPDATE app.app_user SET active = true WHERE id = $1`, horseDriver)
-	require.NoError(t, err)
-	rec = get(t, h, "/api/vehicles/"+trailerID.String()+"/drivers", tenantID.String(), controller.String())
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trailerRows))
-	require.Len(t, trailerRows, 2, "a reactivated driver returns to the list: %s", rec.Body.String())
-
-	// Ending the rig removes the rig leg and nothing else.
-	rec = post(t, h, "/api/combinations/"+rig.ID+"/end", tenantID.String(), controller.String(), `{}`)
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	rec = get(t, h, "/api/vehicles/"+trailerID.String()+"/drivers", tenantID.String(), controller.String())
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &trailerRows))
-	require.Len(t, trailerRows, 1)
-	require.Equal(t, bothDriver.String(), trailerRows[0].UserID)
-}
-
-// The technician is assigned directly, the row a reactivation can leave
-// (TYRE-377). The list offers only people a task may name, so it drops them;
-// the driver on the same unit is the control.
-func TestUnitDriversOmitsAnAssigneeWhoCannotCapture(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "drivers-capturer")
-	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
-	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, driver)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, technician)
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-
-	rec := get(t, h, "/api/vehicles/"+horseID.String()+"/drivers", tenantID.String(), controller.String())
-	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-	var rows []struct {
-		UserID string `json:"userId"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rows))
-	require.Len(t, rows, 1, rec.Body.String())
-	require.Equal(t, driver.String(), rows[0].UserID)
-}
-
 // The unit's task list: OPEN and ESCALATED by due date, each with its
 // assignee, overdue computed by the view and never here. Fixed literals for
 // the dates (lessons 2026-09-03); rows are planted directly rather than
@@ -179,8 +74,8 @@ func TestUnitTasksListsOpenAndEscalatedWithAssignee(t *testing.T) {
 	require.NotEmpty(t, rows[0].FleetNumber)
 }
 
-// Both reads are ViewFleet's (spec U2): a TECHNICIAN reads them, a DRIVER
-// does not, the driver's own list is /api/my/tasks.
+// The read is ViewFleet's (spec U2): a TECHNICIAN reads it, a DRIVER does
+// not, the driver's own list is /api/my/tasks.
 func TestUnitTaskReadsAreCapabilityGated(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -188,25 +83,21 @@ func TestUnitTaskReadsAreCapabilityGated(t *testing.T) {
 	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	for _, path := range []string{"/drivers", "/inspection-tasks"} {
-		require.Equal(t, http.StatusOK,
-			get(t, h, "/api/vehicles/"+horseID.String()+path, tenantID.String(), technician.String()).Code, path)
-		require.Equal(t, http.StatusForbidden,
-			get(t, h, "/api/vehicles/"+horseID.String()+path, tenantID.String(), driver.String()).Code, path)
-	}
+	path := "/api/vehicles/" + horseID.String() + "/inspection-tasks"
+	require.Equal(t, http.StatusOK, get(t, h, path, tenantID.String(), technician.String()).Code)
+	require.Equal(t, http.StatusForbidden, get(t, h, path, tenantID.String(), driver.String()).Code)
 	require.Equal(t, http.StatusBadRequest,
-		get(t, h, "/api/vehicles/not-a-uuid/drivers", tenantID.String(), technician.String()).Code)
+		get(t, h, "/api/vehicles/not-a-uuid/inspection-tasks", tenantID.String(), technician.String()).Code)
 }
 
-// A unit another tenant owns answers an empty list, never its rows: both
-// reads narrow through RLS on the views they select from, as listUnitFitments
-// does. Tenant A's rows are planted first so a leak would return them.
+// A unit another tenant owns answers an empty list, never its rows: the read
+// narrows through RLS on the view it selects from, as listUnitFitments does. Tenant A's rows are planted first so a leak would return them.
 func TestUnitTaskReadsCrossTenantAreEmpty(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantA, horseID, _ := plantRigUnits(t, ctx, admin, "task-reads-a")
 	driverA := plantUser(t, ctx, admin, tenantA, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantA, horseID, driverA)
+	plantTrip(t, ctx, admin, tenantA, horseID, driverA)
 	_, err := admin.Exec(ctx,
 		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id)
 		 VALUES ($1, $2, '2099-01-01T21:59:59Z', $3)`, tenantA, horseID, driverA)
@@ -215,15 +106,14 @@ func TestUnitTaskReadsCrossTenantAreEmpty(t *testing.T) {
 	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
 	controllerA := plantUser(t, ctx, admin, tenantA, auth.RoleController)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-	for _, path := range []string{"/drivers", "/inspection-tasks"} {
-		rec := get(t, h, "/api/vehicles/"+horseID.String()+path, tenantB.String(), controllerB.String())
-		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
-		require.JSONEq(t, `[]`, rec.Body.String(), "tenant B read tenant A's %s", path)
-		rec = get(t, h, "/api/vehicles/"+horseID.String()+path, tenantA.String(), controllerA.String())
-		var own []map[string]any
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &own))
-		require.NotEmpty(t, own, "the control: tenant A reads its own %s", path)
-	}
+	path := "/api/vehicles/" + horseID.String() + "/inspection-tasks"
+	rec := get(t, h, path, tenantB.String(), controllerB.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.JSONEq(t, `[]`, rec.Body.String(), "tenant B read tenant A's tasks")
+	rec = get(t, h, path, tenantA.String(), controllerA.String())
+	var own []map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &own))
+	require.NotEmpty(t, own, "the control: tenant A reads its own tasks")
 }
 
 // TYRE-90's DoD at the API: the controller schedules the task, the driver
@@ -236,7 +126,7 @@ func TestScheduleTaskIsSeenByTheDriverAndClosedBySubmit(t *testing.T) {
 	tenantID, horseID, trailerID := plantCaptureFixture(t, ctx, admin, "task-dod")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, driver)
+	plantTrip(t, ctx, admin, tenantID, horseID, driver)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	rec := post(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), controller.String(),
@@ -327,16 +217,16 @@ func TestScheduleTaskRefusesAnUnassignedDriver(t *testing.T) {
 	require.Equal(t, 0, countTasks(t, ctx, admin, tenantID))
 }
 
-// The technician is assigned directly, the row a reactivation can leave
-// (TYRE-377), so TY018's own assignment check passes and the refusal under
-// test is the capability one.
+// The technician's trip is planted directly, a row a reactivation can leave
+// (TYRE-377), so TY018's own capture check passes and the refusal under test
+// is the capability one.
 func TestScheduleTaskRefusesAnAssigneeWhoCannotCapture(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "task-capturer")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, technician)
+	plantTrip(t, ctx, admin, tenantID, horseID, technician)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	rec := post(t, h, "/api/vehicles/"+horseID.String()+"/inspection-tasks", tenantID.String(), controller.String(),
@@ -350,8 +240,8 @@ func TestScheduleTaskRefusesAnAssigneeWhoCannotCapture(t *testing.T) {
 }
 
 // FR-AUT-008's depot narrowing for a write that predates it; TestFitTyreIsDepotScoped
-// carries why, and why the controller is the control (TYRE-226). The assignee
-// is planted onto both units first (spec U4): an unassigned driver would be
+// carries why, and why the controller is the control (TYRE-226). Each unit's
+// assignee is on a trip on it first (spec U4): a driver on no trip would be
 // refused by app.create_inspection_task's own TY018, which is the
 // vacuous-check trap this test must not fall into.
 func TestScheduleInspectionTaskIsDepotScoped(t *testing.T) {
@@ -363,6 +253,7 @@ func TestScheduleInspectionTaskIsDepotScoped(t *testing.T) {
 	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	other := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	mineDepot, mineFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
 	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
 	_, elsewhereFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
@@ -374,11 +265,13 @@ func TestScheduleInspectionTaskIsDepotScoped(t *testing.T) {
 		return id
 	}
 	mine, elsewhere := unitID(mineFleet), unitID(elsewhereFleet)
-	assignVehicleDriver(t, ctx, admin, tenantID, mine, driver)
-	assignVehicleDriver(t, ctx, admin, tenantID, elsewhere, driver)
+	// One trip per driver at an instant (U143), so each unit has its own.
+	plantTrip(t, ctx, admin, tenantID, mine, driver)
+	plantTrip(t, ctx, admin, tenantID, elsewhere, other)
 
 	body := fmt.Sprintf(`{"assigneeUserId":%q}`, driver)
-	rec := post(t, h, "/api/vehicles/"+elsewhere.String()+"/inspection-tasks", tenantID.String(), manager.String(), body)
+	otherBody := fmt.Sprintf(`{"assigneeUserId":%q}`, other)
+	rec := post(t, h, "/api/vehicles/"+elsewhere.String()+"/inspection-tasks", tenantID.String(), manager.String(), otherBody)
 	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 	var ref refusalBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
@@ -395,7 +288,7 @@ func TestScheduleInspectionTaskIsDepotScoped(t *testing.T) {
 	require.Equal(t, http.StatusCreated,
 		post(t, h, "/api/vehicles/"+mine.String()+"/inspection-tasks", tenantID.String(), manager.String(), body).Code)
 	require.Equal(t, http.StatusCreated,
-		post(t, h, "/api/vehicles/"+elsewhere.String()+"/inspection-tasks", tenantID.String(), controller.String(), body).Code)
+		post(t, h, "/api/vehicles/"+elsewhere.String()+"/inspection-tasks", tenantID.String(), controller.String(), otherBody).Code)
 }
 
 // Shape is Go's (ADR-0013 decision 5); the due-day rule is SQL's.
@@ -405,7 +298,7 @@ func TestScheduleTaskShapeAndDate(t *testing.T) {
 	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "task-shape")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, horseID, driver)
+	plantTrip(t, ctx, admin, tenantID, horseID, driver)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 	path := "/api/vehicles/" + horseID.String() + "/inspection-tasks"
 
@@ -479,7 +372,7 @@ func TestScheduleTaskCrossTenantIsInvisible(t *testing.T) {
 	tenantA, horseA, _ := plantRigUnits(t, ctx, admin, "task-xten-a")
 	driverA := plantUser(t, ctx, admin, tenantA, auth.RoleDriver)
 	controllerA := plantUser(t, ctx, admin, tenantA, auth.RoleController)
-	assignVehicleDriver(t, ctx, admin, tenantA, horseA, driverA)
+	plantTrip(t, ctx, admin, tenantA, horseA, driverA)
 	tenantB, horseB, _ := plantRigUnits(t, ctx, admin, "task-xten-b")
 	controllerB := plantUser(t, ctx, admin, tenantB, auth.RoleController)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
@@ -507,7 +400,7 @@ func TestScheduleTaskCrossTenantIsInvisible(t *testing.T) {
 	// same unit, with an assignee of its own succeeds, so the second refusal
 	// was the assignee's tenant and not something standing about horseB.
 	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantB, horseB, driverB)
+	plantTrip(t, ctx, admin, tenantB, horseB, driverB)
 	rec = post(t, h, "/api/vehicles/"+horseB.String()+"/inspection-tasks", tenantB.String(), controllerB.String(),
 		fmt.Sprintf(`{"assigneeUserId":%q}`, driverB))
 	require.Equal(t, http.StatusCreated, rec.Code, "the control: tenant B schedules its own driver: %s", rec.Body.String())

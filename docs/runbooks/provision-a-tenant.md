@@ -295,7 +295,7 @@ platform's defaults.
   | `width_spread_warn_mm`, `dual_mate_warn_mm`, `axle_divergence_warn_mm` | a number above 0 |
   | `tread_bands` | a list of `[lower, upper]` pairs starting at 0, lower bounds rising, the last upper bound and only the last `null` |
   | `removal_reasons` | a list of distinct reasons, text with no space at either end |
-  | `reading_staleness_days`, `wear_rate_min_distance_km`, `odometer_max_daily_km`, `duplicate_inspection_min_hours`, `submitted_at_future_skew_minutes`, `wear_rate_alert_multiple`, `forecast_horizon_days`, `inflation_compliance_window_days` | a whole number above 0 |
+  | `reading_staleness_days`, `wear_rate_min_distance_km`, `odometer_max_daily_km`, `duplicate_inspection_min_hours`, `submitted_at_future_skew_minutes`, `inspection_max_duration_hours`, `wear_rate_alert_multiple`, `forecast_horizon_days`, `inflation_compliance_window_days` | a whole number above 0 |
   | `tread_capture_granularity_mm` | 1.0, 0.5 or 0.1 |
 
 - **Consent** (U138, OR-LEG-005). A client tenant's file carries the

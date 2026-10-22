@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -435,109 +434,11 @@ type userJSON struct {
 	Active      bool    `json:"active"`
 }
 
-type assignDriverRequest struct {
-	UserID   string `json:"userId"`
-	FromDate string `json:"fromDate"`
-}
-
-type assignmentJSON struct {
-	ID        string `json:"id"`
-	VehicleID string `json:"vehicleId"`
-	UserID    string `json:"userId"`
-	FromDate  string `json:"fromDate"`
-}
-
-// assignDriver opens a driver-to-unit assignment (FR-VEH-007), the step
-// v_capture_vehicle reads. Its assignee must be able to capture
-// (refuseNonCapturer).
-func assignDriver(s *store.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		vehicleID, ok := pathID(w, r, "vehicleID")
-		if !ok {
-			return
-		}
-		var body assignDriverRequest
-		if !decodeJSON(w, r, &body) {
-			return
-		}
-		userID, err := uuid.Parse(strings.TrimSpace(body.UserID))
-		if err != nil {
-			refuseInvalid(w, r, invalid("userId", "must be a uuid"))
-			return
-		}
-		// Absent means "today in the tenant's zone", computed in SQL where
-		// that zone lives (rule 6). A browser's calendar day is the admin's,
-		// not the tenant's, and the two differ for most of every day.
-		// Malformed is still refused. Only absence defaults.
-		var from *time.Time
-		if raw := strings.TrimSpace(body.FromDate); raw != "" {
-			parsed, err := time.Parse(isoDate, raw)
-			if err != nil {
-				refuseInvalid(w, r, invalid("fromDate", "must be a date as YYYY-MM-DD"))
-				return
-			}
-			from = &parsed
-		}
-
-		created := assignmentJSON{VehicleID: vehicleID.String(), UserID: userID.String()}
-		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
-			if err := require(a, auth.ManageAssignments); err != nil {
-				return err
-			}
-			// Depot scope for the write (FR-AUT-008, TYRE-226); fitments.go's
-			// fitTyre carries why it locks.
-			if a.Scope() != auth.ScopeTenant {
-				var locked uuid.UUID
-				err := tx.QueryRow(ctx,
-					`SELECT v.id FROM app.vehicle v
-					  WHERE v.id = $1
-					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
-					  FOR SHARE OF v`, vehicleID).Scan(&locked)
-				if errors.Is(err, pgx.ErrNoRows) {
-					return refusalError{refusal{
-						status:  http.StatusNotFound,
-						code:    codeNotFound,
-						message: "no such unit in this fleet",
-					}}
-				}
-				if err != nil {
-					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
-				}
-			}
-			if err := refuseNonCapturer(ctx, tx, "userId", userID); err != nil {
-				return err
-			}
-			var id uuid.UUID
-			var fromDate time.Time
-			err := tx.QueryRow(ctx,
-				`INSERT INTO app.vehicle_driver
-				   (tenant_id, vehicle_id, user_id, from_date)
-				 VALUES (app.current_tenant_id(), $1, $2,
-				         COALESCE($3::date,
-				                  app.tenant_today((SELECT timezone FROM app.tenant
-				                                     WHERE id = app.current_tenant_id()))))
-				 RETURNING id, from_date`,
-				vehicleID, userID, from).Scan(&id, &fromDate)
-			if err != nil {
-				return fmt.Errorf("assigning driver: %w", err)
-			}
-			created.ID = id.String()
-			created.FromDate = fromDate.Format(isoDate)
-			return nil
-		})
-		if !ok {
-			return
-		}
-		writeStatus(ctx, w, http.StatusCreated, created)
-	}
-}
-
-// refuseNonCapturer refuses an assignee whose role holds no
-// CaptureInspection, because an assignment or a task exists so its holder
-// can capture the unit. The rule is Go's, not a constraint (ADR-0013,
-// decision 1 as amended 2026-10-21). A user the tenant cannot see is left
-// to the write's own refusal.
+// refuseNonCapturer refuses a driver or nominee whose role holds no
+// CaptureInspection, because a trip or a nomination exists so its holder can
+// capture the unit. The rule is Go's, not a constraint (ADR-0013, decision 1
+// as amended 2026-10-21). A user the tenant cannot see is left to the
+// write's own refusal.
 func refuseNonCapturer(ctx context.Context, tx pgx.Tx, field string, userID uuid.UUID) error {
 	var role string
 	err := tx.QueryRow(ctx, `SELECT role::text FROM app.app_user WHERE id = $1`, userID).Scan(&role)

@@ -137,7 +137,7 @@ while IFS= read -r line; do
   printf '%s\n' "$line"
 done <"$work/z.sql" >"$work/z-probe.sql"
 [ "$(grep -c count_gate_probe "$work/z-probe.sql")" = 1 ] || fail 6 "the probe row did not go in"
-must_refuse 6 "count gate: configuration holds 17, expected 16" tyre_provision postgres "$work/z-probe.sql"
+must_refuse 6 "count gate: configuration holds 18, expected 17" tyre_provision postgres "$work/z-probe.sql"
 ok 6 "the count gate refuses a count it did not expect"
 
 # 7. Under a role that does not bypass RLS, and with the subdomain the
