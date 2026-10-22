@@ -149,4 +149,5 @@ TYRE-326, 22 Oct 2026: the escalated-row trigger above cannot fire. 000060
 writes every task `OPEN`, maps `ESCALATED` rows to `OPEN`, and drops
 `assigned_user_id`. Escalated is derived, an outstanding task nobody holds
 (`v_inspection_task_driver.escalated`), and overdue is an `OPEN` task past
-its due instant, whoever holds it.
+its due instant, whoever holds it. The table's `UPDATE` grant is narrowed
+to `(state, cancelled_reason, completed_inspection_id)`.

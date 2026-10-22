@@ -209,6 +209,14 @@ END $$;
 CREATE TRIGGER inspection_task_closes_once BEFORE INSERT OR UPDATE ON app.inspection_task
 FOR EACH ROW EXECUTE FUNCTION app.inspection_task_closes_once();
 
+-- The responsibility and capture reads judge a past instant by a task's
+-- vehicle_id, created_at and due_at as well as its closed_at, so the one
+-- edit is the close with its citation or reason (rule 3; check 4, section
+-- 76d). A column grant checks only the SET list, so the triggers still
+-- write closed_at and the stamps (000040).
+REVOKE UPDATE ON app.inspection_task FROM app_rw;
+GRANT UPDATE (state, cancelled_reason, completed_inspection_id) ON app.inspection_task TO app_rw;
+
 -- ---------------------------------------------------------------------------
 -- E. Today's data into the new model (spec, vehicle_driver becomes history;
 -- Nominations)
