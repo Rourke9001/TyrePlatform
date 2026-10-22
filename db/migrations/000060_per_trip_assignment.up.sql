@@ -1238,7 +1238,8 @@ END $$;
 -- The tasks that hold a trip start (U148; spec, Starting and ending a
 -- trip): every OPEN task on a unit the trip would cover, the motive, the
 -- members of its open rig and the added trailers, whose due day in the
--- tenant's calendar is today or earlier, in walk order. Nothing when the
+-- tenant's calendar is today or earlier, in walk order, then by due instant
+-- and task id, so every read lists them alike. Nothing when the
 -- tenant's due_inspection_blocks_trip is off; on is only the fallback for a
 -- tenant with no row, BAC the evidence (rule 5). app.start_trip refuses on
 -- it, and the start form reads it before Start.
@@ -1254,13 +1255,17 @@ SET search_path = app, pg_temp AS $$
       JOIN app.combination_member cm ON cm.tenant_id = c.tenant_id AND cm.combination_id = c.id
      WHERE c.tenant_id = app.current_tenant_id() AND c.motive_vehicle_id = p_motive
        AND c.effective_to IS NULL AND cm.vehicle_id <> p_motive),
+  -- Each unit once, at its first place in the walk, however often a caller
+  -- names it: the motive or a rig member may also come as an added trailer.
   units AS (
-    SELECT p_motive AS vehicle_id, 1 AS walk_order
-    UNION ALL
-    SELECT r.vehicle_id, r.sequence FROM rig r
-    UNION ALL
-    SELECT a.id, (SELECT COALESCE(max(r.sequence), 1) FROM rig r) + a.ord::int
-      FROM unnest(COALESCE(p_add_trailers, '{}'::uuid[])) WITH ORDINALITY a(id, ord))
+    SELECT DISTINCT ON (x.vehicle_id) x.vehicle_id, x.walk_order
+      FROM (SELECT p_motive AS vehicle_id, 1 AS walk_order
+            UNION ALL
+            SELECT r.vehicle_id, r.sequence FROM rig r
+            UNION ALL
+            SELECT a.id, (SELECT COALESCE(max(r.sequence), 1) FROM rig r) + a.ord::int
+              FROM unnest(COALESCE(p_add_trailers, '{}'::uuid[])) WITH ORDINALITY a(id, ord)) x
+     ORDER BY x.vehicle_id, x.walk_order)
   SELECT k.id, k.vehicle_id, v.fleet_number, k.due_at, (k.due_at AT TIME ZONE z.tz)::date, u.walk_order
     FROM units u
     CROSS JOIN zone z
@@ -1270,7 +1275,7 @@ SET search_path = app, pg_temp AS $$
    WHERE COALESCE((app.config_for(app.current_tenant_id(), 'due_inspection_blocks_trip', now()) #>> '{}')::boolean,
                   true)
      AND (k.due_at AT TIME ZONE z.tz)::date <= app.tenant_today(z.tz)
-   ORDER BY u.walk_order, (k.due_at AT TIME ZONE z.tz)::date, k.id
+   ORDER BY u.walk_order, k.due_at, k.id
 $$;
 
 -- FR-VEH-007 as amended: a controller puts a driver on a motive at now,

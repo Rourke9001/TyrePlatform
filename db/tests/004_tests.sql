@@ -15246,6 +15246,51 @@ BEGIN
 END $$;
 ROLLBACK;
 
+-- Each unit once, however a caller names it, and one order for a unit's
+-- tasks: by due instant, then task id. The ids are drawn and sorted so the
+-- id order runs against the due order.
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h6 constant uuid := md5('t76h6')::uuid;
+  t4 constant uuid := md5('t76t4')::uuid;
+  tz text; today date; rig uuid; ids uuid[]; kt uuid; got text; want text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h6, 1), (bac, rig, t4, 2);
+  SELECT array_agg(g ORDER BY g) INTO ids FROM (SELECT gen_random_uuid() AS g FROM generate_series(1, 3)) s;
+  -- ids[2] falls due first; ids[1] and ids[3] share the end of today.
+  INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, created_at)
+  VALUES (ids[2], bac, h6, (today::timestamp + interval '6 hours') AT TIME ZONE tz, now() - interval '12 hours'),
+         (ids[1], bac, h6, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond', now() - interval '12 hours'),
+         (ids[3], bac, h6, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond', now() - interval '12 hours');
+  kt := pg_temp.t76_due(t4, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  want := ids[2] || ':1,' || ids[1] || ':1,' || ids[3] || ':1,' || kt || ':2';
+
+  SELECT string_agg(b.task_id || ':' || b.walk_order, ',' ORDER BY b.n) INTO got
+    FROM app.trip_start_blockers(h6) WITH ORDINALITY b(task_id, vehicle_id, fleet_number, due_at, due_on, walk_order, n);
+  IF got IS DISTINCT FROM want THEN
+    RAISE EXCEPTION 'FAIL 76l: a unit''s blockers read % (expected by due instant, then task id: %)', got, want;
+  END IF;
+  -- The rig's own trailer and the motive named as added trailers, one twice.
+  SELECT string_agg(b.task_id || ':' || b.walk_order, ',' ORDER BY b.n) INTO got
+    FROM app.trip_start_blockers(h6, ARRAY[t4, h6, t4]) WITH ORDINALITY b(task_id, vehicle_id, fleet_number, due_at, due_on, walk_order, n);
+  IF got IS DISTINCT FROM want THEN
+    RAISE EXCEPTION 'FAIL 76l: a unit named twice read % (expected each task once: %)', got, want;
+  END IF;
+  RAISE NOTICE 'PASS  76l each unit''s blockers read once, by due instant then task id, however often the unit is named';
+END $$;
+ROLLBACK;
+
 BEGIN;
 DO $$
 DECLARE

@@ -533,7 +533,7 @@ func listTripBlockers(s *store.Store) http.HandlerFunc {
 			rows, err := tx.Query(ctx, `
 				SELECT task_id, vehicle_id, fleet_number, due_at
 				  FROM app.trip_start_blockers($1, $2::uuid[])
-				 ORDER BY walk_order, due_on`, vehicleID, trailers)
+				 ORDER BY walk_order, due_at, task_id`, vehicleID, trailers)
 			if err != nil {
 				return fmt.Errorf("listing what holds a trip on unit %s: %w", vehicleID, err)
 			}
