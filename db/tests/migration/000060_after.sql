@@ -60,9 +60,15 @@ BEGIN
   -- deactivated, which app.nominate_for_task would refuse, so it has none.
   -- k12's trailer rode in MR-M4's rig and was free at the migration, so it
   -- gains a second row at the migration; the others' units were never
-  -- covered or are covered now, and gain none. Part D's UPDATE of the
+  -- covered or are covered now, and gain none. k13 and k14 were created a
+  -- day ahead, so each copy is dated at the migration, never ahead of it;
+  -- k14's trailer is covered now and k13's never was. Part D's UPDATE of the
   -- escalated k05 stamped its updated_at with the migration's now().
   mig := (SELECT updated_at FROM app.inspection_task WHERE id = md5('mr-k5')::uuid);
+  IF EXISTS (SELECT 1 FROM app.inspection_task
+              WHERE id IN (md5('mr-k13')::uuid, md5('mr-k14')::uuid) AND created_at <= mig) THEN
+    RAISE EXCEPTION 'FAIL 4: k13 or k14 was not created after the migration, so their case proves nothing';
+  END IF;
   SELECT string_agg(k.label || ':' || u.display_name || ':'
                     || CASE WHEN nm.nominated_at = t.created_at THEN 'at creation'
                             WHEN nm.nominated_at = mig THEN 'at the migration'
@@ -74,18 +80,20 @@ BEGIN
     JOIN (VALUES (md5('mr-k1')::uuid, 'k01'), (md5('mr-k2')::uuid, 'k02'), (md5('mr-k3')::uuid, 'k03'),
                  (md5('mr-k4')::uuid, 'k04'), (md5('mr-k5')::uuid, 'k05'), (md5('mr-k6')::uuid, 'k06'),
                  (md5('mr-k7')::uuid, 'k07'), (md5('mr-k8')::uuid, 'k08'), (md5('mr-k9')::uuid, 'k09'),
-                 (md5('mr-k10')::uuid, 'k10'), (md5('mr-k11')::uuid, 'k11'), (md5('mr-k12')::uuid, 'k12')) k(id, label)
+                 (md5('mr-k10')::uuid, 'k10'), (md5('mr-k11')::uuid, 'k11'), (md5('mr-k12')::uuid, 'k12'),
+                 (md5('mr-k13')::uuid, 'k13'), (md5('mr-k14')::uuid, 'k14')) k(id, label)
       ON k.id = nm.task_id
    WHERE nm.tenant_id = mr AND nm.nominated_by = c1;
   want := 'k01:MR Driver Two:at creation,k02:MR Driver Four:at creation,'
           || 'k03:MR Driver Two:at creation,k04:MR Driver Three:at creation,'
           || 'k10:MR Driver Three:at creation,k12:MR Driver Five:at creation,'
-          || 'k12:MR Driver Five:at the migration';
+          || 'k12:MR Driver Five:at the migration,k13:MR Driver One:at the migration,'
+          || 'k14:MR Driver One:at the migration';
   IF got IS DISTINCT FROM want THEN
     RAISE EXCEPTION 'FAIL 4: the nominations read [%], not [%]', got, want;
   END IF;
   SELECT count(*) INTO n FROM app.inspection_task_nomination WHERE tenant_id = mr;
-  IF n <> 7 THEN RAISE EXCEPTION 'FAIL 4: the tenant holds % nominations, not the 7 above', n; END IF;
+  IF n <> 9 THEN RAISE EXCEPTION 'FAIL 4: the tenant holds % nominations, not the 9 above', n; END IF;
 
   IF EXISTS (SELECT 1 FROM app.inspection_task WHERE tenant_id = mr AND state = 'ESCALATED') THEN
     RAISE EXCEPTION 'FAIL 5: a task is still ESCALATED';

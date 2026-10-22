@@ -6,8 +6,9 @@
 -- ended one, newer rows on a disposed and an inactive motive, and a row for a
 -- deactivated driver. The tasks cover an assignee kept, one lost to a
 -- conflict, ones that reach a trailer through the rig, escalated ones, closed
--- ones, one whose assignee is deactivated, and one on a trailer its
--- assignee's migrated trip towed for five days and let go.
+-- ones, one whose assignee is deactivated, one on a trailer its assignee's
+-- migrated trip towed for five days and let go, and two created a day
+-- ahead, as a raw UPDATE at 59 may leave one.
 DO $$
 DECLARE
   mr    constant uuid := md5('mr')::uuid;
@@ -89,7 +90,9 @@ BEGIN
     (md5('mr-k9')::uuid,  mr, m1, week, NULL, c1, 'ESCALATED', open_at, open_at),
     (md5('mr-k10')::uuid, mr, t1, week, d3,   c1, 'OPEN',      NULL,    open_at),
     (md5('mr-k11')::uuid, mr, t2, week, dg,   c1, 'OPEN',      NULL,    open_at),
-    (md5('mr-k12')::uuid, mr, t3, week, d5,   c1, 'OPEN',      NULL,    now() - interval '48 days');
+    (md5('mr-k12')::uuid, mr, t3, week, d5,   c1, 'OPEN',      NULL,    now() - interval '48 days'),
+    (md5('mr-k13')::uuid, mr, t2, week, d1,   c1, 'OPEN',      NULL,    now() + interval '1 day'),
+    (md5('mr-k14')::uuid, mr, t1, week, d1,   c1, 'OPEN',      NULL,    now() + interval '1 day');
 
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
   VALUES (insp, mr, m1, d1, md5('mr-cu')::uuid, '2026-09-02T07:50:00Z', '2026-09-02T08:00:00Z');
