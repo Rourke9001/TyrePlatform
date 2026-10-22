@@ -12,13 +12,15 @@
     (TYRE-284 comment 13922).
   - The owner's answers in this spec session, 21 and 22 Oct 2026, under
     "Decisions" below.
+  - Owner rulings U148 (TYRE-326 comment 14033) and U149 (comment 14032),
+    from the plan's red team, round 1, under "Rulings after approval" below.
   - ADR-0012 (refusal contract), ADR-0013 (a write with a rule of its own is
     a SQL function), ADR-0014 (audit), ADR-0018 (pipeline).
 - **Requirements:** FR-VEH-007, FR-INS-050, FR-INS-051, FR-INS-052, FR-INS-053,
   FR-INS-062, FR-INS-063, FR-AUT-005, FR-AUT-008, FR-DSH-012, FR-FIT-025,
   FR-OFF-015, Appendix H.3 criterion 4, and §5.1's trip entity. Each is read
   as amended by the SRS Part 3 errata tagged TYRE-440, TYRE-284 and TYRE-326
-  (page version 14). OI-32 is closed.
+  (page version 16, and the U148 rows once pasted). OI-32 is closed.
 
 ## Why this exists
 
@@ -96,6 +98,26 @@ The owner approved the rest of the played-back design as presented (22 Oct,
 06:16): trip start and end, the as-of-start capture check, the migration of
 today's assignments, Add a user losing its step, and the driver's phone.
 
+## Rulings after approval
+
+The owner approved this spec at f608d79 (22 Oct, 06:58). The plan's red team,
+round 1, then raised two questions, and the owner's rulings amend the design
+as follows.
+
+- **U148: no capture is lost, and a due inspection blocks the trip** (TYRE-326
+  comment 14033; 08:49, confirmed 09:03). A capture is never refused for its
+  length. The owner went further: a truck cannot be used until its due
+  inspection is done. While it is idle the inspection stays open, and the
+  truck cannot start a trip until the inspection is carried out. BAC runs
+  full inspections every Wednesday, wherever the truck is parked. A truck
+  already on a trip is not stopped. The rule is a tenant setting, on for BAC.
+  A missed inspection still counts as missed (criterion 4 unchanged). There
+  is no override. "Starting a trip" and "Capture" below carry the rule.
+- **U149: the rig register follows depot scope** (comment 14032; 08:49). A
+  depot manager seeing every depot's rigs is a bug, fixed in this branch. A
+  depot manager sees a rig when its motive or any of its members is in their
+  depots. "Depot scope" below carries it.
+
 ## Goals
 
 - A controller starts and ends a trip from the motive unit's screen, naming
@@ -170,6 +192,16 @@ Both writes are SQL functions (ADR-0013), gated by `ManageAssignments` in Go
 **Start** takes the motive, the driver and an ordered list of trailers to add,
 which may be empty. In one transaction it:
 
+0. **Refuses while a due inspection is outstanding** (U148), when the
+   tenant's setting requires it. The setting is read with `app.config_for`,
+   and its fallback is on, with BAC as the evidence; the builder names it. The
+   start is refused, changing nothing, if any unit the trip would cover has an
+   OPEN task whose due date, read in the tenant's calendar, is today or
+   earlier. Those units are the motive, the members of its open rig and the
+   added trailers. The refusal names each unit and its due date. It is
+   permanent, so it shows as the server's words, and there is no override
+   argument. A task due on a later date does not block. The check is SQL's,
+   inside `start_trip`, so a raw call meets it too.
 1. Ends the motive's open trip, and the driver's open trip on any motive, at
    the start instant. The ticket and the FR-VEH-007 erratum both say that
    reassigning the truck or the driver closes the old trip. The EXCLUDE is the
@@ -205,7 +237,10 @@ is not narrowed by depot.
 The rig routes in `combinations.go` lock nothing against depot scope, unlike
 every other by-id write. Unless the planner finds a record that rigs are
 deliberately tenant-wide, that is a bug. It is fixed on this branch (U146),
-judged by the rig's motive, with a regression test.
+judged by the rig's motive, with a regression test. The rig register read
+(`GET /api/combinations`) is not narrowed either, and U149 rules that a bug
+too: a depot manager sees a rig when its motive or any of its members is in
+their depots, and the rig comes back whole.
 
 Ending the driver's earlier trip is visible: the driver picker names the truck
 of any driver already on a trip, so the controller sees what the start will
@@ -308,8 +343,9 @@ do not belong in SQL (000041's own comment). So CONTROLLER and ORG_ADMIN
 still capture any unit, as today. What changes is the question Go asks:
 
 - Go asks a SQL function whether the actor could capture each referenced unit
-  at some instant from the inspection's `started_at` to its `submitted_at`,
-  using the predicate above. The rule then has one implementation, in SQL.
+  at some instant of the judged window (below), which runs from the
+  inspection's `started_at` to its `submitted_at`, using the predicate above.
+  The rule then has one implementation, in SQL.
 - The window is the capture as the phone reports it. A phone a minute slow
   just after a controller started the trip still passes, because the driver
   held the unit before the capture ended.
@@ -327,13 +363,20 @@ The ticket's three cases follow:
 If the table cannot answer that today, the builder adds what is missing. The
 audit log is not a read path.
 
-**`started_at` is bounded** (rule 5). Today it is the phone's value, inserted
-unchecked (000041:240). It must be at or before `submitted_at`, and no more
-than a tenant setting before it. The setting is read with `app.config_for`,
-with a default of 12 hours, and the builder names it. `app.submit_inspection`
-makes this check, so a raw call meets it too. A start outside the bounds is
-refused permanently, so its code must not be TY021, the one code the outbox
-retries.
+**The window judged is bounded, and no capture is refused for its length**
+(rule 5, U148). Today `started_at` is the phone's value, inserted unchecked
+(000041:240). The window that judges the capture runs to `submitted_at`, from
+`started_at` or from a tenant setting before `submitted_at`, whichever is
+later. The setting is read with `app.config_for`, with a default of 12 hours,
+and the builder names it. A `started_at` after `submitted_at`, such as a
+phone clock corrected backwards mid-capture, is judged at `submitted_at`. One
+SQL function computes the window, and both `app.submit_inspection` and the Go
+own-units check read it. A capture longer than the setting is judged on its
+last part and accepted when the driver held the unit then. It is never
+refused for its length. A driver who held the unit only before that last part
+is refused, because they did not hold it at any instant of the judged window.
+Under U148 an idle truck's inspection stays with its nominee until it is
+done, so the weekly idle-truck case is not this one.
 
 The residual limit: the window is the phone's own account. `submitted_at` is
 bounded only on its future side (TYRE-166), because the outbox can deliver
@@ -354,7 +397,10 @@ All of this is concept only; TYRE-443 decides the look (decision 4).
   truck of anyone already on a trip. It shows the trailers coupled now, read
   only. It offers the trailers that can be added: free trailers, plus
   trailers coupled elsewhere shown as not selectable, naming their truck.
-  Then Start trip.
+  Then Start trip. Where the tenant's U148 setting is on and a unit the trip
+  would cover has a due inspection outstanding, the form says so before the
+  controller taps Start. It names the unit and the due date, and offers the
+  nominate action on that task, so the block is never a surprise.
 - **A trailer's unit screen:** the motive pulling it and that motive's trip
   driver, or "Free". No trip controls.
 - The start, end and nomination controls show only to `ManageAssignments`
@@ -445,7 +491,13 @@ contradicts it. The rows:
   trip covers, then or later.
 - **FR-OFF-015.** A submit is judged by who could capture the unit during
   the capture, from its client-side start to its client-side submission. The
-  start is bounded by the submission time and a tenant setting.
+  span judged is bounded by a tenant setting, and no capture is refused for
+  its length (U148). This needs one more row amending T7.
+- **FR-VEH-007; FR-INS-052.** Where the tenant requires it, a trip cannot
+  start while a unit it would cover has an inspection due on or before today
+  that is not done. A trip under way is not stopped, and there is no
+  override. A task past its due date stays open until done and counts as
+  missed (U148).
 - **UC-01 precondition.** The vehicle is assigned for an active trip, or its
   inspection is nominated to the driver.
 - **§5.1 trip; FR-VEH-007.** Starting a trip adds free trailers only and never
@@ -464,6 +516,12 @@ Go and web tests cover the transport.
   order picked. Refuses a trailer in another motive's open rig, naming that
   motive. Refuses a trailer, retired or inactive motive, and an inactive
   driver. Leaves `combination_id` null for a motive that tows nothing.
+- **The U148 gate:** a start is refused, changing nothing, when the motive,
+  a member of its open rig or an added trailer has an OPEN task due today or
+  earlier, and the refusal names each unit. A task due tomorrow does not
+  block. With the tenant setting off, nothing blocks. An open trip is never
+  ended by the rule. Due today is judged in the tenant's calendar, with a
+  case either side of tenant-local midnight.
 - **Trip end:** stamps the end and leaves the rig. Refuses a second end.
 - **The EXCLUDEs:** a raw overlapping insert per vehicle and per driver is
   refused.
@@ -474,7 +532,9 @@ Go and web tests cover the transport.
   not outstanding. The table refuses UPDATE and DELETE.
 - **Capture window:** the ticket's three cases, a nominee capturing the
   nominated motive and its coupled trailers, a nominee refused after a trip
-  took over, and the `started_at` bounds.
+  took over, and the judged window: a capture longer than the setting is
+  accepted on its last part, and a `started_at` after `submitted_at` is
+  judged at `submitted_at`.
 - **Escalation and overdue:** a task nobody holds reads escalated, and a held
   one does not. Overdue counts both.
 - **Migration:** open rows become trips, with trailer rows dropped, conflicts
@@ -510,8 +570,12 @@ These are my calls; the owner can overturn any of them.
   assignees into them.
 - Escalation is computed, ESCALATED rows become OPEN, and the enum value
   stays.
-- `started_at` is bounded by a tenant setting, default 12 hours, and the
+- The judged window is bounded by a tenant setting, default 12 hours, and the
   phone's clock is believed inside it rather than anchored to `received_at`.
+  U148 rules out refusing a capture for its length.
+- The U148 gate's fallback is on, with BAC as the evidence. It blocks on
+  tasks due today or earlier in the tenant's calendar, across the motive, its
+  rig and the added trailers.
 - The capture check passes when the actor held the unit at any instant from
   `started_at` to `submitted_at`, not only at `started_at`. It tolerates a
   slow phone clock, and the ticket's three cases still hold.
