@@ -2,9 +2,11 @@
 -- 59, for 000060_after.sql to read once the migration has run (TYRE-326,
 -- scripts/provision-tenant.test.sh step 16). One tenant, mr; every row's id
 -- is md5 of its label. The assignments cover each case the data step meets:
--- conflicts on a motive and for a driver, trailer rows, a future row and an
--- ended one. The tasks cover an assignee kept, one lost to a conflict, ones
--- that reach a trailer through the rig, escalated ones, and closed ones.
+-- conflicts on a motive and for a driver, trailer rows, a future row, an
+-- ended one, newer rows on a disposed and an inactive motive, and a row for a
+-- deactivated driver. The tasks cover an assignee kept, one lost to a
+-- conflict, ones that reach a trailer through the rig, escalated ones, closed
+-- ones, and one whose assignee is deactivated.
 DO $$
 DECLARE
   mr    constant uuid := md5('mr')::uuid;
@@ -14,9 +16,11 @@ DECLARE
   rig   constant uuid := md5('mr-rig')::uuid;
   d1 constant uuid := md5('mr-d1')::uuid; d2 constant uuid := md5('mr-d2')::uuid;
   d3 constant uuid := md5('mr-d3')::uuid; d4 constant uuid := md5('mr-d4')::uuid;
+  dg constant uuid := md5('mr-dg')::uuid;
   c1 constant uuid := md5('mr-c1')::uuid;
   m1 constant uuid := md5('mr-m1')::uuid; m2 constant uuid := md5('mr-m2')::uuid;
   m3 constant uuid := md5('mr-m3')::uuid;
+  md constant uuid := md5('mr-md')::uuid; mi constant uuid := md5('mr-mi')::uuid;
   t1 constant uuid := md5('mr-t1')::uuid; t2 constant uuid := md5('mr-t2')::uuid;
   insp  constant uuid := md5('mr-insp')::uuid;
   open_at constant timestamptz := now() - interval '2 days';
@@ -32,12 +36,16 @@ BEGIN
     (d3, mr, 'mr-d3@example.invalid', 'MR Driver Three', 'DRIVER'),
     (d4, mr, 'mr-d4@example.invalid', 'MR Driver Four', 'DRIVER'),
     (c1, mr, 'mr-c1@example.invalid', 'MR Controller', 'CONTROLLER');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role, active)
+  VALUES (dg, mr, 'mr-dg@example.invalid', 'MR Driver Gone', 'DRIVER', false);
   INSERT INTO app.vehicle (id, tenant_id, fleet_number, configuration_id, unit_kind, status) VALUES
     (m1, mr, 'MR-M1', cfg, 'HORSE', 'ACTIVE'),
     (m2, mr, 'MR-M2', cfg, 'HORSE', 'ACTIVE'),
     (m3, mr, 'MR-M3', cfg, 'RIGID', 'ACTIVE'),
     (t1, mr, 'MR-T1', cfg, 'TRAILER', 'ACTIVE'),
-    (t2, mr, 'MR-T2', cfg, 'TRAILER', 'ACTIVE');
+    (t2, mr, 'MR-T2', cfg, 'TRAILER', 'ACTIVE'),
+    (md, mr, 'MR-MD', cfg, 'HORSE', 'DISPOSED'),
+    (mi, mr, 'MR-MI', cfg, 'HORSE', 'INACTIVE');
   INSERT INTO app.combination (id, tenant_id, motive_vehicle_id, effective_from)
   VALUES (rig, mr, m1, now() - interval '15 days');
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
@@ -51,7 +59,10 @@ BEGIN
     (md5('mr-vdE')::uuid, mr, d4, m3, today + 3, NULL, NULL),
     (md5('mr-vdF')::uuid, mr, d3, m3, '2024-01-01', '2024-12-31', NULL),
     (md5('mr-vdG')::uuid, mr, d4, m2, today - 40, NULL, NULL),
-    (md5('mr-vdH')::uuid, mr, d3, t1, today - 3, NULL, NULL);
+    (md5('mr-vdH')::uuid, mr, d3, t1, today - 3, NULL, NULL),
+    (md5('mr-vdI')::uuid, mr, d2, md, today - 5, NULL, NULL),
+    (md5('mr-vdJ')::uuid, mr, d2, mi, today - 4, NULL, NULL),
+    (md5('mr-vdK')::uuid, mr, dg, m3, today - 1, NULL, NULL);
 
   INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, assigned_user_id, requested_by, state,
                                    escalated_at, created_at) VALUES
@@ -62,7 +73,8 @@ BEGIN
     (md5('mr-k5')::uuid,  mr, m3, week, NULL, c1, 'ESCALATED', open_at, open_at),
     (md5('mr-k6')::uuid,  mr, t1, week, NULL, c1, 'ESCALATED', open_at, open_at),
     (md5('mr-k9')::uuid,  mr, m1, week, NULL, c1, 'ESCALATED', open_at, open_at),
-    (md5('mr-k10')::uuid, mr, t1, week, d3,   c1, 'OPEN',      NULL,    open_at);
+    (md5('mr-k10')::uuid, mr, t1, week, d3,   c1, 'OPEN',      NULL,    open_at),
+    (md5('mr-k11')::uuid, mr, t2, week, dg,   c1, 'OPEN',      NULL,    open_at);
 
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
   VALUES (insp, mr, m1, d1, md5('mr-cu')::uuid, '2026-09-02T07:50:00Z', '2026-09-02T08:00:00Z');
