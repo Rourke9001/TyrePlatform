@@ -138,7 +138,7 @@ BEGIN
      AND c.relname NOT IN (
        'app_user', 'axle_configuration', 'combination',
        'configuration', 'depot', 'display_code_counter', 'exception',
-       'exception_rule', 'fitment', 'inspection_schedule', 'inspection_task',
+       'exception_rule', 'fitment', 'inspection_schedule',
        'notification', 'operating_group', 'photo', 'position', 'retread_job',
        'target_pressure', 'tyre', 'tyre_brand', 'tyre_pattern',
        'tyre_size', 'user_depot', 'valuation_snapshot',
@@ -151,7 +151,11 @@ BEGIN
        'tyre_receipt',
        -- trip's grant is (ended_at, ended_by) alone, and trip_is_ended_once
        -- holds its one move (000060, section 76c).
-       'trip');
+       'trip',
+       -- inspection_task's grant is (state, cancelled_reason,
+       -- completed_inspection_id) alone, and inspection_task_closes_once
+       -- holds its close (000060, section 76d).
+       'inspection_task');
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: app role can UPDATE a table off the allow-list: %', bad;
   END IF;
@@ -14121,12 +14125,13 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept and a future one refused, and a closed task never changes state (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
+\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept and a future one refused, a closed task never changes state, and the app role edits a task''s state, reason and citation alone (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
   bac constant uuid := '11111111-1111-1111-1111-111111111111';
   h1  constant uuid := md5('t76h1')::uuid;
+  h2  constant uuid := md5('t76h2')::uuid;
   d1  constant uuid := md5('t76d1')::uuid;
   k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; insp uuid;
   st text; msg text; c timestamptz; s text;
@@ -14139,11 +14144,6 @@ BEGIN
   SELECT closed_at INTO c FROM app.inspection_task WHERE id = k1;
   IF c IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 76d: an open task carries closed_at %', c;
-  END IF;
-  UPDATE app.inspection_task SET closed_at = now() - interval '1 day' WHERE id = k1;
-  SELECT closed_at INTO c FROM app.inspection_task WHERE id = k1;
-  IF c IS NOT NULL THEN
-    RAISE EXCEPTION 'FAIL 76d: an UPDATE gave an open task closed_at %', c;
   END IF;
   UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76d' WHERE id = k1;
   SELECT closed_at INTO c FROM app.inspection_task WHERE id = k1;
@@ -14187,7 +14187,6 @@ BEGIN
   VALUES (bac, h1, now(), 'CANCELLED', '76d') RETURNING id INTO k4;
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, closed_at)
   VALUES (bac, h1, now(), now() - interval '1 day') RETURNING id INTO k5;
-  UPDATE app.inspection_task SET due_at = due_at + interval '1 day' WHERE id = k3;
   SELECT string_agg(CASE WHEN closed_at IS NULL THEN 'null'
                          WHEN closed_at = now() THEN 'now'
                          WHEN closed_at = now() - interval '1 day' THEN 'yesterday'
@@ -14195,7 +14194,36 @@ BEGIN
     FROM app.inspection_task k
     JOIN (VALUES (k3, 1), (k4, 2), (k5, 3)) o(id, ord) ON o.id = k.id;
   IF s IS DISTINCT FROM 'yesterday,now,null' THEN
-    RAISE EXCEPTION 'FAIL 76d: a cancelled task planted at a past close, one planted with none and an open one planted with one read %, not yesterday,now,null (the past close kept through a due_at edit)', s;
+    RAISE EXCEPTION 'FAIL 76d: a cancelled task planted at a past close, one planted with none and an open one planted with one read %, not yesterday,now,null', s;
+  END IF;
+
+  -- The capture window, the responsibility read and the due-instant
+  -- attribution judge a past instant by a task's unit, creation and due
+  -- instant, so an edit of any of them, open or closed, would rewrite who
+  -- held the task then (FR-INS-053 as amended).
+  FOR st IN SELECT * FROM (VALUES
+      (format('UPDATE app.inspection_task SET due_at = due_at + interval ''1 day'' WHERE id = %L', k3)),
+      (format('UPDATE app.inspection_task SET created_at = created_at - interval ''1 day'' WHERE id = %L', k3)),
+      (format('UPDATE app.inspection_task SET vehicle_id = %L WHERE id = %L', h2, k3)),
+      (format('UPDATE app.inspection_task SET vehicle_id = %L WHERE id = %L', h2, k5)),
+      (format('UPDATE app.inspection_task SET closed_at = now() - interval ''1 day'' WHERE id = %L', k5))) v(a)
+  LOOP
+    s := NULL;
+    BEGIN
+      EXECUTE st;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE;
+      s := s || ' ' || SQLERRM;
+    END;
+    IF s IS DISTINCT FROM '42501 permission denied for table inspection_task' THEN
+      RAISE EXCEPTION 'FAIL 76d: % was answered %, not the narrowed grant', st, COALESCE(s, 'by success');
+    END IF;
+  END LOOP;
+  IF NOT has_column_privilege(current_user, 'app.inspection_task', 'state', 'UPDATE')
+     OR NOT has_column_privilege(current_user, 'app.inspection_task', 'cancelled_reason', 'UPDATE')
+     OR NOT has_column_privilege(current_user, 'app.inspection_task', 'completed_inspection_id', 'UPDATE')
+     OR has_table_privilege(current_user, 'app.inspection_task', 'UPDATE') THEN
+    RAISE EXCEPTION 'FAIL 76d: the app role''s task UPDATE grant is not (state, cancelled_reason, completed_inspection_id) alone';
   END IF;
   s := NULL;
   BEGIN
@@ -14228,7 +14256,7 @@ BEGIN
     END IF;
   END LOOP;
   PERFORM set_config('app.tenant_id', bac::text, true);
-  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted past close is kept and a future one refused, an open task has none, a closed task never changes state, and none is ever ESCALATED';
+  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted past close is kept and a future one refused, an open task has none, a closed task never changes state, the app role edits only state, reason and citation, and none is ever ESCALATED';
 END $$;
 ROLLBACK;
 

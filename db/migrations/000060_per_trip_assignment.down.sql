@@ -46,7 +46,9 @@ DROP FUNCTION app.task_responsibility_at(uuid, timestamptz);
 DROP VIEW app.v_nomination_span;
 DROP VIEW app.v_unit_coverage;
 
--- D.
+-- D. 000012's table-level grant, as 000040's down restores inspection's.
+REVOKE UPDATE (state, cancelled_reason, completed_inspection_id) ON app.inspection_task FROM app_rw;
+GRANT UPDATE ON app.inspection_task TO app_rw;
 DROP TRIGGER inspection_task_closes_once ON app.inspection_task;
 DROP FUNCTION app.inspection_task_closes_once();
 ALTER TABLE app.inspection_task DROP CONSTRAINT task_closed_when_not_open;

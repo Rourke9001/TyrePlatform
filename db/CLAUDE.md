@@ -173,9 +173,12 @@ last, and `UPDATE` and `DELETE` are revoked. A closed task never changes
 state: `inspection_task_closes_once` refuses a move out of `COMPLETED` or
 `CANCELLED` (`TY018`) and stamps `closed_at`, which the responsibility and
 capture reads judge a past instant by. An INSERT may plant a past close,
-never a future one (`TY018`). `vehicle_driver` is the history of
-assignments before trips, with `INSERT`, `UPDATE` and `DELETE` revoked, and
-nothing reads it for a decision.
+never a future one (`TY018`). Those reads judge by a task's `vehicle_id`,
+`created_at` and `due_at` too, so `app_rw` holds `UPDATE (state,
+cancelled_reason, completed_inspection_id)` on `inspection_task` only.
+`vehicle_driver` is the history of assignments before trips, with
+`INSERT`, `UPDATE` and `DELETE` revoked, and nothing reads it for a
+decision.
 
 `casing_estimate_by_size` and `tyre_price_list` are insert-only for
 `app_rw` (000058): a changed figure is a new row with a later
