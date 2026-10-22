@@ -258,8 +258,8 @@
   "TY018": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "an inspection task refused (TYRE-90)",
-    "raisedBy": ["app.create_inspection_task"]
+    "meaning": "an inspection task refused, or a closed task moved to another state (TYRE-90, TYRE-326)",
+    "raisedBy": ["app.create_inspection_task", "app.inspection_task_closes_once"]
   },
   "TY019": {
     "source": "db",
