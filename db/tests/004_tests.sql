@@ -14021,7 +14021,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76c. a trip ends once, by its end columns, at the server''s now and by the bound actor, and an ended trip never changes; a raw trip takes an active driver on a motive not retired, ending no later than now; a nomination is never updated or deleted, and a raw one takes an open task, an active nominee and an instant no later than now (FR-VEH-007, FR-INS-051, rule 3, U152, TY028, TY018; as BAC, rolled back)'
+\echo '== 76c. a trip ends once, by its end columns, at the server''s now and by the bound actor, and an ended trip never changes; a raw trip takes an active driver on a motive not retired, starting and ending no later than now; a nomination is never updated or deleted, and a raw one takes an open task, an active nominee and an instant no later than now (FR-VEH-007, FR-INS-051, rule 3, U152, TY028, TY018; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -14092,7 +14092,10 @@ BEGIN
        'TY028 T76 Driver Inactive is no longer active'),
       (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now() - interval ''1 hour'', now() + interval ''1 minute'')',
               bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
-       'TY028 a trip ends now or earlier, never in the future')
+       'TY028 a trip ends now or earlier, never in the future'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now() + interval ''1 minute'')',
+              bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
+       'TY028 a trip starts now or earlier, never in the future')
     ) v(s, m)
   LOOP
     DECLARE got_st text; got_msg text; got_con text;
@@ -15233,33 +15236,23 @@ BEGIN
     RAISE EXCEPTION 'FAIL 76j: the refused starts moved trips/rigs/open rigs from % to %', before_, after_;
   END IF;
 
-  -- Two starts for one driver or one motive serialise on the driver's row
-  -- and the units; the loser meets an open trip that started after its own
-  -- now and is refused by name (spec, Starting and ending a trip).
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, h8, md5('t76d2')::uuid, now() + interval '1 second');
-  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h8, d1));
-  IF got IS DISTINCT FROM 'TY028 this unit or driver went on another trip while this one was being started; refresh and try again' THEN
-    RAISE EXCEPTION 'FAIL 76j: a start that lost the race answered %', got;
-  END IF;
-
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   PERFORM set_config('app.actor_id', '', true);
   got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h5, md5('driver2')::uuid));
   IF got IS DISTINCT FROM 'TY012 no such unit in this fleet' THEN
     RAISE EXCEPTION 'FAIL 76j: Second Fleet starting a trip on BAC''s horse answered %', got;
   END IF;
-  RAISE NOTICE 'PASS  76j each bad start is refused by name and changes nothing, a start that lost the race says so, and another fleet''s unit does not exist';
+  RAISE NOTICE 'PASS  76j each bad start is refused by name and changes nothing, and another fleet''s unit does not exist (a start that lost the race is P18 in db/tests/005_privileged.sql)';
 END $$;
 ROLLBACK;
 
-\echo '== 76k. an end stamps now under the actor, leaves the rig coupled, and refuses an ended trip, an unknown one and one that started after the request (FR-VEH-007 as amended, TY012, TY028; as BAC, rolled back)'
+\echo '== 76k. an end stamps now under the actor, leaves the rig coupled, and refuses an ended trip and an unknown one; one that started after the request is P18 in db/tests/005_privileged.sql (FR-VEH-007 as amended, TY012, TY028; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
   bac constant uuid := '11111111-1111-1111-1111-111111111111';
   ctl constant uuid := md5('t76c')::uuid;
-  tr uuid; tr6 uuid; fut uuid; row_ app.trip; n int; got text; ended timestamptz;
+  tr uuid; tr6 uuid; row_ app.trip; n int; got text; ended timestamptz;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', ctl::text, true);
@@ -15286,13 +15279,7 @@ BEGIN
   IF got IS DISTINCT FROM 'TY012 no such trip in this fleet' THEN
     RAISE EXCEPTION 'FAIL 76k: an unknown trip answered %', got;
   END IF;
-  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
-  VALUES (bac, md5('t76h8')::uuid, md5('t76d3')::uuid, now() + interval '1 second') RETURNING id INTO fut;
-  got := pg_temp.t76_try(format('SELECT app.end_trip(%L)', fut));
-  IF got IS DISTINCT FROM 'TY028 this trip started after this request began; refresh and try again' THEN
-    RAISE EXCEPTION 'FAIL 76k: ending a trip that started after the request answered %', got;
-  END IF;
-  RAISE NOTICE 'PASS  76k an end stamps now under the actor and leaves the rig, and a second end, an unknown trip and a later start are refused by name';
+  RAISE NOTICE 'PASS  76k an end stamps now under the actor and leaves the rig, and a second end and an unknown trip are refused by name';
 END $$;
 ROLLBACK;
 

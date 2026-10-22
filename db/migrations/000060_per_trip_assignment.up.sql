@@ -149,6 +149,11 @@ BEGIN
         MESSAGE = format('%s is %s; a retired unit does not go on a trip', veh.fleet_number, lower(veh.status::text));
     END IF;
   END IF;
+  -- A start ahead of now would open coverage at an instant no caller has
+  -- reached, and app.start_trip and app.end_trip read it as a race lost.
+  IF NEW.started_at > now() THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028', MESSAGE = 'a trip starts now or earlier, never in the future';
+  END IF;
   -- An end ahead of now would close coverage nobody has yet given up (spec,
   -- Starting and ending a trip).
   IF NEW.ended_at > now() THEN

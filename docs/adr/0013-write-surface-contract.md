@@ -449,7 +449,8 @@ more than writing the assumption down first.
   and the suite's back-dated plants, about 70 of them. The shape rules sit
   in the INSERT triggers instead, in each function's words:
   `trip_well_formed` takes an active driver on a motive that is not
-  retired, ending no later than now (TY028), and `nomination_well_formed`
-  takes an open task, an active nominee and an instant no later than now
-  (TY018). A rig takes a dated start by design (U8 of the rig setup), so
-  the trip is not the only history a caller can date.
+  retired, starting and ending no later than now (TY028), and
+  `nomination_well_formed` takes an open task, an active nominee and an
+  instant no later than now (TY018). A rig takes a dated start by design
+  (U8 of the rig setup), so the trip is not the only history a caller can
+  date.
