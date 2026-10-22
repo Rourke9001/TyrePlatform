@@ -1352,7 +1352,7 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 
 	_, err := admin.Exec(ctx,
 		`UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = 'fixture reset'
-		  WHERE tenant_id = $1`, tenantID)
+		  WHERE tenant_id = $1 AND state = 'OPEN'`, tenantID)
 	require.NoError(t, err)
 	require.Empty(t, myTaskVehicles(), "the planted tasks are out of the way")
 

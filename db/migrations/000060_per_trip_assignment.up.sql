@@ -11,7 +11,8 @@
 -- (db/CLAUDE.md, Adding a function).
 --
 -- Parts, in order: A keys and indexes; B app.trip; C
--- app.inspection_task_nomination.
+-- app.inspection_task_nomination; D the task's close instant; G coverage
+-- and responsibility.
 
 -- ---------------------------------------------------------------------------
 -- A. Keys and indexes
@@ -147,3 +148,134 @@ COMMENT ON TABLE app.inspection_task_nomination IS
 CREATE TRIGGER inspection_task_nomination_audited
 AFTER INSERT OR UPDATE ON app.inspection_task_nomination
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
+
+-- ---------------------------------------------------------------------------
+-- D. The task's close instant (FR-INS-052; spec, Capture)
+-- ---------------------------------------------------------------------------
+-- "Outstanding at an instant" needs the instant each task left OPEN, and the
+-- audit log is not a read path (spec). A closed task's last write is its
+-- close, so its updated_at, or its created_at when it was planted closed, is
+-- that instant. The backfill fires inspection_task_stamps_updated and the
+-- audit trigger, so those rows' updated_at reads the migration's instant.
+ALTER TABLE app.inspection_task ADD COLUMN closed_at timestamptz;
+UPDATE app.inspection_task SET closed_at = COALESCE(updated_at, created_at) WHERE state <> 'OPEN';
+ALTER TABLE app.inspection_task
+  ADD CONSTRAINT task_closed_when_not_open CHECK ((state = 'OPEN') = (closed_at IS NULL));
+
+-- A close is final (rule 3): the responsibility and capture reads judge a
+-- past instant by closed_at, so a reopened task would rewrite who held it
+-- then. An INSERT may plant a past close; an UPDATE stamps the close itself.
+CREATE FUNCTION app.inspection_task_closes_once() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND OLD.state IN ('COMPLETED', 'CANCELLED')
+     AND NEW.state IS DISTINCT FROM OLD.state THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('this inspection task is %s; a closed task never changes state', lower(OLD.state::text));
+  END IF;
+  IF TG_OP = 'INSERT' THEN
+    NEW.closed_at := CASE WHEN NEW.state = 'OPEN' THEN NULL ELSE COALESCE(NEW.closed_at, now()) END;
+  ELSE
+    NEW.closed_at := CASE WHEN NEW.state = 'OPEN' THEN NULL
+                          WHEN OLD.state = 'OPEN' THEN now()
+                          ELSE OLD.closed_at END;
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER inspection_task_closes_once BEFORE INSERT OR UPDATE ON app.inspection_task
+FOR EACH ROW EXECUTE FUNCTION app.inspection_task_closes_once();
+
+-- ---------------------------------------------------------------------------
+-- G. Coverage and responsibility (FR-INS-053 as amended)
+-- ---------------------------------------------------------------------------
+-- The span during which each trip covers each unit: a motive's own trip, and
+-- for a towed unit its rig's span intersected with the trip of the rig's
+-- motive. Responsibility, capture and a nomination's lapse all read this, so
+-- a rig ended and reopened mid-trip is read at the instant in question and
+-- trip.combination_id is never read for a decision (spec, The trip). && is
+-- false on an empty range, so a zero-length trip or rig covers nothing.
+CREATE VIEW app.v_unit_coverage WITH (security_invoker = true) AS
+SELECT t.tenant_id, t.vehicle_id, t.id AS trip_id, t.user_id, t.vehicle_id AS motive_id,
+       tstzrange(t.started_at, t.ended_at, '[)') AS span
+  FROM app.trip t
+ WHERE NOT isempty(tstzrange(t.started_at, t.ended_at, '[)'))
+UNION ALL
+SELECT cm.tenant_id, cm.vehicle_id, t.id, t.user_id, c.motive_vehicle_id,
+       tstzrange(t.started_at, t.ended_at, '[)') * tstzrange(c.effective_from, c.effective_to, '[)')
+  FROM app.combination_member cm
+  JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
+   AND cm.vehicle_id <> c.motive_vehicle_id
+  JOIN app.trip t ON t.tenant_id = c.tenant_id AND t.vehicle_id = c.motive_vehicle_id
+   AND tstzrange(t.started_at, t.ended_at, '[)') && tstzrange(c.effective_from, c.effective_to, '[)');
+
+-- Each nomination's live span: from its instant to the first of the task's
+-- next nomination, the first instant a trip covers the task's unit after it
+-- (decision 6, and the same takeover through a coupling), and the task's
+-- close, within the task's own life. greatest keeps a nomination dated after
+-- that bound an empty range rather than an error. By construction the span
+-- is disjoint from the unit's coverage, so no reader subtracts it again.
+CREATE VIEW app.v_nomination_span WITH (security_invoker = true) AS
+SELECT n.tenant_id, n.id AS nomination_id, n.task_id, k.vehicle_id, n.user_id, n.nominated_at,
+       tstzrange(n.nominated_at,
+                 CASE WHEN least(nx.next_at, lp.lapse_at, k.closed_at) IS NULL THEN NULL
+                      ELSE greatest(n.nominated_at, least(nx.next_at, lp.lapse_at, k.closed_at)) END,
+                 '[)')
+       * tstzrange(k.created_at, NULL, '[)') AS span
+  FROM app.inspection_task_nomination n
+  JOIN app.inspection_task k ON k.tenant_id = n.tenant_id AND k.id = n.task_id
+  LEFT JOIN LATERAL (
+    SELECT min(n2.nominated_at) AS next_at
+      FROM app.inspection_task_nomination n2
+     WHERE n2.tenant_id = n.tenant_id AND n2.task_id = n.task_id AND n2.nominated_at > n.nominated_at
+  ) nx ON true
+  LEFT JOIN LATERAL (
+    SELECT min(greatest(lower(c.span), n.nominated_at)) AS lapse_at
+      FROM app.v_unit_coverage c
+     WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
+       AND (upper_inf(c.span) OR upper(c.span) > n.nominated_at)
+  ) lp ON true;
+
+-- The one decision of who is responsible for a task at an instant, and how
+-- (FR-INS-053 as amended; spec, Who is responsible for a task): the trip
+-- that covers its unit, else its own live nominee, else, for a towed unit,
+-- the newest live nomination across its rig motive's outstanding tasks,
+-- else no row. It answers only while the task is outstanding at p_at, and
+-- never reads app_user.active, which keeps no history (spec, Nominations).
+-- Ties within a rule go to the newest nomination, then the lowest id.
+CREATE FUNCTION app.task_responsibility_at(p_task uuid, p_at timestamptz)
+RETURNS TABLE (user_id uuid, via text)
+LANGUAGE sql STABLE AS $$
+  SELECT r.user_id, r.via
+    FROM app.inspection_task k
+   CROSS JOIN LATERAL (
+     SELECT c.user_id, 'TRIP'::text AS via, 1 AS rank,
+            NULL::timestamptz AS nominated_at, NULL::uuid AS nomination_id
+       FROM app.v_unit_coverage c
+      WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id AND c.span @> p_at
+     UNION ALL
+     SELECT ns.user_id, 'NOMINATION', 2, ns.nominated_at, ns.nomination_id
+       FROM app.v_nomination_span ns
+      WHERE ns.tenant_id = k.tenant_id AND ns.task_id = k.id AND ns.span @> p_at
+     UNION ALL
+     SELECT ns.user_id, 'MOTIVE_NOMINATION', 3, ns.nominated_at, ns.nomination_id
+       FROM app.combination_member cm
+       JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
+        AND cm.vehicle_id <> c.motive_vehicle_id
+        AND tstzrange(c.effective_from, c.effective_to, '[)') @> p_at
+       JOIN app.v_nomination_span ns ON ns.tenant_id = c.tenant_id
+        AND ns.vehicle_id = c.motive_vehicle_id AND ns.span @> p_at
+      WHERE cm.tenant_id = k.tenant_id AND cm.vehicle_id = k.vehicle_id
+   ) r
+   WHERE k.id = p_task
+     AND k.created_at <= p_at AND (k.closed_at IS NULL OR k.closed_at > p_at)
+   ORDER BY r.rank, r.nominated_at DESC NULLS LAST, r.nomination_id
+   LIMIT 1
+$$;
+
+-- The name the SRS errata and TYRE-284 cite for the decision above.
+CREATE FUNCTION app.task_driver_at(p_task uuid, p_at timestamptz) RETURNS uuid
+LANGUAGE sql STABLE AS $$
+  SELECT r.user_id FROM app.task_responsibility_at(p_task, p_at) r
+$$;

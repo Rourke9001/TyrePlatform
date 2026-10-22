@@ -13810,6 +13810,41 @@ SET search_path = app, pg_temp AS $fn$
     ) v(k, f, kind, st);
 $fn$;
 
+-- Who a task goes to at an instant, as 'display name/via', or 'nobody/-'
+-- when no rule answers. task_driver_at and task_responsibility_at are read
+-- separately, so the two names disagreeing fails here.
+CREATE FUNCTION pg_temp.t76_who(p_task uuid, p_at timestamptz) RETURNS text
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE n int; u uuid; via text; d uuid;
+BEGIN
+  SELECT count(*) INTO n FROM app.task_responsibility_at(p_task, p_at);
+  IF n > 1 THEN
+    RAISE EXCEPTION 'FAIL 76: task_responsibility_at(%, %) returned % rows, not at most one', p_task, p_at, n;
+  END IF;
+  SELECT r.user_id, r.via INTO u, via FROM app.task_responsibility_at(p_task, p_at) r;
+  d := app.task_driver_at(p_task, p_at);
+  IF d IS DISTINCT FROM u THEN
+    RAISE EXCEPTION 'FAIL 76: task_driver_at(%, %) is % but task_responsibility_at names %', p_task, p_at, d, u;
+  END IF;
+  IF u IS NULL THEN
+    RETURN 'nobody/-';
+  END IF;
+  RETURN (SELECT au.display_name FROM app.app_user au WHERE au.id = u) || '/' || via;
+END $fn$;
+
+CREATE FUNCTION pg_temp.t76_expect(p_check text, p_task uuid, p_at timestamptz, p_want text) RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE got text := pg_temp.t76_who(p_task, p_at);
+BEGIN
+  IF got IS DISTINCT FROM p_want THEN
+    RAISE EXCEPTION 'FAIL %: the task on % at % goes to %, not %', p_check,
+      (SELECT v.fleet_number FROM app.inspection_task k JOIN app.vehicle v ON v.id = k.vehicle_id
+        WHERE k.id = p_task), p_at, got, p_want;
+  END IF;
+END $fn$;
+
 \echo '== 76a. a trip and a nomination are tenant rows under forced RLS; the app role inserts both, ends a trip by its two end columns alone, and edits or deletes neither otherwise (rule 1, rule 3; as BAC, rolled back)'
 BEGIN;
 DO $$
@@ -13976,7 +14011,235 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept, and a closed task never changes state (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1  constant uuid := md5('t76h1')::uuid;
+  d1  constant uuid := md5('t76d1')::uuid;
+  k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; insp uuid;
+  st text; msg text; c timestamptz; s text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, h1, now() + interval '1 day') RETURNING id INTO k1;
+  SELECT closed_at INTO c FROM app.inspection_task WHERE id = k1;
+  IF c IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76d: an open task carries closed_at %', c;
+  END IF;
+  UPDATE app.inspection_task SET closed_at = now() - interval '1 day' WHERE id = k1;
+  SELECT closed_at INTO c FROM app.inspection_task WHERE id = k1;
+  IF c IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76d: an UPDATE gave an open task closed_at %', c;
+  END IF;
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76d' WHERE id = k1;
+  SELECT closed_at INTO c FROM app.inspection_task WHERE id = k1;
+  IF c IS DISTINCT FROM now() THEN
+    RAISE EXCEPTION 'FAIL 76d: a cancelled task closed at %, not now', c;
+  END IF;
+
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+  VALUES (bac, h1, d1, gen_random_uuid(), now() - interval '1 hour', now() - interval '30 minutes', 1000)
+  RETURNING id INTO insp;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, h1, now() + interval '1 day') RETURNING id INTO k2;
+  UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = insp WHERE id = k2;
+
+  FOR st, msg IN SELECT * FROM (VALUES
+      (format('UPDATE app.inspection_task SET state = ''OPEN'' WHERE id = %L', k1),
+       'TY018 this inspection task is cancelled; a closed task never changes state'),
+      (format('UPDATE app.inspection_task SET state = ''CANCELLED'', cancelled_reason = ''76d'' WHERE id = %L', k2),
+       'TY018 this inspection task is completed; a closed task never changes state')) v(a, b)
+  LOOP
+    s := NULL;
+    BEGIN
+      EXECUTE st;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE;
+      s := s || ' ' || SQLERRM;
+    END;
+    IF s IS DISTINCT FROM msg THEN
+      RAISE EXCEPTION 'FAIL 76d: % was answered %, not %', st, COALESCE(s, 'by success'), msg;
+    END IF;
+  END LOOP;
+  SELECT string_agg(state::text, ',' ORDER BY state::text) INTO s
+    FROM app.inspection_task WHERE id IN (k1, k2);
+  IF s IS DISTINCT FROM 'CANCELLED,COMPLETED' THEN
+    RAISE EXCEPTION 'FAIL 76d: the refused moves left the tasks %', s;
+  END IF;
+
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
+  VALUES (bac, h1, now(), 'CANCELLED', '76d', now() - interval '1 day') RETURNING id INTO k3;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason)
+  VALUES (bac, h1, now(), 'CANCELLED', '76d') RETURNING id INTO k4;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, closed_at)
+  VALUES (bac, h1, now(), now() - interval '1 day') RETURNING id INTO k5;
+  UPDATE app.inspection_task SET due_at = due_at + interval '1 day' WHERE id = k3;
+  SELECT string_agg(CASE WHEN closed_at IS NULL THEN 'null'
+                         WHEN closed_at = now() THEN 'now'
+                         WHEN closed_at = now() - interval '1 day' THEN 'yesterday'
+                         ELSE closed_at::text END, ',' ORDER BY ord) INTO s
+    FROM app.inspection_task k
+    JOIN (VALUES (k3, 1), (k4, 2), (k5, 3)) o(id, ord) ON o.id = k.id;
+  IF s IS DISTINCT FROM 'yesterday,now,null' THEN
+    RAISE EXCEPTION 'FAIL 76d: a cancelled task planted at a past close, one planted with none and an open one planted with one read %, not yesterday,now,null (the past close kept through a due_at edit)', s;
+  END IF;
+  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted close is kept, an open task has none, and a closed task never changes state';
+END $$;
+ROLLBACK;
+
+\echo '== 76e. the responsible driver: the trip that covers the unit, else the task''s live nominee, else the motive''s for a coupled trailer, else nobody; a nomination lapses at the first covered instant after it and stays lapsed; only while the task is outstanding (FR-INS-053 as amended; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h1 constant uuid := md5('t76h1')::uuid; h2 constant uuid := md5('t76h2')::uuid;
+  h3 constant uuid := md5('t76h3')::uuid; h4 constant uuid := md5('t76h4')::uuid;
+  h5 constant uuid := md5('t76h5')::uuid; h6 constant uuid := md5('t76h6')::uuid;
+  t1 constant uuid := md5('t76t1')::uuid; t2 constant uuid := md5('t76t2')::uuid;
+  t3 constant uuid := md5('t76t3')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  d3 constant uuid := md5('t76d3')::uuid; d4 constant uuid := md5('t76d4')::uuid;
+  one constant text := 'T76 Driver One'; two constant text := 'T76 Driver Two';
+  three constant text := 'T76 Driver Three'; four constant text := 'T76 Driver Four';
+  rig uuid;
+  k_h1 uuid; k_t1 uuid; k_h2 uuid; k_h3 uuid; k_t2 uuid; k_t3 uuid; k_h4 uuid; k_h4b uuid;
+  k_h5 uuid; k_h1d uuid; k_h6 uuid; k_h2c uuid; k_now uuid;
+  due timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+
+  -- Rule 1: H1 tows T1 from ten hours ago, and D1's trip on H1 opened five
+  -- hours ago.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '10 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '5 hours');
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h1, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h1;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, t1, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_t1;
+  PERFORM pg_temp.t76_expect('76e rule 1', k_h1, now(), one || '/TRIP');
+  PERFORM pg_temp.t76_expect('76e rule 1', k_t1, now(), one || '/TRIP');
+  PERFORM pg_temp.t76_expect('76e rule 1', k_h1, now() - interval '6 hours', 'nobody/-');
+  PERFORM pg_temp.t76_expect('76e rule 1', k_t1, now() - interval '6 hours', 'nobody/-');
+
+  -- Rule 2, and a re-nomination: the newest nomination made by then.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h2;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h2, d2, now() - interval '2 hours'), (bac, k_h2, d3, now() - interval '1 hour');
+  PERFORM pg_temp.t76_expect('76e rule 2', k_h2, now() - interval '3 hours', 'nobody/-');
+  PERFORM pg_temp.t76_expect('76e rule 2', k_h2, now() - interval '90 minutes', two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('76e rule 2', k_h2, now(), three || '/NOMINATION');
+
+  -- A trip that starts after a nomination takes it over, and the nomination
+  -- does not come back when the trip ends (decision 6).
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h3, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h3;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h3, d2, now() - interval '4 hours');
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h3, d3, now() - interval '3 hours', now() - interval '2 hours');
+  PERFORM pg_temp.t76_expect('76e lapse by a trip', k_h3, now() - interval '210 minutes', two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('76e lapse by a trip', k_h3, now() - interval '150 minutes', three || '/TRIP');
+  PERFORM pg_temp.t76_expect('76e lapse by a trip', k_h3, now(), 'nobody/-');
+
+  -- Coupling to a motive on a trip is the same takeover seen from the
+  -- trailer: T2 joins H1's rig for an hour and leaves it again. Each rig is
+  -- planted open, given its members, then ended, since an ended rig takes
+  -- none (000037).
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, t2, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_t2;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_t2, d2, now() - interval '4 hours');
+  UPDATE app.combination SET effective_to = now() - interval '3 hours' WHERE id = rig;
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '3 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2), (bac, rig, t2, 3);
+  UPDATE app.combination SET effective_to = now() - interval '2 hours' WHERE id = rig;
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '2 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  PERFORM pg_temp.t76_expect('76e lapse by a coupling', k_t2, now() - interval '210 minutes', two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('76e lapse by a coupling', k_t2, now() - interval '150 minutes', one || '/TRIP');
+  PERFORM pg_temp.t76_expect('76e lapse by a coupling', k_t2, now(), 'nobody/-');
+  PERFORM pg_temp.t76_expect('76e lapse by a coupling', k_t1, now(), one || '/TRIP');
+
+  -- Rule 3: T3 is coupled to H4, which is on no trip, so T3's task goes to
+  -- the newest live nomination across H4's outstanding tasks.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h4, now() - interval '10 hours') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h4, 1), (bac, rig, t3, 2);
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, t3, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_t3;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h4, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h4;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h4, d2, now() - interval '1 hour');
+  PERFORM pg_temp.t76_expect('76e rule 3', k_t3, now(), two || '/MOTIVE_NOMINATION');
+  -- The active flag keeps no history, so reading it would rewrite past
+  -- attribution (spec, Nominations).
+  UPDATE app.app_user SET active = false WHERE id = d2;
+  PERFORM pg_temp.t76_expect('76e rule 3 ignores the active flag', k_t3, now(), two || '/MOTIVE_NOMINATION');
+  UPDATE app.app_user SET active = true WHERE id = d2;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h4, now() + interval '2 days', now() - interval '12 hours') RETURNING id INTO k_h4b;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h4b, d3, now() - interval '30 minutes');
+  PERFORM pg_temp.t76_expect('76e rule 3 takes the newest across the motive''s tasks', k_t3, now(), three || '/MOTIVE_NOMINATION');
+
+  -- Rule 2 before rule 3: the trailer's own nominee wins.
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_t3, d1, now() - interval '20 minutes');
+  PERFORM pg_temp.t76_expect('76e rule 2 before rule 3', k_t3, now(), one || '/NOMINATION');
+
+  -- At the due instant, which the amended criterion 4 reads.
+  due := now() - interval '1 hour';
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h5, due, now() - interval '12 hours') RETURNING id INTO k_h5;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h5, d2, now() - interval '11 hours');
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h1, due, now() - interval '12 hours') RETURNING id INTO k_h1d;
+  PERFORM pg_temp.t76_expect('76e at the due instant', k_h5, due, two || '/NOMINATION');
+  PERFORM pg_temp.t76_expect('76e at the due instant', k_h1d, due, one || '/TRIP');
+
+  -- Nobody.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h6, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h6;
+  PERFORM pg_temp.t76_expect('76e nobody', k_h6, now(), 'nobody/-');
+
+  -- Not outstanding: each would answer a driver but for the bound, as the
+  -- control instants show.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '3 days', now() - interval '12 hours') RETURNING id INTO k_h2c;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_h2c, d4, now() - interval '2 hours');
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76e' WHERE id = k_h2c;
+  PERFORM pg_temp.t76_expect('76e a cancelled task', k_h2c, now(), 'nobody/-');
+  PERFORM pg_temp.t76_expect('76e a cancelled task, before its close', k_h2c, now() - interval '1 hour', four || '/NOMINATION');
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, h1, now() + interval '3 days') RETURNING id INTO k_now;
+  PERFORM pg_temp.t76_expect('76e a task created now', k_now, now() - interval '1 minute', 'nobody/-');
+  PERFORM pg_temp.t76_expect('76e a task created now, at now', k_now, now(), one || '/TRIP');
+  RAISE NOTICE 'PASS  76e each rule answers in order, a nomination lapses at the first covered instant after it by a trip or a coupling and stays lapsed, rule 3 ignores the active flag, and nothing answers outside the task''s outstanding span';
+END $$;
+ROLLBACK;
+
 \echo '== 76z. nothing section 76 planted outlives its rollback'
+DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);
+DROP FUNCTION pg_temp.t76_who(uuid, timestamptz);
 DROP FUNCTION pg_temp.t76_units();
 DO $$
 DECLARE got text := '';

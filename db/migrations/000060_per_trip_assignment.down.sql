@@ -1,5 +1,17 @@
 -- Reverses 000060. Data is one-way: trips and nominations are gone.
 
+-- G.
+DROP FUNCTION app.task_driver_at(uuid, timestamptz);
+DROP FUNCTION app.task_responsibility_at(uuid, timestamptz);
+DROP VIEW app.v_nomination_span;
+DROP VIEW app.v_unit_coverage;
+
+-- D.
+DROP TRIGGER inspection_task_closes_once ON app.inspection_task;
+DROP FUNCTION app.inspection_task_closes_once();
+ALTER TABLE app.inspection_task DROP CONSTRAINT task_closed_when_not_open;
+ALTER TABLE app.inspection_task DROP COLUMN closed_at;
+
 -- C.
 DROP TABLE app.inspection_task_nomination;
 
