@@ -259,15 +259,9 @@ def fixture_body(names, others):
             L.append(
                 f"  VALUES (md5('sbveh{sbseq}')::uuid,'{T3}','{sbfleet}','{sbreg}',md5('{T3}{sbcfg}')::uuid,'{sbkind}','Flat deck',md5('sbdepot1')::uuid,250000,'ACTIVE');"
             )
-            # FR-AUT-005 scopes GET /api/my/vehicles to the driver's own units,
-            # so without an open assignment the sandbox driver's capture list
-            # is empty and the tenant cannot be walked end to end.
-            L.append(
-                "INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES"
-            )
-            L.append(
-                f"  (md5('sbvd{sbseq}')::uuid,'{T3}',md5('sbveh{sbseq}')::uuid,md5('sbdriver1')::uuid,'2026-01-01',NULL);"
-            )
+        # FR-AUT-005 scopes GET /api/my/vehicles to the driver's own units,
+        # so without an open trip the sandbox driver's capture list is empty
+        # and the tenant cannot be walked end to end.
         L.append(
             "INSERT INTO app.trip (id,tenant_id,vehicle_id,user_id,started_at,started_by) VALUES"
         )
@@ -317,28 +311,6 @@ def fixture_body(names, others):
             f"  VALUES (md5('veh{seq}')::uuid,'{T}','{fleet}','{reg}',md5('{T}{cfg}')::uuid,'{kind}','Flat deck',$${label}$$,md5('depot1')::uuid,412500,'ACTIVE');"
         )
     L.append("")
-    # Driver assignment (FR-VEH-007/008, FR-AUT-005). The verification suite
-    # pins these shapes: one vehicle with two current drivers, one driver on
-    # two vehicles, one ended assignment that must survive as history, and the
-    # open Melusi->HORSE window covering the fixture inspection date so
-    # attribution holds. Tenant 2 gets a vehicle named HORSE (fleet numbers may
-    # collide across tenants, DR-003) and one assignment, foreign rows for the
-    # isolation sweep, same rationale as the tenant-2 user_depot seed above.
-    L.append(
-        "INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES"
-    )
-    L.append(
-        f"  (md5('vd1')::uuid,'{T}',md5('veh1')::uuid,md5('driver1')::uuid,'2025-01-01',NULL),"
-    )
-    L.append(
-        f"  (md5('vd2')::uuid,'{T}',md5('veh3')::uuid,md5('driver1')::uuid,'2026-01-01',NULL),"
-    )
-    L.append(
-        f"  (md5('vd3')::uuid,'{T}',md5('veh2')::uuid,md5('driver1')::uuid,'2024-01-01','2024-12-31'),"
-    )
-    L.append(
-        f"  (md5('vd4')::uuid,'{T}',md5('veh1')::uuid,md5('driver3')::uuid,'2026-06-01',NULL);"
-    )
     # Trips (FR-VEH-007 as amended, TYRE-326). Sipho's ended trip is the
     # retained history FR-VEH-008 asks for. Melusi's opens in 2025 because a
     # fixture inspection is attributed to the trip that covers it, and the
@@ -353,18 +325,15 @@ def fixture_body(names, others):
         f"  (md5('trip1')::uuid,'{T}',md5('veh1')::uuid,md5('driver1')::uuid,'2025-01-01'::timestamp AT TIME ZONE 'Africa/Johannesburg',NULL,md5('controller1')::uuid,NULL);"
     )
     L.append("")
+    # Tenant 2 gets a vehicle named HORSE (fleet numbers may collide across
+    # tenants, DR-003) and one trip: foreign rows for the isolation sweep, as
+    # the tenant-2 user_depot seed above.
     if others:
         L.append(
             "INSERT INTO app.vehicle (id,tenant_id,fleet_number,registration,configuration_id,unit_kind,status) VALUES"
         )
         L.append(
             f"  (md5('t2veh1')::uuid,'{T2}','HORSE','CAA111111',md5('{T2}HORSE_6X4')::uuid,'HORSE','ACTIVE');"
-        )
-        L.append(
-            "INSERT INTO app.vehicle_driver (id,tenant_id,vehicle_id,user_id,from_date,to_date) VALUES"
-        )
-        L.append(
-            f"  (md5('t2vd1')::uuid,'{T2}',md5('t2veh1')::uuid,md5('driver2')::uuid,'2026-01-01',NULL);"
         )
         L.append(
             "INSERT INTO app.trip (id,tenant_id,vehicle_id,user_id,started_at) VALUES"

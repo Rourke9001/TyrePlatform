@@ -853,6 +853,31 @@ func unitSource(a auth.Actor) string {
 	return `app.v_depot_vehicle`
 }
 
+// lockUnitInScope is depot scope for a write on one unit (FR-AUT-008,
+// TYRE-226): a unit outside the actor's depots answers 404 notFound, never
+// 403 (ADR-0011), and an in-scope unit is held FOR SHARE so the scope
+// authorised is the scope the write lands in; fitTyre (fitments.go) carries
+// why it is a share lock. A ScopeTenant actor reaches every unit, so it
+// takes no lock and meets the write's own refusal for an invisible id.
+func lockUnitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, notFound string) error {
+	if a.Scope() == auth.ScopeTenant {
+		return nil
+	}
+	var locked uuid.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT v.id FROM app.vehicle v
+		  WHERE v.id = $1
+		    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
+		  FOR SHARE OF v`, vehicleID).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
+	}
+	if err != nil {
+		return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+	}
+	return nil
+}
+
 // listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
 // and is refused here rather than filtered. FR-AUT-005 is about what they
 // may ask for, not only about what comes back. Their route is /api/my/vehicles.
