@@ -111,8 +111,8 @@ BEGIN
 
   -- INSERT: platform reference data (CHG-019, FR-CFG-005) and the tenant
   -- row itself (TYRE-158) are written as postgres, never through the app
-  -- role. vehicle_driver is history since 000060: trips replace it, and no
-  -- path writes rows that nothing reads.
+  -- role. vehicle_driver is history (000060): no path writes rows that
+  -- nothing reads.
   SELECT string_agg(t || '.' || v, ', ') INTO bad
     FROM (VALUES
       ('jurisdiction_tread_minimum','INSERT'),
@@ -14255,7 +14255,7 @@ BEGIN
   PERFORM pg_temp.t76_expect('76e rule 2', k_h2, now(), three || '/NOMINATION');
 
   -- A trip that starts after a nomination takes it over, and the nomination
-  -- does not come back when the trip ends (decision 6).
+  -- does not come back when the trip ends (spec, decision 6).
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
   VALUES (bac, h3, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h3;
   INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
@@ -14630,7 +14630,7 @@ BEGIN
      OR app.user_could_capture(d2, h1, now(), now()) THEN
     RAISE EXCEPTION 'FAIL 76h: a motive''s nominee does not reach exactly the motive and its coupled trailer';
   END IF;
-  -- A trip then takes the nomination over (decision 6).
+  -- A trip then takes the nomination over (spec, decision 6).
   INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
   VALUES (bac, h4, d3, now() - interval '30 minutes');
   IF app.user_could_capture(d2, h4, now() - interval '20 minutes', now()) THEN
@@ -14673,7 +14673,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 76h: a window wholly after the uncouple passed the trailer';
   END IF;
 
-  -- Every unit the payload attributes is checked (Decision 25).
+  -- Every unit the payload attributes is checked (spec, Capture).
   INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
   VALUES (bac, h1, now() - interval '90 minutes') RETURNING id INTO rig;
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)

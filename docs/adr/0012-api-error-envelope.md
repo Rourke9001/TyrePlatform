@@ -122,6 +122,14 @@ The code table:
 | Database, other unique violation `23505`, and `23P01` (`vehicle_driver_no_overlap`, 000026) | `conflict` | 409 |
 | `errVehicleNotVisible` (Go scope check) | `TY007` | 422 |
 
+TYRE-326, 22 Oct 2026: two rows above do not hold as written. The named
+refusals run to `TY028`, and `api/internal/httpapi/refusal_codes.json` is
+their record, including which have no route. `vehicle_driver_no_overlap`
+cannot be raised, since 000060 revokes `INSERT` and `UPDATE` on
+`vehicle_driver`; a `23P01` comes from `trip_vehicle_no_overlap` or
+`trip_driver_no_overlap` and answers `trip_overlaps`, 409 (ADR-0013's
+constraint table).
+
 | Site | `code` | Status |
 | --- | --- | --- |
 | Unauthenticated request | `unauthorized` | 401 |

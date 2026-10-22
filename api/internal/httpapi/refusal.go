@@ -91,7 +91,7 @@ var submitStatus = map[string]int{
 	"TY006": http.StatusUnprocessableEntity,
 	// TY007: an unrecognised or cross-tenant vehicle_id (migration 000023).
 	// Reachable in practice only by a ScopeTenant actor, who skips the
-	// Go-side window check, app.actor_could_capture (000060).
+	// submit route's own-units check (app.actor_could_capture, 000060).
 	"TY007": http.StatusUnprocessableEntity,
 
 	// TY009/011-019: fitment (TYRE-92), tyre-lifecycle, unit-status, rig and

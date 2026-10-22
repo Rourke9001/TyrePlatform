@@ -164,6 +164,16 @@ receipt's own functions are the way to move one. `tyre.receipt_id` is held
 fixed by the `tyre_receipt_fixed` trigger, since `app_rw` holds `UPDATE` on
 `app.tyre` at table level.
 
+A trip ends once (000060): `app_rw` holds `INSERT` and `UPDATE (ended_at,
+ended_by)` only, and `trip_ended_once` refuses any other change, a second
+end, or an end in the future (`TY028`). `inspection_task_nomination` is
+insert-only: a new nomination supersedes the last, and `UPDATE` and `DELETE`
+are revoked. A closed task never changes state: `inspection_task_closes_once`
+refuses a move out of `COMPLETED` or `CANCELLED` (`TY018`) and stamps
+`closed_at`, which the responsibility and capture reads judge a past instant
+by. `vehicle_driver` is the history of assignments before trips, with
+`INSERT`, `UPDATE` and `DELETE` revoked, and nothing reads it for a decision.
+
 `casing_estimate_by_size` and `tyre_price_list` are insert-only for
 `app_rw` (000058): a changed figure is a new row with a later
 `effective_from` (FR-CFG-042). `app.provision_catalogue` refuses an estimate

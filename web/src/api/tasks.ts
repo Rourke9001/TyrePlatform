@@ -1,8 +1,8 @@
 import { apiGet, apiPost } from "./client";
 
-// Wire shapes of the inspection-task surface (TYRE-90, TYRE-326). UnitTask is
-// a superset of DriverHome's inline task type; not widened for one consumer
-// (U13).
+// Wire shapes of the inspection-task surface (TYRE-90, TYRE-326). UnitTask and
+// DriverHome's inline task type share taskJSON's fields and each adds its
+// own, so neither is widened for the other's consumer (U13).
 
 // How the responsible driver holds the task: the trip that covers its unit,
 // its own nomination, or the nomination of its rig's motive (FR-INS-053 as

@@ -679,7 +679,7 @@ func TestSubmitRefusesAUnitHeldAtNoInstantOfTheCapture(t *testing.T) {
 }
 
 // The task stays cancelled and closes on nothing: the submit's close skips a
-// task that is not open (000041), and the nominee held the unit until the
+// task that is not open (000060), and the nominee held the unit until the
 // cancel, inside the capture.
 func TestSubmitAcceptsANomineeWhoseTaskWasCancelled(t *testing.T) {
 	ctx := context.Background()

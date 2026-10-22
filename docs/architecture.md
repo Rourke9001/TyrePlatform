@@ -165,14 +165,19 @@ live schema (ADR-0012):
 | TY025 | 000058 | a platform catalogue seed refused; no route can reach it, so no entry exists |
 | TY026 | 000059 | a receipt refused: a move its state does not allow, or a tyre's receipt changed |
 | TY027 | 000059 | a consent record refused; no route can reach it, so no entry exists |
+| TY028 | 000060 | a trip write refused: a start or an end, including a due inspection not done on a unit the trip would cover (U148) |
 
 `httpapi.unitSource` is the one place a fleet handler chooses its relation
 for a unit, by `auth.Actor.Scope` and never by role name (ADR-0006). Every
-caller composes it: the unit read, its PATCH and status write, its
-fitment/driver/task lists, the four unit-path writes (`fitTyre`,
-`rotateTyres`, `assignDriver`, `scheduleInspectionTask`), and the two
-composition-report writes (`observations.go`), which reach the unit through
-the report's inspection (FR-AUT-008, TYRE-162, TYRE-226).
+caller composes it, most through `unitInScope`, `checkUnitInScope` or
+`lockUnitInScope` (`units.go`): the unit read, its PATCH and status write,
+its fitment, task, trip and trip-blocker reads, the unit-path writes
+(`fitTyre`, `rotateTyres`, `scheduleInspectionTask`), a nomination, which is
+judged by its task's unit, a trip start and end, judged by the motive, the
+rig writes and the rig register, which shows a rig when any of its units is
+in scope (U149), and the two composition-report writes (`observations.go`),
+which reach the unit through the report's inspection (FR-AUT-008, TYRE-162,
+TYRE-226, TYRE-326).
 
 `patchUnit`'s UPDATE always runs, even naming no column, because it is
 doing two further jobs beyond the edit itself. It is the existence check,
@@ -243,23 +248,35 @@ is the one in-progress inspection.
 - Photos are to queue separately from readings, so a slow photo upload never
   holds up a completed inspection. Photo capture is unbuilt (TYRE-152).
 
-`submitInspection` re-applies FR-AUT-005's narrowing on the write path: the
-read composes `app.v_capture_vehicle`, and without the same check on the
-write a driver could submit against any unit in the tenant, wider than the
-read ever exposed. A superlink payload legitimately carries readings
-against several `vehicle_id`s in one submit: the motive unit plus each
-coupled trailer, so a completed sheet is 108 numeric entries, not 52 (`CLAUDE.md`,
-The capture target). Checking only
-the top-level `vehicle_id` would let a driver assigned to unit A embed a
+`submitInspection` re-applies FR-AUT-005's narrowing on the write path, or
+a driver could submit against any unit in the tenant, wider than the read
+ever exposed. The rule is `app.actor_could_capture` (000060), judged over the
+capture rather than at delivery (FR-OFF-015 as amended): every unit the
+payload attributes must be one the actor could capture at some instant of
+`app.capture_window`, the span from `started_at` to `submitted_at`, capped at
+the tenant's `inspection_max_duration_hours`. A trip's driver captures
+its truck and the trailers of its rig, and a nominee the unit they are
+nominated for and, on a motive, its rig (`app.v_capture_span`). A superlink
+payload legitimately carries readings against several `vehicle_id`s in one
+submit: the motive unit plus each coupled trailer, so a completed sheet is
+108 numeric entries, not 52 (`CLAUDE.md`, The capture target). Checking only
+the top-level `vehicle_id` would let a driver on unit A's trip embed a
 reading against unrelated unit B in the same tenant: `TY004` in
 `app.submit_inspection` only confirms a position belongs to its own
-vehicle's configuration, never that the actor may write to that vehicle.
-So every `vehicle_id` referenced anywhere in the payload must resolve
-through `v_capture_vehicle`: the top-level one plus every
-`readings[].vehicle_id`, read straight from the raw JSON rather than a
-second Go-side model. The `COALESCE` around the `readings` key guards a
-missing or non-array value so a malformed payload still gets a refusal in
-Go rather than a raw Postgres error.
+vehicle's configuration, never that the actor may write to that vehicle. So
+the check reads the top-level `vehicle_id`, every `readings[].vehicle_id`
+and every `absent_spares[].vehicle_id` straight from the raw JSON rather
+than a second Go-side model, and a `combination_id` must name a rig headed
+by the payload's own unit. A `readings` or `absent_spares` key that is not
+an array is left to `app.submit_inspection`, which refuses it by name. A
+replay of the actor's own stored capture is answered as one whoever holds
+the unit now (FR-OFF-011).
+
+The capture read, `GET /api/capture/vehicles/{id}`, judges at now through
+`app.v_capture_vehicle`, as `/api/my/vehicles` does. A resumed draft sends
+its own `startedAt`, and the read then admits a unit the actor could capture
+over the window its submit will be judged on, so a trip that ended while the
+draft sat on the phone does not strand it (U148).
 
 ## Environments
 

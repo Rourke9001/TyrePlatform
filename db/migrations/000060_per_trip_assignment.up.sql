@@ -24,7 +24,7 @@ ALTER TABLE app.inspection_task ADD CONSTRAINT inspection_task_tenant_id_id_key 
 ALTER TABLE app.vehicle_driver ADD CONSTRAINT vehicle_driver_tenant_id_id_key UNIQUE (tenant_id, id);
 
 -- Every coverage read finds a unit's rigs by the unit, and a motive's rigs by
--- the motive; neither table had an index that leads with either.
+-- the motive; no other index on either table leads with either.
 CREATE INDEX combination_member_by_vehicle ON app.combination_member (tenant_id, vehicle_id);
 CREATE INDEX combination_by_motive ON app.combination (tenant_id, motive_vehicle_id);
 
@@ -59,8 +59,9 @@ CREATE TABLE app.trip (
   CONSTRAINT trip_ends_after_start CHECK (ended_at IS NULL OR ended_at >= started_at),
   -- One driver per motive and one motive per driver at an instant (U143).
   -- '[)' so a start may end one trip and open the next at the same instant.
-  -- tenant_id leads each key because an exclusion check bypasses RLS, as
-  -- 000026 says of vehicle_driver_no_overlap.
+  -- tenant_id leads each key because an exclusion check bypasses RLS, so a
+  -- key without it would tell a caller whether another tenant's unit was on
+  -- a trip at an instant (section 34e).
   CONSTRAINT trip_vehicle_no_overlap EXCLUDE USING gist (
     tenant_id WITH =, vehicle_id WITH =, tstzrange(started_at, ended_at, '[)') WITH &&),
   CONSTRAINT trip_driver_no_overlap EXCLUDE USING gist (
@@ -75,7 +76,7 @@ COMMENT ON TABLE app.trip IS
   'A driver on a motive unit from one instant to another (FR-VEH-007 as amended, TYRE-326). A trip ends once and is never edited; docs/superpowers/specs/2026-10-22-per-trip-assignment-design.md.';
 
 -- updated_at and updated_by are excluded from the comparison, because
--- trip_stamps_updated writes them on every UPDATE (000037's reasoning).
+-- trip_stamps_updated writes them on every UPDATE.
 CREATE FUNCTION app.trip_is_ended_once() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
@@ -253,10 +254,10 @@ DROP VIEW app.v_driver_vehicle;
 DROP VIEW app.v_capture_vehicle;
 DROP VIEW app.v_user_capture_vehicle;
 
--- The task views expand it.*, so they go before the columns do. The old
--- create_inspection_task named an assignee; user_can_capture and
--- v_current_assignment have no reader once it and the generator stop
--- reading them.
+-- The task views expand it.*, so they go before the columns do.
+-- create_inspection_task(uuid, uuid, date) names an assignee, and it and
+-- the generator are the only readers of user_can_capture and
+-- v_current_assignment; part I replaces both.
 DROP VIEW app.v_my_inspection_task;
 DROP VIEW app.v_inspection_task;
 DROP FUNCTION app.create_inspection_task(uuid, uuid, date);
@@ -291,7 +292,7 @@ SELECT cm.tenant_id, cm.vehicle_id, t.id, t.user_id, c.motive_vehicle_id,
 
 -- Each nomination's live span: from its instant to the first of the task's
 -- next nomination, the first instant a trip covers the task's unit after it
--- (decision 6, and the same takeover through a coupling), and the task's
+-- (spec, decision 6, and the same takeover through a coupling), and the task's
 -- close, within the task's own life. greatest keeps a nomination dated after
 -- that bound an empty range rather than an error. By construction the span
 -- is disjoint from the unit's coverage, so no reader subtracts it again.
@@ -359,8 +360,8 @@ LANGUAGE sql STABLE AS $$
   SELECT r.user_id FROM app.task_responsibility_at(p_task, p_at) r
 $$;
 
--- 000038's task view on the table as it now stands: outstanding is OPEN,
--- and overdue an outstanding task past its due instant. It names no driver,
+-- The task view: outstanding is OPEN, and overdue an outstanding task past
+-- its due instant. It names no driver,
 -- so a count of overdue tasks (dashboard.go) never asks who holds one.
 CREATE VIEW app.v_inspection_task WITH (security_invoker = true) AS
 SELECT it.*,
@@ -370,8 +371,8 @@ SELECT it.*,
 
 -- The responsible driver beside each task, at now, and escalated: an
 -- outstanding task nobody holds (spec, Escalation). OFFSET 0 fences the
--- function so it runs once per row, not once per reference (000045's
--- header).
+-- function so it runs once per row, not once per reference (lesson
+-- 2026-09-11).
 CREATE VIEW app.v_inspection_task_driver WITH (security_invoker = true) AS
 SELECT t.*,
        r.user_id                          AS responsible_user_id,
@@ -426,7 +427,8 @@ SELECT DISTINCT s.tenant_id, s.user_id, s.vehicle_id, s.via_vehicle_id
   FROM app.v_capture_span s
  WHERE s.span @> now();
 
--- 000038's capture read, re-created on the base above with its two columns.
+-- The actor's capture set at now, the relation a handler composes for an
+-- actor who is not tenant-wide (ADR-0006).
 CREATE VIEW app.v_capture_vehicle WITH (security_invoker = true) AS
 SELECT DISTINCT ucv.tenant_id, ucv.vehicle_id
   FROM app.v_user_capture_vehicle ucv
@@ -447,14 +449,15 @@ SELECT DISTINCT ucv.tenant_id, ucv.user_id, ucv.vehicle_id, v.fleet_number, v.re
 -- function runs on the actor's units alone; the planner otherwise ran it on
 -- every outstanding task in the tenant first. The filter changes no answer:
 -- each rule's holder can capture the task's unit at that instant (spec,
--- Capture). capture_vehicle_id is where the task is captured: the motive of
--- the unit's open rig when the actor can capture that motive, else the unit,
--- since a rig is entered through its motive (capture.go).
+-- Capture).
 CREATE VIEW app.v_my_inspection_task WITH (security_invoker = true) AS
 SELECT t.*,
        r.user_id                             AS responsible_user_id,
        r.via                                 AS responsible_via,
        (t.outstanding AND r.user_id IS NULL) AS escalated,
+       -- Where the task is captured: the unit's open rig's motive when the
+       -- actor can capture it, since a rig is entered through its motive
+       -- (capture.go), else the unit itself.
        COALESCE((SELECT c.motive_vehicle_id
                    FROM app.combination_member cm
                    JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
@@ -559,13 +562,11 @@ END $$;
 -- ---------------------------------------------------------------------------
 -- I. Writes
 -- ---------------------------------------------------------------------------
--- app.submit_inspection, copied forward from 000041 verbatim (a down
--- migration restores the state its up migration left, 000039's down says
--- why) with two differences: app.capture_window right after the FR-OFF-011
+-- app.submit_inspection. app.capture_window runs right after the FR-OFF-011
 -- replay lookup, so a payload with no started_at is refused by name rather
--- than by the column's own 23502 (FR-OFF-013); and the close, which takes
--- only an OPEN task, admits a named task on any unit the inspection read,
--- and completes each read unit's due tasks (U150).
+-- than by the column's own 23502 (FR-OFF-013). The close takes only an OPEN
+-- task, admits a named task on any unit the inspection read, and completes
+-- each read unit's due tasks (U150).
 CREATE OR REPLACE FUNCTION app.submit_inspection(p_payload jsonb)
 RETURNS TABLE (inspection_id uuid, created boolean)
 LANGUAGE plpgsql SET search_path = app, pg_temp AS $$
@@ -1097,8 +1098,8 @@ END $$;
 REVOKE ALL ON FUNCTION app.submit_inspection(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.submit_inspection(jsonb) TO app_rw;
 
--- 000012's generator with its assignee step gone (spec, Escalation): every
--- task is written OPEN, and one nobody holds reads escalated, never
+-- The task generator (spec, Escalation): every task is written OPEN, and
+-- one nobody holds reads escalated, never
 -- dropped. Who holds a task is app.task_driver_at's; which units fall due
 -- and when is still TYRE-133's.
 CREATE OR REPLACE FUNCTION app.generate_inspection_tasks(p_as_of date) RETURNS int
@@ -1183,12 +1184,12 @@ BEGIN
   RETURN nom;
 END $$;
 
--- The one way an ad-hoc task comes to exist (FR-INS-051 as amended): 000038's
--- body without the assignee, and with an optional nominee, named through
--- app.nominate_for_task so a nomination has one set of rules. What is checked
+-- The one way an ad-hoc task comes to exist (FR-INS-051 as amended). An
+-- optional nominee is named through app.nominate_for_task, so a nomination
+-- has one set of rules. What is checked
 -- here is what a task must be true of: a unit this tenant can see and has not
 -- retired, and a due day not already past. Shape is refused in Go before the
--- transaction opens (ADR-0013 decision 5). The due instant is 000038's: the
+-- transaction opens (ADR-0013 decision 5). The due instant is the
 -- tenant-local last microsecond of the due day (rule 6).
 CREATE FUNCTION app.create_inspection_task(p_vehicle uuid, p_due_on date DEFAULT NULL,
                                            p_nominee uuid DEFAULT NULL)
@@ -1275,16 +1276,7 @@ $$;
 -- FR-VEH-007 as amended: a controller puts a driver on a motive at now,
 -- adding free trailers (spec, Starting and ending a trip). Nothing is
 -- written until every check has passed, so each refusal changes nothing.
--- The driver's row is locked first, FOR NO KEY UPDATE so the FK checks
--- other writes make against it do not wait; then, in one statement in id
--- order, every unit the start touches, the order create_combination_at takes
--- (000044), with the motive of the driver's open trip among them because
--- this start ends it and Go checks its depot afterwards. Two starts for one
--- driver or one motive serialise there, and the loser meets an open trip
--- that started after its own now. The EXCLUDEs are the backstop. A trailer
--- already in an open rig is refused before INV-4 (000037) refuses it, with
--- words that name its truck. Go checks the driver's capability
--- (refuseNonCapturer).
+-- Go checks the driver's capability (refuseNonCapturer).
 CREATE FUNCTION app.start_trip(p_motive uuid, p_driver uuid, p_add_trailers uuid[] DEFAULT '{}')
 RETURNS uuid
 LANGUAGE plpgsql
@@ -1304,6 +1296,8 @@ DECLARE
   towed        jsonb;
   trip         uuid;
 BEGIN
+  -- The driver's row first, FOR NO KEY UPDATE so the FK checks other writes
+  -- make against it do not wait.
   SELECT * INTO usr FROM app.app_user u
    WHERE u.tenant_id = v_tenant AND u.id = p_driver
      FOR NO KEY UPDATE;
@@ -1317,6 +1311,11 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY028', MESSAGE = 'every added trailer names a unit';
   END IF;
 
+  -- Then every unit the start touches, in id order, the order
+  -- create_combination_at takes (000044). The prior motive is among them,
+  -- since this start ends its trip and Go checks its depot afterwards. Two
+  -- starts for one driver or one motive serialise here, and the loser meets
+  -- an open trip that started after its own now. The EXCLUDEs are the backstop.
   SELECT t.vehicle_id INTO prior_motive FROM app.trip t
    WHERE t.tenant_id = v_tenant AND t.user_id = p_driver AND t.ended_at IS NULL;
   PERFORM 1 FROM app.vehicle v
@@ -1351,7 +1350,8 @@ BEGIN
   SELECT c.id INTO rig FROM app.combination c
    WHERE c.tenant_id = v_tenant AND c.motive_vehicle_id = p_motive AND c.effective_to IS NULL;
 
-  -- Only a free trailer is coupled (spec, decision 3). A towed unit's kind
+  -- Only a free trailer is coupled (spec, decision 3), refused here before
+  -- INV-4 (000037) would, in words that name its truck. A towed unit's kind
   -- and retirement are create_combination_at's (TY017).
   FOREACH trailer IN ARRAY adds LOOP
     SELECT v.fleet_number INTO unit FROM app.vehicle v WHERE v.tenant_id = v_tenant AND v.id = trailer;
@@ -1453,7 +1453,8 @@ END $$;
 -- J. vehicle_driver becomes history (spec)
 -- ---------------------------------------------------------------------------
 -- The table stays as the record of assignments before trips, and no path
--- writes rows that nothing reads (check 4). DELETE was never granted.
+-- writes rows that nothing reads (check 4). DELETE has been revoked since
+-- 000018 (DR-014a).
 REVOKE INSERT, UPDATE ON app.vehicle_driver FROM app_rw;
 COMMENT ON TABLE app.vehicle_driver IS
   'Driver-to-unit assignments before trips (FR-VEH-007 as amended, TYRE-326). History only: no writer, and nothing reads it for a decision; app.trip replaced it in 000060.';
