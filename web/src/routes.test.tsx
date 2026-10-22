@@ -51,6 +51,19 @@ function mockListsByPath(): void {
   vi.stubGlobal("fetch", mock);
 }
 
+// The driver's home reads two things; each answers its own body.
+function mockMyReads(status: number, tasks: unknown, trip: unknown): Mock<typeof fetch> {
+  const mock: Mock<typeof fetch> = vi.fn();
+  mock.mockImplementation((input: RequestInfo | URL) => {
+    const url = requestedUrl(input);
+    if (url === "/api/my/tasks") return Promise.resolve(respond(status, tasks));
+    if (url === "/api/my/trip") return Promise.resolve(respond(status, trip));
+    throw new Error(`unstubbed ${url}`);
+  });
+  vi.stubGlobal("fetch", mock);
+  return mock;
+}
+
 const DEV_ACTOR_STORAGE_KEY = "tyre.dev.user-id";
 
 afterEach(() => {
@@ -72,7 +85,7 @@ function renderAt(path: string, me: Me) {
 
 describe("AppRoutes", () => {
   it("lands a driver on their own work rather than a fleet view they cannot read", () => {
-    mockFetchJson(200, []);
+    mockMyReads(200, [], { trip: null });
     renderAt("/", actor(["CaptureInspection"]));
     expect(screen.getByRole("heading", { name: /my inspections/i })).toBeDefined();
   });
@@ -142,9 +155,9 @@ describe("AppRoutes", () => {
   // GET /api/my/tasks returns 200 with [] for an unassigned driver. An empty
   // result is a legitimate answer, not a refusal, and must not render as one.
   it("shows an unassigned driver's empty task list rather than an error", async () => {
-    mockFetchJson(200, []);
+    mockMyReads(200, [], { trip: null });
     renderAt("/my", actor(["CaptureInspection"]));
-    expect(await screen.findByText(/nothing due/i)).toBeDefined();
+    expect(await screen.findByText("You are not on a trip.")).toBeDefined();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -152,10 +165,11 @@ describe("AppRoutes", () => {
   // refusal reaching the client after the route already rendered must surface
   // as an error state, not silently look like an empty list.
   it("surfaces a capability refusal on /api/my/tasks as an error, not an empty list", async () => {
-    mockFetchJson(403, { error: "forbidden" });
+    mockMyReads(403, { error: "forbidden" }, { error: "forbidden" });
     renderAt("/my", actor(["CaptureInspection"]));
-    expect(await screen.findByRole("alert")).toBeDefined();
+    expect((await screen.findAllByRole("alert")).length).toBeGreaterThan(0);
     expect(screen.queryByText(/nothing due/i)).toBeNull();
+    expect(screen.queryByText("You are not on a trip.")).toBeNull();
   });
 
   // The API's dev actor middleware 401s any request missing X-User-ID, and
@@ -164,17 +178,21 @@ describe("AppRoutes", () => {
   it("sends the dev actor id from localStorage as X-User-ID on every request", async () => {
     const devActorId = "b85aef08-6081-80db-9d4d-dad38ae40545";
     window.localStorage.setItem(DEV_ACTOR_STORAGE_KEY, devActorId);
-    const fetchMock = mockFetchJson(200, []);
+    const fetchMock = mockMyReads(200, [], { trip: null });
     renderAt("/my", actor(["CaptureInspection"]));
-    await screen.findByText(/nothing due/i);
+    await screen.findByText("You are not on a trip.");
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toBe("/api/my/tasks");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls.map(([url]) => url).sort()).toEqual([
+      "/api/my/tasks",
+      "/api/my/trip",
+    ]);
     // Normalised through Headers: apiGet builds a plain object, but
     // HeadersInit also allows an array of pairs or a Headers instance, and
     // this must hold regardless of which shape apiGet chooses to send.
-    expect(new Headers(init?.headers).get("X-User-ID")).toBe(devActorId);
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(new Headers(init?.headers).get("X-User-ID")).toBe(devActorId);
+    }
   });
 
   // /capture is the one route that refuses out loud: a link followed to a

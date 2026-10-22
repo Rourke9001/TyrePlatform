@@ -1249,3 +1249,46 @@ func TestWithActorRefusalLogsTheClientAddress(t *testing.T) {
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	require.Contains(t, buf.String(), `"client":"192.0.2.1"`)
 }
+
+// Where a task is captured (spec, The driver's phone): a coupled trailer's
+// task through its motive when the driver can capture the motive, since a
+// solo trailer capture would lose the rig; otherwise on its own unit.
+func TestMyTasksNameWhereToCapture(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, trailerID := plantCaptureFixture(t, ctx, admin, "capture-where")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	nominee := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, horseID, driver)
+	free := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
+	plantTask := func(unit uuid.UUID) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+			 VALUES ($1, $2, now() + interval '1 day', now() - interval '2 hours') RETURNING id`,
+			tenantID, unit).Scan(&id))
+		return id
+	}
+	coupledTask := plantTask(trailerID)
+	freeTask := plantTask(free)
+	plantNomination(t, ctx, admin, tenantID, freeTask, nominee)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	mine := func(actor uuid.UUID) map[string]string {
+		t.Helper()
+		rec := get(t, h, "/api/my/tasks", tenantID.String(), actor.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var tasks []struct {
+			ID               string `json:"id"`
+			CaptureVehicleID string `json:"captureVehicleId"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tasks))
+		out := map[string]string{}
+		for _, task := range tasks {
+			out[task.ID] = task.CaptureVehicleID
+		}
+		return out
+	}
+	require.Equal(t, map[string]string{coupledTask.String(): horseID.String()}, mine(driver))
+	require.Equal(t, map[string]string{freeTask.String(): free.String()}, mine(nominee))
+}
