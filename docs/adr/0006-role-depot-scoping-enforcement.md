@@ -25,6 +25,12 @@ relational in a way tenant identity is not: "currently assigned vehicles"
 is a date-windowed join through `vehicle_driver`; "assigned depots" is a
 join through `user_depot`.
 
+TYRE-326, 22 Oct 2026: a driver's units are their open trip's truck and the
+trailers in its rig, and any unit they are nominated for, judged over an
+instant or a capture window (`app.v_capture_span`, 000060). `vehicle_driver`
+is history that no read path uses, and its writes are revoked from the app
+role. The choice below, Go composing the scope view, is unchanged.
+
 ## Options considered
 
 ### Option A — Per-role RLS policies

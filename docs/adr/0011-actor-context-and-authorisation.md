@@ -144,3 +144,9 @@ computes `state = 'OPEN' AND due_at < now()` while admitting both `OPEN` and
 resolves, and such rows carry a NULL `assigned_user_id` (000014); or the
 operator wants enforced separation of duties between the two controller
 surfaces, which is an enum value plus a capability row, not a redesign.
+
+TYRE-326, 22 Oct 2026: the escalated-row trigger above cannot fire. 000060
+writes every task `OPEN`, maps `ESCALATED` rows to `OPEN`, and drops
+`assigned_user_id`. Escalated is derived, an outstanding task nobody holds
+(`v_inspection_task_driver.escalated`), and overdue is an `OPEN` task past
+its due instant, whoever holds it.
