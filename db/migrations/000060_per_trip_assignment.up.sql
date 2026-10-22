@@ -347,8 +347,12 @@ END $$;
 -- through an active assignee. A deactivated one is not copied, since
 -- app.nominate_for_task would refuse them. Part D has already made ESCALATED
 -- rows OPEN.
+-- A creation ahead of now, which a raw UPDATE could leave while app_rw held
+-- the table's UPDATE, dates its copy at now: nomination_well_formed refuses
+-- a later instant, and v_nomination_span starts no span before the task's
+-- creation in any case.
 INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at, nominated_by)
-SELECT k.tenant_id, k.id, k.assigned_user_id, k.created_at, k.requested_by
+SELECT k.tenant_id, k.id, k.assigned_user_id, least(k.created_at, now()), k.requested_by
   FROM app.inspection_task k
   JOIN app.app_user u ON u.tenant_id = k.tenant_id AND u.id = k.assigned_user_id
  WHERE k.state = 'OPEN' AND u.active;
@@ -377,7 +381,7 @@ SELECT k.tenant_id, k.id, k.assigned_user_id, now(), k.requested_by
  WHERE k.state = 'OPEN' AND u.active
    AND EXISTS (SELECT 1 FROM cover c
                 WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
-                  AND c.span && tstzrange(k.created_at, now(), '[)'))
+                  AND c.span && tstzrange(least(k.created_at, now()), now(), '[)'))
    AND NOT EXISTS (SELECT 1 FROM cover c
                     WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
                       AND c.span @> now());
