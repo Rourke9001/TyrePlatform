@@ -123,8 +123,9 @@ AFTER INSERT OR UPDATE ON app.trip
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 
 -- app_rw holds INSERT, so a raw trip meets app.start_trip's shape rules
--- here, in its words and its order (FR-VEH-007 as amended). A past start is
--- ADR-0013's accepted gap (U152).
+-- here, in its words and its order. Its bounds at now are this trigger's,
+-- in words of its own (FR-VEH-007 as amended). A past start is ADR-0013's
+-- accepted gap (U152).
 CREATE FUNCTION app.trip_is_well_formed() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
@@ -200,8 +201,9 @@ AFTER INSERT OR UPDATE ON app.inspection_task_nomination
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 
 -- app_rw holds INSERT, so a raw nomination meets app.nominate_for_task's
--- rules here, in its words and its order (FR-INS-051 as amended). A past
--- instant is ADR-0013's accepted gap (U152).
+-- rules here, in its words and its order. Its bound at now is this
+-- trigger's, in words of its own (FR-INS-051 as amended). A past instant is
+-- ADR-0013's accepted gap (U152).
 CREATE FUNCTION app.nomination_is_well_formed() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
