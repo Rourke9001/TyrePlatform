@@ -14017,7 +14017,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76c. a trip ends once, by its end columns, never in the future and never before it started, and an ended trip never changes; a nomination is never updated or deleted (FR-VEH-007, rule 3, TY028; as BAC, rolled back)'
+\echo '== 76c. a trip ends once, by its end columns, at the server''s now and by the bound actor, and an ended trip never changes; a nomination is never updated or deleted (FR-VEH-007, rule 3, TY028; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -14052,13 +14052,22 @@ BEGIN
     SELECT * FROM (VALUES
       (format('UPDATE app.trip SET ended_at = now() WHERE id = %L', tr1),
        'TY028 an ended trip is never changed'),
+      (format('UPDATE app.trip SET ended_at = NULL WHERE id = %L', tr1),
+       'TY028 an ended trip is never changed'),
       (format('UPDATE app.trip SET ended_by = %L WHERE id = %L', ctl, tr2),
        'TY028 an open trip can only be ended, never edited'),
+      (format('UPDATE app.trip SET ended_at = now() - interval ''1 minute'' WHERE id = %L', tr2),
+       'TY028 a trip ends at the server''s now, never earlier or later'),
+      (format('UPDATE app.trip SET ended_at = started_at WHERE id = %L', tr2),
+       'TY028 a trip ends at the server''s now, never earlier or later'),
+      (format('UPDATE app.trip SET ended_at = started_at - interval ''1 minute'' WHERE id = %L', tr2),
+       'TY028 a trip ends at the server''s now, never earlier or later'),
       (format('UPDATE app.trip SET ended_at = now() + interval ''1 minute'' WHERE id = %L', tr2),
-       'TY028 a trip is ended now or earlier, never in the future'),
+       'TY028 a trip ends at the server''s now, never earlier or later'),
       (format('UPDATE app.trip SET started_at = now() WHERE id = %L', tr2),
        '42501 permission denied for table trip'),
-      (format('UPDATE app.trip SET ended_at = started_at - interval ''1 minute'' WHERE id = %L', tr2),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now(), now() - interval ''1 minute'')',
+              bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
        '23514 trip_ends_after_start')
     ) v(s, m)
   LOOP
@@ -14082,6 +14091,13 @@ BEGIN
   IF row_.ended_at IS NOT NULL OR row_.ended_by IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 76c: a refused edit left the open trip ended at % by %', row_.ended_at, row_.ended_by;
   END IF;
+  -- The ender is the bound actor, whoever the caller names.
+  UPDATE app.trip SET ended_at = now(), ended_by = md5('t76d1')::uuid WHERE id = tr2;
+  SELECT * INTO row_ FROM app.trip WHERE id = tr2;
+  IF row_.ended_at IS DISTINCT FROM now() OR row_.ended_by IS DISTINCT FROM ctl THEN
+    RAISE EXCEPTION 'FAIL 76c: an end naming another ender read back ended_at %, ended_by %, not now by the controller',
+      row_.ended_at, row_.ended_by;
+  END IF;
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, md5('t76h3')::uuid, now() + interval '1 day') RETURNING id INTO k;
@@ -14101,7 +14117,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL 76c: % was answered %, not the revoked grant', st, COALESCE(msg, 'by success');
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  76c a trip ends once by its end columns, now or earlier and not before its start, an ended trip is frozen, and a nomination is insert-only';
+  RAISE NOTICE 'PASS  76c a trip ends once by its end columns, at the server''s now and by the bound actor, an ended trip is frozen, and a nomination is insert-only';
 END $$;
 ROLLBACK;
 
