@@ -447,10 +447,10 @@ more than writing the assumption down first.
   nothing bounds `started_at` or `nominated_at` below. A bound would refuse
   what 000060's data step and the seed fixture write, both past instants,
   and the suite's back-dated plants, about 70 of them. The shape rules sit
-  in the INSERT triggers instead, in each function's words:
+  in the INSERT triggers instead, in each function's words and order:
   `trip_well_formed` takes an active driver on a motive that is not
-  retired, starting and ending no later than now (TY028), and
-  `nomination_well_formed` takes an open task, an active nominee and an
-  instant no later than now (TY018). A rig takes a dated start by design
-  (U8 of the rig setup), so the trip is not the only history a caller can
-  date.
+  retired (TY028), and `nomination_well_formed` an open task and an active
+  nominee (TY018). Each trigger also bounds its instants at now, in words
+  of its own: a trip starts and ends no later than now, and a nomination is
+  dated no later than now. A rig takes a dated start by design (U8 of the
+  rig setup), so the trip is not the only history a caller can date.

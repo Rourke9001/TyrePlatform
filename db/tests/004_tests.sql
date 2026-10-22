@@ -14090,6 +14090,7 @@ BEGIN
       (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
               bac, md5('t76t1')::uuid, md5('t76di')::uuid),
        'TY028 T76 Driver Inactive is no longer active'),
+      -- The bounds at now are the trigger's own words.
       (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now() - interval ''1 hour'', now() + interval ''1 minute'')',
               bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
        'TY028 a trip ends now or earlier, never in the future'),
@@ -14152,7 +14153,7 @@ BEGIN
   END LOOP;
 
   -- A raw nomination meets app.nominate_for_task's rules in its words and
-  -- its order, and an instant no later than now.
+  -- its order; the bound at now is the trigger's, in its own words.
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, md5('t76h3')::uuid, now() + interval '2 days') RETURNING id INTO kc;
   UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76c' WHERE id = kc;
