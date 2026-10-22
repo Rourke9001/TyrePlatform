@@ -1,23 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, type FormEvent } from "react";
 
-import { refusalMessage } from "../../api/refusal";
-import { fetchUnitTasks, nominate, type UnitTask } from "../../api/tasks";
+import { fetchUnitTasks } from "../../api/tasks";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
-import { useFormMutation } from "../useFormMutation";
-import { DriverPicker } from "./DriverPicker";
-import { tripBlockersPrefix, unitTasksKey } from "./queryKeys";
+import { NominateControl } from "./NominateControl";
+import { unitTasksKey } from "./queryKeys";
 import { taskDriverLabel, taskStatusLabel } from "./vocabulary";
 import "../fleet.css";
-
-// app.nominate_for_task's own refusals (TY018) and the not-visible read
-// (TY012), the only two codes the nomination can reach.
-const NOMINATE_WORDING = {
-  speakable: ["TY018", "TY012"],
-  forbidden: "You do not have permission to nominate a driver.",
-  fallback: "The driver could not be nominated. Retry.",
-};
 
 // spec U2: every ViewFleet reader sees this list; the nominate control is
 // ManageAssignments' (spec, Trip screens), offered on a task no trip holds,
@@ -65,7 +54,9 @@ export function UnitTaskList({ unitId }: { unitId: string }) {
                   <td>{taskStatusLabel(t.escalated, t.overdue)}</td>
                   {canAssign && (
                     <td>
-                      {t.responsibleVia !== "TRIP" && <NominateControl task={t} unitId={unitId} />}
+                      {t.responsibleVia !== "TRIP" && (
+                        <NominateControl taskId={t.id} unitId={unitId} />
+                      )}
                     </td>
                   )}
                 </tr>
@@ -74,43 +65,5 @@ export function UnitTaskList({ unitId }: { unitId: string }) {
           </table>
         ))}
     </>
-  );
-}
-
-function NominateControl({ task, unitId }: { task: UnitTask; unitId: string }) {
-  const [userId, setUserId] = useState("");
-  const nomination = useFormMutation({
-    mutate: (id: string) => nominate(task.id, { userId: id }),
-    // A nomination can clear what holds a trip start (U148).
-    invalidate: [unitTasksKey(unitId), tripBlockersPrefix()],
-    onSuccess: () => setUserId(""),
-  });
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (userId === "") return;
-    nomination.submit(userId);
-  }
-
-  return (
-    <form onSubmit={submit}>
-      <DriverPicker
-        id={`nominate-${task.id}`}
-        label="Driver"
-        value={userId}
-        onChange={setUserId}
-        placeholder="Choose…"
-      />
-      <button
-        className="btn-primary"
-        type="submit"
-        disabled={userId === "" || nomination.isPending}
-      >
-        {nomination.isPending ? "Nominating…" : "Nominate"}
-      </button>
-      {nomination.error !== null && (
-        <p role="alert">{refusalMessage(nomination.error, NOMINATE_WORDING)}</p>
-      )}
-    </form>
   );
 }
