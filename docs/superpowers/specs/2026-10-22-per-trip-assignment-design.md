@@ -13,7 +13,8 @@
   - The owner's answers in this spec session, 21 and 22 Oct 2026, under
     "Decisions" below.
   - Owner rulings U148 (TYRE-326 comment 14033) and U149 (comment 14032),
-    from the plan's red team, round 1, under "Rulings after approval" below.
+    from the plan's red team, round 1, and U150 (comment 14035), from round
+    2, under "Rulings after approval" below.
   - ADR-0012 (refusal contract), ADR-0013 (a write with a rule of its own is
     a SQL function), ADR-0014 (audit), ADR-0018 (pipeline).
 - **Requirements:** FR-VEH-007, FR-INS-050, FR-INS-051, FR-INS-052, FR-INS-053,
@@ -117,6 +118,15 @@ as follows.
   depot manager seeing every depot's rigs is a bug, fixed in this branch. A
   depot manager sees a rig when its motive or any of its members is in their
   depots. "Depot scope" below carries it.
+- **U150: an inspection covers the configuration as a whole** (comment 14035;
+  09:54). A horse with two trailers is one inspection; an idle horse and two
+  idle uncoupled trailers are three. Without this, a rig captured through the
+  motive's task left its trailers' tasks OPEN (000041:554-559), and U148's
+  gate then held the truck with no way out. "Capture" below carries it.
+- **Lead departure, serving U148: a draft can be resumed after its trip
+  ends.** The capture context read judged at now, so a draft resumed after
+  the controller ended the trip met a 403, and the held draft then blocked
+  every other capture on the phone. "Capture" below carries the fix.
 
 ## Goals
 
@@ -359,6 +369,24 @@ The ticket's three cases follow:
   this result. A test pins it.
 - A user who could capture the unit at no instant of the window is refused.
 
+**A rig inspection completes its units' due tasks** (U150). The submit keeps
+closing the task it names. It also completes, for each unit that carries a
+reading in the inspection, every OPEN task due on or before the tenant day of
+`submitted_at`, each citing that inspection. A task due on a later day stays
+open, a unit with no reading keeps its task, and a cancelled task stays
+cancelled. Uncoupled units are inspected separately, each against its own
+task. The tasks a rig inspection completes count as completed for criterion
+4, under the inspection's driver.
+
+**A resumed draft reads its unit through the same window** (lead departure,
+serving U148). `GET /api/capture/vehicles/{id}` takes an optional `startedAt`
+from the resumed draft. For an actor who is not tenant-wide, it then admits a
+unit the actor could capture at some instant of the submit's window ending
+now: from `startedAt`, or the tenant setting before now, whichever is later.
+The rig members a resumed rig capture loads take the same parameter. Without
+it the read judges at now, and so do `/api/my/vehicles` and the driver's
+phone, so a driver with no trip and no nomination still sees no vehicle.
+
 "Outstanding at `t`" needs the instant each task was completed or cancelled.
 If the table cannot answer that today, the builder adds what is missing. The
 audit log is not a read path.
@@ -498,6 +526,10 @@ contradicts it. The rows:
   that is not done. A trip under way is not stopped, and there is no
   override. A task past its due date stays open until done and counts as
   missed (U148).
+- **FR-INS-052; FR-INS-062.** An inspection covers the configuration as a
+  whole: a rig inspection completes the due tasks of every unit it records
+  readings for (U150). This is a separate row, V3, prepared once V1 and V2 are
+  on the page.
 - **UC-01 precondition.** The vehicle is assigned for an active trip, or its
   inspection is nominated to the driver.
 - **§5.1 trip; FR-VEH-007.** Starting a trip adds free trailers only and never
@@ -535,6 +567,15 @@ Go and web tests cover the transport.
   took over, and the judged window: a capture longer than the setting is
   accepted on its last part, and a `started_at` after `submitted_at` is
   judged at `submitted_at`.
+- **A rig inspection (U150):**
+  - it completes the due tasks of its motive and trailers, after which the
+    U148 gate lets the trip start;
+  - a task due on a later day stays open, and so does the task of a unit
+    with no reading;
+  - three uncoupled units each close only their own task.
+- **A resumed draft:** with a trip ended ten minutes ago, the context read
+  answers 200 for a `startedAt` before the end, and 403 with no `startedAt`
+  or with one after the end.
 - **Escalation and overdue:** a task nobody holds reads escalated, and a held
   one does not. Overdue counts both.
 - **Migration:** open rows become trips, with trailer rows dropped, conflicts
@@ -580,6 +621,9 @@ These are my calls; the owner can overturn any of them.
   `started_at` to `submitted_at`, not only at `started_at`. It tolerates a
   slow phone clock, and the ticket's three cases still hold.
 - Tenant-wide roles stay exempt from the own-units check, in Go, as today.
+- The capture context read takes the resumed draft's `startedAt`, judged on
+  the submit's window ending now, so U148's "no capture is lost" holds on
+  the read side too.
 - Trips start and end at the server's now; nothing is back-dated.
 - Depot scope is judged by the motive, and the rig routes gain the same lock.
 - No nomination withdrawal; `app.task_driver_at` ignores the active flag.
