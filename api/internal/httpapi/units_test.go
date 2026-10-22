@@ -1286,7 +1286,7 @@ func TestWriteAimedAtAnotherTenantIsRefused_VehicleTag(t *testing.T) {
 //
 // The parked half deliberately does NOT assert "the driver's task list stops
 // showing the unit": app.generate_inspection_tasks skips any unit already
-// holding an OPEN or ESCALATED task whatever its status, so a second generate
+// holding an OPEN task whatever its status, so a second generate
 // creates nothing for either unit and that assertion would pass with the
 // v.status = 'ACTIVE' filter deleted. What is asserted instead is generation
 // itself, with a control, both units are scheduled and both generate a task;
@@ -1301,8 +1301,18 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 	plantRemovalReasons(t, ctx, admin, tenantID, "WORN")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, mine, driver)
-	assignVehicleDriver(t, ctx, admin, tenantID, other, driver)
+	// One trip on the horse, towing the trailer: both generated tasks reach
+	// the driver through it (FR-INS-053 as amended), and one driver holds one
+	// trip at an instant (U143).
+	var rig uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+		 VALUES ($1, $2, now() - interval '1 hour') RETURNING id`, tenantID, mine).Scan(&rig))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+		 VALUES ($1, $2, $3, 1), ($1, $2, $4, 2)`, tenantID, rig, mine, other)
+	require.NoError(t, err)
+	plantTrip(t, ctx, admin, tenantID, mine, driver)
 	// interval_days 1, not the table's default 7: the generator also skips a
 	// unit whose newest task is due within one interval of the as-of date, so
 	// a short interval is what leaves the status filter as the only thing
@@ -1350,7 +1360,7 @@ func TestSetUnitStatusParksAndDisposes(t *testing.T) {
 		`{"status":"PARKED"}`)
 	require.Equal(t, http.StatusNoContent, parked.Code, parked.Body.String())
 
-	_, err := admin.Exec(ctx,
+	_, err = admin.Exec(ctx,
 		`UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = 'fixture reset'
 		  WHERE tenant_id = $1 AND state = 'OPEN'`, tenantID)
 	require.NoError(t, err)
@@ -1527,7 +1537,6 @@ func TestUnitByIDSurfaceIsDepotScoped(t *testing.T) {
 	mine, elsewhere := unitID(mineFleet), unitID(elsewhereFleet)
 
 	// one row of each kind on the OUT-OF-DEPOT unit, so [] means narrowed
-	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
 	var configID, posID uuid.UUID
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT configuration_id FROM app.vehicle WHERE id = $1`, elsewhere).Scan(&configID))
@@ -1541,8 +1550,8 @@ func TestUnitByIDSurfaceIsDepotScoped(t *testing.T) {
 		 VALUES ($1, $2, $3, $4, now() - interval '1 day', 1000)`, tenantID, tyreID, elsewhere, posID)
 	require.NoError(t, err)
 	_, err = admin.Exec(ctx,
-		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, assigned_user_id, due_at, state)
-		 VALUES ($1, $2, $3, now() + interval '1 day', 'OPEN')`, tenantID, elsewhere, driver)
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state)
+		 VALUES ($1, $2, now() + interval '1 day', 'OPEN')`, tenantID, elsewhere)
 	require.NoError(t, err)
 
 	tn, mgr, ctl := tenantID.String(), manager.String(), controller.String()

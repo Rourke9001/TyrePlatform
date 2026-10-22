@@ -11,8 +11,9 @@
 -- (db/CLAUDE.md, Adding a function).
 --
 -- Parts, in order: A keys and indexes; B app.trip; C
--- app.inspection_task_nomination; D the task's close instant; F the old
--- readers retired; G coverage and responsibility; H capture; I writes.
+-- app.inspection_task_nomination; D the task's close instant; E today's
+-- data into the new model; F the old readers retired; G coverage and
+-- responsibility; H capture; I writes.
 
 -- ---------------------------------------------------------------------------
 -- A. Keys and indexes
@@ -155,10 +156,17 @@ FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 -- "Outstanding at an instant" needs the instant each task left OPEN, and the
 -- audit log is not a read path (spec). A closed task's last write is its
 -- close, so its updated_at, or its created_at when it was planted closed, is
--- that instant. The backfill fires inspection_task_stamps_updated and the
+-- that instant. Each UPDATE here fires inspection_task_stamps_updated and the
 -- audit trigger, so those rows' updated_at reads the migration's instant.
 ALTER TABLE app.inspection_task ADD COLUMN closed_at timestamptz;
-UPDATE app.inspection_task SET closed_at = COALESCE(updated_at, created_at) WHERE state <> 'OPEN';
+UPDATE app.inspection_task SET closed_at = COALESCE(updated_at, created_at)
+ WHERE state IN ('COMPLETED', 'CANCELLED');
+-- Escalated is worked out, never stored: a task nobody holds reads escalated
+-- through app.task_driver_at. The enum value stays, because dropping one is a
+-- type rebuild for no gain (spec, Escalation, overdue and the task states).
+UPDATE app.inspection_task SET state = 'OPEN' WHERE state = 'ESCALATED';
+ALTER TABLE app.inspection_task
+  ADD CONSTRAINT task_never_escalated CHECK (state <> 'ESCALATED');
 ALTER TABLE app.inspection_task
   ADD CONSTRAINT task_closed_when_not_open CHECK ((state = 'OPEN') = (closed_at IS NULL));
 
@@ -188,6 +196,17 @@ CREATE TRIGGER inspection_task_closes_once BEFORE INSERT OR UPDATE ON app.inspec
 FOR EACH ROW EXECUTE FUNCTION app.inspection_task_closes_once();
 
 -- ---------------------------------------------------------------------------
+-- E. Today's data into the new model (spec, Nominations)
+-- ---------------------------------------------------------------------------
+-- Each outstanding task's assignee becomes a nomination dated at the task's
+-- creation by whoever asked for it, so no outstanding task changes hands
+-- through its assignee. Part D has already made ESCALATED rows OPEN.
+INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at, nominated_by)
+SELECT k.tenant_id, k.id, k.assigned_user_id, k.created_at, k.requested_by
+  FROM app.inspection_task k
+ WHERE k.state = 'OPEN' AND k.assigned_user_id IS NOT NULL;
+
+-- ---------------------------------------------------------------------------
 -- F. Retire the old readers
 -- ---------------------------------------------------------------------------
 -- The capture views are rebuilt in part H on trips and nominations, and
@@ -196,6 +215,19 @@ FOR EACH ROW EXECUTE FUNCTION app.inspection_task_closes_once();
 DROP VIEW app.v_driver_vehicle;
 DROP VIEW app.v_capture_vehicle;
 DROP VIEW app.v_user_capture_vehicle;
+
+-- The task views expand it.*, so they go before the columns do. The old
+-- create_inspection_task named an assignee; user_can_capture and
+-- v_current_assignment have no reader once it and the generator stop
+-- reading them.
+DROP VIEW app.v_my_inspection_task;
+DROP VIEW app.v_inspection_task;
+DROP FUNCTION app.create_inspection_task(uuid, uuid, date);
+DROP FUNCTION app.user_can_capture(uuid, uuid);
+DROP VIEW app.v_current_assignment;
+-- Dropped rather than left unread, so no reader can trust either (spec,
+-- Nominations).
+ALTER TABLE app.inspection_task DROP COLUMN assigned_user_id, DROP COLUMN escalated_at;
 
 -- ---------------------------------------------------------------------------
 -- G. Coverage and responsibility (FR-INS-053 as amended)
@@ -290,6 +322,27 @@ LANGUAGE sql STABLE AS $$
   SELECT r.user_id FROM app.task_responsibility_at(p_task, p_at) r
 $$;
 
+-- 000038's task view on the table as it now stands: outstanding is OPEN,
+-- and overdue an outstanding task past its due instant. It names no driver,
+-- so a count of overdue tasks (dashboard.go) never asks who holds one.
+CREATE VIEW app.v_inspection_task WITH (security_invoker = true) AS
+SELECT it.*,
+       (it.state = 'OPEN' AND it.due_at < now()) AS overdue,
+       (it.state = 'OPEN')                       AS outstanding
+  FROM app.inspection_task it;
+
+-- The responsible driver beside each task, at now, and escalated: an
+-- outstanding task nobody holds (spec, Escalation). OFFSET 0 fences the
+-- function so it runs once per row, not once per reference (000045's
+-- header).
+CREATE VIEW app.v_inspection_task_driver WITH (security_invoker = true) AS
+SELECT t.*,
+       r.user_id                          AS responsible_user_id,
+       r.via                              AS responsible_via,
+       (t.outstanding AND r.user_id IS NULL) AS escalated
+  FROM app.v_inspection_task t
+  LEFT JOIN LATERAL (SELECT * FROM app.task_responsibility_at(t.id, now()) OFFSET 0) r ON true;
+
 -- ---------------------------------------------------------------------------
 -- H. Capture (FR-AUT-005, FR-OFF-015 as amended)
 -- ---------------------------------------------------------------------------
@@ -350,6 +403,36 @@ SELECT DISTINCT ucv.tenant_id, ucv.user_id, ucv.vehicle_id, v.fleet_number, v.re
   FROM app.v_user_capture_vehicle ucv
   JOIN app.vehicle v ON v.tenant_id = ucv.tenant_id AND v.id = ucv.vehicle_id
  WHERE ucv.user_id = app.current_actor_id();
+
+-- The driver's own work (FR-DSH-012 as amended): every outstanding task the
+-- actor is responsible for now, with v_inspection_task_driver's columns. The
+-- unit filter is fenced below the responsibility read (OFFSET 0), so the
+-- function runs on the actor's units alone; the planner otherwise ran it on
+-- every outstanding task in the tenant first. The filter changes no answer:
+-- each rule's holder can capture the task's unit at that instant (spec,
+-- Capture). capture_vehicle_id is where the task is captured: the motive of
+-- the unit's open rig when the actor can capture that motive, else the unit,
+-- since a rig is entered through its motive (capture.go).
+CREATE VIEW app.v_my_inspection_task WITH (security_invoker = true) AS
+SELECT t.*,
+       r.user_id                             AS responsible_user_id,
+       r.via                                 AS responsible_via,
+       (t.outstanding AND r.user_id IS NULL) AS escalated,
+       COALESCE((SELECT c.motive_vehicle_id
+                   FROM app.combination_member cm
+                   JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
+                  WHERE cm.tenant_id = t.tenant_id AND cm.vehicle_id = t.vehicle_id
+                    AND c.motive_vehicle_id <> t.vehicle_id
+                    AND tstzrange(c.effective_from, c.effective_to, '[)') @> now()
+                    AND c.motive_vehicle_id IN (SELECT cv.vehicle_id FROM app.v_capture_vehicle cv)),
+                t.vehicle_id)                AS capture_vehicle_id
+  FROM (SELECT it.*
+          FROM app.v_inspection_task it
+         WHERE it.outstanding
+           AND it.vehicle_id IN (SELECT cv.vehicle_id FROM app.v_capture_vehicle cv)
+        OFFSET 0) t
+  JOIN LATERAL (SELECT * FROM app.task_responsibility_at(t.id, now()) OFFSET 0) r ON true
+ WHERE r.user_id = app.current_actor_id();
 
 -- The one computation of the span a capture is judged over (U148; spec,
 -- Capture): to p_until, from p_started or the tenant's
@@ -441,9 +524,11 @@ END $$;
 -- ---------------------------------------------------------------------------
 -- app.submit_inspection, copied forward from 000041 verbatim (a down
 -- migration restores the state its up migration left, 000039's down says
--- why) with one difference: app.capture_window right after the FR-OFF-011
+-- why) with two differences: app.capture_window right after the FR-OFF-011
 -- replay lookup, so a payload with no started_at is refused by name rather
--- than by the column's own 23502 (FR-OFF-013).
+-- than by the column's own 23502 (FR-OFF-013); and the close, which takes
+-- only an OPEN task, admits a named task on any unit the inspection read,
+-- and completes each read unit's due tasks (U150).
 CREATE OR REPLACE FUNCTION app.submit_inspection(p_payload jsonb)
 RETURNS TABLE (inspection_id uuid, created boolean)
 LANGUAGE plpgsql SET search_path = app, pg_temp AS $$
@@ -472,6 +557,7 @@ DECLARE
   v_rg         numeric;
   v_press      int;
   v_constraint text;
+  v_tz         text;
   a            jsonb;
   r            jsonb;
   w            jsonb;
@@ -933,26 +1019,180 @@ BEGIN
 
   -- FR-INS-052: a completed task cites the inspection that completed it. The
   -- driver launched from a specific task (FR-INS-048 shows them) and a unit can
-  -- carry several at once (FR-INS-051), so the payload names which. Absent one,
-  -- close nothing rather than guess at the driver's intent.
+  -- carry several at once (FR-INS-051), so the payload names which.
   --
-  -- vehicle_id is what stops the citation being a lie. Without it a task_id
-  -- naming unit C is closed by an inspection of unit B, and the row then
-  -- asserts C was inspected when it was not: the schedule stands its next
-  -- task down and C leaves the controller's outstanding-work view. A driver
-  -- holding several open tasks plus one client-side index slip is enough, and
-  -- GET /api/my/tasks hands the client every id needed to make it. A task the
-  -- submit does not cover closes nothing, silently. The same trade made for
-  -- an absent task_id above and for one belonging to another tenant.
+  -- The unit guard is what stops the citation being a lie. Without it a
+  -- task_id naming unit C is closed by an inspection of unit B, and the row
+  -- then asserts C was inspected when it was not: the schedule stands its
+  -- next task down and C leaves the controller's outstanding-work view. A
+  -- named task closes when its unit is the payload's or carries a reading
+  -- here, so a rig capture closes a trailer's task named through its motive;
+  -- one the submit does not cover closes nothing, silently. CANCELLED and
+  -- COMPLETED stay as they are (inspection_task_closes_once).
   IF v_task IS NOT NULL THEN
-    UPDATE app.inspection_task
+    UPDATE app.inspection_task k
        SET state = 'COMPLETED', completed_inspection_id = v_insp
-     WHERE tenant_id = v_tenant AND id = v_task AND vehicle_id = v_vehicle
-       AND state IN ('OPEN','ESCALATED');
+     WHERE k.tenant_id = v_tenant AND k.id = v_task AND k.state = 'OPEN'
+       AND (k.vehicle_id = v_vehicle
+            OR k.vehicle_id IN (SELECT r.vehicle_id FROM app.reading r
+                                 WHERE r.tenant_id = v_tenant AND r.inspection_id = v_insp));
   END IF;
+
+  -- U150: an inspection covers the configuration as a whole, so each unit
+  -- that carries a reading here has every OPEN task due by the tenant day of
+  -- submitted_at completed by it, whether or not one was named. A task
+  -- created after the capture was taken asks for a new look, so a capture
+  -- the outbox delivers late does not answer it. A task due on a later day
+  -- stays open, and so does an unread unit's.
+  SELECT t.timezone INTO v_tz FROM app.tenant t WHERE t.id = v_tenant;
+  UPDATE app.inspection_task k
+     SET state = 'COMPLETED', completed_inspection_id = v_insp
+   WHERE k.tenant_id = v_tenant AND k.state = 'OPEN'
+     AND k.vehicle_id IN (SELECT r.vehicle_id FROM app.reading r
+                           WHERE r.tenant_id = v_tenant AND r.inspection_id = v_insp)
+     AND k.created_at <= (p_payload ->> 'submitted_at')::timestamptz
+     AND (k.due_at AT TIME ZONE v_tz)::date
+         <= ((p_payload ->> 'submitted_at')::timestamptz AT TIME ZONE v_tz)::date;
 
   inspection_id := v_insp; created := true; RETURN NEXT;
 END $$;
 
 REVOKE ALL ON FUNCTION app.submit_inspection(jsonb) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION app.submit_inspection(jsonb) TO app_rw;
+
+-- 000012's generator with its assignee step gone (spec, Escalation): every
+-- task is written OPEN, and one nobody holds reads escalated, never
+-- dropped. Who holds a task is app.task_driver_at's; which units fall due
+-- and when is still TYRE-133's.
+CREATE OR REPLACE FUNCTION app.generate_inspection_tasks(p_as_of date) RETURNS int
+LANGUAGE sql AS $$
+  WITH due AS (
+    SELECT s.tenant_id, s.id AS schedule_id, v.id AS vehicle_id,
+           s.interval_days
+      FROM app.inspection_schedule s
+      JOIN app.vehicle v
+        ON (s.vehicle_id = v.id
+            OR (s.operating_group_id IS NOT NULL
+                AND v.operating_group_id = s.operating_group_id))
+     WHERE s.active
+       AND v.status = 'ACTIVE'
+       AND NOT EXISTS (
+           SELECT 1 FROM app.inspection_task t
+            WHERE t.schedule_id = s.id AND t.vehicle_id = v.id
+              AND (t.state = 'OPEN'
+                   OR t.due_at > (p_as_of::timestamp AT TIME ZONE 'UTC') - make_interval(days => s.interval_days)))),
+  ins AS (
+    INSERT INTO app.inspection_task (tenant_id, schedule_id, vehicle_id, due_at, state)
+    SELECT d.tenant_id, d.schedule_id, d.vehicle_id,
+           (p_as_of::timestamp AT TIME ZONE 'UTC') + make_interval(days => d.interval_days),
+           'OPEN'::app.task_state
+      FROM due d
+    RETURNING 1)
+  SELECT count(*)::int FROM ins
+$$;
+
+-- FR-INS-051 as amended: name a driver for an outstanding task on a unit no
+-- trip covers (spec, Nominations). The task's row lock serialises two
+-- nominations of it; the one that waited then meets a nomination dated after
+-- its own now and is refused by name, since its row would be superseded the
+-- moment it landed. The covered refusal names the trip, because the task
+-- already goes to its driver. Go checks the nominee's capability
+-- (refuseNonCapturer); this checks the user is in the fleet and active.
+CREATE FUNCTION app.nominate_for_task(p_task uuid, p_user uuid) RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  v_tenant uuid := app.current_tenant_id();
+  k        app.inspection_task;
+  usr      app.app_user;
+  unit     text;
+  holder   text;
+  nom      uuid;
+BEGIN
+  SELECT * INTO k FROM app.inspection_task t
+   WHERE t.tenant_id = v_tenant AND t.id = p_task
+     FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such inspection task in this fleet';
+  END IF;
+  IF k.state <> 'OPEN' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('this inspection is %s; only an open one takes a driver', lower(k.state::text));
+  END IF;
+  IF EXISTS (SELECT 1 FROM app.inspection_task_nomination n
+              WHERE n.tenant_id = v_tenant AND n.task_id = p_task AND n.nominated_at > now()) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = 'this inspection was given another driver while this request was being made; refresh and try again';
+  END IF;
+  SELECT * INTO usr FROM app.app_user u WHERE u.tenant_id = v_tenant AND u.id = p_user;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such user in this fleet';
+  END IF;
+  IF NOT usr.active THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018', MESSAGE = format('%s is no longer active', usr.display_name);
+  END IF;
+  SELECT v.fleet_number, u.display_name INTO unit, holder
+    FROM app.v_unit_coverage c
+    JOIN app.vehicle v ON v.tenant_id = c.tenant_id AND v.id = c.vehicle_id
+    JOIN app.app_user u ON u.tenant_id = c.tenant_id AND u.id = c.user_id
+   WHERE c.tenant_id = v_tenant AND c.vehicle_id = k.vehicle_id AND c.span @> now();
+  IF FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('%s is on %s''s trip; the inspection already goes to them', unit, holder);
+  END IF;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+  VALUES (v_tenant, p_task, p_user)
+  RETURNING id INTO nom;
+  RETURN nom;
+END $$;
+
+-- The one way an ad-hoc task comes to exist (FR-INS-051 as amended): 000038's
+-- body without the assignee, and with an optional nominee, named through
+-- app.nominate_for_task so a nomination has one set of rules. What is checked
+-- here is what a task must be true of: a unit this tenant can see and has not
+-- retired, and a due day not already past. Shape is refused in Go before the
+-- transaction opens (ADR-0013 decision 5). The due instant is 000038's: the
+-- tenant-local last microsecond of the due day (rule 6).
+CREATE FUNCTION app.create_inspection_task(p_vehicle uuid, p_due_on date DEFAULT NULL,
+                                           p_nominee uuid DEFAULT NULL)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  v_tenant uuid := app.current_tenant_id();
+  veh      app.vehicle;
+  tz       text;
+  today    date;
+  due_on   date;
+  due_at   timestamptz;
+  task     uuid;
+BEGIN
+  SELECT * INTO veh FROM app.vehicle v WHERE v.tenant_id = v_tenant AND v.id = p_vehicle;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+  END IF;
+  -- FR-VEH-006 pauses a non-ACTIVE unit's schedule; an ad-hoc instruction is
+  -- a controller's own call, so only the retired states are refused (U9's
+  -- reading of FR-VEH-005, applied here).
+  IF veh.status IN ('DISPOSED', 'INACTIVE') THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('%s is %s; a retired unit is not inspected', veh.fleet_number, lower(veh.status::text));
+  END IF;
+
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = v_tenant;
+  today  := app.tenant_today(tz);
+  due_on := COALESCE(p_due_on, today);
+  IF due_on < today THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = 'a task is due today or later, never in the past';
+  END IF;
+  due_at := ((due_on + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond';
+
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, requested_by, state, created_by)
+  VALUES (v_tenant, p_vehicle, due_at, app.current_actor_id(), 'OPEN', app.current_actor_id())
+  RETURNING id INTO task;
+  IF p_nominee IS NOT NULL THEN
+    PERFORM app.nominate_for_task(task, p_nominee);
+  END IF;
+  RETURN task;
+END $$;

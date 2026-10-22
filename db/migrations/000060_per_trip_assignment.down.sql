@@ -1,8 +1,27 @@
--- Reverses 000060. Data is one-way: trips and nominations are gone. Each
--- old reader is restored to the state the up found, from the migration that
--- last defined it.
+-- Reverses 000060. Data is one-way: ESCALATED and escalated_at do not come
+-- back, and trips and nominations are gone. Each old reader is restored to
+-- the state the up found, from the migration that last defined it.
+
+-- F's columns first, at the table's end, while the nominations they are
+-- back-filled from still exist: each task's newest nominee becomes its
+-- assignee.
+ALTER TABLE app.inspection_task ADD COLUMN assigned_user_id uuid, ADD COLUMN escalated_at timestamptz;
+ALTER TABLE app.inspection_task
+  ADD CONSTRAINT inspection_task_tenant_id_assigned_user_id_fkey
+  FOREIGN KEY (tenant_id, assigned_user_id) REFERENCES app.app_user (tenant_id, id);
+UPDATE app.inspection_task k
+   SET assigned_user_id = n.user_id
+  FROM (SELECT DISTINCT ON (x.task_id) x.task_id, x.user_id
+          FROM app.inspection_task_nomination x
+         ORDER BY x.task_id, x.nominated_at DESC, x.id) n
+ WHERE n.task_id = k.id;
+
+-- I.
+DROP FUNCTION app.create_inspection_task(uuid, date, uuid);
+DROP FUNCTION app.nominate_for_task(uuid, uuid);
 
 -- H.
+DROP VIEW app.v_my_inspection_task;
 DROP FUNCTION app.actor_could_capture(jsonb);
 DROP FUNCTION app.capture_window(jsonb);
 DROP FUNCTION app.capture_window_between(timestamptz, timestamptz);
@@ -13,6 +32,8 @@ DROP FUNCTION app.user_could_capture(uuid, uuid, timestamptz, timestamptz);
 DROP VIEW app.v_capture_span;
 
 -- G.
+DROP VIEW app.v_inspection_task_driver;
+DROP VIEW app.v_inspection_task;
 DROP FUNCTION app.task_driver_at(uuid, timestamptz);
 DROP FUNCTION app.task_responsibility_at(uuid, timestamptz);
 DROP VIEW app.v_nomination_span;
@@ -22,6 +43,7 @@ DROP VIEW app.v_unit_coverage;
 DROP TRIGGER inspection_task_closes_once ON app.inspection_task;
 DROP FUNCTION app.inspection_task_closes_once();
 ALTER TABLE app.inspection_task DROP CONSTRAINT task_closed_when_not_open;
+ALTER TABLE app.inspection_task DROP CONSTRAINT task_never_escalated;
 ALTER TABLE app.inspection_task DROP COLUMN closed_at;
 
 -- C.
@@ -37,7 +59,25 @@ DROP INDEX app.combination_member_by_vehicle;
 ALTER TABLE app.vehicle_driver DROP CONSTRAINT vehicle_driver_tenant_id_id_key;
 ALTER TABLE app.inspection_task DROP CONSTRAINT inspection_task_tenant_id_id_key;
 
--- F and I. The old readers and the submit.
+-- F and I. The old readers and writers.
+-- 000015's.
+CREATE VIEW app.v_current_assignment WITH (security_invoker = true) AS
+SELECT vd.tenant_id,
+       vd.vehicle_id,
+       vd.user_id,
+       vd.from_date,
+       vd.to_date,
+       v.fleet_number,
+       v.registration,
+       u.display_name,
+       u.staff_number
+  FROM app.vehicle_driver vd
+  JOIN app.vehicle  v ON v.id = vd.vehicle_id
+  JOIN app.app_user u ON u.id = vd.user_id
+  JOIN app.tenant   t ON t.id = vd.tenant_id
+ WHERE vd.from_date <= app.tenant_today(t.timezone)
+   AND (vd.to_date IS NULL OR vd.to_date >= app.tenant_today(t.timezone));
+
 -- 000038's.
 CREATE VIEW app.v_user_capture_vehicle WITH (security_invoker = true) AS
 SELECT ca.tenant_id, ca.user_id, ca.vehicle_id, ca.vehicle_id AS via_vehicle_id
@@ -63,6 +103,126 @@ CREATE VIEW app.v_driver_vehicle WITH (security_invoker = true) AS
 SELECT *
   FROM app.v_current_assignment
  WHERE user_id = app.current_actor_id();
+
+-- 000038's.
+CREATE FUNCTION app.user_can_capture(p_user uuid, p_vehicle uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SET search_path = app, pg_temp AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM app.v_user_capture_vehicle ucv
+     WHERE ucv.user_id = p_user AND ucv.vehicle_id = p_vehicle)
+$$;
+
+-- 000038's.
+CREATE VIEW app.v_inspection_task WITH (security_invoker = true) AS
+SELECT it.*,
+       (it.state = 'OPEN' AND it.due_at < now()) AS overdue,
+       (it.state IN ('OPEN','ESCALATED'))        AS outstanding
+  FROM app.inspection_task it;
+
+-- 000038's.
+CREATE VIEW app.v_my_inspection_task WITH (security_invoker = true) AS
+SELECT t.*
+  FROM app.v_inspection_task t
+ WHERE t.assigned_user_id = app.current_actor_id()
+   AND t.outstanding;
+
+-- 000038's.
+CREATE FUNCTION app.create_inspection_task(p_vehicle uuid, p_assignee uuid,
+                                           p_due_on date DEFAULT NULL)
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  veh    app.vehicle;
+  usr    app.app_user;
+  tz     text;
+  today  date;
+  due_on date;
+  due_at timestamptz;
+  task   uuid;
+BEGIN
+  SELECT * INTO veh FROM app.vehicle v WHERE v.id = p_vehicle;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+  END IF;
+  -- FR-VEH-006 pauses a non-ACTIVE unit's schedule; an ad-hoc instruction is
+  -- a controller's own call, so only the retired states are refused (U9's
+  -- reading of FR-VEH-005, applied here).
+  IF veh.status IN ('DISPOSED', 'INACTIVE') THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('%s is %s; a retired unit is not inspected', veh.fleet_number, lower(veh.status::text));
+  END IF;
+  SELECT * INTO usr FROM app.app_user u WHERE u.id = p_assignee;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such user in this fleet';
+  END IF;
+  -- Ahead of the capture predicate: v_user_capture_vehicle excludes inactive
+  -- users, so a deactivated driver would otherwise be refused by name for
+  -- not being assigned to a unit they are in fact assigned to.
+  IF NOT usr.active THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('%s is no longer active', usr.display_name);
+  END IF;
+  IF NOT app.user_can_capture(p_assignee, p_vehicle) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('%s is not assigned to %s or to the horse pulling it', usr.display_name, veh.fleet_number);
+  END IF;
+
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = app.current_tenant_id();
+  today  := app.tenant_today(tz);
+  due_on := COALESCE(p_due_on, today);
+  IF due_on < today THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = 'a task is due today or later, never in the past';
+  END IF;
+  due_at := ((due_on + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond';
+
+  INSERT INTO app.inspection_task
+    (tenant_id, vehicle_id, due_at, assigned_user_id, requested_by, state, created_by)
+  VALUES (app.current_tenant_id(), p_vehicle, due_at, p_assignee, app.current_actor_id(),
+          'OPEN', app.current_actor_id())
+  RETURNING id INTO task;
+  RETURN task;
+END $$;
+
+-- 000012's.
+CREATE OR REPLACE FUNCTION app.generate_inspection_tasks(p_as_of date) RETURNS int
+LANGUAGE sql AS $$
+  WITH due AS (
+    SELECT s.tenant_id, s.id AS schedule_id, v.id AS vehicle_id,
+           s.interval_days
+      FROM app.inspection_schedule s
+      JOIN app.vehicle v
+        ON (s.vehicle_id = v.id
+            OR (s.operating_group_id IS NOT NULL
+                AND v.operating_group_id = s.operating_group_id))
+     WHERE s.active
+       AND v.status = 'ACTIVE'
+       AND NOT EXISTS (
+           SELECT 1 FROM app.inspection_task t
+            WHERE t.schedule_id = s.id AND t.vehicle_id = v.id
+              AND (t.state IN ('OPEN', 'ESCALATED')
+                   OR t.due_at > (p_as_of::timestamp AT TIME ZONE 'UTC') - make_interval(days => s.interval_days)))),
+  ins AS (
+    INSERT INTO app.inspection_task
+      (tenant_id, schedule_id, vehicle_id, due_at, assigned_user_id, state, escalated_at)
+    SELECT d.tenant_id, d.schedule_id, d.vehicle_id,
+           (p_as_of::timestamp AT TIME ZONE 'UTC') + make_interval(days => d.interval_days),
+           drv.user_id,
+           CASE WHEN drv.user_id IS NULL THEN 'ESCALATED'::app.task_state ELSE 'OPEN'::app.task_state END,
+           CASE WHEN drv.user_id IS NULL THEN now() END
+      FROM due d
+      LEFT JOIN LATERAL (
+           SELECT ca.user_id FROM app.v_current_assignment ca
+            WHERE ca.vehicle_id = d.vehicle_id
+            ORDER BY ca.from_date DESC, ca.user_id
+            LIMIT 1) drv ON true
+    RETURNING 1)
+  SELECT count(*)::int FROM ins
+$$;
 
 -- 000041's. CREATE OR REPLACE keeps its EXECUTE grants.
 CREATE OR REPLACE FUNCTION app.submit_inspection(p_payload jsonb)

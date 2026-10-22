@@ -2318,7 +2318,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 26. Assigned inspections: schedules, tasks, skip and escalation (CHG-028/032/033)'
+\echo '== 26. Scheduled inspections: schedules, tasks, skip and escalation (CHG-028/032/033, FR-INS-053 as amended)'
 -- Transaction-scoped: schedules, tasks and the PARKED probe unit all roll
 -- back (DR-014a leaves the app role no DELETE for cleanup).
 BEGIN;
@@ -2345,8 +2345,9 @@ BEGIN
   END;
   IF NOT ok THEN RAISE EXCEPTION 'FAIL: a completed task without its inspection was accepted'; END IF;
 
-  -- CHG-028 as behaviour: generation skips a PARKED unit, assigns through the
-  -- current-driver link where one exists, and escalates where none resolves
+  -- CHG-028 as behaviour: generation skips a PARKED unit and writes every
+  -- task OPEN; Thabo's fixture trip covers t2veh1, and SOLO's task, which
+  -- nobody holds, reads escalated (FR-INS-053 as amended)
   IF NOT EXISTS (SELECT 1 FROM app.vehicle WHERE id = md5('t2veh4')::uuid) THEN
     INSERT INTO app.vehicle (id,tenant_id,fleet_number,configuration_id,unit_kind,status)
     VALUES (md5('t2veh4')::uuid,'22222222-2222-2222-2222-222222222222','PARKED4',
@@ -2364,20 +2365,23 @@ BEGIN
 
   PERFORM app.generate_inspection_tasks('2027-09-01');
 
+  SELECT count(*) INTO n FROM app.inspection_task WHERE state <> 'OPEN';
+  IF n <> 0 THEN
+    RAISE EXCEPTION 'FAIL: the generator wrote % tasks that are not OPEN', n; END IF;
   SELECT u.display_name INTO got
-    FROM app.inspection_task t JOIN app.app_user u ON u.id = t.assigned_user_id
+    FROM app.inspection_task t JOIN app.app_user u ON u.id = app.task_driver_at(t.id, now())
    WHERE t.schedule_id = md5('t2sched1')::uuid AND t.state = 'OPEN';
   IF got IS DISTINCT FROM 'Thabo' THEN
-    RAISE EXCEPTION 'FAIL: driven vehicle task assigned to [%], expected Thabo', got; END IF;
+    RAISE EXCEPTION 'FAIL: the trip-covered task goes to [%], expected Thabo', got; END IF;
 
   SELECT count(*) INTO n FROM app.inspection_task WHERE schedule_id = md5('t2sched2')::uuid;
   IF n <> 0 THEN
     RAISE EXCEPTION 'FAIL: a PARKED unit was issued % task(s); its schedule must pause', n; END IF;
 
-  SELECT count(*) INTO n FROM app.inspection_task
-   WHERE schedule_id = md5('t2sched3')::uuid AND state = 'ESCALATED' AND escalated_at IS NOT NULL;
+  SELECT count(*) INTO n FROM app.v_inspection_task_driver
+   WHERE schedule_id = md5('t2sched3')::uuid AND state = 'OPEN' AND escalated AND responsible_user_id IS NULL;
   IF n <> 1 THEN
-    RAISE EXCEPTION 'FAIL: an unassignable task was not escalated (never silently dropped)'; END IF;
+    RAISE EXCEPTION 'FAIL: a task nobody holds does not read escalated (never silently dropped)'; END IF;
 
   -- an open task suppresses regeneration
   PERFORM app.generate_inspection_tasks('2027-09-02');
@@ -2390,7 +2394,7 @@ BEGIN
    WHERE state = 'OPEN' AND due_at < '2027-10-01T00:00:00Z';
   IF n < 1 THEN RAISE EXCEPTION 'FAIL: no issued task reads as overdue past its due date'; END IF;
 
-  RAISE NOTICE 'PASS  schedules issue tasks, skip parked units, assign or escalate, and never duplicate';
+  RAISE NOTICE 'PASS  schedules issue OPEN tasks, skip parked units, route through the trip or read escalated, and never duplicate';
 END $$;
 ROLLBACK;
 
@@ -2705,22 +2709,29 @@ ROLLBACK;
 -- roll back rather than being cleaned up (DR-014a).
 BEGIN;
 DO $$
-DECLARE t1 uuid; t2 uuid; veh uuid; n int; got text;
+DECLARE t1 uuid; t2 uuid; veh uuid; h uuid := md5('t28h')::uuid; n int; got text;
 BEGIN
   PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
   PERFORM set_config('app.actor_id', '', true);
 
   -- Staged here rather than seeded: the fixture carries no tasks at all, and
-  -- seeding one would couple this check to check 26's residue.
+  -- seeding one would couple this check to check 26's residue. t1 goes to
+  -- Melusi through his fixture trip on HORSE; t2, on a horse no trip covers,
+  -- to Sipho by nomination (FR-INS-053 as amended).
   SELECT id INTO veh FROM app.vehicle WHERE fleet_number = 'HORSE';
-  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
-  VALUES ('11111111-1111-1111-1111-111111111111', veh, now() - interval '1 day',
-          md5('driver1')::uuid, 'OPEN')
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  SELECT h, v.tenant_id, 'T28-H', 'T28H GP', v.configuration_id, 'HORSE', 'ACTIVE'
+    FROM app.vehicle v WHERE v.id = veh;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, created_at)
+  VALUES ('11111111-1111-1111-1111-111111111111', veh, now() - interval '1 day', 'OPEN',
+          now() - interval '2 days')
   RETURNING id INTO t1;
-  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
-  VALUES ('11111111-1111-1111-1111-111111111111', veh, now() + interval '1 day',
-          md5('driver3')::uuid, 'OPEN')
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, created_at)
+  VALUES ('11111111-1111-1111-1111-111111111111', h, now() + interval '1 day', 'OPEN',
+          now() - interval '2 days')
   RETURNING id INTO t2;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES ('11111111-1111-1111-1111-111111111111', t2, md5('driver3')::uuid, now() - interval '1 hour');
 
   -- FR-DSH-012: a driver's own work, and only their own.
   PERFORM set_config('app.actor_id', md5('driver1')::uuid::text, true);
@@ -6334,7 +6345,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 46. TYRE-90: an inspection task is scheduled for a driver who can capture the unit, seen on DriverHome, and closed by the submit (FR-INS-048/051/052/053, FR-AUT-005, U4, U11, U12)'
+\echo '== 46. TYRE-90: an inspection task is scheduled on a unit, goes to the driver who holds it, is seen on DriverHome, and is closed by the submit (FR-INS-048/051/052/053 as amended, FR-AUT-005, U4, U11, U12)'
 BEGIN;
 DO $$
 DECLARE
@@ -6348,7 +6359,6 @@ DECLARE
   drv2  uuid := md5('t46drv2')::uuid; -- on no trip
   drv3  uuid := md5('t46drv3')::uuid; -- on a trip on hx, then deactivated
   ctl   uuid := md5('t46ctl')::uuid;  -- planted, not assumed: created_by is a composite FK (000017)
-  t2drv uuid := md5('t46t2drv')::uuid;
   t2ctl uuid := md5('t46t2ctl')::uuid;
   cfg uuid; rig uuid; task uuid; task_ta uuid; task_ctl uuid; tz text; today date; r record; n int;
   msg text; posl uuid; res record; cu uuid := gen_random_uuid();
@@ -6396,18 +6406,23 @@ BEGIN
   PERFORM set_config('app.actor_id', ctl::text, true);
   RAISE NOTICE 'PASS  46a a user can capture a unit by its trip or through the rig its horse heads, and the capture read agrees';
 
-  -- (b) Schedule (FR-INS-051/052): OPEN, assigned, requested and created by
-  -- the controller, due at the tenant-local end of today, not overdue now
-  -- but overdue once the tenant's day ends, and the trailer's task goes to the
-  -- horse's driver (U4, FR-INS-053). The driver then reads both on their
-  -- own list (FR-INS-048).
-  task := app.create_inspection_task(h, drv);
-  SELECT t.state, t.assigned_user_id, t.requested_by, t.created_by, t.due_at, t.overdue, t.schedule_id
-    INTO STRICT r FROM app.v_inspection_task t WHERE t.id = task;
-  IF r.state <> 'OPEN' OR r.assigned_user_id <> drv OR r.requested_by <> ctl OR r.created_by <> ctl
-     OR r.schedule_id IS NOT NULL OR r.overdue THEN
-    RAISE EXCEPTION 'FAIL 46b: task row reads % / % / % / % / overdue %', r.state, r.assigned_user_id, r.requested_by, r.created_by, r.overdue;
+  -- (b) Schedule (FR-INS-051/052): OPEN with no nomination, requested and
+  -- created by the controller, due at the tenant-local end of today, not
+  -- overdue now but overdue once the tenant's day ends. It goes to drv
+  -- through the trip, and the trailer's task through the rig (FR-INS-053 as
+  -- amended); every responsibility read goes through v_inspection_task_driver.
+  -- The driver then reads both on their own list (FR-INS-048).
+  task := app.create_inspection_task(h);
+  SELECT t.state, t.responsible_user_id, t.responsible_via, t.escalated, t.requested_by, t.created_by,
+         t.due_at, t.overdue, t.schedule_id
+    INTO STRICT r FROM app.v_inspection_task_driver t WHERE t.id = task;
+  IF r.state <> 'OPEN' OR r.responsible_user_id IS DISTINCT FROM drv OR r.responsible_via IS DISTINCT FROM 'TRIP'
+     OR r.escalated OR r.requested_by <> ctl OR r.created_by <> ctl OR r.schedule_id IS NOT NULL OR r.overdue THEN
+    RAISE EXCEPTION 'FAIL 46b: task row reads % / % / % / % / % / overdue %', r.state, r.responsible_user_id,
+      r.responsible_via, r.requested_by, r.created_by, r.overdue;
   END IF;
+  SELECT count(*) INTO n FROM app.inspection_task_nomination WHERE task_id = task;
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 46b: a task scheduled with no nominee carries % nominations', n; END IF;
   -- The instant itself, not merely the day it falls in: the rule is the last
   -- microsecond of the tenant's day, so a coarser end-of-day would still sit
   -- inside the day and pass a range check. r.due_at > now() is the separate
@@ -6416,39 +6431,28 @@ BEGIN
      OR r.due_at <= now() THEN
     RAISE EXCEPTION 'FAIL 46b: a task due today is due at %, not the tenant-local end of today', r.due_at;
   END IF;
-  task_ta := app.create_inspection_task(ta, drv);
+  task_ta := app.create_inspection_task(ta);
+  SELECT t.responsible_user_id, t.responsible_via INTO STRICT r FROM app.v_inspection_task_driver t WHERE t.id = task_ta;
+  IF r.responsible_user_id IS DISTINCT FROM drv OR r.responsible_via IS DISTINCT FROM 'TRIP' THEN
+    RAISE EXCEPTION 'FAIL 46b: the trailer''s task goes to % by %, not the horse''s trip driver', r.responsible_user_id, r.responsible_via;
+  END IF;
   PERFORM set_config('app.actor_id', drv::text, true);
   SELECT count(*) INTO n FROM app.v_my_inspection_task t WHERE t.id IN (task, task_ta) AND NOT t.overdue;
   IF n <> 2 THEN RAISE EXCEPTION 'FAIL 46b: the driver reads % of their 2 open tasks', n; END IF;
   PERFORM set_config('app.actor_id', ctl::text, true);
-  RAISE NOTICE 'PASS  46b a task is scheduled OPEN for today, for the unit''s driver or the horse''s, and the driver reads it';
+  RAISE NOTICE 'PASS  46b a task is scheduled OPEN for today, goes to the unit''s trip driver or the horse''s, and the driver reads it';
 
-  -- (c) Refusals, each pinned by message so a refusal from another branch
-  -- cannot pass for the one under test. The rig leg is proven live: the
-  -- trailer's task for drv succeeded at (b); after the rig ends the same
-  -- call is refused, so the predicate is reading the rig and not merely the
-  -- unit.
-  BEGIN
-    PERFORM app.create_inspection_task(h, drv2);
-    RAISE EXCEPTION 'FAIL 46c: a task was scheduled for a driver not assigned to the unit';
-  EXCEPTION WHEN SQLSTATE 'TY018' THEN
-    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
-    IF msg <> 'T46 Driver Two is not assigned to T46-H or to the horse pulling it' THEN
-      RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
-    END IF;
-  END;
+  -- (c) The rig leg is proven live: once the rig ends, the trailer's task
+  -- has no holder and reads escalated, so responsibility read the rig and
+  -- not merely the unit. Refusals are pinned by message so a refusal from
+  -- another branch cannot pass for the one under test.
   PERFORM app.end_combination(rig);
+  SELECT t.responsible_user_id, t.escalated INTO STRICT r FROM app.v_inspection_task_driver t WHERE t.id = task_ta;
+  IF r.responsible_user_id IS NOT NULL OR NOT r.escalated THEN
+    RAISE EXCEPTION 'FAIL 46c: the uncoupled trailer''s task reads driver % escalated %', r.responsible_user_id, r.escalated;
+  END IF;
   BEGIN
-    PERFORM app.create_inspection_task(ta, drv);
-    RAISE EXCEPTION 'FAIL 46c: the horse''s driver was scheduled on a trailer the horse no longer pulls';
-  EXCEPTION WHEN SQLSTATE 'TY018' THEN
-    GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
-    IF msg <> 'T46 Driver is not assigned to T46-TA or to the horse pulling it' THEN
-      RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
-    END IF;
-  END;
-  BEGIN
-    PERFORM app.create_inspection_task(hd, drv);
+    PERFORM app.create_inspection_task(hd);
     RAISE EXCEPTION 'FAIL 46c: a task was scheduled on a disposed unit';
   EXCEPTION WHEN SQLSTATE 'TY018' THEN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
@@ -6459,7 +6463,7 @@ BEGIN
   -- Capture never reads app_user.active, which keeps no history, so a
   -- deactivation leaves drv3's trip covering hx; withActor refuses an
   -- inactive actor before any query runs (ADR-0011). The write still
-  -- refuses an inactive driver by name.
+  -- refuses an inactive nominee by name.
   IF NOT app.user_could_capture(drv3, hx, now(), now()) THEN
     RAISE EXCEPTION 'FAIL 46c: an active driver on the unit''s trip fails the predicate';
   END IF;
@@ -6468,20 +6472,20 @@ BEGIN
     RAISE EXCEPTION 'FAIL 46c: the predicate read the active flag';
   END IF;
   BEGIN
-    PERFORM app.create_inspection_task(hx, drv3);
-    RAISE EXCEPTION 'FAIL 46c: a task was scheduled for a deactivated driver';
+    PERFORM app.create_inspection_task(hx, NULL, drv3);
+    RAISE EXCEPTION 'FAIL 46c: a task was scheduled for a deactivated nominee';
   EXCEPTION WHEN SQLSTATE 'TY018' THEN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
     IF msg <> 'T46 Driver Three is no longer active' THEN
       RAISE EXCEPTION 'FAIL 46c: wrong message %', msg;
     END IF;
   END;
-  RAISE NOTICE 'PASS  46c an unassigned, rig-less, retired or deactivated target is refused by name';
+  RAISE NOTICE 'PASS  46c an uncoupled trailer''s task reads escalated, and a retired unit or a deactivated nominee is refused by name';
 
   -- (d) The due-day rule: yesterday is refused, never clamped; tomorrow is
   -- the tenant-local end of tomorrow.
   BEGIN
-    PERFORM app.create_inspection_task(h, drv, today - 1);
+    PERFORM app.create_inspection_task(h, today - 1);
     RAISE EXCEPTION 'FAIL 46d: a task was scheduled for yesterday';
   EXCEPTION WHEN SQLSTATE 'TY018' THEN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
@@ -6489,7 +6493,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL 46d: wrong message %', msg;
     END IF;
   END;
-  task_ctl := app.create_inspection_task(h, drv, today + 1);
+  task_ctl := app.create_inspection_task(h, today + 1);
   SELECT t.due_at, t.overdue INTO STRICT r FROM app.v_inspection_task t WHERE t.id = task_ctl;
   IF r.due_at <> ((today + 2)::timestamp AT TIME ZONE tz) - interval '1 microsecond'
      OR r.overdue THEN
@@ -6498,9 +6502,10 @@ BEGIN
   RAISE NOTICE 'PASS  46d a task is due today or later at the tenant-local end of its day, never yesterday';
 
   -- (e) Closed by the submit that names it (FR-INS-052, 000023): the horse's
-  -- task completes citing the inspection; the second task on the same unit
-  -- stays OPEN, which is the control that the close is by id and not by
-  -- unit. Section 31's minimal payload shape; BAC configures three treads.
+  -- task completes citing the inspection. The close is the named task plus
+  -- the unit's tasks due by the submit's day (U150), and the second task on
+  -- the same unit is due tomorrow, so it stays OPEN. Section 31's minimal
+  -- payload shape; BAC configures three treads.
   SELECT p.id INTO posl FROM app.position p WHERE p.configuration_id = cfg AND NOT p.is_spare ORDER BY p.sequence LIMIT 1;
   PERFORM set_config('app.actor_id', drv::text, true);
   SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
@@ -6518,7 +6523,7 @@ BEGIN
   SELECT count(*) INTO n FROM app.v_my_inspection_task t WHERE t.id = task;
   IF n <> 0 THEN RAISE EXCEPTION 'FAIL 46e: the driver still reads a completed task'; END IF;
   PERFORM set_config('app.actor_id', ctl::text, true);
-  RAISE NOTICE 'PASS  46e the submit that names the task completes it citing the inspection, and no other';
+  RAISE NOTICE 'PASS  46e the submit that names the task completes it citing the inspection, and leaves the unit''s task due on a later day open';
 
   -- (f) Append-only where it matters (000018): a task is never deleted by the
   -- app role. UPDATE stays granted because the submit's close IS an update.
@@ -6545,19 +6550,18 @@ BEGIN
   -- default created_by to it and die 23503 on the composite FK (000017).
   PERFORM set_config('app.actor_id', '', true);
   INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
-  VALUES (t2drv, t2, 't46t2drv@example.invalid', 'T46 Tenant Two Driver', 'DRIVER'),
-         (t2ctl, t2, 't46t2ctl@example.invalid', 'T46 Tenant Two Controller', 'CONTROLLER');
+  VALUES (t2ctl, t2, 't46t2ctl@example.invalid', 'T46 Tenant Two Controller', 'CONTROLLER');
   PERFORM set_config('app.actor_id', t2ctl::text, true);
   BEGIN
-    PERFORM app.create_inspection_task(h, drv);
+    PERFORM app.create_inspection_task(h);
     RAISE EXCEPTION 'FAIL 46g: tenant 2 scheduled a task on tenant 1''s unit';
   EXCEPTION WHEN SQLSTATE 'TY012' THEN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
     IF msg <> 'no such unit in this fleet' THEN RAISE EXCEPTION 'FAIL 46g: wrong message %', msg; END IF;
   END;
   BEGIN
-    PERFORM app.create_inspection_task(md5('t2veh1')::uuid, drv);
-    RAISE EXCEPTION 'FAIL 46g: tenant 2 scheduled tenant 1''s driver';
+    PERFORM app.create_inspection_task(md5('t2veh1')::uuid, NULL, drv);
+    RAISE EXCEPTION 'FAIL 46g: tenant 2 nominated tenant 1''s driver';
   EXCEPTION WHEN SQLSTATE 'TY012' THEN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
     IF msg <> 'no such user in this fleet' THEN RAISE EXCEPTION 'FAIL 46g: wrong message %', msg; END IF;
@@ -6568,14 +6572,14 @@ BEGIN
   IF app.user_could_capture(drv, h, now(), now()) THEN
     RAISE EXCEPTION 'FAIL 46g: the predicate answers true across tenants';
   END IF;
-  -- Thabo's fixture trip covers md5('t2veh1'), the fixture's ACTIVE tenant-2
-  -- horse, so the control schedules him.
-  PERFORM app.create_inspection_task(md5('t2veh1')::uuid, md5('driver2')::uuid);
+  -- md5('t2veh1') is the fixture's ACTIVE tenant-2 horse, which Thabo's
+  -- fixture trip covers, so the control names no nominee.
+  PERFORM app.create_inspection_task(md5('t2veh1')::uuid);
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', ctl::text, true);
   BEGIN
-    INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, requested_by, created_by)
-    VALUES (t2, md5('t2veh1')::uuid, now() + interval '1 day', t2drv, t2ctl, t2ctl);
+    INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, requested_by, created_by)
+    VALUES (t2, md5('t2veh1')::uuid, now() + interval '1 day', t2ctl, t2ctl);
     RAISE EXCEPTION 'FAIL 46g: a raw insert landed a task in another tenant';
   EXCEPTION WHEN insufficient_privilege THEN
     GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
@@ -6583,7 +6587,7 @@ BEGIN
       RAISE EXCEPTION 'FAIL 46g: refused by something other than inspection_task''s own policy: %', msg;
     END IF;
   END;
-  PERFORM app.create_inspection_task(h, drv);
+  PERFORM app.create_inspection_task(h);
   RAISE NOTICE 'PASS  46g another tenant''s units, users and tasks do not exist here, and a task cannot be aimed at another tenant';
 
   -- (h) Audited (ADR-0014, U12): the schedule wrote an INSERT row under the
@@ -14129,7 +14133,27 @@ BEGIN
   IF s IS DISTINCT FROM 'yesterday,now,null' THEN
     RAISE EXCEPTION 'FAIL 76d: a cancelled task planted at a past close, one planted with none and an open one planted with one read %, not yesterday,now,null (the past close kept through a due_at edit)', s;
   END IF;
-  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted close is kept, an open task has none, and a closed task never changes state';
+  -- Escalated is worked out, never stored (spec, Escalation); the enum value
+  -- stays because dropping one is a type rebuild for no gain.
+  s := NULL;
+  BEGIN
+    INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state)
+    VALUES (bac, h1, now(), 'ESCALATED');
+  EXCEPTION WHEN check_violation THEN
+    GET STACKED DIAGNOSTICS s = CONSTRAINT_NAME;
+  END;
+  IF s IS DISTINCT FROM 'task_never_escalated' THEN
+    RAISE EXCEPTION 'FAIL 76d: an ESCALATED task was answered by %, not task_never_escalated', COALESCE(s, 'an accepted row');
+  END IF;
+  FOR st IN SELECT unnest(ARRAY['11111111-1111-1111-1111-111111111111', '22222222-2222-2222-2222-222222222222',
+                                '33333333-3333-3333-3333-333333333333']) LOOP
+    PERFORM set_config('app.tenant_id', st, true);
+    IF EXISTS (SELECT 1 FROM app.inspection_task WHERE state = 'ESCALATED') THEN
+      RAISE EXCEPTION 'FAIL 76d: fleet % holds an ESCALATED task', st;
+    END IF;
+  END LOOP;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted close is kept, an open task has none, a closed task never changes state, and none is ever ESCALATED';
 END $$;
 ROLLBACK;
 
@@ -14276,6 +14300,201 @@ BEGIN
   PERFORM pg_temp.t76_expect('76e a task created now', k_now, now() - interval '1 minute', 'nobody/-');
   PERFORM pg_temp.t76_expect('76e a task created now, at now', k_now, now(), one || '/TRIP');
   RAISE NOTICE 'PASS  76e each rule answers in order, a nomination lapses at the first covered instant after it by a trip or a coupling and stays lapsed, rule 3 ignores the active flag, and nothing answers outside the task''s outstanding span';
+END $$;
+ROLLBACK;
+
+\echo '== 76f. a nomination names a driver for an open task on a unit no trip covers, stamped now by the actor and audited; it is refused by name on a task not open, a covered unit, an inactive or unknown user, an unknown task and a race (FR-INS-051 as amended, TY012, TY018; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h1 constant uuid := md5('t76h1')::uuid; h2 constant uuid := md5('t76h2')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  k uuid; k2 uuid; k_done uuid; k_h1 uuid; k_race uuid; nm uuid; insp uuid;
+  row_ app.inspection_task_nomination;
+  n int; st text; msg text; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '2 days', now() - interval '12 hours') RETURNING id INTO k2;
+
+  nm := app.nominate_for_task(k, d2);
+  SELECT * INTO row_ FROM app.inspection_task_nomination WHERE id = nm;
+  IF row_.task_id IS DISTINCT FROM k OR row_.user_id IS DISTINCT FROM d2
+     OR row_.nominated_at IS DISTINCT FROM now() OR row_.nominated_by IS DISTINCT FROM ctl THEN
+    RAISE EXCEPTION 'FAIL 76f: the nomination reads task %, user %, at %, by %',
+      row_.task_id, row_.user_id, row_.nominated_at, row_.nominated_by;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'inspection_task_nomination' AND entity_id = nm AND action = 'INSERT' AND actor_id = ctl;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 76f: the nomination filed % INSERT audit entries under the controller', n; END IF;
+
+  -- A driver on a trip elsewhere may be nominated (spec, decision 5). A
+  -- second task, since a second nomination of the first in one transaction
+  -- would share its instant (nomination_one_per_instant).
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '1 hour');
+  PERFORM app.nominate_for_task(k2, d1);
+  PERFORM pg_temp.t76_expect('76f', k2, now(), 'T76 Driver One/NOMINATION');
+
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  VALUES (bac, h2, d2, gen_random_uuid(), now() - interval '1 hour', now() - interval '50 minutes')
+  RETURNING id INTO insp;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '3 days', now() - interval '12 hours') RETURNING id INTO k_done;
+  UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = insp WHERE id = k_done;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h1, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h1;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h2, now() + interval '4 days', now() - interval '12 hours') RETURNING id INTO k_race;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_race, d2, now() + interval '1 second');
+
+  FOR st, msg IN SELECT * FROM (VALUES
+      (format('SELECT app.nominate_for_task(%L, %L)', k_done, d2),
+       'TY018 this inspection is completed; only an open one takes a driver'),
+      (format('SELECT app.nominate_for_task(%L, %L)', k_h1, d2),
+       'TY018 T76-H1 is on T76 Driver One''s trip; the inspection already goes to them'),
+      (format('SELECT app.nominate_for_task(%L, %L)', k, md5('t76di')::uuid),
+       'TY018 T76 Driver Inactive is no longer active'),
+      (format('SELECT app.nominate_for_task(%L, %L)', gen_random_uuid(), d2),
+       'TY012 no such inspection task in this fleet'),
+      (format('SELECT app.nominate_for_task(%L, %L)', k, gen_random_uuid()),
+       'TY012 no such user in this fleet'),
+      (format('SELECT app.nominate_for_task(%L, %L)', k_race, d1),
+       'TY018 this inspection was given another driver while this request was being made; refresh and try again')
+    ) v(a, b)
+  LOOP
+    got := NULL;
+    BEGIN
+      EXECUTE st;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE;
+      got := got || ' ' || SQLERRM;
+    END;
+    IF got IS DISTINCT FROM msg THEN
+      RAISE EXCEPTION 'FAIL 76f: % answered %, not %', st, COALESCE(got, 'with a nomination'), msg;
+    END IF;
+  END LOOP;
+
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  PERFORM set_config('app.actor_id', '', true);
+  got := NULL;
+  BEGIN
+    PERFORM app.nominate_for_task(k, md5('driver2')::uuid);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE;
+    got := got || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'TY012 no such inspection task in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 76f: Second Fleet nominating for BAC''s task answered %', COALESCE(got, 'with a nomination');
+  END IF;
+  RAISE NOTICE 'PASS  76f a nomination is stamped now by the actor and audited, a driver on a trip elsewhere may be named, and each refusal speaks its own words';
+END $$;
+ROLLBACK;
+
+\echo '== 76g. scheduling with no driver reads escalated and nominates nobody; with one it nominates; on a covered unit it goes to the trip and refuses a nominee; overdue counts held and unheld tasks without asking who holds them; and each driver''s list is theirs (FR-INS-051, FR-INS-053 as amended, FR-DSH-012; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h1 constant uuid := md5('t76h1')::uuid; h2 constant uuid := md5('t76h2')::uuid;
+  h4 constant uuid := md5('t76h4')::uuid; h5 constant uuid := md5('t76h5')::uuid;
+  t1 constant uuid := md5('t76t1')::uuid; t3 constant uuid := md5('t76t3')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  tz text; today date; rig uuid;
+  k5 uuid; k2 uuid; k1 uuid; kt1 uuid; k5o uuid; k1o uuid; k4 uuid; kt3 uuid;
+  r record; n int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+
+  k5 := app.create_inspection_task(h5);
+  SELECT * INTO STRICT r FROM app.v_inspection_task_driver WHERE id = k5;
+  IF r.responsible_user_id IS NOT NULL OR NOT r.escalated THEN
+    RAISE EXCEPTION 'FAIL 76g: a task scheduled with no driver reads % escalated %', r.responsible_user_id, r.escalated;
+  END IF;
+  IF EXISTS (SELECT 1 FROM app.inspection_task_nomination WHERE task_id = k5) THEN
+    RAISE EXCEPTION 'FAIL 76g: a task scheduled with no driver carries a nomination';
+  END IF;
+
+  k2 := app.create_inspection_task(h2, today, d2);
+  SELECT count(*) INTO n FROM app.inspection_task_nomination WHERE task_id = k2 AND user_id = d2;
+  SELECT * INTO STRICT r FROM app.v_inspection_task_driver WHERE id = k2;
+  IF n <> 1 OR r.responsible_user_id IS DISTINCT FROM d2 OR r.responsible_via IS DISTINCT FROM 'NOMINATION' OR r.escalated THEN
+    RAISE EXCEPTION 'FAIL 76g: a task scheduled with a nominee holds % nominations and reads % by % escalated %',
+      n, r.responsible_user_id, r.responsible_via, r.escalated;
+  END IF;
+
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, d1, now() - interval '1 hour');
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '1 hour') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  k1 := app.create_inspection_task(h1);
+  PERFORM pg_temp.t76_expect('76g', k1, now(), 'T76 Driver One/TRIP');
+  got := NULL;
+  BEGIN
+    PERFORM app.create_inspection_task(h1, NULL, d2);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE;
+    got := got || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'TY018 T76-H1 is on T76 Driver One''s trip; the inspection already goes to them' THEN
+    RAISE EXCEPTION 'FAIL 76g: a nominee on a covered unit answered %', COALESCE(got, 'with a task');
+  END IF;
+  SELECT count(*) INTO n FROM app.inspection_task WHERE vehicle_id = h1;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 76g: the refused schedule left % tasks on H1, not the one before it', n; END IF;
+
+  -- Overdue counts a task whether or not anyone holds it, and the count the
+  -- dashboard reads never calls the responsibility function.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h5, now() - interval '1 day', now() - interval '2 days') RETURNING id INTO k5o;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES (bac, h1, now() - interval '1 day', now() - interval '2 days') RETURNING id INTO k1o;
+  SELECT string_agg(v.fleet_number || ':' || d.overdue || ':' || d.escalated, ',' ORDER BY v.fleet_number) INTO got
+    FROM app.v_inspection_task_driver d JOIN app.vehicle v ON v.id = d.vehicle_id WHERE d.id IN (k5o, k1o);
+  IF got IS DISTINCT FROM 'T76-H1:true:false,T76-H5:true:true' THEN
+    RAISE EXCEPTION 'FAIL 76g: the overdue tasks read %', got;
+  END IF;
+  SELECT count(*) INTO n FROM app.v_inspection_task WHERE overdue;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 76g: the dashboard''s overdue count reads %, not 2', n; END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'app' AND table_name = 'v_inspection_task' AND column_name = 'responsible_user_id') THEN
+    RAISE EXCEPTION 'FAIL 76g: v_inspection_task carries the responsible driver, so its overdue count asks for one';
+  END IF;
+
+  -- Each driver's own list.
+  kt1 := app.create_inspection_task(t1);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h4, now() - interval '1 hour') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h4, 1), (bac, rig, t3, 2);
+  k4 := app.create_inspection_task(h4, today, d2);
+  kt3 := app.create_inspection_task(t3);
+  PERFORM set_config('app.actor_id', d1::text, true);
+  SELECT string_agg(v.fleet_number, ',' ORDER BY v.fleet_number) INTO got
+    FROM (SELECT DISTINCT m.vehicle_id FROM app.v_my_inspection_task m) x JOIN app.vehicle v ON v.id = x.vehicle_id;
+  IF got IS DISTINCT FROM 'T76-H1,T76-T1' THEN
+    RAISE EXCEPTION 'FAIL 76g: the trip driver''s list holds tasks on %, not T76-H1,T76-T1', got;
+  END IF;
+  PERFORM set_config('app.actor_id', d2::text, true);
+  SELECT string_agg(v.fleet_number, ',' ORDER BY v.fleet_number) INTO got
+    FROM (SELECT DISTINCT m.vehicle_id FROM app.v_my_inspection_task m) x JOIN app.vehicle v ON v.id = x.vehicle_id;
+  IF got IS DISTINCT FROM 'T76-H2,T76-H4,T76-T3' THEN
+    RAISE EXCEPTION 'FAIL 76g: the nominee''s list holds tasks on %, not T76-H2,T76-H4,T76-T3', got;
+  END IF;
+  RAISE NOTICE 'PASS  76g scheduling escalates or nominates, a covered unit goes to its trip and refuses a nominee, overdue is counted without asking who holds it, and each driver''s list is theirs';
 END $$;
 ROLLBACK;
 
@@ -14682,6 +14901,286 @@ BEGIN
   RAISE NOTICE 'PASS  76i a raw submit whose started_at follows its submitted_at lands';
 END $$;
 ROLLBACK;
+
+\echo '== 76m. an inspection covers the configuration as a whole: a submit closes the task it names on any unit it read, and every open task due by its day on each unit it read and created before it; a later day, an unread unit and a cancelled task are left alone, and a replay closes nothing more (U150, FR-INS-052, FR-INS-062, criterion 4; as BAC, each case rolled back)'
+-- The configuration every case below starts from: D1's trip on H6 from two
+-- days back, towing T4 and T5 (FR-INS-062).
+CREATE FUNCTION pg_temp.t76_rig6() RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE rig uuid;
+BEGIN
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES ('11111111-1111-1111-1111-111111111111', md5('t76h6')::uuid, now() - interval '3 days') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES ('11111111-1111-1111-1111-111111111111', rig, md5('t76h6')::uuid, 1),
+         ('11111111-1111-1111-1111-111111111111', rig, md5('t76t4')::uuid, 2),
+         ('11111111-1111-1111-1111-111111111111', rig, md5('t76t5')::uuid, 3);
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES ('11111111-1111-1111-1111-111111111111', md5('t76h6')::uuid, md5('t76d1')::uuid, now() - interval '2 days');
+END $fn$;
+
+-- One OPEN task on p_unit due at the tenant-local end of the tenant's today
+-- plus p_days, created p_created ago.
+CREATE FUNCTION pg_temp.t76_task(p_unit uuid, p_days int, p_created interval DEFAULT interval '12 hours')
+RETURNS uuid
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  SELECT t.id, p_unit,
+         ((app.tenant_today(t.timezone) + p_days + 1)::timestamp AT TIME ZONE t.timezone) - interval '1 microsecond',
+         now() - p_created
+    FROM app.tenant t WHERE t.id = '11111111-1111-1111-1111-111111111111'
+  RETURNING id;
+$fn$;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h6 constant uuid := md5('t76h6')::uuid; t4 constant uuid := md5('t76t4')::uuid;
+  t5 constant uuid := md5('t76t5')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  k_h6 uuid; k_t4y uuid; k_t4t uuid; k_t5 uuid; k_cx uuid; res record; got text; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM pg_temp.t76_rig6();
+  k_h6 := pg_temp.t76_task(h6, 0);
+  k_t4y := pg_temp.t76_task(t4, -1);
+  k_t4t := pg_temp.t76_task(t4, 1);
+  k_t5 := pg_temp.t76_task(t5, 0);
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at, state, cancelled_reason, closed_at)
+  VALUES (bac, h6, now() - interval '1 day', now() - interval '2 days', 'CANCELLED', '76m', now() - interval '1 day')
+  RETURNING id INTO k_cx;
+  PERFORM set_config('app.actor_id', d1::text, true);
+  SELECT * INTO res FROM app.submit_inspection(
+    pg_temp.t76_capture(ARRAY[h6, t4], now() - interval '10 minutes', now()) || jsonb_build_object('task_id', k_h6));
+  SELECT string_agg(v.fleet_number || ':' || k.state || ':'
+                    || CASE WHEN k.completed_inspection_id = res.inspection_id THEN 'cites' ELSE '-' END || ':'
+                    || CASE WHEN k.closed_at IS NULL THEN 'open'
+                            WHEN k.closed_at = now() THEN 'now'
+                            WHEN k.closed_at = now() - interval '1 day' THEN 'yesterday'
+                            ELSE k.closed_at::text END,
+                    ' ' ORDER BY o.ord) INTO got
+    FROM app.inspection_task k JOIN app.vehicle v ON v.id = k.vehicle_id
+    JOIN (VALUES (k_h6, 1), (k_t4y, 2), (k_t4t, 3), (k_t5, 4), (k_cx, 5)) o(id, ord) ON o.id = k.id;
+  IF got IS DISTINCT FROM 'T76-H6:COMPLETED:cites:now T76-T4:COMPLETED:cites:now T76-T4:OPEN:-:open T76-T5:OPEN:-:open T76-H6:CANCELLED:-:yesterday' THEN
+    RAISE EXCEPTION 'FAIL 76m: after the rig capture the tasks read %', got;
+  END IF;
+  IF EXISTS (SELECT 1 FROM app.v_inspection_task_driver WHERE outstanding AND id IN (k_h6, k_t4y)) THEN
+    RAISE EXCEPTION 'FAIL 76m: a completed task still reads outstanding';
+  END IF;
+  -- Criterion 4: the tasks the capture completed count under its driver.
+  SELECT count(*) INTO n FROM app.inspection_task k JOIN app.inspection i ON i.id = k.completed_inspection_id
+   WHERE k.id IN (k_h6, k_t4y) AND i.user_id = d1;
+  IF n <> 2 THEN RAISE EXCEPTION 'FAIL 76m: % of the 2 completed tasks cite an inspection by the trip driver', n; END IF;
+  RAISE NOTICE 'PASS  76m a rig capture completes the named task and each read unit''s tasks due by its day, under its driver; a later day, an unread unit and a cancelled task are left alone';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h6 constant uuid := md5('t76h6')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  tz text; eoy timestamptz; k_y uuid; k_t uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM pg_temp.t76_rig6();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  -- A minute before the tenant's midnight: yesterday in its calendar,
+  -- whatever hour the suite runs.
+  eoy := (app.tenant_today(tz)::timestamp AT TIME ZONE tz) - interval '1 minute';
+  k_y := pg_temp.t76_task(h6, -1, interval '48 hours');
+  k_t := pg_temp.t76_task(h6, 0, interval '48 hours');
+  PERFORM set_config('app.actor_id', d1::text, true);
+  PERFORM app.submit_inspection(pg_temp.t76_capture(ARRAY[h6], eoy - interval '10 minutes', eoy));
+  SELECT string_agg(k.state::text, ',' ORDER BY o.ord) INTO got
+    FROM app.inspection_task k JOIN (VALUES (k_y, 1), (k_t, 2)) o(id, ord) ON o.id = k.id;
+  IF got IS DISTINCT FROM 'COMPLETED,OPEN' THEN
+    RAISE EXCEPTION 'FAIL 76m: a capture submitted at the end of yesterday left the tasks due yesterday and today %, not COMPLETED,OPEN', got;
+  END IF;
+  RAISE NOTICE 'PASS  76m the day judged is the tenant day of submitted_at, not of now';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h6 constant uuid := md5('t76h6')::uuid; d1 constant uuid := md5('t76d1')::uuid;
+  k_old uuid; k_new uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM pg_temp.t76_rig6();
+  k_old := pg_temp.t76_task(h6, -1, interval '3 hours');
+  k_new := pg_temp.t76_task(h6, -1, interval '1 hour');
+  PERFORM set_config('app.actor_id', d1::text, true);
+  PERFORM app.submit_inspection(pg_temp.t76_capture(ARRAY[h6], now() - interval '130 minutes', now() - interval '2 hours'));
+  SELECT string_agg(k.state::text, ',' ORDER BY o.ord) INTO got
+    FROM app.inspection_task k JOIN (VALUES (k_old, 1), (k_new, 2)) o(id, ord) ON o.id = k.id;
+  IF got IS DISTINCT FROM 'COMPLETED,OPEN' THEN
+    RAISE EXCEPTION 'FAIL 76m: a late-delivered capture left the tasks created before and after it %, not COMPLETED,OPEN', got;
+  END IF;
+  RAISE NOTICE 'PASS  76m a task scheduled after the capture was taken is not answered by it';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h6 constant uuid := md5('t76h6')::uuid; t4 constant uuid := md5('t76t4')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  k uuid; res record; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM pg_temp.t76_rig6();
+  k := pg_temp.t76_task(t4, 1);
+  PERFORM set_config('app.actor_id', d1::text, true);
+  SELECT * INTO res FROM app.submit_inspection(
+    pg_temp.t76_capture(ARRAY[h6, t4], now() - interval '10 minutes', now()) || jsonb_build_object('task_id', k));
+  SELECT k2.state::text || ':' || (k2.completed_inspection_id IS NOT DISTINCT FROM res.inspection_id) INTO got
+    FROM app.inspection_task k2 WHERE k2.id = k;
+  IF got IS DISTINCT FROM 'COMPLETED:true' THEN
+    RAISE EXCEPTION 'FAIL 76m: a trailer''s task due tomorrow named by the motive''s rig capture reads %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76m a trailer''s task is closed by name through the motive''s capture that read it';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h6 constant uuid := md5('t76h6')::uuid; t4 constant uuid := md5('t76t4')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  k uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM pg_temp.t76_rig6();
+  k := pg_temp.t76_task(t4, 1);
+  PERFORM set_config('app.actor_id', d1::text, true);
+  PERFORM app.submit_inspection(
+    pg_temp.t76_capture(ARRAY[h6], now() - interval '10 minutes', now()) || jsonb_build_object('task_id', k));
+  SELECT state::text INTO got FROM app.inspection_task WHERE id = k;
+  IF got IS DISTINCT FROM 'OPEN' THEN
+    RAISE EXCEPTION 'FAIL 76m: a trailer''s task named by a capture that did not read the trailer reads %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76m a task on a unit the capture did not read stays open though named';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h6 constant uuid := md5('t76h6')::uuid; t4 constant uuid := md5('t76t4')::uuid;
+  h8 constant uuid := md5('t76h8')::uuid; t7 constant uuid := md5('t76t7')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid; d3 constant uuid := md5('t76d3')::uuid;
+  rig uuid; k_h6 uuid; k_t4 uuid; k_t7 uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM pg_temp.t76_rig6();
+  k_h6 := pg_temp.t76_task(h6, 1);
+  k_t4 := pg_temp.t76_task(t4, 1);
+  -- H8 tows T7 and is on no trip; D3 is nominated for T7's own task alone.
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h8, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h8, 1), (bac, rig, t7, 2);
+  k_t7 := pg_temp.t76_task(t7, 1);
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k_t7, d3, now() - interval '1 hour');
+  PERFORM set_config('app.actor_id', d1::text, true);
+  SELECT string_agg(v.fleet_number || '>' || c.fleet_number, ',' ORDER BY v.fleet_number) INTO got
+    FROM app.v_my_inspection_task m
+    JOIN app.vehicle v ON v.id = m.vehicle_id JOIN app.vehicle c ON c.id = m.capture_vehicle_id;
+  IF got IS DISTINCT FROM 'T76-H6>T76-H6,T76-T4>T76-H6' THEN
+    RAISE EXCEPTION 'FAIL 76m: the trip driver''s tasks are captured through %', got;
+  END IF;
+  PERFORM set_config('app.actor_id', d3::text, true);
+  SELECT string_agg(v.fleet_number || '>' || c.fleet_number, ',' ORDER BY v.fleet_number) INTO got
+    FROM app.v_my_inspection_task m
+    JOIN app.vehicle v ON v.id = m.vehicle_id JOIN app.vehicle c ON c.id = m.capture_vehicle_id;
+  IF got IS DISTINCT FROM 'T76-T7>T76-T7' THEN
+    RAISE EXCEPTION 'FAIL 76m: a trailer nominee who cannot capture its motive captures through %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76m a coupled trailer''s task is captured through its motive when the driver holds it, else on its own';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h7 constant uuid := md5('t76h7')::uuid; t6 constant uuid := md5('t76t6')::uuid;
+  t7 constant uuid := md5('t76t7')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  ks uuid[]; u uuid; i int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  ks := ARRAY[pg_temp.t76_task(h7, 0), pg_temp.t76_task(t6, 0), pg_temp.t76_task(t7, 0)];
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  SELECT bac, k, d2, now() - interval '1 hour' FROM unnest(ks) k;
+  PERFORM set_config('app.actor_id', d2::text, true);
+  i := 0;
+  FOREACH u IN ARRAY ARRAY[h7, t6, t7] LOOP
+    i := i + 1;
+    PERFORM app.submit_inspection(
+      pg_temp.t76_capture(ARRAY[u], now() - interval '10 minutes', now()) || jsonb_build_object('task_id', ks[i]));
+    SELECT string_agg(k.state::text, ',' ORDER BY o.ord) INTO got
+      FROM app.inspection_task k JOIN unnest(ks) WITH ORDINALITY o(id, ord) ON o.id = k.id;
+    IF got IS DISTINCT FROM (CASE i WHEN 1 THEN 'COMPLETED,OPEN,OPEN'
+                                    WHEN 2 THEN 'COMPLETED,COMPLETED,OPEN'
+                                    ELSE 'COMPLETED,COMPLETED,COMPLETED' END) THEN
+      RAISE EXCEPTION 'FAIL 76m: after % of three idle units'' captures the tasks read %', i, got;
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  76m three idle uncoupled units are three inspections, each closing only its own task';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  h6 constant uuid := md5('t76h6')::uuid; t4 constant uuid := md5('t76t4')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  p jsonb; res record; k uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  PERFORM pg_temp.t76_units();
+  PERFORM pg_temp.t76_rig6();
+  PERFORM set_config('app.actor_id', d1::text, true);
+  p := pg_temp.t76_capture(ARRAY[h6, t4], now() - interval '10 minutes', now());
+  PERFORM app.submit_inspection(p);
+  PERFORM set_config('app.actor_id', '', true);
+  k := pg_temp.t76_task(h6, 0);
+  PERFORM set_config('app.actor_id', d1::text, true);
+  SELECT * INTO res FROM app.submit_inspection(p);
+  SELECT state::text INTO got FROM app.inspection_task WHERE id = k;
+  IF res.created OR got IS DISTINCT FROM 'OPEN' THEN
+    RAISE EXCEPTION 'FAIL 76m: a replay created % and left a task planted after the capture %', res.created, got;
+  END IF;
+  RAISE NOTICE 'PASS  76m a replay closes nothing more';
+END $$;
+ROLLBACK;
+DROP FUNCTION pg_temp.t76_task(uuid, int, interval);
+DROP FUNCTION pg_temp.t76_rig6();
 
 \echo '== 76z. nothing section 76 planted outlives its rollback'
 DROP FUNCTION pg_temp.t76_could(jsonb, uuid);

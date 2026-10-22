@@ -1,12 +1,11 @@
 // The inspection task (TYRE-90): a controller schedules an ad-hoc inspection
-// for a driver on a unit. Which units a user's trips and nominations reach,
-// which day a task may be due on, and what is overdue are
-// app.v_user_capture_vehicle's (000060), app.create_inspection_task's and
-// app.v_inspection_task's (000038). This
-// file validates shape, gates the capability and projects rows (ADR-0013
-// decision 5), and applies the one role rule the schema cannot
-// (refuseNonCapturer, admin.go; ADR-0013, decision 1 as amended 2026-10-21).
-// The U-codes cited below are
+// on a unit and may nominate a driver for it (FR-INS-051 as amended). Who
+// holds a task is app.task_driver_at's (000060), which day it may be due on
+// is app.create_inspection_task's, and what is overdue is
+// app.v_inspection_task's. This file validates shape, gates the capability,
+// applies depot scope and projects rows (ADR-0013 decision 5), and applies
+// the one role rule the schema cannot (refuseNonCapturer, admin.go; ADR-0013,
+// decision 1 as amended 2026-10-21). The U-codes cited below are
 // docs/superpowers/specs/2026-09-03-b6-rig-setup-design.md's.
 package httpapi
 
@@ -36,15 +35,19 @@ type taskJSON struct {
 	Overdue     bool   `json:"overdue"`
 }
 
-// unitTaskJSON is the controller's row: taskJSON plus who it is assigned to.
+// unitTaskJSON is the controller's row: taskJSON plus who is responsible for
+// it now and how, TRIP, NOMINATION or MOTIVE_NOMINATION, and escalated, an
+// outstanding task nobody holds (FR-INS-053 as amended).
 type unitTaskJSON struct {
 	taskJSON
-	AssignedUserID      *string `json:"assignedUserId"`
-	AssignedDisplayName *string `json:"assignedDisplayName"`
+	ResponsibleUserID      *string `json:"responsibleUserId"`
+	ResponsibleDisplayName *string `json:"responsibleDisplayName"`
+	ResponsibleVia         *string `json:"responsibleVia"`
+	Escalated              bool    `json:"escalated"`
 }
 
-// loadUnitTasks answers OPEN and ESCALATED tasks, by due date, with each
-// task's assignee, either the unit's (vehicleID bound, taskID nil) or one
+// loadUnitTasks answers outstanding tasks, by due date, with each task's
+// responsible driver, either the unit's (vehicleID bound, taskID nil) or one
 // task by id (taskID bound, so a write that creates one can read its own row
 // back through it, as combinationByID does for rigs). Both filters are bound
 // parameters, so a nil id is every task and there is one statement to read.
@@ -52,10 +55,10 @@ func loadUnitTasks(ctx context.Context, tx pgx.Tx, vehicleID *uuid.UUID, taskID 
 	out := []unitTaskJSON{}
 	rows, err := tx.Query(ctx, `
 		SELECT t.id, t.vehicle_id, v.fleet_number, t.due_at, t.state::text, t.overdue,
-		       t.assigned_user_id, u.display_name
-		  FROM app.v_inspection_task t
+		       t.escalated, t.responsible_user_id, u.display_name, t.responsible_via
+		  FROM app.v_inspection_task_driver t
 		  JOIN app.vehicle v ON v.id = t.vehicle_id
-		  LEFT JOIN app.app_user u ON u.id = t.assigned_user_id
+		  LEFT JOIN app.app_user u ON u.id = t.responsible_user_id
 		 WHERE ($1::uuid IS NULL OR t.vehicle_id = $1)
 		   AND ($2::uuid IS NULL OR t.id = $2)
 		   AND t.outstanding
@@ -66,24 +69,22 @@ func loadUnitTasks(ctx context.Context, tx pgx.Tx, vehicleID *uuid.UUID, taskID 
 	defer rows.Close()
 	for rows.Next() {
 		var (
-			t                   unitTaskJSON
-			id, taskVehicleID   uuid.UUID
-			due                 time.Time
-			assignedUserID      *uuid.UUID
-			assignedDisplayName *string
+			t                 unitTaskJSON
+			id, taskVehicleID uuid.UUID
+			due               time.Time
+			responsibleUserID *uuid.UUID
 		)
 		if err := rows.Scan(&id, &taskVehicleID, &t.FleetNumber, &due, &t.State, &t.Overdue,
-			&assignedUserID, &assignedDisplayName); err != nil {
+			&t.Escalated, &responsibleUserID, &t.ResponsibleDisplayName, &t.ResponsibleVia); err != nil {
 			return nil, fmt.Errorf("scanning unit task row: %w", err)
 		}
 		t.ID = id.String()
 		t.VehicleID = taskVehicleID.String()
 		t.DueAt = due.UTC().Format(time.RFC3339)
-		if assignedUserID != nil {
-			s := assignedUserID.String()
-			t.AssignedUserID = &s
+		if responsibleUserID != nil {
+			s := responsibleUserID.String()
+			t.ResponsibleUserID = &s
 		}
-		t.AssignedDisplayName = assignedDisplayName
 		out = append(out, t)
 	}
 	if err := rows.Err(); err != nil {
@@ -173,17 +174,19 @@ func listMyTasks(s *store.Store) http.HandlerFunc {
 }
 
 type scheduleTaskRequest struct {
-	AssigneeUserID string `json:"assigneeUserId"`
 	// Omitted means the tenant's today, resolved by app.create_inspection_task
 	// in the tenant's own zone; a Go clock's today is the runner's day, not
 	// the fleet's (rule 6, lessons 2026-09-03).
 	DueOn *string `json:"dueOn"`
+	// Absent or null is no nominee: the task goes to whoever holds the unit,
+	// or reads escalated (FR-INS-051 as amended).
+	NomineeUserID *string `json:"nomineeUserId"`
 }
 
 // scheduleInspectionTask is FR-INS-051's write. The task it answers with is
 // read back through loadUnitTasks rather than assembled from the request, so
 // the caller sees the row as stored: the due instant the tenant's zone
-// resolved, and overdue as the view computes it.
+// resolved, overdue as the view computes it, and who holds it.
 func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -195,9 +198,13 @@ func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 		if !decodeJSON(w, r, &body) {
 			return
 		}
-		assignee, err := uuidField("assigneeUserId", body.AssigneeUserID)
-		if refuseInvalid(w, r, err) {
-			return
+		var nominee *uuid.UUID
+		if body.NomineeUserID != nil {
+			id, err := uuidField("nomineeUserId", *body.NomineeUserID)
+			if refuseInvalid(w, r, err) {
+				return
+			}
+			nominee = &id
 		}
 		dueOn, err := dateField("dueOn", body.DueOn)
 		if refuseInvalid(w, r, err) {
@@ -208,45 +215,25 @@ func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssignments); err != nil {
 				return err
 			}
-			// Depot scope for the write (FR-AUT-008, TYRE-226); fitments.go's
-			// fitTyre carries why it locks.
-			if a.Scope() != auth.ScopeTenant {
-				var locked uuid.UUID
-				err := tx.QueryRow(ctx,
-					`SELECT v.id FROM app.vehicle v
-					  WHERE v.id = $1
-					    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
-					  FOR SHARE OF v`, vehicleID).Scan(&locked)
-				if errors.Is(err, pgx.ErrNoRows) {
-					return refusalError{refusal{
-						status:  http.StatusNotFound,
-						code:    codeNotFound,
-						message: "no such unit in this fleet",
-					}}
-				}
-				if err != nil {
-					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
-				}
-			}
-			// A user's role can change after they were named (a reactivation
-			// keeps them, TYRE-377), so the task checks its assignee here.
-			if err := refuseNonCapturer(ctx, tx, "assigneeUserId", assignee); err != nil {
+			if err := lockUnitInScope(ctx, tx, a, vehicleID, "no such unit in this fleet"); err != nil {
 				return err
+			}
+			if nominee != nil {
+				if err := refuseNonCapturer(ctx, tx, "nomineeUserId", *nominee); err != nil {
+					return err
+				}
 			}
 			var taskID uuid.UUID
 			if err := tx.QueryRow(ctx,
-				`SELECT app.create_inspection_task($1, $2, $3::date)`,
-				vehicleID, assignee, dueOn).Scan(&taskID); err != nil {
+				`SELECT app.create_inspection_task($1, $2::date, $3::uuid)`,
+				vehicleID, dueOn, nominee).Scan(&taskID); err != nil {
 				return fmt.Errorf("scheduling inspection on unit %s: %w", vehicleID, err)
 			}
-			created, err := loadUnitTasks(ctx, tx, nil, &taskID)
+			created, err := loadTask(ctx, tx, taskID)
 			if err != nil {
-				return fmt.Errorf("reading back task %s: %w", taskID, err)
+				return err
 			}
-			if len(created) != 1 {
-				return fmt.Errorf("reading back task %s: %d rows", taskID, len(created))
-			}
-			task = created[0]
+			task = created
 			return nil
 		})
 		if !ok {
@@ -254,4 +241,81 @@ func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 		}
 		writeStatus(ctx, w, http.StatusCreated, task)
 	}
+}
+
+type nominationRequest struct {
+	UserID string `json:"userId"`
+}
+
+// nominateForTask names a driver for an outstanding task, the later route by
+// which a "no driver" row gets one (FR-INS-051 as amended). Every rule is
+// app.nominate_for_task's. Depot scope is the task's unit's: a depot actor's
+// task elsewhere answers 404, and a tenant actor's unknown task is left to
+// the function's TY012 (ADR-0011).
+func nominateForTask(s *store.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+		taskID, ok := pathID(w, r, "taskID")
+		if !ok {
+			return
+		}
+		var body nominationRequest
+		if !decodeJSON(w, r, &body) {
+			return
+		}
+		userID, err := uuidField("userId", body.UserID)
+		if refuseInvalid(w, r, err) {
+			return
+		}
+		const notFound = "no such inspection task in this fleet"
+		var task unitTaskJSON
+		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
+			if err := require(a, auth.ManageAssignments); err != nil {
+				return err
+			}
+			if a.Scope() != auth.ScopeTenant {
+				var vehicleID uuid.UUID
+				err := tx.QueryRow(ctx,
+					`SELECT vehicle_id FROM app.inspection_task WHERE id = $1`, taskID).Scan(&vehicleID)
+				if errors.Is(err, pgx.ErrNoRows) {
+					return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
+				}
+				if err != nil {
+					return fmt.Errorf("resolving task %s: %w", taskID, err)
+				}
+				if err := lockUnitInScope(ctx, tx, a, vehicleID, notFound); err != nil {
+					return err
+				}
+			}
+			if err := refuseNonCapturer(ctx, tx, "userId", userID); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(ctx, `SELECT app.nominate_for_task($1, $2)`, taskID, userID); err != nil {
+				return fmt.Errorf("nominating for task %s: %w", taskID, err)
+			}
+			read, err := loadTask(ctx, tx, taskID)
+			if err != nil {
+				return err
+			}
+			task = read
+			return nil
+		})
+		if !ok {
+			return
+		}
+		writeStatus(ctx, w, http.StatusCreated, task)
+	}
+}
+
+// loadTask reads one task back through loadUnitTasks, as combinationByID does
+// for rigs, so a write answers with the row as stored.
+func loadTask(ctx context.Context, tx pgx.Tx, taskID uuid.UUID) (unitTaskJSON, error) {
+	rows, err := loadUnitTasks(ctx, tx, nil, &taskID)
+	if err != nil {
+		return unitTaskJSON{}, fmt.Errorf("reading back task %s: %w", taskID, err)
+	}
+	if len(rows) != 1 {
+		return unitTaskJSON{}, fmt.Errorf("reading back task %s: %d rows", taskID, len(rows))
+	}
+	return rows[0], nil
 }

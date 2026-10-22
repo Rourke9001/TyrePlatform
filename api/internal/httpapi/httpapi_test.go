@@ -351,15 +351,17 @@ func plantTrip(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, mot
 	return id
 }
 
-// assignVehicleDriver plants a vehicle_driver row backdated a day, which
-// app.generate_inspection_tasks' assignee step still reads (000012).
-func assignVehicleDriver(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID, userID uuid.UUID) {
+// plantNomination names userID for taskID from an hour ago, so the nominee
+// holds the task across any instant a test reads it (FR-INS-051 as
+// amended).
+func plantNomination(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, taskID, userID uuid.UUID) uuid.UUID {
 	t.Helper()
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-		 VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC')::date - 1)`,
-		tenantID, vehicleID, userID)
-	require.NoError(t, err)
+	var id uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+		 VALUES ($1, $2, $3, now() - interval '1 hour') RETURNING id`,
+		tenantID, taskID, userID).Scan(&id))
+	return id
 }
 
 func TestVehiclesScopedToHeaderTenant(t *testing.T) {
@@ -900,17 +902,21 @@ func TestMyTasksAreActorScoped(t *testing.T) {
 		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet,
 	).Scan(&vehicleID))
 
-	var mine uuid.UUID
+	// Two tasks on one unit no trip covers, each with its own nominee, so the
+	// unit filter alone cannot tell them apart.
+	var mine, theirs uuid.UUID
 	require.NoError(t, admin.QueryRow(ctx,
-		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
-		 VALUES ($1, $2, now() - interval '1 day', $3, 'OPEN') RETURNING id`,
-		tenantID, vehicleID, driver,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, created_at)
+		 VALUES ($1, $2, now() - interval '1 day', 'OPEN', now() - interval '2 days') RETURNING id`,
+		tenantID, vehicleID,
 	).Scan(&mine))
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
-		 VALUES ($1, $2, now() + interval '1 day', $3, 'OPEN')`,
-		tenantID, vehicleID, other)
-	require.NoError(t, err)
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, created_at)
+		 VALUES ($1, $2, now() + interval '1 day', 'OPEN', now() - interval '2 days') RETURNING id`,
+		tenantID, vehicleID,
+	).Scan(&theirs))
+	plantNomination(t, ctx, admin, tenantID, mine, driver)
+	plantNomination(t, ctx, admin, tenantID, theirs, other)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
