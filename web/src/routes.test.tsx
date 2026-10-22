@@ -319,10 +319,12 @@ describe("AppRoutes", () => {
           );
         if (url === "/api/vehicles/u9/fitments")
           return Promise.resolve(respond(200, [fitmentRow({ fitmentId: "f1" })]));
-        // The schedule panel and task list are part of this screen, so
-        // their reads are stubbed too, or they'd render as failed queries
-        // under a heading assertion that still passed.
-        if (url === "/api/vehicles/u9/drivers") return Promise.resolve(respond(200, []));
+        // The trip panel, the schedule panel and the task list are part of
+        // this screen, so their reads are stubbed too, or they'd render as
+        // failed queries under a heading assertion that still passed.
+        if (url === "/api/vehicles/u9/trip")
+          return Promise.resolve(respond(200, { trip: null, pulledBy: null }));
+        if (url === "/api/drivers") return Promise.resolve(respond(200, []));
         if (url === "/api/vehicles/u9/inspection-tasks") return Promise.resolve(respond(200, []));
         throw new Error(`unstubbed ${url}`);
       }),

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { AddDriver } from "./AddDriver";
-import { renderWithActor, respond, sentBody } from "../test/fixtures";
+import { renderWithActor, requestedUrl, respond, sentBody } from "../test/fixtures";
 
 // Capabilities rather than a role name: the screen branches on useCan
 // (ADR-0011), so the test names what the screen reads.
@@ -34,41 +34,20 @@ describe("adding a driver", () => {
     vi.unstubAllGlobals();
   });
 
-  it("creates the user and then offers the assignment that makes them able to capture", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(201, CREATED))
-      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]));
+  // A trip or a nomination is how a driver reaches capture (FR-AUT-005 as
+  // amended), so the create is the whole screen: no unit is read or written.
+  it("creates the user and stops there, with no assign step", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(respond(201, CREATED));
 
     renderScreen();
-    await fillAndSubmit();
-
-    expect(await screen.findByRole("status")).toHaveTextContent(/New Driver was added/);
-    expect(await screen.findByLabelText(/unit/i)).toBeInTheDocument();
-  });
-
-  it("offers a technician no assign step, which the server would refuse", async () => {
-    vi.mocked(fetch).mockResolvedValueOnce(respond(201, { ...CREATED, role: "TECHNICIAN" }));
-
-    renderScreen();
-    await userEvent.selectOptions(screen.getByLabelText("Role"), "TECHNICIAN");
     await fillAndSubmit();
 
     expect(await screen.findByRole("status")).toHaveTextContent(/New Driver was added/);
     expect(screen.queryByRole("heading", { name: "Assign to a unit" })).toBeNull();
+    expect(screen.queryByLabelText(/^unit$/i)).toBeNull();
     expect(fetch).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps the assign step when the role select changes after a driver is added", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(201, CREATED))
-      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]));
-
-    renderScreen();
-    await fillAndSubmit();
-    await screen.findByRole("heading", { name: "Assign to a unit" });
-    await userEvent.selectOptions(screen.getByLabelText("Role"), "TECHNICIAN");
-
-    expect(screen.getByRole("heading", { name: "Assign to a unit" })).toBeInTheDocument();
+    const urls = vi.mocked(fetch).mock.calls.map((c) => requestedUrl(c[0]));
+    expect(urls.some((u) => u.endsWith("/drivers"))).toBe(false);
   });
 
   it("names an active collision as an address already in use", async () => {
@@ -115,22 +94,6 @@ describe("adding a driver", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(/permission to add a user/i);
   });
 
-  it("names the assign action, not the add-user one, on an assignment refused as forbidden", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(201, CREATED))
-      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]))
-      .mockResolvedValueOnce(respond(403, { code: "forbidden", message: "no" }));
-
-    renderScreen();
-    await fillAndSubmit();
-    await screen.findByLabelText(/unit/i);
-    await userEvent.click(screen.getByRole("button", { name: /assign/i }));
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(/permission to assign a unit/i);
-    expect(alert).not.toHaveTextContent(/add a user/i);
-  });
-
   it("falls back to a generic message for a create refusal with an unrecognised code", async () => {
     vi.mocked(fetch).mockResolvedValueOnce(respond(500, { code: "boom", message: "unrecognised" }));
 
@@ -142,23 +105,8 @@ describe("adding a driver", () => {
     expect(alert).toHaveTextContent(/add a user/i);
   });
 
-  it("offers no unit picker, and no silent no-op, when there is nothing to assign to", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(201, CREATED))
-      .mockResolvedValueOnce(respond(200, []));
-
-    renderScreen();
-    await fillAndSubmit();
-
-    expect(await screen.findByText(/no units yet/i)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/unit/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /assign/i })).not.toBeInTheDocument();
-  });
-
   it("clears the create form once a user has been added", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(201, CREATED))
-      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]));
+    vi.mocked(fetch).mockResolvedValueOnce(respond(201, CREATED));
 
     renderScreen();
     await fillAndSubmit();
@@ -166,24 +114,6 @@ describe("adding a driver", () => {
     await screen.findByRole("status");
     expect(screen.getByLabelText(/email/i)).toHaveValue("");
     expect(screen.getByLabelText(/name/i)).toHaveValue("");
-  });
-
-  it("records the assignment against the unit chosen", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(201, CREATED))
-      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]))
-      .mockResolvedValueOnce(
-        respond(201, { id: "a1", vehicleId: "v1", userId: "u1", fromDate: "2026-08-28" }),
-      );
-
-    renderScreen();
-    await fillAndSubmit();
-    await screen.findByLabelText(/unit/i);
-    await userEvent.selectOptions(screen.getByLabelText(/unit/i), "v1");
-    await userEvent.click(screen.getByRole("button", { name: /assign/i }));
-
-    expect(await screen.findByText(/assigned to H99/i)).toBeInTheDocument();
-    expect(vi.mocked(fetch).mock.calls[2][0]).toBe("/api/vehicles/v1/drivers");
   });
 
   it("offers only DRIVER to an actor holding InviteDriver alone", () => {
@@ -270,25 +200,5 @@ describe("adding a driver", () => {
     // and the sentence must not claim a stranger joined (TYRE-95).
     expect(await screen.findByRole("status")).toHaveTextContent(/New Driver was restored/);
     expect(screen.queryByRole("button", { name: /reactivate/i })).not.toBeInTheDocument();
-  });
-
-  // The browser's calendar day is the admin's, not the tenant's. Sending none
-  // lets the server compute it where the tenant's zone lives (TYRE-89).
-  it("sends no date with an assignment", async () => {
-    vi.mocked(fetch)
-      .mockResolvedValueOnce(respond(201, CREATED))
-      .mockResolvedValueOnce(respond(200, [{ id: "v1", fleetNumber: "H99", registration: null }]))
-      .mockResolvedValueOnce(
-        respond(201, { id: "a1", vehicleId: "v1", userId: "u1", fromDate: "2026-08-28" }),
-      );
-
-    renderScreen();
-    await fillAndSubmit();
-    await screen.findByLabelText(/unit/i);
-    await userEvent.selectOptions(screen.getByLabelText(/unit/i), "v1");
-    await userEvent.click(screen.getByRole("button", { name: /assign/i }));
-    await screen.findByText(/assigned to H99/i);
-
-    expect(sentBody(2)).not.toHaveProperty("fromDate");
   });
 });
