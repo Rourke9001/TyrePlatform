@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"testing"
 
 	"github.com/google/uuid"
@@ -466,4 +467,48 @@ func TestStartTripIsBlockedByADueInspection(t *testing.T) {
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 
 	require.Equal(t, http.StatusForbidden, get(t, h, path, tenantID.String(), driver.String()).Code)
+}
+
+// The blockers read in one order, whoever asks and however often a unit is
+// named: walk order, then due instant, then task id, so the panel and the
+// TY028 message agree (U148). The ids are drawn and sorted so the id order
+// runs against the due order.
+func TestTripBlockersReadInOneOrder(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horse, trailer := plantRigUnits(t, ctx, admin, "trip-gate-order")
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	plantOpenRig(t, ctx, admin, tenantID, horse, trailer)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	ids := []uuid.UUID{uuid.New(), uuid.New(), uuid.New()}
+	sort.Slice(ids, func(i, j int) bool { return ids[i].String() < ids[j].String() })
+	plant := func(id, unit uuid.UUID, instant string) {
+		t.Helper()
+		_, err := admin.Exec(ctx, `
+			INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, created_at)
+			SELECT $3, t.id, $2, (`+instant+`), now() - interval '12 hours'
+			  FROM app.tenant t WHERE t.id = $1`, tenantID, unit, id)
+		require.NoError(t, err)
+	}
+	const morning = `(app.tenant_today(t.timezone)::timestamp + interval '6 hours') AT TIME ZONE t.timezone`
+	const endOfToday = `((app.tenant_today(t.timezone) + 1)::timestamp AT TIME ZONE t.timezone) - interval '1 microsecond'`
+	plant(ids[1], horse, morning)
+	plant(ids[0], horse, endOfToday)
+	plant(ids[2], horse, endOfToday)
+	trailerTask := uuid.New()
+	plant(trailerTask, trailer, endOfToday)
+
+	path := fmt.Sprintf("/api/vehicles/%s/trip-blockers?addTrailers=%s,%s,%s", horse, trailer, horse, trailer)
+	rec := get(t, h, path, tenantID.String(), controller.String())
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got []struct {
+		TaskID string `json:"taskId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	order := make([]string, 0, len(got))
+	for _, b := range got {
+		order = append(order, b.TaskID)
+	}
+	require.Equal(t, []string{ids[1].String(), ids[0].String(), ids[2].String(), trailerTask.String()}, order)
 }
