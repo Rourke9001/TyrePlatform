@@ -237,7 +237,9 @@ GRANT UPDATE (state, cancelled_reason, completed_inspection_id) ON app.inspectio
 -- the trailer reaches its driver through the motive's rig. Where rows
 -- conflict, two drivers on one motive or one driver on two, the newest
 -- from_date wins, then the lowest id, and the rest stay history only. A
--- future row is not converted. migrated_from_assignment_id marks the trip.
+-- future row is not converted, and nor is one app.start_trip would refuse,
+-- on a retired motive or for a deactivated driver, so it never wins a
+-- conflict. migrated_from_assignment_id marks the trip.
 -- This runs as the migration role, which bypasses RLS, so every predicate
 -- names the tenant.
 DO $$
@@ -249,7 +251,10 @@ BEGIN
       FROM app.vehicle_driver vd
       JOIN app.tenant t ON t.id = vd.tenant_id
       JOIN app.vehicle v ON v.tenant_id = vd.tenant_id AND v.id = vd.vehicle_id
+      JOIN app.app_user u ON u.tenant_id = vd.tenant_id AND u.id = vd.user_id
      WHERE v.unit_kind <> 'TRAILER'
+       AND v.status NOT IN ('DISPOSED', 'INACTIVE')
+       AND u.active
        AND vd.from_date <= app.tenant_today(t.timezone)
        AND (vd.to_date IS NULL OR vd.to_date >= app.tenant_today(t.timezone))
      ORDER BY vd.from_date DESC, vd.id
@@ -269,11 +274,14 @@ END $$;
 
 -- Each outstanding task's assignee becomes a nomination dated at the task's
 -- creation by whoever asked for it, so no outstanding task changes hands
--- through its assignee. Part D has already made ESCALATED rows OPEN.
+-- through an active assignee. A deactivated one is not copied, since
+-- app.nominate_for_task would refuse them. Part D has already made ESCALATED
+-- rows OPEN.
 INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at, nominated_by)
 SELECT k.tenant_id, k.id, k.assigned_user_id, k.created_at, k.requested_by
   FROM app.inspection_task k
- WHERE k.state = 'OPEN' AND k.assigned_user_id IS NOT NULL;
+  JOIN app.app_user u ON u.tenant_id = k.tenant_id AND u.id = k.assigned_user_id
+ WHERE k.state = 'OPEN' AND u.active;
 
 -- ---------------------------------------------------------------------------
 -- F. Retire the old readers
