@@ -14121,7 +14121,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept, and a closed task never changes state (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
+\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept and a future one refused, and a closed task never changes state (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -14197,6 +14197,17 @@ BEGIN
   IF s IS DISTINCT FROM 'yesterday,now,null' THEN
     RAISE EXCEPTION 'FAIL 76d: a cancelled task planted at a past close, one planted with none and an open one planted with one read %, not yesterday,now,null (the past close kept through a due_at edit)', s;
   END IF;
+  s := NULL;
+  BEGIN
+    INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
+    VALUES (bac, h1, now(), 'CANCELLED', '76d', now() + interval '30 days');
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE;
+    s := s || ' ' || SQLERRM;
+  END;
+  IF s IS DISTINCT FROM 'TY018 an inspection task is closed now or earlier, never in the future' THEN
+    RAISE EXCEPTION 'FAIL 76d: a cancelled task planted with a close 30 days ahead was answered %, not TY018', COALESCE(s, 'by success');
+  END IF;
   -- Escalated is worked out, never stored (spec, Escalation); the enum value
   -- stays because dropping one is a type rebuild for no gain.
   s := NULL;
@@ -14217,7 +14228,7 @@ BEGIN
     END IF;
   END LOOP;
   PERFORM set_config('app.tenant_id', bac::text, true);
-  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted close is kept, an open task has none, a closed task never changes state, and none is ever ESCALATED';
+  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted past close is kept and a future one refused, an open task has none, a closed task never changes state, and none is ever ESCALATED';
 END $$;
 ROLLBACK;
 

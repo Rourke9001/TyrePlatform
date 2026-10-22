@@ -190,6 +190,14 @@ BEGIN
   END IF;
   IF TG_OP = 'INSERT' THEN
     NEW.closed_at := CASE WHEN NEW.state = 'OPEN' THEN NULL ELSE COALESCE(NEW.closed_at, now()) END;
+    -- A planted close is never ahead of now: until it arrived, the
+    -- responsibility read would name a driver for a task the outstanding
+    -- read already counts closed (FR-INS-052). An OPEN row's close is
+    -- discarded above, so only a closed row can meet this.
+    IF NEW.closed_at > now() THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY018',
+        MESSAGE = 'an inspection task is closed now or earlier, never in the future';
+    END IF;
   ELSE
     NEW.closed_at := CASE WHEN NEW.state = 'OPEN' THEN NULL
                           WHEN OLD.state = 'OPEN' THEN now()
