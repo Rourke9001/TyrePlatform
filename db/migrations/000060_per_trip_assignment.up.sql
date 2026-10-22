@@ -188,6 +188,16 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY018',
       MESSAGE = format('this inspection task is %s; a closed task never changes state', lower(OLD.state::text));
   END IF;
+  -- A completed task counts for the driver whose inspection completed it
+  -- (spec, Decisions 2), so the citation and the reason are as final as the
+  -- state. Named, not the whole row: schedule_id's ON DELETE SET NULL still
+  -- reaches a closed task (db/tests/005_privileged.sql, P16).
+  IF TG_OP = 'UPDATE' AND OLD.state IN ('COMPLETED', 'CANCELLED')
+     AND (NEW.completed_inspection_id IS DISTINCT FROM OLD.completed_inspection_id
+          OR NEW.cancelled_reason IS DISTINCT FROM OLD.cancelled_reason) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('this inspection task is %s; a closed task keeps its completing inspection and its reason', lower(OLD.state::text));
+  END IF;
   IF TG_OP = 'INSERT' THEN
     NEW.closed_at := CASE WHEN NEW.state = 'OPEN' THEN NULL ELSE COALESCE(NEW.closed_at, now()) END;
     -- A planted close is never ahead of now: until it arrived, the

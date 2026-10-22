@@ -34,6 +34,11 @@
 -- predicates keep them in the bound one, then edits a receipt and a tyre's
 -- receipt link to watch both receipt triggers refuse a superuser
 -- (TYRE-283).
+--
+-- P16 deletes a schedule, which app_login cannot, so the task's ON DELETE
+-- SET NULL (schedule_id) reaches closed tasks: inspection_task_closes_once
+-- freezes a closed task's state, citation and reason by name, never the
+-- whole row (TYRE-326).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -962,6 +967,37 @@ BEGIN
     END IF;
   END LOOP;
   RAISE NOTICE 'PASS  P15 the receipt moves, set_tyre_cost and receive_tyres find no other fleet''s row, record_consent writes the bound fleet''s alone, and both receipt triggers bind a superuser';
+END $$;
+ROLLBACK;
+
+\echo '== P16. TYRE-326: deleting a schedule still clears the schedule_id of the closed tasks it names, whose state, citation and reason stay as they were (FR-INS-052, DR-014)'
+BEGIN;
+DO $$
+DECLARE bac   constant uuid := '11111111-1111-1111-1111-111111111111';
+        sched constant uuid := md5('p16-sched')::uuid;
+        v uuid; insp uuid; kc uuid; kd uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', '', true);
+  SELECT i.id, i.vehicle_id INTO STRICT insp, v
+    FROM app.inspection i WHERE i.tenant_id = bac ORDER BY i.id LIMIT 1;
+  INSERT INTO app.inspection_schedule (id, tenant_id, vehicle_id) VALUES (sched, bac, v);
+  INSERT INTO app.inspection_task (tenant_id, schedule_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
+  VALUES (bac, sched, v, now() - interval '2 days', 'CANCELLED', 'P16', now() - interval '1 day')
+  RETURNING id INTO kc;
+  INSERT INTO app.inspection_task (tenant_id, schedule_id, vehicle_id, due_at, state, completed_inspection_id, closed_at)
+  VALUES (bac, sched, v, now() - interval '2 days', 'COMPLETED', insp, now() - interval '1 day')
+  RETURNING id INTO kd;
+  DELETE FROM app.inspection_schedule WHERE id = sched;
+  SELECT string_agg(concat_ws(' ', k.state, COALESCE(k.schedule_id::text, 'unscheduled'),
+                              COALESCE(k.cancelled_reason, (k.completed_inspection_id = insp)::text),
+                              (k.closed_at = now() - interval '1 day')::text),
+                    ',' ORDER BY k.state::text) INTO got
+    FROM app.inspection_task k WHERE k.id IN (kc, kd);
+  IF got IS DISTINCT FROM 'CANCELLED unscheduled P16 true,COMPLETED unscheduled true true' THEN
+    RAISE EXCEPTION 'FAIL P16: after the schedule''s deletion its closed tasks read %', got;
+  END IF;
+  RAISE NOTICE 'PASS  P16 a schedule''s deletion clears its closed tasks'' schedule_id and leaves their state, citation, reason and close as they were';
 END $$;
 ROLLBACK;
 
