@@ -168,7 +168,7 @@ function stubApi(
           ),
       });
     }
-    const asked = byId.get(url.split("/").pop() ?? "");
+    const asked = byId.get(url.split("?")[0].split("/").pop() ?? "");
     return Promise.resolve(
       asked
         ? { ok: true, status: 200, json: () => Promise.resolve(asked) }
@@ -177,6 +177,13 @@ function stubApi(
   });
   vi.stubGlobal("fetch", api);
   return api;
+}
+
+// Every capture context GET the flow made, in order.
+function contextReads(api: ReturnType<typeof stubApi>): string[] {
+  return api.mock.calls
+    .filter(([url, init]) => init?.method !== "POST" && url.startsWith("/api/capture/vehicles/"))
+    .map(([url]) => url);
 }
 
 // Real timers throughout: CaptureFlow writes to IndexedDB on every keystroke
@@ -316,6 +323,71 @@ describe("CaptureFlow", () => {
     expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
   });
 
+  // U148: a resumed draft reads its units through the window its submit is
+  // judged over, so a trip that ended while it sat on the phone does not
+  // strand it. Every read waits for the draft load, so none goes at now.
+  it("reads a resumed draft's units through the draft's own startedAt", async () => {
+    const startedAt = "2026-10-22T06:00:00.000Z";
+    await startDraft({
+      driverSubject: DRIVER,
+      vehicleId: "v1",
+      taskId: null,
+      startedAt,
+      fleetNumber: "BAC039SP",
+      combinationId: "c1",
+      observedMemberVehicleIds: ["v1", "v2"],
+    });
+    const api = stubApi(201, [rigMotive, trailer]);
+    renderFlow();
+
+    await screen.findAllByRole("button", { name: /, BAC711TR, / });
+    const reads = contextReads(api);
+    expect(reads.map((u) => u.split("?")[0]).sort()).toEqual([
+      "/api/capture/vehicles/v1",
+      "/api/capture/vehicles/v2",
+    ]);
+    for (const u of reads) expect(u).toContain(`?startedAt=${encodeURIComponent(startedAt)}`);
+  });
+
+  it("reads a fresh capture's unit at now", async () => {
+    const api = stubApi();
+    renderFlow();
+
+    await screen.findByRole("button", { name: /start inspection/i });
+    expect(contextReads(api)).toEqual(["/api/capture/vehicles/v1"]);
+  });
+
+  it("asks for nothing until the draft has loaded", async () => {
+    const api = stubApi();
+    let release: (v: undefined) => void = () => undefined;
+    const held = new Promise<undefined>((resolve) => (release = resolve));
+    const get = vi.spyOn(db.drafts, "get").mockReturnValue(held as never);
+    renderFlow();
+
+    await waitFor(() => expect(get).toHaveBeenCalled());
+    expect(contextReads(api)).toEqual([]);
+    release(undefined);
+    await screen.findByRole("button", { name: /start inspection/i });
+    expect(contextReads(api)).toEqual(["/api/capture/vehicles/v1"]);
+  });
+
+  // FR-OFF-001: the signal can go once the context has loaded, and
+  // capture.spec.ts cuts it at exactly this point. Start must not change
+  // the read's key, or the capture screen waits on a fetch that cannot land.
+  it("makes no further read after Start, and captures with the network gone", async () => {
+    const user = newUser();
+    const api = stubApi();
+    renderFlow();
+
+    await screen.findByRole("button", { name: /start inspection/i });
+    api.mockImplementation(() => Promise.reject(new TypeError("Failed to fetch")));
+    await user.click(screen.getByRole("button", { name: /start inspection/i }));
+
+    expect(await screen.findByRole("button", { name: /^Position 1,/ })).toBeInTheDocument();
+    expect(screen.queryByText("Loading…")).toBeNull();
+    expect(contextReads(api)).toEqual(["/api/capture/vehicles/v1"]);
+  });
+
   // TYRE-148, the other half: resume put the driver on the diagram (one tap
   // to reopen) even when the draft says exactly which sheet they were in.
   it("resumes straight into the position that was half-entered", async () => {
@@ -453,7 +525,9 @@ describe("CaptureFlow", () => {
     // cannot be followed, which NFR-USE-005 rates below saying nothing.
     expect(alert).not.toHaveTextContent(/keep the app open/i);
     expect(screen.getByRole("button", { name: /recheck storage/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /start inspection/i })).toBeDisabled();
+    // The read starts once the draft load has answered (U148), so the
+    // button follows the alert.
+    expect(await screen.findByRole("button", { name: /start inspection/i })).toBeDisabled();
   });
 
   // The retry has to re-attempt, not just clear the message. A device policy

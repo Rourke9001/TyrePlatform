@@ -117,12 +117,20 @@ func captureContext(s *store.Store) http.HandlerFunc {
 		if !ok {
 			return
 		}
+		var raw *string
+		if v := r.URL.Query().Get("startedAt"); v != "" {
+			raw = &v
+		}
+		startedAt, err := instantField("startedAt", raw)
+		if refuseInvalid(w, r, err) {
+			return
+		}
 		var body captureContextBody
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
 			}
-			return loadCaptureContext(r.Context(), tx, a, vehicleID, &body)
+			return loadCaptureContext(r.Context(), tx, a, vehicleID, startedAt, &body)
 		})
 		if !ok {
 			return
@@ -136,20 +144,31 @@ func captureContext(s *store.Store) http.HandlerFunc {
 // configuration. It composes the matching scope view so a driver reads only
 // the units they hold, exactly as listVehicles and listMyVehicles already do
 // (ADR-0006).
-func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, out *captureContextBody) error {
+func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, startedAt *time.Time, out *captureContextBody) error {
 	// ADR-0006: the scope predicate lives in SQL and the handler composes the
 	// matching view. A DRIVER reaches only the units their trip or
 	// nomination covers now (FR-AUT-005 as amended); a tenant-scoped role
 	// reads the register. Refusing through
 	// an empty result is what keeps "you may not see this" and "this does not
 	// exist" indistinguishable (ADR-0011).
-	from := `app.vehicle v`
+	from, where, args := `app.vehicle v`, "", []any{vehicleID}
 	if a.Scope() != auth.ScopeTenant {
 		// v_capture_vehicle, the capture set at now (000060): the trip's units
 		// and a nominee's, the trailers of a rig among them, or a superlink
 		// could not be inspected at all. It carries no fleet columns, which
 		// this read joins for itself.
 		from = `app.v_capture_vehicle cv JOIN app.vehicle v ON v.id = cv.vehicle_id`
+		if startedAt != nil {
+			// A resumed draft reads through the window its submit will be
+			// judged over (U148; spec, Capture), so a trip that ended while
+			// the draft sat in the phone does not strand it: judged at now,
+			// the draft could be submitted but never reopened (rule 7).
+			from = `app.vehicle v`
+			where = ` AND app.user_could_capture(app.current_actor_id(), v.id,
+			              lower(app.capture_window_between($2::timestamptz, now())),
+			              upper(app.capture_window_between($2::timestamptz, now())))`
+			args = append(args, *startedAt)
+		}
 	}
 	// The average is derived from the odometer timeline (v_removal_forecast's
 	// mean_daily_km is anchored on a tyre's own later reading and is the
@@ -171,7 +190,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		         FROM app.vehicle_odometer_reading vo
 		        WHERE vo.vehicle_id = v.id
 		          AND vo.reading_date > (now() AT TIME ZONE 'UTC')::date - 90) avg_km ON true
-		 WHERE v.id = $1`, vehicleID).
+		 WHERE v.id = $1`+where, args...).
 		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.UnitKind,
 			&out.LastOdometerKm, &out.LastOdometerAt, &out.AverageDailyKm)
 	if errors.Is(err, pgx.ErrNoRows) {

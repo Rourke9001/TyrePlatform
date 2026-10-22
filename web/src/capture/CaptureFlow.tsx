@@ -30,8 +30,6 @@ interface Outcome {
 }
 
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
-  const motive = useCaptureContext(vehicleId);
-
   // A cell, not a position id: two member units of the same axle
   // configuration share every position id, so an id alone opens the wrong
   // unit's sheet on a rig (draft.cellKey). Owned here, not by any one
@@ -51,8 +49,19 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
 
   const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
   const { draft, setDraft, resumed, held, screen, setScreen, storageFault } = lifecycle;
+  // Read once the draft has loaded, so a resumed draft's units are read
+  // through its own window and never first at now (U148).
+  const startedAt = lifecycle.resumedStartedAt ?? undefined;
+  const motive = useCaptureContext(vehicleId, startedAt, resumed);
 
-  const rigComp = useRigComposition(motive.data, vehicleId, resumed, attachedIds, setAttachedIds);
+  const rigComp = useRigComposition(
+    motive.data,
+    vehicleId,
+    resumed,
+    attachedIds,
+    setAttachedIds,
+    startedAt,
+  );
   const { confirmedIds, contexts, membersFailed, toggleAttached } = rigComp;
 
   // The tenant's unit words, read once for every position's warnings.

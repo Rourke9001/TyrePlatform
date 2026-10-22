@@ -46,6 +46,15 @@ type unitTaskJSON struct {
 	Escalated              bool    `json:"escalated"`
 }
 
+// myTaskJSON is the driver's row: taskJSON plus the unit the task is
+// captured through, the motive of a coupled trailer's open rig when the
+// driver can capture the motive (v_my_inspection_task, 000060). A struct of
+// its own, so unitTaskJSON's taskJSON keeps its bytes (U13).
+type myTaskJSON struct {
+	taskJSON
+	CaptureVehicleID string `json:"captureVehicleId"`
+}
+
 // loadUnitTasks answers outstanding tasks, by due date, with each task's
 // responsible driver, either the unit's (vehicleID bound, taskID nil) or one
 // task by id (taskID bound, so a write that creates one can read its own row
@@ -138,7 +147,7 @@ func listUnitTasks(s *store.Store) http.HandlerFunc {
 func listMyTasks(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
-		tasks := []taskJSON{}
+		tasks := []myTaskJSON{}
 		ok := withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.CaptureInspection); err != nil {
 				return err
@@ -147,7 +156,8 @@ func listMyTasks(s *store.Store) http.HandlerFunc {
 			// reached only through v_my_inspection_task's already-narrowed
 			// rows, never joined the other way round (ADR-0006).
 			rows, err := tx.Query(ctx,
-				`SELECT t.id, t.vehicle_id, v.fleet_number, t.due_at, t.state::text, t.overdue
+				`SELECT t.id, t.vehicle_id, v.fleet_number, t.due_at, t.state::text, t.overdue,
+				        t.capture_vehicle_id
 				   FROM app.v_my_inspection_task t
 				   JOIN app.vehicle v ON v.id = t.vehicle_id
 				  ORDER BY t.due_at`)
@@ -156,9 +166,10 @@ func listMyTasks(s *store.Store) http.HandlerFunc {
 			}
 			defer rows.Close()
 			for rows.Next() {
-				var t taskJSON
+				var t myTaskJSON
 				var due time.Time
-				if err := rows.Scan(&t.ID, &t.VehicleID, &t.FleetNumber, &due, &t.State, &t.Overdue); err != nil {
+				if err := rows.Scan(&t.ID, &t.VehicleID, &t.FleetNumber, &due, &t.State, &t.Overdue,
+					&t.CaptureVehicleID); err != nil {
 					return err
 				}
 				t.DueAt = due.UTC().Format(time.RFC3339)

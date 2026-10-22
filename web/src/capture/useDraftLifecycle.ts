@@ -32,6 +32,10 @@ export function useDraftLifecycle(
   // to match, never the other way round. A reload has to find the work.
   const [draft, setDraft] = useState<Draft | null>(null);
   const [resumed, setResumed] = useState(false);
+  // The resumed draft's startedAt, for the context reads (U148). Set only
+  // by the load: a Start must not change the read's key, or the capture
+  // screen waits on a fetch the lost signal never answers (FR-OFF-001).
+  const [resumedStartedAt, setResumedStartedAt] = useState<string | null>(null);
   const [held, setHeld] = useState<Draft | null>(null);
   const [screen, setScreen] = useState<Screen>("start");
   const [storageFault, setStorageFault] = useState<StorageFault | null>(null);
@@ -49,11 +53,13 @@ export function useDraftLifecycle(
     void loadDraft().then(
       (existing) => {
         if (dropped) return;
+        setResumedStartedAt(null);
         if (existing && !mayCarry(existing, stampSubject())) {
           // U104: held for its own driver, never resumed or offered for
           // discard under another (FR-OFF-014).
           setOtherDriverHeld(true);
         } else if (existing?.vehicleId === vehicleId) {
+          setResumedStartedAt(existing.startedAt);
           setDraft(existing);
           setAttachedIds(
             existing.observedMemberVehicleIds.length > 0
@@ -141,6 +147,9 @@ export function useDraftLifecycle(
         setDraft(null);
         setActiveKey(null);
         setAttachedIds(null);
+        // A new capture is judged over its own window, so its Start screen
+        // reads at now (FR-AUT-005).
+        setResumedStartedAt(null);
         setScreen("start");
       },
       () => setStorageFault("degraded"),
@@ -151,6 +160,7 @@ export function useDraftLifecycle(
     draft,
     setDraft,
     resumed,
+    resumedStartedAt,
     held,
     screen,
     setScreen,

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -857,4 +858,59 @@ func TestSubmitByAControllerNeedsNoTrip(t *testing.T) {
 	rec := postCapture(t, h, tenantID, controllerID,
 		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now))
 	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// A draft resumed after its trip ended reads its unit through the submit's
+// own window ending now, so it is never stranded (U148; spec, Capture). With
+// no startedAt the read stays at now, as /api/my/vehicles does.
+func TestCaptureContextAdmitsAResumedDraftsWindow(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, trailerID := plantCaptureFixture(t, ctx, admin, "resume")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	plantTripSpan(t, ctx, admin, tenantID, horseID, driverID, "2 hours", "10 minutes")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	read := func(unit, actor uuid.UUID, startedAgo *time.Duration) int {
+		t.Helper()
+		path := "/api/capture/vehicles/" + unit.String()
+		if startedAgo != nil {
+			path += "?startedAt=" + url.QueryEscape(time.Now().Add(-*startedAgo).UTC().Format(time.RFC3339))
+		}
+		return get(t, h, path, tenantID.String(), actor.String()).Code
+	}
+	twenty, five := 20*time.Minute, 5*time.Minute
+
+	require.Equal(t, http.StatusOK, read(horseID, driverID, &twenty), "the draft began while the driver held the horse")
+	require.Equal(t, http.StatusOK, read(trailerID, driverID, &twenty), "and the trailer its rig tows")
+	require.Equal(t, http.StatusForbidden, read(horseID, driverID, nil), "at now the trip has ended")
+	require.Equal(t, http.StatusForbidden, read(horseID, driverID, &five), "a draft begun after the end")
+	rec := get(t, h, "/api/capture/vehicles/"+horseID.String()+"?startedAt=yesterday", tenantID.String(), driverID.String())
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	ref := decodeRefusal(t, rec.Body.Bytes())
+	require.Equal(t, "invalid_submission", ref.Code)
+	require.Contains(t, ref.Message, "startedAt")
+
+	// A nominee whose nomination a trip took over ten minutes ago.
+	nominee := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	other := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	unrelated, _ := plantUnrelatedVehicle(t, ctx, admin, tenantID)
+	var taskID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+		 VALUES ($1, $2, now() + interval '1 day', now() - interval '2 hours') RETURNING id`,
+		tenantID, unrelated).Scan(&taskID))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+		 VALUES ($1, $2, $3, now() - interval '1 hour')`, tenantID, taskID, nominee)
+	require.NoError(t, err)
+	_, err = admin.Exec(ctx,
+		`INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+		 VALUES ($1, $2, $3, now() - interval '10 minutes')`, tenantID, unrelated, other)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, read(unrelated, nominee, &twenty))
+	require.Equal(t, http.StatusForbidden, read(unrelated, nominee, nil))
+
+	require.Equal(t, http.StatusOK, read(horseID, controllerID, nil), "a tenant-wide role reads the register")
+	require.Equal(t, http.StatusOK, read(horseID, controllerID, &twenty))
 }
