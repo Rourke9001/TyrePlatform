@@ -3,11 +3,10 @@ import { expect, test, type Page } from "@playwright/test";
 import { captureAll, capturePosition, done, startInspection, submit } from "./captureSteps";
 import { ageToken, lapseSession, stubIdentityProvider, type IdpStub } from "./idp";
 import {
-  SANDBOX_DRIVER,
   apiGet,
-  apiPost,
   configFor,
   createUnit,
+  nominateSandboxDriver,
   type AxleConfiguration,
 } from "./sandbox";
 
@@ -38,7 +37,8 @@ test.afterEach(() => {
 async function unitForDriver(page: Page, label: string): Promise<string> {
   const configs = (await apiGet(page, "/api/axle-configurations")) as AxleConfiguration[];
   const id = await createUnit(page, `AU${label}-${RUN}`, "HORSE", configFor(configs, "HORSE_6X4"));
-  await apiPost(page, `/api/vehicles/${id}/drivers`, { userId: SANDBOX_DRIVER });
+  // FR-AUT-005 as amended: the nomination is what lets the driver capture it.
+  await nominateSandboxDriver(page, id);
   return id;
 }
 

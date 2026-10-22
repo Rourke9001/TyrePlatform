@@ -6,12 +6,12 @@ import {
   apiPost,
   configFor,
   createUnit,
+  nominateSandboxDriver,
   posted,
   submitMinimalInspection,
   ACTOR,
   CONTROLLER,
   DRIVER_ACTOR,
-  SANDBOX_DRIVER,
   type AxleConfiguration,
   type CaptureContext,
 } from "./sandbox";
@@ -52,9 +52,10 @@ test("a controller applies the difference a driver reported", async ({ page }) =
   const droppedId = await createUnit(page, DROPPED_FLEET, "TRAILER", trailerConfig);
   const spareHorseId = await createUnit(page, SPARE_HORSE_FLEET, "HORSE", horseConfig);
 
-  // FR-AUT-005: the assignment on the motive is what lets the driver capture
-  // the rig at all (app.v_capture_vehicle unions the coupled units onto it).
-  await apiPost(page, `/api/vehicles/${horseId}/drivers`, { userId: SANDBOX_DRIVER });
+  // FR-AUT-005 as amended: the nomination on the motive is what lets the
+  // driver capture the rig at all (app.v_capture_span reaches the coupled
+  // units through it).
+  await nominateSandboxDriver(page, horseId);
 
   // effectiveFrom is read back, not assumed: POST /api/combinations answers
   // combinationJSON (api/internal/httpapi/combinations.go), and the instant

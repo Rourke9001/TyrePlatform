@@ -27,11 +27,15 @@ test("a controller lands on the dashboard and reaches the units from it", async 
 test("a driver lands on their own work, never the fleet", async ({ page }) => {
   await actAs(page, MELUSI_DRIVER, TENANT_BAC);
   await page.goto("/");
-  // FR-DSH-012: a driver's landing view is their own outstanding work.
+  // FR-DSH-012 as amended: a driver's landing view is their trip's truck and
+  // trailers, with what is due on each.
   await expect(page).toHaveURL(/\/my$/);
   await expect(page.getByRole("heading", { name: "My inspections" })).toBeVisible();
+  const trip = page.getByRole("region", { name: "Your trip" });
+  await expect(trip.getByRole("listitem")).toHaveText(["HORSE", "LINK6", "LINK12"]);
   // The fixture seeds no inspection tasks, and an empty result renders as an
   // answer, never as an error (the fourth refusal layer is 200 []).
+  await expect(page.getByText("Nothing due.")).toHaveCount(1);
   await expect(page.getByText("Nothing due.")).toBeVisible();
 });
 

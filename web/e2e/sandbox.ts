@@ -9,7 +9,7 @@ import { expect, type APIResponse, type Page, type Response } from "@playwright/
 
 // Seed-derived ids, per admin.ts: md5('sbcontroller1') holds ViewFleet,
 // ManageAssets and ManageAssignments, and md5('sbdriver1') is the Sandbox
-// driver these flows assign, schedule and submit as.
+// driver these flows nominate, schedule and submit as.
 export const TENANT = "33333333-3333-3333-3333-333333333333";
 export const CONTROLLER = "c8b320df-8f90-ce76-e180-9d35ea293a9c";
 export const SANDBOX_DRIVER = "40f019ce-192e-92d1-5b15-2eb7b65369df";
@@ -57,6 +57,16 @@ export async function apiPost(page: Page, path: string, data: unknown): Promise<
   const res = await page.request.post(path, { headers: ACTOR, data });
   expect(res.ok(), await res.text()).toBeTruthy();
   return res.json();
+}
+
+// FR-AUT-005 as amended: a nomination lets the Sandbox driver capture a unit
+// no trip of theirs holds, and the rig it heads (spec, Capture). The task is
+// due the tenant's today, so a submit with a reading on the unit closes it
+// and the reach goes with it (U150).
+export async function nominateSandboxDriver(page: Page, unitId: string): Promise<{ id: string }> {
+  return (await apiPost(page, `/api/vehicles/${unitId}/inspection-tasks`, {
+    nomineeUserId: SANDBOX_DRIVER,
+  })) as { id: string };
 }
 
 // The seeded catalogue entries a receive names (gen_seed_fixture.py,
