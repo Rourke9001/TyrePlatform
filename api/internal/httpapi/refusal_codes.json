@@ -85,11 +85,6 @@
     "httpStatus": 409,
     "meaning": "no deactivated user holds that email address any more"
   },
-  "assignment_overlaps": {
-    "source": "go",
-    "httpStatus": 409,
-    "meaning": "vehicle_driver_no_overlap: that driver already holds an overlapping assignment to this unit (B1's exclusion constraint)"
-  },
   "trip_overlaps": {
     "source": "go",
     "httpStatus": 409,

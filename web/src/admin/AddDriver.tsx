@@ -1,58 +1,40 @@
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
-import { assignDriver, createUser, type CreatedUser, type TenantRole } from "../api/admin";
+import { createUser, type CreatedUser, type TenantRole } from "../api/admin";
 import { ApiError } from "../api/client";
-import { getDevTenantId } from "../api/devTenant";
 import { refusalMessage } from "../api/refusal";
-import { fetchVehicles } from "../api/vehicles";
 import { useCan } from "../auth/actorContext";
-import { vehiclesKey } from "../fleet/unit/queryKeys";
 import "./admin.css";
 
 // The roles a tenant may create. PLATFORM_ADMIN is absent because it is not
 // creatable through a tenant surface at all (ADR-0011, ADR-0013). This is the
 // full list; the component narrows it per actor before rendering (D9).
-// assignable mirrors CaptureInspection in api/internal/auth/auth.go's table,
-// which decides. The assign step shows only for an assignable role, because
-// the server refuses anyone else (refuseNonCapturer).
-const ROLES: { value: TenantRole; label: string; assignable: boolean }[] = [
-  { value: "DRIVER", label: "Driver", assignable: true },
-  { value: "TECHNICIAN", label: "Technician", assignable: false },
-  { value: "CONTROLLER", label: "Controller", assignable: true },
-  { value: "DEPOT_MANAGER", label: "Depot manager", assignable: true },
-  { value: "ORG_ADMIN", label: "Organisation admin", assignable: true },
+const ROLES: { value: TenantRole; label: string }[] = [
+  { value: "DRIVER", label: "Driver" },
+  { value: "TECHNICIAN", label: "Technician" },
+  { value: "CONTROLLER", label: "Controller" },
+  { value: "DEPOT_MANAGER", label: "Depot manager" },
+  { value: "ORG_ADMIN", label: "Organisation admin" },
 ];
 
-// Shared by both mutations so the message names the action refused:
-// ManageUsers and ManageAssignments are separate capabilities (TYRE-83); a
-// wrong-action sentence points at the wrong one.
-function refused(error: unknown, action: "add a user" | "assign a unit"): string {
+function refused(error: unknown): string {
   return refusalMessage(error, {
-    speakable: [
-      "email_taken",
-      "email_inactive",
-      "nothing_to_reactivate",
-      "assignment_overlaps",
-      "staff_number_taken",
-    ],
-    forbidden: `You do not have permission to ${action}.`,
-    fallback: `Could not ${action}. Try again, or call support if it keeps happening.`,
+    speakable: ["email_taken", "email_inactive", "nothing_to_reactivate", "staff_number_taken"],
+    forbidden: "You do not have permission to add a user.",
+    fallback: "Could not add a user. Try again, or call support if it keeps happening.",
   });
 }
 
-// FR-AUT-010's invite (D9, ADR-0011: ManageUsers or InviteDriver). Assignment
-// follows create, not its own screen: an unassigned driver reaches no
-// capture (FR-AUT-005, app.v_capture_vehicle).
+// FR-AUT-010's invite (D9, ADR-0011: ManageUsers or InviteDriver). A driver
+// reaches capture through a trip or a nomination, which the unit screen
+// makes (FR-AUT-005 as amended), so creating one ends here.
 export function AddDriver() {
-  const tenantKey = getDevTenantId() ?? "default";
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [staffNumber, setStaffNumber] = useState("");
   const [role, setRole] = useState<TenantRole>("DRIVER");
   const [created, setCreated] = useState<CreatedUser | null>(null);
-  const [vehicleId, setVehicleId] = useState("");
-  const [assignedTo, setAssignedTo] = useState<string | null>(null);
   // Tanstack Query v5 clears create.error once Reactivate's mutation starts;
   // re-deriving from it here would announce the fallback over a retry that
   // is succeeding. Captured once in onError, kept regardless (D10).
@@ -66,23 +48,12 @@ export function AddDriver() {
   // keeps the form from expressing a request it knows will be refused.
   const canManageUsers = useCan("ManageUsers");
   const roles = canManageUsers ? ROLES : ROLES.filter((r) => r.value === "DRIVER");
-  // Read from the created user, not the form, because the role select stays
-  // editable after a user is added.
-  const assignable = ROLES.find((r) => r.value === created?.role)?.assignable ?? false;
-
-  const vehicles = useQuery({
-    queryKey: vehiclesKey(tenantKey),
-    queryFn: fetchVehicles,
-    // The list is only needed once there is somebody to assign.
-    enabled: assignable,
-  });
 
   const create = useMutation({
     mutationFn: createUser,
     onSuccess: (user, variables) => {
       setCreated(user);
       setRestored(variables.reactivate === true);
-      setAssignedTo(null);
       setEmail("");
       setDisplayName("");
       setStaffNumber("");
@@ -91,16 +62,9 @@ export function AddDriver() {
     onError: (error) => {
       setRehire(
         error instanceof ApiError && error.code === "email_inactive"
-          ? { email, message: refused(error, "add a user") }
+          ? { email, message: refused(error) }
           : null,
       );
-    },
-  });
-
-  const assign = useMutation({
-    mutationFn: (id: string) => assignDriver(id, { userId: created?.id ?? "" }),
-    onSuccess: (_, id) => {
-      setAssignedTo(vehicles.data?.find((v) => v.id === id)?.fleetNumber ?? null);
     },
   });
 
@@ -112,13 +76,6 @@ export function AddDriver() {
       staffNumber: staffNumber === "" ? undefined : staffNumber,
       role,
     });
-  }
-
-  function submitAssignment(e: FormEvent) {
-    e.preventDefault();
-    const id = vehicleId === "" ? (vehicles.data?.[0]?.id ?? "") : vehicleId;
-    if (id === "") return;
-    assign.mutate(id);
   }
 
   return (
@@ -172,9 +129,7 @@ export function AddDriver() {
         </button>
       </form>
 
-      {create.isError && rehire === null && (
-        <p role="alert">{refused(create.error, "add a user")}</p>
-      )}
+      {create.isError && rehire === null && <p role="alert">{refused(create.error)}</p>}
       {rehire !== null && (
         <>
           <p role="alert">{rehire.message}</p>
@@ -203,42 +158,6 @@ export function AddDriver() {
           {created.displayName} was {restored ? "restored" : "added"}.
         </p>
       )}
-
-      {created && assignable && (
-        <form onSubmit={submitAssignment}>
-          <h2>Assign to a unit</h2>
-          {vehicles.isPending && <p>Loading units…</p>}
-          {vehicles.isError && <p role="alert">The unit list could not be loaded.</p>}
-          {/* A silent no-op here, an Assign button over an empty select, is
-              worse than telling the admin there is nothing to assign to yet
-              (NFR-USE-005). */}
-          {vehicles.isSuccess && vehicles.data.length === 0 && (
-            <p>No units yet. Add a unit first.</p>
-          )}
-          {vehicles.isSuccess && vehicles.data.length > 0 && (
-            <>
-              <label htmlFor="vehicleId">Unit</label>
-              <select
-                id="vehicleId"
-                value={vehicleId === "" ? (vehicles.data[0]?.id ?? "") : vehicleId}
-                onChange={(e) => setVehicleId(e.target.value)}
-              >
-                {vehicles.data.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.fleetNumber}
-                  </option>
-                ))}
-              </select>
-              <button type="submit" disabled={assign.isPending}>
-                {assign.isPending ? "Assigning…" : "Assign"}
-              </button>
-            </>
-          )}
-        </form>
-      )}
-
-      {assign.isError && <p role="alert">{refused(assign.error, "assign a unit")}</p>}
-      {assignedTo && <p role="status">Assigned to {assignedTo}.</p>}
     </section>
   );
 }
