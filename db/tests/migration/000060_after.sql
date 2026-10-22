@@ -55,19 +55,19 @@ BEGIN
   SELECT count(*) INTO n FROM app.vehicle_driver WHERE tenant_id = mr;
   IF n <> 12 THEN RAISE EXCEPTION 'FAIL 3: % of the 12 assignment rows remain as history', n; END IF;
 
-  -- Each outstanding task's assignee is a nomination by whoever asked for
-  -- it, and no other task has one. k11's assignee is deactivated, which
-  -- app.nominate_for_task would refuse, so it has none. A nomination is dated
-  -- at its task's creation, or at the migration when a trip has covered the
-  -- unit since: k04's trailer never was, k12's rode in MR-M4's rig, and the
-  -- rest are covered now. Part D's UPDATE of the escalated k05 stamped its
-  -- updated_at with the migration's now().
+  -- Each outstanding task's assignee is a nomination at its creation by
+  -- whoever asked for it, and no other task has one. k11's assignee is
+  -- deactivated, which app.nominate_for_task would refuse, so it has none.
+  -- k12's trailer rode in MR-M4's rig and was free at the migration, so it
+  -- gains a second row at the migration; the others' units were never
+  -- covered or are covered now, and gain none. Part D's UPDATE of the
+  -- escalated k05 stamped its updated_at with the migration's now().
   mig := (SELECT updated_at FROM app.inspection_task WHERE id = md5('mr-k5')::uuid);
   SELECT string_agg(k.label || ':' || u.display_name || ':'
                     || CASE WHEN nm.nominated_at = t.created_at THEN 'at creation'
                             WHEN nm.nominated_at = mig THEN 'at the migration'
                             ELSE nm.nominated_at::text END,
-                    ',' ORDER BY k.label) INTO got
+                    ',' ORDER BY k.label, nm.nominated_at) INTO got
     FROM app.inspection_task_nomination nm
     JOIN app.inspection_task t ON t.id = nm.task_id
     JOIN app.app_user u ON u.id = nm.user_id
@@ -77,14 +77,15 @@ BEGIN
                  (md5('mr-k10')::uuid, 'k10'), (md5('mr-k11')::uuid, 'k11'), (md5('mr-k12')::uuid, 'k12')) k(id, label)
       ON k.id = nm.task_id
    WHERE nm.tenant_id = mr AND nm.nominated_by = c1;
-  want := 'k01:MR Driver Two:at the migration,k02:MR Driver Four:at the migration,'
-          || 'k03:MR Driver Two:at the migration,k04:MR Driver Three:at creation,'
-          || 'k10:MR Driver Three:at the migration,k12:MR Driver Five:at the migration';
+  want := 'k01:MR Driver Two:at creation,k02:MR Driver Four:at creation,'
+          || 'k03:MR Driver Two:at creation,k04:MR Driver Three:at creation,'
+          || 'k10:MR Driver Three:at creation,k12:MR Driver Five:at creation,'
+          || 'k12:MR Driver Five:at the migration';
   IF got IS DISTINCT FROM want THEN
     RAISE EXCEPTION 'FAIL 4: the nominations read [%], not [%]', got, want;
   END IF;
   SELECT count(*) INTO n FROM app.inspection_task_nomination WHERE tenant_id = mr;
-  IF n <> 6 THEN RAISE EXCEPTION 'FAIL 4: the tenant holds % nominations, not the 6 above', n; END IF;
+  IF n <> 7 THEN RAISE EXCEPTION 'FAIL 4: the tenant holds % nominations, not the 7 above', n; END IF;
 
   IF EXISTS (SELECT 1 FROM app.inspection_task WHERE tenant_id = mr AND state = 'ESCALATED') THEN
     RAISE EXCEPTION 'FAIL 5: a task is still ESCALATED';
@@ -115,6 +116,18 @@ BEGIN
           || 'k05:nobody,k06:MR Driver Two,k09:MR Driver Two,k10:MR Driver Two,k11:nobody,k12:MR Driver Five';
   IF got IS DISTINCT FROM want THEN
     RAISE EXCEPTION 'FAIL 7: the responsible drivers read [%], not [%]', got, want;
+  END IF;
+  -- k12 over its life: its assignee from its creation 48 days back until
+  -- MR-T3 joined MR-M4's rig, the trip through the rig from 45 to 40 days
+  -- back, nobody from then to the migration, and its assignee again since.
+  SELECT string_agg(COALESCE((SELECT u.display_name || '/' || r.via
+                                FROM app.task_responsibility_at(md5('mr-k12')::uuid, now() - x.ago) r
+                                JOIN app.app_user u ON u.id = r.user_id), 'nobody'),
+                    ',' ORDER BY x.ago DESC) INTO got
+    FROM (VALUES (interval '46 days'), (interval '42 days'), (interval '20 days'), (interval '0')) x(ago);
+  want := 'MR Driver Five/NOMINATION,MR Driver Five/TRIP,nobody,MR Driver Five/NOMINATION';
+  IF got IS DISTINCT FROM want THEN
+    RAISE EXCEPTION 'FAIL 7: k12 at 46, 42, 20 and 0 days back is held by [%], not [%]', got, want;
   END IF;
 
   -- The conflict's loser cannot capture the unit: a queued capture of theirs
