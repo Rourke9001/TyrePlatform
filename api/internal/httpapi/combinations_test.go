@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/google/uuid"
@@ -89,7 +90,7 @@ type rigBody struct {
 }
 
 // TYRE-72's DoD, end to end at the API: the controller sets the rig, and the
-// driver assigned to the horse is offered it in the capture context. The
+// driver on the horse's trip is offered it in the capture context. The
 // capture read is the proof that matters. A rig the driver's screen cannot
 // see is a rig that was never set, whatever the POST answered.
 func TestCreateCombinationIsOfferedToTheDriver(t *testing.T) {
@@ -523,4 +524,131 @@ func TestListCombinationsOrdersOpenFirst(t *testing.T) {
 	require.Equal(t, openTrailer.String(), all[0].Members[1].VehicleID)
 	require.Equal(t, newerTrailer.String(), all[1].Members[1].VehicleID)
 	require.Equal(t, olderTrailer.String(), all[2].Members[1].VehicleID)
+}
+
+// plantOpenRig couples towed to motive from an hour ago, raw, for a read or
+// an end under test.
+func plantOpenRig(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, motive uuid.UUID, towed ...uuid.UUID) uuid.UUID {
+	t.Helper()
+	var rig uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+		 VALUES ($1, $2, now() - interval '1 hour') RETURNING id`, tenantID, motive).Scan(&rig))
+	for i, unit := range append([]uuid.UUID{motive}, towed...) {
+		_, err := admin.Exec(ctx,
+			`INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+			 VALUES ($1, $2, $3, $4)`, tenantID, rig, unit, i+1)
+		require.NoError(t, err)
+	}
+	return rig
+}
+
+// U149: a depot manager sees a rig when its motive or any member is in their
+// depots, and then sees it whole, its out-of-depot horse included.
+func TestListCombinationsIsDepotScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "rig-list-depot")
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	mineDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	elsewhereDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	awayHorse := plantHomedUnit(t, ctx, admin, tenantID, "HORSE", &elsewhereDepot)
+	awayTrailer := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &elsewhereDepot)
+	farHorse := plantHomedUnit(t, ctx, admin, tenantID, "HORSE", &elsewhereDepot)
+	myTrailer := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &mineDepot)
+	away := plantOpenRig(t, ctx, admin, tenantID, awayHorse, awayTrailer)
+	shared := plantOpenRig(t, ctx, admin, tenantID, farHorse, myTrailer)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	read := func(actor uuid.UUID) map[string]rigBody {
+		t.Helper()
+		rec := get(t, h, "/api/combinations", tenantID.String(), actor.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var rigs []rigBody
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &rigs))
+		out := map[string]rigBody{}
+		for _, r := range rigs {
+			out[r.ID] = r
+		}
+		return out
+	}
+	mine := read(manager)
+	require.NotContains(t, mine, away.String(), "a rig wholly outside the manager's depots")
+	require.Contains(t, mine, shared.String(), "a rig whose trailer is homed in the manager's depot")
+	members := []string{}
+	for _, m := range mine[shared.String()].Members {
+		members = append(members, m.VehicleID)
+	}
+	require.Equal(t, []string{farHorse.String(), myTrailer.String()}, members, "the rig comes back whole")
+	all := read(controller)
+	require.Contains(t, all, away.String())
+	require.Contains(t, all, shared.String())
+}
+
+// U146: the rig writes judge depot scope by the rig's motive (FR-AUT-008).
+// Ending a listed rig headed elsewhere is 403, since the register has just
+// shown it; a rig with no member in the manager's depots is 404 (ADR-0011).
+func TestCombinationWritesAreDepotScoped(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "rig-write-depot")
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	mineDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	elsewhereDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	myHorse := plantHomedUnit(t, ctx, admin, tenantID, "HORSE", &mineDepot)
+	myFreeTrailer := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &mineDepot)
+	awayHorse := plantHomedUnit(t, ctx, admin, tenantID, "HORSE", &elsewhereDepot)
+	awayFreeTrailer := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &elsewhereDepot)
+	awayTrailer := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &elsewhereDepot)
+	farHorse := plantHomedUnit(t, ctx, admin, tenantID, "HORSE", &elsewhereDepot)
+	myTrailer := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &mineDepot)
+	away := plantOpenRig(t, ctx, admin, tenantID, awayHorse, awayTrailer)
+	shared := plantOpenRig(t, ctx, admin, tenantID, farHorse, myTrailer)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	create := func(actor, motive, towed uuid.UUID) *httptest.ResponseRecorder {
+		return post(t, h, "/api/combinations", tenantID.String(), actor.String(),
+			fmt.Sprintf(`{"motiveVehicleId":%q,"towed":[{"vehicleId":%q}]}`, motive, towed))
+	}
+	end := func(actor, rig uuid.UUID) *httptest.ResponseRecorder {
+		return post(t, h, "/api/combinations/"+rig.String()+"/end", tenantID.String(), actor.String(), `{}`)
+	}
+
+	rec := create(manager, awayHorse, awayFreeTrailer)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	require.Equal(t, "no such unit in this fleet", decodeRefusal(t, rec.Body.Bytes()).Message)
+	var n int
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT count(*) FROM app.combination WHERE motive_vehicle_id = $1`, awayHorse).Scan(&n))
+	require.Equal(t, 1, n, "the refused create wrote no rig")
+
+	rec = end(manager, away)
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	require.Equal(t, "no such rig in this fleet", decodeRefusal(t, rec.Body.Bytes()).Message)
+	require.True(t, rigIsOpen(t, ctx, admin, away))
+
+	rec = end(manager, shared)
+	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
+	require.Equal(t, "forbidden", decodeRefusal(t, rec.Body.Bytes()).Code)
+	require.True(t, rigIsOpen(t, ctx, admin, shared))
+
+	// The manager's own depot.
+	rec = create(manager, myHorse, myFreeTrailer)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var mine rigBody
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &mine))
+	rec = end(manager, uuid.MustParse(mine.ID))
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	// The controller's anywhere.
+	require.Equal(t, http.StatusOK, end(controller, shared).Code)
+	rec = create(controller, awayHorse, awayFreeTrailer)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code,
+		"the controller reaches the rule, not a scope refusal: the horse still heads its open rig: %s", rec.Body.String())
+	require.Equal(t, http.StatusOK, end(controller, away).Code)
+	rec = create(controller, awayHorse, awayFreeTrailer)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 }
