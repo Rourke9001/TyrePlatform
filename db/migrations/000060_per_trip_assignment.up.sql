@@ -342,34 +342,45 @@ BEGIN
   END LOOP;
 END $$;
 
--- Each outstanding task's assignee becomes a nomination by whoever asked
--- for it, so no outstanding task changes hands through an active assignee.
--- A deactivated one is not copied, since app.nominate_for_task would refuse
--- them. Part D has already made ESCALATED rows OPEN.
+-- Each outstanding task's assignee becomes a nomination at the task's
+-- creation by whoever asked for it, so no outstanding task changes hands
+-- through an active assignee. A deactivated one is not copied, since
+-- app.nominate_for_task would refuse them. Part D has already made ESCALATED
+-- rows OPEN.
 INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at, nominated_by)
-SELECT k.tenant_id, k.id, k.assigned_user_id,
-       -- Dated at the task's creation, unless a trip has covered the unit
-       -- since: a nomination lapses at the first coverage after it
-       -- (v_nomination_span), so a trip that towed the unit and let it go
-       -- would leave the task with nobody. That one is dated now. The two
-       -- branches are app.v_unit_coverage's, read here because part F drops
-       -- assigned_user_id before part G creates the view.
-       CASE WHEN EXISTS (SELECT 1 FROM app.trip t
-                          WHERE t.tenant_id = k.tenant_id AND t.vehicle_id = k.vehicle_id
-                            AND tstzrange(t.started_at, t.ended_at, '[)') && tstzrange(k.created_at, now(), '[]'))
-              OR EXISTS (SELECT 1
-                           FROM app.combination_member cm
-                           JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
-                            AND cm.vehicle_id <> c.motive_vehicle_id
-                           JOIN app.trip t ON t.tenant_id = c.tenant_id AND t.vehicle_id = c.motive_vehicle_id
-                          WHERE cm.tenant_id = k.tenant_id AND cm.vehicle_id = k.vehicle_id
-                            AND tstzrange(t.started_at, t.ended_at, '[)') * tstzrange(c.effective_from, c.effective_to, '[)')
-                                && tstzrange(k.created_at, now(), '[]'))
-            THEN now() ELSE k.created_at END,
-       k.requested_by
+SELECT k.tenant_id, k.id, k.assigned_user_id, k.created_at, k.requested_by
   FROM app.inspection_task k
   JOIN app.app_user u ON u.tenant_id = k.tenant_id AND u.id = k.assigned_user_id
  WHERE k.state = 'OPEN' AND u.active;
+
+-- A nomination lapses at the first coverage after it (v_nomination_span), so
+-- a task whose unit a migrated trip towed and let go would be held by nobody
+-- at deploy. Its assignee gains a second nomination at now, and the first
+-- keeps who held the task before that coverage. A unit covered now needs
+-- none, since the trip holds it. The two branches are app.v_unit_coverage's,
+-- read here because part F drops assigned_user_id before part G creates the
+-- view.
+WITH cover AS (
+  SELECT t.tenant_id, t.vehicle_id, tstzrange(t.started_at, t.ended_at, '[)') AS span
+    FROM app.trip t
+  UNION ALL
+  SELECT cm.tenant_id, cm.vehicle_id,
+         tstzrange(t.started_at, t.ended_at, '[)') * tstzrange(c.effective_from, c.effective_to, '[)')
+    FROM app.combination_member cm
+    JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
+     AND cm.vehicle_id <> c.motive_vehicle_id
+    JOIN app.trip t ON t.tenant_id = c.tenant_id AND t.vehicle_id = c.motive_vehicle_id)
+INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at, nominated_by)
+SELECT k.tenant_id, k.id, k.assigned_user_id, now(), k.requested_by
+  FROM app.inspection_task k
+  JOIN app.app_user u ON u.tenant_id = k.tenant_id AND u.id = k.assigned_user_id
+ WHERE k.state = 'OPEN' AND u.active
+   AND EXISTS (SELECT 1 FROM cover c
+                WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
+                  AND c.span && tstzrange(k.created_at, now(), '[)'))
+   AND NOT EXISTS (SELECT 1 FROM cover c
+                    WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
+                      AND c.span @> now());
 
 -- ---------------------------------------------------------------------------
 -- F. Retire the old readers
