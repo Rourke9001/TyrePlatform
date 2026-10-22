@@ -292,6 +292,7 @@ platform's defaults.
   |---|---|
   | `tread_reading_count` | 1 or 3; capture refuses any other width |
   | `capture_spares` | true or false |
+  | `due_inspection_blocks_trip` | true or false |
   | `width_spread_warn_mm`, `dual_mate_warn_mm`, `axle_divergence_warn_mm` | a number above 0 |
   | `tread_bands` | a list of `[lower, upper]` pairs starting at 0, lower bounds rising, the last upper bound and only the last `null` |
   | `removal_reasons` | a list of distinct reasons, text with no space at either end |

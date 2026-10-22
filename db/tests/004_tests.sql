@@ -13891,6 +13891,28 @@ BEGIN
   RETURN app.actor_could_capture(p_payload);
 END $fn$;
 
+-- One statement, answered 'ok' or 'SQLSTATE message' (t75_try's shape).
+CREATE FUNCTION pg_temp.t76_try(p_sql text) RETURNS text
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $fn$
+DECLARE st text; msg text;
+BEGIN
+  EXECUTE p_sql;
+  RETURN 'ok';
+EXCEPTION WHEN OTHERS THEN
+  GET STACKED DIAGNOSTICS st = RETURNED_SQLSTATE, msg = MESSAGE_TEXT;
+  RETURN st || ' ' || msg;
+END $fn$;
+
+-- One OPEN task on p_unit due at p_due, created twelve hours back.
+CREATE FUNCTION pg_temp.t76_due(p_unit uuid, p_due timestamptz) RETURNS uuid
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+  VALUES ('11111111-1111-1111-1111-111111111111', p_unit, p_due, now() - interval '12 hours')
+  RETURNING id;
+$fn$;
+
 \echo '== 76a. a trip and a nomination are tenant rows under forced RLS; the app role inserts both, ends a trip by its two end columns alone, and edits or deletes neither otherwise (rule 1, rule 3; as BAC, rolled back)'
 BEGIN;
 DO $$
@@ -14902,6 +14924,452 @@ BEGIN
 END $$;
 ROLLBACK;
 
+\echo '== 76j. a start opens a trip at now under the actor, ends the motive''s and the driver''s open trips, adds free trailers in the order picked through the rig write, and refuses each bad input by name changing nothing (FR-VEH-007 as amended, TY012, TY017, TY028; as BAC, each case rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  tr uuid; row_ app.trip; n int;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  tr := app.start_trip(md5('t76h5')::uuid, md5('t76d1')::uuid);
+  SELECT * INTO row_ FROM app.trip WHERE id = tr;
+  IF row_.vehicle_id IS DISTINCT FROM md5('t76h5')::uuid OR row_.user_id IS DISTINCT FROM md5('t76d1')::uuid
+     OR row_.started_at IS DISTINCT FROM now() OR row_.started_by IS DISTINCT FROM ctl
+     OR row_.ended_at IS NOT NULL OR row_.combination_id IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76j: the trip reads %', row_;
+  END IF;
+  IF EXISTS (SELECT 1 FROM app.combination WHERE motive_vehicle_id = md5('t76h5')::uuid) THEN
+    RAISE EXCEPTION 'FAIL 76j: a start with no trailers made a rig';
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'trip' AND entity_id = tr AND action = 'INSERT' AND actor_id = ctl;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 76j: the start filed % INSERT audit entries under the controller', n; END IF;
+  -- U9: only a retired unit is refused.
+  PERFORM app.start_trip(md5('t76hp')::uuid, md5('t76d4')::uuid);
+  PERFORM app.start_trip(md5('t76r1')::uuid, md5('t76d3')::uuid);
+  RAISE NOTICE 'PASS  76j a start opens a trip at now under the actor, with no rig for a motive that tows nothing, on a parked horse and a rigid too';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h2 constant uuid := md5('t76h2')::uuid; h3 constant uuid := md5('t76h3')::uuid;
+  d2 constant uuid := md5('t76d2')::uuid; d3 constant uuid := md5('t76d3')::uuid;
+  old2 uuid; old3 uuid; tr uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h2, d2, now() - interval '1 hour') RETURNING id INTO old2;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h3, d3, now() - interval '1 hour') RETURNING id INTO old3;
+  tr := app.start_trip(h2, d3);
+  SELECT string_agg(CASE WHEN t.ended_at = now() AND t.ended_by = ctl THEN 'ended now'
+                         WHEN t.ended_at IS NULL THEN 'open' ELSE 'ended ' || t.ended_at END, ',' ORDER BY o.ord) INTO got
+    FROM app.trip t JOIN (VALUES (old2, 1), (old3, 2), (tr, 3)) o(id, ord) ON o.id = t.id;
+  IF got IS DISTINCT FROM 'ended now,ended now,open' THEN
+    RAISE EXCEPTION 'FAIL 76j: the motive''s trip, the driver''s trip and the new one read %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76j a start ends the motive''s and the driver''s open trips at its own instant';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h6 constant uuid := md5('t76h6')::uuid; h7 constant uuid := md5('t76h7')::uuid;
+  t4 constant uuid := md5('t76t4')::uuid; t5 constant uuid := md5('t76t5')::uuid;
+  t6 constant uuid := md5('t76t6')::uuid; t7 constant uuid := md5('t76t7')::uuid;
+  old_rig uuid; tr uuid; rig uuid; got text; ended timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO old_rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence, descriptor)
+  VALUES (bac, old_rig, h6, 1, NULL), (bac, old_rig, t4, 2, 'front');
+  tr := app.start_trip(h6, md5('t76d4')::uuid, ARRAY[t6, t5]);
+  SELECT effective_to INTO ended FROM app.combination WHERE id = old_rig;
+  SELECT combination_id INTO rig FROM app.trip WHERE id = tr;
+  SELECT string_agg(v.fleet_number || ':' || cm.sequence || COALESCE(':' || cm.descriptor, ''), ' ' ORDER BY cm.sequence)
+    INTO got
+    FROM app.combination_member cm JOIN app.vehicle v ON v.id = cm.vehicle_id
+   WHERE cm.combination_id = rig;
+  IF ended IS DISTINCT FROM now() OR rig IS NULL OR rig = old_rig
+     OR got IS DISTINCT FROM 'T76-H6:1 T76-T4:2:front T76-T6:3 T76-T5:4' THEN
+    RAISE EXCEPTION 'FAIL 76j: the old rig ended at %, and the trip''s rig % holds %', ended, rig, got;
+  END IF;
+  tr := app.start_trip(h7, md5('t76d2')::uuid, ARRAY[t7]);
+  SELECT string_agg(v.fleet_number || ':' || cm.sequence, ' ' ORDER BY cm.sequence) INTO got
+    FROM app.trip t JOIN app.combination_member cm ON cm.combination_id = t.combination_id
+    JOIN app.vehicle v ON v.id = cm.vehicle_id
+   WHERE t.id = tr;
+  IF got IS DISTINCT FROM 'T76-H7:1 T76-T7:2' THEN
+    RAISE EXCEPTION 'FAIL 76j: a start adding a trailer to a motive with no rig made %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76j a start adds free trailers after the rig''s own members in the order picked, and makes a rig for a motive with none';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h1 constant uuid := md5('t76h1')::uuid; h5 constant uuid := md5('t76h5')::uuid;
+  h6 constant uuid := md5('t76h6')::uuid; h8 constant uuid := md5('t76h8')::uuid;
+  t1 constant uuid := md5('t76t1')::uuid; t4 constant uuid := md5('t76t4')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  rig uuid; before_ text; after_ text; st text; msg text; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h6, 1), (bac, rig, t4, 2);
+  before_ := (SELECT count(*) FROM app.trip) || '/' || (SELECT count(*) FROM app.combination)
+             || '/' || (SELECT count(*) FROM app.combination WHERE effective_to IS NULL);
+  FOR st, msg IN SELECT * FROM (VALUES
+      (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, t1),
+       'TY028 T76-T1 is coupled to T76-H1; free it before adding it to this trip'),
+      (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h6, d1, t4),
+       'TY028 T76-T4 is already coupled to T76-H6'),
+      (format('SELECT app.start_trip(%L, %L)', md5('t76t5')::uuid, d1),
+       'TY028 a trip is driven on a horse, rigid or light vehicle; T76-T5 is a trailer'),
+      (format('SELECT app.start_trip(%L, %L)', md5('t76hd')::uuid, d1),
+       'TY028 T76-HD is disposed; a retired unit does not go on a trip'),
+      (format('SELECT app.start_trip(%L, %L)', md5('t76hi')::uuid, d1),
+       'TY028 T76-HI is inactive; a retired unit does not go on a trip'),
+      (format('SELECT app.start_trip(%L, %L)', h5, md5('t76di')::uuid),
+       'TY028 T76 Driver Inactive is no longer active'),
+      (format('SELECT app.start_trip(%L, %L, ARRAY[NULL]::uuid[])', h5, d1),
+       'TY028 every added trailer names a unit'),
+      (format('SELECT app.start_trip(%L, %L)', gen_random_uuid(), d1),
+       'TY012 no such unit in this fleet'),
+      (format('SELECT app.start_trip(%L, %L)', h5, gen_random_uuid()),
+       'TY012 no such user in this fleet'),
+      (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, md5('t76td')::uuid),
+       'TY017 T76-TD is disposed; a retired unit is not coupled')
+    ) v(a, b)
+  LOOP
+    got := pg_temp.t76_try(st);
+    IF got IS DISTINCT FROM msg THEN
+      RAISE EXCEPTION 'FAIL 76j: % answered %, not %', st, got, msg;
+    END IF;
+  END LOOP;
+  after_ := (SELECT count(*) FROM app.trip) || '/' || (SELECT count(*) FROM app.combination)
+            || '/' || (SELECT count(*) FROM app.combination WHERE effective_to IS NULL);
+  IF after_ IS DISTINCT FROM before_ THEN
+    RAISE EXCEPTION 'FAIL 76j: the refused starts moved trips/rigs/open rigs from % to %', before_, after_;
+  END IF;
+
+  -- Two starts for one driver or one motive serialise on the driver's row
+  -- and the units; the loser meets an open trip that started after its own
+  -- now and is refused by name (spec, Starting and ending a trip).
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h8, md5('t76d2')::uuid, now() + interval '1 second');
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h8, d1));
+  IF got IS DISTINCT FROM 'TY028 this unit or driver went on another trip while this one was being started; refresh and try again' THEN
+    RAISE EXCEPTION 'FAIL 76j: a start that lost the race answered %', got;
+  END IF;
+
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  PERFORM set_config('app.actor_id', '', true);
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h5, md5('driver2')::uuid));
+  IF got IS DISTINCT FROM 'TY012 no such unit in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 76j: Second Fleet starting a trip on BAC''s horse answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76j each bad start is refused by name and changes nothing, a start that lost the race says so, and another fleet''s unit does not exist';
+END $$;
+ROLLBACK;
+
+\echo '== 76k. an end stamps now under the actor, leaves the rig coupled, and refuses an ended trip, an unknown one and one that started after the request (FR-VEH-007 as amended, TY012, TY028; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  tr uuid; tr6 uuid; fut uuid; row_ app.trip; n int; got text; ended timestamptz;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  tr := app.start_trip(md5('t76h5')::uuid, md5('t76d1')::uuid);
+  PERFORM app.end_trip(tr);
+  SELECT * INTO row_ FROM app.trip WHERE id = tr;
+  IF row_.ended_at IS DISTINCT FROM now() OR row_.ended_by IS DISTINCT FROM ctl THEN
+    RAISE EXCEPTION 'FAIL 76k: the end reads at % by %', row_.ended_at, row_.ended_by;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'trip' AND entity_id = tr AND action = 'UPDATE' AND actor_id = ctl;
+  IF n <> 1 THEN RAISE EXCEPTION 'FAIL 76k: the end filed % UPDATE audit entries under the controller', n; END IF;
+  tr6 := app.start_trip(md5('t76h6')::uuid, md5('t76d2')::uuid, ARRAY[md5('t76t4')::uuid]);
+  PERFORM app.end_trip(tr6);
+  SELECT c.effective_to INTO ended FROM app.combination c JOIN app.trip t ON t.combination_id = c.id WHERE t.id = tr6;
+  IF ended IS NOT NULL THEN RAISE EXCEPTION 'FAIL 76k: ending the trip ended its rig at %', ended; END IF;
+
+  got := pg_temp.t76_try(format('SELECT app.end_trip(%L)', tr));
+  IF got IS DISTINCT FROM 'TY028 this trip has already ended; refresh to see who is on the truck now' THEN
+    RAISE EXCEPTION 'FAIL 76k: a second end answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.end_trip(%L)', gen_random_uuid()));
+  IF got IS DISTINCT FROM 'TY012 no such trip in this fleet' THEN
+    RAISE EXCEPTION 'FAIL 76k: an unknown trip answered %', got;
+  END IF;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, md5('t76h8')::uuid, md5('t76d3')::uuid, now() + interval '1 second') RETURNING id INTO fut;
+  got := pg_temp.t76_try(format('SELECT app.end_trip(%L)', fut));
+  IF got IS DISTINCT FROM 'TY028 this trip started after this request began; refresh and try again' THEN
+    RAISE EXCEPTION 'FAIL 76k: ending a trip that started after the request answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76k an end stamps now under the actor and leaves the rig, and a second end, an unknown trip and a later start are refused by name';
+END $$;
+ROLLBACK;
+
+\echo '== 76l. a trip cannot start while a unit it would cover has an open task due on the tenant''s today or earlier, the start names each, and nothing changes; a later day, a closed task and the setting off do not block, and a rig capture clears the gate (U148, U150, FR-VEH-007, FR-INS-052; as BAC, each case rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  tz text; today date; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  -- Either side of the tenant's midnight, so the case holds whatever hour
+  -- the suite runs.
+  PERFORM pg_temp.t76_due(md5('t76h5')::uuid, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  PERFORM pg_temp.t76_due(md5('t76h7')::uuid, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  PERFORM pg_temp.t76_due(md5('t76h8')::uuid, (today + 1)::timestamp AT TIME ZONE tz);
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', md5('t76h5')::uuid, md5('t76d1')::uuid));
+  IF got IS DISTINCT FROM 'TY028 a trip cannot start before its due inspections are done: T76-H5 due ' || to_char(today - 1, 'YYYY-MM-DD') THEN
+    RAISE EXCEPTION 'FAIL 76l: a task due yesterday answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', md5('t76h7')::uuid, md5('t76d1')::uuid));
+  IF got IS DISTINCT FROM 'TY028 a trip cannot start before its due inspections are done: T76-H7 due ' || to_char(today, 'YYYY-MM-DD') THEN
+    RAISE EXCEPTION 'FAIL 76l: a task due at the end of today answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', md5('t76h8')::uuid, md5('t76d1')::uuid));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 76l: a task due at the start of tomorrow blocked the start: %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76l a task due today or earlier in the tenant''s calendar blocks the start by name, and one due tomorrow does not';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h6 constant uuid := md5('t76h6')::uuid; h7 constant uuid := md5('t76h7')::uuid;
+  t4 constant uuid := md5('t76t4')::uuid; t7 constant uuid := md5('t76t7')::uuid;
+  tz text; today date; rig uuid; kh uuid; kt uuid; got text; want text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h6, 1), (bac, rig, t4, 2);
+  kt := pg_temp.t76_due(t4, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h6, md5('t76d1')::uuid));
+  IF got IS DISTINCT FROM 'TY028 a trip cannot start before its due inspections are done: T76-T4 due ' || to_char(today, 'YYYY-MM-DD') THEN
+    RAISE EXCEPTION 'FAIL 76l: a due task on a member of the open rig answered %', got;
+  END IF;
+  PERFORM pg_temp.t76_due(t7, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h7, md5('t76d2')::uuid, t7));
+  IF got IS DISTINCT FROM 'TY028 a trip cannot start before its due inspections are done: T76-T7 due ' || to_char(today, 'YYYY-MM-DD') THEN
+    RAISE EXCEPTION 'FAIL 76l: a due task on an added trailer answered %', got;
+  END IF;
+  kh := pg_temp.t76_due(h6, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  want := 'T76-H6 due ' || to_char(today - 1, 'YYYY-MM-DD') || ', T76-T4 due ' || to_char(today, 'YYYY-MM-DD');
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h6, md5('t76d1')::uuid));
+  IF got IS DISTINCT FROM 'TY028 a trip cannot start before its due inspections are done: ' || want THEN
+    RAISE EXCEPTION 'FAIL 76l: two blocking units answered %, not in walk order %', got, want;
+  END IF;
+  SELECT string_agg(b.task_id::text || ':' || b.fleet_number || ':' || b.due_on || ':' || b.walk_order, ',' ORDER BY b.walk_order) INTO got
+    FROM app.trip_start_blockers(h6) b;
+  IF got IS DISTINCT FROM kh::text || ':T76-H6:' || (today - 1) || ':1,' || kt::text || ':T76-T4:' || today || ':2' THEN
+    RAISE EXCEPTION 'FAIL 76l: trip_start_blockers reads %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76l a due task on the motive, a member of its rig or an added trailer blocks, named in walk order with its earliest day';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h5 constant uuid := md5('t76h5')::uuid;
+  tz text; today date; k1 uuid; k2 uuid; insp uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  k1 := pg_temp.t76_due(h5, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  k2 := pg_temp.t76_due(h5, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+  VALUES (bac, h5, md5('t76d1')::uuid, gen_random_uuid(), now() - interval '1 hour', now() - interval '50 minutes')
+  RETURNING id INTO insp;
+  UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = insp WHERE id = k1;
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76l' WHERE id = k2;
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h5, md5('t76d1')::uuid));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 76l: a completed and a cancelled task due yesterday blocked the start: %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76l a completed or cancelled task does not block';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h6 constant uuid := md5('t76h6')::uuid; h8 constant uuid := md5('t76h8')::uuid;
+  t4 constant uuid := md5('t76t4')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  tz text; today date; rig uuid; a uuid; b uuid; before_ text; after_ text; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h6, 1), (bac, rig, t4, 2);
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h6, d2, now() - interval '1 hour') RETURNING id INTO a;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h8, d1, now() - interval '1 hour') RETURNING id INTO b;
+  PERFORM pg_temp.t76_due(h6, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  before_ := (SELECT string_agg(t.id || ':' || (t.ended_at IS NULL), ',' ORDER BY t.id) FROM app.trip t)
+             || '|' || (SELECT string_agg(c.id || ':' || (c.effective_to IS NULL), ',' ORDER BY c.id) FROM app.combination c)
+             || '|' || (SELECT string_agg(cm.vehicle_id::text, ',' ORDER BY cm.sequence) FROM app.combination_member cm WHERE cm.combination_id = rig);
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h6, d1));
+  IF got NOT LIKE 'TY028 a trip cannot start before its due inspections are done: %' THEN
+    RAISE EXCEPTION 'FAIL 76l: the handover onto a horse with a due task answered %', got;
+  END IF;
+  after_ := (SELECT string_agg(t.id || ':' || (t.ended_at IS NULL), ',' ORDER BY t.id) FROM app.trip t)
+            || '|' || (SELECT string_agg(c.id || ':' || (c.effective_to IS NULL), ',' ORDER BY c.id) FROM app.combination c)
+            || '|' || (SELECT string_agg(cm.vehicle_id::text, ',' ORDER BY cm.sequence) FROM app.combination_member cm WHERE cm.combination_id = rig);
+  IF after_ IS DISTINCT FROM before_ THEN
+    RAISE EXCEPTION 'FAIL 76l: a blocked start changed the trips and rigs from % to %', before_, after_;
+  END IF;
+  RAISE NOTICE 'PASS  76l a blocked start changes nothing, and the running trip and the driver''s other trip stay open';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h5 constant uuid := md5('t76h5')::uuid;
+  tz text; today date; n int; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  PERFORM pg_temp.t76_due(h5, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  -- Dated a second back: config_for reads rows strictly before its instant
+  -- (lesson 2026-09-11).
+  INSERT INTO app.configuration (tenant_id, key, value, effective_from)
+  VALUES (bac, 'due_inspection_blocks_trip', 'false'::jsonb, now() - interval '1 second');
+  SELECT count(*) INTO n FROM app.trip_start_blockers(h5);
+  IF n <> 0 THEN RAISE EXCEPTION 'FAIL 76l: with the setting off trip_start_blockers returns % rows', n; END IF;
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h5, md5('t76d1')::uuid));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 76l: with the setting off the start answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76l with the tenant''s setting off nothing blocks';
+END $$;
+ROLLBACK;
+
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h1 constant uuid := md5('t76h1')::uuid; h6 constant uuid := md5('t76h6')::uuid;
+  t4 constant uuid := md5('t76t4')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
+  tz text; today date; rig uuid; kh uuid; running uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h6, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h6, 1), (bac, rig, t4, 2);
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, h6, d1, now() - interval '2 hours', now() - interval '5 minutes');
+  kh := pg_temp.t76_due(h6, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  PERFORM pg_temp.t76_due(t4, ((today + 1)::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h6, d2));
+  IF got IS DISTINCT FROM 'TY028 a trip cannot start before its due inspections are done: T76-H6 due '
+                          || to_char(today, 'YYYY-MM-DD') || ', T76-T4 due ' || to_char(today, 'YYYY-MM-DD') THEN
+    RAISE EXCEPTION 'FAIL 76l: before the rig capture the start answered %', got;
+  END IF;
+  -- U150: the capture through the motive's task completes the trailer's too.
+  PERFORM set_config('app.actor_id', d1::text, true);
+  PERFORM app.submit_inspection(pg_temp.t76_capture(ARRAY[h6, t4], now() - interval '10 minutes', now())
+                                || jsonb_build_object('task_id', kh));
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h6, d2));
+  IF got IS DISTINCT FROM 'ok' THEN
+    RAISE EXCEPTION 'FAIL 76l: after the rig capture the start answered %', got;
+  END IF;
+
+  -- The rule lives only in the start: a task falling due on a unit already
+  -- on a trip leaves that trip open, and blocks a handover onto it.
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, h1, md5('t76d3')::uuid, now() - interval '1 hour') RETURNING id INTO running;
+  PERFORM pg_temp.t76_due(h1, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L)', h1, md5('t76d4')::uuid));
+  IF got NOT LIKE 'TY028 a trip cannot start before its due inspections are done: T76-H1 due %'
+     OR (SELECT ended_at FROM app.trip WHERE id = running) IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76l: a handover onto a running trip with a due task answered %, and the running trip reads ended %',
+      got, (SELECT ended_at FROM app.trip WHERE id = running);
+  END IF;
+  RAISE NOTICE 'PASS  76l a rig capture clears the gate, and the gate never ends a running trip';
+END $$;
+ROLLBACK;
+
 \echo '== 76m. an inspection covers the configuration as a whole: a submit closes the task it names on any unit it read, and every open task due by its day on each unit it read and created before it; a later day, an unread unit and a cancelled task are left alone, and a replay closes nothing more (U150, FR-INS-052, FR-INS-062, criterion 4; as BAC, each case rolled back)'
 -- The configuration every case below starts from: D1's trip on H6 from two
 -- days back, towing T4 and T5 (FR-INS-062).
@@ -15183,6 +15651,8 @@ DROP FUNCTION pg_temp.t76_task(uuid, int, interval);
 DROP FUNCTION pg_temp.t76_rig6();
 
 \echo '== 76z. nothing section 76 planted outlives its rollback'
+DROP FUNCTION pg_temp.t76_due(uuid, timestamptz);
+DROP FUNCTION pg_temp.t76_try(text);
 DROP FUNCTION pg_temp.t76_could(jsonb, uuid);
 DROP FUNCTION pg_temp.t76_capture(uuid[], timestamptz, timestamptz);
 DROP FUNCTION pg_temp.t76_expect(text, uuid, timestamptz, text);

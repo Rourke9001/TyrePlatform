@@ -1196,3 +1196,218 @@ BEGIN
   END IF;
   RETURN task;
 END $$;
+
+-- The tasks that hold a trip start (U148; spec, Starting and ending a
+-- trip): every OPEN task on a unit the trip would cover, the motive, the
+-- members of its open rig and the added trailers, whose due day in the
+-- tenant's calendar is today or earlier, in walk order. Nothing when the
+-- tenant's due_inspection_blocks_trip is off; on is only the fallback for a
+-- tenant with no row, BAC the evidence (rule 5). app.start_trip refuses on
+-- it, and the start form reads it before Start.
+CREATE FUNCTION app.trip_start_blockers(p_motive uuid, p_add_trailers uuid[] DEFAULT '{}')
+RETURNS TABLE (task_id uuid, vehicle_id uuid, fleet_number text, due_at timestamptz, due_on date, walk_order int)
+LANGUAGE sql STABLE
+SET search_path = app, pg_temp AS $$
+  WITH zone AS (
+    SELECT t.timezone AS tz FROM app.tenant t WHERE t.id = app.current_tenant_id()),
+  rig AS (
+    SELECT cm.vehicle_id, cm.sequence
+      FROM app.combination c
+      JOIN app.combination_member cm ON cm.tenant_id = c.tenant_id AND cm.combination_id = c.id
+     WHERE c.tenant_id = app.current_tenant_id() AND c.motive_vehicle_id = p_motive
+       AND c.effective_to IS NULL AND cm.vehicle_id <> p_motive),
+  units AS (
+    SELECT p_motive AS vehicle_id, 1 AS walk_order
+    UNION ALL
+    SELECT r.vehicle_id, r.sequence FROM rig r
+    UNION ALL
+    SELECT a.id, (SELECT COALESCE(max(r.sequence), 1) FROM rig r) + a.ord::int
+      FROM unnest(COALESCE(p_add_trailers, '{}'::uuid[])) WITH ORDINALITY a(id, ord))
+  SELECT k.id, k.vehicle_id, v.fleet_number, k.due_at, (k.due_at AT TIME ZONE z.tz)::date, u.walk_order
+    FROM units u
+    CROSS JOIN zone z
+    JOIN app.inspection_task k ON k.tenant_id = app.current_tenant_id()
+     AND k.vehicle_id = u.vehicle_id AND k.state = 'OPEN'
+    JOIN app.vehicle v ON v.tenant_id = k.tenant_id AND v.id = k.vehicle_id
+   WHERE COALESCE((app.config_for(app.current_tenant_id(), 'due_inspection_blocks_trip', now()) #>> '{}')::boolean,
+                  true)
+     AND (k.due_at AT TIME ZONE z.tz)::date <= app.tenant_today(z.tz)
+   ORDER BY u.walk_order, (k.due_at AT TIME ZONE z.tz)::date, k.id
+$$;
+
+-- FR-VEH-007 as amended: a controller puts a driver on a motive at now,
+-- adding free trailers (spec, Starting and ending a trip). Nothing is
+-- written until every check has passed, so each refusal changes nothing.
+-- The driver's row is locked first, FOR NO KEY UPDATE so the FK checks
+-- other writes make against it do not wait; then, in one statement in id
+-- order, every unit the start touches, the order create_combination_at takes
+-- (000044), with the motive of the driver's open trip among them because
+-- this start ends it and Go checks its depot afterwards. Two starts for one
+-- driver or one motive serialise there, and the loser meets an open trip
+-- that started after its own now. The EXCLUDEs are the backstop. A trailer
+-- already in an open rig is refused before INV-4 (000037) refuses it, with
+-- words that name its truck. Go checks the driver's capability
+-- (refuseNonCapturer).
+CREATE FUNCTION app.start_trip(p_motive uuid, p_driver uuid, p_add_trailers uuid[] DEFAULT '{}')
+RETURNS uuid
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  v_tenant     uuid := app.current_tenant_id();
+  adds         uuid[] := COALESCE(p_add_trailers, '{}'::uuid[]);
+  usr          app.app_user;
+  veh          app.vehicle;
+  prior_motive uuid;
+  rig          uuid;
+  trailer      uuid;
+  unit         text;
+  holder       uuid;
+  holder_fleet text;
+  blocked      text;
+  towed        jsonb;
+  trip         uuid;
+BEGIN
+  SELECT * INTO usr FROM app.app_user u
+   WHERE u.tenant_id = v_tenant AND u.id = p_driver
+     FOR NO KEY UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such user in this fleet';
+  END IF;
+  IF NOT usr.active THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028', MESSAGE = format('%s is no longer active', usr.display_name);
+  END IF;
+  IF EXISTS (SELECT 1 FROM unnest(adds) a WHERE a IS NULL) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028', MESSAGE = 'every added trailer names a unit';
+  END IF;
+
+  SELECT t.vehicle_id INTO prior_motive FROM app.trip t
+   WHERE t.tenant_id = v_tenant AND t.user_id = p_driver AND t.ended_at IS NULL;
+  PERFORM 1 FROM app.vehicle v
+   WHERE v.tenant_id = v_tenant
+     AND v.id IN (SELECT p_motive
+                  UNION ALL
+                  SELECT cm.vehicle_id
+                    FROM app.combination c
+                    JOIN app.combination_member cm ON cm.tenant_id = c.tenant_id AND cm.combination_id = c.id
+                   WHERE c.tenant_id = v_tenant AND c.motive_vehicle_id = p_motive AND c.effective_to IS NULL
+                  UNION ALL
+                  SELECT a FROM unnest(adds) a
+                  UNION ALL
+                  SELECT prior_motive)
+   ORDER BY v.id
+     FOR UPDATE;
+
+  SELECT * INTO veh FROM app.vehicle v WHERE v.tenant_id = v_tenant AND v.id = p_motive;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+  END IF;
+  IF veh.unit_kind = 'TRAILER' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028',
+      MESSAGE = format('a trip is driven on a horse, rigid or light vehicle; %s is a trailer', veh.fleet_number);
+  END IF;
+  -- U9's reading of FR-VEH-005, as for a rig: PARKED, WORKSHOP and
+  -- OUT_OF_SERVICE may go on a trip.
+  IF veh.status IN ('DISPOSED', 'INACTIVE') THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028',
+      MESSAGE = format('%s is %s; a retired unit does not go on a trip', veh.fleet_number, lower(veh.status::text));
+  END IF;
+  SELECT c.id INTO rig FROM app.combination c
+   WHERE c.tenant_id = v_tenant AND c.motive_vehicle_id = p_motive AND c.effective_to IS NULL;
+
+  -- Only a free trailer is coupled (spec, decision 3). A towed unit's kind
+  -- and retirement are create_combination_at's (TY017).
+  FOREACH trailer IN ARRAY adds LOOP
+    SELECT v.fleet_number INTO unit FROM app.vehicle v WHERE v.tenant_id = v_tenant AND v.id = trailer;
+    IF NOT FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+    END IF;
+    SELECT c.motive_vehicle_id, mv.fleet_number INTO holder, holder_fleet
+      FROM app.combination_member cm
+      JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
+      JOIN app.vehicle mv ON mv.tenant_id = c.tenant_id AND mv.id = c.motive_vehicle_id
+     WHERE cm.tenant_id = v_tenant AND cm.vehicle_id = trailer
+       AND cm.vehicle_id <> c.motive_vehicle_id AND c.effective_to IS NULL;
+    IF FOUND AND holder = p_motive THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY028',
+        MESSAGE = format('%s is already coupled to %s', unit, holder_fleet);
+    ELSIF FOUND THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY028',
+        MESSAGE = format('%s is coupled to %s; free it before adding it to this trip', unit, holder_fleet);
+    END IF;
+  END LOOP;
+
+  -- U148: after the shape checks, so a malformed request answers its own
+  -- refusal, and before any write. One entry per unit, its earliest day.
+  SELECT string_agg(format('%s due %s', b.fleet_number, to_char(b.due_on, 'YYYY-MM-DD')), ', '
+                    ORDER BY b.walk_order) INTO blocked
+    FROM (SELECT x.fleet_number, min(x.due_on) AS due_on, min(x.walk_order) AS walk_order
+            FROM app.trip_start_blockers(p_motive, adds) x
+           GROUP BY x.vehicle_id, x.fleet_number) b;
+  IF blocked IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028',
+      MESSAGE = 'a trip cannot start before its due inspections are done: ' || blocked;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM app.trip t
+              WHERE t.tenant_id = v_tenant AND t.ended_at IS NULL
+                AND (t.vehicle_id = p_motive OR t.user_id = p_driver) AND t.started_at > now()) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028',
+      MESSAGE = 'this unit or driver went on another trip while this one was being started; refresh and try again';
+  END IF;
+
+  -- Reassigning the truck or the driver closes the old trip (FR-VEH-007 as
+  -- amended).
+  UPDATE app.trip t SET ended_at = now(), ended_by = app.current_actor_id()
+   WHERE t.tenant_id = v_tenant AND t.ended_at IS NULL
+     AND (t.vehicle_id = p_motive OR t.user_id = p_driver);
+
+  -- The start never removes a trailer from the motive's rig: the new rig
+  -- holds the old one's members, then the added trailers in the order picked.
+  IF cardinality(adds) > 0 THEN
+    SELECT COALESCE(jsonb_agg(jsonb_build_object('vehicle_id', cm.vehicle_id, 'descriptor', cm.descriptor)
+                              ORDER BY cm.sequence), '[]'::jsonb)
+      INTO towed
+      FROM app.combination_member cm
+     WHERE cm.tenant_id = v_tenant AND cm.combination_id = rig AND cm.vehicle_id <> p_motive;
+    towed := towed || (SELECT jsonb_agg(jsonb_build_object('vehicle_id', a.id) ORDER BY a.ord)
+                         FROM unnest(adds) WITH ORDINALITY a(id, ord));
+    IF rig IS NOT NULL THEN
+      PERFORM app.end_combination_at(rig, now());
+    END IF;
+    PERFORM app.create_combination_at(p_motive, towed, now());
+  END IF;
+
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, started_by, combination_id)
+  VALUES (v_tenant, p_motive, p_driver, now(), app.current_actor_id(),
+          (SELECT c.id FROM app.combination c
+            WHERE c.tenant_id = v_tenant AND c.motive_vehicle_id = p_motive AND c.effective_to IS NULL))
+  RETURNING id INTO trip;
+  RETURN trip;
+END $$;
+
+-- FR-VEH-007 as amended: the end of a trip, at now. It leaves the rig
+-- coupled (spec, Calls made here); releasing a trailer is TYRE-455's.
+CREATE FUNCTION app.end_trip(p_trip uuid) RETURNS void
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  v_tenant uuid := app.current_tenant_id();
+  tr       app.trip;
+BEGIN
+  SELECT * INTO tr FROM app.trip t WHERE t.tenant_id = v_tenant AND t.id = p_trip FOR UPDATE;
+  IF NOT FOUND THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such trip in this fleet';
+  END IF;
+  -- No instant in the words: they reach the panel verbatim, and an instant
+  -- there would be UTC (rule 6).
+  IF tr.ended_at IS NOT NULL THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028',
+      MESSAGE = 'this trip has already ended; refresh to see who is on the truck now';
+  END IF;
+  IF tr.started_at > now() THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028',
+      MESSAGE = 'this trip started after this request began; refresh and try again';
+  END IF;
+  UPDATE app.trip t SET ended_at = now(), ended_by = app.current_actor_id()
+   WHERE t.tenant_id = v_tenant AND t.id = p_trip;
+END $$;

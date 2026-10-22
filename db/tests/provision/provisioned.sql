@@ -10,7 +10,7 @@
 SELECT set_config('provision.generated', :'generated', false),
        set_config('provision.free', :'free', false),
        set_config('provision.absent', :'absent', false),
-       set_config('provision.keys', 'tread_reading_count,capture_spares,width_spread_warn_mm,dual_mate_warn_mm,axle_divergence_warn_mm,tread_bands,removal_reasons,reading_staleness_days,wear_rate_min_distance_km,odometer_max_daily_km,duplicate_inspection_min_hours,submitted_at_future_skew_minutes,inspection_max_duration_hours,wear_rate_alert_multiple,forecast_horizon_days,inflation_compliance_window_days,tread_capture_granularity_mm', false);
+       set_config('provision.keys', 'tread_reading_count,capture_spares,width_spread_warn_mm,dual_mate_warn_mm,axle_divergence_warn_mm,tread_bands,removal_reasons,reading_staleness_days,wear_rate_min_distance_km,odometer_max_daily_km,duplicate_inspection_min_hours,submitted_at_future_skew_minutes,inspection_max_duration_hours,due_inspection_blocks_trip,wear_rate_alert_multiple,forecast_horizon_days,inflation_compliance_window_days,tread_capture_granularity_mm', false);
 \o
 
 -- 1. Both tenants in PROVISIONING, as their files describe them. The name
@@ -331,8 +331,8 @@ BEGIN
   END LOOP;
   PERFORM set_config('app.tenant_id', g::text, true);
   SELECT count(*) INTO n FROM app.configuration;
-  IF n <> 17 THEN
-    RAISE EXCEPTION 'FAIL 10: bound to the generated tenant, app.configuration shows % rows, not 17', n;
+  IF n <> 18 THEN
+    RAISE EXCEPTION 'FAIL 10: bound to the generated tenant, app.configuration shows % rows, not 18', n;
   END IF;
 END $$;
 ROLLBACK;

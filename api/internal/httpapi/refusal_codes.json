@@ -198,6 +198,7 @@
       "app.dispatch_tyre",
       "app.dispose_tyre",
       "app.end_combination_at",
+      "app.end_trip",
       "app.fit_tyre",
       "app.fitment_instant_ok",
       "app.keep_receipt_estimate",
@@ -209,6 +210,7 @@
       "app.rotate_tyres",
       "app.set_tyre_cost",
       "app.set_vehicle_status",
+      "app.start_trip",
       "app.void_inspection"
     ]
   },
@@ -343,7 +345,7 @@
   "TY028": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a trip write refused: started on a trailer, a retired unit or for an inactive driver, a trailer that is not free, a trip already ended or ended in the future, a start or end that lost a race, or an edit to a trip other than its end (TYRE-326)",
-    "raisedBy": ["app.trip_is_ended_once"]
+    "meaning": "a trip write refused: started on a trailer, a retired unit or for an inactive driver, a trailer that is not free, a due inspection not done on a unit the trip would cover (U148), a trip already ended or ended in the future, a start or end that lost a race, or an edit to a trip other than its end (TYRE-326)",
+    "raisedBy": ["app.end_trip", "app.start_trip", "app.trip_is_ended_once"]
   }
 }
