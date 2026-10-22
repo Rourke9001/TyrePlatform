@@ -98,12 +98,17 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY028',
       MESSAGE = 'an open trip can only be ended, never edited';
   END IF;
-  -- Trips end at the server's now; a future end would close coverage
-  -- nobody has yet given up (spec, Starting and ending a trip).
-  IF NEW.ended_at > now() THEN
+  -- Trips end at the server's now (spec, Starting and ending a trip): an
+  -- earlier end would rewrite who held a task and which captures were
+  -- admitted after the fact, and a later one would close coverage nobody has
+  -- yet given up.
+  IF NEW.ended_at IS DISTINCT FROM now() THEN
     RAISE EXCEPTION USING ERRCODE = 'TY028',
-      MESSAGE = 'a trip is ended now or earlier, never in the future';
+      MESSAGE = 'a trip ends at the server''s now, never earlier or later';
   END IF;
+  -- The ender is the bound actor, as updated_by is, never the caller's claim
+  -- (ADR-0011).
+  NEW.ended_by := app.current_actor_id();
   RETURN NEW;
 END $$;
 

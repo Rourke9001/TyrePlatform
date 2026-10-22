@@ -166,7 +166,8 @@ fixed by the `tyre_receipt_fixed` trigger, since `app_rw` holds `UPDATE` on
 
 A trip ends once (000060): `app_rw` holds `INSERT` and `UPDATE (ended_at,
 ended_by)` only, and `trip_ended_once` refuses any other change, a second
-end, or an end in the future (`TY028`). `inspection_task_nomination` is
+end, or an end at any instant but the transaction's `now()` (`TY028`). It
+records the bound actor as `ended_by`, whoever the caller names. `inspection_task_nomination` is
 insert-only: a new nomination supersedes the last, and `UPDATE` and `DELETE`
 are revoked. A closed task never changes state: `inspection_task_closes_once`
 refuses a move out of `COMPLETED` or `CANCELLED` (`TY018`) and stamps
