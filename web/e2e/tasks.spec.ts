@@ -3,7 +3,6 @@ import { expect, test } from "@playwright/test";
 import { actAsUser } from "./admin";
 import {
   apiGet,
-  apiPost,
   configFor,
   createUnit,
   postedResponse,
@@ -45,18 +44,17 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
   page,
   browser,
 }) => {
-  // The unit and the assignment are setup, not the thing under test, so they
-  // go through the API rather than through two more screens.
+  // The unit is setup, not the thing under test, so it goes through the API
+  // rather than through another screen.
   const configs = (await apiGet(page, "/api/axle-configurations")) as AxleConfiguration[];
   const horseId = await createUnit(page, HORSE_FLEET, "HORSE", configFor(configs, "HORSE_6X4"));
 
-  // FR-INS-053, spec U4: only a driver assigned to the unit can be scheduled
-  // on it, so without this the form offers nobody.
-  await apiPost(page, `/api/vehicles/${horseId}/drivers`, { userId: SANDBOX_DRIVER });
-
+  // The nominee is the task's driver (FR-INS-051 as amended), and the
+  // nomination is what lets them capture this unit. Chosen by value: the
+  // option also names the trip the seed puts the Sandbox driver on.
   await page.goto(`/fleet/units/${horseId}`);
   const schedule = page.getByRole("region", { name: "Schedule an inspection" });
-  await schedule.getByLabel("Driver", { exact: true }).selectOption({ label: "Sandbox Driver" });
+  await schedule.getByLabel("Driver", { exact: true }).selectOption(SANDBOX_DRIVER);
   // Left as it mounts (rule 6, docs/lessons.md 2026-09-03; rigs.spec.ts).
   await expect(schedule.getByLabel("Due", { exact: true })).toHaveValue("");
   const [scheduled] = await Promise.all([
@@ -130,8 +128,9 @@ test("a controller schedules the Sandbox driver and the driver's submit closes t
   // The screen's own query must settle: DriverHome's heading renders outside
   // the pending/error/success branches, so waiting on one of those is what
   // makes the absent link a statement about a rendered list.
+  // .first(): the seeded trip's units and its "Nothing due." can both show.
   await expect(
-    driverPage.getByText("Nothing due.").or(driverPage.getByRole("listitem").first()),
+    driverPage.getByText("Nothing due.").or(driverPage.getByRole("listitem").first()).first(),
   ).toBeVisible();
   await expect(
     driverPage.getByRole("link", { name: new RegExp(`^${HORSE_FLEET}, due `) }),
