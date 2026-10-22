@@ -268,6 +268,12 @@ def fixture_body(names, others):
             L.append(
                 f"  (md5('sbvd{sbseq}')::uuid,'{T3}',md5('sbveh{sbseq}')::uuid,md5('sbdriver1')::uuid,'2026-01-01',NULL);"
             )
+        L.append(
+            "INSERT INTO app.trip (id,tenant_id,vehicle_id,user_id,started_at,started_by) VALUES"
+        )
+        L.append(
+            f"  (md5('sbtrip1')::uuid,'{T3}',md5('sbveh1')::uuid,md5('sbdriver1')::uuid,'2026-01-01'::timestamp AT TIME ZONE 'Africa/Johannesburg',md5('sbcontroller1')::uuid);"
+        )
         # Sandbox's catalogue takes every branch of the Receive tyres pickers
         # (TYRE-318): a branded NEW pattern, an unbranded NEW pattern, a brand
         # that owns no pattern, and a RETREAD-only pattern the form must not
@@ -333,6 +339,19 @@ def fixture_body(names, others):
     L.append(
         f"  (md5('vd4')::uuid,'{T}',md5('veh1')::uuid,md5('driver3')::uuid,'2026-06-01',NULL);"
     )
+    # Trips (FR-VEH-007 as amended, TYRE-326). Sipho's ended trip is the
+    # retained history FR-VEH-008 asks for. Melusi's opens in 2025 because a
+    # fixture inspection is attributed to the trip that covers it, and the
+    # fixture's inspections fall inside his.
+    L.append(
+        "INSERT INTO app.trip (id,tenant_id,vehicle_id,user_id,started_at,ended_at,started_by,ended_by) VALUES"
+    )
+    L.append(
+        f"  (md5('trip0')::uuid,'{T}',md5('veh1')::uuid,md5('driver3')::uuid,'2024-06-01'::timestamp AT TIME ZONE 'Africa/Johannesburg','2025-01-01'::timestamp AT TIME ZONE 'Africa/Johannesburg',md5('controller1')::uuid,md5('controller1')::uuid),"
+    )
+    L.append(
+        f"  (md5('trip1')::uuid,'{T}',md5('veh1')::uuid,md5('driver1')::uuid,'2025-01-01'::timestamp AT TIME ZONE 'Africa/Johannesburg',NULL,md5('controller1')::uuid,NULL);"
+    )
     L.append("")
     if others:
         L.append(
@@ -346,6 +365,12 @@ def fixture_body(names, others):
         )
         L.append(
             f"  (md5('t2vd1')::uuid,'{T2}',md5('t2veh1')::uuid,md5('driver2')::uuid,'2026-01-01',NULL);"
+        )
+        L.append(
+            "INSERT INTO app.trip (id,tenant_id,vehicle_id,user_id,started_at) VALUES"
+        )
+        L.append(
+            f"  (md5('t2trip1')::uuid,'{T2}',md5('t2veh1')::uuid,md5('driver2')::uuid,'2026-01-01'::timestamp AT TIME ZONE 'Africa/Johannesburg');"
         )
         L.append("")
     L.append(
