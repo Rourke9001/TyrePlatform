@@ -122,6 +122,44 @@ CREATE TRIGGER trip_audited
 AFTER INSERT OR UPDATE ON app.trip
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
 
+-- app_rw holds INSERT, so a raw trip meets app.start_trip's shape rules
+-- here, in its words and its order (FR-VEH-007 as amended). A past start is
+-- ADR-0013's accepted gap (U152).
+CREATE FUNCTION app.trip_is_well_formed() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  usr app.app_user;
+  veh app.vehicle;
+BEGIN
+  -- A user or unit this fleet cannot see is the composite FK's to refuse,
+  -- so another tenant's row still answers 23503 (section 34e).
+  SELECT * INTO usr FROM app.app_user u WHERE u.tenant_id = NEW.tenant_id AND u.id = NEW.user_id;
+  IF FOUND AND NOT usr.active THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028', MESSAGE = format('%s is no longer active', usr.display_name);
+  END IF;
+  SELECT * INTO veh FROM app.vehicle v WHERE v.tenant_id = NEW.tenant_id AND v.id = NEW.vehicle_id;
+  IF FOUND THEN
+    IF veh.unit_kind = 'TRAILER' THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY028',
+        MESSAGE = format('a trip is driven on a horse, rigid or light vehicle; %s is a trailer', veh.fleet_number);
+    END IF;
+    IF veh.status IN ('DISPOSED', 'INACTIVE') THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY028',
+        MESSAGE = format('%s is %s; a retired unit does not go on a trip', veh.fleet_number, lower(veh.status::text));
+    END IF;
+  END IF;
+  -- An end ahead of now would close coverage nobody has yet given up (spec,
+  -- Starting and ending a trip).
+  IF NEW.ended_at > now() THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY028', MESSAGE = 'a trip ends now or earlier, never in the future';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER trip_well_formed BEFORE INSERT ON app.trip
+FOR EACH ROW EXECUTE FUNCTION app.trip_is_well_formed();
+
 -- ---------------------------------------------------------------------------
 -- C. app.inspection_task_nomination (FR-INS-051, FR-INS-053 as amended)
 -- ---------------------------------------------------------------------------
@@ -155,6 +193,38 @@ COMMENT ON TABLE app.inspection_task_nomination IS
 CREATE TRIGGER inspection_task_nomination_audited
 AFTER INSERT OR UPDATE ON app.inspection_task_nomination
 FOR EACH ROW EXECUTE FUNCTION app.audit_row_change();
+
+-- app_rw holds INSERT, so a raw nomination meets app.nominate_for_task's
+-- rules here, in its words and its order (FR-INS-051 as amended). A past
+-- instant is ADR-0013's accepted gap (U152).
+CREATE FUNCTION app.nomination_is_well_formed() RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = app, pg_temp AS $$
+DECLARE
+  k   app.inspection_task;
+  usr app.app_user;
+BEGIN
+  -- A task or user this fleet cannot see is the composite FK's to refuse,
+  -- so another tenant's row still answers 23503 (check 16).
+  SELECT * INTO k FROM app.inspection_task t WHERE t.tenant_id = NEW.tenant_id AND t.id = NEW.task_id;
+  IF FOUND AND k.state <> 'OPEN' THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('this inspection is %s; only an open one takes a driver', lower(k.state::text));
+  END IF;
+  SELECT * INTO usr FROM app.app_user u WHERE u.tenant_id = NEW.tenant_id AND u.id = NEW.user_id;
+  IF FOUND AND NOT usr.active THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018', MESSAGE = format('%s is no longer active', usr.display_name);
+  END IF;
+  -- A nomination ahead of now would hand the task over at an instant no
+  -- caller has reached, and app.nominate_for_task reads it as a race lost.
+  IF NEW.nominated_at > now() THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018', MESSAGE = 'a nomination is dated now or earlier, never in the future';
+  END IF;
+  RETURN NEW;
+END $$;
+
+CREATE TRIGGER nomination_well_formed BEFORE INSERT ON app.inspection_task_nomination
+FOR EACH ROW EXECUTE FUNCTION app.nomination_is_well_formed();
 
 -- ---------------------------------------------------------------------------
 -- D. The task's close instant (FR-INS-052; spec, Capture)
