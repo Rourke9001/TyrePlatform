@@ -7,7 +7,7 @@ DECLARE
   mr    constant uuid := md5('mr')::uuid;
   today constant date := (now() AT TIME ZONE 'Africa/Johannesburg')::date;
   c1 constant uuid := md5('mr-c1')::uuid;
-  got text; want text; n int; mig timestamptz;
+  got text; want text; n int; mig timestamptz; tow_end timestamptz;
 BEGIN
   PERFORM set_config('app.tenant_id', mr::text, true);
 
@@ -59,12 +59,13 @@ BEGIN
   -- whoever asked for it, and no other task has one. k11's assignee is
   -- deactivated, which app.nominate_for_task would refuse, so it has none.
   -- k12's trailer rode in MR-M4's rig and was free at the migration, so it
-  -- gains a second row at the migration; the others' units were never
+  -- gains a second row where that tow ended; the others' units were never
   -- covered or are covered now, and gain none. k13 and k14 were created a
   -- day ahead, so each copy is dated at the migration, never ahead of it;
   -- k14's trailer is covered now and k13's never was. Part D's UPDATE of the
   -- escalated k05 stamped its updated_at with the migration's now().
   mig := (SELECT updated_at FROM app.inspection_task WHERE id = md5('mr-k5')::uuid);
+  tow_end := (SELECT effective_to FROM app.combination WHERE id = md5('mr-rig4')::uuid);
   IF EXISTS (SELECT 1 FROM app.inspection_task
               WHERE id IN (md5('mr-k13')::uuid, md5('mr-k14')::uuid) AND created_at <= mig) THEN
     RAISE EXCEPTION 'FAIL 4: k13 or k14 was not created after the migration, so their case proves nothing';
@@ -72,6 +73,7 @@ BEGIN
   SELECT string_agg(k.label || ':' || u.display_name || ':'
                     || CASE WHEN nm.nominated_at = t.created_at THEN 'at creation'
                             WHEN nm.nominated_at = mig THEN 'at the migration'
+                            WHEN nm.nominated_at = tow_end THEN 'at the tow''s end'
                             ELSE nm.nominated_at::text END,
                     ',' ORDER BY k.label, nm.nominated_at) INTO got
     FROM app.inspection_task_nomination nm
@@ -87,7 +89,7 @@ BEGIN
   want := 'k01:MR Driver Two:at creation,k02:MR Driver Four:at creation,'
           || 'k03:MR Driver Two:at creation,k04:MR Driver Three:at creation,'
           || 'k10:MR Driver Three:at creation,k12:MR Driver Five:at creation,'
-          || 'k12:MR Driver Five:at the migration,k13:MR Driver One:at the migration,'
+          || 'k12:MR Driver Five:at the tow''s end,k13:MR Driver One:at the migration,'
           || 'k14:MR Driver One:at the migration';
   IF got IS DISTINCT FROM want THEN
     RAISE EXCEPTION 'FAIL 4: the nominations read [%], not [%]', got, want;
@@ -127,15 +129,25 @@ BEGIN
   END IF;
   -- k12 over its life: its assignee from its creation 48 days back until
   -- MR-T3 joined MR-M4's rig, the trip through the rig from 45 to 40 days
-  -- back, nobody from then to the migration, and its assignee again since.
+  -- back, and its assignee again from the instant the tow ended. The two
+  -- '[)' spans meet there, so the last microsecond of the tow is the trip's.
   SELECT string_agg(COALESCE((SELECT u.display_name || '/' || r.via
-                                FROM app.task_responsibility_at(md5('mr-k12')::uuid, now() - x.ago) r
+                                FROM app.task_responsibility_at(md5('mr-k12')::uuid, x.at) r
                                 JOIN app.app_user u ON u.id = r.user_id), 'nobody'),
-                    ',' ORDER BY x.ago DESC) INTO got
-    FROM (VALUES (interval '46 days'), (interval '42 days'), (interval '20 days'), (interval '0')) x(ago);
-  want := 'MR Driver Five/NOMINATION,MR Driver Five/TRIP,nobody,MR Driver Five/NOMINATION';
+                    ',' ORDER BY x.at) INTO got
+    FROM (VALUES (now() - interval '46 days'), (now() - interval '42 days'),
+                 (tow_end - interval '1 microsecond'), (tow_end),
+                 (now() - interval '20 days'), (now())) x(at);
+  want := 'MR Driver Five/NOMINATION,MR Driver Five/TRIP,MR Driver Five/TRIP,'
+          || 'MR Driver Five/NOMINATION,MR Driver Five/NOMINATION,MR Driver Five/NOMINATION';
   IF got IS DISTINCT FROM want THEN
-    RAISE EXCEPTION 'FAIL 7: k12 at 46, 42, 20 and 0 days back is held by [%], not [%]', got, want;
+    RAISE EXCEPTION 'FAIL 7: k12 at 46 and 42 days back, either side of the tow''s end, 20 days back and now is held by [%], not [%]',
+      got, want;
+  END IF;
+  -- A capture the assignee queued between the tow and the migration passes.
+  IF NOT app.user_could_capture(md5('mr-d5')::uuid, md5('mr-t3')::uuid,
+                                now() - interval '20 days', now() - interval '20 days') THEN
+    RAISE EXCEPTION 'FAIL 7: k12''s assignee cannot capture MR-T3 between the tow and the migration';
   END IF;
 
   -- The conflict's loser cannot capture the unit: a queued capture of theirs

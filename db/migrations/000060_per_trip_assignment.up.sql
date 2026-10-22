@@ -364,11 +364,11 @@ SELECT k.tenant_id, k.id, k.assigned_user_id, least(k.created_at, now()), k.requ
 
 -- A nomination lapses at the first coverage after it (v_nomination_span), so
 -- a task whose unit a migrated trip towed and let go would be held by nobody
--- at deploy. Its assignee gains a second nomination at now, and the first
--- keeps who held the task before that coverage. A unit covered now needs
--- none, since the trip holds it. The two branches are app.v_unit_coverage's,
--- read here because part F drops assigned_user_id before part G creates the
--- view.
+-- from the tow's end. Its assignee gains a second nomination at the instant
+-- the unit's last coverage ended, and the first keeps who held the task
+-- before that coverage. A unit covered now needs none, since the trip holds
+-- it. The two branches are app.v_unit_coverage's, read here because part F
+-- drops assigned_user_id before part G creates the view.
 WITH cover AS (
   SELECT t.tenant_id, t.vehicle_id, tstzrange(t.started_at, t.ended_at, '[)') AS span
     FROM app.trip t
@@ -380,13 +380,17 @@ WITH cover AS (
      AND cm.vehicle_id <> c.motive_vehicle_id
     JOIN app.trip t ON t.tenant_id = c.tenant_id AND t.vehicle_id = c.motive_vehicle_id)
 INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at, nominated_by)
-SELECT k.tenant_id, k.id, k.assigned_user_id, now(), k.requested_by
+SELECT k.tenant_id, k.id, k.assigned_user_id, g.ended_at, k.requested_by
   FROM app.inspection_task k
   JOIN app.app_user u ON u.tenant_id = k.tenant_id AND u.id = k.assigned_user_id
+  -- A coverage span is '[)', so its upper bound is the first instant it no
+  -- longer holds, and a nomination dated there is not lapsed by it.
+ CROSS JOIN LATERAL (SELECT max(upper(c.span)) AS ended_at
+                       FROM cover c
+                      WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
+                        AND NOT isempty(c.span) AND upper(c.span) <= now()) g
  WHERE k.state = 'OPEN' AND u.active
-   AND EXISTS (SELECT 1 FROM cover c
-                WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
-                  AND c.span && tstzrange(least(k.created_at, now()), now(), '[)'))
+   AND g.ended_at > least(k.created_at, now())
    AND NOT EXISTS (SELECT 1 FROM cover c
                     WHERE c.tenant_id = k.tenant_id AND c.vehicle_id = k.vehicle_id
                       AND c.span @> now());
