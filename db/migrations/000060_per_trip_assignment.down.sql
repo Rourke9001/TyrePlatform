@@ -17,6 +17,9 @@ UPDATE app.inspection_task k
  WHERE n.task_id = k.id;
 
 -- I.
+DROP FUNCTION app.end_trip(uuid);
+DROP FUNCTION app.start_trip(uuid, uuid, uuid[]);
+DROP FUNCTION app.trip_start_blockers(uuid, uuid[]);
 DROP FUNCTION app.create_inspection_task(uuid, date, uuid);
 DROP FUNCTION app.nominate_for_task(uuid, uuid);
 
