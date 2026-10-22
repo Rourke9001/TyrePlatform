@@ -656,7 +656,7 @@ class Main(unittest.TestCase):
         with open(out, encoding="utf-8") as f:
             self.assertIn(first.split(": ")[1], f.read())
         self.assertEqual(stdout.split("\n")[1], f"wrote {out}")
-        self.assertIn("configuration 16", stdout)
+        self.assertIn("configuration 18", stdout)
 
     def test_each_run_mints_a_fresh_id(self):
         path = written(minimal())

@@ -66,7 +66,11 @@ function stubFetch(rigs: Rig[] = []) {
     if (url === "/api/combinations") return Promise.resolve(respond(200, rigs));
     if (url === "/api/vehicles/u9/fitments")
       return Promise.resolve(respond(200, [fitmentRow({ fitmentId: "f1", displayCode: "TY100" })]));
-    if (url === "/api/vehicles/u9/drivers") return Promise.resolve(respond(200, []));
+    if (url === "/api/vehicles/u9/trip")
+      return Promise.resolve(respond(200, { trip: null, pulledBy: null }));
+    if (url === "/api/drivers") return Promise.resolve(respond(200, []));
+    if (url === "/api/vehicles") return Promise.resolve(respond(200, []));
+    if (url.startsWith("/api/vehicles/u9/trip-blockers")) return Promise.resolve(respond(200, []));
     if (url === "/api/vehicles/u9/inspection-tasks") return Promise.resolve(respond(200, []));
     if (url.startsWith("/api/tyres")) return Promise.resolve(respond(200, { tyres: [] }));
     if (url.startsWith("/api/depots")) return Promise.resolve(respond(200, []));
@@ -138,6 +142,17 @@ describe("the unit screen", () => {
     expect(screen.queryByRole("button", { name: "Rotate" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Save changes" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Set status" })).toBeNull();
+  });
+
+  // Every ViewFleet reader sees the trip panel; its controls are
+  // ManageAssignments' (spec, Trip screens).
+  it("shows a reader the trip panel with no trip controls", async () => {
+    renderScreen(["ViewFleet"]);
+
+    expect(await screen.findByRole("heading", { name: "Trip" })).toBeInTheDocument();
+    expect(await screen.findByText("Not on a trip.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Start trip" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "End trip" })).toBeNull();
   });
 
   // A TECHNICIAN reads this screen, so the prompt offers only what the

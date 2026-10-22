@@ -18,7 +18,7 @@
   "forbidden": {
     "source": "go",
     "httpStatus": 403,
-    "meaning": "the actor is known but the role lacks the capability the route requires, names a user this tenant cannot resolve (an unlinked or inactive user), or asks for something outside the actor's scope (a depot-scoped actor moving a unit's home depot, a capture read of a vehicle the actor cannot reach)"
+    "meaning": "the actor is known but the role lacks the capability the route requires, names a user this tenant cannot resolve (an unlinked or inactive user), or asks for something outside the actor's scope (a depot-scoped actor moving a unit's home depot or ending a rig headed outside their depots, a capture read of a vehicle the actor cannot reach)"
   },
   "tenant_inactive": {
     "source": "go",
@@ -85,10 +85,10 @@
     "httpStatus": 409,
     "meaning": "no deactivated user holds that email address any more"
   },
-  "assignment_overlaps": {
+  "trip_overlaps": {
     "source": "go",
     "httpStatus": 409,
-    "meaning": "vehicle_driver_no_overlap: that driver already holds an overlapping assignment to this unit (B1's exclusion constraint)"
+    "meaning": "trip_vehicle_no_overlap or trip_driver_no_overlap: a unit or driver went on another trip in a race app.start_trip's locks did not cover (TYRE-326)"
   },
   "staff_number_taken": {
     "source": "go",
@@ -144,8 +144,8 @@
   "TY005": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "any of submit_inspection's own payload-shape validations; the busiest code",
-    "raisedBy": ["app.submit_inspection"]
+    "meaning": "any of submit_inspection's own payload-shape validations, a payload with no started_at among them (TYRE-326); the busiest code",
+    "raisedBy": ["app.capture_window", "app.submit_inspection"]
   },
   "TY006": {
     "source": "db",
@@ -198,16 +198,19 @@
       "app.dispatch_tyre",
       "app.dispose_tyre",
       "app.end_combination_at",
+      "app.end_trip",
       "app.fit_tyre",
       "app.fitment_instant_ok",
       "app.keep_receipt_estimate",
       "app.log_retread_return",
+      "app.nominate_for_task",
       "app.record_receipt_invoice",
       "app.remove_tyre",
       "app.return_tyre_to_stock",
       "app.rotate_tyres",
       "app.set_tyre_cost",
       "app.set_vehicle_status",
+      "app.start_trip",
       "app.void_inspection"
     ]
   },
@@ -258,8 +261,8 @@
   "TY018": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "an inspection task refused (TYRE-90)",
-    "raisedBy": ["app.create_inspection_task"]
+    "meaning": "an inspection task or a nomination refused: a retired unit, a past due day, a task not open, a closed task moved to another state, a nominee no longer active, a unit a trip already covers, or a nomination that lost a race (TYRE-90, TYRE-326)",
+    "raisedBy": ["app.create_inspection_task", "app.inspection_task_closes_once", "app.nominate_for_task"]
   },
   "TY019": {
     "source": "db",
@@ -338,5 +341,11 @@
     "meaning": "a consent record refused: by app.record_consent for no tenant bound or one that does not exist, a purpose outside SERVICE_DELIVERY and ANONYMISED_BENCHMARKING, no granted or withdrawn, a notice version missing or blank, no time given, a time after now, or a time not after the purpose's latest record (U144); or by the written-once trigger for any UPDATE of a recorded row, from any role (FR-TEN-022, OR-LEG-005, TYRE-283)",
     "note": "no route writes consent; make record-consent, provision_tenant.py and docs/runbooks/provision-a-tenant.md do, so an entry would carry no test able to fail (ADR-0012, TY008's reasoning)",
     "raisedBy": ["app.record_consent", "app.tenant_consent_is_written_once"]
+  },
+  "TY028": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a trip write refused: started on a trailer, a retired unit or for an inactive driver, a trailer that is not free, a due inspection not done on a unit the trip would cover (U148), a trip already ended or ended in the future, a start or end that lost a race, or an edit to a trip other than its end (TYRE-326)",
+    "raisedBy": ["app.end_trip", "app.start_trip", "app.trip_is_ended_once"]
   }
 }

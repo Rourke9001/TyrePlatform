@@ -853,6 +853,56 @@ func unitSource(a auth.Actor) string {
 	return `app.v_depot_vehicle`
 }
 
+// lockUnitInScope is depot scope for a write on one unit (FR-AUT-008,
+// TYRE-226): a unit outside the actor's depots answers 404 notFound, never
+// 403 (ADR-0011), and an in-scope unit is held FOR SHARE so the scope
+// authorised is the scope the write lands in; fitTyre (fitments.go) carries
+// why it is a share lock. A ScopeTenant actor reaches every unit, so it
+// takes no lock and meets the write's own refusal for an invisible id.
+func lockUnitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, notFound string) error {
+	if a.Scope() == auth.ScopeTenant {
+		return nil
+	}
+	var locked uuid.UUID
+	err := tx.QueryRow(ctx,
+		`SELECT v.id FROM app.vehicle v
+		  WHERE v.id = $1
+		    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
+		  FOR SHARE OF v`, vehicleID).Scan(&locked)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
+	}
+	if err != nil {
+		return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+	}
+	return nil
+}
+
+// checkUnitInScope is lockUnitInScope's predicate with no lock, for a write
+// whose function takes its own unit locks in id order (create_combination_at,
+// 000044), where a lock taken here first would invert that order and risk
+// 40P01. Such a write checks before it runs and again after, under its own
+// locks.
+func checkUnitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, notFound string) error {
+	in, err := unitInScope(ctx, tx, a, vehicleID)
+	if err != nil {
+		return err
+	}
+	if !in {
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
+	}
+	return nil
+}
+
+func unitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID) (bool, error) {
+	var in bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)`, vehicleID).Scan(&in); err != nil {
+		return false, fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+	}
+	return in, nil
+}
+
 // listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
 // and is refused here rather than filtered. FR-AUT-005 is about what they
 // may ask for, not only about what comes back. Their route is /api/my/vehicles.
@@ -892,8 +942,9 @@ func listVehicles(s *store.Store) http.HandlerFunc {
 }
 
 // listMyVehicles is the driver's own list, through the single predicate that
-// defines "currently assigned to me" (FR-AUT-005, app.v_driver_vehicle).
-// A driver assigned nothing gets an empty list: asking is legitimate, and the
+// defines the units they hold now, their trip's and their nominations'
+// (FR-AUT-005 as amended, app.v_driver_vehicle). A driver on no trip and
+// nominated for nothing gets an empty list: asking is legitimate, and the
 // answer is legitimately nothing.
 func listMyVehicles(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

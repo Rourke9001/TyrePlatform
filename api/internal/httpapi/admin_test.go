@@ -396,212 +396,24 @@ func TestWriteAimedAtAnotherTenantIsRefused_AppUser(t *testing.T) {
 	require.Zero(t, landed)
 }
 
-type assignmentBody struct {
-	ID        string `json:"id"`
-	VehicleID string `json:"vehicleId"`
-	UserID    string `json:"userId"`
-	FromDate  string `json:"fromDate"`
-}
-
-func TestAssignDriverToVehicle(t *testing.T) {
+// A trip or a nomination is how a driver reaches a unit (FR-AUT-005 as
+// amended), so vehicle_driver has no route that writes or reads it.
+func TestAssignRoutesAreGone(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
-	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "assign")
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-
-	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
-	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	path := "/api/vehicles/" + vehicleID.String() + "/drivers"
-	body := `{"userId":"` + driver.String() + `","fromDate":"2026-01-01"}`
-
-	// The gate is ManageAssignments. A TECHNICIAN holds ViewFleet and no more.
-	tech := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
-	require.Equal(t, http.StatusForbidden,
-		post(t, h, path, tenantID.String(), tech.String(), body).Code)
-
-	rec := post(t, h, path, tenantID.String(), orgAdmin.String(), body)
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	var created assignmentBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
-	require.Equal(t, driver.String(), created.UserID)
-
-	// The point of the endpoint: the assignment is what makes the unit
-	// reachable, so the driver can now read it (FR-AUT-005,
-	// app.v_capture_vehicle).
-	require.Equal(t, http.StatusOK,
-		get(t, h, "/api/capture/vehicles/"+vehicleID.String(), tenantID.String(), driver.String()).Code)
-
-	// B1's vehicle_driver_no_overlap (000026), reachable for the first time
-	// through an endpoint. Unmapped, 23P01 would answer 500.
-	rec = post(t, h, path, tenantID.String(), orgAdmin.String(), body)
-	require.Equal(t, http.StatusConflict, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "assignment_overlaps", ref.Code)
-	require.NotContains(t, rec.Body.String(), "vehicle_driver_no_overlap")
-
-	// U7: a path id that does not parse as a uuid is a malformed request, not
-	// an invalid submission (pathID, TYRE-92), unlike the two body-field
-	// rows below, which stay 422 because they are payload validation.
-	rec = post(t, h, "/api/vehicles/not-a-uuid/drivers", tenantID.String(), orgAdmin.String(), body)
-	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-	var pathRef refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &pathRef))
-	require.Equal(t, "bad_request", pathRef.Code)
-
-	// An absent fromDate is not malformed. It defaults to the tenant's day
-	// (rule 6, TestAssignmentDefaultsToTheTenantDay), so this table holds
-	// only genuinely malformed body fields.
-	for _, tt := range []struct{ name, path, payload, field string }{
-		{"unparseable user", path, `{"userId":"nope","fromDate":"2026-01-01"}`, "userId"},
-		{"unparseable from date", path, `{"userId":"` + driver.String() + `","fromDate":"01/01/2026"}`, "fromDate"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			rec := post(t, h, tt.path, tenantID.String(), orgAdmin.String(), tt.payload)
-			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-			var ref refusalBody
-			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-			require.Contains(t, ref.Message, tt.field)
-		})
-	}
-
-	// A user in another tenant is not assignable here, and the composite FK
-	// (tenant_id, user_id) is what refuses it below RLS (000004).
-	otherID, _ := plantTenant(t, ctx, admin, "assign-other")
-	stranger := plantUser(t, ctx, admin, otherID, auth.RoleDriver)
-	rec = post(t, h, path, tenantID.String(), orgAdmin.String(),
-		`{"userId":"`+stranger.String()+`","fromDate":"2026-01-01"}`)
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-}
-
-// FR-AUT-008's depot narrowing for a write that predates it; TestFitTyreIsDepotScoped
-// carries why, and why the controller is the control (TYRE-226).
-func TestAssignDriverIsDepotScoped(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, _ := plantTenant(t, ctx, admin, "assign-depot")
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-
-	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	tenantID, horseID, _ := plantRigUnits(t, ctx, admin, "assign-gone")
 	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	mineDepot, mineFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
-	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
-	_, elsewhereFleet := plantDepotWithVehicle(t, ctx, admin, tenantID)
-
-	unitID := func(fleet string) uuid.UUID {
-		var id uuid.UUID
-		require.NoError(t, admin.QueryRow(ctx,
-			`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet).Scan(&id))
-		return id
-	}
-	mine, elsewhere := unitID(mineFleet), unitID(elsewhereFleet)
-
-	body := `{"userId":"` + driver.String() + `","fromDate":"2026-01-01"}`
-	rec := post(t, h, "/api/vehicles/"+elsewhere.String()+"/drivers", tenantID.String(), manager.String(), body)
-	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "not_found", ref.Code)
-
-	// the refused write must not have written
-	var open int
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1`, elsewhere).Scan(&open))
-	require.Zero(t, open)
-
-	// control: the same call on the manager's own unit, and the controller's
-	// on the out-of-depot one, both land
-	require.Equal(t, http.StatusCreated,
-		post(t, h, "/api/vehicles/"+mine.String()+"/drivers", tenantID.String(), manager.String(), body).Code)
-	require.Equal(t, http.StatusCreated,
-		post(t, h, "/api/vehicles/"+elsewhere.String()+"/drivers", tenantID.String(), controller.String(), body).Code)
-}
-
-// An assignment exists so its holder can capture the unit (v_capture_vehicle),
-// and TECHNICIAN holds no CaptureInspection, so assigning one would give it a
-// unit it is refused on opening (ADR-0013, Accepted gaps).
-func TestAssignDriverRefusesAUserWhoCannotCapture(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantID, fleet := plantTenantWithVehicle(t, ctx, admin, "assign-capturer")
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
-	orgAdmin := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
-	technician := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
-	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	var unit uuid.UUID
+	path := "/api/vehicles/" + horseID.String() + "/drivers"
+	require.Equal(t, http.StatusNotFound, get(t, h, path, tenantID.String(), controller.String()).Code)
+	rec := post(t, h, path, tenantID.String(), controller.String(), fmt.Sprintf(`{"userId":%q}`, driver))
+	require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+	var n int
 	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet).Scan(&unit))
-	path := "/api/vehicles/" + unit.String() + "/drivers"
-
-	rec := post(t, h, path, tenantID.String(), orgAdmin.String(),
-		`{"userId":"`+technician.String()+`","fromDate":"2026-01-01"}`)
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
-	var ref refusalBody
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &ref))
-	require.Equal(t, "invalid_submission", ref.Code)
-	require.Contains(t, ref.Message, "userId")
-
-	// the refused write must not have written
-	var landed int
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1`, unit).Scan(&landed))
-	require.Zero(t, landed)
-
-	// control: a driver on the same unit lands
-	require.Equal(t, http.StatusCreated, post(t, h, path, tenantID.String(), orgAdmin.String(),
-		`{"userId":"`+driver.String()+`","fromDate":"2026-01-01"}`).Code)
-}
-
-// app.vehicle_driver carries three composite tenant FKs (000004, 000017), not
-// tenant_isolation's usual one: (tenant_id, vehicle_id), (tenant_id, user_id)
-// and (tenant_id, created_by). Leaving any of the three to a default or to a
-// tenant-A value would fail that FK before WITH CHECK is ever evaluated
-// (2026-08-28 lessons entry), a red for the wrong reason, indistinguishable
-// from a working policy. To isolate tenant_id as the sole confound,
-// vehicle_id, user_id and created_by must each be a real row genuinely
-// belonging to tenant B.
-func TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantA, _ := plantTenantWithVehicle(t, ctx, admin, "withcheck-vd-a")
-	tenantB, vehicleB := plantTenantWithVehicle(t, ctx, admin, "withcheck-vd-b")
-
-	var vehicleBID uuid.UUID
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`,
-		tenantB, vehicleB).Scan(&vehicleBID))
-
-	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
-	// driverB stands in for both the assignee and the created_by stamp: both
-	// need only be a genuine tenant-B row, and one suffices for that.
-	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
-
-	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
-		_, err := tx.Exec(ctx,
-			`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, created_by)
-			 VALUES ($1, $2, $3, '2026-01-01', $4)`,
-			tenantB, vehicleBID, driverB, driverB)
-		return err
-	})
-	require.Error(t, err, "a row aimed at another tenant was accepted")
-
-	var pgErr *pgconn.PgError
-	require.ErrorAs(t, err, &pgErr)
-	// 42501 is insufficient_privilege, which is how a row-level security
-	// policy refuses a write it will not admit. 23503 would mean an FK fired
-	// instead of the policy, which means the test's own setup is broken.
-	require.Equal(t, "42501", pgErr.Code)
-	// By name: the table is audited, and audit_log's policy answers 42501
-	// too (docs/lessons.md 2026-09-08).
-	require.Contains(t, pgErr.Message, `row-level security policy for table "vehicle_driver"`)
-
-	var landed int
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1 AND user_id = $2`,
-		vehicleBID, driverB).Scan(&landed))
-	require.Zero(t, landed)
+		`SELECT count(*) FROM app.vehicle_driver WHERE tenant_id = $1`, tenantID).Scan(&n))
+	require.Zero(t, n)
 }
 
 // D9: the invite is narrowed by capability and not by role name, so the test
@@ -1001,72 +813,6 @@ func errorCode(t *testing.T, rec *httptest.ResponseRecorder) string {
 	var body refusalBody
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body), rec.Body.String())
 	return body.Code
-}
-
-// Two tenants 25 hours apart cannot share a civil date at any instant, so this
-// holds whatever time CI runs at. An admin working late from another zone must
-// not date a South African tenant's assignment a day out (rule 6).
-func TestAssignmentDefaultsToTheTenantDay(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	h := httpapi.New(s, httpapi.HeaderActorResolver{})
-
-	east, _ := plantTenantInZone(t, ctx, admin, "tz-east", "Pacific/Kiritimati") // UTC+14
-	west, _ := plantTenantInZone(t, ctx, admin, "tz-west", "Pacific/Midway")     // UTC-11
-
-	landed := func(tenantID uuid.UUID) string {
-		actor := plantUser(t, ctx, admin, tenantID, auth.RoleOrgAdmin)
-		driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-		var vehicleID uuid.UUID
-		require.NoError(t, admin.QueryRow(ctx,
-			`SELECT id FROM app.vehicle WHERE tenant_id = $1 LIMIT 1`, tenantID).Scan(&vehicleID))
-
-		var before string
-		require.NoError(t, admin.QueryRow(ctx,
-			`SELECT app.tenant_today(timezone)::text FROM app.tenant WHERE id = $1`,
-			tenantID).Scan(&before))
-
-		rec := post(t, h, "/api/vehicles/"+vehicleID.String()+"/drivers",
-			tenantID.String(), actor.String(),
-			fmt.Sprintf(`{"userId":%q}`, driver.String()))
-		require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-
-		var body struct {
-			FromDate string `json:"fromDate"`
-		}
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
-
-		// Read the tenant's day again after the write, and accept either.
-		// A run straddling the tenant's midnight would otherwise flake, and a
-		// test that lectures about clock independence must not depend on one.
-		var after string
-		require.NoError(t, admin.QueryRow(ctx,
-			`SELECT app.tenant_today(timezone)::text FROM app.tenant WHERE id = $1`,
-			tenantID).Scan(&after))
-		require.Contains(t, []string{before, after}, body.FromDate)
-		return body.FromDate
-	}
-
-	require.NotEqual(t, landed(east), landed(west),
-		"two tenants 25 hours apart must never land an omitted date on the same day")
-
-	// An explicit date is still honoured. The default is a default.
-	actor := plantUser(t, ctx, admin, east, auth.RoleOrgAdmin)
-	driver := plantUser(t, ctx, admin, east, auth.RoleDriver)
-	var vehicleID uuid.UUID
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT id FROM app.vehicle WHERE tenant_id = $1 LIMIT 1`, east).Scan(&vehicleID))
-	rec := post(t, h, "/api/vehicles/"+vehicleID.String()+"/drivers",
-		east.String(), actor.String(),
-		fmt.Sprintf(`{"userId":%q,"fromDate":"2020-02-29"}`, driver.String()))
-	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
-	require.Contains(t, rec.Body.String(), "2020-02-29")
-
-	// A malformed date is still a malformed date, not a silent default.
-	rec = post(t, h, "/api/vehicles/"+vehicleID.String()+"/drivers",
-		east.String(), actor.String(),
-		fmt.Sprintf(`{"userId":%q,"fromDate":"29-02-2020"}`, driver.String()))
-	require.Equal(t, http.StatusUnprocessableEntity, rec.Code)
 }
 
 // TYRE-222 rule 1 (owner, 7 Sep 2026). The NULL-homed unit is the ticket's

@@ -43,3 +43,19 @@ export function distanceSourceLabel(source: string): string {
 export function orientationLabel(value: string): string {
   return MOUNT_ORIENTATIONS.find((o) => o.value === value)?.label ?? value;
 }
+
+// Who holds an inspection task, in words: a trip driver by name, a nominee
+// marked as nominated whether the nomination is the task's own or its rig
+// motive's, and nobody as such (FR-INS-053 as amended).
+export function taskDriverLabel(name: string | null, via: string | null): string {
+  if (name === null) return "No driver";
+  return via === "TRIP" ? name : `${name} (nominated)`;
+}
+
+// NFR-USE-009: escalated and overdue are words, never colour alone.
+export function taskStatusLabel(escalated: boolean, overdue: boolean): string {
+  if (escalated && overdue) return "Escalated, overdue";
+  if (escalated) return "Escalated";
+  if (overdue) return "Overdue";
+  return "Open";
+}

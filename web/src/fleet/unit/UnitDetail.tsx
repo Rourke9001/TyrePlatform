@@ -10,6 +10,7 @@ import { FitmentHistory } from "./FitmentHistory";
 import { PositionPanel } from "./PositionPanel";
 import { RotateForm } from "./RotateForm";
 import { ScheduleInspectionForm } from "./ScheduleInspectionForm";
+import { TripPanel } from "./TripPanel";
 import { UnitEditForm } from "./UnitEditForm";
 import { UnitPlan } from "./UnitPlan";
 import { UnitStatusForm } from "./UnitStatusForm";
@@ -18,8 +19,9 @@ import { rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import "../fleet.css";
 
 // D7's unit screen: ViewFleet reads it; every form inside is ManageAssets'
-// except the inspection schedule (ManageAssignments, U2). A reader is
-// shown the unit rather than controls that would refuse them (D8, ADR-0011).
+// except the inspection schedule and the trip's start and end
+// (ManageAssignments, U2). A reader is shown the unit rather than controls
+// that would refuse them (D8, ADR-0011).
 export function UnitDetail({ unitId }: { unitId: string }) {
   const canManage = useCan("ManageAssets");
   const canAssign = useCan("ManageAssignments");
@@ -74,6 +76,8 @@ export function UnitDetail({ unitId }: { unitId: string }) {
           <Link to="/fleet/rigs">{siblings.map((m) => m.fleetNumber).join(", ")}</Link>
         </p>
       )}
+
+      <TripPanel unit={unit.data} />
 
       <UnitPlan
         positions={unit.data.positions}

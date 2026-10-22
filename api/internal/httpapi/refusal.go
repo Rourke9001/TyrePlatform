@@ -48,7 +48,7 @@ const (
 	codeEmailTaken          = "email_taken"
 	codeEmailInactive       = "email_inactive"
 	codeNothingToReactivate = "nothing_to_reactivate"
-	codeAssignmentOverlaps  = "assignment_overlaps"
+	codeTripOverlaps        = "trip_overlaps"
 	codeStaffNumberTaken    = "staff_number_taken"
 	codeDisplayCodeTaken    = "display_code_taken"
 	codePositionOccupied    = "position_occupied"
@@ -76,7 +76,7 @@ const (
 	msgEmailTaken          = "a user with that email address already exists in this tenant"
 	msgEmailInactive       = "a user with this email address was deactivated; reactivate them instead of adding a new one"
 	msgNothingToReactivate = "no deactivated user holds that email address any more; refresh and add them as a new user if that is still the intent"
-	msgAssignmentOverlaps  = "that driver already holds an overlapping assignment to this unit"
+	msgTripOverlaps        = "that unit or driver went on another trip at the same moment; refresh and try again"
 	msgStaffNumberTaken    = "another active user already has that staff number; give this one a different number"
 	msgDisplayCodeTaken    = "an active tyre already carries that display code; two active tyres may never share one (FR-TYR-004/DR-002)"
 	msgPositionOccupied    = "that position already carries a tyre; remove it first (FR-FIT-004)"
@@ -91,7 +91,7 @@ var submitStatus = map[string]int{
 	"TY006": http.StatusUnprocessableEntity,
 	// TY007: an unrecognised or cross-tenant vehicle_id (migration 000023).
 	// Reachable in practice only by a ScopeTenant actor, who skips the
-	// Go-side v_capture_vehicle check.
+	// submit route's own-units check (app.actor_could_capture, 000060).
 	"TY007": http.StatusUnprocessableEntity,
 
 	// TY009/011-019: fitment (TYRE-92), tyre-lifecycle, unit-status, rig and
@@ -124,6 +124,10 @@ var submitStatus = map[string]int{
 	// or a tyre's receipt changed. 422 like its neighbours.
 	"TY026": http.StatusUnprocessableEntity,
 
+	// TY028 is a trip write refused (000060): a start or end its rules do
+	// not allow. 422 like its neighbours.
+	"TY028": http.StatusUnprocessableEntity,
+
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
 	// (units.go's patchUnitRequest). An entry could carry no test able to
@@ -149,7 +153,8 @@ var submitStatus = map[string]int{
 	// not become a 500 the outbox retries to no end.
 	"23505": http.StatusConflict,
 
-	// 23P01 is vehicle_driver_no_overlap (000026). Unmapped it would answer
+	// 23P01 is a trip EXCLUDE, trip_vehicle_no_overlap or
+	// trip_driver_no_overlap (000060). Unmapped it would answer
 	// 500, which for a form is a spinner that never resolves and for the
 	// capture outbox is a retry that never stops (ADR-0009).
 	"23P01": http.StatusConflict,
@@ -163,15 +168,18 @@ type refusal struct {
 }
 
 // The conflicts a client acts on differently, keyed by the constraint that
-// detects them (ADR-0013): DR-003 (fleet number), D10 (email), B1's
-// exclusion (assignment). Translated, never forwarded (ADR-0012); an
+// detects them (ADR-0013): DR-003 (fleet number), D10 (email), the trip
+// EXCLUDEs. Translated, never forwarded (ADR-0012); an
 // unrecognised constraint keeps the generic conflict.
 // TestConflictCodesNameLiveSchemaObjects asserts every key names a live
 // constraint (TYRE-95).
 var conflictCodes = map[string]string{
 	"vehicle_tenant_id_fleet_number_key": codeFleetNumberTaken,
 	"app_user_tenant_email_key":          codeEmailTaken,
-	"vehicle_driver_no_overlap":          codeAssignmentOverlaps,
+	// A race app.start_trip's locks did not cover reaches the EXCLUDE that
+	// backs them (000060), and the controller's recovery is a refresh.
+	"trip_vehicle_no_overlap": codeTripOverlaps,
+	"trip_driver_no_overlap":  codeTripOverlaps,
 	// A rehire preserves the returning employee's staff_number rather than
 	// blanking it (admin.go's COALESCE, FR-AUT-022), and 000019's partial
 	// index permits another active user to hold that same number once the
@@ -200,7 +208,7 @@ var conflictCodes = map[string]string{
 var conflictMessages = map[string]string{
 	codeFleetNumberTaken:    msgFleetNumberTaken,
 	codeEmailTaken:          msgEmailTaken,
-	codeAssignmentOverlaps:  msgAssignmentOverlaps,
+	codeTripOverlaps:        msgTripOverlaps,
 	codeStaffNumberTaken:    msgStaffNumberTaken,
 	codeDisplayCodeTaken:    msgDisplayCodeTaken,
 	codePositionOccupied:    msgPositionOccupied,

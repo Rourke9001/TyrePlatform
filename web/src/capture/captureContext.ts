@@ -97,19 +97,28 @@ export interface CaptureContext {
   cohortWearRateMmPerMonth: Record<string, number>;
 }
 
-export function fetchCaptureContext(vehicleId: string): Promise<CaptureContext> {
-  return apiGet<CaptureContext>(`/api/capture/vehicles/${vehicleId}`);
+// startedAt is a resumed draft's own: the server then admits a unit the
+// driver could capture at some instant of the draft's submit window, so a
+// trip that ended while the draft sat on the phone does not strand it (U148,
+// rule 7). A fresh capture sends none and is read at now (FR-AUT-005).
+export function fetchCaptureContext(
+  vehicleId: string,
+  startedAt?: string,
+): Promise<CaptureContext> {
+  const query = startedAt === undefined ? "" : `?startedAt=${encodeURIComponent(startedAt)}`;
+  return apiGet<CaptureContext>(`/api/capture/vehicles/${vehicleId}${query}`);
 }
 
 // staleTime Infinity, gcTime for the tab's life: FR-OFF-002 caches this for
 // the session, refreshed by FR-OFF-003 on app-open/demand, never a timer
 // that could change a threshold mid-walk-around. Options are a function,
 // not inlined, because a rig (useQueries) and a solo unit must produce the
-// same queryKey or the motive unit fetches twice.
-export function captureContextQuery(vehicleId: string) {
+// same queryKey or the motive unit fetches twice. The key carries startedAt
+// because a read through a draft's window answers for that window, not now.
+export function captureContextQuery(vehicleId: string, startedAt?: string) {
   return {
-    queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId],
-    queryFn: () => fetchCaptureContext(vehicleId),
+    queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null],
+    queryFn: () => fetchCaptureContext(vehicleId, startedAt),
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnWindowFocus: false,
@@ -117,6 +126,6 @@ export function captureContextQuery(vehicleId: string) {
   };
 }
 
-export function useCaptureContext(vehicleId: string) {
-  return useQuery(captureContextQuery(vehicleId));
+export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {
+  return useQuery({ ...captureContextQuery(vehicleId, startedAt), enabled });
 }

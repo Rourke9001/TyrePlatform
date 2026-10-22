@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
-import { assignDriver, createUnit, createUser, fetchAxleConfigurations } from "./admin";
+import { createUnit, createUser, fetchAxleConfigurations } from "./admin";
 import { ApiError } from "./client";
 import { respond } from "../test/fixtures";
 
@@ -44,14 +44,6 @@ describe("the admin API module", () => {
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).code).toBe("invalid_submission");
     expect((error as ApiError).message).toBe("fleetNumber is required");
-  });
-
-  it("posts an assignment under the unit it belongs to", async () => {
-    vi.mocked(fetch).mockResolvedValue(
-      respond(201, { id: "a1", vehicleId: "v1", userId: "u1", fromDate: "2026-01-01" }),
-    );
-    await assignDriver("v1", { userId: "u1", fromDate: "2026-01-01" });
-    expect(vi.mocked(fetch).mock.calls[0][0]).toBe("/api/vehicles/v1/drivers");
   });
 
   it("creates a user", async () => {

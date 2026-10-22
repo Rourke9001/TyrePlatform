@@ -268,6 +268,11 @@ table, current as of this amendment:
 | `one_open_fitment_per_tyre` | `tyre_already_fitted` | 409 | B5 slice 2 |
 | `composition_observation_once` | `observation_resolved` | 409 | B6.4 (migration 000044) |
 
+TYRE-326, 22 Oct 2026: `vehicle_driver_no_overlap` and its
+`assignment_overlaps` are gone with the writes that could raise them
+(000060). `trip_vehicle_no_overlap` and `trip_driver_no_overlap` answer
+`trip_overlaps`, 409.
+
 The map in `api/internal/httpapi/refusal.go` is the source of truth;
 `TestConflictCodesNameLiveSchemaObjects` guards it against the schema, not
 against either table above, so a future row still needs a matching edit
@@ -315,6 +320,13 @@ whether the write is a plain insert or a SQL function:
 | `POST /api/vehicles/{id}/rotations` | `rotateTyres` | `{moves: [{tyreId, fitmentId}]}` | 201 |
 | `POST /api/tyres/{id}/dispatch` | `dispatchTyre` | `{retreadJobId}` on the retreader arm, `{}` on the breakdown-supplier arm | 201 on both arms |
 | `POST /api/inspections` | `submitInspection` | `{inspectionId}` | 201, or 200 on a replay |
+
+TYRE-326, 22 Oct 2026: `POST /api/vehicles/{id}/drivers` (`assignDriver`) and
+`GET /api/vehicles/{id}/drivers` are removed. `POST /api/trips`
+(`startTrip`) answers the trip it started as `tripJSON`, 201;
+`POST /api/trips/{id}/end` (`endTrip`) answers the ended trip, 200; and
+`POST /api/inspection-tasks/{id}/nominations` (`nominateForTask`) answers
+the task as `unitTaskJSON`, 201, as its unit's list shows it.
 
 No create sets a `Location` header, but not for decision 9's reason.
 `GET /api/vehicles/{id}` has existed since TYRE-92 (2 Sep 2026). It is still
@@ -424,3 +436,7 @@ more than writing the assumption down first.
   user's rows whatever their new role (TYRE-377). No constraint says an
   `app.vehicle_driver` row's user must be a `DRIVER`: assigning a
   controller to a unit stays odd, not unsafe.
+  TYRE-326, 22 Oct 2026: the assignment endpoint and `listUnitDrivers` are
+  gone, and the generator names no assignee. `refuseNonCapturer` guards
+  the trip start's driver, the nominee of a schedule and a nomination, and
+  `listDrivers` offers only a role that holds `CaptureInspection`.

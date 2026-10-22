@@ -1,14 +1,19 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { fetchUnitTasks } from "../../api/tasks";
+import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
+import { NominateControl } from "./NominateControl";
 import { unitTasksKey } from "./queryKeys";
+import { taskDriverLabel, taskStatusLabel } from "./vocabulary";
 import "../fleet.css";
 
-// spec U2: every ViewFleet reader sees this, unlike the schedule form beside
-// it (ManageAssignments), so it carries no capability gate of its own.
+// spec U2: every ViewFleet reader sees this list; the nominate control is
+// ManageAssignments' (spec, Trip screens), offered on a task no trip holds,
+// since one a trip covers already goes to its driver.
 export function UnitTaskList({ unitId }: { unitId: string }) {
   const asDate = useTenantDate();
+  const canAssign = useCan("ManageAssignments");
   const tasks = useQuery({
     queryKey: unitTasksKey(unitId),
     queryFn: () => fetchUnitTasks(unitId),
@@ -38,15 +43,22 @@ export function UnitTaskList({ unitId }: { unitId: string }) {
                 <th scope="col">Driver</th>
                 <th scope="col">Due</th>
                 <th scope="col">Status</th>
+                {canAssign && <th scope="col">Nominate</th>}
               </tr>
             </thead>
             <tbody>
               {tasks.data.map((t) => (
                 <tr key={t.id}>
-                  <th scope="row">{t.assignedDisplayName ?? "Unassigned"}</th>
+                  <th scope="row">{taskDriverLabel(t.responsibleDisplayName, t.responsibleVia)}</th>
                   <td>{asDate(t.dueAt)}</td>
-                  {/* NFR-USE-009: overdue is a word, never colour alone. */}
-                  <td>{t.overdue ? "Overdue" : t.state === "ESCALATED" ? "Escalated" : "Open"}</td>
+                  <td>{taskStatusLabel(t.escalated, t.overdue)}</td>
+                  {canAssign && (
+                    <td>
+                      {t.responsibleVia !== "TRIP" && (
+                        <NominateControl taskId={t.id} unitId={unitId} />
+                      )}
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

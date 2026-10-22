@@ -2,7 +2,8 @@
 # Tenant provisioning, activation and the demonstration load, proved on two
 # fresh databases of their own, never tyre, so the suite's pins and its tenant
 # sweep stay defined on the fixture (TYRE-374). make db-provision-test runs it
-# locally and the CI database job runs it last.
+# locally and the CI database job runs it last. Step 16 replays 000060's data
+# step on a third (TYRE-326).
 #
 # Environment, set by both callers:
 #   PSQL         a superuser psql command naming no database; SQL goes in on
@@ -137,7 +138,7 @@ while IFS= read -r line; do
   printf '%s\n' "$line"
 done <"$work/z.sql" >"$work/z-probe.sql"
 [ "$(grep -c count_gate_probe "$work/z-probe.sql")" = 1 ] || fail 6 "the probe row did not go in"
-must_refuse 6 "count gate: configuration holds 17, expected 16" tyre_provision postgres "$work/z-probe.sql"
+must_refuse 6 "count gate: configuration holds 19, expected 18" tyre_provision postgres "$work/z-probe.sql"
 ok 6 "the count gate refuses a count it did not expect"
 
 # 7. Under a role that does not bypass RLS, and with the subdomain the
@@ -193,9 +194,27 @@ must_run 15 tyre_demo postgres db/tests/provision/demo.sql
 must_run 15 tyre_demo postgres db/tests/provision/bac-strings.sql -v expect=none
 ok 15 "demonstration tenant loaded with every number kept and no BAC name"
 
-# 16. Clean up only on success, so a failure leaves both databases to inspect;
+# 16. The trip migration replayed on the shape staging holds (TYRE-326):
+# make db-reset migrates an empty schema, so only a database planted at 59
+# and then migrated proves what 000060 does to today's assignments and tasks.
+super -c "DROP DATABASE IF EXISTS tyre_trip_migration WITH (FORCE)" -c "CREATE DATABASE tyre_trip_migration"
+$MIGRATE -database "postgres://postgres:postgres@$PG_HOSTPORT/tyre_trip_migration?sslmode=disable" goto 59 \
+  >"$work/migrate-trip-59.log" 2>&1 || {
+  cat "$work/migrate-trip-59.log" >&2
+  fail 16 "migrations to 59 on tyre_trip_migration"
+}
+must_run 16 tyre_trip_migration postgres db/tests/migration/000060_before.sql
+$MIGRATE -database "postgres://postgres:postgres@$PG_HOSTPORT/tyre_trip_migration?sslmode=disable" up \
+  >"$work/migrate-trip-up.log" 2>&1 || {
+  cat "$work/migrate-trip-up.log" >&2
+  fail 16 "000060 on the planted database"
+}
+must_run 16 tyre_trip_migration postgres db/tests/migration/000060_after.sql
+ok 16 "000060's data step on the shape staging holds"
+
+# 17. Clean up only on success, so a failure leaves the databases to inspect;
 # the next run drops them first.
-for db in tyre_provision tyre_demo; do
+for db in tyre_provision tyre_demo tyre_trip_migration; do
   super -c "DROP DATABASE $db WITH (FORCE)"
 done
 super -c "DROP ROLE provision_owner"

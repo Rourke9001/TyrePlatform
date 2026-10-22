@@ -164,12 +164,11 @@ func plantUser(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid
 // rather than nulls that would satisfy the test's presence-only assertions
 // vacuously.
 //
-// It deliberately plants no vehicle_driver row. FR-AUT-005's assignment
-// names a specific user, and the only user this fixture could name is one it
-// invents, which would satisfy nothing the caller's actor actually is,
-// since the caller plants its own actors afterwards via plantUser. Callers
-// that need the assignment call assignVehicleDriver once they hold the
-// driver's id.
+// It deliberately plants no trip. FR-AUT-005's trip names a specific user,
+// and the only user this fixture could name is one it invents, which would
+// satisfy nothing the caller's actor actually is, since the caller plants
+// its own actors afterwards via plantUser. Callers that need the trip call
+// plantTrip once they hold the driver's id.
 func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, label string) (uuid.UUID, uuid.UUID, uuid.UUID) {
 	t.Helper()
 	tenantID, _ := plantTenant(t, ctx, admin, label)
@@ -337,21 +336,32 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 	return tenantID, motiveID, trailerID
 }
 
-// assignVehicleDriver gives userID FR-AUT-005's current assignment to
-// vehicleID, backdated a day so app.v_current_assignment's "from today"
-// window is unambiguously satisfied regardless of what hour the suite runs,
-// the same shape TestDriverVehiclesAreAssignmentScoped uses below.
-// Deliberately not folded into plantCaptureFixture: the driver being
-// assigned here is created by the caller, per role, inside the test's own
-// loop, after the fixture has already returned, so the fixture has no
-// user_id to assign to yet.
-func assignVehicleDriver(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID, userID uuid.UUID) {
+// plantTrip opens userID's trip on the motive motiveID from an hour ago, so
+// the driver holds the unit, and the units its open rig tows, across any
+// capture window a test submits (FR-VEH-007 and FR-AUT-005 as amended).
+// Deliberately not folded into plantCaptureFixture, for the reason its
+// docstring gives.
+func plantTrip(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, motiveID, userID uuid.UUID) uuid.UUID {
 	t.Helper()
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-		 VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC')::date - 1)`,
-		tenantID, vehicleID, userID)
-	require.NoError(t, err)
+	var id uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+		 VALUES ($1, $2, $3, now() - interval '1 hour') RETURNING id`,
+		tenantID, motiveID, userID).Scan(&id))
+	return id
+}
+
+// plantNomination names userID for taskID from an hour ago, so the nominee
+// holds the task across any instant a test reads it (FR-INS-051 as
+// amended).
+func plantNomination(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, taskID, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+		 VALUES ($1, $2, $3, now() - interval '1 hour') RETURNING id`,
+		tenantID, taskID, userID).Scan(&id))
+	return id
 }
 
 func TestVehiclesScopedToHeaderTenant(t *testing.T) {
@@ -446,7 +456,7 @@ func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
 	// fleetNumber, registration, no new keys. Compared as a key set, not
 	// against a fixed struct, so field order carries no meaning here.
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, plainID, driver)
+	plantTrip(t, ctx, admin, tenantID, plainID, driver)
 
 	rec = get(t, h, "/api/my/vehicles", tenantID.String(), driver.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -840,7 +850,7 @@ func TestFleetListIsDepotScopedForDepotRoles(t *testing.T) {
 }
 
 // A driver out of scope gets an empty list, not a refusal: they are entitled
-// to ask what they are assigned, and the answer is legitimately nothing.
+// to ask what they hold, and the answer is legitimately nothing.
 func TestDriverVehiclesAreAssignmentScoped(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -852,11 +862,7 @@ func TestDriverVehiclesAreAssignmentScoped(t *testing.T) {
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet,
 	).Scan(&vehicleID))
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-		 VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC')::date - 1)`,
-		tenantID, vehicleID, driver)
-	require.NoError(t, err)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driver)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -864,7 +870,7 @@ func TestDriverVehiclesAreAssignmentScoped(t *testing.T) {
 		fleetNumbers(t, get(t, h, "/api/my/vehicles", tenantID.String(), driver.String())))
 	require.Empty(t,
 		fleetNumbers(t, get(t, h, "/api/my/vehicles", tenantID.String(), other.String())),
-		"an unassigned driver sees nothing, and that is an empty list rather than a refusal")
+		"a driver on no trip sees nothing, and that is an empty list rather than a refusal")
 }
 
 func TestMyTasksNeedsCaptureCapability(t *testing.T) {
@@ -896,17 +902,21 @@ func TestMyTasksAreActorScoped(t *testing.T) {
 		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet,
 	).Scan(&vehicleID))
 
-	var mine uuid.UUID
+	// Two tasks on one unit no trip covers, each with its own nominee, so the
+	// unit filter alone cannot tell them apart.
+	var mine, theirs uuid.UUID
 	require.NoError(t, admin.QueryRow(ctx,
-		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
-		 VALUES ($1, $2, now() - interval '1 day', $3, 'OPEN') RETURNING id`,
-		tenantID, vehicleID, driver,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, created_at)
+		 VALUES ($1, $2, now() - interval '1 day', 'OPEN', now() - interval '2 days') RETURNING id`,
+		tenantID, vehicleID,
 	).Scan(&mine))
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, assigned_user_id, state)
-		 VALUES ($1, $2, now() + interval '1 day', $3, 'OPEN')`,
-		tenantID, vehicleID, other)
-	require.NoError(t, err)
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, created_at)
+		 VALUES ($1, $2, now() + interval '1 day', 'OPEN', now() - interval '2 days') RETURNING id`,
+		tenantID, vehicleID,
+	).Scan(&theirs))
+	plantNomination(t, ctx, admin, tenantID, mine, driver)
+	plantNomination(t, ctx, admin, tenantID, theirs, other)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -1238,4 +1248,47 @@ func TestWithActorRefusalLogsTheClientAddress(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, rec.Code, rec.Body.String())
 	require.Contains(t, buf.String(), `"client":"192.0.2.1"`)
+}
+
+// Where a task is captured (spec, The driver's phone): a coupled trailer's
+// task through its motive when the driver can capture the motive, since a
+// solo trailer capture would lose the rig; otherwise on its own unit.
+func TestMyTasksNameWhereToCapture(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, horseID, trailerID := plantCaptureFixture(t, ctx, admin, "capture-where")
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	nominee := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, horseID, driver)
+	free := plantRigUnit(t, ctx, admin, tenantID, "TRAILER")
+	plantTask := func(unit uuid.UUID) uuid.UUID {
+		t.Helper()
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx,
+			`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+			 VALUES ($1, $2, now() + interval '1 day', now() - interval '2 hours') RETURNING id`,
+			tenantID, unit).Scan(&id))
+		return id
+	}
+	coupledTask := plantTask(trailerID)
+	freeTask := plantTask(free)
+	plantNomination(t, ctx, admin, tenantID, freeTask, nominee)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	mine := func(actor uuid.UUID) map[string]string {
+		t.Helper()
+		rec := get(t, h, "/api/my/tasks", tenantID.String(), actor.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var tasks []struct {
+			ID               string `json:"id"`
+			CaptureVehicleID string `json:"captureVehicleId"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &tasks))
+		out := map[string]string{}
+		for _, task := range tasks {
+			out[task.ID] = task.CaptureVehicleID
+		}
+		return out
+	}
+	require.Equal(t, map[string]string{coupledTask.String(): horseID.String()}, mine(driver))
+	require.Equal(t, map[string]string{freeTask.String(): free.String()}, mine(nominee))
 }

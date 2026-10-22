@@ -73,6 +73,25 @@ describe("fetchCaptureContext", () => {
     expect(ctx.cohortWearRateMmPerMonth["STEER:FIXED"]).toBe(0.82);
   });
 
+  // U148: a resumed draft reads through its own window, and only it does,
+  // so the at-now read stays the default (FR-AUT-005).
+  it("carries startedAt only when it is given", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementation(() =>
+        Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchCaptureContext("v1");
+    await fetchCaptureContext("v1", "2026-10-22T06:00:00.000Z");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("/api/capture/vehicles/v1");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "/api/capture/vehicles/v1?startedAt=2026-10-22T06%3A00%3A00.000Z",
+    );
+  });
+
   // FR-OFF-002 as amended by E2 and NFR-PRV-006. The device holds the
   // in-progress inspection and nothing else; a cached register on a driver's
   // personal phone is a different product with a different privacy notice.
@@ -98,6 +117,16 @@ describe("fetchCaptureContext", () => {
     );
 
     await expect(fetchCaptureContext(body.vehicleId)).rejects.toThrow(/403/);
+  });
+});
+
+describe("captureContextQuery key", () => {
+  // A read through a draft's window answers for that window, so it never
+  // shares a cache entry with the at-now read of the same unit.
+  it("differs with and without a startedAt, and only then", () => {
+    const atNow = captureContextQuery("v1").queryKey;
+    expect(captureContextQuery("v1", undefined).queryKey).toEqual(atNow);
+    expect(captureContextQuery("v1", "2026-10-22T06:00:00.000Z").queryKey).not.toEqual(atNow);
   });
 });
 

@@ -14,6 +14,7 @@ export function useRigComposition(
   resumed: boolean,
   attachedIds: string[] | null,
   setAttachedIds: Dispatch<SetStateAction<string[] | null>>,
+  startedAt?: string,
 ) {
   // FR-INS-062's default: seeded with EVERY member id, motive included (its
   // checkbox is disabled), or the driver's own truck renders as not-here.
@@ -28,7 +29,10 @@ export function useRigComposition(
   // has signal (FR-OFF-001). Each unit keeps its own configuration and its own
   // thresholds; only the walk-around numbering is projected across the rig.
   const memberIds = memberOrder(motive, confirmedIds, vehicleId);
-  const memberQueries = useQueries({ queries: memberIds.map(captureContextQuery) });
+  // The motive's own window, so its query and its member query share a key.
+  const memberQueries = useQueries({
+    queries: memberIds.map((id) => captureContextQuery(id, startedAt)),
+  });
   const loaded = memberQueries
     .map((q) => q.data)
     .filter((c): c is CaptureContext => c !== undefined);

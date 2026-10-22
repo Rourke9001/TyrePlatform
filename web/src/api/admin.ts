@@ -52,21 +52,6 @@ export interface CreatedUser {
   active: boolean;
 }
 
-export interface NewAssignment {
-  userId: string;
-  // Omitted means the tenant's today, computed server-side where the tenant's
-  // timezone lives (rule 6, TYRE-89). A browser-computed day is a day out for
-  // any admin not sitting in the tenant's zone.
-  fromDate?: string;
-}
-
-export interface Assignment {
-  id: string;
-  vehicleId: string;
-  userId: string;
-  fromDate: string;
-}
-
 export function fetchAxleConfigurations(): Promise<AxleConfiguration[]> {
   return apiGet<AxleConfiguration[]>("/api/axle-configurations");
 }
@@ -77,10 +62,4 @@ export function createUnit(body: NewUnit): Promise<CreatedUnit> {
 
 export function createUser(body: NewUser): Promise<CreatedUser> {
   return apiPost<CreatedUser>("/api/users", body);
-}
-
-// The assignment hangs off the unit because it is the unit's relation, and a
-// path that says so needs no body field to disambiguate it.
-export function assignDriver(vehicleId: string, body: NewAssignment): Promise<Assignment> {
-  return apiPost<Assignment>(`/api/vehicles/${vehicleId}/drivers`, body);
 }

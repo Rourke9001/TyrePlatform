@@ -160,6 +160,9 @@ const ROUTES: Record<string, unknown> = {
   "/api/exceptions": EXCEPTIONS,
   "/api/depots": DEPOTS,
   "/api/my/tasks": TASKS,
+  // The driver's home reads the trip beside the tasks. With no trip, the
+  // task is listed as a nominee's and links to its own unit.
+  "/api/my/trip": { trip: null },
   [`/api/capture/vehicles/${TRAILER_ID}`]: CAPTURE_CONTEXT,
 };
 

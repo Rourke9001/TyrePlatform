@@ -3,13 +3,17 @@
 // What may be coupled to what, which day a rig may start on, and that a unit
 // is in at most one open rig are app.create_combination's and
 // app.end_combination's alone (000037); this file validates shape, gates the
-// capability and projects the row (ADR-0013 decision 5). It decides nothing
-// about rigs.
+// capability, applies depot scope and projects the row (ADR-0013 decision 5).
+// It decides nothing about rigs. Depot scope (FR-AUT-008) is the motive's for
+// a write, as the 7 Sep ruling homes a rig where its horse is, and any
+// member's for a read, so a depot manager's own trailer keeps its
+// out-of-depot horse on every screen (U149).
 package httpapi
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -61,27 +65,37 @@ type endCombinationRequest struct {
 	EndedOn *string `json:"endedOn"`
 }
 
-// loadCombinations answers the rigs the session's tenant can see, in D3's
-// order: open first, then most recently started. Both filters are bound
+// loadCombinations answers the rigs the actor may read, in D3's order: open
+// first, then most recently started. For a depot-scoped actor that is a rig
+// with any member in their depots, and the members query is not narrowed, so
+// a listed rig comes back whole (U149). The motive is member 1 (U7), so one
+// EXISTS over the members covers "motive or any member". Both filters are bound
 // parameters rather than SQL assembled per call. A nil id is every rig and
 // openOnly narrows to the open ones, so there is one statement to read and no
 // string ever reaches the planner from a request.
 //
 // Two round trips, never one per rig: the members of every rig just read come
 // back in a second query and are folded in by combination id.
-func loadCombinations(ctx context.Context, tx pgx.Tx, id *uuid.UUID, openOnly bool) ([]combinationJSON, error) {
+func loadCombinations(ctx context.Context, tx pgx.Tx, a auth.Actor, id *uuid.UUID, openOnly bool) ([]combinationJSON, error) {
 	// Same reasoning as listAxleConfigurations (admin.go): initialised, not
 	// nil, so writeJSON never answers `null` for an empty list.
 	rigs := []combinationJSON{}
 	ids := []uuid.UUID{}
 	at := map[uuid.UUID]int{}
 
+	scope := ``
+	if a.Scope() != auth.ScopeTenant {
+		scope = `AND EXISTS (SELECT 1 FROM app.combination_member cm
+		                       WHERE cm.combination_id = c.id
+		                         AND EXISTS (SELECT 1 FROM ` + unitSource(a) + ` s WHERE s.id = cm.vehicle_id))`
+	}
 	rows, err := tx.Query(ctx, `
 		SELECT c.id, c.motive_vehicle_id, mv.fleet_number, c.effective_from, c.effective_to
 		  FROM app.combination c
 		  JOIN app.vehicle mv ON mv.id = c.motive_vehicle_id
 		 WHERE ($1::uuid IS NULL OR c.id = $1)
 		   AND (NOT $2::boolean OR c.effective_to IS NULL)
+		   `+scope+`
 		 ORDER BY c.effective_to IS NULL DESC, c.effective_from DESC`, id, openOnly)
 	if err != nil {
 		return nil, fmt.Errorf("listing rigs: %w", err)
@@ -146,8 +160,8 @@ func loadCombinations(ctx context.Context, tx pgx.Tx, id *uuid.UUID, openOnly bo
 // combinationByID is the projection both writes answer with, shared with the
 // list so one shape has one implementation. pgx.ErrNoRows for a rig the
 // session cannot see, which is what a caller that just wrote one never meets.
-func combinationByID(ctx context.Context, tx pgx.Tx, id uuid.UUID) (combinationJSON, error) {
-	rigs, err := loadCombinations(ctx, tx, &id, false)
+func combinationByID(ctx context.Context, tx pgx.Tx, a auth.Actor, id uuid.UUID) (combinationJSON, error) {
+	rigs, err := loadCombinations(ctx, tx, a, &id, false)
 	if err != nil {
 		return combinationJSON{}, err
 	}
@@ -169,7 +183,7 @@ func listCombinations(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ViewFleet); err != nil {
 				return err
 			}
-			loaded, err := loadCombinations(ctx, tx, nil, openOnly)
+			loaded, err := loadCombinations(ctx, tx, a, nil, openOnly)
 			if err != nil {
 				return err
 			}
@@ -248,6 +262,16 @@ func createCombination(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssignments); err != nil {
 				return err
 			}
+			// Depot scope by the motive (FR-AUT-008). app.create_combination
+			// locks every member FOR UPDATE in id order (000044), so no unit
+			// lock is taken ahead of it; the scope is checked before the write
+			// and again after it, under the locks the write took.
+			const notFound = "no such unit in this fleet"
+			if a.Scope() != auth.ScopeTenant {
+				if err := checkUnitInScope(ctx, tx, a, motive, notFound); err != nil {
+					return err
+				}
+			}
 			// tenant_id is never bound here: app.create_combination reads it
 			// from app.current_tenant_id() inside this session's transaction
 			// (rule 1, ADR-0013 decision 2). TY012 and TY017 arrive through
@@ -258,7 +282,12 @@ func createCombination(s *store.Store) http.HandlerFunc {
 				motive, raw, effectiveOn).Scan(&rigID); err != nil {
 				return fmt.Errorf("creating rig headed by unit %s: %w", motive, err)
 			}
-			created, err := combinationByID(ctx, tx, rigID)
+			if a.Scope() != auth.ScopeTenant {
+				if err := checkUnitInScope(ctx, tx, a, motive, notFound); err != nil {
+					return err
+				}
+			}
+			created, err := combinationByID(ctx, tx, a, rigID)
 			if err != nil {
 				return fmt.Errorf("reading back rig %s: %w", rigID, err)
 			}
@@ -298,11 +327,14 @@ func endCombination(s *store.Store) http.HandlerFunc {
 			if err := require(a, auth.ManageAssignments); err != nil {
 				return err
 			}
+			if err := scopeRigEnd(ctx, tx, a, rigID); err != nil {
+				return err
+			}
 			if _, err := tx.Exec(ctx,
 				`SELECT app.end_combination($1, $2::date)`, rigID, endedOn); err != nil {
 				return fmt.Errorf("ending rig %s: %w", rigID, err)
 			}
-			ended, err := combinationByID(ctx, tx, rigID)
+			ended, err := combinationByID(ctx, tx, a, rigID)
 			if err != nil {
 				return fmt.Errorf("reading back rig %s: %w", rigID, err)
 			}
@@ -314,4 +346,39 @@ func endCombination(s *store.Store) http.HandlerFunc {
 		}
 		writeJSON(ctx, w, rig)
 	}
+}
+
+// scopeRigEnd is depot scope for ending a rig, by its motive (FR-AUT-008). A
+// rig with no member in the actor's depots does not exist for them, 404
+// (ADR-0011); one the register has just shown them, through a member of
+// theirs, but headed elsewhere is 403, since 404 would contradict the screen.
+// An in-scope motive is held FOR SHARE (lockUnitInScope).
+func scopeRigEnd(ctx context.Context, tx pgx.Tx, a auth.Actor, rigID uuid.UUID) error {
+	if a.Scope() == auth.ScopeTenant {
+		return nil
+	}
+	const notFound = "no such rig in this fleet"
+	var motive uuid.UUID
+	var anyMember bool
+	err := tx.QueryRow(ctx, `
+		SELECT c.motive_vehicle_id,
+		       EXISTS (SELECT 1 FROM app.combination_member cm
+		                WHERE cm.combination_id = c.id
+		                  AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = cm.vehicle_id))
+		  FROM app.combination c
+		 WHERE c.id = $1`, rigID).Scan(&motive, &anyMember)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !anyMember) {
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
+	}
+	if err != nil {
+		return fmt.Errorf("resolving rig %s: %w", rigID, err)
+	}
+	in, err := unitInScope(ctx, tx, a, motive)
+	if err != nil {
+		return err
+	}
+	if !in {
+		return errForbidden
+	}
+	return lockUnitInScope(ctx, tx, a, motive, notFound)
 }

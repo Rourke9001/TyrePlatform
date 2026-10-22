@@ -94,6 +94,13 @@ CONFIG_DEFAULTS = [
         "submitted_at_future_skew_minutes",
         5,
     ),  # TYRE-166: how far ahead of the server clock a device may stamp a submit
+    # TYRE-326, U148: how much of a capture's end is judged for who held
+    # the unit; a capture is never refused for its length.
+    ("inspection_max_duration_hours", 12),
+    # U148: a trip cannot start while a unit it would cover has an
+    # inspection due today or earlier and not done. BAC's rule, so the
+    # default.
+    ("due_inspection_blocks_trip", True),
     (
         "wear_rate_alert_multiple",
         3,

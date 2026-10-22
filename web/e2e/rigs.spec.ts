@@ -3,9 +3,9 @@ import { expect, test } from "@playwright/test";
 import { actAsUser } from "./admin";
 import {
   apiGet,
-  apiPost,
   configFor,
   createUnit,
+  nominateSandboxDriver,
   posted,
   ACTOR,
   CONTROLLER,
@@ -42,7 +42,7 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   page,
   browser,
 }) => {
-  // The units and the assignment are setup, not the thing under test, so they
+  // The units and the nomination are setup, not the thing under test, so they
   // go through the API rather than through three more screens.
   const configs = (await apiGet(page, "/api/axle-configurations")) as AxleConfiguration[];
   const horseConfig = configFor(configs, "HORSE_6X4");
@@ -52,9 +52,10 @@ test("a controller sets a rig on Sandbox and the driver is offered it", async ({
   const trailerId = await createUnit(page, TRAILER_FLEET, "TRAILER", trailerConfig);
   const otherHorseId = await createUnit(page, OTHER_FLEET, "HORSE", horseConfig);
 
-  // FR-AUT-005: the assignment on the motive is what lets the driver read the
-  // rig at all (app.v_capture_vehicle unions the coupled units onto it).
-  await apiPost(page, `/api/vehicles/${horseId}/drivers`, { userId: SANDBOX_DRIVER });
+  // FR-AUT-005 as amended: the nomination on the motive is what lets the
+  // driver read the rig at all (app.v_capture_span reaches the coupled units
+  // through it).
+  await nominateSandboxDriver(page, horseId);
 
   // Scoped by the heading each table carries rather than by position: the two
   // tables differ only in the Until column, which is exactly what "open" and

@@ -164,8 +164,11 @@ UPDATE path — the void. TYRE-98 (migration `000056`) attaches it to `app.tyre`
 which `app.seed_tenant_catalogue()` and `app.provision_catalogue()` give
 their first write path. TYRE-283 (migration `000059`) attaches it to
 `app.tyre_receipt`, which `app.receive_tyres` writes and the receipt's moves
-update. The tables that stay unaudited, and why, are listed under
-Consequences.
+update. TYRE-326 (migration `000060`) attaches it to `app.trip` and
+`app.inspection_task_nomination`, which the trip writes and a nomination
+give their write paths; `app.vehicle_driver` keeps its trigger, though no
+app-role write can reach the table. The tables that stay unaudited, and
+why, are listed under Consequences.
 
 ## Consequences
 

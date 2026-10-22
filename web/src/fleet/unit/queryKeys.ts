@@ -20,14 +20,38 @@ export function unitFitmentsKey(unitId: string): QueryKey {
   return ["unit-fitments", unitId];
 }
 
-// Both keyed by unit id. The schedule write invalidates only the tasks
-// key; nothing here changes who may capture the unit.
-export function unitDriversKey(unitId: string): QueryKey {
-  return ["unit-drivers", unitId];
-}
-
 export function unitTasksKey(unitId: string): QueryKey {
   return ["unit-tasks", unitId];
+}
+
+// A trip write changes who holds the tasks of every unit it covers, so the
+// trip panel invalidates every unit's tasks, not one.
+export function unitTasksPrefix(): QueryKey {
+  return ["unit-tasks"];
+}
+
+export function unitTripKey(unitId: string): QueryKey {
+  return ["unit-trip", unitId];
+}
+
+// A start or an end changes the motive's panel and each of its trailers'.
+export function unitTripsPrefix(): QueryKey {
+  return ["unit-trip"];
+}
+
+// The driver picker names who is on a trip, so a trip write makes it stale.
+export function driversKey(tenantKey: string): QueryKey {
+  return ["drivers", tenantKey];
+}
+
+// What holds a start (U148), keyed on the trailers the form would add. A new
+// task or a nomination can change it, so those writes invalidate the prefix.
+export function tripBlockersKey(unitId: string, addTrailers: string[]): QueryKey {
+  return ["trip-blockers", unitId, addTrailers];
+}
+
+export function tripBlockersPrefix(): QueryKey {
+  return ["trip-blockers"];
 }
 
 // A prefix, not a whole key: TyreList carries its filter object as a third

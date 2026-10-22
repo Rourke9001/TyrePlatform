@@ -303,7 +303,8 @@ func TestConflictConstraintsTranslateToTheirOwnCode(t *testing.T) {
 	}{
 		{"duplicate fleet number", "23505", "vehicle_tenant_id_fleet_number_key", "fleet_number_taken", http.StatusConflict},
 		{"duplicate email", "23505", "app_user_tenant_email_key", "email_taken", http.StatusConflict},
-		{"overlapping assignment", "23P01", "vehicle_driver_no_overlap", "assignment_overlaps", http.StatusConflict},
+		{"a second trip on a unit", "23P01", "trip_vehicle_no_overlap", "trip_overlaps", http.StatusConflict},
+		{"a second trip for a driver", "23P01", "trip_driver_no_overlap", "trip_overlaps", http.StatusConflict},
 		{"an unmapped unique constraint", "23505", "some_other_key", "conflict", http.StatusConflict},
 		{"an unmapped exclusion constraint", "23P01", "some_other_excl", "conflict", http.StatusConflict},
 	}
