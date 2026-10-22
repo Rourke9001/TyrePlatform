@@ -528,8 +528,16 @@ contradicts it. The rows:
   missed (U148).
 - **FR-INS-052; FR-INS-062.** An inspection covers the configuration as a
   whole: a rig inspection completes the due tasks of every unit it records
-  readings for (U150). This is a separate row, V3, prepared once V1 and V2 are
-  on the page.
+  readings for (U150). Row V3.
+- **FR-AUT-005, the resumed draft** (lead departure serving U148). A driver
+  resuming an inspection in progress may load the units it covers when they
+  held them at some instant of its judged span ending now. Row V4.
+- **FR-OFF-015 and FR-VEH-007 wording** (U150). In T7, "closes no task"
+  becomes "does not close it"; in V2, a blocking task is one "still open",
+  so a cancelled task does not block. Row V5.
+
+V1, V2 and V3 went in at versions 17 to 21. V4 and V5 are prepared in
+`docs/HANDOFF_srs_errata_TYRE-326_V4_2026-10-22.md`.
 - **UC-01 precondition.** The vehicle is assigned for an active trip, or its
   inspection is nominated to the driver.
 - **§5.1 trip; FR-VEH-007.** Starting a trip adds free trailers only and never
