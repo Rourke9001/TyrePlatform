@@ -40,12 +40,12 @@
 -- freezes a closed task's state, citation and reason by name, never the
 -- whole row (TYRE-326).
 --
--- P17 needs a nomination dated after the caller's now, as one written by a
--- later transaction is while the caller waits on the task's row lock.
--- nomination_well_formed refuses a future instant to every role, and one
--- session cannot hold two transactions open, so postgres disables that
--- trigger for the one INSERT and enables it again before the probe runs as
--- app_login, as P8 does (TYRE-326).
+-- P17 and P18 need a nomination and a trip dated after the caller's now,
+-- as one written by a later transaction is while the caller waits on its
+-- row locks. nomination_well_formed and trip_well_formed refuse a future
+-- instant to every role, and one session cannot hold two transactions open,
+-- so postgres disables the trigger for the one INSERT and enables it again
+-- before the probe runs as app_login, as P8 does (TYRE-326).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -1043,6 +1043,58 @@ BEGIN
     RAISE EXCEPTION 'FAIL P17: a nomination over one dated after the caller''s now answered %', COALESCE(got, 'with a nomination');
   END IF;
   RAISE NOTICE 'PASS  P17 a nomination dated after the caller''s now is refused as a race lost';
+END $$;
+ROLLBACK;
+
+\echo '== P18. TYRE-326: a trip dated after the caller''s now, as a later transaction''s start leaves one, makes a start on its motive and its own end refuse by name as a race lost (FR-VEH-007 as amended, TY028)'
+BEGIN;
+INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+SELECT md5('p18-horse')::uuid, x.tenant_id, 'P18-H', 'P18H GP', x.configuration_id, 'HORSE', 'ACTIVE'
+  FROM app.vehicle x WHERE x.id = md5('veh1')::uuid;
+INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+VALUES (md5('p18-driver')::uuid, '11111111-1111-1111-1111-111111111111', 'p18-driver@example.invalid', 'P18 Driver', 'DRIVER');
+ALTER TABLE app.trip DISABLE TRIGGER trip_well_formed;
+INSERT INTO app.trip (id, tenant_id, vehicle_id, user_id, started_at)
+VALUES (md5('p18-trip')::uuid, '11111111-1111-1111-1111-111111111111', md5('p18-horse')::uuid,
+        md5('p18-driver')::uuid, now() + interval '1 second');
+ALTER TABLE app.trip ENABLE TRIGGER trip_well_formed;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        got text;
+BEGIN
+  IF current_user <> 'app_login' THEN
+    RAISE EXCEPTION 'FAIL P18: the probe runs as %, so RLS is not on trial', current_user;
+  END IF;
+  IF (SELECT t.tgenabled FROM pg_trigger t
+       WHERE t.tgrelid = 'app.trip'::regclass AND t.tgname = 'trip_well_formed') IS DISTINCT FROM 'O' THEN
+    RAISE EXCEPTION 'FAIL P18: trip_well_formed did not come back enabled';
+  END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', md5('controller1')::uuid::text, true);
+  -- Two starts for one motive serialise on its row; the loser meets an open
+  -- trip that started after its own now (spec, Starting and ending a trip).
+  got := NULL;
+  BEGIN
+    PERFORM app.start_trip(md5('p18-horse')::uuid, md5('driver3')::uuid);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE;
+    got := got || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'TY028 this unit or driver went on another trip while this one was being started; refresh and try again' THEN
+    RAISE EXCEPTION 'FAIL P18: a start that lost the race answered %', COALESCE(got, 'with a trip');
+  END IF;
+  got := NULL;
+  BEGIN
+    PERFORM app.end_trip(md5('p18-trip')::uuid);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE;
+    got := got || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'TY028 this trip started after this request began; refresh and try again' THEN
+    RAISE EXCEPTION 'FAIL P18: ending a trip that started after the request answered %', COALESCE(got, 'with an end');
+  END IF;
+  RAISE NOTICE 'PASS  P18 a trip dated after the caller''s now refuses a start on its motive and its own end as a race lost';
 END $$;
 ROLLBACK;
 
