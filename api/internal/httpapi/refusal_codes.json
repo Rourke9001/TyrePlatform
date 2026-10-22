@@ -338,5 +338,11 @@
     "meaning": "a consent record refused: by app.record_consent for no tenant bound or one that does not exist, a purpose outside SERVICE_DELIVERY and ANONYMISED_BENCHMARKING, no granted or withdrawn, a notice version missing or blank, no time given, a time after now, or a time not after the purpose's latest record (U144); or by the written-once trigger for any UPDATE of a recorded row, from any role (FR-TEN-022, OR-LEG-005, TYRE-283)",
     "note": "no route writes consent; make record-consent, provision_tenant.py and docs/runbooks/provision-a-tenant.md do, so an entry would carry no test able to fail (ADR-0012, TY008's reasoning)",
     "raisedBy": ["app.record_consent", "app.tenant_consent_is_written_once"]
+  },
+  "TY028": {
+    "source": "db",
+    "httpStatus": 422,
+    "meaning": "a trip write refused: started on a trailer, a retired unit or for an inactive driver, a trailer that is not free, a trip already ended or ended in the future, a start or end that lost a race, or an edit to a trip other than its end (TYRE-326)",
+    "raisedBy": ["app.trip_is_ended_once"]
   }
 }

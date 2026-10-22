@@ -146,7 +146,10 @@ BEGIN
        'inspection',
        -- tyre_receipt's grant is (price_state, invoice_number) alone, and
        -- tyre_receipt_moves_once holds its moves (000059, section 75h).
-       'tyre_receipt');
+       'tyre_receipt',
+       -- trip's grant is (ended_at, ended_by) alone, and trip_is_ended_once
+       -- holds its one move (000060, section 76c).
+       'trip');
   IF bad IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL: app role can UPDATE a table off the allow-list: %', bad;
   END IF;
@@ -3764,15 +3767,13 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 34. Platform-admin emails are unique, and a driver assignment cannot duplicate itself (TYRE-30, DR-003)'
+\echo '== 34. Platform-admin emails are unique, and a trip overlaps no other on its unit or its driver (TYRE-30, DR-003, FR-VEH-007, U143)'
 BEGIN;
 DO $$
 DECLARE
   t_id constant uuid := '11111111-1111-1111-1111-111111111111';
-  ok    boolean := false;
-  v     uuid;
-  u     uuid;
-  u_two uuid;
+  h     constant uuid := md5('t34h')::uuid;
+  cfg   uuid;
   n     int;
   got   text;
   n2    int;
@@ -3814,96 +3815,100 @@ BEGIN
       COALESCE(got, 'by an accepted row');
   END IF;
 
-  -- (b) An exact-duplicate current assignment multiplies the vehicle through
-  -- v_current_assignment and v_driver_vehicle. The unit is required to still
-  -- have an unassigned driver, because case (c) below needs one: a bare pick
-  -- on a fully-assigned roster would fail (c) for a fixture reason rather
-  -- than a constraint one.
-  SELECT vd.vehicle_id, vd.user_id INTO v, u
-    FROM app.vehicle_driver vd
-   WHERE vd.tenant_id = t_id AND vd.to_date IS NULL
-     AND EXISTS (SELECT 1 FROM app.app_user au
-                  WHERE au.tenant_id = t_id AND au.role = 'DRIVER' AND au.active
-                    AND NOT EXISTS (SELECT 1 FROM app.vehicle_driver vd2
-                                     WHERE vd2.vehicle_id = vd.vehicle_id
-                                       AND vd2.user_id = au.id))
-   ORDER BY vd.vehicle_id, vd.user_id LIMIT 1;
-  IF v IS NULL THEN
-    RAISE EXCEPTION 'FAIL: fixture has no open assignment on a unit that still has an unassigned driver';
+  -- (b) A second open trip on a unit or for a driver multiplies the unit
+  -- through every coverage read. Melusi's fixture trip on HORSE is open, so
+  -- either EXCLUDE may answer first.
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+         VALUES (t_id, md5('veh1')::uuid, md5('driver1')::uuid, now());
+  EXCEPTION WHEN exclusion_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
+  END;
+  IF got IS NULL OR got NOT IN ('trip_vehicle_no_overlap', 'trip_driver_no_overlap') THEN
+    RAISE EXCEPTION 'FAIL 34b: a duplicate open trip was answered by %, not a trip EXCLUDE',
+      COALESCE(got, 'an accepted row');
   END IF;
 
-  ok := false;
+  -- (c) One driver per motive at an instant (U143 closed OI-32), and one
+  -- motive per driver. Sipho's fixture trip on HORSE ended in 2025, so only
+  -- the unit's key can refuse him.
+  got := NULL;
   BEGIN
-    INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
-         VALUES (t_id, v, u, current_date, NULL);
-  EXCEPTION WHEN exclusion_violation THEN ok := true;
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+         VALUES (t_id, md5('veh1')::uuid, md5('driver3')::uuid, now());
+  EXCEPTION WHEN exclusion_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
   END;
-  IF NOT ok THEN RAISE EXCEPTION 'FAIL: a duplicate open assignment was accepted'; END IF;
+  IF got IS DISTINCT FROM 'trip_vehicle_no_overlap' THEN
+    RAISE EXCEPTION 'FAIL 34c: a second driver on HORSE was answered by %, not trip_vehicle_no_overlap',
+      COALESCE(got, 'an accepted row');
+  END IF;
 
-  -- (c) A SECOND DRIVER on the same vehicle is still permitted. OI-32,
-  -- fixed per horse or pooled per trip, is an open sponsor question
-  -- (TYRE-44), and a constraint that answered it would be this migration
-  -- deciding scope it has no authority over.
-  SELECT au.id INTO u_two FROM app.app_user au
-   WHERE au.tenant_id = t_id AND au.role = 'DRIVER' AND au.active
-     AND NOT EXISTS (SELECT 1 FROM app.vehicle_driver vd
-                      WHERE vd.vehicle_id = v AND vd.user_id = au.id)
-   ORDER BY au.id LIMIT 1;
-  IF u_two IS NULL THEN RAISE EXCEPTION 'FAIL: fixture has no second driver to prove OI-32 is left open'; END IF;
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
-       VALUES (t_id, v, u_two, current_date, NULL);
+  SELECT configuration_id INTO cfg FROM app.vehicle WHERE id = md5('veh1')::uuid;
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (h, t_id, 'T34-H', 'T34 GP', cfg, 'HORSE', 'ACTIVE');
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+         VALUES (t_id, h, md5('driver1')::uuid, now());
+  EXCEPTION WHEN exclusion_violation THEN
+    GET STACKED DIAGNOSTICS got = CONSTRAINT_NAME;
+  END;
+  IF got IS DISTINCT FROM 'trip_driver_no_overlap' THEN
+    RAISE EXCEPTION 'FAIL 34c: Melusi on a second motive was answered by %, not trip_driver_no_overlap',
+      COALESCE(got, 'an accepted row');
+  END IF;
 
-  -- (d) A non-overlapping re-assignment of the SAME driver is permitted.
-  -- A driver returning to a unit after a gap is ordinary. The pair is the one
-  -- case (b) held, not a fresh pick: a fresh pick can land on the row (c) just
-  -- opened today, and closing that in the past violates the table's own CHECK.
-  UPDATE app.vehicle_driver SET to_date = current_date - 10
-   WHERE vehicle_id = v AND user_id = u AND to_date IS NULL;
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
-       VALUES (t_id, v, u, current_date - 5, NULL);
+  -- (d) Back to back is not an overlap: '[)' lets one trip end at the instant
+  -- the next starts.
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+       VALUES (t_id, h, md5('driver3')::uuid, now() - interval '2 hours', now() - interval '1 hour');
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+       VALUES (t_id, h, md5('driver3')::uuid, now() - interval '1 hour');
 
-  -- (e) The constraint must not become a cross-tenant oracle. An exclusion
+  -- (e) The EXCLUDEs must not become a cross-tenant oracle. An exclusion
   -- check bypasses RLS, so a key without tenant_id would answer "is that
-  -- driver on that unit on this date?" for a tenant this session cannot see:
-  -- exclusion_violation inside the foreign assignment, foreign_key_violation
+  -- driver on that unit then?" for a tenant this session cannot see:
+  -- exclusion_violation inside the foreign trip, foreign_key_violation
   -- outside it. Both probes must fail identically, on the FK. The uuids are
   -- hard-coded since the probe cannot see what it probes for, so the
-  -- precondition (both probes draw 23503 regardless of the seeded assignment)
-  -- is checked here rather than trusted, since the seed is generated and
-  -- gitignored and a quiet seed change would otherwise leave case (e)
-  -- discriminating on nothing while still printing PASS.
+  -- precondition is checked rather than trusted: a quiet seed change would
+  -- otherwise leave case (e) discriminating on nothing while still printing
+  -- PASS.
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
-  SELECT count(*) INTO n2 FROM app.vehicle_driver vd
-   WHERE vd.id = md5('t2vd1')::uuid
-     AND vd.vehicle_id = md5('t2veh1')::uuid
-     AND vd.user_id = md5('driver2')::uuid
-     AND vd.from_date = DATE '2026-01-01' AND vd.to_date IS NULL;
+  SELECT count(*) INTO n2 FROM app.trip tr JOIN app.tenant tn ON tn.id = tr.tenant_id
+   WHERE tr.id = md5('t2trip1')::uuid
+     AND tr.vehicle_id = md5('t2veh1')::uuid
+     AND tr.user_id = md5('driver2')::uuid
+     AND tr.started_at = ('2026-01-01'::timestamp AT TIME ZONE tn.timezone)
+     AND tr.ended_at IS NULL;
   IF n2 <> 1 THEN
-    RAISE EXCEPTION 'FAIL: the tenant-2 assignment case (e) probes for is absent or moved; the probes below would pass vacuously';
+    RAISE EXCEPTION 'FAIL 34e: the tenant-2 trip case (e) probes for is absent or moved; the probes below would pass vacuously';
   END IF;
   PERFORM set_config('app.tenant_id', t_id::text, true);
 
   got := NULL;
   BEGIN
-    INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
-         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, DATE '2026-06-01', DATE '2026-06-01');
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, '2026-06-01T00:00:00Z', '2026-06-02T00:00:00Z');
   EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
   END;
   IF got IS DISTINCT FROM '23503' THEN
-    RAISE EXCEPTION 'FAIL: a probe inside another tenant''s assignment window answered % (expected 23503 foreign_key_violation); the constraint is a cross-tenant date oracle', COALESCE(got, 'success');
+    RAISE EXCEPTION 'FAIL 34e: a probe inside another tenant''s trip answered % (expected 23503 foreign_key_violation); the EXCLUDE is a cross-tenant oracle', COALESCE(got, 'success');
   END IF;
 
   got := NULL;
   BEGIN
-    INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, to_date)
-         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, DATE '2025-01-01', DATE '2025-01-01');
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+         VALUES (t_id, md5('t2veh1')::uuid, md5('driver2')::uuid, '2025-01-01T00:00:00Z', '2025-01-02T00:00:00Z');
   EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
   END;
   IF got IS DISTINCT FROM '23503' THEN
-    RAISE EXCEPTION 'FAIL: a probe outside another tenant''s assignment window answered % (expected 23503)', COALESCE(got, 'success');
+    RAISE EXCEPTION 'FAIL 34e: a probe outside another tenant''s trip answered % (expected 23503)', COALESCE(got, 'success');
   END IF;
 
-  RAISE NOTICE 'PASS  platform-admin emails unique; assignments cannot overlap themselves, OI-32 stays open, and the constraint is not a cross-tenant date oracle';
+  RAISE NOTICE 'PASS  platform-admin emails unique; trips overlap neither on a unit nor for a driver, one driver per motive (U143), back to back is accepted, and the EXCLUDEs are not a cross-tenant oracle';
 END $$;
 ROLLBACK;
 
@@ -11579,7 +11584,7 @@ BEGIN
   RETURN a;
 END $fn$;
 
-\echo '== 72a. the twenty-one audited tables call app.audit_row_change() AFTER each row, DELETE and an argument on the tag map alone, and the function keeps invoker rights and its pinned search_path (ADR-0014, db/CLAUDE.md)'
+\echo '== 72a. the twenty-three audited tables call app.audit_row_change() AFTER each row, DELETE and an argument on the tag map alone, and the function keeps invoker rights and its pinned search_path (ADR-0014, db/CLAUDE.md)'
 DO $$
 DECLARE r record; n int;
 BEGIN
@@ -11602,7 +11607,9 @@ BEGIN
       ('app.tyre_pattern', 'tyre_pattern_audited', 21),
       ('app.casing_estimate_by_size', 'casing_estimate_by_size_audited', 21),
       ('app.tyre_price_list', 'tyre_price_list_audited', 21),
-      ('app.tyre_receipt', 'tyre_receipt_audited', 21)
+      ('app.tyre_receipt', 'tyre_receipt_audited', 21),
+      ('app.trip', 'trip_audited', 21),
+      ('app.inspection_task_nomination', 'inspection_task_nomination_audited', 21)
     ) v(tbl, tgname, tgtype)
   LOOP
     SELECT count(*) INTO n FROM pg_trigger t
@@ -11636,7 +11643,7 @@ BEGIN
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL 72a: app.audit_row_change() lost its invoker rights or its pinned search_path';
   END IF;
-  RAISE NOTICE 'PASS  72a twenty-one audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
+  RAISE NOTICE 'PASS  72a twenty-three audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
 END $$;
 
 \echo '== 72b. each of the nine tables files a real write through the path that writes it: action, entity, before and after, under the bound tenant and actor; a seeded row is filed with no actor (FR-AUD-001; as BAC, rolled back)'
@@ -13765,6 +13772,233 @@ END $$;
 DROP FUNCTION pg_temp.t75_prices();
 DROP FUNCTION pg_temp.t75_receive(jsonb);
 DROP FUNCTION pg_temp.t75_try(text);
+
+\echo '== 76. TYRE-326: trips, nominations, the responsible driver and the capture window (FR-VEH-007, FR-INS-050 to 053, FR-AUT-005, FR-OFF-015)'
+
+-- BAC's T76 units and users, planted in the caller's transaction so each
+-- check's rows roll back with it: eight active horses, a retired and a
+-- parked one, a rigid, seven trailers and a disposed one, four drivers, an
+-- inactive driver and a controller. Every unit is on HORSE's configuration.
+-- Users go first: a check that binds the controller as actor before
+-- planting stamps every row's created_by with it.
+CREATE FUNCTION pg_temp.t76_units() RETURNS void
+LANGUAGE sql
+SET search_path = app, pg_temp AS $fn$
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role, active)
+  SELECT md5(u.k)::uuid, '11111111-1111-1111-1111-111111111111', u.k || '@example.invalid', u.n,
+         u.r::app.user_role, u.a
+    FROM (VALUES
+      ('t76d1', 'T76 Driver One', 'DRIVER', true), ('t76d2', 'T76 Driver Two', 'DRIVER', true),
+      ('t76d3', 'T76 Driver Three', 'DRIVER', true), ('t76d4', 'T76 Driver Four', 'DRIVER', true),
+      ('t76di', 'T76 Driver Inactive', 'DRIVER', false), ('t76c', 'T76 Controller', 'CONTROLLER', true)
+    ) u(k, n, r, a);
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  SELECT md5(v.k)::uuid, '11111111-1111-1111-1111-111111111111', v.f, replace(v.f, '-', '') || ' GP',
+         (SELECT x.configuration_id FROM app.vehicle x WHERE x.id = md5('veh1')::uuid),
+         v.kind::app.unit_kind, v.st::app.vehicle_status
+    FROM (VALUES
+      ('t76h1', 'T76-H1', 'HORSE', 'ACTIVE'), ('t76h2', 'T76-H2', 'HORSE', 'ACTIVE'),
+      ('t76h3', 'T76-H3', 'HORSE', 'ACTIVE'), ('t76h4', 'T76-H4', 'HORSE', 'ACTIVE'),
+      ('t76h5', 'T76-H5', 'HORSE', 'ACTIVE'), ('t76h6', 'T76-H6', 'HORSE', 'ACTIVE'),
+      ('t76h7', 'T76-H7', 'HORSE', 'ACTIVE'), ('t76h8', 'T76-H8', 'HORSE', 'ACTIVE'),
+      ('t76hd', 'T76-HD', 'HORSE', 'DISPOSED'), ('t76hi', 'T76-HI', 'HORSE', 'INACTIVE'),
+      ('t76hp', 'T76-HP', 'HORSE', 'PARKED'), ('t76r1', 'T76-R1', 'RIGID', 'ACTIVE'),
+      ('t76t1', 'T76-T1', 'TRAILER', 'ACTIVE'), ('t76t2', 'T76-T2', 'TRAILER', 'ACTIVE'),
+      ('t76t3', 'T76-T3', 'TRAILER', 'ACTIVE'), ('t76t4', 'T76-T4', 'TRAILER', 'ACTIVE'),
+      ('t76t5', 'T76-T5', 'TRAILER', 'ACTIVE'), ('t76t6', 'T76-T6', 'TRAILER', 'ACTIVE'),
+      ('t76t7', 'T76-T7', 'TRAILER', 'ACTIVE'), ('t76td', 'T76-TD', 'TRAILER', 'DISPOSED')
+    ) v(k, f, kind, st);
+$fn$;
+
+\echo '== 76a. a trip and a nomination are tenant rows under forced RLS; the app role inserts both, ends a trip by its two end columns alone, and edits or deletes neither otherwise (rule 1, rule 3; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  t2  constant uuid := '22222222-2222-2222-2222-222222222222';
+  xh  constant uuid := md5('t76xh')::uuid;
+  xd  constant uuid := md5('t76xd')::uuid;
+  xtr uuid; xk uuid; xn uuid;
+  n int; got text;
+BEGIN
+  PERFORM set_config('app.actor_id', '', true);
+  SELECT count(*) INTO n FROM pg_class c
+   WHERE c.oid IN ('app.trip'::regclass, 'app.inspection_task_nomination'::regclass)
+     AND c.relrowsecurity AND c.relforcerowsecurity;
+  IF n <> 2 THEN
+    RAISE EXCEPTION 'FAIL 76a: % of the two new tables have RLS enabled and forced', n;
+  END IF;
+  IF NOT has_table_privilege(current_user, 'app.trip', 'INSERT')
+     OR has_table_privilege(current_user, 'app.trip', 'DELETE')
+     OR NOT has_column_privilege(current_user, 'app.trip', 'ended_at', 'UPDATE')
+     OR NOT has_column_privilege(current_user, 'app.trip', 'ended_by', 'UPDATE')
+     OR has_column_privilege(current_user, 'app.trip', 'started_at', 'UPDATE')
+     OR has_column_privilege(current_user, 'app.trip', 'vehicle_id', 'UPDATE') THEN
+    RAISE EXCEPTION 'FAIL 76a: the app role''s trip grants are not INSERT and UPDATE (ended_at, ended_by) alone';
+  END IF;
+  IF NOT has_table_privilege(current_user, 'app.inspection_task_nomination', 'INSERT')
+     OR has_any_column_privilege(current_user, 'app.inspection_task_nomination', 'UPDATE')
+     OR has_table_privilege(current_user, 'app.inspection_task_nomination', 'DELETE') THEN
+    RAISE EXCEPTION 'FAIL 76a: the app role''s nomination grants are not INSERT alone';
+  END IF;
+
+  -- Thabo holds Second Fleet's open trip, so a driver of its own is planted:
+  -- trip_driver_no_overlap would refuse him a second one.
+  PERFORM set_config('app.tenant_id', t2::text, true);
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+  VALUES (xh, t2, 'T76-XH', 'T76XH GP',
+          (SELECT configuration_id FROM app.vehicle WHERE id = md5('t2veh1')::uuid), 'HORSE', 'ACTIVE');
+  INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+  VALUES (xd, t2, 't76xd@example.invalid', 'T76 Foreign Driver', 'DRIVER');
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (t2, xh, xd, now() - interval '1 hour') RETURNING id INTO xtr;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (t2, xh, now() + interval '1 day') RETURNING id INTO xk;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+  VALUES (t2, xk, xd) RETURNING id INTO xn;
+
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  IF EXISTS (SELECT 1 FROM app.trip WHERE id = xtr)
+     OR EXISTS (SELECT 1 FROM app.inspection_task_nomination WHERE id = xn) THEN
+    RAISE EXCEPTION 'FAIL 76a: BAC reads Second Fleet''s trip or nomination';
+  END IF;
+  got := NULL;
+  BEGIN
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+    VALUES (t2, xh, xd, now());
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
+  END;
+  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "trip"%' THEN
+    RAISE EXCEPTION 'FAIL 76a: a trip naming Second Fleet was answered %, not by trip''s own policy',
+      COALESCE(got, 'by an accepted row');
+  END IF;
+  got := NULL;
+  BEGIN
+    INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+    VALUES (t2, xk, xd);
+  EXCEPTION WHEN insufficient_privilege THEN
+    GET STACKED DIAGNOSTICS got = MESSAGE_TEXT;
+  END;
+  IF got IS NULL OR got NOT LIKE '%row-level security policy for table "inspection_task_nomination"%' THEN
+    RAISE EXCEPTION 'FAIL 76a: a nomination naming Second Fleet was answered %, not by the nomination table''s own policy',
+      COALESCE(got, 'by an accepted row');
+  END IF;
+  RAISE NOTICE 'PASS  76a trips and nominations are isolated per tenant under forced RLS; INSERT for both, UPDATE (ended_at, ended_by) on a trip, nothing else';
+END $$;
+ROLLBACK;
+
+\echo '== 76c. a trip ends once, by its end columns, never in the future and never before it started, and an ended trip never changes; a nomination is never updated or deleted (FR-VEH-007, rule 3, TY028; as BAC, rolled back)'
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  tr1 uuid; tr2 uuid; k uuid; nm uuid;
+  row_ app.trip;
+  n int; st text; msg text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, md5('t76h1')::uuid, md5('t76d1')::uuid, now() - interval '1 hour') RETURNING id INTO tr1;
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+  VALUES (bac, md5('t76h2')::uuid, md5('t76d2')::uuid, now() - interval '1 hour') RETURNING id INTO tr2;
+
+  UPDATE app.trip SET ended_at = now(), ended_by = ctl WHERE id = tr1;
+  SELECT * INTO row_ FROM app.trip WHERE id = tr1;
+  IF row_.ended_at IS DISTINCT FROM now() OR row_.ended_by IS DISTINCT FROM ctl
+     OR row_.updated_by IS DISTINCT FROM ctl THEN
+    RAISE EXCEPTION 'FAIL 76c: the end read back ended_at %, ended_by %, updated_by %',
+      row_.ended_at, row_.ended_by, row_.updated_by;
+  END IF;
+  SELECT count(*) INTO n FROM app.audit_log
+   WHERE entity_type = 'trip' AND entity_id = tr1 AND action = 'UPDATE' AND actor_id = ctl;
+  IF n <> 1 THEN
+    RAISE EXCEPTION 'FAIL 76c: the end filed % UPDATE audit entries under the controller, not one', n;
+  END IF;
+
+  FOR st, msg IN
+    SELECT * FROM (VALUES
+      (format('UPDATE app.trip SET ended_at = now() WHERE id = %L', tr1),
+       'TY028 an ended trip is never changed'),
+      (format('UPDATE app.trip SET ended_by = %L WHERE id = %L', ctl, tr2),
+       'TY028 an open trip can only be ended, never edited'),
+      (format('UPDATE app.trip SET ended_at = now() + interval ''1 minute'' WHERE id = %L', tr2),
+       'TY028 a trip is ended now or earlier, never in the future'),
+      (format('UPDATE app.trip SET started_at = now() WHERE id = %L', tr2),
+       '42501 permission denied for table trip'),
+      (format('UPDATE app.trip SET ended_at = started_at - interval ''1 minute'' WHERE id = %L', tr2),
+       '23514 trip_ends_after_start')
+    ) v(s, m)
+  LOOP
+    DECLARE got_st text; got_msg text; got_con text;
+    BEGIN
+      BEGIN
+        EXECUTE st;
+        RAISE EXCEPTION 'FAIL 76c: % was accepted', st;
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT, got_con = CONSTRAINT_NAME;
+      END;
+      IF got_msg LIKE 'FAIL 76c:%' THEN
+        RAISE EXCEPTION '%', got_msg;
+      END IF;
+      IF (got_st || ' ' || CASE WHEN got_st = '23514' THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
+        RAISE EXCEPTION 'FAIL 76c: % answered % %, not %', st, got_st, got_msg, msg;
+      END IF;
+    END;
+  END LOOP;
+  SELECT * INTO row_ FROM app.trip WHERE id = tr2;
+  IF row_.ended_at IS NOT NULL OR row_.ended_by IS NOT NULL THEN
+    RAISE EXCEPTION 'FAIL 76c: a refused edit left the open trip ended at % by %', row_.ended_at, row_.ended_by;
+  END IF;
+
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('t76h3')::uuid, now() + interval '1 day') RETURNING id INTO k;
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id)
+  VALUES (bac, k, md5('t76d3')::uuid) RETURNING id INTO nm;
+  FOR st IN SELECT * FROM (VALUES
+      (format('UPDATE app.inspection_task_nomination SET user_id = %L WHERE id = %L', md5('t76d4')::uuid, nm)),
+      (format('DELETE FROM app.inspection_task_nomination WHERE id = %L', nm))) v(s)
+  LOOP
+    msg := NULL;
+    BEGIN
+      EXECUTE st;
+    EXCEPTION WHEN insufficient_privilege THEN
+      GET STACKED DIAGNOSTICS msg = MESSAGE_TEXT;
+    END;
+    IF msg IS DISTINCT FROM 'permission denied for table inspection_task_nomination' THEN
+      RAISE EXCEPTION 'FAIL 76c: % was answered %, not the revoked grant', st, COALESCE(msg, 'by success');
+    END IF;
+  END LOOP;
+  RAISE NOTICE 'PASS  76c a trip ends once by its end columns, now or earlier and not before its start, an ended trip is frozen, and a nomination is insert-only';
+END $$;
+ROLLBACK;
+
+\echo '== 76z. nothing section 76 planted outlives its rollback'
+DROP FUNCTION pg_temp.t76_units();
+DO $$
+DECLARE got text := '';
+        tid uuid;
+BEGIN
+  PERFORM set_config('app.tenant_id', '11111111-1111-1111-1111-111111111111', true);
+  IF EXISTS (SELECT 1 FROM app.vehicle WHERE fleet_number LIKE 'T76-%')
+     OR EXISTS (SELECT 1 FROM app.app_user WHERE display_name LIKE 'T76 %') THEN
+    RAISE EXCEPTION 'FAIL 76z: a T76 unit or user outlived its check';
+  END IF;
+  FOREACH tid IN ARRAY ARRAY['11111111-1111-1111-1111-111111111111',
+                             '22222222-2222-2222-2222-222222222222',
+                             '33333333-3333-3333-3333-333333333333']::uuid[] LOOP
+    PERFORM set_config('app.tenant_id', tid::text, true);
+    got := got || (SELECT count(*) FROM app.trip) || '/'
+               || (SELECT count(*) FROM app.inspection_task_nomination) || ' ';
+  END LOOP;
+  IF got IS DISTINCT FROM '2/0 1/0 1/0 ' THEN
+    RAISE EXCEPTION 'FAIL 76z: trip and nomination rows per fixture fleet read %, not the fixture''s 2/0 1/0 1/0', got;
+  END IF;
+  RAISE NOTICE 'PASS  76z section 76 leaves no residue';
+END $$;
 
 \echo ''
 \echo '================  ALL CHECKS PASSED  ================'

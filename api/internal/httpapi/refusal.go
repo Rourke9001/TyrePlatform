@@ -124,6 +124,10 @@ var submitStatus = map[string]int{
 	// or a tyre's receipt changed. 422 like its neighbours.
 	"TY026": http.StatusUnprocessableEntity,
 
+	// TY028 is a trip write refused (000060): a start or end its rules do
+	// not allow. 422 like its neighbours.
+	"TY028": http.StatusUnprocessableEntity,
+
 	// TY008 has no entry and never will unless configuration editing is
 	// reopened: the unit PATCH is what keeps it unreachable from the API
 	// (units.go's patchUnitRequest). An entry could carry no test able to
