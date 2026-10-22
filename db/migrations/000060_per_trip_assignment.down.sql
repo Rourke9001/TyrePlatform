@@ -16,6 +16,10 @@ UPDATE app.inspection_task k
          ORDER BY x.task_id, x.nominated_at DESC, x.id) n
  WHERE n.task_id = k.id;
 
+-- J.
+COMMENT ON TABLE app.vehicle_driver IS NULL;
+GRANT INSERT, UPDATE ON app.vehicle_driver TO app_rw;
+
 -- I.
 DROP FUNCTION app.end_trip(uuid);
 DROP FUNCTION app.start_trip(uuid, uuid, uuid[]);

@@ -13,7 +13,7 @@
 -- Parts, in order: A keys and indexes; B app.trip; C
 -- app.inspection_task_nomination; D the task's close instant; E today's
 -- data into the new model; F the old readers retired; G coverage and
--- responsibility; H capture; I writes.
+-- responsibility; H capture; I writes; J vehicle_driver becomes history.
 
 -- ---------------------------------------------------------------------------
 -- A. Keys and indexes
@@ -196,8 +196,45 @@ CREATE TRIGGER inspection_task_closes_once BEFORE INSERT OR UPDATE ON app.inspec
 FOR EACH ROW EXECUTE FUNCTION app.inspection_task_closes_once();
 
 -- ---------------------------------------------------------------------------
--- E. Today's data into the new model (spec, Nominations)
+-- E. Today's data into the new model (spec, vehicle_driver becomes history;
+-- Nominations)
 -- ---------------------------------------------------------------------------
+-- Each assignment open on its tenant's today, on a motive, becomes an open
+-- trip from the tenant-local start of its from_date (rule 6), so a capture
+-- already in an outbox still passes the window. A trailer row is dropped:
+-- the trailer reaches its driver through the motive's rig. Where rows
+-- conflict, two drivers on one motive or one driver on two, the newest
+-- from_date wins, then the lowest id, and the rest stay history only. A
+-- future row is not converted. migrated_from_assignment_id marks the trip.
+-- This runs as the migration role, which bypasses RLS, so every predicate
+-- names the tenant.
+DO $$
+DECLARE r record;
+BEGIN
+  FOR r IN
+    SELECT vd.id, vd.tenant_id, vd.vehicle_id, vd.user_id, vd.created_by,
+           (vd.from_date::timestamp AT TIME ZONE t.timezone) AS started_at
+      FROM app.vehicle_driver vd
+      JOIN app.tenant t ON t.id = vd.tenant_id
+      JOIN app.vehicle v ON v.tenant_id = vd.tenant_id AND v.id = vd.vehicle_id
+     WHERE v.unit_kind <> 'TRAILER'
+       AND vd.from_date <= app.tenant_today(t.timezone)
+       AND (vd.to_date IS NULL OR vd.to_date >= app.tenant_today(t.timezone))
+     ORDER BY vd.from_date DESC, vd.id
+  LOOP
+    CONTINUE WHEN EXISTS (SELECT 1 FROM app.trip tr
+                           WHERE tr.tenant_id = r.tenant_id AND tr.ended_at IS NULL
+                             AND (tr.vehicle_id = r.vehicle_id OR tr.user_id = r.user_id));
+    INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, started_by, combination_id,
+                          migrated_from_assignment_id)
+    VALUES (r.tenant_id, r.vehicle_id, r.user_id, r.started_at, r.created_by,
+            (SELECT c.id FROM app.combination c
+              WHERE c.tenant_id = r.tenant_id AND c.motive_vehicle_id = r.vehicle_id
+                AND tstzrange(c.effective_from, c.effective_to, '[)') @> r.started_at),
+            r.id);
+  END LOOP;
+END $$;
+
 -- Each outstanding task's assignee becomes a nomination dated at the task's
 -- creation by whoever asked for it, so no outstanding task changes hands
 -- through its assignee. Part D has already made ESCALATED rows OPEN.
@@ -1411,3 +1448,12 @@ BEGIN
   UPDATE app.trip t SET ended_at = now(), ended_by = app.current_actor_id()
    WHERE t.tenant_id = v_tenant AND t.id = p_trip;
 END $$;
+
+-- ---------------------------------------------------------------------------
+-- J. vehicle_driver becomes history (spec)
+-- ---------------------------------------------------------------------------
+-- The table stays as the record of assignments before trips, and no path
+-- writes rows that nothing reads (check 4). DELETE was never granted.
+REVOKE INSERT, UPDATE ON app.vehicle_driver FROM app_rw;
+COMMENT ON TABLE app.vehicle_driver IS
+  'Driver-to-unit assignments before trips (FR-VEH-007 as amended, TYRE-326). History only: no writer, and nothing reads it for a decision; app.trip replaced it in 000060.';
