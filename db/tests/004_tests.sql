@@ -14021,13 +14021,13 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76c. a trip ends once, by its end columns, at the server''s now and by the bound actor, and an ended trip never changes; a nomination is never updated or deleted (FR-VEH-007, rule 3, TY028; as BAC, rolled back)'
+\echo '== 76c. a trip ends once, by its end columns, at the server''s now and by the bound actor, and an ended trip never changes; a raw trip takes an active driver on a motive not retired, ending no later than now; a nomination is never updated or deleted, and a raw one takes an open task, an active nominee and an instant no later than now (FR-VEH-007, FR-INS-051, rule 3, U152, TY028, TY018; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
   bac constant uuid := '11111111-1111-1111-1111-111111111111';
   ctl constant uuid := md5('t76c')::uuid;
-  tr1 uuid; tr2 uuid; k uuid; nm uuid;
+  tr1 uuid; tr2 uuid; k uuid; kc uuid; nm uuid;
   row_ app.trip;
   n int; st text; msg text;
 BEGIN
@@ -14072,7 +14072,27 @@ BEGIN
        '42501 permission denied for table trip'),
       (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now(), now() - interval ''1 minute'')',
               bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
-       '23514 trip_ends_after_start')
+       '23514 trip_ends_after_start'),
+      -- A raw insert meets app.start_trip's shape rules in its words, and in
+      -- its order: an inactive driver on a trailer is refused for the driver.
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              bac, md5('t76t1')::uuid, md5('t76d3')::uuid),
+       'TY028 a trip is driven on a horse, rigid or light vehicle; T76-T1 is a trailer'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              bac, md5('t76hd')::uuid, md5('t76d3')::uuid),
+       'TY028 T76-HD is disposed; a retired unit does not go on a trip'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              bac, md5('t76hi')::uuid, md5('t76d3')::uuid),
+       'TY028 T76-HI is inactive; a retired unit does not go on a trip'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              bac, md5('t76h3')::uuid, md5('t76di')::uuid),
+       'TY028 T76 Driver Inactive is no longer active'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              bac, md5('t76t1')::uuid, md5('t76di')::uuid),
+       'TY028 T76 Driver Inactive is no longer active'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at) VALUES (%L, %L, %L, now() - interval ''1 hour'', now() + interval ''1 minute'')',
+              bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
+       'TY028 a trip ends now or earlier, never in the future')
     ) v(s, m)
   LOOP
     DECLARE got_st text; got_msg text; got_con text;
@@ -14095,6 +14115,12 @@ BEGIN
   IF row_.ended_at IS NOT NULL OR row_.ended_by IS NOT NULL THEN
     RAISE EXCEPTION 'FAIL 76c: a refused edit left the open trip ended at % by %', row_.ended_at, row_.ended_by;
   END IF;
+  -- The controls: a past start is ADR-0013's accepted gap (U152), an end at
+  -- now is no later than now, and a PARKED motive and a rigid one go on a
+  -- trip, as app.start_trip allows.
+  INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+  VALUES (bac, md5('t76hp')::uuid, md5('t76d3')::uuid, now() - interval '3 hours', now()),
+         (bac, md5('t76r1')::uuid, md5('t76d4')::uuid, now() - interval '400 days', NULL);
   -- The ender is the bound actor, whoever the caller names.
   UPDATE app.trip SET ended_at = now(), ended_by = md5('t76d1')::uuid WHERE id = tr2;
   SELECT * INTO row_ FROM app.trip WHERE id = tr2;
@@ -14121,7 +14147,48 @@ BEGIN
       RAISE EXCEPTION 'FAIL 76c: % was answered %, not the revoked grant', st, COALESCE(msg, 'by success');
     END IF;
   END LOOP;
-  RAISE NOTICE 'PASS  76c a trip ends once by its end columns, at the server''s now and by the bound actor, an ended trip is frozen, and a nomination is insert-only';
+
+  -- A raw nomination meets app.nominate_for_task's rules in its words and
+  -- its order, and an instant no later than now.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('t76h3')::uuid, now() + interval '2 days') RETURNING id INTO kc;
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76c' WHERE id = kc;
+  FOR st, msg IN
+    SELECT * FROM (VALUES
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
+              bac, kc, md5('t76d3')::uuid),
+       'TY018 this inspection is cancelled; only an open one takes a driver'),
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
+              bac, kc, md5('t76di')::uuid),
+       'TY018 this inspection is cancelled; only an open one takes a driver'),
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at) VALUES (%L, %L, %L, now() - interval ''1 minute'')',
+              bac, k, md5('t76di')::uuid),
+       'TY018 T76 Driver Inactive is no longer active'),
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at) VALUES (%L, %L, %L, now() + interval ''1 second'')',
+              bac, k, md5('t76d4')::uuid),
+       'TY018 a nomination is dated now or earlier, never in the future')
+    ) v(s, m)
+  LOOP
+    DECLARE got_st text; got_msg text;
+    BEGIN
+      BEGIN
+        EXECUTE st;
+        RAISE EXCEPTION 'FAIL 76c: % was accepted', st;
+      EXCEPTION WHEN OTHERS THEN
+        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT;
+      END;
+      IF got_msg LIKE 'FAIL 76c:%' THEN
+        RAISE EXCEPTION '%', got_msg;
+      END IF;
+      IF (got_st || ' ' || got_msg) IS DISTINCT FROM msg THEN
+        RAISE EXCEPTION 'FAIL 76c: % answered % %, not %', st, got_st, got_msg, msg;
+      END IF;
+    END;
+  END LOOP;
+  -- The control: a past instant is ADR-0013's accepted gap (U152).
+  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+  VALUES (bac, k, md5('t76d4')::uuid, now() - interval '400 days');
+  RAISE NOTICE 'PASS  76c a trip ends once by its end columns, at the server''s now and by the bound actor, an ended trip is frozen, a raw trip or nomination meets its function''s shape rules, and a nomination is insert-only';
 END $$;
 ROLLBACK;
 
@@ -14417,7 +14484,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76f. a nomination names a driver for an open task on a unit no trip covers, stamped now by the actor and audited; it is refused by name on a task not open, a covered unit, an inactive or unknown user, an unknown task and a race (FR-INS-051 as amended, TY012, TY018; as BAC, rolled back)'
+\echo '== 76f. a nomination names a driver for an open task on a unit no trip covers, stamped now by the actor and audited; it is refused by name on a task not open, a covered unit, an inactive or unknown user and an unknown task; the race is P17 in db/tests/005_privileged.sql (FR-INS-051 as amended, TY012, TY018; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -14425,7 +14492,7 @@ DECLARE
   ctl constant uuid := md5('t76c')::uuid;
   h1 constant uuid := md5('t76h1')::uuid; h2 constant uuid := md5('t76h2')::uuid;
   d1 constant uuid := md5('t76d1')::uuid; d2 constant uuid := md5('t76d2')::uuid;
-  k uuid; k2 uuid; k_done uuid; k_h1 uuid; k_race uuid; nm uuid; insp uuid;
+  k uuid; k2 uuid; k_done uuid; k_h1 uuid; nm uuid; insp uuid;
   row_ app.inspection_task_nomination;
   n int; st text; msg text; got text;
 BEGIN
@@ -14464,10 +14531,6 @@ BEGIN
   UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = insp WHERE id = k_done;
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
   VALUES (bac, h1, now() + interval '1 day', now() - interval '12 hours') RETURNING id INTO k_h1;
-  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
-  VALUES (bac, h2, now() + interval '4 days', now() - interval '12 hours') RETURNING id INTO k_race;
-  INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
-  VALUES (bac, k_race, d2, now() + interval '1 second');
 
   FOR st, msg IN SELECT * FROM (VALUES
       (format('SELECT app.nominate_for_task(%L, %L)', k_done, d2),
@@ -14479,9 +14542,7 @@ BEGIN
       (format('SELECT app.nominate_for_task(%L, %L)', gen_random_uuid(), d2),
        'TY012 no such inspection task in this fleet'),
       (format('SELECT app.nominate_for_task(%L, %L)', k, gen_random_uuid()),
-       'TY012 no such user in this fleet'),
-      (format('SELECT app.nominate_for_task(%L, %L)', k_race, d1),
-       'TY018 this inspection was given another driver while this request was being made; refresh and try again')
+       'TY012 no such user in this fleet')
     ) v(a, b)
   LOOP
     got := NULL;

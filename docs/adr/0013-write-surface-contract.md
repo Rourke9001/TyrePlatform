@@ -440,3 +440,16 @@ more than writing the assumption down first.
   gone, and the generator names no assignee. `refuseNonCapturer` guards
   the trip start's driver, the nominee of a schedule and a nomination, and
   `listDrivers` offers only a role that holds `CaptureInspection`.
+- **A raw app-role INSERT can back-date a trip's start or a nomination's
+  instant: accepted by U152 (TYRE-326, 22 Oct 2026).** No function can:
+  `app.start_trip` and `app.nominate_for_task` stamp `now()`. But `app_rw`
+  holds INSERT on `app.trip` and `app.inspection_task_nomination`, and
+  nothing bounds `started_at` or `nominated_at` below. A bound would refuse
+  what 000060's data step and the seed fixture write, both past instants,
+  and the suite's back-dated plants, about 70 of them. The shape rules sit
+  in the INSERT triggers instead, in each function's words:
+  `trip_well_formed` takes an active driver on a motive that is not
+  retired, ending no later than now (TY028), and `nomination_well_formed`
+  takes an open task, an active nominee and an instant no later than now
+  (TY018). A rig takes a dated start by design (U8 of the rig setup), so
+  the trip is not the only history a caller can date.

@@ -39,6 +39,13 @@
 -- SET NULL (schedule_id) reaches closed tasks: inspection_task_closes_once
 -- freezes a closed task's state, citation and reason by name, never the
 -- whole row (TYRE-326).
+--
+-- P17 needs a nomination dated after the caller's now, as one written by a
+-- later transaction is while the caller waits on the task's row lock.
+-- nomination_well_formed refuses a future instant to every role, and one
+-- session cannot hold two transactions open, so postgres disables that
+-- trigger for the one INSERT and enables it again before the probe runs as
+-- app_login, as P8 does (TYRE-326).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -998,6 +1005,44 @@ BEGIN
     RAISE EXCEPTION 'FAIL P16: after the schedule''s deletion its closed tasks read %', got;
   END IF;
   RAISE NOTICE 'PASS  P16 a schedule''s deletion clears its closed tasks'' schedule_id and leaves their state, citation, reason and close as they were';
+END $$;
+ROLLBACK;
+
+\echo '== P17. TYRE-326: a nomination dated after the caller''s now, as a later transaction leaves one, is refused by name as a race lost (FR-INS-051 as amended, TY018)'
+BEGIN;
+INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+SELECT md5('p17-horse')::uuid, x.tenant_id, 'P17-H', 'P17H GP', x.configuration_id, 'HORSE', 'ACTIVE'
+  FROM app.vehicle x WHERE x.id = md5('veh1')::uuid;
+INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at)
+VALUES (md5('p17-task')::uuid, '11111111-1111-1111-1111-111111111111', md5('p17-horse')::uuid, now() + interval '1 day');
+ALTER TABLE app.inspection_task_nomination DISABLE TRIGGER nomination_well_formed;
+INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+VALUES ('11111111-1111-1111-1111-111111111111', md5('p17-task')::uuid, md5('driver1')::uuid, now() + interval '1 second');
+ALTER TABLE app.inspection_task_nomination ENABLE TRIGGER nomination_well_formed;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        got text;
+BEGIN
+  IF current_user <> 'app_login' THEN
+    RAISE EXCEPTION 'FAIL P17: the probe runs as %, so RLS is not on trial', current_user;
+  END IF;
+  IF (SELECT t.tgenabled FROM pg_trigger t
+       WHERE t.tgrelid = 'app.inspection_task_nomination'::regclass
+         AND t.tgname = 'nomination_well_formed') IS DISTINCT FROM 'O' THEN
+    RAISE EXCEPTION 'FAIL P17: nomination_well_formed did not come back enabled';
+  END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  BEGIN
+    PERFORM app.nominate_for_task(md5('p17-task')::uuid, md5('driver3')::uuid);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS got = RETURNED_SQLSTATE;
+    got := got || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'TY018 this inspection was given another driver while this request was being made; refresh and try again' THEN
+    RAISE EXCEPTION 'FAIL P17: a nomination over one dated after the caller''s now answered %', COALESCE(got, 'with a nomination');
+  END IF;
+  RAISE NOTICE 'PASS  P17 a nomination dated after the caller''s now is refused as a race lost';
 END $$;
 ROLLBACK;
 

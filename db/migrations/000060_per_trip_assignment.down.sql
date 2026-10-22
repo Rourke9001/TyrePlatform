@@ -56,10 +56,14 @@ ALTER TABLE app.inspection_task DROP CONSTRAINT task_never_escalated;
 ALTER TABLE app.inspection_task DROP COLUMN closed_at;
 
 -- C.
+DROP TRIGGER nomination_well_formed ON app.inspection_task_nomination;
 DROP TABLE app.inspection_task_nomination;
+DROP FUNCTION app.nomination_is_well_formed();
 
 -- B.
+DROP TRIGGER trip_well_formed ON app.trip;
 DROP TABLE app.trip;
+DROP FUNCTION app.trip_is_well_formed();
 DROP FUNCTION app.trip_is_ended_once();
 
 -- A.
