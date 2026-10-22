@@ -416,56 +416,6 @@ func TestAssignRoutesAreGone(t *testing.T) {
 	require.Zero(t, n)
 }
 
-// app.vehicle_driver carries three composite tenant FKs (000004, 000017), not
-// tenant_isolation's usual one: (tenant_id, vehicle_id), (tenant_id, user_id)
-// and (tenant_id, created_by). Leaving any of the three to a default or to a
-// tenant-A value would fail that FK before WITH CHECK is ever evaluated
-// (2026-08-28 lessons entry), a red for the wrong reason, indistinguishable
-// from a working policy. To isolate tenant_id as the sole confound,
-// vehicle_id, user_id and created_by must each be a real row genuinely
-// belonging to tenant B.
-func TestWriteAimedAtAnotherTenantIsRefused_VehicleDriver(t *testing.T) {
-	ctx := context.Background()
-	s, admin := testStore(t, ctx)
-	tenantA, _ := plantTenantWithVehicle(t, ctx, admin, "withcheck-vd-a")
-	tenantB, vehicleB := plantTenantWithVehicle(t, ctx, admin, "withcheck-vd-b")
-
-	var vehicleBID uuid.UUID
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`,
-		tenantB, vehicleB).Scan(&vehicleBID))
-
-	userA := plantUser(t, ctx, admin, tenantA, auth.RoleOrgAdmin)
-	// driverB stands in for both the assignee and the created_by stamp: both
-	// need only be a genuine tenant-B row, and one suffices for that.
-	driverB := plantUser(t, ctx, admin, tenantB, auth.RoleDriver)
-
-	err := s.InActorTx(ctx, store.ActorKey{TenantID: tenantA, UserID: userA}, func(tx pgx.Tx, _ auth.Actor) error {
-		_, err := tx.Exec(ctx,
-			`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date, created_by)
-			 VALUES ($1, $2, $3, '2026-01-01', $4)`,
-			tenantB, vehicleBID, driverB, driverB)
-		return err
-	})
-	require.Error(t, err, "a row aimed at another tenant was accepted")
-
-	var pgErr *pgconn.PgError
-	require.ErrorAs(t, err, &pgErr)
-	// 42501 is insufficient_privilege, which is how a row-level security
-	// policy refuses a write it will not admit. 23503 would mean an FK fired
-	// instead of the policy, which means the test's own setup is broken.
-	require.Equal(t, "42501", pgErr.Code)
-	// By name: the table is audited, and audit_log's policy answers 42501
-	// too (docs/lessons.md 2026-09-08).
-	require.Contains(t, pgErr.Message, `row-level security policy for table "vehicle_driver"`)
-
-	var landed int
-	require.NoError(t, admin.QueryRow(ctx,
-		`SELECT count(*) FROM app.vehicle_driver WHERE vehicle_id = $1 AND user_id = $2`,
-		vehicleBID, driverB).Scan(&landed))
-	require.Zero(t, landed)
-}
-
 // D9: the invite is narrowed by capability and not by role name, so the test
 // asserts the pairing of actor and requested role rather than the actor alone.
 // A CONTROLLER creating an ORG_ADMIN is the privilege-escalation path the

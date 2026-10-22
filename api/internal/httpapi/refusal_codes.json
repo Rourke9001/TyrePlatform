@@ -90,6 +90,11 @@
     "httpStatus": 409,
     "meaning": "vehicle_driver_no_overlap: that driver already holds an overlapping assignment to this unit (B1's exclusion constraint)"
   },
+  "trip_overlaps": {
+    "source": "go",
+    "httpStatus": 409,
+    "meaning": "trip_vehicle_no_overlap or trip_driver_no_overlap: a unit or driver went on another trip in a race app.start_trip's locks did not cover (TYRE-326)"
+  },
   "staff_number_taken": {
     "source": "go",
     "httpStatus": 409,

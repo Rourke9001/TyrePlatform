@@ -111,14 +111,16 @@ BEGIN
 
   -- INSERT: platform reference data (CHG-019, FR-CFG-005) and the tenant
   -- row itself (TYRE-158) are written as postgres, never through the app
-  -- role.
+  -- role. vehicle_driver is history since 000060: trips replace it, and no
+  -- path writes rows that nothing reads.
   SELECT string_agg(t || '.' || v, ', ') INTO bad
     FROM (VALUES
       ('jurisdiction_tread_minimum','INSERT'),
       ('platform_tyre_size','INSERT'),
       ('platform_tyre_brand','INSERT'),
       ('platform_tyre_pattern','INSERT'),
-      ('tenant','INSERT')
+      ('tenant','INSERT'),
+      ('vehicle_driver','INSERT')
     ) AS revoked(t, v)
    WHERE has_any_column_privilege(current_user, 'app.' || t, v);
   IF bad IS NOT NULL THEN
@@ -140,7 +142,7 @@ BEGIN
        'notification', 'operating_group', 'photo', 'position', 'retread_job',
        'target_pressure', 'tyre', 'tyre_brand', 'tyre_pattern',
        'tyre_size', 'user_depot', 'valuation_snapshot',
-       'vehicle', 'vehicle_driver', 'vehicle_tag', 'vehicle_tag_map',
+       'vehicle', 'vehicle_tag', 'vehicle_tag_map',
        -- inspection's grant is (state, void_reason) alone (000040, FR-INS-012);
        -- section 51 pins that column shape.
        'inspection',
@@ -11662,7 +11664,7 @@ BEGIN
   RAISE NOTICE 'PASS  72a twenty-three audit triggers, AFTER each row, DELETE and vehicle_id on the tag map alone; the function is invoker with its search_path pinned';
 END $$;
 
-\echo '== 72b. each of the nine tables files a real write through the path that writes it: action, entity, before and after, under the bound tenant and actor; a seeded row is filed with no actor (FR-AUD-001; as BAC, rolled back)'
+\echo '== 72b. each of the ten tables files a real write through the path that writes it: action, entity, before and after, under the bound tenant and actor; a seeded row is filed with no actor (FR-AUD-001; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
@@ -11671,7 +11673,9 @@ DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         -- read as a fault in the trigger (lesson 2026-08-28).
         act  constant uuid := md5('controller1')::uuid;
         drv  constant uuid := md5('driver1')::uuid;
+        drv3 constant uuid := md5('driver3')::uuid;     -- Sipho: his fixture trip has ended
         vu   constant uuid := md5('t72b-unit')::uuid;  -- TRAILER: owes no fitment odometer (TY009)
+        vh   constant uuid := md5('t72b-horse')::uuid; -- HORSE: the trip's motive
         tb   constant uuid := md5('t72b-tyre-fit')::uuid;
         tc   constant uuid := md5('t72b-tyre-retread')::uuid;
         d_rt constant uuid := md5('t72b-retreader')::uuid;
@@ -11680,7 +11684,7 @@ DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         sz1  constant uuid := md5('sz1')::uuid;
         pt1  constant uuid := md5('pt1')::uuid;
         tag_names constant text[] := ARRAY['T72B Tag'];
-        cfg uuid; pos uuid; tz text; ta uuid; fit uuid; job uuid; usr uuid; vd uuid;
+        cfg uuid; pos uuid; tz text; ta uuid; fit uuid; job uuid; usr uuid; tr uuid; k uuid; nom uuid;
         tg uuid; tg_again uuid; a app.audit_log; n int; tcost uuid;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
@@ -11790,18 +11794,35 @@ BEGIN
       a.before->>'active', a.after->>'active', a.after->>'display_name', a.tenant_id, a.actor_id;
   END IF;
 
-  -- vehicle_driver: assignDriver's INSERT (admin.go).
-  INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-  VALUES (app.current_tenant_id(), vu, drv,
-          COALESCE(NULL::date,
-                   app.tenant_today((SELECT timezone FROM app.tenant
-                                      WHERE id = app.current_tenant_id()))))
-  RETURNING id INTO vd;
-  a := pg_temp.t72_one('vehicle_driver', vd, 'INSERT', bac, act);
-  IF a.before IS NOT NULL OR a.after->>'user_id' IS DISTINCT FROM drv::text
-     OR a.after->>'vehicle_id' IS DISTINCT FROM vu::text THEN
-    RAISE EXCEPTION 'FAIL 72b: the assignment is filed with before %, user %, unit %',
+  -- trip: app.start_trip's INSERT and app.end_trip's UPDATE (000060).
+  INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id,
+                           unit_kind, home_depot_id, status)
+  VALUES (vh, bac, 'T72-BH', 'T72BH GP', cfg, 'HORSE', md5('depot1')::uuid, 'ACTIVE');
+  tr := app.start_trip(vh, drv3);
+  a := pg_temp.t72_one('trip', tr, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'user_id' IS DISTINCT FROM drv3::text
+     OR a.after->>'vehicle_id' IS DISTINCT FROM vh::text THEN
+    RAISE EXCEPTION 'FAIL 72b: the trip start is filed with before %, user %, unit %',
       a.before, a.after->>'user_id', a.after->>'vehicle_id';
+  END IF;
+  PERFORM app.end_trip(tr);
+  a := pg_temp.t72_one('trip', tr, 'UPDATE', bac, act);
+  IF a.before->>'ended_at' IS NOT NULL OR a.after->>'ended_at' IS NULL
+     OR a.after->>'ended_by' IS DISTINCT FROM act::text THEN
+    RAISE EXCEPTION 'FAIL 72b: the trip end is filed as % to %, by %',
+      a.before->>'ended_at', a.after->>'ended_at', a.after->>'ended_by';
+  END IF;
+
+  -- inspection_task_nomination: app.nominate_for_task's INSERT (000060), on
+  -- the trailer, which no trip covers.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, vu, now() + interval '1 day') RETURNING id INTO k;
+  nom := app.nominate_for_task(k, drv);
+  a := pg_temp.t72_one('inspection_task_nomination', nom, 'INSERT', bac, act);
+  IF a.before IS NOT NULL OR a.after->>'user_id' IS DISTINCT FROM drv::text
+     OR a.after->>'task_id' IS DISTINCT FROM k::text THEN
+    RAISE EXCEPTION 'FAIL 72b: the nomination is filed with before %, user %, task %',
+      a.before, a.after->>'user_id', a.after->>'task_id';
   END IF;
 
   -- threshold_policy and configuration have no route; their writers are the
@@ -11873,7 +11894,7 @@ BEGIN
   IF n <> 1 THEN
     RAISE EXCEPTION 'FAIL 72b: the seeded tyre1 has % readable unactored INSERT entries, not one', n;
   END IF;
-  RAISE NOTICE 'PASS  72b the nine tables file each write through its live path with the right action, entity, before and after; a reused tag name files nothing; a seeded row is filed with no actor';
+  RAISE NOTICE 'PASS  72b the ten tables file each write through its live path with the right action, entity, before and after; a reused tag name files nothing; a seeded row is filed with no actor';
 END $$;
 ROLLBACK;
 
@@ -11886,7 +11907,7 @@ DECLARE bac  constant uuid := '11111111-1111-1111-1111-111111111111';
         drv2 constant uuid := md5('driver2')::uuid;
         ty2  constant uuid := md5('t72c-tyre2')::uuid;
         tag2 constant uuid := md5('t72c-tag2')::uuid;
-        pos2 uuid; r record; msg text;
+        pos2 uuid; task2 uuid; r record; msg text;
 BEGIN
   -- Second Fleet's own rows for every reference, planted under its own
   -- binding, so each forged row is valid in every way but its writer
@@ -11896,6 +11917,8 @@ BEGIN
   PERFORM set_config('app.tenant_id', t2::text, true);
   INSERT INTO app.tyre (id, tenant_id, display_code, state) VALUES (ty2, t2, 'T72CTYRE2', 'IN_STOCK');
   INSERT INTO app.vehicle_tag (id, tenant_id, name) VALUES (tag2, t2, 'T72C Tag');
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (t2, veh2, now() + interval '1 day') RETURNING id INTO task2;
   SELECT p.id INTO pos2 FROM app.position p
     JOIN app.vehicle v ON v.configuration_id = p.configuration_id
    WHERE v.id = veh2 AND p.code = '1';
@@ -11917,9 +11940,12 @@ BEGIN
       ('app_user', format(
         'INSERT INTO app.app_user (tenant_id, email, display_name, role) VALUES (%L, %L, %L, %L)',
         t2, 't72c@example.invalid', 'T72C Forged', 'DRIVER')),
-      ('vehicle_driver', format(
-        'INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date) VALUES (%L, %L, %L, current_date)',
+      ('trip', format(
+        'INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
         t2, veh2, drv2)),
+      ('inspection_task_nomination', format(
+        'INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
+        t2, task2, drv2)),
       ('threshold_policy', format(
         'INSERT INTO app.threshold_policy (tenant_id, axle_class, retread_threshold_mm, max_retreads, effective_from) VALUES (%L, %L, 4.0, 2, now() + interval %L)',
         t2, 'DRIVE', '1 day')),
