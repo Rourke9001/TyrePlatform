@@ -7,7 +7,8 @@
 -- deactivated driver. The tasks cover an assignee kept, one lost to a
 -- conflict, ones that reach a trailer through the rig, escalated ones, closed
 -- ones, one whose assignee is deactivated, one on a trailer its assignee's
--- migrated trip towed for five days and let go, and two created a day
+-- migrated trip towed for five days and let go, one on a trailer two
+-- migrated trips towed in turn with a gap between, and two created a day
 -- ahead, as a raw UPDATE at 59 may leave one.
 DO $$
 DECLARE
@@ -19,12 +20,16 @@ DECLARE
   d1 constant uuid := md5('mr-d1')::uuid; d2 constant uuid := md5('mr-d2')::uuid;
   d3 constant uuid := md5('mr-d3')::uuid; d4 constant uuid := md5('mr-d4')::uuid;
   dg constant uuid := md5('mr-dg')::uuid; d5 constant uuid := md5('mr-d5')::uuid;
+  d6 constant uuid := md5('mr-d6')::uuid; d7 constant uuid := md5('mr-d7')::uuid;
   c1 constant uuid := md5('mr-c1')::uuid;
   m1 constant uuid := md5('mr-m1')::uuid; m2 constant uuid := md5('mr-m2')::uuid;
   m3 constant uuid := md5('mr-m3')::uuid;
   md constant uuid := md5('mr-md')::uuid; mi constant uuid := md5('mr-mi')::uuid;
   m4 constant uuid := md5('mr-m4')::uuid; t3 constant uuid := md5('mr-t3')::uuid;
   rig4 constant uuid := md5('mr-rig4')::uuid;
+  m5 constant uuid := md5('mr-m5')::uuid; m6 constant uuid := md5('mr-m6')::uuid;
+  t4 constant uuid := md5('mr-t4')::uuid;
+  rig5 constant uuid := md5('mr-rig5')::uuid; rig6 constant uuid := md5('mr-rig6')::uuid;
   t1 constant uuid := md5('mr-t1')::uuid; t2 constant uuid := md5('mr-t2')::uuid;
   insp  constant uuid := md5('mr-insp')::uuid;
   open_at constant timestamptz := now() - interval '2 days';
@@ -40,6 +45,8 @@ BEGIN
     (d3, mr, 'mr-d3@example.invalid', 'MR Driver Three', 'DRIVER'),
     (d4, mr, 'mr-d4@example.invalid', 'MR Driver Four', 'DRIVER'),
     (d5, mr, 'mr-d5@example.invalid', 'MR Driver Five', 'DRIVER'),
+    (d6, mr, 'mr-d6@example.invalid', 'MR Driver Six', 'DRIVER'),
+    (d7, mr, 'mr-d7@example.invalid', 'MR Driver Seven', 'DRIVER'),
     (c1, mr, 'mr-c1@example.invalid', 'MR Controller', 'CONTROLLER');
   INSERT INTO app.app_user (id, tenant_id, email, display_name, role, active)
   VALUES (dg, mr, 'mr-dg@example.invalid', 'MR Driver Gone', 'DRIVER', false);
@@ -52,7 +59,10 @@ BEGIN
     (md, mr, 'MR-MD', cfg, 'HORSE', 'DISPOSED'),
     (mi, mr, 'MR-MI', cfg, 'HORSE', 'INACTIVE'),
     (m4, mr, 'MR-M4', cfg, 'HORSE', 'ACTIVE'),
-    (t3, mr, 'MR-T3', cfg, 'TRAILER', 'ACTIVE');
+    (t3, mr, 'MR-T3', cfg, 'TRAILER', 'ACTIVE'),
+    (m5, mr, 'MR-M5', cfg, 'HORSE', 'ACTIVE'),
+    (m6, mr, 'MR-M6', cfg, 'HORSE', 'ACTIVE'),
+    (t4, mr, 'MR-T4', cfg, 'TRAILER', 'ACTIVE');
   INSERT INTO app.combination (id, tenant_id, motive_vehicle_id, effective_from)
   VALUES (rig, mr, m1, now() - interval '15 days');
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
@@ -64,6 +74,18 @@ BEGIN
   INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
   VALUES (mr, rig4, m4, 1), (mr, rig4, t3, 2);
   UPDATE app.combination SET effective_to = now() - interval '40 days' WHERE id = rig4;
+  -- MR-T4 rode in MR-M5's rig from 45 to 43 days back, then in MR-M6's from
+  -- 41 to 39 days back.
+  INSERT INTO app.combination (id, tenant_id, motive_vehicle_id, effective_from)
+  VALUES (rig5, mr, m5, now() - interval '45 days');
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (mr, rig5, m5, 1), (mr, rig5, t4, 2);
+  UPDATE app.combination SET effective_to = now() - interval '43 days' WHERE id = rig5;
+  INSERT INTO app.combination (id, tenant_id, motive_vehicle_id, effective_from)
+  VALUES (rig6, mr, m6, now() - interval '41 days');
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (mr, rig6, m6, 1), (mr, rig6, t4, 2);
+  UPDATE app.combination SET effective_to = now() - interval '39 days' WHERE id = rig6;
 
   INSERT INTO app.vehicle_driver (id, tenant_id, user_id, vehicle_id, from_date, to_date, created_by) VALUES
     (md5('mr-vdA')::uuid, mr, d1, m1, today - 30, NULL, c1),
@@ -77,7 +99,9 @@ BEGIN
     (md5('mr-vdI')::uuid, mr, d2, md, today - 5, NULL, NULL),
     (md5('mr-vdJ')::uuid, mr, d2, mi, today - 4, NULL, NULL),
     (md5('mr-vdK')::uuid, mr, dg, m3, today - 1, NULL, NULL),
-    (md5('mr-vdL')::uuid, mr, d5, m4, today - 50, NULL, NULL);
+    (md5('mr-vdL')::uuid, mr, d5, m4, today - 50, NULL, NULL),
+    (md5('mr-vdM')::uuid, mr, d6, m5, today - 50, NULL, NULL),
+    (md5('mr-vdN')::uuid, mr, d7, m6, today - 50, NULL, NULL);
 
   INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, assigned_user_id, requested_by, state,
                                    escalated_at, created_at) VALUES
@@ -92,7 +116,8 @@ BEGIN
     (md5('mr-k11')::uuid, mr, t2, week, dg,   c1, 'OPEN',      NULL,    open_at),
     (md5('mr-k12')::uuid, mr, t3, week, d5,   c1, 'OPEN',      NULL,    now() - interval '48 days'),
     (md5('mr-k13')::uuid, mr, t2, week, d1,   c1, 'OPEN',      NULL,    now() + interval '1 day'),
-    (md5('mr-k14')::uuid, mr, t1, week, d1,   c1, 'OPEN',      NULL,    now() + interval '1 day');
+    (md5('mr-k14')::uuid, mr, t1, week, d1,   c1, 'OPEN',      NULL,    now() + interval '1 day'),
+    (md5('mr-k15')::uuid, mr, t4, week, d3,   c1, 'OPEN',      NULL,    now() - interval '48 days');
 
   INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
   VALUES (insp, mr, m1, d1, md5('mr-cu')::uuid, '2026-09-02T07:50:00Z', '2026-09-02T08:00:00Z');
