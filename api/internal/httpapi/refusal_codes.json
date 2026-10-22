@@ -261,7 +261,7 @@
   "TY018": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "an inspection task or a nomination refused: a retired unit, a past due day, a task not open, a closed task moved to another state or planted with a close in the future, a nominee no longer active, a unit a trip already covers, or a nomination that lost a race (TYRE-90, TYRE-326)",
+    "meaning": "an inspection task or a nomination refused: a retired unit, a past due day, a task not open, a closed task moved to another state, given another completing inspection or reason, or planted with a close in the future, a nominee no longer active, a unit a trip already covers, or a nomination that lost a race (TYRE-90, TYRE-326)",
     "raisedBy": ["app.create_inspection_task", "app.inspection_task_closes_once", "app.nominate_for_task"]
   },
   "TY019": {

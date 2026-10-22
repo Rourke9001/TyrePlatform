@@ -14125,7 +14125,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept and a future one refused, a closed task never changes state, and the app role edits a task''s state, reason and citation alone (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
+\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept and a future one refused, a closed task never changes state, completing inspection or reason, and the app role edits a task''s state, reason and citation alone (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -14133,7 +14133,7 @@ DECLARE
   h1  constant uuid := md5('t76h1')::uuid;
   h2  constant uuid := md5('t76h2')::uuid;
   d1  constant uuid := md5('t76d1')::uuid;
-  k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; insp uuid;
+  k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; insp uuid; insp2 uuid;
   st text; msg text; c timestamptz; s text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
@@ -14154,15 +14154,25 @@ BEGIN
   INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
   VALUES (bac, h1, d1, gen_random_uuid(), now() - interval '1 hour', now() - interval '30 minutes', 1000)
   RETURNING id INTO insp;
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+  VALUES (bac, h1, d1, gen_random_uuid(), now() - interval '2 hours', now() - interval '90 minutes', 1000)
+  RETURNING id INTO insp2;
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, h1, now() + interval '1 day') RETURNING id INTO k2;
   UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = insp WHERE id = k2;
 
+  -- A completed task counts for the driver whose inspection completed it
+  -- (spec, Decisions 2), so a closed task's citation and reason are as final
+  -- as its state.
   FOR st, msg IN SELECT * FROM (VALUES
       (format('UPDATE app.inspection_task SET state = ''OPEN'' WHERE id = %L', k1),
        'TY018 this inspection task is cancelled; a closed task never changes state'),
       (format('UPDATE app.inspection_task SET state = ''CANCELLED'', cancelled_reason = ''76d'' WHERE id = %L', k2),
-       'TY018 this inspection task is completed; a closed task never changes state')) v(a, b)
+       'TY018 this inspection task is completed; a closed task never changes state'),
+      (format('UPDATE app.inspection_task SET completed_inspection_id = %L WHERE id = %L', insp2, k2),
+       'TY018 this inspection task is completed; a closed task keeps its completing inspection and its reason'),
+      (format('UPDATE app.inspection_task SET cancelled_reason = ''76d edited'' WHERE id = %L', k1),
+       'TY018 this inspection task is cancelled; a closed task keeps its completing inspection and its reason')) v(a, b)
   LOOP
     s := NULL;
     BEGIN
@@ -14175,10 +14185,11 @@ BEGIN
       RAISE EXCEPTION 'FAIL 76d: % was answered %, not %', st, COALESCE(s, 'by success'), msg;
     END IF;
   END LOOP;
-  SELECT string_agg(state::text, ',' ORDER BY state::text) INTO s
+  SELECT string_agg(state::text || ' ' || COALESCE(cancelled_reason, (completed_inspection_id = insp)::text),
+                    ',' ORDER BY state::text) INTO s
     FROM app.inspection_task WHERE id IN (k1, k2);
-  IF s IS DISTINCT FROM 'CANCELLED,COMPLETED' THEN
-    RAISE EXCEPTION 'FAIL 76d: the refused moves left the tasks %', s;
+  IF s IS DISTINCT FROM 'CANCELLED 76d,COMPLETED true' THEN
+    RAISE EXCEPTION 'FAIL 76d: the refused moves left the tasks %, not CANCELLED 76d,COMPLETED true', s;
   END IF;
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
@@ -14256,7 +14267,7 @@ BEGIN
     END IF;
   END LOOP;
   PERFORM set_config('app.tenant_id', bac::text, true);
-  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted past close is kept and a future one refused, an open task has none, a closed task never changes state, the app role edits only state, reason and citation, and none is ever ESCALATED';
+  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted past close is kept and a future one refused, an open task has none, a closed task never changes state, completing inspection or reason, the app role edits only state, reason and citation, and none is ever ESCALATED';
 END $$;
 ROLLBACK;
 
