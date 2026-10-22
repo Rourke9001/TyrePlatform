@@ -250,6 +250,7 @@ DOMAINS = {
     "odometer_max_daily_km": _positive,
     "duplicate_inspection_min_hours": _positive,
     "submitted_at_future_skew_minutes": _positive,
+    "inspection_max_duration_hours": _positive,
     "wear_rate_alert_multiple": _positive,
     "forecast_horizon_days": _positive,
     "inflation_compliance_window_days": _positive,

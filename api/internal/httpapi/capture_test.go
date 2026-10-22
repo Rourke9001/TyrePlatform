@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -34,13 +35,12 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 		t.Run(string(tt.role), func(t *testing.T) {
 			userID := plantUser(t, ctx, admin, tenantID, tt.role)
 			if tt.role == auth.RoleDriver {
-				// FR-AUT-005 gates capture on this exact assignment, and this
-				// driver did not exist when plantCaptureFixture ran, so the
-				// fixture could not have made it. Motive unit only, never
-				// the trailer: that is the one thing that actually exercises
-				// app.v_capture_vehicle below rather than app.v_driver_vehicle
-				// alone (see assignVehicleDriver).
-				assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, userID)
+				// FR-AUT-005 gates capture on this exact trip, and this driver
+				// did not exist when plantCaptureFixture ran, so the fixture
+				// could not have made it. The trip is on the motive alone: the
+				// trailer is reached through the rig, which the member reads
+				// below exercise.
+				plantTrip(t, ctx, admin, tenantID, vehicleID, userID)
 			}
 			rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(), tenantID.String(), userID.String())
 			require.Equal(t, tt.want, rec.Code, rec.Body.String())
@@ -65,9 +65,9 @@ func TestCaptureContextIsCapabilityGatedAndCarriesNoMoney(t *testing.T) {
 			}
 
 			// The hole v_capture_vehicle exists to close, pinned as its own
-			// case: driver1 holds veh1 and veh3, their veh2 assignment ended
-			// in 2024, and all three are members of comb1. Before the view,
-			// this 403s and a superlink cannot be inspected.
+			// case: the trip is on the motive alone, and every member of its
+			// rig must still read. Without the rig leg a member 403s and a
+			// superlink cannot be inspected.
 			for _, m := range body["combination"].(map[string]any)["members"].([]any) {
 				member := m.(map[string]any)["vehicleId"].(string)
 				rec := get(t, h, "/api/capture/vehicles/"+member, tenantID.String(), userID.String())
@@ -191,10 +191,10 @@ func TestSubmitReplayContract(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "submit")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	// FR-AUT-005: plantCaptureFixture deliberately plants no assignment
-	// (its docstring names this calling convention). Without it the
+	// FR-AUT-005: plantCaptureFixture deliberately plants no trip (its
+	// docstring names this calling convention). Without it the
 	// driver's own submit would 403 before ever reaching submit_inspection.
-	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	payload := captureFixture(t, ctx, admin, tenantID, vehicleID)
@@ -219,10 +219,10 @@ func TestSubmitRefusals(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "refuse")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	// The technician is deliberately left unassigned: its 403 below must be
+	// The technician is deliberately left on no trip: its 403 below must be
 	// attributable to the missing CaptureInspection capability alone, and
 	// require() fires before the FR-AUT-005 scope check ever runs.
-	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
 	techID := plantUser(t, ctx, admin, tenantID, auth.RoleTechnician)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -272,7 +272,7 @@ func TestSubmitUnknownVehicleIsUnprocessable(t *testing.T) {
 
 // plantUnrelatedVehicle plants a second vehicle in tenantID with its own
 // axle_configuration and single running position, coupled to nothing,
-// assigned to no one. It exists to be the vehicle a driver has no route to
+// on no trip. It exists to be the vehicle a driver has no route to
 // through app.v_capture_vehicle, for the FR-AUT-005 per-reading check below.
 func plantUnrelatedVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid.UUID) (uuid.UUID, uuid.UUID) {
 	t.Helper()
@@ -307,14 +307,14 @@ func plantUnrelatedVehicle(t *testing.T, ctx context.Context, admin *pgx.Conn, t
 // fix does not break the platform's actual reason for existing: a driver
 // responsible for a motive unit must be able to submit readings against its
 // coupled trailer in the SAME payload (CLAUDE.md's "108 entries, not 52").
-// The driver is assigned only to the motive unit. The trailer is reachable
-// solely through app.v_capture_vehicle's combination-membership branch.
+// The driver's trip is on the motive unit only. The trailer is reachable
+// solely through the rig leg of app.v_unit_coverage.
 func TestSubmitAuthorizesEveryVehicleInASuperlinkPayload(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
 	tenantID, motiveID, trailerID := plantCaptureFixture(t, ctx, admin, "superlink")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, motiveID, driverID)
+	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	var body map[string]any
@@ -340,7 +340,7 @@ func TestSubmitAuthorizesEveryVehicleInASuperlinkPayload(t *testing.T) {
 // TestSubmitRefusesReadingAgainstUnauthorizedVehicle is the negative half of
 // the FR-AUT-005 fix: a payload whose top-level vehicle_id the driver may
 // reach, but that embeds a reading against an unrelated vehicle in the same
-// tenant, one with no assignment and no coupling, must be refused entirely,
+// tenant, one on no trip and in no coupling, must be refused entirely,
 // not silently accepted for the one unit that slipped past the top-level check.
 //
 // The statuses are pinned together deliberately: see errVehicleNotVisible in
@@ -351,7 +351,7 @@ func TestSubmitRefusesReadingAgainstUnauthorizedVehicle(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "unauth-reading")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, motiveID, driverID)
+	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
 	unrelatedVehicleID, unrelatedPositionID := plantUnrelatedVehicle(t, ctx, admin, tenantID)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -422,7 +422,8 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "unretryable")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+	controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	firstReading := func(body map[string]any) map[string]any {
@@ -434,37 +435,41 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 		mutate              func(map[string]any)
 		wantCode            string
 		wantMessageContains string
+		// A driver meets the own-units check before the insert, so a case
+		// that exists to prove the insert's own mapping submits as a
+		// tenant-wide role, which the check exempts.
+		asController bool
 	}{
 		// An id this tenant cannot see arrives as a bare 23503, a
 		// client_uuid that will not cast as a 22P02 from the function's own
 		// DECLARE; both answer the canned invalid_submission (ADR-0012).
 		{"a tyre_id this tenant cannot see", func(b map[string]any) {
 			firstReading(b)["tyre_id"] = uuid.NewString()
-		}, "invalid_submission", "refused as invalid"},
+		}, "invalid_submission", "refused as invalid", false},
 		{"a combination_id this tenant cannot see", func(b map[string]any) {
 			b["combination_id"] = uuid.NewString()
-		}, "invalid_submission", "refused as invalid"},
+		}, "invalid_submission", "refused as invalid", true},
 		{"a client_uuid that is not a uuid", func(b map[string]any) {
 			b["client_uuid"] = "not-a-uuid"
-		}, "invalid_submission", "refused as invalid"},
+		}, "invalid_submission", "refused as invalid", false},
 		// The five TY005 shapes share a code; the fragment is the driver-facing
 		// text FR-OFF-013 turns into a recovery action, and the only thing that
 		// tells the guard from the constraint behind it (see the doc comment).
 		{"a tread outside FR-INS-030's range", func(b map[string]any) {
 			firstReading(b)["treads"] = []float64{8.0, 40.0, 8.2}
-		}, "TY005", "is outside the accepted range of 0 to"},
+		}, "TY005", "is outside the accepted range of 0 to", false},
 		{"a pressure outside FR-INS-031's range", func(b map[string]any) {
 			firstReading(b)["pressure_kpa"] = 5000
-		}, "TY005", "kPa is outside the accepted range"},
+		}, "TY005", "kPa is outside the accepted range", false},
 		{"a null inside treads", func(b map[string]any) {
 			firstReading(b)["treads"] = []any{8.0, nil, 8.2}
-		}, "TY005", "is not a number"},
+		}, "TY005", "is not a number", false},
 		{"no readings at all", func(b map[string]any) {
 			delete(b, "readings")
-		}, "TY005", "carries no readings array"},
+		}, "TY005", "carries no readings array", false},
 		{"an empty readings array", func(b map[string]any) {
 			b["readings"] = []any{}
-		}, "TY005", "carries an empty readings array"},
+		}, "TY005", "carries an empty readings array", false},
 	}
 
 	for _, tc := range tests {
@@ -476,7 +481,11 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 			raw, err := json.Marshal(body)
 			require.NoError(t, err)
 
-			rec := post(t, h, "/api/inspections", tenantID.String(), driverID.String(), string(raw))
+			actor := driverID
+			if tc.asController {
+				actor = controllerID
+			}
+			rec := post(t, h, "/api/inspections", tenantID.String(), actor.String(), string(raw))
 			require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
 			ref := decodeRefusal(t, rec.Body.Bytes())
 			require.Equal(t, tc.wantCode, ref.Code, rec.Body.String())
@@ -540,7 +549,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	s, admin := testStore(t, ctx)
 	tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "odometer")
 	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, vehicleID, driverID)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	read := func(t *testing.T) struct {
@@ -602,4 +611,250 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	// put a fiction on an append-only timeline (DR-018).
 	require.NotNil(t, after.AverageDailyKm, "two readings 25 days apart yielded no rate")
 	require.InDelta(t, 400.0, *after.AverageDailyKm, 0.005)
+}
+
+// captureBetween is captureFixture's payload with its own started_at and
+// submitted_at, for the capture-window cases (FR-OFF-015 as amended).
+func captureBetween(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID uuid.UUID,
+	started, submitted time.Time) map[string]any {
+	t.Helper()
+	var body map[string]any
+	require.NoError(t, json.Unmarshal([]byte(captureFixture(t, ctx, admin, tenantID, vehicleID)), &body))
+	body["started_at"] = started.UTC().Format(time.RFC3339)
+	body["submitted_at"] = submitted.UTC().Format(time.RFC3339)
+	return body
+}
+
+// plantTripSpan plants userID's trip on motiveID from startedAgo to endedAgo
+// before now, as SQL intervals so the instants are the database's own clock.
+func plantTripSpan(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, motiveID, userID uuid.UUID,
+	startedAgo, endedAgo string) {
+	t.Helper()
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at, ended_at)
+		 VALUES ($1, $2, $3, now() - $4::interval, now() - $5::interval)`,
+		tenantID, motiveID, userID, startedAgo, endedAgo)
+	require.NoError(t, err)
+}
+
+func postCapture(t *testing.T, h http.Handler, tenantID, actor uuid.UUID, body map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(body)
+	require.NoError(t, err)
+	return post(t, h, "/api/inspections", tenantID.String(), actor.String(), string(raw))
+}
+
+func requireNotVisible(t *testing.T, rec *httptest.ResponseRecorder) {
+	t.Helper()
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	require.Equal(t, "TY007", decodeRefusal(t, rec.Body.Bytes()).Code, rec.Body.String())
+}
+
+func TestSubmitAcceptsATripClosedDuringTheCapture(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-closed")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTripSpan(t, ctx, admin, tenantID, motiveID, driverID, "2 hours", "30 minutes")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	rec := postCapture(t, h, tenantID, driverID,
+		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-40*time.Minute), now.Add(-10*time.Minute)))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+func TestSubmitRefusesAUnitHeldAtNoInstantOfTheCapture(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-never")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTripSpan(t, ctx, admin, tenantID, motiveID, driverID, "3 hours", "2 hours")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	requireNotVisible(t, postCapture(t, h, tenantID, driverID,
+		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-time.Hour), now)))
+}
+
+// The task stays cancelled and closes on nothing: the submit's close skips a
+// task that is not open (000041), and the nominee held the unit until the
+// cancel, inside the capture.
+func TestSubmitAcceptsANomineeWhoseTaskWasCancelled(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-cancelled")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	var taskID uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+		 VALUES ($1, $2, now() + interval '1 day', now() - interval '2 hours') RETURNING id`,
+		tenantID, motiveID).Scan(&taskID))
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at)
+		 VALUES ($1, $2, $3, now() - interval '1 hour')`, tenantID, taskID, driverID)
+	require.NoError(t, err)
+
+	now := time.Now()
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-30*time.Minute), now)
+	body["task_id"] = taskID.String()
+	_, err = admin.Exec(ctx,
+		`UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = 'test' WHERE id = $1`, taskID)
+	require.NoError(t, err)
+
+	rec := postCapture(t, h, tenantID, driverID, body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+	var state string
+	var completedBy *uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT state::text, completed_inspection_id FROM app.inspection_task WHERE id = $1`, taskID).
+		Scan(&state, &completedBy))
+	require.Equal(t, "CANCELLED", state)
+	require.Nil(t, completedBy)
+}
+
+// U148: a capture is never refused for its length; its last
+// inspection_max_duration_hours (12 by default) are judged.
+func TestSubmitAcceptsALongCaptureOnItsLastPart(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-long")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	_, err := admin.Exec(ctx,
+		`INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+		 VALUES ($1, $2, $3, now() - interval '5 hours')`, tenantID, motiveID, driverID)
+	require.NoError(t, err)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	rec := postCapture(t, h, tenantID, driverID,
+		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-14*time.Hour), now))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+func TestSubmitRefusesALongCaptureHeldOnlyEarly(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-early")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTripSpan(t, ctx, admin, tenantID, motiveID, driverID, "14 hours", "13 hours")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	requireNotVisible(t, postCapture(t, h, tenantID, driverID,
+		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-14*time.Hour), now)))
+}
+
+func TestSubmitRefusesAPayloadWithNoStartedAt(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-nostart")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now)
+	delete(body, "started_at")
+	rec := postCapture(t, h, tenantID, driverID, body)
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	ref := decodeRefusal(t, rec.Body.Bytes())
+	require.Equal(t, "TY005", ref.Code)
+	require.Equal(t, "the payload carries no started_at", ref.Message)
+}
+
+func TestSubmitRefusesAnAbsentSpareOnAnUnheldUnit(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-spare")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
+	unrelatedID, unrelatedPos := plantUnrelatedVehicle(t, ctx, admin, tenantID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now)
+	body["absent_spares"] = []map[string]any{
+		{"vehicle_id": unrelatedID.String(), "position_id": unrelatedPos.String()},
+	}
+	requireNotVisible(t, postCapture(t, h, tenantID, driverID, body))
+}
+
+func TestSubmitRefusesACombinationNotOfferedToTheUnit(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-rig")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
+	unrelatedID, _ := plantUnrelatedVehicle(t, ctx, admin, tenantID)
+	var otherRig uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+		 VALUES ($1, $2, now() - interval '1 hour') RETURNING id`, tenantID, unrelatedID).Scan(&otherRig))
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now)
+	body["combination_id"] = otherRig.String()
+	requireNotVisible(t, postCapture(t, h, tenantID, driverID, body))
+}
+
+// The web sends "combination_id": null on every solo capture (payload.ts),
+// and an explicit null is no rig.
+func TestSubmitAcceptsASoloCaptureWithANullCombination(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-solo")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	plantTrip(t, ctx, admin, tenantID, motiveID, driverID)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now)
+	body["combination_id"] = nil
+	rec := postCapture(t, h, tenantID, driverID, body)
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
+}
+
+// FR-OFF-011: a replay writes nothing, so it is answered as one whoever holds
+// the unit now. The unit is one the driver never held, so the answer comes
+// from the replay step alone.
+func TestSubmitReplayIsAnsweredAfterTheTripEnds(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-replay")
+	driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	body := captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-3*time.Hour), now.Add(-170*time.Minute))
+	var stored uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at)
+		 VALUES ($1, $2, $3, $4, now() - interval '3 hours', now() - interval '170 minutes') RETURNING id`,
+		tenantID, motiveID, driverID, body["client_uuid"]).Scan(&stored))
+
+	rec := postCapture(t, h, tenantID, driverID, body)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	var got struct {
+		InspectionID string `json:"inspectionId"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, stored.String(), got.InspectionID)
+}
+
+// ScopeTenant stays exempt from the own-units check, in Go (spec, Capture).
+func TestSubmitByAControllerNeedsNoTrip(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, motiveID, _ := plantCaptureFixture(t, ctx, admin, "window-controller")
+	controllerID := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	now := time.Now()
+	rec := postCapture(t, h, tenantID, controllerID,
+		captureBetween(t, ctx, admin, tenantID, motiveID, now.Add(-2*time.Minute), now))
+	require.Equal(t, http.StatusCreated, rec.Code, rec.Body.String())
 }

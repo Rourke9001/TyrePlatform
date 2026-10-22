@@ -164,12 +164,11 @@ func plantUser(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID uuid
 // rather than nulls that would satisfy the test's presence-only assertions
 // vacuously.
 //
-// It deliberately plants no vehicle_driver row. FR-AUT-005's assignment
-// names a specific user, and the only user this fixture could name is one it
-// invents, which would satisfy nothing the caller's actor actually is,
-// since the caller plants its own actors afterwards via plantUser. Callers
-// that need the assignment call assignVehicleDriver once they hold the
-// driver's id.
+// It deliberately plants no trip. FR-AUT-005's trip names a specific user,
+// and the only user this fixture could name is one it invents, which would
+// satisfy nothing the caller's actor actually is, since the caller plants
+// its own actors afterwards via plantUser. Callers that need the trip call
+// plantTrip once they hold the driver's id.
 func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, label string) (uuid.UUID, uuid.UUID, uuid.UUID) {
 	t.Helper()
 	tenantID, _ := plantTenant(t, ctx, admin, label)
@@ -337,14 +336,23 @@ func plantCaptureFixture(t *testing.T, ctx context.Context, admin *pgx.Conn, lab
 	return tenantID, motiveID, trailerID
 }
 
-// assignVehicleDriver gives userID FR-AUT-005's current assignment to
-// vehicleID, backdated a day so app.v_current_assignment's "from today"
-// window is unambiguously satisfied regardless of what hour the suite runs,
-// the same shape TestDriverVehiclesAreAssignmentScoped uses below.
-// Deliberately not folded into plantCaptureFixture: the driver being
-// assigned here is created by the caller, per role, inside the test's own
-// loop, after the fixture has already returned, so the fixture has no
-// user_id to assign to yet.
+// plantTrip opens userID's trip on the motive motiveID from an hour ago, so
+// the driver holds the unit, and the units its open rig tows, across any
+// capture window a test submits (FR-VEH-007 and FR-AUT-005 as amended).
+// Deliberately not folded into plantCaptureFixture, for the reason its
+// docstring gives.
+func plantTrip(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, motiveID, userID uuid.UUID) uuid.UUID {
+	t.Helper()
+	var id uuid.UUID
+	require.NoError(t, admin.QueryRow(ctx,
+		`INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+		 VALUES ($1, $2, $3, now() - interval '1 hour') RETURNING id`,
+		tenantID, motiveID, userID).Scan(&id))
+	return id
+}
+
+// assignVehicleDriver plants a vehicle_driver row backdated a day, which
+// app.generate_inspection_tasks' assignee step still reads (000012).
 func assignVehicleDriver(t *testing.T, ctx context.Context, admin *pgx.Conn, tenantID, vehicleID, userID uuid.UUID) {
 	t.Helper()
 	_, err := admin.Exec(ctx,
@@ -446,7 +454,7 @@ func TestListVehiclesCarriesUnitKindAndStatus(t *testing.T) {
 	// fleetNumber, registration, no new keys. Compared as a key set, not
 	// against a fixed struct, so field order carries no meaning here.
 	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
-	assignVehicleDriver(t, ctx, admin, tenantID, plainID, driver)
+	plantTrip(t, ctx, admin, tenantID, plainID, driver)
 
 	rec = get(t, h, "/api/my/vehicles", tenantID.String(), driver.String())
 	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
@@ -840,7 +848,7 @@ func TestFleetListIsDepotScopedForDepotRoles(t *testing.T) {
 }
 
 // A driver out of scope gets an empty list, not a refusal: they are entitled
-// to ask what they are assigned, and the answer is legitimately nothing.
+// to ask what they hold, and the answer is legitimately nothing.
 func TestDriverVehiclesAreAssignmentScoped(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -852,11 +860,7 @@ func TestDriverVehiclesAreAssignmentScoped(t *testing.T) {
 	require.NoError(t, admin.QueryRow(ctx,
 		`SELECT id FROM app.vehicle WHERE tenant_id = $1 AND fleet_number = $2`, tenantID, fleet,
 	).Scan(&vehicleID))
-	_, err := admin.Exec(ctx,
-		`INSERT INTO app.vehicle_driver (tenant_id, vehicle_id, user_id, from_date)
-		 VALUES ($1, $2, $3, (now() AT TIME ZONE 'UTC')::date - 1)`,
-		tenantID, vehicleID, driver)
-	require.NoError(t, err)
+	plantTrip(t, ctx, admin, tenantID, vehicleID, driver)
 
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
@@ -864,7 +868,7 @@ func TestDriverVehiclesAreAssignmentScoped(t *testing.T) {
 		fleetNumbers(t, get(t, h, "/api/my/vehicles", tenantID.String(), driver.String())))
 	require.Empty(t,
 		fleetNumbers(t, get(t, h, "/api/my/vehicles", tenantID.String(), other.String())),
-		"an unassigned driver sees nothing, and that is an empty list rather than a refusal")
+		"a driver on no trip sees nothing, and that is an empty list rather than a refusal")
 }
 
 func TestMyTasksNeedsCaptureCapability(t *testing.T) {

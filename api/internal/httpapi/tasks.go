@@ -1,7 +1,8 @@
 // The inspection task (TYRE-90): a controller schedules an ad-hoc inspection
-// for a driver on a unit. Which units a user's assignments reach, which day
-// a task may be due on, and what is overdue are app.v_user_capture_vehicle's,
-// app.create_inspection_task's and app.v_inspection_task's (000038). This
+// for a driver on a unit. Which units a user's trips and nominations reach,
+// which day a task may be due on, and what is overdue are
+// app.v_user_capture_vehicle's (000060), app.create_inspection_task's and
+// app.v_inspection_task's (000038). This
 // file validates shape, gates the capability and projects rows (ADR-0013
 // decision 5), and applies the one role rule the schema cannot
 // (refuseNonCapturer, admin.go; ADR-0013, decision 1 as amended 2026-10-21).
@@ -23,17 +24,6 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// unitDriverJSON is one person who can capture the unit, and through which
-// assignment: their own on this unit, or the motive's when this unit is a
-// trailer in an open rig (FR-INS-053, spec U4).
-type unitDriverJSON struct {
-	UserID         string  `json:"userId"`
-	DisplayName    string  `json:"displayName"`
-	StaffNumber    *string `json:"staffNumber"`
-	ViaVehicleID   string  `json:"viaVehicleId"`
-	ViaFleetNumber string  `json:"viaFleetNumber"`
-}
-
 // taskJSON is the driver's own shape (listMyTasks). unitTaskJSON embeds it
 // rather than widening it, so the driver's list keeps its bytes (U13's
 // reasoning).
@@ -51,73 +41,6 @@ type unitTaskJSON struct {
 	taskJSON
 	AssignedUserID      *string `json:"assignedUserId"`
 	AssignedDisplayName *string `json:"assignedDisplayName"`
-}
-
-// listUnitDrivers is FR-INS-053's chain, read as a list (U4). Depot scope is
-// the unit's (unitSource), as for every by-id unit route (ADR-0006,
-// FR-AUT-008): a unit outside the actor's depots answers [] here exactly as
-// listUnitFitments does.
-func listUnitDrivers(s *store.Store) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		vehicleID, ok := pathID(w, r, "vehicleID")
-		if !ok {
-			return
-		}
-		out := []unitDriverJSON{}
-		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
-			if err := require(a, auth.ViewFleet); err != nil {
-				return err
-			}
-			// DISTINCT ON folds a driver assigned to both the horse and its
-			// trailer, who holds two rows in v_user_capture_vehicle (U4:
-			// assignment, or the motive's assignment), into one row, own
-			// assignment first.
-			rows, err := tx.Query(ctx, `
-				SELECT d.user_id, d.display_name, d.staff_number, d.via_vehicle_id, d.via_fleet_number, d.role
-				  FROM (SELECT DISTINCT ON (ucv.user_id)
-				               ucv.user_id, u.display_name, u.staff_number, ucv.via_vehicle_id, vv.fleet_number AS via_fleet_number,
-				               u.role::text AS role
-				          FROM app.v_user_capture_vehicle ucv
-				          JOIN app.app_user u ON u.id = ucv.user_id
-				          JOIN app.vehicle vv ON vv.id = ucv.via_vehicle_id
-				         WHERE ucv.vehicle_id = $1
-				           AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)
-				         ORDER BY ucv.user_id, (ucv.via_vehicle_id = $1) DESC) d
-				 ORDER BY (d.via_vehicle_id = $1) DESC, d.display_name, d.user_id`, vehicleID)
-			if err != nil {
-				return fmt.Errorf("listing drivers for unit %s: %w", vehicleID, err)
-			}
-			defer rows.Close()
-			for rows.Next() {
-				var (
-					userID, viaVehicleID uuid.UUID
-					displayName          string
-					staffNumber          *string
-					viaFleetNumber, role string
-				)
-				if err := rows.Scan(&userID, &displayName, &staffNumber, &viaVehicleID, &viaFleetNumber, &role); err != nil {
-					return fmt.Errorf("scanning driver row: %w", err)
-				}
-				// An assignment row can name a role that cannot capture,
-				// because a reactivation keeps a user's rows whatever their new
-				// role (TYRE-377). scheduleInspectionTask would refuse that
-				// person, so the list does not offer them.
-				if !auth.Holds(auth.Role(role), auth.CaptureInspection) {
-					continue
-				}
-				out = append(out, unitDriverJSON{
-					UserID: userID.String(), DisplayName: displayName, StaffNumber: staffNumber,
-					ViaVehicleID: viaVehicleID.String(), ViaFleetNumber: viaFleetNumber,
-				})
-			}
-			return rows.Err()
-		})
-		if !ok {
-			return
-		}
-		writeJSON(ctx, w, out)
-	}
 }
 
 // loadUnitTasks answers OPEN and ESCALATED tasks, by due date, with each
@@ -170,8 +93,10 @@ func loadUnitTasks(ctx context.Context, tx pgx.Tx, vehicleID *uuid.UUID, taskID 
 }
 
 // listUnitTasks is the controller's read of one unit's open work, gated on
-// ViewFleet like every other fleet read (spec U2); the depot-scope reasoning
-// is listUnitDrivers's, above.
+// ViewFleet like every other fleet read (spec U2). Depot scope is the unit's
+// (unitSource), as for every by-id unit route (ADR-0006, FR-AUT-008): a unit
+// outside the actor's depots answers [] here exactly as listUnitFitments
+// does.
 func listUnitTasks(s *store.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
@@ -303,9 +228,8 @@ func scheduleInspectionTask(s *store.Store) http.HandlerFunc {
 					return fmt.Errorf("resolving unit %s: %w", vehicleID, err)
 				}
 			}
-			// An assignment row can name a role that cannot capture (a
-			// reactivation keeps it, TYRE-377), so the task checks its
-			// assignee as well as assignDriver does.
+			// A user's role can change after they were named (a reactivation
+			// keeps them, TYRE-377), so the task checks its assignee here.
 			if err := refuseNonCapturer(ctx, tx, "assigneeUserId", assignee); err != nil {
 				return err
 			}

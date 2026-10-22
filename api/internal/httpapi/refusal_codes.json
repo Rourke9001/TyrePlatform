@@ -144,8 +144,8 @@
   "TY005": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "any of submit_inspection's own payload-shape validations; the busiest code",
-    "raisedBy": ["app.submit_inspection"]
+    "meaning": "any of submit_inspection's own payload-shape validations, a payload with no started_at among them (TYRE-326); the busiest code",
+    "raisedBy": ["app.capture_window", "app.submit_inspection"]
   },
   "TY006": {
     "source": "db",

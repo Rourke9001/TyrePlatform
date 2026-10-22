@@ -117,9 +117,8 @@ func listTyres(s *store.Store) http.HandlerFunc {
 				"a code lookup names both code and on (FR-TYR-042 resolves by date)")
 			return
 		}
-		// Validated before any transaction opens (ADR-0013 decision 5,
-		// admin.go's assignDriver does the same for fromDate), for the
-		// reason instantField's note gives (fitments.go).
+		// Validated before any transaction opens (ADR-0013 decision 5), for
+		// the reason instantField's note gives (request.go).
 		if on != "" {
 			if _, err := time.Parse(isoDate, on); err != nil {
 				refuseInvalid(w, r, invalid("on", "must be a date as YYYY-MM-DD"))

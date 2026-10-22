@@ -40,6 +40,7 @@
       "odometer_max_daily_km": 1600,
       "duplicate_inspection_min_hours": 4,
       "submitted_at_future_skew_minutes": 5,
+      "inspection_max_duration_hours": 12,
       "wear_rate_alert_multiple": 3,
       "forecast_horizon_days": 30,
       "inflation_compliance_window_days": 30,
