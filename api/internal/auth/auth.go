@@ -115,7 +115,7 @@ type Actor struct {
 
 func (a Actor) Can(c Capability) bool { return Holds(a.Role, c) }
 
-// Holds is Can for a user who is not the caller. An assignment or a task
+// Holds is Can for a user who is not the caller. A trip or a nomination
 // names someone who must be able to act on it, and only this table says
 // whether their role can.
 func Holds(r Role, c Capability) bool {

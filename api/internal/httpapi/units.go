@@ -878,6 +878,31 @@ func lockUnitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uui
 	return nil
 }
 
+// checkUnitInScope is lockUnitInScope's predicate with no lock, for a write
+// whose function takes its own unit locks in id order (create_combination_at,
+// 000044), where a lock taken here first would invert that order and risk
+// 40P01. Such a write checks before it runs and again after, under its own
+// locks.
+func checkUnitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID, notFound string) error {
+	in, err := unitInScope(ctx, tx, a, vehicleID)
+	if err != nil {
+		return err
+	}
+	if !in {
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
+	}
+	return nil
+}
+
+func unitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uuid.UUID) (bool, error) {
+	var in bool
+	if err := tx.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = $1)`, vehicleID).Scan(&in); err != nil {
+		return false, fmt.Errorf("resolving unit %s: %w", vehicleID, err)
+	}
+	return in, nil
+}
+
 // listVehicles is the management fleet list. A DRIVER does not hold ViewFleet
 // and is refused here rather than filtered. FR-AUT-005 is about what they
 // may ask for, not only about what comes back. Their route is /api/my/vehicles.
