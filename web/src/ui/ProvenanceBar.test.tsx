@@ -34,9 +34,16 @@ describe("ProvenanceBar", () => {
 
   it("says so when there is nothing to split", () => {
     render(
-      <ProvenanceBar caption="Valued" segments={[{ key: "audit", label: "audit", count: 0 }]} />,
+      <ProvenanceBar
+        caption="Valued"
+        segments={[{ key: "audit", label: "audit", count: 0 }]}
+        data-requirement="FR-DSH-017"
+      />,
     );
-    expect(screen.getByText("No tyres to split.")).toBeInTheDocument();
+    expect(screen.getByText("No tyres to split.")).toHaveAttribute(
+      "data-requirement",
+      "FR-DSH-017",
+    );
     expect(screen.queryByRole("img")).toBeNull();
   });
 });

@@ -46,7 +46,13 @@ export function BandChart({
   const titleId = useId();
   const phone = usePhone();
   const max = Math.max(0, ...bands.map((b) => b.count));
-  if (max === 0) return <p className="tr-bands__empty">{empty}</p>;
+  if (max === 0) {
+    return (
+      <p className={cx("tr-bands__empty", className)} {...rest}>
+        {empty}
+      </p>
+    );
+  }
 
   return (
     <figure

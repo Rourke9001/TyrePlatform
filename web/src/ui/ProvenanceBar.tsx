@@ -32,7 +32,13 @@ export function ProvenanceBar({
   ...rest
 }: ProvenanceBarProps) {
   const total = segments.reduce((sum, s) => sum + s.count, 0);
-  if (total === 0) return <p className="tr-prov__empty">{empty}</p>;
+  if (total === 0) {
+    return (
+      <p className={cx("tr-prov__empty", className)} {...rest}>
+        {empty}
+      </p>
+    );
+  }
   const name = `${caption}: ${segments.map((s) => `${s.label} ${formatCount(s.count)}`).join(", ")}`;
   return (
     <figure className={cx("tr-prov", className)} {...rest}>
