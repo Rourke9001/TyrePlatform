@@ -213,7 +213,8 @@ function StartTripForm({ unit }: { unit: Unit }) {
 
   // The due inspections sit between the form and its Start button, and each
   // carries a nominate form of its own, which may not nest inside this one;
-  // Start joins the form by its id.
+  // Start joins the form by its id, and waits for their read so the block is
+  // never a surprise (U148).
   return (
     <>
       <form id="trip-start" onSubmit={submit}>
@@ -309,13 +310,25 @@ function StartTripForm({ unit }: { unit: Unit }) {
           </ul>
         </>
       )}
-      {blockers.isError && <p role="alert">The due inspections could not be checked.</p>}
+      {blockers.isPending && <p>Checking due inspections…</p>}
+      {blockers.isError && (
+        <>
+          <p role="alert">The due inspections could not be checked.</p>
+          <button
+            type="button"
+            aria-label="Retry checking due inspections"
+            onClick={() => void blockers.refetch()}
+          >
+            Retry
+          </button>
+        </>
+      )}
 
       <button
         className="btn-primary"
         type="submit"
         form="trip-start"
-        disabled={driverId === "" || blocking.length > 0 || start.isPending}
+        disabled={driverId === "" || !blockers.isSuccess || blocking.length > 0 || start.isPending}
       >
         {start.isPending ? "Starting…" : "Start trip"}
       </button>
