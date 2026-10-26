@@ -1,4 +1,4 @@
-export function Camera() {
+export function CameraIcon() {
   return (
     <>
       <path d="M4 8.5h3l2-3h6l2 3h3v11H4z" />

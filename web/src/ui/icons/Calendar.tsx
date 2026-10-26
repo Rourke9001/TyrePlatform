@@ -1,4 +1,4 @@
-export function Calendar() {
+export function CalendarIcon() {
   return (
     <>
       <rect x="3.5" y="5" width="17" height="15.5" rx="2" />

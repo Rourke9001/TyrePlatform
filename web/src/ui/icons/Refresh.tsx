@@ -1,4 +1,4 @@
-export function Refresh() {
+export function RefreshIcon() {
   return (
     <>
       <path d="M20 11a8 8 0 0 0-14.3-4.6L4 8" />

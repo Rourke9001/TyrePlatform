@@ -9,7 +9,7 @@ import {
 
 import { cx } from "./cx";
 import { Icon } from "./Icon";
-import { Critical } from "./icons/Critical";
+import { CriticalIcon } from "./icons/Critical";
 import "./Field.css";
 
 interface ControlProps {
@@ -54,7 +54,7 @@ export function Field({ label, hint, error, optional, children, className, ...re
       {control}
       {error ? (
         <div className="tr-field__error" id={errorId}>
-          <Icon icon={Critical} size={18} />
+          <Icon icon={CriticalIcon} size={18} />
           <span>{error}</span>
         </div>
       ) : null}

@@ -1,4 +1,4 @@
-export function Critical() {
+export function CriticalIcon() {
   return (
     <>
       <path d="M8.2 2.5h7.6l5.7 5.7v7.6l-5.7 5.7H8.2l-5.7-5.7V8.2z" />

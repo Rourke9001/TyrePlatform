@@ -1,4 +1,4 @@
-export function Home() {
+export function HomeIcon() {
   return (
     <>
       <path d="M3.5 11L12 4l8.5 7" />

@@ -1,4 +1,4 @@
-export function Send() {
+export function SendIcon() {
   return (
     <>
       <path d="M21 3L10 14" />

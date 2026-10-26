@@ -2,19 +2,19 @@ import type { HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "./cx";
 import { Icon, type IconGlyph } from "./Icon";
-import { Alert } from "./icons/Alert";
-import { Check } from "./icons/Check";
-import { Critical } from "./icons/Critical";
-import { Info } from "./icons/Info";
+import { AlertIcon } from "./icons/Alert";
+import { CheckIcon } from "./icons/Check";
+import { CriticalIcon } from "./icons/Critical";
+import { InfoIcon } from "./icons/Info";
 import "./Banner.css";
 
 type Tone = "info" | "warning" | "critical" | "success";
 
 const ICON: Record<Tone, IconGlyph> = {
-  info: Info,
-  warning: Alert,
-  critical: Critical,
-  success: Check,
+  info: InfoIcon,
+  warning: AlertIcon,
+  critical: CriticalIcon,
+  success: CheckIcon,
 };
 
 export interface BannerProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
