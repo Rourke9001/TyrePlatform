@@ -1,0 +1,121 @@
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { useState } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { Dialog } from "./Dialog";
+
+describe("Dialog", () => {
+  it("is a dialog named by its title and described by its description", () => {
+    render(
+      <Dialog
+        open
+        onClose={() => undefined}
+        title="Keep the estimate as final?"
+        description="No invoice can be recorded for this receipt afterwards."
+        actions={<button type="button">Keep the estimate</button>}
+        data-testid="confirm"
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Keep the estimate as final?" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(dialog).toHaveAttribute("data-testid", "confirm");
+    expect(dialog).toHaveAccessibleDescription(
+      "No invoice can be recorded for this receipt afterwards.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Keep the estimate" })).toBeInTheDocument();
+  });
+
+  it("has no accessible description when given neither a description nor a body", () => {
+    render(
+      <Dialog
+        open
+        onClose={() => undefined}
+        title="Dispose tyre"
+        actions={<button type="button">Dispose</button>}
+      />,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
+    expect(dialog).not.toHaveAttribute("aria-describedby");
+    expect(dialog).toHaveAccessibleDescription("");
+  });
+
+  it("is described by its body when it has no description", () => {
+    render(
+      <Dialog
+        open
+        onClose={() => undefined}
+        title="Dispose tyre"
+        tone="danger"
+        actions={<button type="button">Dispose</button>}
+      >
+        The tyre leaves the register.
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
+    expect(dialog).toHaveAccessibleDescription("The tyre leaves the register.");
+  });
+
+  it("traps focus, closes on Escape and returns focus to the control that opened it", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Dispose
+          </button>
+          <Dialog
+            open={open}
+            onClose={() => {
+              onClose();
+              setOpen(false);
+            }}
+            title="Dispose tyre"
+            actions={
+              <>
+                <button type="button">Keep it</button>
+                <button type="button">Dispose it</button>
+              </>
+            }
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Dispose" });
+    await user.click(opener);
+    expect(screen.getByRole("dialog", { name: "Dispose tyre" })).toHaveFocus();
+
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Keep it" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Dispose it" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Keep it" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
+  // A confirmation is answered by one of its actions; a stray press outside
+  // it is not an answer.
+  it("stays open when the scrim is pressed", () => {
+    const onClose = vi.fn();
+    render(
+      <Dialog
+        open
+        onClose={onClose}
+        title="Dispose tyre"
+        actions={<button type="button">Dispose</button>}
+      />,
+    );
+    const scrim = screen.getByRole("dialog").parentElement;
+    if (scrim === null) throw new Error("the dialog has no scrim");
+    fireEvent.mouseDown(scrim);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+});
