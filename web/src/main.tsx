@@ -10,11 +10,14 @@ import { boot } from "./shell/boot";
 import { ConfigFailure } from "./shell/ConfigFailure";
 import { installChunkReload } from "./shell/chunkReload";
 import { installThemeStyle } from "./theme/themeStyle";
+import { startAppearance } from "./theme/appearance";
 import { App } from "./App.tsx";
 
 // First, so every screen boot() can render, ConfigFailure included, paints
 // on the theme's tokens (ADR-0019 says why it is not an inline script).
 installThemeStyle();
+// The device's Daylight or Night shift, on the root before the first render.
+startAppearance();
 
 const queryClient = new QueryClient();
 
