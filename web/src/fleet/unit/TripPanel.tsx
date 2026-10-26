@@ -186,7 +186,9 @@ function StartTripForm({ unit }: { unit: Unit }) {
   }
   const coupledIds = new Set(coupled.map((m) => m.vehicleId));
   const fleetOf = new Map((vehicles.data ?? []).map((v) => [v.id, v.fleetNumber]));
-  const offered = (vehicles.data ?? [])
+  // Spec decision 4: without the rigs every trailer reads as free, so none is
+  // offered until they load.
+  const offered = (rigs.data ? (vehicles.data ?? []) : [])
     .filter(
       (v) =>
         v.unitKind === "TRAILER" &&
@@ -243,7 +245,7 @@ function StartTripForm({ unit }: { unit: Unit }) {
               );
             })}
           </select>
-          <button type="button" onClick={addTrailer} disabled={pick === ""}>
+          <button type="button" onClick={addTrailer} disabled={pick === "" || !rigs.data}>
             Add
           </button>
         </div>
@@ -251,6 +253,14 @@ function StartTripForm({ unit }: { unit: Unit }) {
           <>
             <p role="alert">The trailers could not be loaded.</p>
             <button type="button" onClick={() => void vehicles.refetch()}>
+              Retry
+            </button>
+          </>
+        )}
+        {rigs.isError && (
+          <>
+            <p role="alert">The rigs could not be loaded.</p>
+            <button type="button" onClick={() => void rigs.refetch()}>
               Retry
             </button>
           </>
