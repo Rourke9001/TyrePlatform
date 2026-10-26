@@ -147,23 +147,20 @@ func listObservations(s *store.Store) http.HandlerFunc {
 
 // reachableObservation is FR-AUT-008's narrowing: a rig is homed where its
 // horse is (ledger ruling, 7 Sep 2026). Depot scope reasoning is
-// fitments.go's fitTyre. A depot lock that took no unit is the 404: the
-// motive is a member of its own rig, so a locked motive cannot move depots
-// before the scope check judges it.
+// fitments.go's fitTyre. A depot lock that took no unit is the 404: the lock
+// takes the motive whatever the rig's member rows say, so a locked motive
+// cannot move depots before the scope check judges it.
 func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {
 	if a.Scope() == auth.ScopeTenant {
 		return nil
 	}
+	const notFound = "no such report in this fleet"
 	locked, err := lockOfferedRigUnits(ctx, tx, a, warningID)
 	if err != nil {
 		return err
 	}
 	if locked == 0 {
-		return refusalError{refusal{
-			status:  http.StatusNotFound,
-			code:    codeNotFound,
-			message: "no such report in this fleet",
-		}}
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
 	}
 	var in bool
 	err = tx.QueryRow(ctx,
@@ -173,11 +170,7 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 		   JOIN app.combination c ON c.id = i.combination_id
 		  WHERE w.id = $1`, warningID).Scan(&in)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !in) {
-		return refusalError{refusal{
-			status:  http.StatusNotFound,
-			code:    codeNotFound,
-			message: "no such report in this fleet",
-		}}
+		return refusalError{refusal{status: http.StatusNotFound, code: codeNotFound, message: notFound}}
 	}
 	if err != nil {
 		return fmt.Errorf("resolving composition report %s: %w", warningID, err)
@@ -187,8 +180,10 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 
 // lockOfferedRigUnits takes every unit of the rig a report was offered FOR
 // UPDATE in id order, ahead of the rig row the resolution locks: the rig
-// lock order (units.go). Every member, a superset of the units the apply
-// re-couples, so the set needs no rule of its own. FOR UPDATE, not FOR SHARE:
+// lock order (units.go). The motive and every member, a superset of the
+// units the apply re-couples, so the set needs no rule of its own. The
+// motive is named on its own: app.create_combination_at makes it member 1
+// (U7), but no constraint does. FOR UPDATE, not FOR SHARE:
 // an apply's app.create_combination_at then takes the re-coupled units FOR
 // UPDATE (000044), so a shared pre-lock would be an upgrade and two applies
 // on one rig could deadlock. For a depot actor the rig's motive must be in
@@ -198,11 +193,14 @@ func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID
 	tag, err := tx.Exec(ctx,
 		`SELECT v.id
 		   FROM app.vehicle v
-		  WHERE v.id IN (SELECT cm.vehicle_id
+		  WHERE v.id IN (SELECT u.id
 		                   FROM app.inspection_warning w
 		                   JOIN app.inspection i ON i.id = w.inspection_id
 		                   JOIN app.combination c ON c.id = i.combination_id
-		                   JOIN app.combination_member cm ON cm.combination_id = c.id
+		                  CROSS JOIN LATERAL (SELECT c.motive_vehicle_id
+		                                       UNION ALL
+		                                      SELECT cm.vehicle_id FROM app.combination_member cm
+		                                       WHERE cm.combination_id = c.id) u (id)
 		                  WHERE w.id = $1
 		                    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = c.motive_vehicle_id))
 		  ORDER BY v.id
