@@ -353,9 +353,9 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		// Decoded so a vehicle_id that is not a uuid is a 400 here; the scope
-		// check below hands the raw payload to the database, and the rest of
-		// it travels to app.submit_inspection unparsed (maxSubmitBytes above).
+		// Decoded so a vehicle_id string that is not a uuid is a 400 here; the
+		// scope check below hands the raw payload to the database, and the rest
+		// of it travels to app.submit_inspection unparsed (maxSubmitBytes above).
 		var body struct {
 			VehicleID uuid.UUID `json:"vehicle_id"`
 		}
