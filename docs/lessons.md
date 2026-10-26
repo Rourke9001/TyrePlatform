@@ -30,6 +30,17 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-10-22 - The format hook rewraps JSON outside web/, and no gate notices
+
+**What happened:** on TYRE-326 an Edit to `api/internal/httpapi/refusal_codes.json`
+rewrapped lines nobody touched. `.claude/hooks/format.sh` runs web's prettier
+(`cd web && npx prettier --write`) on every edited `*.json`, `api/` included,
+while `make lint` checks prettier only over `web/` (`npm run format:check`).
+The hook changes the file and the gate that would flag it never looks there.
+
+**The rule:** edit JSON outside `web/` from the shell, or revert the hook's
+rewrap before committing, and check that `git diff` shows only your lines.
+
 ## 2026-10-21 - A capture entry a byte over budget can be filename noise (#146)
 
 **What happened:** #146 failed `bundle:check` at 140374 gzip bytes against
