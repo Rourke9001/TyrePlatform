@@ -46,6 +46,11 @@
 -- instant to every role, and one session cannot hold two transactions open,
 -- so postgres disables the trigger for the one INSERT and enables it again
 -- before the probe runs as app_login, as P8 does (TYRE-326).
+--
+-- P19 needs open tasks carrying a cancellation reason and a citation, as
+-- history from before 000060 may hold them. inspection_task_closes_once
+-- refuses either plant to every role, so postgres disables it for the plants
+-- and enables it again before a capture as app_login closes both (TYRE-326).
 -- ============================================================================
 \set ON_ERROR_STOP on
 SET search_path = app, public;
@@ -1095,6 +1100,84 @@ BEGIN
     RAISE EXCEPTION 'FAIL P18: ending a trip that started after the request answered %', COALESCE(got, 'with an end');
   END IF;
   RAISE NOTICE 'PASS  P18 a trip dated after the caller''s now refuses a start on its motive and its own end as a race lost';
+END $$;
+ROLLBACK;
+
+\echo '== P19. TYRE-326: an open task history left carrying a reason or a citation is not re-judged by an edit that changes neither state nor citation, cannot be cancelled while it cites, and a capture still closes it, by name and by the sweep (FR-INS-052, U150)'
+BEGIN;
+INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status)
+SELECT md5('p19-horse')::uuid, x.tenant_id, 'P19-H', 'P19H GP', x.configuration_id, 'HORSE', 'ACTIVE'
+  FROM app.vehicle x WHERE x.id = md5('veh1')::uuid;
+INSERT INTO app.app_user (id, tenant_id, email, display_name, role)
+VALUES (md5('p19-driver')::uuid, '11111111-1111-1111-1111-111111111111', 'p19-driver@example.invalid', 'P19 Driver', 'DRIVER');
+INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
+VALUES ('11111111-1111-1111-1111-111111111111', md5('p19-horse')::uuid, md5('p19-driver')::uuid, now() - interval '1 hour');
+ALTER TABLE app.inspection_task DISABLE TRIGGER inspection_task_closes_once;
+INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, created_at, cancelled_reason, completed_inspection_id)
+SELECT x.id, t.id, md5('p19-horse')::uuid,
+       ((app.tenant_today(t.timezone) + 1)::timestamp AT TIME ZONE t.timezone) - interval '1 microsecond',
+       now() - interval '12 hours', x.reason, x.cite
+  FROM app.tenant t,
+       (VALUES (md5('p19-named')::uuid, 'stale', NULL::uuid),
+               (md5('p19-swept')::uuid, NULL, md5('insp1')::uuid)) x(id, reason, cite)
+ WHERE t.id = '11111111-1111-1111-1111-111111111111';
+ALTER TABLE app.inspection_task ENABLE TRIGGER inspection_task_closes_once;
+SET LOCAL ROLE app_login;
+DO $$
+DECLARE bac constant uuid := '11111111-1111-1111-1111-111111111111';
+        horse constant uuid := md5('p19-horse')::uuid;
+        res record; got text;
+BEGIN
+  IF current_user <> 'app_login' THEN
+    RAISE EXCEPTION 'FAIL P19: the probe runs as %, so RLS is not on trial', current_user;
+  END IF;
+  IF (SELECT t.tgenabled FROM pg_trigger t
+       WHERE t.tgrelid = 'app.inspection_task'::regclass
+         AND t.tgname = 'inspection_task_closes_once') IS DISTINCT FROM 'O' THEN
+    RAISE EXCEPTION 'FAIL P19: inspection_task_closes_once did not come back enabled';
+  END IF;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', md5('p19-driver')::uuid::text, true);
+  -- The citation rule judges an open row only as its state or citation
+  -- changes, so an edit of neither, as the down's back-fill is, passes.
+  BEGIN
+    UPDATE app.inspection_task SET cancelled_reason = NULL WHERE id = md5('p19-swept')::uuid;
+  EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'FAIL P19: an edit of neither state nor citation re-judged a stale citation: % %', SQLSTATE, SQLERRM;
+  END;
+  -- A cancel is a change of state, so it is judged, and refused while the
+  -- citation stands (the cost the second re-review's fix records).
+  got := NULL;
+  BEGIN
+    UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = 'P19' WHERE id = md5('p19-swept')::uuid;
+  EXCEPTION WHEN OTHERS THEN
+    got := SQLSTATE || ' ' || SQLERRM;
+  END;
+  IF got IS DISTINCT FROM 'TY018 this inspection task is cancelled; only a completed task cites a completing inspection' THEN
+    RAISE EXCEPTION 'FAIL P19: cancelling an open task that carries a stale citation answered %', COALESCE(got, 'with a cancel');
+  END IF;
+  -- The reason rule judges a change to the reason alone, never a close, so
+  -- the driver's capture lands.
+  SELECT * INTO res FROM app.submit_inspection(jsonb_build_object(
+    'client_uuid', gen_random_uuid(), 'vehicle_id', horse,
+    'started_at', now() - interval '10 minutes', 'submitted_at', now(),
+    'task_id', md5('p19-named')::uuid,
+    'readings', (SELECT jsonb_build_array(jsonb_build_object(
+                          'vehicle_id', horse, 'position_id', p.id, 'pressure_kpa', 800,
+                          'treads', jsonb_build_array(8.0, 8.0, 8.0)))
+                   FROM app.position p JOIN app.vehicle v ON v.configuration_id = p.configuration_id
+                  WHERE v.id = horse AND NOT p.is_spare
+                  ORDER BY p.sequence LIMIT 1)));
+  IF res.created IS NOT TRUE THEN
+    RAISE EXCEPTION 'FAIL P19: the capture answered created %', res.created;
+  END IF;
+  SELECT string_agg(k.state::text || ':' || (k.completed_inspection_id = res.inspection_id)::text, ',' ORDER BY o.ord) INTO got
+    FROM app.inspection_task k
+    JOIN (VALUES (md5('p19-named')::uuid, 1), (md5('p19-swept')::uuid, 2)) o(id, ord) ON o.id = k.id;
+  IF got IS DISTINCT FROM 'COMPLETED:true,COMPLETED:true' THEN
+    RAISE EXCEPTION 'FAIL P19: the named and swept tasks read %, not COMPLETED:true,COMPLETED:true', got;
+  END IF;
+  RAISE NOTICE 'PASS  P19 a stale citation is not re-judged by an edit of neither state nor citation and refuses a cancel, and a capture closes tasks carrying a stale reason or citation, by name and by the sweep';
 END $$;
 ROLLBACK;
 
