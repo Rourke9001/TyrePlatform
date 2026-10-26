@@ -43,8 +43,9 @@ tenant then met the trigger's 23503 before its table's policy.
 
 **The rule:** a trigger that judges a referenced row refuses a not-found one
 itself, with `ERRCODE = 'foreign_key_violation'` and `CONSTRAINT` set to the
-FK's name, and only when `NEW.tenant_id = app.current_tenant_id()`, so a
-row naming another tenant still reaches its policy. Probe any such check
+FK's name, and only when the key `IS NOT NULL` and `NEW.tenant_id =
+app.current_tenant_id()`, so NOT NULL still answers a NULL key and a row
+naming another tenant still reaches its policy. Probe any such check
 with `WITH x AS (INSERT ...) INSERT|UPDATE ...` where the CTE is not
 referenced.
 
