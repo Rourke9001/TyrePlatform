@@ -44,7 +44,10 @@ rules. Recorded on TYRE-443 and under ADR-0020's Status.
 
 1. Tread's tokens in both themes (Daylight, Night shift), its type, and all
    42 components, each with tests, shown in the `/dev/design` gallery in
-   both themes.
+   both themes. `BrandProvider`'s job stays with `ThemeProvider`. The
+   components the demo path uses come first; the gallery-only set (photo
+   capture and gallery, damage note, timeline, progress, choice chips,
+   skeleton) comes last and is the first cut if the build runs late.
 2. The demo path recomposed on Tread to the artifact's screens (tier 1
    below), with today's behaviour unchanged.
 3. Every other route on Tread's tokens, type and components where a
@@ -90,12 +93,14 @@ authority, and where they differ the ADR wins. No lane ports these:
 | The artifact | What ships instead | Why |
 |---|---|---|
 | Tread cells named Outer, Centre, Inner | Cells numbered left to right as seen from above; manager screens may name them | IR-UI-014, FR-INS-029a, U145 |
-| A decimal key "when the step needs it" | No decimal key | U145 |
+| A decimal key "when the step needs it" | No decimal key. Today's half key stays for a tenant set to 0.5 mm, in the delete key's slot | U145, `capture/entry.ts` |
+| Exceptions with severity tabs, a search and a row side sheet; the overview's "Find a vehicle or tyre" search | Today's Severity and Rule selects, "Include replaced" and the table, restyled | No new step (non-goals) |
+| Hard-coded "mm" and "kPa" | Unit words from `useUnitLabels()` | FR-CFG-021 |
 | Today: "any other vehicle is one search away" | No new vehicle search; today's DriverHome behaviour, restyled | U143, TYRE-319 |
 | Capture tiles show per-unit numbers only | Capture tiles show the rig-wide number, with the per-unit place in words under it | FR-INS-060, FR-VEH-034, Appendix I |
 | "Needs action", rigs and fitments folded into the vehicle page | Exceptions keeps its name; the rigs and fitments pages stay; nav is grouped | ADR-0020, Navigation |
 | "4 mm spread", "35 mm cap", "target 800", sample kPa | Props fed from tenant configuration, or absent | Rule 5 |
-| `formatRand`, "5 mm" | `formatMoney` with `useCurrency`; `formatMm` with one decimal | Rule 2, `web/CLAUDE.md` |
+| `formatRand`, "5 mm" | `formatMoney` with `useCurrency`; `formatMm` with one decimal on manager screens; capture keeps today's strings | Rule 2, `web/CLAUDE.md` |
 | Bare `<a href>` links | Router links | `docs/implementation-order.md`, Tread item 4 |
 | Sheet and Dialog without a focus trap; Tabs without a tab panel | A focus trap with Escape and focus return; tabs wired to panels | Same, and TYRE-275 |
 | Missing tread age | Tread age shown where today's screen shows it (`format/treadAge.ts`) | Same |
@@ -135,10 +140,11 @@ tidiness.
   overlays, shadows, spacing (`space-1` to `space-12`, so `space-5` is
   20px), radius and size. Each colour has a Daylight and a Night shift
   value.
-- Static CSS carries the theme values under `:root` and
-  `:root[data-theme="dark"]`. Only the four brand tokens stay inline, set by
-  `ThemeProvider` from `deriveBrandTheme`, so `applyCssVars` no longer sets
-  every token.
+- One stylesheet, generated from `tokens.ts` and installed by `main.tsx`
+  before boot (the CSP allows an inline style, not an inline script),
+  carries the theme values under `:root, [data-theme="light"]` and
+  `[data-theme="dark"]`. Only the four brand tokens are set on the root
+  element, by `ThemeProvider` from `deriveBrandTheme`.
 - `deriveBrandTheme` keeps its rule. Its outputs for a set of tenant colours
   are pinned in `derive.test.ts` before the swap, and any change after it is
   explained.
@@ -196,10 +202,14 @@ with requirement IDs, every colour and size through a token.
 - `StatusBadge` names a condition it is given and never computes one
   (rule 5). Its label comes from the caller, so capture keeps its words.
 - `AxleDiagram` and `TyreTile` draw plan view, nose up (BR-VEH-001). The
-  tile's label is a prop: capture passes the rig-wide number and the place
-  in words; the vehicle screen passes the number the wire carries. If the
-  wire has no BR-VEH-001 number, the vehicle screen keeps today's label and
-  a ticket proposes the API field. The frontend does not compute it.
+  tile's label is a prop: capture passes the rig-wide number, and its
+  accessible name and the sheet header add place words built from wire
+  fields only (unit, axle, side); the vehicle screen passes the position
+  `code`, the BR-VEH-001 per-unit number. Inner and outer need an API
+  field, which is ticketed; the frontend does not derive them.
+- The vehicle screen shows "Last tread" as today: the unit wire carries one
+  governing figure, so `TreadReadings` is not used there (rule 4), and its
+  tiles carry no condition, because the wire carries none.
 - `Sheet`, `Dialog` and `Tabs` get what the artifact lacks: a focus trap,
   Escape, focus return, and tab panels.
 - Manager pages may keep Radix behind `React.lazy` (ADR-0015). Capture uses
@@ -214,9 +224,9 @@ with requirement IDs, every colour and size through a token.
 
 - Both shells: `DriverShell` for actors without `ViewFleet`, `AppShell` with
   today's nav items grouped (`shell/navigation.ts`) and filtered by
-  capability. Hiding an item stays a courtesy (NFR-SEC-006). The
-  `SyncStatus` chip replaces the stacked outbox lines and keeps "Sync now"
-  and the stale-queue warning.
+  capability. Hiding an item stays a courtesy (NFR-SEC-006). The outbox
+  lines keep their structure and words, restyled; the `SyncStatus` chip is
+  built and shown in the gallery, and wiring it is a follow-on.
 - Sign-in and access screens (`auth/`).
 - `/my`, the driver's Today (`driver/DriverHome`).
 - `/capture/:vehicleId`: start, the rig, the tyre sheet, review and done
