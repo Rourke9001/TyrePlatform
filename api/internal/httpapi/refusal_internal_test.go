@@ -210,6 +210,16 @@ func TestRefusalForPgError(t *testing.T) {
 			isClient: true,
 		},
 		{
+			name:   "a deadlock is a concurrent change the same request lands on a retry",
+			sqlErr: &pgconn.PgError{Code: "40P01", Message: "deadlock detected"},
+			want: refusal{
+				status:  http.StatusServiceUnavailable,
+				code:    "concurrent_change",
+				message: "another change to the same records landed at the same moment; try again",
+			},
+			isClient: true,
+		},
+		{
 			name:     "an unmapped SQLSTATE is not a client mistake",
 			sqlErr:   &pgconn.PgError{Code: "40001", Message: "could not serialize access"},
 			isClient: false,
@@ -266,6 +276,9 @@ func TestWriteActorTxErrorAnswersASetupFaultWith500(t *testing.T) {
 		{"a unique violation at commit",
 			fmt.Errorf("committing actor transaction: %w", &pgconn.PgError{Code: "23505"}),
 			http.StatusConflict, codeConflict},
+		{"a deadlock in the handler's work",
+			fmt.Errorf("applying composition report: %w", &pgconn.PgError{Code: "40P01"}),
+			http.StatusServiceUnavailable, "concurrent_change"},
 		{"no such actor", store.ErrNoSuchActor, http.StatusForbidden, codeForbidden},
 		{"a tenant that is not active", store.ErrTenantInactive, http.StatusForbidden, codeTenantInactive},
 	}
@@ -287,6 +300,16 @@ func TestWriteActorTxErrorLogsTheSetupFault(t *testing.T) {
 	writeActorTxError(context.Background(), httptest.NewRecorder(), Identity{TenantID: uuid.New(), UserID: uuid.New()}, err)
 	req.Contains(t, buf.String(), "recording session start")
 	req.Contains(t, buf.String(), "SQLSTATE 22P02")
+}
+
+// A deadlock answers a retry, so the client sees no cause; the log keeps the
+// trace that two writes met in opposite orders.
+func TestWriteActorTxErrorLogsADeadlock(t *testing.T) {
+	buf := captureLog(t)
+	err := fmt.Errorf("applying composition report: %w", &pgconn.PgError{Code: "40P01", Message: "deadlock detected"})
+	writeActorTxError(context.Background(), httptest.NewRecorder(), Identity{TenantID: uuid.New(), UserID: uuid.New()}, err)
+	req.Contains(t, buf.String(), `"level":"WARN"`)
+	req.Contains(t, buf.String(), `"sqlstate":"40P01"`)
 }
 
 // A conflict a form must act on differently from any other conflict carries

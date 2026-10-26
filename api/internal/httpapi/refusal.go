@@ -19,9 +19,11 @@ import (
 // own vocabulary, never canned), the standard integrity violations below
 // (canned as 422/409 so a client mistake never reads as a 500 the outbox
 // retries forever, ADR-0009), and everything else (defaults to 500, the
-// honest answer for an invariant breach). TY001/TY002 (DR-020 odometer
-// plausibility) and TY010 never reach here by construction; see
-// docs/architecture.md's refusal-vocabulary section for the full account.
+// honest answer for an invariant breach). A deadlock is the one canned
+// SQLSTATE that is neither, a 503 the same request lands on a retry.
+// TY001/TY002 (DR-020 odometer plausibility) and TY010 never reach here by
+// construction; see docs/architecture.md's refusal-vocabulary section for
+// the full account.
 
 // The refusal vocabulary (ADR-0012). A code names the reason, never the layer
 // that found it, which is why codeVehicleNotVisible is TY007's own: the Go
@@ -54,6 +56,7 @@ const (
 	codePositionOccupied    = "position_occupied"
 	codeTyreAlreadyFitted   = "tyre_already_fitted"
 	codeObservationResolved = "observation_resolved"
+	codeConcurrentChange    = "concurrent_change"
 )
 
 // Canned replacements for messages Postgres wrote. A driver's recovery action
@@ -82,6 +85,7 @@ const (
 	msgPositionOccupied    = "that position already carries a tyre; remove it first (FR-FIT-004)"
 	msgTyreAlreadyFitted   = "that tyre is already fitted elsewhere; remove it first (D14)"
 	msgObservationResolved = "someone has already applied or dismissed that report; refresh the list"
+	msgConcurrentChange    = "another change to the same records landed at the same moment; try again"
 )
 
 var submitStatus = map[string]int{
@@ -158,6 +162,12 @@ var submitStatus = map[string]int{
 	// 500, which for a form is a spinner that never resolves and for the
 	// capture outbox is a retry that never stops (ADR-0009).
 	"23P01": http.StatusConflict,
+
+	// 40P01: two writes met each other's row locks in opposite orders and
+	// Postgres rolled this one back. The same request lands on a retry, so
+	// a 503, never a 409: the capture outbox parks a 409 for good (ADR-0009).
+	// READ COMMITTED (store.InActorTx) never raises 40001, so it has no entry.
+	"40P01": http.StatusServiceUnavailable,
 }
 
 // refusal is what the wire carries for a client mistake (ADR-0012).
@@ -238,6 +248,8 @@ func refusalForPgError(err error) (refusal, bool) {
 			return refusal{status: status, code: code, message: conflictMessages[code]}, true
 		}
 		return refusal{status: status, code: codeConflict, message: msgConflict}, true
+	case pgErr.Code == "40P01":
+		return refusal{status: status, code: codeConcurrentChange, message: msgConcurrentChange}, true
 	default:
 		return refusal{status: status, code: codeInvalidSubmission, message: msgInvalidSubmission}, true
 	}
@@ -297,6 +309,11 @@ func writeActorTxError(ctx context.Context, w http.ResponseWriter, id Identity, 
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "22003" {
 			slog.WarnContext(ctx, "refusing a numeric overflow",
+				append(actorAttrs(ctx, id), "sqlstate", pgErr.Code, "err", err)...)
+		}
+		// The client is told only to retry, so the lock cycle is traced here.
+		if errors.As(err, &pgErr) && pgErr.Code == "40P01" {
+			slog.WarnContext(ctx, "refusing a deadlock as a concurrent change",
 				append(actorAttrs(ctx, id), "sqlstate", pgErr.Code, "err", err)...)
 		}
 		writeError(ctx, w, pgRef.status, pgRef.code, pgRef.message)

@@ -130,6 +130,12 @@ cannot be raised, since 000060 revokes `INSERT` and `UPDATE` on
 `trip_driver_no_overlap` and answers `trip_overlaps`, 409 (ADR-0013's
 constraint table).
 
+TYRE-326, 26 Oct 2026: a deadlock, `40P01`, answers `concurrent_change`,
+503. Two writes met each other's row locks in opposite orders, and the same
+request lands on a retry, so it is neither a client mistake nor an
+invariant breach. A 409 would park a capture in the outbox for good
+(ADR-0009).
+
 | Site | `code` | Status |
 | --- | --- | --- |
 | Unauthenticated request | `unauthorized` | 401 |
