@@ -15,15 +15,14 @@ import (
 	"tyreplatform/api/internal/store"
 )
 
-// submitInspection's SQLSTATEs sort into three groups: TY-prefixed (ADR-0012's
+// submitInspection's SQLSTATEs sort into four groups: TY-prefixed (ADR-0012's
 // own vocabulary, never canned), the standard integrity violations below
 // (canned as 422/409 so a client mistake never reads as a 500 the outbox
-// retries forever, ADR-0009), and everything else (defaults to 500, the
-// honest answer for an invariant breach). A deadlock is the one canned
-// SQLSTATE that is neither, a 503 the same request lands on a retry.
-// TY001/TY002 (DR-020 odometer plausibility) and TY010 never reach here by
-// construction; see docs/architecture.md's refusal-vocabulary section for
-// the full account.
+// retries forever, ADR-0009), a deadlock (40P01, canned as a 503 the same
+// request lands on a retry), and everything else (defaults to 500, the
+// honest answer for an invariant breach). TY001/TY002 (DR-020 odometer
+// plausibility) and TY010 never reach here by construction; see
+// docs/architecture.md's refusal-vocabulary section for the full account.
 
 // The refusal vocabulary (ADR-0012). A code names the reason, never the layer
 // that found it, which is why codeVehicleNotVisible is TY007's own: the Go

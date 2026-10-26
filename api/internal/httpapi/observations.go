@@ -179,10 +179,8 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 
 // lockOfferedRigUnits takes every unit of the rig a report was offered FOR
 // UPDATE in id order, ahead of the rig row the resolution locks: the rig
-// lock order (units.go). Every member, not only those the apply re-couples,
-// so the set needs no rule of its own, and FOR UPDATE is the mode
-// app.create_combination_at takes on them next (000044), so the request
-// never upgrades a lock it holds.
+// lock order (units.go). Every member, a superset of the units the apply
+// re-couples, so the set needs no rule of its own.
 func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, warningID uuid.UUID) error {
 	if _, err := tx.Exec(ctx,
 		`SELECT v.id
