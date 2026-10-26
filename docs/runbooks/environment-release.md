@@ -1054,14 +1054,14 @@ request template asks this of every PR that adds a migration, and TYRE-434
 adds the automatic check.
 
 Migration 000060 (TYRE-326, owner ruling U151, TYRE-326 comment 14041) is
-the one recorded exception: it ships in one release. The image production
-runs before it fails three controller routes on its schema, the
+the one recorded exception: it ships in one release. Production's image
+from before 000060 fails three controller routes on its schema, the
 `vehicle_driver` INSERT behind POST `/api/vehicles/{id}/drivers`, the
 `assigned_user_id` read behind GET `/api/vehicles/{id}/inspection-tasks`,
 and the `create_inspection_task(uuid, uuid, date)` call behind POST
 `/api/vehicles/{id}/inspection-tasks`. Production has no tenants, so no one
-meets the failure. The rule applies again from the moment BAC is live on
-production.
+meets the failure. The exception covers this PR only. The rule applies
+again from the moment BAC is live on production.
 
 ## Roll back
 
@@ -1070,10 +1070,12 @@ A rollback is a dispatch of **Deploy** from the repo's Actions tab with
 
 - **Staging:** run it from `develop` with `target` staging and `image_sha`
   set to the full SHA of a commit this pipeline deployed after the TYRE-79
-  merge (earlier images have no `/readyz` and fail the gate).
+  merge (earlier images have no `/readyz` and fail the gate), and at or
+  after TYRE-326's merge (PR #148), below, once 000060 is applied there.
 - **Production:** run it from `main` with `target` prod and `image_sha`
   set to the full SHA of a commit on `main`, at or after TYRE-397's merge,
-  that staging passed. The deploy refuses any other. Record it as a
+  that staging passed, and at or after TYRE-326's merge (PR #148), below,
+  once 000060 is applied there. The deploy refuses any other. Record it as a
   rollback in the release table (Each release step 5).
 
 Either redeploys that image under the branch's current template, and
@@ -1082,10 +1084,13 @@ undone is a revert on `develop`, promoted for production. A rollback runs
 no down migration, so the schema stays at head, and an old image must
 tolerate it.
 
-Until BAC is live on production, the floor for both targets is PR #148's
-merge commit (TYRE-326): an image from before it fails three controller
-routes on 000060's schema (What this order rests on names them), and the
-deploy's smoke does not exercise those routes.
+Once 000060 is applied to a target, that target's floor is TYRE-326's merge
+(PR #148) for good: a rollback runs no down migration, so 000060's drops and
+its revoke stay, and an image from before the merge fails three controller
+routes on that schema (What this order rests on names them). The deploy's
+smoke does not exercise those routes. Production stays at schema 59 until
+Promote to production's migrate step, so the floor does not apply there
+before it.
 
 Re-running an old run never rolls back (TYRE-403). A re-run whose commit
 is no longer its branch's head is refused, and going back is only by this
