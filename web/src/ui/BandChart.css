@@ -1,0 +1,135 @@
+/* Tread's band chart (ADR-0020). Every colour and size is a token from
+   src/theme/tokens.ts; a bar's fill is a --data-N ramp step, never a tenant
+   colour (U53). */
+
+.tr-bands {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.tr-bands__title {
+  font-weight: 700;
+}
+
+.tr-bands__plot {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.tr-bands__row {
+  display: grid;
+  grid-template-columns: minmax(96px, 9rem) 1fr minmax(64px, auto);
+  gap: var(--space-3);
+  align-items: center;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+}
+
+/* The phone form: the label on its own line, the bar and its figures
+   under it, so no label is cut to fit. */
+.tr-bands[data-form="rows"] .tr-bands__row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1) var(--space-3);
+}
+
+.tr-bands[data-form="rows"] .tr-bands__label {
+  grid-column: 1 / -1;
+  white-space: normal;
+}
+
+.tr-bands__label {
+  color: var(--ink-secondary);
+  white-space: nowrap;
+}
+
+.tr-bands__row[data-limit="true"] .tr-bands__label {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.tr-bands__track {
+  position: relative;
+  height: 24px;
+}
+
+/* U56: color-mix needs Safari 16.2 and the floor is 15.4, so the nearest
+   stop is the fill unless the blend can be drawn. */
+.tr-bands__bar {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--tr-band-fallback);
+}
+
+@supports (background: color-mix(in oklab, currentColor, transparent)) {
+  .tr-bands__bar {
+    background: var(--tr-band-fill);
+  }
+}
+
+.tr-bands__row[data-limit="true"] .tr-bands__bar {
+  background: var(--critical);
+}
+
+.tr-bands__val {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.tr-bands__val span {
+  color: var(--ink-muted);
+}
+
+.tr-bands__limit {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-3);
+  align-items: center;
+  margin: 0;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 700;
+  color: var(--critical-text);
+}
+
+.tr-bands__limit::after {
+  content: "";
+  height: 0;
+  border-top: 2px dashed var(--critical);
+}
+
+.tr-bands__table summary {
+  min-height: var(--target-min);
+  display: flex;
+  align-items: center;
+  color: var(--interactive);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tr-bands__table table {
+  border-collapse: collapse;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+}
+
+.tr-bands__table th,
+.tr-bands__table td {
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.tr-bands__table [data-align="right"] {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tr-bands__empty {
+  margin: 0;
+  color: var(--ink-secondary);
+}
