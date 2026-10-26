@@ -1,0 +1,6 @@
+/* The info tone only SeverityBadge draws: quiet, beside the filled
+   critical and warning tones. */
+.tr-badge--info {
+  background: var(--info-soft);
+  color: var(--ink);
+}

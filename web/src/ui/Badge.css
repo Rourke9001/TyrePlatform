@@ -1,0 +1,39 @@
+/* The badge frame Badge, StatusBadge and SeverityBadge share; each imports
+   this file. A badge carries a glyph and a word as well as its colour, so
+   it reads in greyscale (NFR-USE-009). */
+
+.tr-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 8px 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--type-caption-size);
+  line-height: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.tr-badge--md {
+  height: 30px;
+  padding: 0 10px 0 8px;
+  font-size: 15px;
+  gap: 6px;
+}
+
+.tr-badge--warn {
+  background: var(--warn);
+  color: var(--on-warn);
+}
+
+.tr-badge--critical {
+  background: var(--critical);
+  color: var(--on-critical);
+}
+
+.tr-badge--neutral {
+  background: var(--info-soft);
+  color: var(--ink);
+}

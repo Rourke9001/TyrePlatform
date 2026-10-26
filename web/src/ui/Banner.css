@@ -1,0 +1,73 @@
+/* A glyph tile, the words, then one action, on a soft ground per tone.
+   The empty third cell keeps the words' column the same width with or
+   without an action. */
+
+.tr-banner {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--space-3);
+  align-items: start;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+}
+
+.tr-banner--info {
+  background: var(--info-soft);
+}
+
+.tr-banner--warning {
+  background: var(--warn-soft);
+}
+
+.tr-banner--critical {
+  background: var(--critical-soft);
+}
+
+.tr-banner--success {
+  background: var(--ok);
+  color: var(--on-ok);
+}
+
+.tr-banner__icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+}
+
+.tr-banner--info .tr-banner__icon {
+  background: var(--ink-secondary);
+  color: var(--surface);
+}
+
+.tr-banner--warning .tr-banner__icon {
+  background: var(--warn);
+  color: var(--on-warn);
+}
+
+.tr-banner--critical .tr-banner__icon {
+  background: var(--critical);
+  color: var(--on-critical);
+}
+
+.tr-banner--success .tr-banner__icon {
+  background: var(--on-ok);
+  color: var(--ok);
+}
+
+.tr-banner__title {
+  font-weight: 700;
+  line-height: 22px;
+  margin-top: 3px;
+}
+
+.tr-banner__body {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.tr-banner__action {
+  align-self: center;
+}

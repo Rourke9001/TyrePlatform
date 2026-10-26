@@ -1,0 +1,18 @@
+/* The two condition tones only StatusBadge draws. Not read is hatched and
+   outlined rather than filled, so it never reads as a pass. */
+
+.tr-badge--ok {
+  background: var(--ok);
+  color: var(--on-ok);
+}
+
+.tr-badge--unread {
+  background: transparent;
+  color: var(--ink-secondary);
+  box-shadow: inset 0 0 0 2px var(--unmeasured);
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 4px,
+    var(--surface-muted) 4px 7px
+  );
+}
