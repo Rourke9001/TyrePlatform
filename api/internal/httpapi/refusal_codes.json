@@ -345,7 +345,7 @@
   "TY028": {
     "source": "db",
     "httpStatus": 422,
-    "meaning": "a trip write refused: started on a trailer, a retired unit or for an inactive driver, a trailer that is not free, a due inspection not done on a unit the trip would cover (U148), a trip already ended or ended at any instant but now, a start or end that lost a race, or an edit to a trip other than its end (TYRE-326)",
+    "meaning": "a trip write refused: started on a trailer, a retired unit or for an inactive driver, an added unit that is not a free trailer, a due inspection not done on a unit the trip would cover (U148), a trip already ended or ended at any instant but now, a start or end that lost a race, or an edit to a trip other than its end (TYRE-326)",
     "raisedBy": ["app.end_trip", "app.start_trip", "app.trip_is_ended_once"]
   }
 }

@@ -15208,6 +15208,10 @@ BEGIN
        'TY028 T76-T1 is coupled to T76-H1; free it before adding it to this trip'),
       (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h6, d1, t4),
        'TY028 T76-T4 is already coupled to T76-H6'),
+      (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, h8),
+       'TY028 only a trailer is added to a trip; T76-H8 is a horse'),
+      (format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, md5('t76r1')::uuid),
+       'TY028 only a trailer is added to a trip; T76-R1 is a rigid'),
       (format('SELECT app.start_trip(%L, %L)', md5('t76t5')::uuid, d1),
        'TY028 a trip is driven on a horse, rigid or light vehicle; T76-T5 is a trailer'),
       (format('SELECT app.start_trip(%L, %L)', md5('t76hd')::uuid, d1),
@@ -15284,7 +15288,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76l. a trip cannot start while a unit it would cover has an open task due on the tenant''s today or earlier, the start names each, and nothing changes; a later day, a closed task and the setting off do not block, and a rig capture clears the gate (U148, U150, FR-VEH-007, FR-INS-052; as BAC, each case rolled back)'
+\echo '== 76l. a trip cannot start while a unit it would cover has an open task due on the tenant''s today or earlier, the start names each, and nothing changes; a later day, a closed task and the setting off do not block, a rig capture clears the gate, and an added unit that is not a free trailer is never read (U148, U150, FR-VEH-007, FR-INS-052, FR-AUT-008; as BAC, each case rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -15403,6 +15407,59 @@ BEGIN
     RAISE EXCEPTION 'FAIL 76l: a unit named twice read % (expected each task once: %)', got, want;
   END IF;
   RAISE NOTICE 'PASS  76l each unit''s blockers read once, by due instant then task id, however often the unit is named';
+END $$;
+ROLLBACK;
+
+-- An added id is read only when the start could couple it, a free trailer,
+-- so naming another truck or a trailer it tows reads none of their tasks
+-- (FR-AUT-008). The start refuses either by the unit alone.
+BEGIN;
+DO $$
+DECLARE
+  bac constant uuid := '11111111-1111-1111-1111-111111111111';
+  ctl constant uuid := md5('t76c')::uuid;
+  h1 constant uuid := md5('t76h1')::uuid; h5 constant uuid := md5('t76h5')::uuid;
+  h8 constant uuid := md5('t76h8')::uuid;
+  t1 constant uuid := md5('t76t1')::uuid; t5 constant uuid := md5('t76t5')::uuid;
+  d1 constant uuid := md5('t76d1')::uuid;
+  tz text; today date; rig uuid; kh uuid; kc uuid; kf uuid; got text;
+BEGIN
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  PERFORM set_config('app.actor_id', ctl::text, true);
+  PERFORM pg_temp.t76_units();
+  SELECT t.timezone INTO tz FROM app.tenant t WHERE t.id = bac;
+  today := app.tenant_today(tz);
+  INSERT INTO app.combination (tenant_id, motive_vehicle_id, effective_from)
+  VALUES (bac, h1, now() - interval '1 day') RETURNING id INTO rig;
+  INSERT INTO app.combination_member (tenant_id, combination_id, vehicle_id, sequence)
+  VALUES (bac, rig, h1, 1), (bac, rig, t1, 2);
+  kh := pg_temp.t76_due(h8, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  kc := pg_temp.t76_due(t1, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  kf := pg_temp.t76_due(t5, (today::timestamp AT TIME ZONE tz) - interval '1 microsecond');
+  -- The control: each task is planted and due, read through its own truck.
+  SELECT string_agg(b.task_id::text, ',' ORDER BY b.walk_order) INTO got FROM app.trip_start_blockers(h8) b;
+  IF got IS DISTINCT FROM kh::text THEN RAISE EXCEPTION 'FAIL 76l: the horse''s own read is %', got; END IF;
+  SELECT string_agg(b.task_id::text, ',' ORDER BY b.walk_order) INTO got FROM app.trip_start_blockers(h1) b;
+  IF got IS DISTINCT FROM kc::text THEN RAISE EXCEPTION 'FAIL 76l: the towing truck''s read is %', got; END IF;
+
+  SELECT string_agg(b.task_id::text, ',' ORDER BY b.walk_order) INTO got
+    FROM app.trip_start_blockers(h5, ARRAY[h8, t1, t5]) b;
+  IF got IS DISTINCT FROM kf::text THEN
+    RAISE EXCEPTION 'FAIL 76l: naming a horse, a towed trailer and a free one read % (expected the free trailer''s alone: %)', got, kf;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, h8));
+  IF got IS DISTINCT FROM 'TY028 only a trailer is added to a trip; T76-H8 is a horse' THEN
+    RAISE EXCEPTION 'FAIL 76l: a start adding a horse with a due task answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, t1));
+  IF got IS DISTINCT FROM 'TY028 T76-T1 is coupled to T76-H1; free it before adding it to this trip' THEN
+    RAISE EXCEPTION 'FAIL 76l: a start adding a towed trailer with a due task answered %', got;
+  END IF;
+  got := pg_temp.t76_try(format('SELECT app.start_trip(%L, %L, ARRAY[%L]::uuid[])', h5, d1, t5));
+  IF got IS DISTINCT FROM 'TY028 a trip cannot start before its due inspections are done: T76-T5 due ' || to_char(today - 1, 'YYYY-MM-DD') THEN
+    RAISE EXCEPTION 'FAIL 76l: a start adding a free trailer with a due task answered %', got;
+  END IF;
+  RAISE NOTICE 'PASS  76l an added horse or a trailer another truck tows is never read and is refused by the unit alone; a free trailer is read and blocks';
 END $$;
 ROLLBACK;
 

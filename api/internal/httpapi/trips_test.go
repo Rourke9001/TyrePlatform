@@ -512,3 +512,77 @@ func TestTripBlockersReadInOneOrder(t *testing.T) {
 	}
 	require.Equal(t, []string{ids[1].String(), ids[0].String(), ids[2].String(), trailerTask.String()}, order)
 }
+
+// FR-AUT-008: the blockers read an added unit only when the start could
+// couple it, a free trailer, so a depot manager naming another depot's horse
+// or a trailer it tows reads none of their tasks, and a start naming the
+// horse is refused by the unit alone. The controller's read of the horse
+// itself is the control that both tasks are planted and due.
+func TestTripBlockersStayInScope(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "trip-gate-scope")
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	mineDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	awayDepot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mineDepot)
+	mine := plantHomedUnit(t, ctx, admin, tenantID, "HORSE", &mineDepot)
+	away := plantHomedUnit(t, ctx, admin, tenantID, "HORSE", &awayDepot)
+	towed := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &awayDepot)
+	free := plantHomedUnit(t, ctx, admin, tenantID, "TRAILER", &awayDepot)
+	plantOpenRig(t, ctx, admin, tenantID, away, towed)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	plantDue := func(unit uuid.UUID) string {
+		t.Helper()
+		var id uuid.UUID
+		require.NoError(t, admin.QueryRow(ctx, `
+			INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, created_at)
+			SELECT t.id, $2, (app.tenant_today(t.timezone)::timestamp AT TIME ZONE t.timezone) - interval '1 microsecond',
+			       now() - interval '12 hours'
+			  FROM app.tenant t WHERE t.id = $1 RETURNING id`, tenantID, unit).Scan(&id))
+		return id.String()
+	}
+	awayTask, towedTask, freeTask := plantDue(away), plantDue(towed), plantDue(free)
+	var yesterday string
+	require.NoError(t, admin.QueryRow(ctx,
+		`SELECT (app.tenant_today(timezone) - 1)::text FROM app.tenant WHERE id = $1`, tenantID).Scan(&yesterday))
+
+	read := func(actor, motive uuid.UUID, added ...uuid.UUID) []string {
+		t.Helper()
+		path := "/api/vehicles/" + motive.String() + "/trip-blockers"
+		if len(added) > 0 {
+			path += "?addTrailers=" + added[0].String()
+		}
+		rec := get(t, h, path, tenantID.String(), actor.String())
+		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		var got []struct {
+			TaskID string `json:"taskId"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+		ids := make([]string, 0, len(got))
+		for _, b := range got {
+			ids = append(ids, b.TaskID)
+		}
+		return ids
+	}
+	require.Equal(t, []string{awayTask, towedTask}, read(controller, away), "the control")
+	for name, actor := range map[string]uuid.UUID{"manager": manager, "controller": controller} {
+		require.Empty(t, read(actor, mine, away), "%s naming another depot's horse", name)
+		require.Empty(t, read(actor, mine, towed), "%s naming a trailer another truck tows", name)
+		require.Equal(t, []string{freeTask}, read(actor, mine, free),
+			"%s naming a free trailer elsewhere, judged through the motive (spec, Depot scope)", name)
+	}
+
+	rec := post(t, h, "/api/trips", tenantID.String(), manager.String(), startTripBody(mine, driver, away))
+	require.Equal(t, http.StatusUnprocessableEntity, rec.Code, rec.Body.String())
+	ref := decodeRefusal(t, rec.Body.Bytes())
+	require.Equal(t, "TY028", ref.Code)
+	require.Equal(t, "only a trailer is added to a trip; "+fleetNumberOf(t, ctx, admin, away)+" is a horse", ref.Message)
+	require.NotContains(t, ref.Message, yesterday, "the refusal names no due day")
+	var n int
+	require.NoError(t, admin.QueryRow(ctx, `SELECT count(*) FROM app.trip WHERE tenant_id = $1`, tenantID).Scan(&n))
+	require.Zero(t, n)
+}

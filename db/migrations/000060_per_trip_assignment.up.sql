@@ -1397,6 +1397,10 @@ END $$;
 -- tenant's due_inspection_blocks_trip is off; on is only the fallback for a
 -- tenant with no row, BAC the evidence (rule 5). app.start_trip refuses on
 -- it, and the start form reads it before Start.
+--
+-- An added id is read only when it is a free trailer, the one unit a start
+-- couples and judges through its motive (spec, Depot scope); reading any
+-- other would show a depot manager tasks outside their depots (FR-AUT-008).
 CREATE FUNCTION app.trip_start_blockers(p_motive uuid, p_add_trailers uuid[] DEFAULT '{}')
 RETURNS TABLE (task_id uuid, vehicle_id uuid, fleet_number text, due_at timestamptz, due_on date, walk_order int)
 LANGUAGE sql STABLE
@@ -1418,7 +1422,14 @@ SET search_path = app, pg_temp AS $$
             SELECT r.vehicle_id, r.sequence FROM rig r
             UNION ALL
             SELECT a.id, (SELECT COALESCE(max(r.sequence), 1) FROM rig r) + a.ord::int
-              FROM unnest(COALESCE(p_add_trailers, '{}'::uuid[])) WITH ORDINALITY a(id, ord)) x
+              FROM unnest(COALESCE(p_add_trailers, '{}'::uuid[])) WITH ORDINALITY a(id, ord)
+              JOIN app.vehicle av ON av.tenant_id = app.current_tenant_id() AND av.id = a.id
+             WHERE av.unit_kind = 'TRAILER'
+               AND NOT EXISTS (SELECT 1
+                                 FROM app.combination_member cm
+                                 JOIN app.combination c ON c.tenant_id = cm.tenant_id AND c.id = cm.combination_id
+                                WHERE cm.tenant_id = app.current_tenant_id() AND cm.vehicle_id = a.id
+                                  AND cm.vehicle_id <> c.motive_vehicle_id AND c.effective_to IS NULL)) x
      ORDER BY x.vehicle_id, x.walk_order)
   SELECT k.id, k.vehicle_id, v.fleet_number, k.due_at, (k.due_at AT TIME ZONE z.tz)::date, u.walk_order
     FROM units u
@@ -1449,6 +1460,7 @@ DECLARE
   rig          uuid;
   trailer      uuid;
   unit         text;
+  kind         app.unit_kind;
   holder       uuid;
   holder_fleet text;
   blocked      text;
@@ -1510,12 +1522,19 @@ BEGIN
    WHERE c.tenant_id = v_tenant AND c.motive_vehicle_id = p_motive AND c.effective_to IS NULL;
 
   -- Only a free trailer is coupled (spec, decision 3), refused here before
-  -- INV-4 (000037) would, in words that name its truck. A towed unit's kind
-  -- and retirement are create_combination_at's (TY017).
+  -- INV-4 (000037) would, in words that name its truck. A towed unit's
+  -- retirement and a missing kind are create_combination_at's (TY017).
   FOREACH trailer IN ARRAY adds LOOP
-    SELECT v.fleet_number INTO unit FROM app.vehicle v WHERE v.tenant_id = v_tenant AND v.id = trailer;
+    SELECT v.fleet_number, v.unit_kind INTO unit, kind
+      FROM app.vehicle v WHERE v.tenant_id = v_tenant AND v.id = trailer;
     IF NOT FOUND THEN
       RAISE EXCEPTION USING ERRCODE = 'TY012', MESSAGE = 'no such unit in this fleet';
+    END IF;
+    -- Before the blocker read, so the refusal names this unit alone and
+    -- never a task of a unit outside the caller's depots (FR-AUT-008).
+    IF kind <> 'TRAILER' THEN
+      RAISE EXCEPTION USING ERRCODE = 'TY028',
+        MESSAGE = format('only a trailer is added to a trip; %s is a %s', unit, lower(kind::text));
     END IF;
     SELECT c.motive_vehicle_id, mv.fleet_number INTO holder, holder_fleet
       FROM app.combination_member cm
