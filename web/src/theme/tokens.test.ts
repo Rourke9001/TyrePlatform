@@ -31,6 +31,22 @@ describe("the data ramp", () => {
     }
   });
 
+  // U56: every configured band gets its own shade, so two neighbouring
+  // steps a reader cannot tell apart are one band twice.
+  it("each data step clears at least 1.2 times the previous step's contrast on surface, in both themes", () => {
+    const close: string[] = [];
+    for (const theme of THEME_NAMES) {
+      const ratios = DATA_RAMP.map((name) =>
+        contrastRatio(themes[theme][name], themes[theme].surface),
+      );
+      for (let i = 1; i < ratios.length; i++) {
+        const step = ratios[i] / ratios[i - 1];
+        if (step < 1.2) close.push(`${theme} data-${i + 1} is ${step.toFixed(3)} times data-${i}`);
+      }
+    }
+    expect(close).toEqual([]);
+  });
+
   // tread_bands is tenant configuration (rule 5): the seeded five is one
   // case, not the shape. The ends are pinned so the strongest step always
   // means the deepest tread whatever the count. treadBandStep returns the
@@ -208,6 +224,13 @@ describe("Tread's colours", () => {
 describe("themeCss", () => {
   it('emits a [data-theme="light"] block', () => {
     expect([...blocks().keys()]).toContain(LIGHT);
+  });
+
+  // Native controls (selects, inputs, scrollbars) draw in the theme only
+  // when the block names its color-scheme.
+  it("names each theme block's color-scheme", () => {
+    expect(blocks().get(LIGHT)).toMatch(/(?:^|;)\s*color-scheme\s*:\s*light\s*(?:;|$)/);
+    expect(blocks().get(DARK)).toMatch(/(?:^|;)\s*color-scheme\s*:\s*dark\s*(?:;|$)/);
   });
 
   // Neither theme block names the brand slot, so a light or a dark subtree
