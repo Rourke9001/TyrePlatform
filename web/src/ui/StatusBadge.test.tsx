@@ -1,7 +1,8 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { StatusBadge, type Condition } from "./StatusBadge";
+import type { Condition } from "./condition";
+import { StatusBadge } from "./StatusBadge";
 
 describe("StatusBadge", () => {
   // Rule 5: the badge names a condition it is given in the caller's words,
