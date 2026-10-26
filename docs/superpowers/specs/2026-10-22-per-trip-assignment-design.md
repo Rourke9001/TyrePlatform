@@ -307,6 +307,14 @@ who was nominated at a past instant.
   history, so reading it would rewrite past attribution. No route deactivates
   a user yet (TYRE-377).
 
+*Amended by the plan's Decision 17 and the review of PR #148 (TYRE-326). A
+generated task with no assignee, which part D of the migration makes OPEN,
+gains the driver of a converted trip that covers its unit, so that task does
+change hands at deploy. An outstanding task whose assignee is a deactivated
+user gets no nomination, because `app.nominate_for_task` would refuse them,
+so only a converted trip covering its unit holds it after deploy; otherwise
+nobody does and it reads escalated.*
+
 `inspection_task.assigned_user_id` stops being written. The migration copies
 each outstanding task's assignee into a nomination dated at the task's
 `created_at`, with `requested_by` as the nominator, so no outstanding task
@@ -586,6 +594,11 @@ Go and web tests cover the transport.
   or with one after the end.
 - **Escalation and overdue:** a task nobody holds reads escalated, and a held
   one does not. Overdue counts both.
+*Amended by the plan's Decision 17 and the review of PR #148 (TYRE-326): a
+generated task with no assignee whose unit a converted trip covers gains
+that trip's driver at the migration, and an outstanding task whose assignee
+is a deactivated user gets no nomination, so only such a trip holds it.*
+
 - **Migration:** open rows become trips, with trailer rows dropped, conflicts
   resolved as above, and assignees copied as nominations. Outside the conflict
   cases, no outstanding task changes responsible driver at the migration
