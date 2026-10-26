@@ -3,5 +3,7 @@
   "recordedAt": "2026-10-26",
   "chunks": [
     "assets/index-DY9CBO2w.js"
-  ]
+  ],
+  "entryCssGzipBytes": 6944,
+  "entryFontBytes": 846484
 }
