@@ -1,0 +1,80 @@
+/* Tread's event timeline (ADR-0020). Every colour and size is a token from
+   src/theme/tokens.ts. */
+
+.tr-timeline {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tr-timeline__item {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  gap: var(--space-3);
+  padding-bottom: var(--space-5);
+}
+
+.tr-timeline__item:last-child {
+  padding-bottom: 0;
+}
+
+.tr-timeline__item::before {
+  content: "";
+  position: absolute;
+  left: 11px;
+  top: 26px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--line);
+}
+
+.tr-timeline__item:last-child::before {
+  content: none;
+}
+
+.tr-timeline__dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+  box-shadow: inset 0 0 0 2px var(--line-strong);
+}
+
+.tr-timeline__dot--ok {
+  background: var(--ok);
+  color: var(--on-ok);
+  box-shadow: none;
+}
+
+.tr-timeline__dot--warn {
+  background: var(--warn);
+  color: var(--on-warn);
+  box-shadow: none;
+}
+
+.tr-timeline__dot--critical {
+  background: var(--critical);
+  color: var(--on-critical);
+  box-shadow: none;
+}
+
+.tr-timeline__when {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-muted);
+}
+
+.tr-timeline__title {
+  font-weight: 700;
+}
+
+.tr-timeline__detail {
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--ink-secondary);
+}

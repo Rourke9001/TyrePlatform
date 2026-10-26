@@ -1,0 +1,92 @@
+/* Tread's list row (ADR-0020). Every colour and size is a token from
+   src/theme/tokens.ts. A row is a glove target (NFR-USE-004). */
+
+.tr-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tr-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: var(--target-glove);
+  padding: var(--space-3) var(--space-4);
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+.tr-list > li + li .tr-row {
+  border-top: 1px solid var(--line);
+}
+
+a.tr-row,
+button.tr-row {
+  cursor: pointer;
+}
+
+a.tr-row:hover,
+button.tr-row:hover {
+  background: var(--surface-muted);
+}
+
+.tr-row__lead {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+}
+
+.tr-row__body {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.tr-row__title {
+  overflow: hidden;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The caller's whole text wraps rather than clip: a task's "(overdue)"
+   sits at its end. */
+.tr-row__text {
+  flex: 1;
+  min-width: 0;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.tr-row__meta {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-secondary);
+}
+
+.tr-row__trail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.tr-row__chev {
+  color: var(--ink-muted);
+}

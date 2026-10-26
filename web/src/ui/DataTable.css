@@ -1,0 +1,200 @@
+/* Tread's table and its phone cards (ADR-0020). Every colour and size is a
+   token from src/theme/tokens.ts. */
+
+.tr-table-wrap {
+  min-width: 0;
+}
+
+.tr-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.tr-table caption {
+  padding: 0 0 var(--space-3);
+  font-weight: 700;
+  text-align: left;
+}
+
+.tr-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tr-table th:first-child {
+  border-top-left-radius: var(--radius-md);
+}
+
+.tr-table th:last-child {
+  border-top-right-radius: var(--radius-md);
+}
+
+.tr-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.tr-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.tr-table [data-align="right"] {
+  text-align: right;
+}
+
+.tr-table td[data-nowrap="true"] {
+  white-space: nowrap;
+}
+
+.tr-table td[data-mono="true"],
+.tr-tcards__item dd[data-mono="true"] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ADR-0010: the basis reads as the figure's footnote. */
+.tr-table td[data-basis="true"],
+.tr-tcards__item dd[data-basis="true"] {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-secondary);
+}
+
+.tr-table tbody tr[data-clickable="true"] {
+  cursor: pointer;
+}
+
+.tr-table tbody tr[data-clickable="true"]:hover td {
+  background: var(--surface-muted);
+}
+
+.tr-table tbody tr[data-clickable="true"] td:last-child {
+  position: relative;
+  padding-right: var(--space-8);
+}
+
+.tr-table tbody tr[aria-current="true"] td {
+  background: var(--interactive-soft);
+}
+
+.tr-table tbody tr[data-tone="critical"] td:first-child {
+  box-shadow: inset 4px 0 0 var(--critical);
+}
+
+.tr-table__chev {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-muted);
+}
+
+.tr-table__skeleton {
+  display: block;
+  height: 1em;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+}
+
+.tr-tcards__caption {
+  margin: 0;
+  padding: 0 0 var(--space-3);
+  font-weight: 700;
+}
+
+.tr-tcards {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tr-tcards__card {
+  position: relative;
+  display: grid;
+  gap: var(--space-2);
+  min-height: var(--target-glove);
+  padding: var(--space-3) var(--space-8) var(--space-3) var(--space-4);
+}
+
+.tr-tcards__card + .tr-tcards__card {
+  border-top: 1px solid var(--line);
+}
+
+.tr-tcards__card[data-tone="critical"] {
+  box-shadow: inset 4px 0 0 var(--critical);
+}
+
+.tr-tcards__card[aria-current="true"] {
+  background: var(--interactive-soft);
+}
+
+.tr-tcards__title {
+  margin: 0;
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 700;
+}
+
+/* The title is the card's one control; its ::after stretches the target
+   over the whole card, so the card stays a list item with a term list. */
+.tr-tcards__hit {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tr-tcards__hit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+
+.tr-tcards__chev {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-muted);
+  pointer-events: none;
+}
+
+.tr-tcards__list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+}
+
+.tr-tcards__item {
+  display: grid;
+  grid-template-columns: 6.5rem minmax(0, 1fr);
+  gap: var(--space-3);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.tr-tcards__item dt {
+  font-size: var(--type-small-size);
+  color: var(--ink-muted);
+}
+
+.tr-tcards__item dd {
+  margin: 0;
+}
