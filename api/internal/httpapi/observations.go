@@ -154,7 +154,7 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 	if a.Scope() == auth.ScopeTenant {
 		return nil
 	}
-	if err := lockOfferedRigUnits(ctx, tx, warningID); err != nil {
+	if err := lockOfferedRigUnits(ctx, tx, a, warningID); err != nil {
 		return err
 	}
 	var in bool
@@ -183,16 +183,20 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 // re-couples, so the set needs no rule of its own. FOR UPDATE, not FOR SHARE:
 // an apply's app.create_combination_at then takes the re-coupled units FOR
 // UPDATE (000044), so a shared pre-lock would be an upgrade and two applies
-// on one rig could deadlock.
-func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, warningID uuid.UUID) error {
+// on one rig could deadlock. For a depot actor the rig's motive must be in
+// scope or nothing is locked, so a refused request never holds another
+// depot's units (FR-AUT-008); reachableObservation then answers the 404.
+func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {
 	if _, err := tx.Exec(ctx,
 		`SELECT v.id
 		   FROM app.vehicle v
 		  WHERE v.id IN (SELECT cm.vehicle_id
 		                   FROM app.inspection_warning w
 		                   JOIN app.inspection i ON i.id = w.inspection_id
-		                   JOIN app.combination_member cm ON cm.combination_id = i.combination_id
-		                  WHERE w.id = $1)
+		                   JOIN app.combination c ON c.id = i.combination_id
+		                   JOIN app.combination_member cm ON cm.combination_id = c.id
+		                  WHERE w.id = $1
+		                    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = c.motive_vehicle_id))
 		  ORDER BY v.id
 		  FOR UPDATE OF v`, warningID); err != nil {
 		return fmt.Errorf("locking the units of composition report %s: %w", warningID, err)
@@ -234,7 +238,7 @@ func applyObservation(s *store.Store) http.HandlerFunc {
 			// units (000044), so the units are taken first: here for a
 			// tenant-wide actor, in reachableObservation for a depot one.
 			if a.Scope() == auth.ScopeTenant {
-				if err := lockOfferedRigUnits(ctx, tx, warningID); err != nil {
+				if err := lockOfferedRigUnits(ctx, tx, a, warningID); err != nil {
 					return err
 				}
 			}
