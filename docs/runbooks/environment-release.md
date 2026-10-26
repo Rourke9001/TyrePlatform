@@ -1071,12 +1071,17 @@ A rollback is a dispatch of **Deploy** from the repo's Actions tab with
 - **Staging:** run it from `develop` with `target` staging and `image_sha`
   set to the full SHA of a commit this pipeline deployed after the TYRE-79
   merge (earlier images have no `/readyz` and fail the gate), and at or
-  after TYRE-326's merge (PR #148), below, once 000060 is applied there.
+  after TYRE-326's merge (PR #148), below, once 000060 is applied there. The
+  deploy checks only that the run is from `develop` (`scripts/deploy-guard.sh`
+  :47, :52); the TYRE-79 and PR #148 floors are yours to hold.
 - **Production:** run it from `main` with `target` prod and `image_sha`
   set to the full SHA of a commit on `main`, at or after TYRE-397's merge,
-  that staging passed, and at or after TYRE-326's merge (PR #148), below,
-  once 000060 is applied there. The deploy refuses any other. Record it as a
-  rollback in the release table (Each release step 5).
+  that staging passed. The deploy refuses any other: a dispatch from another
+  branch, a commit `main` never had, or an image with no staging-passed record
+  (`scripts/deploy-guard.sh` :52, :89, :113). Also hold TYRE-326's floor
+  (PR #148), below, once 000060 is applied there. The deploy does not check
+  it, so it is yours to hold. Record it as a rollback in the release table
+  (Each release step 5).
 
 Either redeploys that image under the branch's current template, and
 rebuilds the web from that commit too; a template change that must be
