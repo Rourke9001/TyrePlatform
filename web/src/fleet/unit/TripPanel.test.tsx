@@ -95,7 +95,7 @@ const RIGS: Rig[] = [
 
 interface Stub {
   trip: () => UnitTrip;
-  blockers?: (url: string) => Response;
+  blockers?: (url: string) => Response | Promise<Response>;
   rigs?: () => Response | Promise<Response>;
   start?: () => Response;
   end?: () => Response;
@@ -365,10 +365,31 @@ describe("the trip panel", () => {
     expect(screen.queryByText(/The rigs could not be loaded/)).toBeNull();
   });
 
-  it("leaves Start enabled when the blocker read fails, since the server judges the start anyway", async () => {
+  it("holds Start, and says it is checking, while the due inspections are loading", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
     stub({
       trip: () => ({ trip: null, pulledBy: null }),
-      blockers: () => respond(500, { code: "boom", message: "down" }),
+      blockers: () => gate.then(() => respond(200, [])),
+    });
+    renderPanel();
+    await screen.findByText("Not on a trip.");
+    await within(screen.getByLabelText("Driver")).findByRole("option", { name: "Melusi" });
+    await userEvent.selectOptions(screen.getByLabelText("Driver"), "d1");
+
+    expect(screen.getByText("Checking due inspections…")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Start trip" })).toBeDisabled();
+
+    release();
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start trip" })).toBeEnabled());
+    expect(screen.queryByText("Checking due inspections…")).toBeNull();
+  });
+
+  it("holds Start, and offers a Retry, when the due inspections cannot be checked", async () => {
+    let fail = true;
+    stub({
+      trip: () => ({ trip: null, pulledBy: null }),
+      blockers: () => (fail ? respond(500, { code: "boom", message: "down" }) : respond(200, [])),
     });
     renderPanel();
     await screen.findByText("Not on a trip.");
@@ -378,7 +399,12 @@ describe("the trip panel", () => {
     expect(
       await screen.findByText("The due inspections could not be checked."),
     ).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Start trip" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Start trip" })).toBeDisabled();
+
+    fail = false;
+    await userEvent.click(screen.getByRole("button", { name: "Retry checking due inspections" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Start trip" })).toBeEnabled());
+    expect(screen.queryByText("The due inspections could not be checked.")).toBeNull();
   });
 
   it.each([
