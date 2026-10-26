@@ -1,0 +1,102 @@
+/* Tread's figure tile (ADR-0020). Every colour and size is a token from
+   src/theme/tokens.ts. */
+
+.tr-metric {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-raised);
+}
+
+.tr-metric__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+
+.tr-metric__icon {
+  display: inline-flex;
+  flex: none;
+}
+
+.tr-metric__value {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1);
+  margin: 0;
+  font-size: var(--type-display-size);
+  line-height: 42px;
+  font-weight: var(--type-display-weight);
+  letter-spacing: var(--tracking-display);
+  font-variant-numeric: tabular-nums;
+}
+
+.tr-metric--hero .tr-metric__value {
+  font-size: var(--type-hero-size);
+  line-height: var(--type-hero-line);
+  letter-spacing: var(--tracking-hero);
+}
+
+.tr-metric__unit {
+  font-size: var(--type-body-size);
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--ink-muted);
+}
+
+.tr-metric--critical .tr-metric__figure {
+  color: var(--critical-text);
+}
+
+.tr-metric--warning .tr-metric__figure {
+  color: var(--warn-text);
+}
+
+.tr-metric--ok .tr-metric__figure {
+  color: var(--ok-text);
+}
+
+.tr-metric__detail {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-secondary);
+}
+
+.tr-metric__detail > :first-child,
+.tr-metric__foot > :first-child {
+  margin-top: 0;
+}
+
+.tr-metric__detail > :last-child,
+.tr-metric__foot > :last-child {
+  margin-bottom: 0;
+}
+
+.tr-metric__foot {
+  margin-top: var(--space-3);
+}
+
+.tr-metric__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: start;
+  min-height: var(--target-min);
+  font-weight: 700;
+  color: var(--interactive);
+}
+
+.tr-metric__link:hover {
+  color: var(--interactive-hover);
+}

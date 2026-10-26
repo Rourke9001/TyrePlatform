@@ -1,0 +1,43 @@
+/* Tread's term list (ADR-0020). Every colour and size is a token from
+   src/theme/tokens.ts. */
+
+/* columns is a maximum: each column keeps at least --tr-kv-min and the
+   grid reflows below that, so a phone never scrolls sideways. */
+.tr-kv {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(
+      max(
+        var(--tr-kv-min, 9rem),
+        calc((100% - (var(--tr-kv-cols, 1) - 1) * var(--space-6)) / var(--tr-kv-cols, 1))
+      ),
+      1fr
+    )
+  );
+  gap: var(--space-4) var(--space-6);
+  margin: 0;
+}
+
+.tr-kv__item {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tr-kv dt {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-muted);
+}
+
+.tr-kv dd {
+  margin: 0;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.tr-kv dd[data-mono="true"] {
+  font-family: var(--font-mono);
+  font-weight: 400;
+}
