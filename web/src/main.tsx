@@ -9,7 +9,12 @@ import { ThemeProvider } from "./theme/ThemeProvider";
 import { boot } from "./shell/boot";
 import { ConfigFailure } from "./shell/ConfigFailure";
 import { installChunkReload } from "./shell/chunkReload";
+import { installThemeStyle } from "./theme/themeStyle";
 import { App } from "./App.tsx";
+
+// First, so every screen boot() can render, ConfigFailure included, paints
+// on the theme's tokens (ADR-0019 says why it is not an inline script).
+installThemeStyle();
 
 const queryClient = new QueryClient();
 
