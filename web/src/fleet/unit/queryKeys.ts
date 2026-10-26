@@ -45,8 +45,8 @@ export function driversKey(tenantKey: string): QueryKey {
 }
 
 // What holds a start (U148), keyed on the trailers the form would add. A new
-// task, a task closing or a trip write changes it; a nomination does not,
-// since the read takes none into account.
+// task, a task closing, a trip write or a rig write changes it; a nomination
+// does not, since the read takes none into account.
 export function tripBlockersKey(unitId: string, addTrailers: string[]): QueryKey {
   return ["trip-blockers", unitId, addTrailers];
 }
