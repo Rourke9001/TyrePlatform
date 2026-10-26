@@ -1,7 +1,7 @@
 import { DATA_STEPS, treadBandStep } from "../theme/tokens";
 
-// Beside BandChart, not in tokens.ts: tokens.ts ships in the capture
-// route's entry chunk, and this serves only the dashboard (U84).
+// In ui/, not in tokens.ts: tokens.ts ships in the capture route's entry
+// chunk, and this serves only the dashboard's BandChart (U84).
 
 const STOPS = DATA_STEPS;
 

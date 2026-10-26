@@ -323,8 +323,9 @@
 
 /* ------------------------------------------------------------ badges */
 
-/* Ink text on a tint of the severity colour, never the colour as text:
-   the caution step clears 2.3:1 on white (tokens.ts). */
+/* Ink text on a soft ground (--warn-soft, --critical-soft, --info-soft),
+   never the severity fill as text: --warn clears 1.98:1 on white
+   (tokens.ts). */
 .severity-badge {
   display: inline-flex;
   align-items: center;
@@ -810,8 +811,8 @@
 }
 
 /* Radix moves focus onto the option and the rule above drops the global
-   ring; the tint alone is 1.13:1 on the surface, so an inset ring marks the
-   option a keyboard is on (WCAG 1.4.11, 3:1). */
+   ring; the tint alone is 1.09:1 on the surface in either theme, so an
+   inset ring marks the option a keyboard is on (WCAG 1.4.11, 3:1). */
 .select-item[data-highlighted] {
   background: var(--surface-muted);
   outline: 2px solid var(--interactive);
