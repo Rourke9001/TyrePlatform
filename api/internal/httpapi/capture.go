@@ -139,8 +139,8 @@ func captureContext(s *store.Store) http.HandlerFunc {
 	}
 }
 
-// loadCaptureContext runs four queries on the transaction: the vehicle
-// header, the positions, the cohort wear rates, and the tenant
+// loadCaptureContext runs five queries on the transaction: the vehicle
+// header, the positions, the cohort wear rates, the open rig, and the tenant
 // configuration. It composes the matching scope view so a driver reads only
 // the units they hold, exactly as listVehicles and listMyVehicles already do
 // (ADR-0006).
@@ -353,9 +353,9 @@ func submitInspection(s *store.Store) http.HandlerFunc {
 			return
 		}
 
-		// Decoded only for the FR-AUT-005 scope check below; the rest of the
-		// payload travels to app.submit_inspection unparsed (maxSubmitBytes
-		// above).
+		// Decoded so a vehicle_id that is not a uuid is a 400 here; the scope
+		// check below hands the raw payload to the database, and the rest of
+		// it travels to app.submit_inspection unparsed (maxSubmitBytes above).
 		var body struct {
 			VehicleID uuid.UUID `json:"vehicle_id"`
 		}
