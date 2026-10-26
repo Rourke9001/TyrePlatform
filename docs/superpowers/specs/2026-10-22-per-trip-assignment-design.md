@@ -309,11 +309,13 @@ who was nominated at a past instant.
 
 *Amended by the plan's Decision 17 and the review of PR #148 (TYRE-326). A
 generated task with no assignee, which part D of the migration makes OPEN,
-gains the driver of a converted trip that covers its unit, so that task does
-change hands at deploy. An outstanding task whose assignee is a deactivated
-user gets no nomination, because `app.nominate_for_task` would refuse them,
-so only a converted trip covering its unit holds it after deploy; otherwise
-nobody does and it reads escalated.*
+gains the driver of a converted trip that covers its unit or, for a towed
+unit, the live nominee of its rig motive's task, so that task does change
+hands at deploy. An outstanding task whose assignee is a deactivated user
+gets no nomination of its own, because `app.nominate_for_task` would refuse
+them. After deploy it is held only through a converted trip covering its unit
+or, for a towed unit, through its rig motive's live nominee; otherwise nobody
+holds it and it reads escalated.*
 
 `inspection_task.assigned_user_id` stops being written. The migration copies
 each outstanding task's assignee into a nomination dated at the task's
@@ -594,10 +596,13 @@ Go and web tests cover the transport.
   or with one after the end.
 - **Escalation and overdue:** a task nobody holds reads escalated, and a held
   one does not. Overdue counts both.
+
 *Amended by the plan's Decision 17 and the review of PR #148 (TYRE-326): a
-generated task with no assignee whose unit a converted trip covers gains
-that trip's driver at the migration, and an outstanding task whose assignee
-is a deactivated user gets no nomination, so only such a trip holds it.*
+generated task with no assignee gains, at the migration, the driver of a
+converted trip covering its unit or, for a towed unit, its rig motive's live
+nominee. A task whose assignee is a deactivated user gets no nomination of
+its own, and is held only through such a trip or motive nominee; otherwise
+nobody holds it.*
 
 - **Migration:** open rows become trips, with trailer rows dropped, conflicts
   resolved as above, and assignees copied as nominations. Outside the conflict
