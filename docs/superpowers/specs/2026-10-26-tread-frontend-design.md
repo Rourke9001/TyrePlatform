@@ -106,8 +106,8 @@ authority, and where they differ the ADR wins. No lane ports these:
 ADR-0022 holds the decision. In short, four layers with an import rule for
 each:
 
-- **Data** (`src/api/`): the HTTP client, wire types, fetchers and the query
-  hooks screens read through. The capture outbox and draft stay in
+- **Data** (`src/api/` and each feature's `*.data.ts`): the HTTP client,
+  wire types and fetchers, and the query hooks screens read through. The capture outbox and draft stay in
   `src/capture/` (they are the capture feature's data, and the entry needs
   them) but follow the same rule: nothing above them calls `fetch` or Dexie.
 - **Transform** (`src/format/`, `src/time/`, each feature's `*.view.ts`):
