@@ -96,6 +96,7 @@ const RIGS: Rig[] = [
 interface Stub {
   trip: () => UnitTrip;
   blockers?: (url: string) => Response;
+  rigs?: () => Response;
   start?: () => Response;
   end?: () => Response;
   nominate?: () => Response;
@@ -109,7 +110,7 @@ function stub(s: Stub) {
       return Promise.resolve(respond(200, s.trip()));
     if (url === "/api/drivers") return Promise.resolve(respond(200, DRIVERS));
     if (url === "/api/vehicles") return Promise.resolve(respond(200, VEHICLES));
-    if (url === "/api/combinations") return Promise.resolve(respond(200, RIGS));
+    if (url === "/api/combinations") return Promise.resolve(s.rigs ? s.rigs() : respond(200, RIGS));
     if (url.startsWith("/api/vehicles/u9/trip-blockers"))
       return Promise.resolve(s.blockers ? s.blockers(url) : respond(200, []));
     if (url === "/api/trips" && post && s.start) return Promise.resolve(s.start());
@@ -309,6 +310,28 @@ describe("the trip panel", () => {
     await waitFor(() =>
       expect(callTo("/api/inspection-tasks/k1/nominations")).toBeGreaterThanOrEqual(0),
     );
+  });
+
+  // Spec decision 4: without the rigs, a trailer coupled to another truck
+  // would read as free, so none is offered until they load.
+  it("offers no trailer, and a Retry, when the rigs read fails", async () => {
+    let fail = true;
+    stub({
+      trip: () => ({ trip: null, pulledBy: null }),
+      rigs: () => (fail ? respond(500, { code: "boom", message: "down" }) : respond(200, RIGS)),
+    });
+    renderPanel();
+    await screen.findByText("Not on a trip.");
+
+    expect(await screen.findByText("The rigs could not be loaded.")).toBeInTheDocument();
+    const add = screen.getByLabelText("Add a trailer");
+    expect(within(add).getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
+
+    fail = false;
+    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(await within(add).findByRole("option", { name: "LINK-7" })).toBeInTheDocument();
+    expect(screen.queryByText("The rigs could not be loaded.")).toBeNull();
   });
 
   it("leaves Start enabled when the blocker read fails, since the server judges the start anyway", async () => {
