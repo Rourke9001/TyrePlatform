@@ -147,26 +147,24 @@ func listObservations(s *store.Store) http.HandlerFunc {
 
 // reachableObservation is FR-AUT-008's narrowing: a rig is homed where its
 // horse is (ledger ruling, 7 Sep 2026). Depot scope reasoning is
-// fitments.go's fitTyre. FOR UPDATE here, not FOR SHARE: this is the first
-// lock the request takes, and app.create_combination_at then locks every rig
-// member FOR UPDATE in id order (000044), the motive among them, so a
-// shared-then-exclusive escalation on one rig is the only order that avoids
-// 40P01.
+// fitments.go's fitTyre. The offered rig's units are locked first, so the
+// motive's scope is judged under the locks the resolution then writes
+// beneath.
 func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {
 	if a.Scope() == auth.ScopeTenant {
 		return nil
 	}
-	var locked uuid.UUID
+	if err := lockOfferedRigUnits(ctx, tx, warningID); err != nil {
+		return err
+	}
+	var in bool
 	err := tx.QueryRow(ctx,
-		`SELECT v.id
+		`SELECT EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = c.motive_vehicle_id)
 		   FROM app.inspection_warning w
-		   JOIN app.inspection i   ON i.id = w.inspection_id
-		   JOIN app.combination c  ON c.id = i.combination_id
-		   JOIN app.vehicle v      ON v.id = c.motive_vehicle_id
-		  WHERE w.id = $1
-		    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = v.id)
-		  FOR UPDATE OF v`, warningID).Scan(&locked)
-	if errors.Is(err, pgx.ErrNoRows) {
+		   JOIN app.inspection i  ON i.id = w.inspection_id
+		   JOIN app.combination c ON c.id = i.combination_id
+		  WHERE w.id = $1`, warningID).Scan(&in)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !in) {
 		return refusalError{refusal{
 			status:  http.StatusNotFound,
 			code:    codeNotFound,
@@ -175,6 +173,28 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 	}
 	if err != nil {
 		return fmt.Errorf("resolving composition report %s: %w", warningID, err)
+	}
+	return nil
+}
+
+// lockOfferedRigUnits takes every unit of the rig a report was offered FOR
+// UPDATE in id order, ahead of the rig row the resolution locks: the rig
+// lock order (units.go). Every member, not only those the apply re-couples,
+// so the set needs no rule of its own, and FOR UPDATE is the mode
+// app.create_combination_at takes on them next (000044), so the request
+// never upgrades a lock it holds.
+func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, warningID uuid.UUID) error {
+	if _, err := tx.Exec(ctx,
+		`SELECT v.id
+		   FROM app.vehicle v
+		  WHERE v.id IN (SELECT cm.vehicle_id
+		                   FROM app.inspection_warning w
+		                   JOIN app.inspection i ON i.id = w.inspection_id
+		                   JOIN app.combination_member cm ON cm.combination_id = i.combination_id
+		                  WHERE w.id = $1)
+		  ORDER BY v.id
+		  FOR UPDATE OF v`, warningID); err != nil {
+		return fmt.Errorf("locking the units of composition report %s: %w", warningID, err)
 	}
 	return nil
 }
@@ -208,6 +228,14 @@ func applyObservation(s *store.Store) http.HandlerFunc {
 		ok = withActor(w, r, s, func(tx pgx.Tx, a auth.Actor) error {
 			if err := require(a, auth.ManageAssignments); err != nil {
 				return err
+			}
+			// app.apply_composition_observation locks its rig before its
+			// units (000044), so the units are taken first: here for a
+			// tenant-wide actor, in reachableObservation for a depot one.
+			if a.Scope() == auth.ScopeTenant {
+				if err := lockOfferedRigUnits(ctx, tx, warningID); err != nil {
+					return err
+				}
 			}
 			if err := reachableObservation(ctx, tx, a, warningID); err != nil {
 				return err
