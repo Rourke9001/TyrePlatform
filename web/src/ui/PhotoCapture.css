@@ -1,0 +1,161 @@
+.tr-photos {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.tr-photos--ask {
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--warn-soft);
+}
+
+.tr-photos__askicon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  background: var(--warn);
+  color: var(--on-warn);
+}
+
+/* NFR-USE-004: the driver's one action here, at the glove target. Filled
+   in the fixed platform colour, since U53 keeps the brand to chrome. */
+.tr-photos__take {
+  grid-column: 1 / -1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--target-glove);
+  margin: 0;
+  padding: 0 var(--space-6);
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--interactive);
+  color: var(--on-interactive);
+  font: inherit;
+  font-size: var(--type-title-3-size);
+  line-height: var(--type-title-3-line);
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tr-photos__take:hover {
+  background: var(--interactive-hover);
+}
+
+.tr-photos__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.tr-photos__title {
+  font-weight: 700;
+}
+
+.tr-photos__reason {
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--ink-secondary);
+}
+
+.tr-photos__strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tr-photo {
+  position: relative;
+  display: block;
+  width: 104px;
+  height: 104px;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.tr-photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.tr-photo__state {
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: calc(100% - 8px);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-inverse);
+  color: var(--on-inverse);
+  font-size: var(--type-eyebrow-size);
+  line-height: var(--type-eyebrow-line);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.tr-photo__state--sent {
+  background: var(--ok);
+  color: var(--on-ok);
+}
+
+.tr-photo__state--failed {
+  background: var(--critical);
+  color: var(--on-critical);
+}
+
+/* NFR-USE-004: the visible disc is 28px; the button is the 44px floor. */
+.tr-photo__remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.tr-photo__remove > span {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--surface-inverse);
+  color: var(--on-inverse);
+}
+
+.tr-photo--add {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--space-1);
+  margin: 0;
+  border: 2px dashed var(--line-strong);
+  background: var(--surface);
+  color: var(--interactive);
+  font: inherit;
+  font-size: var(--type-small-size);
+  font-weight: 700;
+  cursor: pointer;
+}
