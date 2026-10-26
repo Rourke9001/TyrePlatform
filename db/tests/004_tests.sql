@@ -3898,15 +3898,14 @@ BEGIN
   INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at)
        VALUES (t_id, h, md5('driver3')::uuid, now() - interval '1 hour');
 
-  -- (e) The EXCLUDEs must not become a cross-tenant oracle. An exclusion
-  -- check bypasses RLS, so a key without tenant_id would answer "is that
-  -- driver on that unit then?" for a tenant this session cannot see:
-  -- exclusion_violation inside the foreign trip, foreign_key_violation
-  -- outside it. Both probes must fail identically, on the FK. The uuids are
-  -- hard-coded since the probe cannot see what it probes for, so the
-  -- precondition is checked rather than trusted: a quiet seed change would
-  -- otherwise leave case (e) discriminating on nothing while still printing
-  -- PASS.
+  -- (e) A probe of another tenant's trip answers the same inside it and
+  -- outside it. trip_is_well_formed refuses both with the user FK's 23503
+  -- before the EXCLUDEs are reached; that the keys lead with tenant_id, so
+  -- they could not answer "is that driver on that unit then?", is section
+  -- 37's sweep. The uuids are hard-coded since the probe cannot see what it
+  -- probes for, so the precondition is checked rather than trusted: a quiet
+  -- seed change would otherwise leave case (e) discriminating on nothing
+  -- while still printing PASS.
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   SELECT count(*) INTO n2 FROM app.trip tr JOIN app.tenant tn ON tn.id = tr.tenant_id
    WHERE tr.id = md5('t2trip1')::uuid
@@ -14101,7 +14100,18 @@ BEGIN
       -- by the trigger, and the FK would pass it at the statement's end.
       (format('WITH nv AS (INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status) SELECT %L, tenant_id, ''T76-CTE'', ''T76CTE GP'', configuration_id, unit_kind, status FROM app.vehicle WHERE id = %L) INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
               md5('t76c-cte-v')::uuid, md5('t76t1')::uuid, bac, md5('t76c-cte-v')::uuid, md5('t76d3')::uuid),
-       '23503 trip_tenant_id_vehicle_id_fkey')
+       '23503 trip_tenant_id_vehicle_id_fkey'),
+      -- Another fleet's driver answers with the FK's name.
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              bac, md5('t76h3')::uuid, md5('driver2')::uuid),
+       '23503 trip_tenant_id_user_id_fkey'),
+      -- No FK refuses a NULL key; NOT NULL does.
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, NULL, now())',
+              bac, md5('t76h3')::uuid),
+       '23502 null value in column "user_id" of relation "trip" violates not-null constraint'),
+      (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, NULL, %L, now())',
+              bac, md5('t76d3')::uuid),
+       '23502 null value in column "vehicle_id" of relation "trip" violates not-null constraint')
     ) v(s, m)
   LOOP
     DECLARE got_st text; got_msg text; got_con text;
@@ -14180,7 +14190,18 @@ BEGIN
       -- unseen by the trigger, and the FK would pass it at the statement's end.
       (format('WITH nk AS (INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, state, cancelled_reason) VALUES (%L, %L, %L, now(), ''CANCELLED'', ''76c'')) INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
               md5('t76c-cte-k')::uuid, bac, md5('t76h3')::uuid, bac, md5('t76c-cte-k')::uuid, md5('t76d3')::uuid),
-       '23503 inspection_task_nomination_tenant_id_task_id_fkey')
+       '23503 inspection_task_nomination_tenant_id_task_id_fkey'),
+      -- Another fleet's nominee answers with the FK's name, and no FK
+      -- refuses a NULL key; NOT NULL does.
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
+              bac, k, md5('driver2')::uuid),
+       '23503 inspection_task_nomination_tenant_id_user_id_fkey'),
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, NULL, %L)',
+              bac, md5('t76d3')::uuid),
+       '23502 null value in column "task_id" of relation "inspection_task_nomination" violates not-null constraint'),
+      (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, NULL)',
+              bac, k),
+       '23502 null value in column "user_id" of relation "inspection_task_nomination" violates not-null constraint')
     ) v(s, m)
   LOOP
     DECLARE got_st text; got_msg text; got_con text;
@@ -14359,8 +14380,10 @@ BEGIN
   IF EXISTS (SELECT 1 FROM app.inspection_task WHERE state <> 'COMPLETED' AND completed_inspection_id = insp) THEN
     RAISE EXCEPTION 'FAIL 76d: a refused plant left an open task citing T76-H1''s inspection';
   END IF;
-  -- A unit or inspection this fleet cannot see is the composite FK's to
-  -- refuse, so another tenant's row still answers 23503 (check 16).
+  -- A completion naming a unit or inspection this fleet cannot see is the
+  -- trigger's to refuse, with the FK's code and name. An open task on
+  -- another fleet's unit meets no trigger branch, so it is the FK's own, and
+  -- a NULL key is NOT NULL's (check 16).
   PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
   INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
   VALUES ('22222222-2222-2222-2222-222222222222', md5('t2veh1')::uuid, md5('driver2')::uuid, gen_random_uuid(),
@@ -14373,6 +14396,12 @@ BEGIN
        '23503 inspection_task_tenant_id_vehicle_id_fkey'),
       (format('UPDATE app.inspection_task SET state = ''COMPLETED'', completed_inspection_id = %L WHERE id = %L', insp_t2, k6),
        '23503 inspection_task_tenant_id_completed_inspection_id_fkey'),
+      (format('INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at) VALUES (%L, %L, now() + interval ''1 day'')',
+              bac, md5('t2veh1')::uuid),
+       '23503 inspection_task_tenant_id_vehicle_id_fkey'),
+      (format('INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, completed_inspection_id) VALUES (%L, NULL, now(), ''COMPLETED'', %L)',
+              bac, insp3),
+       '23502 null value in column "vehicle_id" of relation "inspection_task" violates not-null constraint'),
       -- A row an unreferenced CTE plants in the same statement is as unseen
       -- by the trigger, and the FK would pass it at the statement's end.
       (format('WITH ins AS (INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer) VALUES (%L, %L, %L, %L, gen_random_uuid(), now() - interval ''1 hour'', now() - interval ''40 minutes'', 1000)) UPDATE app.inspection_task SET state = ''COMPLETED'', completed_inspection_id = %L WHERE id = %L',
