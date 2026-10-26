@@ -192,8 +192,8 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 // an apply's app.create_combination_at then takes the re-coupled units FOR
 // UPDATE (000044), so a shared pre-lock would be an upgrade and two applies
 // on one rig could deadlock. For a depot actor the rig's motive must be in
-// scope or nothing is locked, so a refused request never holds another
-// depot's units (FR-AUT-008). It returns the units locked.
+// scope or nothing is locked, so an out-of-depot request takes no unit
+// lock (FR-AUT-008). It returns the units locked.
 func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) (int64, error) {
 	tag, err := tx.Exec(ctx,
 		`SELECT v.id
