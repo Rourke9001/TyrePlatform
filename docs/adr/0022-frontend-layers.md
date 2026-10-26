@@ -66,9 +66,11 @@ older screens do not meet it until they are ported.
 We will hold the web app to four layers, each with an import rule enforced
 by eslint `no-restricted-imports` and `no-restricted-globals`:
 
-- **Data** is `src/api/` (the client, wire types, fetchers and query hooks)
-  and, for capture, `capture/outbox.ts`, `capture/draft.ts` and their hooks.
-  Only the data layer calls `fetch` or opens Dexie.
+- **Data** is `src/api/` (the client, wire types and fetchers), each
+  feature's `*.data.ts` (the query hooks its screens read through, kept
+  beside them so two features never edit one file), and, for capture,
+  `capture/outbox.ts`, `capture/draft.ts` and their hooks. Only `src/api/`
+  calls `fetch`, and only the outbox and draft open Dexie.
 - **Transform** is `src/format/`, `src/time/` and each feature's
   `*.view.ts`: pure functions from wire shapes to what a screen shows,
   tested without React. A transform imports from domain and other
