@@ -1,0 +1,60 @@
+/* Tread's card (ADR-0020). Every colour and size is a token from
+   src/theme/tokens.ts. */
+
+.tr-card {
+  min-width: 0;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-raised);
+}
+
+.tr-card--pad-md {
+  padding: var(--space-4);
+}
+
+.tr-card--pad-lg {
+  padding: var(--space-6);
+}
+
+.tr-card__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.tr-card__actions {
+  flex: none;
+  flex-wrap: nowrap;
+}
+
+.tr-card--pad-none .tr-card__head {
+  padding: var(--space-5) var(--space-6) 0;
+}
+
+.tr-card__eyebrow {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--type-eyebrow-size);
+  line-height: var(--type-eyebrow-line);
+  font-weight: var(--type-eyebrow-weight);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.tr-card__title {
+  margin: 0;
+  font-size: 20px;
+  line-height: 26px;
+  font-weight: 700;
+}
+
+.tr-card__desc {
+  margin: var(--space-1) 0 0;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--ink-secondary);
+}
