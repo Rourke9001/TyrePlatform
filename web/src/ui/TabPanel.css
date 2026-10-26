@@ -1,0 +1,5 @@
+/* A tab's panel (ADR-0020); spacing is a token from src/theme/tokens.ts. */
+
+.tr-tabpanel {
+  padding-top: var(--space-4);
+}

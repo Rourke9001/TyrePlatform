@@ -1,0 +1,107 @@
+import type { HTMLAttributes, ReactNode } from "react";
+
+import { cx } from "./cx";
+import "./DriverShell.css";
+
+// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
+function BackGlyph() {
+  return (
+    <svg
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M15 5l-7 7 7 7" />
+    </svg>
+  );
+}
+
+export interface DriverShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+  // The tenant's mark on the app bar, where the back button goes instead.
+  brand?: ReactNode;
+  // The vehicle while capturing, the organisation otherwise.
+  barTitle?: ReactNode;
+  barSubtitle?: ReactNode;
+  onBack?: () => void;
+  backLabel?: string;
+  // Who the app thinks is asking, as one string, so it reads as one line.
+  actor?: string;
+  signOut?: ReactNode;
+  // Right of the app bar, before sign-out.
+  sync?: ReactNode;
+  // The outbox (ADR-0009): under the bar, ahead of everything a screen draws.
+  status?: ReactNode;
+  signIn?: ReactNode;
+  // TYRE-242: after the content, never in the bar.
+  devBar?: ReactNode;
+  eyebrow?: ReactNode;
+  title?: ReactNode;
+  lede?: ReactNode;
+  // The thumb-zone action bar: the screen's one primary button, last in
+  // the page so it is the last tab stop.
+  footer?: ReactNode;
+  children?: ReactNode;
+}
+
+export function DriverShell({
+  brand,
+  barTitle,
+  barSubtitle,
+  onBack,
+  backLabel = "Back",
+  actor,
+  signOut,
+  sync,
+  status,
+  signIn,
+  devBar,
+  eyebrow,
+  title,
+  lede,
+  footer,
+  className,
+  children,
+  ...rest
+}: DriverShellProps) {
+  return (
+    <div className={cx("tr-driver", className)} {...rest}>
+      <header className="tr-driver__bar">
+        {onBack ? (
+          <button type="button" className="tr-driver__back" aria-label={backLabel} onClick={onBack}>
+            <BackGlyph />
+          </button>
+        ) : (
+          brand
+        )}
+        <div className="tr-driver__bar-title">
+          {barTitle ? <span className="tr-driver__bar-name">{barTitle}</span> : null}
+          {barSubtitle ? <span className="tr-driver__bar-sub">{barSubtitle}</span> : null}
+          {actor ? <p className="tr-driver__actor">{actor}</p> : null}
+        </div>
+        {sync}
+        {signOut}
+      </header>
+      {status}
+      {signIn}
+      <main className="tr-driver__main">
+        {title ? (
+          <div className="tr-driver__head">
+            {eyebrow ? <span className="tr-driver__eyebrow">{eyebrow}</span> : null}
+            <h1 className="tr-driver__title">{title}</h1>
+            {lede ? <p className="tr-driver__lede">{lede}</p> : null}
+          </div>
+        ) : null}
+        <div className="tr-driver__body">{children}</div>
+      </main>
+      {devBar}
+      {footer ? <div className="tr-driver__foot">{footer}</div> : null}
+    </div>
+  );
+}

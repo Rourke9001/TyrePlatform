@@ -1,0 +1,144 @@
+import { useId, useRef, type HTMLAttributes, type ReactNode } from "react";
+
+import { cx } from "./cx";
+import { useFocusTrap } from "./focusTrap";
+import "./Sheet.css";
+
+// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
+function CloseGlyph() {
+  return (
+    <svg
+      className="tr-sheet__glyph"
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M6 6l12 12M18 6L6 18" />
+    </svg>
+  );
+}
+
+interface SheetOwnProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
+  open: boolean;
+  title: ReactNode;
+  // The accessible name when it differs from the visible title: a spare's
+  // sheet is titled "Spare tyre" and named for its unit.
+  ariaLabel?: string;
+  eyebrow?: ReactNode;
+  description?: ReactNode;
+  // bottom on a phone, right for a row's detail on a desk.
+  side?: "bottom" | "right";
+  // Controls in the head, before Close.
+  actions?: ReactNode;
+  footer?: ReactNode;
+  titleAs?: "h2" | "h3" | "p";
+  closeLabel?: string;
+  children?: ReactNode;
+}
+
+interface ModalSheetProps extends SheetOwnProps {
+  modal?: true;
+  onClose: () => void;
+  // Positions the overlay in its nearest positioned ancestor, not the
+  // viewport.
+  inline?: boolean;
+}
+
+// The capture tyre sheet is not modal (ADR-0020, U145): the rig stays
+// reachable, so this one traps nothing and the caller's layer places it.
+interface DockedSheetProps extends SheetOwnProps {
+  modal: false;
+  onClose?: () => void;
+  inline?: never;
+}
+
+export type SheetProps = ModalSheetProps | DockedSheetProps;
+
+export function Sheet({
+  open,
+  onClose,
+  title,
+  ariaLabel,
+  eyebrow,
+  description,
+  side = "bottom",
+  actions,
+  footer,
+  titleAs: Title = "h2",
+  closeLabel = "Close",
+  modal = true,
+  inline,
+  className,
+  children,
+  ...rest
+}: SheetProps) {
+  const panel = useRef<HTMLDivElement>(null);
+  const titleId = useId();
+  useFocusTrap(panel, open && modal, () => onClose?.());
+  if (!open) return null;
+
+  const naming = ariaLabel ? { "aria-label": ariaLabel } : { "aria-labelledby": titleId };
+  const classes = cx("tr-sheet", `tr-sheet--${side}`, !modal && "tr-sheet--docked", className);
+  const content = (
+    <>
+      {side === "bottom" ? <span className="tr-sheet__grab" aria-hidden="true" /> : null}
+      <div className="tr-sheet__head">
+        <div className="tr-sheet__titles">
+          {eyebrow ? <span className="tr-sheet__eyebrow">{eyebrow}</span> : null}
+          <Title className="tr-sheet__title" id={titleId}>
+            {title}
+          </Title>
+          {description ? <p className="tr-sheet__desc">{description}</p> : null}
+        </div>
+        {actions}
+        {onClose ? (
+          <button
+            type="button"
+            className="tr-sheet__close"
+            aria-label={closeLabel}
+            onClick={onClose}
+          >
+            <CloseGlyph />
+          </button>
+        ) : null}
+      </div>
+      <div className="tr-sheet__body">{children}</div>
+      {footer ? <div className="tr-sheet__foot">{footer}</div> : null}
+    </>
+  );
+
+  if (!modal) {
+    return (
+      <section className={classes} {...naming} {...rest}>
+        {content}
+      </section>
+    );
+  }
+  return (
+    <div
+      className={cx("tr-overlay", `tr-overlay--${side}`, inline && "tr-overlay--inline")}
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose?.();
+      }}
+    >
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        className={classes}
+        {...naming}
+        {...rest}
+      >
+        {content}
+      </div>
+    </div>
+  );
+}
