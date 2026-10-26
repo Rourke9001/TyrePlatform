@@ -198,7 +198,7 @@ func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID
 		                   JOIN app.inspection i ON i.id = w.inspection_id
 		                   JOIN app.combination c ON c.id = i.combination_id
 		                  CROSS JOIN LATERAL (SELECT c.motive_vehicle_id
-		                                       UNION ALL
+		                                       UNION
 		                                      SELECT cm.vehicle_id FROM app.combination_member cm
 		                                       WHERE cm.combination_id = c.id) u (id)
 		                  WHERE w.id = $1
