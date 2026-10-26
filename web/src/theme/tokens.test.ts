@@ -331,8 +331,9 @@ describe("brandVars", () => {
 });
 
 // TYRE-446: every face the type scale asks for is a file beside fonts.ts,
-// so no font request leaves the app's origin (rule 7) and no weight falls
-// back to a system face unnoticed.
+// so no font request leaves the app's origin (rule 7). A weight with no
+// face of its own renders silently in the nearest Atkinson weight, so this
+// test is where it is caught.
 describe("treadFont", () => {
   const shipped = new Set(Object.keys(import.meta.glob("./fonts/*.woff2")));
   const faces = [...fontsCss.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
