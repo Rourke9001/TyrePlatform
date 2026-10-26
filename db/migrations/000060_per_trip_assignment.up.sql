@@ -133,13 +133,24 @@ DECLARE
   usr app.app_user;
   veh app.vehicle;
 BEGIN
-  -- A user or unit this fleet cannot see is the composite FK's to refuse,
-  -- so another tenant's row still answers 23503 (section 34e).
+  -- A user or unit the bound fleet cannot see is refused with its FK's code
+  -- and name: another fleet's row, or one an unreferenced data-modifying CTE
+  -- plants in this statement, which the FK would pass at the statement's end
+  -- (section 34e). A row naming another fleet is its policy's to refuse
+  -- (section 72c).
   SELECT * INTO usr FROM app.app_user u WHERE u.tenant_id = NEW.tenant_id AND u.id = NEW.user_id;
+  IF NOT FOUND AND NEW.tenant_id = app.current_tenant_id() THEN
+    RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'trip_tenant_id_user_id_fkey',
+      MESSAGE = 'insert or update on table "trip" violates foreign key constraint "trip_tenant_id_user_id_fkey"';
+  END IF;
   IF FOUND AND NOT usr.active THEN
     RAISE EXCEPTION USING ERRCODE = 'TY028', MESSAGE = format('%s is no longer active', usr.display_name);
   END IF;
   SELECT * INTO veh FROM app.vehicle v WHERE v.tenant_id = NEW.tenant_id AND v.id = NEW.vehicle_id;
+  IF NOT FOUND AND NEW.tenant_id = app.current_tenant_id() THEN
+    RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'trip_tenant_id_vehicle_id_fkey',
+      MESSAGE = 'insert or update on table "trip" violates foreign key constraint "trip_tenant_id_vehicle_id_fkey"';
+  END IF;
   IF FOUND THEN
     IF veh.unit_kind = 'TRAILER' THEN
       RAISE EXCEPTION USING ERRCODE = 'TY028',
@@ -214,14 +225,24 @@ DECLARE
   k   app.inspection_task;
   usr app.app_user;
 BEGIN
-  -- A task or user this fleet cannot see is the composite FK's to refuse,
-  -- so another tenant's row still answers 23503 (check 16).
+  -- A task or user the bound fleet cannot see is refused with its FK's code
+  -- and name, as app.trip_is_well_formed refuses one (check 16).
   SELECT * INTO k FROM app.inspection_task t WHERE t.tenant_id = NEW.tenant_id AND t.id = NEW.task_id;
+  IF NOT FOUND AND NEW.tenant_id = app.current_tenant_id() THEN
+    RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation',
+      CONSTRAINT = 'inspection_task_nomination_tenant_id_task_id_fkey',
+      MESSAGE = 'insert or update on table "inspection_task_nomination" violates foreign key constraint "inspection_task_nomination_tenant_id_task_id_fkey"';
+  END IF;
   IF FOUND AND k.state <> 'OPEN' THEN
     RAISE EXCEPTION USING ERRCODE = 'TY018',
       MESSAGE = format('this inspection is %s; only an open one takes a driver', lower(k.state::text));
   END IF;
   SELECT * INTO usr FROM app.app_user u WHERE u.tenant_id = NEW.tenant_id AND u.id = NEW.user_id;
+  IF NOT FOUND AND NEW.tenant_id = app.current_tenant_id() THEN
+    RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation',
+      CONSTRAINT = 'inspection_task_nomination_tenant_id_user_id_fkey',
+      MESSAGE = 'insert or update on table "inspection_task_nomination" violates foreign key constraint "inspection_task_nomination_tenant_id_user_id_fkey"';
+  END IF;
   IF FOUND AND NOT usr.active THEN
     RAISE EXCEPTION USING ERRCODE = 'TY018', MESSAGE = format('%s is no longer active', usr.display_name);
   END IF;
