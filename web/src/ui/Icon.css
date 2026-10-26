@@ -1,0 +1,7 @@
+/* An icon keeps its drawn size inside a flex row and sits on the text's
+   middle beside a word. */
+.tr-icon {
+  flex: none;
+  display: inline-block;
+  vertical-align: middle;
+}
