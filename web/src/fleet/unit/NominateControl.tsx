@@ -16,8 +16,8 @@ const NOMINATE_WORDING = {
 
 // A driver for one outstanding task (FR-INS-051 as amended), from the task
 // list and from the trip start form's due inspections alike. unitId is the
-// task's own unit, whose list it invalidates; a nomination can also clear
-// what holds a trip start (U148).
+// task's own unit, whose list it invalidates. A nomination leaves what holds
+// a trip start alone: app.trip_start_blockers reads none (U148).
 export function NominateControl({
   taskId,
   unitId,

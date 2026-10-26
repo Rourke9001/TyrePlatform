@@ -213,8 +213,7 @@ function StartTripForm({ unit }: { unit: Unit }) {
 
   // The due inspections sit between the form and its Start button, and each
   // carries a nominate form of its own, which may not nest inside this one;
-  // Start joins the form by its id, and waits for their read so the block is
-  // never a surprise (U148).
+  // Start joins the form by its id.
   return (
     <>
       <form id="trip-start" onSubmit={submit}>
@@ -290,7 +289,8 @@ function StartTripForm({ unit }: { unit: Unit }) {
       </form>
 
       {/* U148: what holds the start is shown before Start, with the
-          nominate action on each task, so the block is never a surprise. */}
+          nominate action on each task, so the block is never a surprise;
+          Start waits for this read for the same reason. */}
       {blocking.length > 0 && (
         <>
           <p>These inspections are due and must be done before the trip starts:</p>
