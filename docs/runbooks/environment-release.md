@@ -1055,7 +1055,7 @@ adds the automatic check.
 
 Migration 000060 (TYRE-326, owner ruling U151, TYRE-326 comment 14041) is
 the one recorded exception: it ships in one release. Production's image
-from before 000060 fails three controller routes on its schema, the
+from before 000060 fails three controller routes on 000060's schema, the
 `vehicle_driver` INSERT behind POST `/api/vehicles/{id}/drivers`, the
 `assigned_user_id` read behind GET `/api/vehicles/{id}/inspection-tasks`,
 and the `create_inspection_task(uuid, uuid, date)` call behind POST
@@ -1088,9 +1088,9 @@ Once 000060 is applied to a target, that target's floor is TYRE-326's merge
 (PR #148) for good: a rollback runs no down migration, so 000060's drops and
 its revoke stay, and an image from before the merge fails three controller
 routes on that schema (What this order rests on names them). The deploy's
-smoke does not exercise those routes. Production stays at schema 59 until
-Promote to production's migrate step, so the floor does not apply there
-before it.
+smoke does not exercise those routes. Production's schema stays below 000060
+until Promote to production's migrate step, so the floor does not apply
+there before it.
 
 Re-running an old run never rolls back (TYRE-403). A re-run whose commit
 is no longer its branch's head is refused, and going back is only by this

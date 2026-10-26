@@ -310,10 +310,10 @@ who was nominated at a past instant.
 *Amended by the plan's Decision 17 and the review of PR #148 (TYRE-326). A
 generated task with no assignee, which part D of the migration makes OPEN,
 gains the driver of a converted trip that covers its unit or, for a towed
-unit, the live nominee of its rig motive's task, so that task does change
+unit, the newest live nominee across its rig motive's tasks, so that task does change
 hands at deploy. An outstanding task whose assignee is a deactivated user
 gets no nomination of its own, because `app.nominate_for_task` would refuse
-them. After deploy it is held only through a converted trip covering its unit
+them. At deploy it is held only through a converted trip covering its unit
 or, for a towed unit, through its rig motive's live nominee; otherwise nobody
 holds it and it reads escalated.*
 
@@ -599,9 +599,9 @@ Go and web tests cover the transport.
 
 *Amended by the plan's Decision 17 and the review of PR #148 (TYRE-326): a
 generated task with no assignee gains, at the migration, the driver of a
-converted trip covering its unit or, for a towed unit, its rig motive's live
-nominee. A task whose assignee is a deactivated user gets no nomination of
-its own, and is held only through such a trip or motive nominee; otherwise
+converted trip covering its unit or, for a towed unit, the newest live nominee
+across its rig motive's tasks. A task whose assignee is a deactivated user gets no nomination of
+its own, and at deploy is held only through such a trip or motive nominee; otherwise
 nobody holds it.*
 
 - **Migration:** open rows become trips, with trailer rows dropped, conflicts
