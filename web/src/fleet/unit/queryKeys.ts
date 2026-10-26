@@ -44,8 +44,9 @@ export function driversKey(tenantKey: string): QueryKey {
   return ["drivers", tenantKey];
 }
 
-// What holds a start (U148), keyed on the trailers the form would add. A new
-// task or a nomination can change it, so those writes invalidate the prefix.
+// What holds a start (U148), keyed on the trailers the form would add. A trip
+// write or a task closing changes it; a nomination does not, since the read
+// takes no nomination into account.
 export function tripBlockersKey(unitId: string, addTrailers: string[]): QueryKey {
   return ["trip-blockers", unitId, addTrailers];
 }

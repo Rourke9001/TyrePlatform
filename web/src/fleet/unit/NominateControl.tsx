@@ -4,7 +4,7 @@ import { refusalMessage } from "../../api/refusal";
 import { nominate } from "../../api/tasks";
 import { useFormMutation } from "../useFormMutation";
 import { DriverPicker } from "./DriverPicker";
-import { tripBlockersPrefix, unitTasksKey } from "./queryKeys";
+import { unitTasksKey } from "./queryKeys";
 
 // app.nominate_for_task's own refusals (TY018) and the not-visible read
 // (TY012), the only two codes a nomination can reach.
@@ -30,7 +30,7 @@ export function NominateControl({
   const [userId, setUserId] = useState("");
   const nomination = useFormMutation({
     mutate: (id: string) => nominate(taskId, { userId: id }),
-    invalidate: [unitTasksKey(unitId), tripBlockersPrefix()],
+    invalidate: [unitTasksKey(unitId)],
     onSuccess: () => setUserId(""),
   });
 
