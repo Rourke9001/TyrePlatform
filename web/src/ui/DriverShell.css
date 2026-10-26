@@ -1,0 +1,137 @@
+/* Tread's driver shell (ADR-0020): phone first, one task per screen, the
+   action in the thumb zone. Every colour and size is a token from
+   src/theme/tokens.ts; the brand reaches the app bar alone (U53). */
+
+.tr-driver {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background: var(--canvas);
+  color: var(--ink);
+  font-size: var(--type-body-lg-size);
+  line-height: var(--type-body-lg-line);
+}
+
+.tr-driver__bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--appbar);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  background: var(--brand);
+  color: var(--on-brand);
+}
+
+/* NFR-USE-004: a glove target. Its hover tint is the bar's own text
+   colour, so it reads on any tenant's brand. */
+.tr-driver__back {
+  position: relative;
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--target-glove);
+  height: var(--target-glove);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tr-driver__back::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+}
+
+.tr-driver__back:hover::before {
+  opacity: 0.12;
+}
+
+.tr-driver__bar-title {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  line-height: 20px;
+}
+
+.tr-driver__bar-name {
+  font-size: 17px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tr-driver__bar-sub,
+.tr-driver__actor {
+  margin: 0;
+  font-size: var(--type-caption-size);
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.tr-driver__bar-sub {
+  opacity: 0.85;
+}
+
+.tr-driver__main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.tr-driver__head {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-5) var(--space-4) var(--space-2);
+}
+
+.tr-driver__eyebrow {
+  font-size: var(--type-caption-size);
+  line-height: 16px;
+  font-weight: 700;
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.tr-driver__title {
+  margin: 0;
+  font-size: 30px;
+  line-height: 34px;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+}
+
+.tr-driver__lede {
+  margin: 0;
+  color: var(--ink-secondary);
+}
+
+.tr-driver__body {
+  flex: 1;
+  display: grid;
+  align-content: start;
+  gap: var(--space-4);
+  padding: var(--space-2) var(--space-4) var(--space-6);
+}
+
+.tr-driver__foot {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+  background: var(--surface);
+  box-shadow: var(--shadow-sheet);
+}

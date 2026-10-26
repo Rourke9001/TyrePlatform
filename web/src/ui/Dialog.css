@@ -1,0 +1,81 @@
+/* Tread's confirmation dialog (ADR-0020). Colours, spacing and type are
+   tokens from src/theme/tokens.ts; tokens.ts has no motion scale yet, so
+   the 200ms duration and its curve are written here. */
+
+.tr-dialog__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--scrim);
+  animation: tr-dialog-fade 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.tr-dialog__scrim--inline {
+  position: absolute;
+}
+
+@keyframes tr-dialog-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes tr-dialog-rise {
+  from {
+    transform: translateY(24px);
+    opacity: 0.6;
+  }
+}
+
+.tr-dialog {
+  width: min(440px, 100%);
+  padding: var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-overlay);
+  display: grid;
+  gap: var(--space-3);
+  animation: tr-dialog-rise 200ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* The panel takes focus only by script, when it opens; the ring belongs
+   to the actions. */
+.tr-dialog:focus {
+  outline: none;
+}
+
+.tr-dialog__icon {
+  display: grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  border-radius: 50%;
+  background: var(--critical-soft);
+  color: var(--critical-text);
+}
+
+.tr-dialog__title {
+  margin: 0;
+  font-size: var(--type-title-2-size);
+  line-height: var(--type-title-2-line);
+  font-weight: 800;
+}
+
+.tr-dialog__desc,
+.tr-dialog__body {
+  margin: 0;
+  color: var(--ink-secondary);
+}
+
+.tr-dialog__actions {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}

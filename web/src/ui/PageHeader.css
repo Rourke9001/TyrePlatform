@@ -1,0 +1,63 @@
+/* Tread's page header (ADR-0020). Every colour and size is a token from
+   src/theme/tokens.ts. */
+
+.tr-pagehead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.tr-pagehead__text {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.tr-pagehead__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  justify-self: start;
+  min-height: var(--target-min);
+  margin-left: calc(-1 * var(--space-1));
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--interactive);
+  text-decoration: none;
+}
+
+.tr-pagehead__back:hover {
+  color: var(--interactive-hover);
+  text-decoration: underline;
+}
+
+.tr-pagehead__eyebrow {
+  font-size: var(--type-eyebrow-size);
+  line-height: var(--type-eyebrow-line);
+  font-weight: var(--type-eyebrow-weight);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.tr-pagehead__title {
+  margin: 0;
+  font-size: var(--type-title-1-size);
+  line-height: var(--type-title-1-line);
+  font-weight: var(--type-title-1-weight);
+  letter-spacing: var(--tracking-title-1);
+}
+
+.tr-pagehead__desc {
+  margin: 0;
+  max-width: var(--measure);
+  color: var(--ink-secondary);
+}
+
+.tr-pagehead__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
