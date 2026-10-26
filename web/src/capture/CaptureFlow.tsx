@@ -49,8 +49,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
 
   const lifecycle = useDraftLifecycle(vehicleId, taskId, setActiveKey, setAttachedIds);
   const { draft, setDraft, resumed, held, screen, setScreen, storageFault } = lifecycle;
-  // Read once the draft has loaded, so a resumed draft's units are read
-  // through its own window and never first at now (U148).
+  // Read once the draft has loaded, so a resumed draft's units are keyed on
+  // its own window and never asked of the server first at now (U148); the
+  // seed in captureContext.ts says what that key serves.
   const startedAt = lifecycle.resumedStartedAt ?? undefined;
   const motive = useCaptureContext(vehicleId, startedAt, resumed);
 

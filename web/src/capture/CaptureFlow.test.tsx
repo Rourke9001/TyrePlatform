@@ -1,12 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
-import { onlineManager, QueryClientProvider } from "@tanstack/react-query";
-import { createElement } from "react";
+import { screen, waitFor } from "@testing-library/react";
+import { onlineManager } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
-import { ActorContext } from "../auth/actorContext";
-import { me, renderWithActor, testQueryClient } from "../test/fixtures";
+import { renderWithActor, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
@@ -354,7 +352,7 @@ describe("CaptureFlow", () => {
 
   // FR-OFF-001, rule 7: a remount reads through the draft's startedAt, a key
   // the first mount never cached. Offline the query pauses, so without a seed
-  // from the at-now entry the capture sticks on "Loading..." until signal.
+  // from the at-now entry the capture sticks on "Loading…" until signal.
   it.each([
     ["a solo unit", [context], /^Position 1,/],
     ["a rig", [rigMotive, trailer], /, BAC711TR, /],
@@ -364,18 +362,7 @@ describe("CaptureFlow", () => {
       const user = newUser();
       stubApi(201, served);
       const client = testQueryClient();
-      const mount = () =>
-        render(
-          createElement(
-            ActorContext.Provider,
-            { value: { actor: me(), settled: true } },
-            createElement(
-              QueryClientProvider,
-              { client },
-              createElement(CaptureFlow, { vehicleId: "v1", taskId: null }),
-            ),
-          ),
-        );
+      const mount = () => renderWithActor(<CaptureFlow vehicleId="v1" taskId={null} />, { client });
 
       const first = mount();
       await user.click(await screen.findByRole("button", { name: /start inspection/i }));
@@ -385,7 +372,7 @@ describe("CaptureFlow", () => {
       onlineManager.setOnline(false);
       try {
         mount();
-        expect((await screen.findAllByRole("button", { name: cell })).length).toBeGreaterThan(0);
+        await screen.findAllByRole("button", { name: cell });
         expect(screen.queryByText("Loading…")).toBeNull();
       } finally {
         onlineManager.setOnline(true);

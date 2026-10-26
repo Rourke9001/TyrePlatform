@@ -47,15 +47,22 @@ export function renderWithActor(
     withRouter?: boolean;
     initialEntries?: string[];
     actor?: Partial<Me>;
+    client?: QueryClient;
   } = {},
 ): RenderResult {
-  const { capabilities = [], withRouter = false, initialEntries, actor = {} } = options;
+  const {
+    capabilities = [],
+    withRouter = false,
+    initialEntries,
+    actor = {},
+    client = testQueryClient(),
+  } = options;
   const content = withRouter ? createElement(MemoryRouter, { initialEntries }, ui) : ui;
   return render(
     createElement(
       ActorContext.Provider,
       { value: { actor: me({ capabilities, ...actor }), settled: true } },
-      createElement(QueryClientProvider, { client: testQueryClient() }, content),
+      createElement(QueryClientProvider, { client }, content),
     ),
   );
 }
