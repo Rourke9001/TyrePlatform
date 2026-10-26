@@ -1,5 +1,5 @@
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
@@ -96,7 +96,7 @@ const RIGS: Rig[] = [
 interface Stub {
   trip: () => UnitTrip;
   blockers?: (url: string) => Response;
-  rigs?: () => Response;
+  rigs?: () => Response | Promise<Response>;
   start?: () => Response;
   end?: () => Response;
   nominate?: () => Response;
@@ -313,7 +313,36 @@ describe("the trip panel", () => {
   });
 
   // Spec decision 4: without the rigs, a trailer coupled to another truck
-  // would read as free, so none is offered until they load.
+  // would read as free, so none is offered until they load. The vehicles read
+  // is let settle first, or an empty list proves nothing.
+  async function vehiclesSettled() {
+    await waitFor(() => expect(callTo("/api/vehicles", "GET")).toBeGreaterThanOrEqual(0));
+    await vi.mocked(fetch).mock.results[callTo("/api/vehicles", "GET")].value;
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+  }
+
+  it("offers no trailer, and says why, while the rigs are loading", async () => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    stub({
+      trip: () => ({ trip: null, pulledBy: null }),
+      rigs: () => gate.then(() => respond(200, RIGS)),
+    });
+    renderPanel();
+    await screen.findByText("Not on a trip.");
+    await vehiclesSettled();
+
+    const add = screen.getByLabelText("Add a trailer");
+    expect(within(add).getAllByRole("option")).toHaveLength(1);
+    expect(screen.getByText("Trailers show once the rigs load.")).toBeInTheDocument();
+
+    release();
+    expect(await within(add).findByRole("option", { name: "LINK-7" })).toBeInTheDocument();
+    expect(screen.queryByText("Trailers show once the rigs load.")).toBeNull();
+  });
+
   it("offers no trailer, and a Retry, when the rigs read fails", async () => {
     let fail = true;
     stub({
@@ -322,16 +351,18 @@ describe("the trip panel", () => {
     });
     renderPanel();
     await screen.findByText("Not on a trip.");
+    await vehiclesSettled();
 
-    expect(await screen.findByText("The rigs could not be loaded.")).toBeInTheDocument();
+    expect(
+      await screen.findByText("The rigs could not be loaded. Trailers show once they load."),
+    ).toBeInTheDocument();
     const add = screen.getByLabelText("Add a trailer");
     expect(within(add).getAllByRole("option")).toHaveLength(1);
-    expect(screen.getByRole("button", { name: "Add" })).toBeDisabled();
 
     fail = false;
-    await userEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await userEvent.click(screen.getByRole("button", { name: "Retry loading rigs" }));
     expect(await within(add).findByRole("option", { name: "LINK-7" })).toBeInTheDocument();
-    expect(screen.queryByText("The rigs could not be loaded.")).toBeNull();
+    expect(screen.queryByText(/The rigs could not be loaded/)).toBeNull();
   });
 
   it("leaves Start enabled when the blocker read fails, since the server judges the start anyway", async () => {

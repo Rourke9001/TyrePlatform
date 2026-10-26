@@ -252,19 +252,28 @@ function StartTripForm({ unit }: { unit: Unit }) {
         {vehicles.isError && (
           <>
             <p role="alert">The trailers could not be loaded.</p>
-            <button type="button" onClick={() => void vehicles.refetch()}>
+            <button
+              type="button"
+              aria-label="Retry loading trailers"
+              onClick={() => void vehicles.refetch()}
+            >
               Retry
             </button>
           </>
         )}
         {rigs.isError && (
           <>
-            <p role="alert">The rigs could not be loaded.</p>
-            <button type="button" onClick={() => void rigs.refetch()}>
+            <p role="alert">The rigs could not be loaded. Trailers show once they load.</p>
+            <button
+              type="button"
+              aria-label="Retry loading rigs"
+              onClick={() => void rigs.refetch()}
+            >
               Retry
             </button>
           </>
         )}
+        {rigs.isPending && <p>Trailers show once the rigs load.</p>}
         {added.length > 0 && (
           <ul className="unit-rotate-rows" aria-label="Trailers to add">
             {added.map((id) => (

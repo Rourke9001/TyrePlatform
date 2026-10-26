@@ -116,11 +116,11 @@ export function fetchCaptureContext(
 // same queryKey or the motive unit fetches twice. The key carries startedAt
 // because a read through a draft's window answers for that window, not now.
 //
-// A windowed read is seeded from the at-now entry (FR-OFF-001, rule 7): a
-// remount keys on the draft's startedAt, which the first mount never cached,
-// and offline a query with no data does not fetch. A window that ends now
-// admits all the at-now read did, and Infinity staleTime keeps the seed from
-// refetching. The key keeps startedAt so a discard reads at now afresh.
+// A windowed read is seeded from the entry this capture started on (FR-OFF-001,
+// U148): a remount keys on the draft's startedAt, which the first mount never
+// cached, and offline a query with no data does not fetch. The seed admits
+// nothing the first mount did not, and the submit is judged again over its own
+// window.
 export function captureContextQuery(vehicleId: string, startedAt?: string, seed?: QueryClient) {
   return {
     queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null],
