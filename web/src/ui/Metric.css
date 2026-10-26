@@ -3,6 +3,7 @@
 
 .tr-metric {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1);
   align-content: start;
   min-width: 0;
@@ -46,6 +47,16 @@
   font-size: var(--type-hero-size);
   line-height: var(--type-hero-line);
   letter-spacing: var(--tracking-hero);
+}
+
+/* 640px is breakpoint.phone (src/theme/tokens.ts): a hero rand figure at
+   56px is wider than a phone's tile, so it takes the display size there. */
+@media (max-width: 640px) {
+  .tr-metric--hero .tr-metric__value {
+    font-size: var(--type-display-size);
+    line-height: 42px;
+    letter-spacing: var(--tracking-display);
+  }
 }
 
 .tr-metric__unit {
