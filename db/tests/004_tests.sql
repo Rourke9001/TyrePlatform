@@ -14292,6 +14292,28 @@ BEGIN
   IF s IS DISTINCT FROM 'OPEN -,COMPLETED true' THEN
     RAISE EXCEPTION 'FAIL 76d: the refused close and the rig capture''s close left the tasks %, not OPEN -,COMPLETED true', s;
   END IF;
+  -- A task planted completed is held to the same rule, so a raw INSERT
+  -- cannot write the citation a raw close is refused.
+  s := NULL;
+  BEGIN
+    INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, completed_inspection_id)
+    VALUES (bac, h1, now(), 'COMPLETED', insp3);
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE;
+    s := s || ' ' || SQLERRM;
+  END;
+  IF s IS DISTINCT FROM 'TY018 this inspection task is on T76-H1; an inspection that never read that unit cannot complete it' THEN
+    RAISE EXCEPTION 'FAIL 76d: a raw INSERT of T76-H1''s task completed by T76-H2''s inspection was answered %, not TY018', COALESCE(s, 'by success');
+  END IF;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, completed_inspection_id)
+  VALUES (bac, h2, now(), 'COMPLETED', insp3);
+  SELECT string_agg(v.fleet_number || ' ' || k.state::text, ',' ORDER BY v.fleet_number) INTO s
+    FROM app.inspection_task k
+    JOIN app.vehicle v ON v.tenant_id = k.tenant_id AND v.id = k.vehicle_id
+   WHERE k.completed_inspection_id = insp3;
+  IF s IS DISTINCT FROM 'T76-H2 COMPLETED' THEN
+    RAISE EXCEPTION 'FAIL 76d: the tasks citing T76-H2''s inspection read %, not T76-H2 COMPLETED alone', s;
+  END IF;
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
   VALUES (bac, h1, now(), 'CANCELLED', '76d', now() - interval '1 day') RETURNING id INTO k3;

@@ -175,9 +175,9 @@ move out of `COMPLETED` or `CANCELLED`, or a change to
 `completed_inspection_id` or `cancelled_reason` once closed (`TY018`), and
 stamps `closed_at`, which the responsibility and capture reads judge a past
 instant by. An INSERT may plant a past close,
-never a future one (`TY018`). An UPDATE that completes a task cites an
-inspection of its unit or one that read it (`app.inspection_read_unit`,
-`TY018`). Those reads judge by a task's `vehicle_id`,
+never a future one (`TY018`). A task completed by an UPDATE or planted
+completed by an INSERT cites an inspection of its unit or one that read it
+(`app.inspection_read_unit`, `TY018`). Those reads judge by a task's `vehicle_id`,
 `created_at` and `due_at` too, so `app_rw` holds `UPDATE (state,
 cancelled_reason, completed_inspection_id)` on `inspection_task` only.
 `vehicle_driver` is the history of assignments before trips, with

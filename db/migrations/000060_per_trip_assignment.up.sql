@@ -278,11 +278,12 @@ SET search_path = app, pg_temp AS $$
 DECLARE
   unit text;
 BEGIN
-  -- A close cites an inspection of the task's unit or one that read it.
+  -- A completed task cites an inspection of its unit or one that read it.
   -- Otherwise the task reads done for a unit nobody inspected, its schedule
   -- stands the next task down and the unit leaves the controller's
-  -- outstanding work (FR-INS-052). It is judged as the task leaves OPEN.
-  IF TG_OP = 'UPDATE' AND OLD.state = 'OPEN' AND NEW.state = 'COMPLETED' THEN
+  -- outstanding work (FR-INS-052). It is judged as the task leaves OPEN or
+  -- is planted completed.
+  IF NEW.state = 'COMPLETED' AND (TG_OP = 'INSERT' OR OLD.state = 'OPEN') THEN
     -- An inspection this fleet cannot see is the composite FK's to refuse,
     -- so another tenant's row still answers 23503 (check 16).
     PERFORM 1 FROM app.inspection i
