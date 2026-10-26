@@ -1,0 +1,51 @@
+/* Tread's two families, one file per weight treadType uses (TYRE-446).
+   swap paints text in the fallback at once, so a slow depot connection
+   never holds the capture screen blank (ADR-0009). Licence: fonts/OFL.txt. */
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/AtkinsonHyperlegibleNext-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("./fonts/AtkinsonHyperlegibleNext-500.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/AtkinsonHyperlegibleNext-700.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Next";
+  font-style: normal;
+  font-weight: 800;
+  font-display: swap;
+  src: url("./fonts/AtkinsonHyperlegibleNext-800.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("./fonts/AtkinsonHyperlegibleMono-400.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Atkinson Hyperlegible Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("./fonts/AtkinsonHyperlegibleMono-700.woff2") format("woff2");
+}

@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import { contrastRatio, deriveBrandTheme } from "./derive";
+import fontsCss from "./fonts.css?raw";
 import {
   PLATFORM_BRAND,
   brandVars,
   themeCss,
   themes,
   treadBandStep,
+  treadFont,
+  treadType,
   type ColorToken,
   type ThemeName,
 } from "./tokens";
@@ -324,5 +327,35 @@ describe("brandVars", () => {
       "--brand-pressed": t.brandPressed,
       "--on-brand": t.onBrand,
     });
+  });
+});
+
+// TYRE-446: every face the type scale asks for is a file beside fonts.ts,
+// so no font request leaves the app's origin (rule 7) and no weight falls
+// back to a system face unnoticed.
+describe("treadFont", () => {
+  const shipped = new Set(Object.keys(import.meta.glob("./fonts/*.woff2")));
+  const faces = [...fontsCss.matchAll(/@font-face\s*\{([^}]*)\}/g)].map((m) => m[1]);
+  const read = (face: string, property: string) =>
+    new RegExp(String.raw`${property}:\s*([^;]+);`).exec(face)?.[1].trim();
+
+  it("treadFont names the self-hosted families", () => {
+    expect(faces).toHaveLength(6);
+    const wanted = new Set(
+      Object.values(treadType).map((spec) => {
+        const family = treadFont[spec.family].split(",")[0];
+        return `${family} ${String(spec.weight)}`;
+      }),
+    );
+    const declared = new Set(
+      faces.map((face) => `${read(face, "font-family") ?? ""} ${read(face, "font-weight") ?? ""}`),
+    );
+    expect(declared).toEqual(wanted);
+    for (const face of faces) {
+      expect(read(face, "font-display")).toBe("swap");
+      expect(read(face, "font-style")).toBe("normal");
+      const url = /url\("([^"]+)"\) format\("woff2"\)/.exec(face)?.[1];
+      expect(url && shipped.has(url), `${url ?? "no url"} is a file in src/theme/fonts`).toBe(true);
+    }
   });
 });
