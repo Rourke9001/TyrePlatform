@@ -177,7 +177,8 @@ stamps `closed_at`, which the responsibility and capture reads judge a past
 instant by. An INSERT may plant a past close,
 never a future one (`TY018`). A task completed by an UPDATE or planted
 completed by an INSERT cites an inspection of its unit or one that read it
-(`app.inspection_read_unit`, `TY018`). The responsibility and capture reads
+(`app.inspection_read_unit`, `TY018`), and an open or cancelled task cites
+none (`TY018`). The responsibility and capture reads
 judge by a task's `vehicle_id`, `created_at` and `due_at` too, so `app_rw`
 holds `UPDATE (state, cancelled_reason, completed_inspection_id)` on
 `inspection_task` only.

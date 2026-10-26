@@ -329,6 +329,18 @@ BEGIN
       END IF;
     END IF;
   END IF;
+  -- A task nobody completed names no completing inspection, or the close
+  -- would freeze a citation of a completion that never happened (rule 3).
+  -- It is judged as a row is planted or an open one changes its state or
+  -- citation, so an UPDATE of anything else never re-judges an old row.
+  IF NEW.state <> 'COMPLETED' AND NEW.completed_inspection_id IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR (OLD.state = 'OPEN'
+              AND (NEW.state IS DISTINCT FROM OLD.state
+                   OR NEW.completed_inspection_id IS DISTINCT FROM OLD.completed_inspection_id))) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('this inspection task is %s; only a completed task cites a completing inspection', lower(NEW.state::text));
+  END IF;
   IF TG_OP = 'UPDATE' AND OLD.state IN ('COMPLETED', 'CANCELLED')
      AND NEW.state IS DISTINCT FROM OLD.state THEN
     RAISE EXCEPTION USING ERRCODE = 'TY018',

@@ -14214,7 +14214,7 @@ DECLARE
   h1  constant uuid := md5('t76h1')::uuid;
   h2  constant uuid := md5('t76h2')::uuid;
   d1  constant uuid := md5('t76d1')::uuid;
-  k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; k6 uuid; k7 uuid; insp uuid; insp2 uuid; insp3 uuid;
+  k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; k6 uuid; k7 uuid; k8 uuid; insp uuid; insp2 uuid; insp3 uuid;
   insp_t2 uuid; st text; msg text; cn text; c timestamptz; s text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
@@ -14323,6 +14323,41 @@ BEGIN
    WHERE k.completed_inspection_id = insp3;
   IF s IS DISTINCT FROM 'T76-H2 COMPLETED' THEN
     RAISE EXCEPTION 'FAIL 76d: the tasks citing T76-H2''s inspection read %, not T76-H2 COMPLETED alone', s;
+  END IF;
+  -- A task nobody completed cites no completing inspection, whether given
+  -- one while open, cancelled with one or planted with one, since the close
+  -- would then freeze the citation.
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, h1, now() + interval '1 day') RETURNING id INTO k8;
+  FOR st, msg IN SELECT * FROM (VALUES
+      (format('UPDATE app.inspection_task SET completed_inspection_id = %L WHERE id = %L', insp3, k8),
+       'TY018 this inspection task is open; only a completed task cites a completing inspection'),
+      (format('UPDATE app.inspection_task SET state = ''CANCELLED'', cancelled_reason = ''76d'', completed_inspection_id = %L WHERE id = %L', insp3, k8),
+       'TY018 this inspection task is cancelled; only a completed task cites a completing inspection'),
+      (format('INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, completed_inspection_id) VALUES (%L, %L, now(), ''CANCELLED'', ''76d'', %L)', bac, h1, insp3),
+       'TY018 this inspection task is cancelled; only a completed task cites a completing inspection'),
+      (format('INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, completed_inspection_id) VALUES (%L, %L, now() + interval ''1 day'', %L)', bac, h1, insp),
+       'TY018 this inspection task is open; only a completed task cites a completing inspection')) v(a, b)
+  LOOP
+    s := NULL;
+    BEGIN
+      EXECUTE st;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE;
+      s := s || ' ' || SQLERRM;
+    END;
+    IF s IS DISTINCT FROM msg THEN
+      RAISE EXCEPTION 'FAIL 76d: % was answered %, not %', st, COALESCE(s, 'by success'), msg;
+    END IF;
+  END LOOP;
+  UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76d' WHERE id = k8;
+  SELECT state::text || ' ' || COALESCE(completed_inspection_id::text, '-') INTO s
+    FROM app.inspection_task WHERE id = k8;
+  IF s IS DISTINCT FROM 'CANCELLED -' THEN
+    RAISE EXCEPTION 'FAIL 76d: the task refused a citation and then cancelled reads %, not CANCELLED -', s;
+  END IF;
+  IF EXISTS (SELECT 1 FROM app.inspection_task WHERE state <> 'COMPLETED' AND completed_inspection_id = insp) THEN
+    RAISE EXCEPTION 'FAIL 76d: a refused plant left an open task citing T76-H1''s inspection';
   END IF;
   -- A unit or inspection this fleet cannot see is the composite FK's to
   -- refuse, so another tenant's row still answers 23503 (check 16).
