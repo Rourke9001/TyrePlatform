@@ -314,7 +314,7 @@ describe("the trip panel", () => {
 
   // Spec decision 4: without the rigs, a trailer coupled to another truck
   // would read as free, so none is offered until they load. The vehicles read
-  // is let settle first, or an empty list proves nothing.
+  // settles first, or an empty list proves nothing.
   async function vehiclesSettled() {
     await waitFor(() => expect(callTo("/api/vehicles", "GET")).toBeGreaterThanOrEqual(0));
     await vi.mocked(fetch).mock.results[callTo("/api/vehicles", "GET")].value;
