@@ -1,0 +1,23 @@
+/* Lines that shimmer where text will arrive. base.css stills the shimmer
+   under prefers-reduced-motion. */
+
+.tr-skel-lines {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.tr-skel {
+  display: block;
+  height: 14px;
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, var(--surface-muted), var(--line), var(--surface-muted));
+  background-size: 200% 100%;
+  animation: tr-shimmer 1.4s linear infinite;
+}
+
+@keyframes tr-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}

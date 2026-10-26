@@ -1,0 +1,65 @@
+/* The outbox chip: a glyph dot per state and the words beside it. Waiting
+   and failed fill the dot so a held inspection is seen at a glance
+   (ADR-0009). */
+
+.tr-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 var(--space-3) 0 var(--space-2);
+  border-radius: var(--radius-pill);
+  border: 0;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--type-small-size);
+  font-weight: 700;
+  white-space: nowrap;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+/* NFR-USE-004: as a button the chip is a target, so it takes the floor. */
+button.tr-sync {
+  min-height: var(--target-min);
+  cursor: pointer;
+}
+
+.tr-sync__dot {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+}
+
+.tr-sync--sent .tr-sync__dot {
+  background: var(--ok);
+  color: var(--on-ok);
+}
+
+.tr-sync--saved .tr-sync__dot,
+.tr-sync--sending .tr-sync__dot {
+  background: var(--interactive-soft);
+  color: var(--interactive);
+}
+
+.tr-sync--waiting .tr-sync__dot {
+  background: var(--warn);
+  color: var(--on-warn);
+}
+
+.tr-sync--failed .tr-sync__dot {
+  background: var(--critical);
+  color: var(--on-critical);
+}
+
+.tr-sync--sending .tr-sync__dot .tr-icon {
+  animation: tr-pulse 1.2s cubic-bezier(0.2, 0, 0, 1) infinite;
+}
+
+@keyframes tr-pulse {
+  50% {
+    transform: translateY(-2px);
+  }
+}
