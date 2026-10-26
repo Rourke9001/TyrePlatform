@@ -79,8 +79,9 @@ by eslint `no-restricted-imports` and `no-restricted-globals`:
   `ui/vocabulary.ts` moved into it. It holds no tyre business rule. It
   imports nothing from the other layers.
 - **Presentation** is `src/ui/` (Tread's components) and the feature
-  folders' screens. `src/ui/` imports only `src/theme/`, transform and
-  domain, never `api/`, `auth/` or a feature. A screen reads data through a
+  folders' screens. `src/ui/` imports only `src/theme/`, `src/format/` and
+  domain, never `api/`, `auth/`, `units/`, `time/` (both read the actor)
+  or a feature. A screen reads data through a
   hook and renders a view model; it never calls `fetch`.
 
 SOLID is applied the way React supports it: one job per component and per
