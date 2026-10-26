@@ -1,0 +1,79 @@
+/* The whole label is the target: the 44px floor, or 56px as a card
+   (NFR-USE-004). */
+
+/* Positioned, so the hidden input stays inside the label and focusing it
+   never scrolls the page. */
+.tr-check {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: var(--target-min);
+  padding: var(--space-2) 0;
+  cursor: pointer;
+}
+
+.tr-check--card {
+  padding: var(--space-3) var(--space-4);
+  min-height: var(--target-glove);
+  border: 2px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  align-items: center;
+}
+
+.tr-check--card:has(input:checked) {
+  border-color: var(--interactive);
+  background: var(--interactive-soft);
+}
+
+.tr-check input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.tr-check__box {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-top: 0;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--on-interactive);
+}
+
+.tr-check input:checked + .tr-check__box {
+  background: var(--interactive);
+  border-color: var(--interactive);
+}
+
+/* The input is invisible, so its focus ring is drawn on the box. */
+.tr-check input:focus-visible + .tr-check__box {
+  outline: 3px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+.tr-check input:disabled + .tr-check__box {
+  opacity: 0.55;
+}
+
+.tr-check__text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.tr-check__label {
+  font-weight: 700;
+}
+
+.tr-check__desc {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-secondary);
+}

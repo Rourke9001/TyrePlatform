@@ -1,0 +1,12 @@
+/* The chevron is drawn over the select's own arrow, which the frame's
+   appearance: none removes; clicks pass through it to the select. */
+
+.tr-input select {
+  cursor: pointer;
+}
+
+.tr-input__chev {
+  pointer-events: none;
+  margin-right: var(--space-3);
+  color: var(--ink-secondary);
+}
