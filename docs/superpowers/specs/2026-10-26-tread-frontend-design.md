@@ -78,8 +78,11 @@ The redesign has failed, even if it looks right, if any of these is true:
 - A tenant colour reaches status, a chart, a link or focus (U53).
 - A threshold, band, cap or target from the artifact's sample data appears
   as a constant (rule 5).
-- Capture's entry chunk carries the manager components, or a module under
-  `src/capture/` or `src/driver/` loads lazily (ADR-0009).
+- Capture's entry chunk carries a manager screen's components (tables,
+  charts, tabs, the photo set, the old kit, Radix), or a module under
+  `src/capture/` or `src/driver/` loads lazily (ADR-0009). Both shells are
+  static on purpose: a lazy shell would sit in front of capture for a
+  manager who captures, and outside the route error boundary.
 - The outbox's state, "Sync now" or the stale-queue warning disappears
   from capture (ADR-0009, NFR-USE-010).
 - A test is weakened to pass. A test that only moves (a click on a tab
@@ -97,7 +100,7 @@ authority, and where they differ the ADR wins. No lane ports these:
 | Exceptions with severity tabs, a search and a row side sheet; the overview's "Find a vehicle or tyre" search | Today's Severity and Rule selects, "Include replaced" and the table, restyled | No new step (non-goals) |
 | Hard-coded "mm" and "kPa" | Unit words from `useUnitLabels()` | FR-CFG-021 |
 | Today: "any other vehicle is one search away" | No new vehicle search; today's DriverHome behaviour, restyled | U143, TYRE-319 |
-| Capture tiles show per-unit numbers only | Capture tiles show the rig-wide number, with the per-unit place in words under it | FR-INS-060, FR-VEH-034, Appendix I |
+| Capture tiles show per-unit numbers only | Capture tiles show the rig-wide number; the per-unit place in words (unit, axle, side) is in each tile's accessible name and the tyre sheet's header, since a dual tile on a phone has no room for it | FR-INS-060, FR-VEH-034, Appendix I |
 | "Needs action", rigs and fitments folded into the vehicle page | Exceptions keeps its name; the rigs and fitments pages stay; nav is grouped | ADR-0020, Navigation |
 | "4 mm spread", "35 mm cap", "target 800", sample kPa | Props fed from tenant configuration, or absent | Rule 5 |
 | `formatRand`, "5 mm" | `formatMoney` with `useCurrency`; `formatMm` with one decimal on manager screens; capture keeps today's strings | Rule 2, `web/CLAUDE.md` |
