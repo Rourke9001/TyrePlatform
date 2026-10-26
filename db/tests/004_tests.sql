@@ -3925,7 +3925,7 @@ BEGIN
   EXCEPTION WHEN OTHERS THEN got := SQLSTATE;
   END;
   IF got IS DISTINCT FROM '23503' THEN
-    RAISE EXCEPTION 'FAIL 34e: a probe inside another tenant''s trip answered % (expected 23503 foreign_key_violation); the EXCLUDE is a cross-tenant oracle', COALESCE(got, 'success');
+    RAISE EXCEPTION 'FAIL 34e: a probe inside another tenant''s trip answered % (expected 23503, as outside it), so a probe tells inside from outside', COALESCE(got, 'success');
   END IF;
 
   got := NULL;
@@ -3938,7 +3938,7 @@ BEGIN
     RAISE EXCEPTION 'FAIL 34e: a probe outside another tenant''s trip answered % (expected 23503)', COALESCE(got, 'success');
   END IF;
 
-  RAISE NOTICE 'PASS  platform-admin emails unique; trips overlap neither on a unit nor for a driver, one driver per motive (U143), back to back is accepted, and the EXCLUDEs are not a cross-tenant oracle';
+  RAISE NOTICE 'PASS  platform-admin emails unique; trips overlap neither on a unit nor for a driver, one driver per motive (U143), back to back is accepted, and a probe of another tenant''s trip answers the same inside it and outside it';
 END $$;
 ROLLBACK;
 
@@ -14026,7 +14026,7 @@ DO $$
 DECLARE
   bac constant uuid := '11111111-1111-1111-1111-111111111111';
   ctl constant uuid := md5('t76c')::uuid;
-  tr1 uuid; tr2 uuid; k uuid; kc uuid; nm uuid;
+  tr1 uuid; tr2 uuid; k uuid; kc uuid; kn uuid; nm uuid;
   row_ app.trip;
   n int; st text; msg text;
 BEGIN
@@ -14172,6 +14172,8 @@ BEGIN
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, md5('t76h3')::uuid, now() + interval '2 days') RETURNING id INTO kc;
   UPDATE app.inspection_task SET state = 'CANCELLED', cancelled_reason = '76c' WHERE id = kc;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('t76h3')::uuid, now() + interval '3 days') RETURNING id INTO kn;
   FOR st, msg IN
     SELECT * FROM (VALUES
       (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
@@ -14192,15 +14194,16 @@ BEGIN
               md5('t76c-cte-k')::uuid, bac, md5('t76h3')::uuid, bac, md5('t76c-cte-k')::uuid, md5('t76d3')::uuid),
        '23503 inspection_task_nomination_tenant_id_task_id_fkey'),
       -- Another fleet's nominee answers with the FK's name, and no FK
-      -- refuses a NULL key; NOT NULL does.
+      -- refuses a NULL key; NOT NULL does. kn holds no nomination at now, so
+      -- the one-per-instant key cannot answer first.
       (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
-              bac, k, md5('driver2')::uuid),
+              bac, kn, md5('driver2')::uuid),
        '23503 inspection_task_nomination_tenant_id_user_id_fkey'),
       (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, NULL, %L)',
               bac, md5('t76d3')::uuid),
        '23502 null value in column "task_id" of relation "inspection_task_nomination" violates not-null constraint'),
       (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, NULL)',
-              bac, k),
+              bac, kn),
        '23502 null value in column "user_id" of relation "inspection_task_nomination" violates not-null constraint')
     ) v(s, m)
   LOOP
