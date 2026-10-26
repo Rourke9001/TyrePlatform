@@ -123,6 +123,11 @@ jobs:
       # past both locally still cannot merge (docs/comments.md, TYRE-22).
       - name: Comment standard (deterministic subset)
         run: node scripts/check-comment-style.mjs
+      # The same gate `make lint` runs (TYRE-445), self-test first (TYRE-49).
+      - name: Colour literals outside tokens.ts
+        run: |
+          node scripts/check-colour-literals.mjs --self-test
+          node scripts/check-colour-literals.mjs
 
   infra:
     name: Infrastructure and workflows

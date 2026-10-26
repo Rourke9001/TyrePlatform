@@ -95,6 +95,73 @@ const appBans = [
   classComponentBan,
 ];
 
+// ADR-0022's import rules, one pattern group each. A later block's list
+// replaces an earlier one's for the same file, so every block below writes
+// its whole list. A type import may cross, since it ships no code.
+const dexieBan = {
+  group: ["dexie"],
+  allowTypeImports: true,
+  message:
+    "Only capture/outbox.ts, capture/draft.ts and capture/useOutbox.ts open Dexie (ADR-0022, ADR-0009).",
+};
+
+const uiBans = {
+  group: [
+    "**/api/**",
+    "**/auth/**",
+    "**/capture/**",
+    "**/driver/**",
+    "**/dashboard/**",
+    "**/fleet/**",
+    "**/admin/**",
+    "**/settings/**",
+    "**/shell/**",
+    "**/units/**",
+    "**/time/**",
+  ],
+  allowTypeImports: true,
+  message:
+    "src/ui/ imports only src/theme/, src/format/ and src/domain/ (ADR-0022). units/ and time/ read the actor, so the caller passes the formatted string.",
+};
+
+const pureBans = {
+  group: ["react", "**/ui/**"],
+  allowTypeImports: true,
+  message:
+    "src/domain/ and src/format/ are plain functions, tested without React, and import no component (ADR-0022).",
+};
+
+// TYRE-443: the capture entry carries no manager component. The rule reads
+// static imports alone, so a lazy route's import() passes. Patterns match
+// as gitignore globs, which have no brace expansion, so each manager-only
+// Tread file is its own entry.
+const managerOnlyUi = [
+  "Metric",
+  "DataTable",
+  "BandChart",
+  "ProvenanceBar",
+  "Tabs",
+  "TabPanel",
+  "Timeline",
+  "KeyValue",
+  "PhotoCapture",
+  "PhotoGallery",
+  "DamageNote",
+];
+const entryForbidden = {
+  group: [
+    "**/domain/vocabulary",
+    "**/ui/legacy/**",
+    "@radix-ui/*",
+    ...managerOnlyUi.map((name) => `**/ui/${name}`),
+  ],
+  allowTypeImports: true,
+  message:
+    "The capture entry carries no manager component (TYRE-443, ADR-0009). Load it behind React.lazy in routes.tsx.",
+};
+
+const testFiles = ["**/*.test.*", "src/test/**"];
+
 export default tseslint.config(
   { ignores: ["dist", "node_modules", "coverage"] },
   {
@@ -127,6 +194,9 @@ export default tseslint.config(
       "no-restricted-syntax": ["error", ...appBans],
       // Rule 2's web half (spec U31): see web/lint/moneyStaysString.js.
       "house/money-stays-string": "error",
+      // The typescript-eslint rule below reads allowTypeImports; the core
+      // rule would refuse the type imports it admits.
+      "no-restricted-imports": "off",
     },
   },
   // web/src/time/tenantTime.ts is the one legitimate home the bans above
@@ -144,6 +214,70 @@ export default tseslint.config(
     files: ["src/shell/RouteErrorBoundary.tsx"],
     rules: {
       "no-restricted-syntax": ["error", ...appBans.filter((ban) => ban !== classComponentBan)],
+    },
+  },
+  // ADR-0022's layers. Each later block replaces the list for the files it
+  // matches, so the order of the next five is part of the rule.
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: testFiles,
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [dexieBan] }],
+    },
+  },
+  // The legacy kit and the gallery are exempt. The kit is retired route by
+  // route, and a gallery sample formats money the way a page does (TYRE-443).
+  {
+    files: ["src/ui/**/*.{ts,tsx}"],
+    ignores: ["src/ui/legacy/**", "src/ui/gallery/**", ...testFiles],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [dexieBan, uiBans] }],
+    },
+  },
+  {
+    files: ["src/domain/**/*.{ts,tsx}", "src/format/**/*.{ts,tsx}"],
+    ignores: testFiles,
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        { patterns: [dexieBan, uiBans, pureBans] },
+      ],
+    },
+  },
+  {
+    files: [
+      "src/{capture,driver,shell,auth}/**/*.{ts,tsx}",
+      "src/App.tsx",
+      "src/main.tsx",
+      "src/routes.tsx",
+    ],
+    ignores: ["src/capture/{outbox,draft,useOutbox}.ts", ...testFiles],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        { patterns: [dexieBan, entryForbidden] },
+      ],
+    },
+  },
+  // The outbox and the draft are the data layer's Dexie half (ADR-0022) and
+  // still sit in the entry.
+  {
+    files: ["src/capture/{outbox,draft,useOutbox}.ts"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [entryForbidden] }],
+    },
+  },
+  {
+    files: ["src/**/*.{ts,tsx}"],
+    ignores: ["src/api/**", ...testFiles],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "fetch",
+          message: "Only src/api/ calls fetch. A screen reads through a query hook (ADR-0022).",
+        },
+      ],
     },
   },
   // Config, tooling and e2e files sit outside the app's tsconfig project, so
