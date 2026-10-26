@@ -134,7 +134,9 @@ const pureBans = {
 // TYRE-443: the capture entry carries no manager component. The rule reads
 // static imports alone, so a lazy route's import() passes. Patterns match
 // as gitignore globs, which have no brace expansion, so each manager-only
-// Tread file is its own entry.
+// Tread file is its own entry. A file pattern also needs its `.*` twin,
+// since allowImportingTsExtensions lets an import name `Metric.tsx` and the
+// bare pattern does not match it.
 const managerOnlyUi = [
   "Metric",
   "DataTable",
@@ -151,9 +153,10 @@ const managerOnlyUi = [
 const entryForbidden = {
   group: [
     "**/domain/vocabulary",
+    "**/domain/vocabulary.*",
     "**/ui/legacy/**",
     "@radix-ui/*",
-    ...managerOnlyUi.map((name) => `**/ui/${name}`),
+    ...managerOnlyUi.flatMap((name) => [`**/ui/${name}`, `**/ui/${name}.*`]),
   ],
   allowTypeImports: true,
   message:

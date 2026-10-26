@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// TYRE-445, TYRE-27: a colour reaches a component only through the custom
-// properties themeCss writes from web/src/theme/tokens.ts. This refuses a
-// hex, rgb() or hsl() literal anywhere else in web/src.
+// TYRE-445, TYRE-27: a colour reaches a component only through custom
+// properties. themeCss writes them from web/src/theme/tokens.ts, and
+// ThemeProvider writes the four brand ones from tenant configuration. This
+// refuses a hex, rgb() or hsl() literal anywhere else in web/src.
 import {
   mkdirSync,
   mkdtempSync,
