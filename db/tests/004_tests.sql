@@ -14096,7 +14096,12 @@ BEGIN
        'TY028 a trip ends now or earlier, never in the future'),
       (format('INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now() + interval ''1 minute'')',
               bac, md5('t76h3')::uuid, md5('t76d3')::uuid),
-       'TY028 a trip starts now or earlier, never in the future')
+       'TY028 a trip starts now or earlier, never in the future'),
+      -- A trailer an unreferenced CTE plants in the same statement is unseen
+      -- by the trigger, and the FK would pass it at the statement's end.
+      (format('WITH nv AS (INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status) SELECT %L, tenant_id, ''T76-CTE'', ''T76CTE GP'', configuration_id, unit_kind, status FROM app.vehicle WHERE id = %L) INSERT INTO app.trip (tenant_id, vehicle_id, user_id, started_at) VALUES (%L, %L, %L, now())',
+              md5('t76c-cte-v')::uuid, md5('t76t1')::uuid, bac, md5('t76c-cte-v')::uuid, md5('t76d3')::uuid),
+       '23503 trip_tenant_id_vehicle_id_fkey')
     ) v(s, m)
   LOOP
     DECLARE got_st text; got_msg text; got_con text;
@@ -14110,7 +14115,7 @@ BEGIN
       IF got_msg LIKE 'FAIL 76c:%' THEN
         RAISE EXCEPTION '%', got_msg;
       END IF;
-      IF (got_st || ' ' || CASE WHEN got_st = '23514' THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
+      IF (got_st || ' ' || CASE WHEN got_st IN ('23514', '23503') THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
         RAISE EXCEPTION 'FAIL 76c: % answered % %, not %', st, got_st, got_msg, msg;
       END IF;
     END;
@@ -14170,21 +14175,26 @@ BEGIN
        'TY018 T76 Driver Inactive is no longer active'),
       (format('INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id, nominated_at) VALUES (%L, %L, %L, now() + interval ''1 second'')',
               bac, k, md5('t76d4')::uuid),
-       'TY018 a nomination is dated now or earlier, never in the future')
+       'TY018 a nomination is dated now or earlier, never in the future'),
+      -- A cancelled task an unreferenced CTE plants in the same statement is
+      -- unseen by the trigger, and the FK would pass it at the statement's end.
+      (format('WITH nk AS (INSERT INTO app.inspection_task (id, tenant_id, vehicle_id, due_at, state, cancelled_reason) VALUES (%L, %L, %L, now(), ''CANCELLED'', ''76c'')) INSERT INTO app.inspection_task_nomination (tenant_id, task_id, user_id) VALUES (%L, %L, %L)',
+              md5('t76c-cte-k')::uuid, bac, md5('t76h3')::uuid, bac, md5('t76c-cte-k')::uuid, md5('t76d3')::uuid),
+       '23503 inspection_task_nomination_tenant_id_task_id_fkey')
     ) v(s, m)
   LOOP
-    DECLARE got_st text; got_msg text;
+    DECLARE got_st text; got_msg text; got_con text;
     BEGIN
       BEGIN
         EXECUTE st;
         RAISE EXCEPTION 'FAIL 76c: % was accepted', st;
       EXCEPTION WHEN OTHERS THEN
-        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT;
+        GET STACKED DIAGNOSTICS got_st = RETURNED_SQLSTATE, got_msg = MESSAGE_TEXT, got_con = CONSTRAINT_NAME;
       END;
       IF got_msg LIKE 'FAIL 76c:%' THEN
         RAISE EXCEPTION '%', got_msg;
       END IF;
-      IF (got_st || ' ' || got_msg) IS DISTINCT FROM msg THEN
+      IF (got_st || ' ' || CASE WHEN got_st = '23503' THEN got_con ELSE got_msg END) IS DISTINCT FROM msg THEN
         RAISE EXCEPTION 'FAIL 76c: % answered % %, not %', st, got_st, got_msg, msg;
       END IF;
     END;
