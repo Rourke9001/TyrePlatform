@@ -440,8 +440,9 @@ more than writing the assumption down first.
   gone, and the generator names no assignee. `refuseNonCapturer` guards
   the trip start's driver, the nominee of a schedule and a nomination, and
   `listDrivers` offers only a role that holds `CaptureInspection`.
-- **A raw app-role INSERT can back-date a trip's start or a nomination's
-  instant: accepted by U152 (TYRE-326, 22 Oct 2026).** No function can:
+- **A raw app-role INSERT of a trip or a nomination can back-date it and
+  skips the rules only its function holds: accepted by U152 and U153
+  (TYRE-326, 22 and 26 Oct 2026).** No function can back-date one:
   `app.start_trip` and `app.nominate_for_task` stamp `now()`. But `app_rw`
   holds INSERT on `app.trip` and `app.inspection_task_nomination`, and
   nothing bounds `started_at` or `nominated_at` below. A bound would refuse
@@ -454,7 +455,7 @@ more than writing the assumption down first.
   of its own: a trip starts and ends no later than now, and a nomination is
   dated no later than now. A raw trip INSERT also skips `app.start_trip`'s
   U148 gate and its race check, and a raw nomination skips
-  `app.nominate_for_task`'s covered-unit rule; U153 (TYRE-326 comment
-  14079, 26 Oct 2026) rules that U152's gap covers both. A rig takes a
-  dated start by design (U8 of the rig setup), so the trip is not the only
-  history a caller can date.
+  `app.nominate_for_task`'s covered-unit rule and its lost-race refusal;
+  U153 (TYRE-326 comment 14079, 26 Oct 2026) rules that U152's gap covers
+  these function-level rules. A rig takes a dated start by design (U8 of
+  the rig setup), so the trip is not the only history a caller can date.
