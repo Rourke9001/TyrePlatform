@@ -14345,12 +14345,20 @@ BEGIN
   IF s IS DISTINCT FROM 'T76-H2 COMPLETED' THEN
     RAISE EXCEPTION 'FAIL 76d: the tasks citing T76-H2''s inspection read %, not T76-H2 COMPLETED alone', s;
   END IF;
-  -- A task nobody completed cites no completing inspection, whether given
-  -- one while open, cancelled with one or planted with one, since the close
-  -- would then freeze the citation.
+  -- A task nobody completed cites no completing inspection, and one nobody
+  -- cancelled carries no reason, whether given one while open, closed with
+  -- one or planted with one, since the close would then freeze it.
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
   VALUES (bac, h1, now() + interval '1 day') RETURNING id INTO k8;
   FOR st, msg IN SELECT * FROM (VALUES
+      (format('UPDATE app.inspection_task SET cancelled_reason = ''76d'' WHERE id = %L', k8),
+       'TY018 this inspection task is open; only a cancelled task carries a cancellation reason'),
+      (format('UPDATE app.inspection_task SET state = ''COMPLETED'', completed_inspection_id = %L, cancelled_reason = ''76d'' WHERE id = %L', insp, k8),
+       'TY018 this inspection task is completed; only a cancelled task carries a cancellation reason'),
+      (format('INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, completed_inspection_id, cancelled_reason) VALUES (%L, %L, now(), ''COMPLETED'', %L, ''76d'')', bac, h1, insp),
+       'TY018 this inspection task is completed; only a cancelled task carries a cancellation reason'),
+      (format('INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, cancelled_reason) VALUES (%L, %L, now() + interval ''1 day'', ''76d'')', bac, h1),
+       'TY018 this inspection task is open; only a cancelled task carries a cancellation reason'),
       (format('UPDATE app.inspection_task SET completed_inspection_id = %L WHERE id = %L', insp3, k8),
        'TY018 this inspection task is open; only a completed task cites a completing inspection'),
       (format('UPDATE app.inspection_task SET state = ''CANCELLED'', cancelled_reason = ''76d'', completed_inspection_id = %L WHERE id = %L', insp3, k8),
@@ -14379,6 +14387,9 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM app.inspection_task WHERE state <> 'COMPLETED' AND completed_inspection_id = insp) THEN
     RAISE EXCEPTION 'FAIL 76d: a refused plant left an open task citing T76-H1''s inspection';
+  END IF;
+  IF EXISTS (SELECT 1 FROM app.inspection_task WHERE state <> 'CANCELLED' AND cancelled_reason IS NOT NULL) THEN
+    RAISE EXCEPTION 'FAIL 76d: a refused write left a task nobody cancelled carrying a reason';
   END IF;
   -- A completion naming a unit or inspection this fleet cannot see is the
   -- trigger's to refuse, with the FK's code and name. An open task on
