@@ -1,0 +1,117 @@
+/* Tread's buttons (ADR-0020). Only the primary fill reads the tenant's
+   brand (U53, brandConfinement.test.ts); every other look is a fixed
+   token. */
+
+.tr-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  font: inherit;
+  font-weight: 700;
+  font-size: var(--type-body-size);
+  line-height: 20px;
+  text-decoration: none;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background-color 120ms cubic-bezier(0.2, 0, 0, 1),
+    border-color 120ms cubic-bezier(0.2, 0, 0, 1),
+    transform 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.tr-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.tr-btn--lg {
+  min-height: 48px;
+  padding: 0 var(--space-5);
+}
+
+/* NFR-USE-004: every control on the driver's route is a 56px target. */
+.tr-btn--glove {
+  min-height: var(--target-glove);
+  padding: 0 var(--space-6);
+  font-size: var(--type-body-lg-size);
+  border-radius: var(--radius-md);
+}
+
+.tr-btn--block {
+  display: flex;
+  width: 100%;
+}
+
+.tr-btn--primary {
+  background: var(--brand);
+  color: var(--on-brand);
+}
+
+.tr-btn--primary:hover:not(:disabled) {
+  background: var(--brand-hover);
+}
+
+.tr-btn--primary:active:not(:disabled) {
+  background: var(--brand-pressed);
+}
+
+.tr-btn--secondary {
+  background: var(--surface);
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
+.tr-btn--secondary:hover:not(:disabled) {
+  background: var(--surface-muted);
+}
+
+.tr-btn--ghost {
+  background: transparent;
+  color: var(--interactive);
+  padding-left: var(--space-3);
+  padding-right: var(--space-3);
+}
+
+.tr-btn--ghost:hover:not(:disabled) {
+  background: var(--interactive-soft);
+  color: var(--interactive-hover);
+}
+
+.tr-btn--danger {
+  background: var(--critical);
+  color: var(--on-critical);
+}
+
+.tr-btn--danger:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+
+.tr-btn:disabled:not([aria-busy="true"]) {
+  cursor: not-allowed;
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  border-color: var(--line);
+}
+
+.tr-btn[aria-busy="true"] {
+  cursor: progress;
+}
+
+.tr-btn__spinner {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: tr-spin 700ms linear infinite;
+}
+
+@keyframes tr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

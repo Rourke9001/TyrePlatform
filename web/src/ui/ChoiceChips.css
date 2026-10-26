@@ -1,0 +1,36 @@
+/* Chips wrap onto as many lines as they need; each is a 44px target, or
+   56px for gloves (NFR-USE-004). The chosen chip carries a check as well
+   as colour (NFR-USE-009). */
+
+.tr-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.tr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--target-min);
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.tr-chips--glove .tr-chip {
+  min-height: var(--target-glove);
+  font-size: 17px;
+  padding: 0 var(--space-5);
+}
+
+.tr-chip[aria-checked="true"] {
+  border-color: var(--interactive);
+  background: var(--interactive-soft);
+}

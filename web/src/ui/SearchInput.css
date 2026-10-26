@@ -1,0 +1,5 @@
+/* The magnifier leads the field and is decoration; the label names it. */
+.tr-input__lead {
+  margin-left: var(--space-3);
+  color: var(--ink-muted);
+}
