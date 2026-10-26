@@ -1,0 +1,105 @@
+/* NFR-USE-004: a tile is at least the 56px glove target both ways. */
+.tr-tile {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 2px;
+  width: 100%;
+  min-width: var(--target-glove);
+  min-height: 72px;
+  margin: 0;
+  padding: 6px var(--space-1);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 120ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.tr-tile:active:not([data-static]) {
+  transform: scale(0.97);
+}
+
+.tr-tile[data-static] {
+  cursor: default;
+}
+
+.tr-tile__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 2px;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 700;
+}
+
+/* The data style, not reading: the caller's string carries its unit
+   ("13mm"), and a dual tile on a 360px phone has about 50px for it. */
+.tr-tile__val {
+  align-self: end;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: var(--type-data-size);
+  line-height: var(--type-data-line);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tr-tile__sub {
+  font-size: var(--type-eyebrow-size);
+  line-height: var(--type-eyebrow-line);
+  font-weight: 500;
+}
+
+.tr-tile--ok {
+  background: var(--ok);
+  color: var(--on-ok);
+}
+
+.tr-tile--warn {
+  background: var(--warn);
+  color: var(--on-warn);
+}
+
+.tr-tile--critical {
+  background: var(--critical);
+  color: var(--on-critical);
+}
+
+.tr-tile--unread {
+  background: var(--surface);
+  color: var(--ink-secondary);
+  border: 2px dashed var(--unmeasured);
+}
+
+.tr-tile--neutral {
+  background: var(--surface);
+  color: var(--ink);
+  border: 2px solid var(--line-strong);
+}
+
+.tr-tile--empty {
+  background: transparent;
+  color: var(--ink-muted);
+  border: 2px dotted var(--line-strong);
+  cursor: default;
+}
+
+.tr-tile[aria-pressed="true"] {
+  outline: 3px solid var(--interactive);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+/* The open position: a ring, never the border, which the condition owns. */
+.tr-tile[data-active="true"] {
+  box-shadow: 0 0 0 3px var(--interactive);
+}
