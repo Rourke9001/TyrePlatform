@@ -30,6 +30,24 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-10-26 - A trigger's "not found" is not always another tenant's row (PR #148)
+
+**What happened:** three BEFORE triggers in 000060 skipped their checks when
+the row they judged was not found, reasoning that only another tenant's row
+is unseen and the composite FK refuses it. A row an unreferenced
+data-modifying CTE inserts in the same statement is unseen too, and the FK,
+checked at the statement's end, finds it, so the checks were stepped round.
+Two review rounds accepted the reasoning. The first fix raised the FK's
+code on every not-found, and section 72c failed: a row naming another
+tenant then met the trigger's 23503 before its table's policy.
+
+**The rule:** a trigger that judges a referenced row refuses a not-found one
+itself, with `ERRCODE = 'foreign_key_violation'` and `CONSTRAINT` set to the
+FK's name, and only when `NEW.tenant_id = app.current_tenant_id()`, so a
+row naming another tenant still reaches its policy. Probe any such check
+with `WITH x AS (INSERT ...) INSERT|UPDATE ...` where the CTE is not
+referenced.
+
 ## 2026-10-22 - The format hook rewraps JSON outside web/, and no gate notices
 
 **What happened:** on TYRE-326 an Edit to `api/internal/httpapi/refusal_codes.json`
