@@ -1,0 +1,37 @@
+/* A square target with one glyph: the 44px floor, or 56px for gloves
+   (NFR-USE-004). Only the on-brand look reads the tenant's brand (U53). */
+
+.tr-iconbtn {
+  display: inline-grid;
+  place-items: center;
+  width: var(--target-min);
+  height: var(--target-min);
+  border-radius: var(--radius-md);
+  border: 2px solid transparent;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0;
+}
+
+.tr-iconbtn:hover {
+  background: var(--surface-muted);
+}
+
+.tr-iconbtn--secondary {
+  border-color: var(--line-strong);
+  background: var(--surface);
+}
+
+.tr-iconbtn--on-brand {
+  color: var(--on-brand);
+}
+
+.tr-iconbtn--on-brand:hover {
+  background: var(--brand-hover);
+}
+
+.tr-iconbtn--glove {
+  width: var(--target-glove);
+  height: var(--target-glove);
+}
