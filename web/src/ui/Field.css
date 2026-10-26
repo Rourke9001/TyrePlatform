@@ -1,0 +1,38 @@
+/* A label, an optional hint, one control and its error, top to bottom.
+   The error carries a glyph as well as colour, so it reads without colour
+   (NFR-USE-009). */
+
+.tr-field {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.tr-field__label {
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 20px;
+  color: var(--ink);
+}
+
+.tr-field__optional {
+  font-weight: 400;
+  color: var(--ink-muted);
+}
+
+.tr-field__hint {
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-muted);
+  margin-top: -4px;
+}
+
+.tr-field__error {
+  display: flex;
+  gap: var(--space-2);
+  align-items: flex-start;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  font-weight: 700;
+  color: var(--critical-text);
+}

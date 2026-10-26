@@ -1,0 +1,21 @@
+/* A multi-line field in the shared frame, which grows with its rows. */
+
+.tr-input--area {
+  align-items: stretch;
+}
+
+.tr-input textarea {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: var(--space-3);
+  resize: vertical;
+}
+
+.tr-input textarea::placeholder {
+  color: var(--ink-muted);
+}
