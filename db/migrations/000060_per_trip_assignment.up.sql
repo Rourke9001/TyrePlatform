@@ -305,13 +305,24 @@ BEGIN
   -- outstanding work (FR-INS-052). It is judged as the task leaves OPEN or
   -- is planted completed.
   IF NEW.state = 'COMPLETED' AND (TG_OP = 'INSERT' OR OLD.state = 'OPEN') THEN
-    -- A unit or inspection this fleet cannot see is the composite FK's to
-    -- refuse, so another tenant's row still answers 23503 (check 16).
+    -- A unit or inspection the bound fleet cannot see is refused with its
+    -- FK's code and name, as app.trip_is_well_formed refuses one (check 16).
+    -- A NULL citation is completion_cites_an_inspection's to refuse.
     SELECT v.fleet_number INTO unit FROM app.vehicle v
      WHERE v.tenant_id = NEW.tenant_id AND v.id = NEW.vehicle_id;
-    IF FOUND THEN
+    IF NOT FOUND AND NEW.tenant_id = app.current_tenant_id() THEN
+      RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation',
+        CONSTRAINT = 'inspection_task_tenant_id_vehicle_id_fkey',
+        MESSAGE = 'insert or update on table "inspection_task" violates foreign key constraint "inspection_task_tenant_id_vehicle_id_fkey"';
+    END IF;
+    IF FOUND AND NEW.completed_inspection_id IS NOT NULL THEN
       PERFORM 1 FROM app.inspection i
        WHERE i.tenant_id = NEW.tenant_id AND i.id = NEW.completed_inspection_id;
+      IF NOT FOUND AND NEW.tenant_id = app.current_tenant_id() THEN
+        RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation',
+          CONSTRAINT = 'inspection_task_tenant_id_completed_inspection_id_fkey',
+          MESSAGE = 'insert or update on table "inspection_task" violates foreign key constraint "inspection_task_tenant_id_completed_inspection_id_fkey"';
+      END IF;
       IF FOUND AND NOT app.inspection_read_unit(NEW.tenant_id, NEW.completed_inspection_id, NEW.vehicle_id) THEN
         RAISE EXCEPTION USING ERRCODE = 'TY018',
           MESSAGE = format('this inspection task is on %s; an inspection that never read that unit cannot complete it', unit);

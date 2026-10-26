@@ -14337,7 +14337,18 @@ BEGIN
               bac, md5('t2veh1')::uuid, insp3),
        '23503 inspection_task_tenant_id_vehicle_id_fkey'),
       (format('UPDATE app.inspection_task SET state = ''COMPLETED'', completed_inspection_id = %L WHERE id = %L', insp_t2, k6),
-       '23503 inspection_task_tenant_id_completed_inspection_id_fkey')) v(a, b)
+       '23503 inspection_task_tenant_id_completed_inspection_id_fkey'),
+      -- A row an unreferenced CTE plants in the same statement is as unseen
+      -- by the trigger, and the FK would pass it at the statement's end.
+      (format('WITH ins AS (INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer) VALUES (%L, %L, %L, %L, gen_random_uuid(), now() - interval ''1 hour'', now() - interval ''40 minutes'', 1000)) UPDATE app.inspection_task SET state = ''COMPLETED'', completed_inspection_id = %L WHERE id = %L',
+              md5('t76d-cte-i1')::uuid, bac, h2, d1, md5('t76d-cte-i1')::uuid, k6),
+       '23503 inspection_task_tenant_id_completed_inspection_id_fkey'),
+      (format('WITH ins AS (INSERT INTO app.inspection (id, tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer) VALUES (%L, %L, %L, %L, gen_random_uuid(), now() - interval ''1 hour'', now() - interval ''40 minutes'', 1000)) INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, completed_inspection_id) VALUES (%L, %L, now(), ''COMPLETED'', %L)',
+              md5('t76d-cte-i2')::uuid, bac, h2, d1, bac, h1, md5('t76d-cte-i2')::uuid),
+       '23503 inspection_task_tenant_id_completed_inspection_id_fkey'),
+      (format('WITH nv AS (INSERT INTO app.vehicle (id, tenant_id, fleet_number, registration, configuration_id, unit_kind, status) SELECT %L, tenant_id, ''T76-CTE'', ''T76CTE GP'', configuration_id, unit_kind, status FROM app.vehicle WHERE id = %L) INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, completed_inspection_id) VALUES (%L, %L, now(), ''COMPLETED'', %L)',
+              md5('t76d-cte-v')::uuid, h1, bac, md5('t76d-cte-v')::uuid, insp3),
+       '23503 inspection_task_tenant_id_vehicle_id_fkey')) v(a, b)
   LOOP
     s := NULL;
     BEGIN
@@ -14350,6 +14361,12 @@ BEGIN
       RAISE EXCEPTION 'FAIL 76d: % was answered %, not %', st, COALESCE(s, 'by success'), msg;
     END IF;
   END LOOP;
+  IF (SELECT state FROM app.inspection_task WHERE id = k6) <> 'OPEN'
+     OR EXISTS (SELECT 1 FROM app.inspection_task
+                 WHERE vehicle_id = md5('t76d-cte-v')::uuid
+                    OR completed_inspection_id IN (md5('t76d-cte-i1')::uuid, md5('t76d-cte-i2')::uuid)) THEN
+    RAISE EXCEPTION 'FAIL 76d: a refused close or plant left a task completed or written';
+  END IF;
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
   VALUES (bac, h1, now(), 'CANCELLED', '76d', now() - interval '1 day') RETURNING id INTO k3;
