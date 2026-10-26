@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { EmptyState } from "./EmptyState";
-import { Truck } from "./icons/Truck";
+import { TruckIcon } from "./icons/Truck";
 
 describe("EmptyState", () => {
   it("titles itself at level 3 by default, with a body and an action", () => {
@@ -20,7 +20,7 @@ describe("EmptyState", () => {
   // The title nests under the heading the state sits beneath.
   it("takes the heading level and glyph it is given and passes unknown props on", () => {
     const { container } = render(
-      <EmptyState title="No vehicles" headingLevel={2} icon={Truck} data-testid="empty" />,
+      <EmptyState title="No vehicles" headingLevel={2} icon={TruckIcon} data-testid="empty" />,
     );
     expect(screen.getByRole("heading", { level: 2, name: "No vehicles" })).toBeInTheDocument();
     expect(screen.getByTestId("empty")).toHaveClass("tr-empty");

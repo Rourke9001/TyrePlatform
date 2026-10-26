@@ -1,4 +1,4 @@
-export function Alert() {
+export function AlertIcon() {
   return (
     <>
       <path d="M10.3 4.4L2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.4a2 2 0 0 0-3.4 0z" />

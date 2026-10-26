@@ -1,4 +1,4 @@
-export function Coins() {
+export function CoinsIcon() {
   return (
     <>
       <ellipse cx="12" cy="6.5" rx="7" ry="3" />

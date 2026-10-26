@@ -1,4 +1,4 @@
-export function Logout() {
+export function LogoutIcon() {
   return (
     <>
       <path d="M14 4.5h4.5a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5H14" />

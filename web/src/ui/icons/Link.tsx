@@ -1,4 +1,4 @@
-export function Link() {
+export function LinkIcon() {
   return (
     <>
       <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />

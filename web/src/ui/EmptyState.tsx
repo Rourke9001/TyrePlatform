@@ -2,7 +2,7 @@ import type { HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "./cx";
 import { Icon, type IconGlyph } from "./Icon";
-import { Check } from "./icons/Check";
+import { CheckIcon } from "./icons/Check";
 import "./EmptyState.css";
 
 export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
@@ -18,7 +18,7 @@ export interface EmptyStateProps extends Omit<HTMLAttributes<HTMLDivElement>, "t
 // An empty result is an answer, never an error: it says what is absent
 // and, where one exists, what to do.
 export function EmptyState({
-  icon = Check,
+  icon = CheckIcon,
   title,
   children,
   action,

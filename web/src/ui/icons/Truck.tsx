@@ -1,4 +1,4 @@
-export function Truck() {
+export function TruckIcon() {
   return (
     <>
       <path d="M2.5 6.5h11v9.5h-11z" />

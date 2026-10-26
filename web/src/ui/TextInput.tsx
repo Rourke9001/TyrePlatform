@@ -16,8 +16,10 @@ export interface TextInputProps extends Omit<
   mono?: boolean;
 }
 
-// className styles the frame; every other prop reaches the input, because
-// the input is what a Field labels and describes and what a form reads.
+// TextInput, Select, SearchInput, TextArea and Checkbox put className on
+// their frame (Checkbox's label) and every other prop on the native
+// control: Field gives the control its id, description and aria-invalid
+// (Field.tsx), and a form reads the control, not the frame.
 export function TextInput({
   prefix,
   suffix,

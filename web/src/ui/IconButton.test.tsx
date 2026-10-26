@@ -3,18 +3,18 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { IconButton } from "./IconButton";
-import { Close } from "./icons/Close";
+import { CloseIcon } from "./icons/Close";
 
 describe("IconButton", () => {
   it("IconButton exposes its label", () => {
-    const { container } = render(<IconButton label="Close" icon={Close} />);
+    const { container } = render(<IconButton label="Close" icon={CloseIcon} />);
     const button = screen.getByRole("button", { name: "Close" });
     expect(button).toHaveAttribute("type", "button");
     expect(container.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
   });
 
   it("carries its variant and glove size", () => {
-    render(<IconButton label="Menu" icon={Close} variant="on-brand" size="glove" />);
+    render(<IconButton label="Menu" icon={CloseIcon} variant="on-brand" size="glove" />);
     expect(screen.getByRole("button", { name: "Menu" })).toHaveClass(
       "tr-iconbtn",
       "tr-iconbtn--on-brand",
@@ -25,7 +25,7 @@ describe("IconButton", () => {
   it("passes unknown props and the click through", async () => {
     const onClick = vi.fn();
     render(
-      <IconButton label="Close" icon={Close} onClick={onClick} data-testid="x" aria-expanded />,
+      <IconButton label="Close" icon={CloseIcon} onClick={onClick} data-testid="x" aria-expanded />,
     );
     const button = screen.getByTestId("x");
     expect(button).toHaveAttribute("aria-expanded", "true");

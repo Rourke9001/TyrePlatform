@@ -1,4 +1,4 @@
-export function Note() {
+export function NoteIcon() {
   return (
     <>
       <path d="M5.5 3.5h9l4 4v13h-13z" />

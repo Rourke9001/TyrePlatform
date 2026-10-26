@@ -1,4 +1,4 @@
-export function Info() {
+export function InfoIcon() {
   return (
     <>
       <circle cx="12" cy="12" r="9" />

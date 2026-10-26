@@ -1,4 +1,4 @@
-export function Wifi() {
+export function WifiIcon() {
   return (
     <>
       <path d="M2.5 9a14 14 0 0 1 19 0" />
