@@ -120,6 +120,9 @@
 .tr-driver__body {
   flex: 1;
   display: grid;
+  /* One track no wider than the box, so a child with a wide minimum, such
+     as a tab list, scrolls inside itself instead of widening the page. */
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: var(--space-4);
   padding: var(--space-2) var(--space-4) var(--space-6);
