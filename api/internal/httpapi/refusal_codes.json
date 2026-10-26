@@ -115,6 +115,11 @@
     "httpStatus": 409,
     "meaning": "composition_observation_once: someone has already applied or dismissed that report"
   },
+  "concurrent_change": {
+    "source": "go",
+    "httpStatus": 503,
+    "meaning": "40P01: two writes met each other's row locks in opposite orders and the database rolled this one back; the same request lands on a retry, so it is a 503 the capture outbox retries, never a 409 it parks (ADR-0009)"
+  },
   "TY001": {
     "source": "db",
     "httpStatus": null,

@@ -129,6 +129,11 @@ and turned into an `app.inspection_warning` row. `TY010` (no tenant/actor
 bound) is also absent, because that is a genuine invariant breach, not a
 client mistake.
 
+A deadlock (`40P01`) is canned too, as `concurrent_change`, 503: two writes
+met each other's row locks in opposite orders, and the same request lands
+on a retry. A 409 would be wrong, since the capture outbox parks a 409 for
+good (ADR-0009).
+
 `withActor` sorts one case out before any of that: a fault in one of
 `store.InActorTx`'s own steps, before the handler's work runs, comes back as
 a `store.ActorSetupError` and answers 500 whatever SQLSTATE it carries.
