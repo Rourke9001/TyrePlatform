@@ -1,4 +1,4 @@
-export function Swap() {
+export function SwapIcon() {
   return (
     <>
       <path d="M7 4L4 7l3 3M4 7h12a4 4 0 0 1 4 4" />

@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { Badge } from "./Badge";
-import { Tyre } from "./icons/Tyre";
+import { TyreIcon } from "./icons/Tyre";
 
 describe("Badge", () => {
   it("shows the caller's words in the neutral tone", () => {
@@ -12,7 +12,7 @@ describe("Badge", () => {
 
   it("hides its glyph and passes unknown props on", () => {
     const { container } = render(
-      <Badge icon={Tyre} data-testid="role">
+      <Badge icon={TyreIcon} data-testid="role">
         Driver
       </Badge>,
     );

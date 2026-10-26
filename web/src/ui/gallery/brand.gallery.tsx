@@ -4,12 +4,13 @@ import { BrandMark } from "../BrandMark";
 import { Icon, type IconGlyph } from "../Icon";
 import type { GallerySection } from "./types";
 
-// Every glyph module, so a new icon shows here with no edit.
+// Every glyph module, so a new icon shows here with no edit. Each cell
+// shows the export a screen imports.
 const glyphs = Object.entries(
   import.meta.glob<Record<string, IconGlyph>>("../icons/*.tsx", { eager: true }),
 )
   .map(([path, mod]) => {
-    const name = /(\w+)\.tsx$/.exec(path)?.[1] ?? path;
+    const name = `${/(\w+)\.tsx$/.exec(path)?.[1] ?? path}Icon`;
     return { name, glyph: mod[name] };
   })
   .sort((a, b) => a.name.localeCompare(b.name, "en"));

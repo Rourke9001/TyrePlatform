@@ -2,7 +2,7 @@ import type { SelectHTMLAttributes } from "react";
 
 import { cx } from "./cx";
 import { Icon } from "./Icon";
-import { ChevronDown } from "./icons/ChevronDown";
+import { ChevronDownIcon } from "./icons/ChevronDown";
 import "./TextInput.css";
 import "./Select.css";
 
@@ -19,8 +19,8 @@ export interface SelectProps extends Omit<SelectHTMLAttributes<HTMLSelectElement
 }
 
 // Native, not Radix: capture carries no Radix (ADR-0015, TYRE-443), and a
-// phone's own picker suits a glove. className styles the frame; every other
-// prop reaches the select.
+// phone's own picker suits a glove. className and the other props split as
+// TextInput's do.
 export function Select({ options, placeholder, size = "md", className, ...rest }: SelectProps) {
   const invalid = rest["aria-invalid"] !== undefined && String(rest["aria-invalid"]) !== "false";
   return (
@@ -40,7 +40,7 @@ export function Select({ options, placeholder, size = "md", className, ...rest }
           </option>
         ))}
       </select>
-      <Icon icon={ChevronDown} size={18} className="tr-input__chev" />
+      <Icon icon={ChevronDownIcon} size={18} className="tr-input__chev" />
     </div>
   );
 }

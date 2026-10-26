@@ -1,4 +1,4 @@
-export function Search() {
+export function SearchIcon() {
   return (
     <>
       <circle cx="11" cy="11" r="6.5" />

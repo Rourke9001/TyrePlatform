@@ -1,4 +1,4 @@
-export function Device() {
+export function DeviceIcon() {
   return (
     <>
       <rect x="6.5" y="2.5" width="11" height="19" rx="2" />

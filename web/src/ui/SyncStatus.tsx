@@ -3,11 +3,11 @@ import type { HTMLAttributes } from "react";
 import { groupThousands } from "../format/groupThousands";
 import { cx } from "./cx";
 import { Icon, type IconGlyph } from "./Icon";
-import { CloudCheck } from "./icons/CloudCheck";
-import { CloudOff } from "./icons/CloudOff";
-import { CloudUp } from "./icons/CloudUp";
-import { Critical } from "./icons/Critical";
-import { Device } from "./icons/Device";
+import { CloudCheckIcon } from "./icons/CloudCheck";
+import { CloudOffIcon } from "./icons/CloudOff";
+import { CloudUpIcon } from "./icons/CloudUp";
+import { CriticalIcon } from "./icons/Critical";
+import { DeviceIcon } from "./icons/Device";
 import "./SyncStatus.css";
 
 // sent: nothing held on the phone. saved: the open inspection is held on
@@ -15,11 +15,14 @@ import "./SyncStatus.css";
 export type SyncState = "sent" | "saved" | "sending" | "waiting" | "failed";
 
 const SYNC: Record<SyncState, { icon: IconGlyph; words: (n: string, count: number) => string }> = {
-  sent: { icon: CloudCheck, words: () => "All sent" },
-  saved: { icon: Device, words: () => "Saved on phone" },
-  sending: { icon: CloudUp, words: (n, count) => (count > 1 ? `Sending ${n}` : "Sending") },
-  waiting: { icon: CloudOff, words: (n) => `${n} waiting for signal` },
-  failed: { icon: Critical, words: (n, count) => `${n} need${count === 1 ? "s" : ""} the office` },
+  sent: { icon: CloudCheckIcon, words: () => "All sent" },
+  saved: { icon: DeviceIcon, words: () => "Saved on phone" },
+  sending: { icon: CloudUpIcon, words: (n, count) => (count > 1 ? `Sending ${n}` : "Sending") },
+  waiting: { icon: CloudOffIcon, words: (n) => `${n} waiting for signal` },
+  failed: {
+    icon: CriticalIcon,
+    words: (n, count) => `${n} need${count === 1 ? "s" : ""} the office`,
+  },
 };
 
 export interface SyncStatusProps extends Omit<HTMLAttributes<HTMLElement>, "onClick"> {
