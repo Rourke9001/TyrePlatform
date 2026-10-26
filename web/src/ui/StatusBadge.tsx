@@ -7,12 +7,9 @@ import { Check } from "./icons/Check";
 import { Critical } from "./icons/Critical";
 import { Minus } from "./icons/Minus";
 import { Unread } from "./icons/Unread";
+import type { Condition } from "./condition";
 import "./Badge.css";
 import "./StatusBadge.css";
-
-// A tyre's condition against the tenant's configured thresholds. The
-// thresholds are tenant data (rule 5); this only names the outcome.
-export type Condition = "ok" | "near" | "limit" | "unread" | "nospare";
 
 const LOOK: Record<Condition, { icon: IconGlyph; tone: string }> = {
   ok: { icon: Check, tone: "ok" },
