@@ -753,3 +753,36 @@ func TestObservationOutOfDepotResolutionLocksNothing(t *testing.T) {
 		})
 	}
 }
+
+// app.create_combination_at writes the motive as member 1 (U7), but nothing
+// holds a rig row to it and app_rw writes rig rows, so a rig can have no
+// member rows. The depot lock takes the motive with the members, so a report
+// the manager's list shows is never refused as missing.
+func TestObservationOnRigWithNoMembersResolvesInDepot(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "obs-lock-motive")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	mine, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mine)
+
+	motive, fleet, _ := plantMotive(t, ctx, admin, tenantID)
+	_, err := admin.Exec(ctx, `UPDATE app.vehicle SET home_depot_id = $2 WHERE id = $1`, motive, mine)
+	require.NoError(t, err)
+	warning, rig, _ := plantReport(t, ctx, admin, tenantID, motive, driver, []uuid.UUID{motive})
+	_, err = admin.Exec(ctx, `DELETE FROM app.combination_member WHERE combination_id = $1`, rig)
+	require.NoError(t, err)
+
+	tn, mgr := tenantID.String(), manager.String()
+	listed := listReports(t, h, tn, mgr)
+	require.Len(t, listed, 1)
+	require.Equal(t, fleet, listed[0].Rig.MotiveFleetNumber)
+	require.Empty(t, listed[0].Rig.Members, "the rig has no member rows")
+
+	rec := post(t, h, "/api/combinations/observations/"+warning.String()+"/dismiss",
+		tn, mgr, `{"note":"the rig was never recorded"}`)
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
+	require.Empty(t, listReports(t, h, tn, mgr), "a dismissed report leaves the list")
+}
