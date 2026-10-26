@@ -641,9 +641,8 @@ func resolveBehindAHeldTrailer(t *testing.T, ctx context.Context, h http.Handler
 }
 
 // An apply in both scopes: a depot actor's units are locked in
-// reachableObservation, a controller's in applyObservation. Before the rig
-// lock order, the apply held the rig while it waited on the trailer it
-// re-couples.
+// reachableObservation, a controller's in applyObservation. An apply that took
+// the rig first would hold it while it waits on the trailer it re-couples.
 func TestObservationApplyLocksTheUnitsBeforeTheRig(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
