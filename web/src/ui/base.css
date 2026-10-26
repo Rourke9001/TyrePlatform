@@ -30,8 +30,9 @@ body {
   }
 }
 
-/* U53: every focus ring is the fixed platform colour, at least 3:1 on any
-   ground in either theme whatever the tenant's brand (tokens.test.ts). */
+/* U53: every focus ring is the fixed platform colour, whatever the
+   tenant's brand; it clears 4.5:1 on surface and surface-muted in either
+   theme (tokens.test.ts). */
 :focus-visible {
   outline: 3px solid var(--interactive);
   outline-offset: 2px;

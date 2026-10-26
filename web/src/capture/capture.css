@@ -96,7 +96,7 @@
 
 .cap-pos--roadworthy {
   border-color: var(--ok-text);
-  background: var(--ok);
+  background: var(--surface);
 }
 .cap-pos--caution {
   border-color: var(--warn-text);
@@ -355,7 +355,7 @@
 }
 .cap-alert--ok {
   border-left-color: var(--ok-text);
-  background: var(--ok);
+  background: var(--surface);
   color: var(--ink-muted);
 }
 

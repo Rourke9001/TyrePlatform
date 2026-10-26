@@ -79,7 +79,9 @@ const colour = {
   "on-viewer": ["#ffffff", "#ffffff"],
   // U46: off the artifact's value, in its hue, so the light end clears 2:1.
   "data-1": ["#9abbd3", "#314e64"],
-  "data-2": ["#91b6cf", "#3b6481"],
+  // U56: Daylight's step 2 is off the artifact's value, in its hue, so it
+  // reads apart from step 1 (tokens.test.ts holds each step 1.2 apart).
+  "data-2": ["#78a5c4", "#3b6481"],
   "data-3": ["#5d90b3", "#5a8db1"],
   "data-4": ["#356f96", "#85b3d4"],
   "data-5": ["#1b4c6d", "#bcd9ee"],
@@ -230,15 +232,16 @@ function scaleVars(): [string, string][] {
 // (themeStyle.ts). Daylight is the root's default; a [data-theme] subtree
 // takes its own theme. The brand slot's platform default sits on :root
 // alone, so a themed subtree inherits the tenant brand ThemeProvider
-// writes on the root (U53).
+// writes on the root (U53). Each theme block names its color-scheme, so
+// native controls and scrollbars draw in that theme.
 export function themeCss(): string {
   const brand = BRAND_SLOT.map((name): [string, string] => [name, themes.light[name]]);
   const light = [...colourVars("light", BRAND_SLOT), ...shadowVars("light"), ...scaleVars()];
   const dark = [...colourVars("dark", BRAND_SLOT), ...shadowVars("dark")];
   return (
     `:root{${declarations(brand)}}` +
-    `:root,[data-theme="light"]{${declarations(light)}}` +
-    `:root[data-theme="dark"],[data-theme="dark"]{${declarations(dark)}}`
+    `:root,[data-theme="light"]{color-scheme:light;${declarations(light)}}` +
+    `:root[data-theme="dark"],[data-theme="dark"]{color-scheme:dark;${declarations(dark)}}`
   );
 }
 
