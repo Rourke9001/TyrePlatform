@@ -42,7 +42,7 @@ for (const phone of PHONES) {
     await page.locator("[data-position-id]").first().click();
     // A running position. The glyph and hint take height a spare's sheet does not.
     await expect(page.getByText("Enter left to right, as seen from above.")).toBeVisible();
-    // A fallback face is wider than Archivo, and the tile spill check has a few px of room at 360.
+    // The spill check measures Atkinson. A fallback face has other metrics, and the tiles have a few px of room at 360.
     await page.evaluate(() => document.fonts.ready);
 
     expect(await page.evaluate(() => window.innerWidth)).toBe(phone.width);

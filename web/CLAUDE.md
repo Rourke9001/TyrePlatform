@@ -154,9 +154,10 @@ the next copy edit.
   stops (`src/ui/bandFill.ts`, U56), in a lazy module so the capture route
   does not carry it; the mm thresholds that assign either are tenant
   configuration and never reach this codebase (rule 5). Fonts are
-  self-hosted @fontsource — no CDN: the capture app must render on a flaky
-  depot connection, and a font fetch is a third-party dependency the
-  driver's flow must never wait on (ADR-0009).
+  self-hosted woff2 files in `src/theme/fonts/` (Atkinson Hyperlegible Next
+  and Mono, `fonts.css`, TYRE-446), never a CDN. The capture app must render
+  on a flaky depot connection, and a font fetch is a third-party dependency
+  the driver's flow must never wait on (ADR-0009).
 - The web origin's CSP and `Permissions-Policy`
   (`web/staticwebapp.config.json`) never apply under `vite dev`, so a new
   image source, camera or location use needs a header change that only the
