@@ -136,8 +136,8 @@ BEGIN
   -- A user or unit the bound fleet cannot see is refused with its FK's code
   -- and name: another fleet's row, or one an unreferenced data-modifying CTE
   -- plants in this statement, which the FK would pass at the statement's end
-  -- (section 34e). A row naming another fleet is its policy's to refuse
-  -- (section 72c).
+  -- (section 34e). A row naming another fleet is left to the policy, whose
+  -- WITH CHECK refuses every row this guard skips (section 72c).
   SELECT * INTO usr FROM app.app_user u WHERE u.tenant_id = NEW.tenant_id AND u.id = NEW.user_id;
   IF NOT FOUND AND NEW.tenant_id = app.current_tenant_id() THEN
     RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'trip_tenant_id_user_id_fkey',
