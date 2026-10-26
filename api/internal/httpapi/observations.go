@@ -147,18 +147,26 @@ func listObservations(s *store.Store) http.HandlerFunc {
 
 // reachableObservation is FR-AUT-008's narrowing: a rig is homed where its
 // horse is (ledger ruling, 7 Sep 2026). Depot scope reasoning is
-// fitments.go's fitTyre. The offered rig's units are locked first, so the
-// motive's scope is judged under the locks the resolution then writes
-// beneath.
+// fitments.go's fitTyre. A depot lock that took no unit is the 404: the
+// motive is a member of its own rig, so a locked motive cannot move depots
+// before the scope check judges it.
 func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {
 	if a.Scope() == auth.ScopeTenant {
 		return nil
 	}
-	if err := lockOfferedRigUnits(ctx, tx, a, warningID); err != nil {
+	locked, err := lockOfferedRigUnits(ctx, tx, a, warningID)
+	if err != nil {
 		return err
 	}
+	if locked == 0 {
+		return refusalError{refusal{
+			status:  http.StatusNotFound,
+			code:    codeNotFound,
+			message: "no such report in this fleet",
+		}}
+	}
 	var in bool
-	err := tx.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`SELECT EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = c.motive_vehicle_id)
 		   FROM app.inspection_warning w
 		   JOIN app.inspection i  ON i.id = w.inspection_id
@@ -185,9 +193,9 @@ func reachableObservation(ctx context.Context, tx pgx.Tx, a auth.Actor, warningI
 // UPDATE (000044), so a shared pre-lock would be an upgrade and two applies
 // on one rig could deadlock. For a depot actor the rig's motive must be in
 // scope or nothing is locked, so a refused request never holds another
-// depot's units (FR-AUT-008); reachableObservation then answers the 404.
-func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) error {
-	if _, err := tx.Exec(ctx,
+// depot's units (FR-AUT-008). It returns the units locked.
+func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID uuid.UUID) (int64, error) {
+	tag, err := tx.Exec(ctx,
 		`SELECT v.id
 		   FROM app.vehicle v
 		  WHERE v.id IN (SELECT cm.vehicle_id
@@ -198,10 +206,11 @@ func lockOfferedRigUnits(ctx context.Context, tx pgx.Tx, a auth.Actor, warningID
 		                  WHERE w.id = $1
 		                    AND EXISTS (SELECT 1 FROM `+unitSource(a)+` s WHERE s.id = c.motive_vehicle_id))
 		  ORDER BY v.id
-		  FOR UPDATE OF v`, warningID); err != nil {
-		return fmt.Errorf("locking the units of composition report %s: %w", warningID, err)
+		  FOR UPDATE OF v`, warningID)
+	if err != nil {
+		return 0, fmt.Errorf("locking the units of composition report %s: %w", warningID, err)
 	}
-	return nil
+	return tag.RowsAffected(), nil
 }
 
 type applyObservationResponse struct {
@@ -238,7 +247,7 @@ func applyObservation(s *store.Store) http.HandlerFunc {
 			// units (000044), so the units are taken first: here for a
 			// tenant-wide actor, in reachableObservation for a depot one.
 			if a.Scope() == auth.ScopeTenant {
-				if err := lockOfferedRigUnits(ctx, tx, a, warningID); err != nil {
+				if _, err := lockOfferedRigUnits(ctx, tx, a, warningID); err != nil {
 					return err
 				}
 			}
