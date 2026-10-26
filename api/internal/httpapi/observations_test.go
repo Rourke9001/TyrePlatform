@@ -688,7 +688,7 @@ func TestObservationDismissLocksTheUnitsBeforeTheRig(t *testing.T) {
 
 // A depot actor outside the rig's depot is refused before any unit is taken:
 // the request answers 404 while another session still holds a trailer of the
-// rig, where a lock-then-check order would queue behind it (FR-AUT-008).
+// rig, where a lock that ignored scope would queue behind it (FR-AUT-008).
 func TestObservationOutOfDepotResolutionLocksNothing(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -717,22 +717,38 @@ func TestObservationOutOfDepotResolutionLocksNothing(t *testing.T) {
 			hold, err := holder.Begin(ctx)
 			require.NoError(t, err)
 			t.Cleanup(func() { _ = hold.Rollback(context.Background()) })
-			_, err = hold.Exec(ctx, `SELECT 1 FROM app.vehicle WHERE id = $1 FOR UPDATE`, trailer)
+			_, err = hold.Exec(ctx, `SELECT 1 FROM app.vehicle WHERE id = ANY ($1) FOR UPDATE`,
+				[]uuid.UUID{motive, trailer})
 			require.NoError(t, err)
+			var holderPID int
+			require.NoError(t, hold.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID))
 
 			done := make(chan *httptest.ResponseRecorder, 1)
 			go func() {
 				done <- post(t, h, "/api/combinations/observations/"+warning.String()+"/"+action.name,
 					tenantID.String(), manager.String(), action.body)
 			}()
-			select {
-			case rec := <-done:
-				require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
-			case <-time.After(5 * time.Second):
-				_ = hold.Rollback(ctx)
-				<-done
-				t.Fatalf("the out-of-depot %s queued behind a unit it may not touch", action.name)
+			var rec *httptest.ResponseRecorder
+			for deadline := time.Now().Add(10 * time.Second); rec == nil && time.Now().Before(deadline); {
+				select {
+				case rec = <-done:
+					continue
+				default:
+				}
+				var queued bool
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+					                 WHERE wait_event_type = 'Lock' AND $1 = ANY (pg_blocking_pids(pid)))`,
+					holderPID).Scan(&queued))
+				if queued {
+					_ = hold.Rollback(ctx)
+					<-done
+					t.Fatalf("the out-of-depot %s queued behind a unit it may not touch", action.name)
+				}
+				time.Sleep(20 * time.Millisecond)
 			}
+			require.NotNil(t, rec, "the out-of-depot %s never answered", action.name)
+			require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
 			require.True(t, rigIsOpen(t, ctx, admin, rig), "a refused write writes nothing")
 		})
 	}
