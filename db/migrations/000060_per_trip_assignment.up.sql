@@ -136,9 +136,9 @@ BEGIN
   -- A user or unit the bound fleet cannot see is refused with its FK's code
   -- and name: another fleet's row, or one an unreferenced data-modifying CTE
   -- plants in this statement, which the FK would pass at the statement's end
-  -- (sections 34e, 76c). A NULL key is NOT NULL's to refuse. A row naming
-  -- another fleet is left to the policy, whose WITH CHECK refuses every
-  -- app-role row this guard skips (section 72c).
+  -- (sections 34e, 76c). A NULL key is NOT NULL's to refuse, and a row
+  -- naming another fleet the policy's, whose WITH CHECK refuses it for the
+  -- app role (section 72c).
   SELECT * INTO usr FROM app.app_user u WHERE u.tenant_id = NEW.tenant_id AND u.id = NEW.user_id;
   IF NOT FOUND AND NEW.user_id IS NOT NULL AND NEW.tenant_id = app.current_tenant_id() THEN
     RAISE EXCEPTION USING ERRCODE = 'foreign_key_violation', CONSTRAINT = 'trip_tenant_id_user_id_fkey',
