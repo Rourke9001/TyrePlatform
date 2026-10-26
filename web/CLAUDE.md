@@ -184,9 +184,11 @@ TYRE-443); until a route moves, the kit's rules hold for it.
 `src/ui/legacy/` holds the kit: PageHeader, StatTile, SeverityBadge,
 ProvenanceSplit, DataTable, Panel, EmptyState, FormField, Button, Select and
 Dialog (Radix), FilterBar, BandChart, with their `ui.css`, which each lazy
-route module that renders them imports. `/dev/design` renders all of them
-with example values under `vite dev` and is where a change is looked at
-before it is reviewed. Rules that are not visible in the code:
+route module that renders them imports. `/dev/legacy` renders all of them
+with example values under `vite dev`. `/dev/design` is Tread's gallery: each
+`src/ui/gallery/<group>.gallery.tsx` exports a `section`, shown in a
+Daylight and a Night shift column side by side, and it is where a change is
+looked at before it is reviewed. Rules that are not visible in the code:
 
 - Copy stays straight-quoted and sentence case (`/unslop`), not curly quotes
   or Title Case.
