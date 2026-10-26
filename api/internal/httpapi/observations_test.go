@@ -566,12 +566,84 @@ func TestObservationSurfaceIgnoresAClientNamedReport(t *testing.T) {
 	require.True(t, rigIsOpen(t, ctx, admin, clientRig), "a refused report touches no rig")
 }
 
-// The rig lock order (units.go): a rig write locks its units before its rig
-// row. A second connection holds the trailer the apply re-couples, the apply
-// queues behind it, and a third takes the offered rig FOR UPDATE NOWAIT,
-// which succeeds only while the apply holds no lock on the rig. Both scopes:
-// a depot actor's units are locked in reachableObservation, a controller's in
-// applyObservation.
+// resolveBehindAHeldTrailer plants a report on a rig of its own, homed at
+// depot, and sends its resolution while a second connection holds the
+// trailer the report keeps FOR UPDATE. Once the request queues behind it, a
+// third connection tries the rig FOR UPDATE NOWAIT. It answers the request's
+// response and that try's error, so a caller asserts the rig lock order
+// (units.go): a resolution holds no lock on the rig while it waits on a unit.
+func resolveBehindAHeldTrailer(t *testing.T, ctx context.Context, h http.Handler, admin *pgx.Conn,
+	tenantID, depot, driver, actor uuid.UUID, action, body string,
+) (*httptest.ResponseRecorder, error) {
+	t.Helper()
+	motive, _, configID := plantMotive(t, ctx, admin, tenantID)
+	_, err := admin.Exec(ctx, `UPDATE app.vehicle SET home_depot_id = $2 WHERE id = $1`, motive, depot)
+	require.NoError(t, err)
+	kept, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+	dropped, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+	// One trailer seen gone, so an apply re-couples the other and
+	// app.create_combination_at locks it.
+	warning, rig, _ := plantReport(t, ctx, admin, tenantID, motive, driver,
+		[]uuid.UUID{motive, kept}, kept, dropped)
+
+	connect := func() *pgx.Conn {
+		t.Helper()
+		conn, err := pgx.Connect(ctx, os.Getenv("TEST_ADMIN_DATABASE_URL"))
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.Close(context.Background()) })
+		return conn
+	}
+	holder, prober := connect(), connect()
+	hold, err := holder.Begin(ctx)
+	require.NoError(t, err)
+	released := false
+	release := func() {
+		if !released {
+			released = true
+			_ = hold.Rollback(context.Background())
+		}
+	}
+	t.Cleanup(release)
+	_, err = hold.Exec(ctx, `SELECT 1 FROM app.vehicle WHERE id = $1 FOR UPDATE`, kept)
+	require.NoError(t, err)
+	var holderPID int
+	require.NoError(t, hold.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID))
+
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- post(t, h, "/api/combinations/observations/"+warning.String()+"/"+action,
+			tenantID.String(), actor.String(), body)
+	}()
+	queued := false
+	for deadline := time.Now().Add(10 * time.Second); !queued && time.Now().Before(deadline); {
+		require.NoError(t, admin.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+			                 WHERE wait_event_type = 'Lock' AND $1 = ANY (pg_blocking_pids(pid)))`,
+			holderPID).Scan(&queued))
+		if !queued {
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	require.True(t, queued, "the %s never queued behind the held trailer", action)
+
+	probe, err := prober.Begin(ctx)
+	require.NoError(t, err)
+	_, probeErr := probe.Exec(ctx, `SELECT 1 FROM app.combination WHERE id = $1 FOR UPDATE NOWAIT`, rig)
+	require.NoError(t, probe.Rollback(ctx))
+	release()
+	select {
+	case rec := <-done:
+		return rec, probeErr
+	case <-time.After(15 * time.Second):
+		t.Fatalf("the %s did not finish once the trailer was released", action)
+		return nil, nil
+	}
+}
+
+// An apply in both scopes: a depot actor's units are locked in
+// reachableObservation, a controller's in applyObservation. Before the rig
+// lock order, the apply held the rig while it waited on the trailer it
+// re-couples.
 func TestObservationApplyLocksTheUnitsBeforeTheRig(t *testing.T) {
 	ctx := context.Background()
 	s, admin := testStore(t, ctx)
@@ -583,71 +655,34 @@ func TestObservationApplyLocksTheUnitsBeforeTheRig(t *testing.T) {
 	depot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
 	joinDepot(t, ctx, admin, tenantID, manager, depot)
 
-	for name, actor := range map[string]uuid.UUID{"controller": controller, "depot manager": manager} {
-		t.Run(name, func(t *testing.T) {
-			motive, _, configID := plantMotive(t, ctx, admin, tenantID)
-			_, err := admin.Exec(ctx, `UPDATE app.vehicle SET home_depot_id = $2 WHERE id = $1`, motive, depot)
-			require.NoError(t, err)
-			kept, _ := plantTrailer(t, ctx, admin, tenantID, configID)
-			dropped, _ := plantTrailer(t, ctx, admin, tenantID, configID)
-			// One trailer seen gone, so the apply re-couples the other and
-			// app.create_combination_at locks it.
-			warning, rig, _ := plantReport(t, ctx, admin, tenantID, motive, driver,
-				[]uuid.UUID{motive, kept}, kept, dropped)
-
-			connect := func() *pgx.Conn {
-				t.Helper()
-				conn, err := pgx.Connect(ctx, os.Getenv("TEST_ADMIN_DATABASE_URL"))
-				require.NoError(t, err)
-				t.Cleanup(func() { _ = conn.Close(context.Background()) })
-				return conn
-			}
-			holder, prober := connect(), connect()
-			hold, err := holder.Begin(ctx)
-			require.NoError(t, err)
-			released := false
-			release := func() {
-				if !released {
-					released = true
-					_ = hold.Rollback(context.Background())
-				}
-			}
-			t.Cleanup(release)
-			_, err = hold.Exec(ctx, `SELECT 1 FROM app.vehicle WHERE id = $1 FOR UPDATE`, kept)
-			require.NoError(t, err)
-			var holderPID int
-			require.NoError(t, hold.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID))
-
-			done := make(chan *httptest.ResponseRecorder, 1)
-			go func() {
-				done <- post(t, h, "/api/combinations/observations/"+warning.String()+"/apply",
-					tenantID.String(), actor.String(), `{"note":"lock order"}`)
-			}()
-			queued := false
-			for deadline := time.Now().Add(10 * time.Second); !queued && time.Now().Before(deadline); {
-				require.NoError(t, admin.QueryRow(ctx,
-					`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
-					                 WHERE wait_event_type = 'Lock' AND $1 = ANY (pg_blocking_pids(pid)))`,
-					holderPID).Scan(&queued))
-				if !queued {
-					time.Sleep(20 * time.Millisecond)
-				}
-			}
-			require.True(t, queued, "the apply never queued behind the held trailer")
-
-			probe, err := prober.Begin(ctx)
-			require.NoError(t, err)
-			_, probeErr := probe.Exec(ctx, `SELECT 1 FROM app.combination WHERE id = $1 FOR UPDATE NOWAIT`, rig)
-			require.NoError(t, probe.Rollback(ctx))
-			release()
-			var rec *httptest.ResponseRecorder
-			select {
-			case rec = <-done:
-			case <-time.After(15 * time.Second):
-				t.Fatal("the apply did not finish once the trailer was released")
-			}
+	for _, tc := range []struct {
+		name  string
+		actor uuid.UUID
+	}{{"controller", controller}, {"depot manager", manager}} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec, probeErr := resolveBehindAHeldTrailer(t, ctx, h, admin, tenantID, depot, driver, tc.actor,
+				"apply", `{"note":"lock order"}`)
 			require.NoError(t, probeErr, "the apply locked the rig while it waited on a unit")
 			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		})
 	}
+}
+
+// A depot dismiss takes every unit of the rig before the rig row, so it
+// queues behind a trailer it never writes and holds no lock on the rig while
+// it waits. A controller's dismiss locks the rig alone, so it is not probed.
+func TestObservationDismissLocksTheUnitsBeforeTheRig(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "obs-lock-dismiss")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	depot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, depot)
+
+	rec, probeErr := resolveBehindAHeldTrailer(t, ctx, h, admin, tenantID, depot, driver, manager,
+		"dismiss", `{"note":"the link was there"}`)
+	require.NoError(t, probeErr, "the dismiss locked the rig while it waited on a unit")
+	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 }
