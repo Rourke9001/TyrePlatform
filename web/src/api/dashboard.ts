@@ -1,6 +1,5 @@
 import { apiGet } from "./client";
 import type { Money } from "./money";
-import type { BandDatum } from "../ui/BandChart";
 
 // Wire shapes of the B7.2 analytics routes, field for field from the Go
 // structs. Money is the brand so house/money-stays-string can see every
@@ -106,6 +105,16 @@ export interface InflationCompliance {
   windowDays: number | null;
   unavailable: string | null;
   bands: InflationBand[];
+}
+
+// One tread band as the chart draws it. The wire type lives here, beside
+// its fetcher, so the data layer imports nothing from ui/ (ADR-0022).
+export interface BandDatum {
+  bandOrdinal: number;
+  lowerMm: number;
+  upperExclusiveMm: number | null;
+  tyreCount: number;
+  pctOfGroup: number;
 }
 
 // BandDatum is what the chart draws; bandLabel and keyName ride along

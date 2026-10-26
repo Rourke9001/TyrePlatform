@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { usePhone } from "./useMediaQuery";
+import { usePhone } from "../useMediaQuery";
 
 export interface Column<T> {
   key: string;

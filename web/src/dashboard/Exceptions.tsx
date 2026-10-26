@@ -1,3 +1,4 @@
+import "../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
@@ -8,23 +9,21 @@ import { formatTreadAge } from "../format/treadAge";
 import { useActor } from "../auth/actorContext";
 import { depotsKey, exceptionsKey } from "../fleet/unit/queryKeys";
 import { useTenantInstant } from "../time/tenantTime";
-import { DataTable, type Column } from "../ui/DataTable";
-import { EmptyState } from "../ui/EmptyState";
-import { FilterBar } from "../ui/FilterBar";
-import { FormField } from "../ui/FormField";
-import { PageHeader } from "../ui/PageHeader";
-import { Select } from "../ui/Select";
-import { SeverityBadge } from "../ui/SeverityBadge";
+import { DataTable, type Column } from "../ui/legacy/DataTable";
+import { EmptyState } from "../ui/legacy/EmptyState";
+import { FilterBar } from "../ui/legacy/FilterBar";
+import { FormField } from "../ui/legacy/FormField";
+import { PageHeader } from "../ui/legacy/PageHeader";
+import { Select } from "../ui/legacy/Select";
+import { SeverityBadge } from "../ui/legacy/SeverityBadge";
 import {
   absenceLabel,
-  formatMm,
-  formatPct,
   judgedAtLabel,
-  plural,
   SEVERITY_CODES,
   severityLabel,
   subjectPositionLabel,
-} from "../ui/vocabulary";
+} from "../domain/vocabulary";
+import { formatMm, formatPct, plural } from "../format/numbers";
 import "./analytics.css";
 
 // The URL spells includeResolved as resolved; this and update() below are

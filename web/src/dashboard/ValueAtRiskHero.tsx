@@ -2,8 +2,9 @@ import { Link } from "react-router";
 
 import type { BelowThreshold, ValueAtRisk } from "../api/dashboard";
 import { moneyOrEmpty, moneyText, useCurrency } from "../api/money";
-import { ProvenanceSplit } from "../ui/ProvenanceSplit";
-import { absenceLabel, formatCount, judgedAtLabel, plural } from "../ui/vocabulary";
+import { ProvenanceSplit } from "../ui/legacy/ProvenanceSplit";
+import { absenceLabel, judgedAtLabel } from "../domain/vocabulary";
+import { formatCount, plural } from "../format/numbers";
 import { withDepot } from "./dashboardParams";
 
 interface ValueAtRiskHeroProps {

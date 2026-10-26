@@ -1,3 +1,4 @@
+import "../../ui/legacy/ui.css";
 import { useCan } from "../../auth/actorContext";
 import { ReportedDifferences } from "./ReportedDifferences";
 import { RigForm } from "./RigForm";

@@ -1,3 +1,4 @@
+import "../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
 

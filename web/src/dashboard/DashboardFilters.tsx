@@ -6,10 +6,10 @@ import { getDevTenantId } from "../api/devTenant";
 import { fetchDepots } from "../api/units";
 import { useActor } from "../auth/actorContext";
 import { depotsKey } from "../fleet/unit/queryKeys";
-import { FilterBar } from "../ui/FilterBar";
-import { FormField } from "../ui/FormField";
-import { Select } from "../ui/Select";
-import { absenceLabel } from "../ui/vocabulary";
+import { FilterBar } from "../ui/legacy/FilterBar";
+import { FormField } from "../ui/legacy/FormField";
+import { Select } from "../ui/legacy/Select";
+import { absenceLabel } from "../domain/vocabulary";
 import { PERIOD_SETTLE_MS, settlePeriod } from "./dashboardParams";
 
 // U85: the dashboard's depot filter offers these two types only. GET

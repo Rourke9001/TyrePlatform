@@ -1,0 +1,73 @@
+/* The page's ground, type and focus ring, and the layout helpers Tread's
+   components share. Every value is a token from src/theme/tokens.ts, which
+   main.tsx installs before the first paint; this file makes no colour or
+   type decision of its own. Global selectors, not a .tr-root scope, so
+   screens not yet on Tread's components read them too. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  line-height: 1.5;
+  color: var(--ink);
+  background: var(--canvas);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* U53: every focus ring is the fixed platform colour, at least 3:1 on any
+   ground in either theme whatever the tenant's brand (tokens.test.ts). */
+:focus-visible {
+  outline: 3px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+/* U53: a link reads in the fixed platform colour, never the browser's blue
+   or the tenant's brand. A classed anchor sets its own colour and wins. */
+a {
+  color: var(--interactive);
+}
+
+/* Read by a screen reader, never shown. */
+.tr-vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* Readings, registrations and codes line their digits up (TYRE-446). */
+.tr-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.tr-stack {
+  display: grid;
+  gap: var(--space-4);
+  align-content: start;
+}
+
+.tr-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}

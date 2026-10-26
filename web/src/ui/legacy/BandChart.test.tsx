@@ -2,9 +2,9 @@ import { act, createEvent, fireEvent, render, screen, within } from "@testing-li
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { forceMatchMedia, TestMediaQueryList } from "../test/media";
+import { forceMatchMedia, TestMediaQueryList } from "../../test/media";
 import { BandChart } from "./BandChart";
-import { PHONE_QUERY } from "./useMediaQuery";
+import { PHONE_QUERY } from "../useMediaQuery";
 
 const bands = [
   { bandOrdinal: 1, lowerMm: 0, upperExclusiveMm: 5, tyreCount: 10, pctOfGroup: 37.04 },
@@ -39,13 +39,13 @@ describe("BandChart", () => {
     expect(chart.querySelector("[data-form='rows']")).toBeNull();
   });
 
-  // Colour reaches the SVG only through the --band-N custom properties
+  // Colour reaches the SVG only through the --data-N custom properties
   // (TYRE-238 review); a hex written to the fill attribute is a bug.
-  it("paints each bar through a --band-N custom property, never a hex", () => {
+  it("paints each bar through a --data-N custom property, never a hex", () => {
     render(<BandChart title="Tread depth across running positions" bands={bands} />);
     const bars = document.querySelectorAll<SVGPathElement>(".band-chart-svg path");
-    expect(bars[0].style.fill).toBe("var(--band-1)");
-    expect(bars[bars.length - 1].style.fill).toBe("var(--band-5)");
+    expect(bars[0].style.fill).toBe("var(--data-1)");
+    expect(bars[bars.length - 1].style.fill).toBe("var(--data-5)");
   });
 
   it("offers the same numbers as a table", async () => {
@@ -123,7 +123,7 @@ describe("BandChart", () => {
   });
 
   // U56: above five bands every bar gets its own fill, still through the
-  // --band-N custom properties.
+  // --data-N custom properties.
   it("gives each of seven bands its own fill through the custom properties", () => {
     const seven = [0, 3, 5, 7, 9, 11, 14].map((lowerMm, i, all) => ({
       bandOrdinal: i + 1,
@@ -137,20 +137,20 @@ describe("BandChart", () => {
       (p) => p.style.fill,
     );
     expect(new Set(fills).size).toBe(7);
-    expect(fills.every((f) => f.includes("var(--band-"))).toBe(true);
+    expect(fills.every((f) => f.includes("var(--data-"))).toBe(true);
     // The fallback a browser without color-mix inherits (U56): each bar's
     // group carries its nearest stop.
     const groups = Array.from(
       document.querySelectorAll<SVGGElement>(".band-chart-svg .band-chart-bar"),
     );
     expect(groups.map((g) => g.style.fill)).toEqual([
-      "var(--band-1)",
-      "var(--band-2)",
-      "var(--band-2)",
-      "var(--band-3)",
-      "var(--band-4)",
-      "var(--band-4)",
-      "var(--band-5)",
+      "var(--data-1)",
+      "var(--data-2)",
+      "var(--data-2)",
+      "var(--data-3)",
+      "var(--data-4)",
+      "var(--data-4)",
+      "var(--data-5)",
     ]);
   });
 

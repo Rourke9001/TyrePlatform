@@ -1,3 +1,4 @@
+import "../ui/legacy/ui.css";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router";
@@ -6,6 +7,7 @@ import { getDevTenantId } from "../api/devTenant";
 import { useCan } from "../auth/actorContext";
 import { vehiclesKey } from "../fleet/unit/queryKeys";
 import { searchVehicles } from "./vehicleSearch";
+import "./dashboard.css";
 
 export function VehicleList() {
   const [query, setQuery] = useState("");

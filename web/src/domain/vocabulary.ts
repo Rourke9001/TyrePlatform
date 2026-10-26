@@ -2,44 +2,8 @@
 // The server owns the code vocabularies (severity, judgedAt, unavailable
 // reasons, tread source, cost basis, inflation bands), so each code map
 // passes an unknown code through rather than throwing; absenceLabel is a
-// closed set the pages choose from, and the number helpers format every
-// count (U55).
-
-import { groupThousands } from "../format/groupThousands";
-
-// groupThousands takes an integer's digits, so a count or percentage is
-// made whole first, rounding half away from zero as Intl.NumberFormat did.
-function wholeDigits(n: number): string {
-  return String(Math.sign(n) * Math.round(Math.abs(n)));
-}
-
-export function formatCount(n: number): string {
-  return groupThousands(wholeDigits(n));
-}
-
-// The noun for a count that renders apart from it, as a tile's value does.
-export function pluralWord(n: number, one: string, many: string): string {
-  return n === 1 ? one : many;
-}
-
-export function plural(n: number, one: string, many: string): string {
-  return `${formatCount(n)} ${pluralWord(n, one, many)}`;
-}
-
-// en-ZA's decimal separator is a comma in current ICU (Intl.NumberFormat
-// would render "4,0 mm" beside formatMoney's "R16,537.50"), so tread uses
-// toFixed and a point instead. A tread value on the wire is whole or half
-// millimetres, the capture keypad has a half key and no decimal point, and
-// the owner fixed the display at one decimal always (TYRE-238 comment 12938).
-export function formatMm(n: number): string {
-  return `${n.toFixed(1)} mm`;
-}
-
-// A percentage on the wire is a SQL column (pctOfGroup, pctOfClassified);
-// this rounds for display and never computes one.
-export function formatPct(n: number): string {
-  return `${groupThousands(wholeDigits(n))}%`;
-}
+// closed set the pages choose from. Counts and measurements are formatted
+// in src/format/numbers.ts (U55, ADR-0022).
 
 // FR-DSH-003: most urgent first, the one order the tiles and the
 // exceptions filter both list.
@@ -170,8 +134,8 @@ export function basisLabel(code: string): string {
 }
 
 // A band bound is whole or half millimetres, so one decimal at most, with a
-// point (see formatMm); a whole bound stays "5", not "5.0", to match the
-// accepted mockup's "0 to under 5 mm".
+// point (see formatMm in src/format/numbers.ts); a whole bound stays "5",
+// not "5.0", to match the accepted mockup's "0 to under 5 mm".
 function formatBound(mm: number): string {
   return Number.isInteger(mm) ? String(mm) : mm.toFixed(1);
 }

@@ -1,3 +1,4 @@
+import "../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 
 import type { TyreCatalogue } from "../api/catalogue";
@@ -11,10 +12,10 @@ import {
   CONSENT_PURPOSES,
   consentPurposeLabel,
   consentStateLabel,
-  formatMm,
   lineageLabel,
   thresholdScopeLabel,
-} from "../ui/vocabulary";
+} from "../domain/vocabulary";
+import { formatMm } from "../format/numbers";
 import "../fleet/fleet.css";
 
 // Every known purpose in the vocabulary's order, then any purpose the

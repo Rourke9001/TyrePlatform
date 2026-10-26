@@ -37,8 +37,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.2rem;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
@@ -49,19 +49,19 @@
 }
 
 .tyres-lookup input {
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   padding: 0.4rem 0.6rem;
 }
 
 /* NFR-USE-009: the ambiguity this names is never conveyed by colour alone,
    so this pairs the caution tone with the sentence itself, not a swatch. */
 .tyres-lookup-note {
-  color: var(--status-caution);
+  color: var(--warn-text);
   font-weight: 600;
   margin: 0 0 var(--space-3);
 }
@@ -70,8 +70,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   color: var(--ink);
   margin-bottom: var(--space-3);
 }
@@ -87,7 +87,7 @@
   border-collapse: collapse;
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -99,15 +99,15 @@
 .fitments-table td {
   padding: 0.5rem 0.75rem;
   text-align: left;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
   border-bottom: 1px solid var(--line);
 }
 
 .tyres-table thead th,
 .retreads-table thead th,
 .fitments-table thead th {
-  font-family: var(--font-condensed);
+  font-family: var(--font-sans);
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: var(--tracking-eyebrow);
@@ -133,10 +133,10 @@
 .tyres-row-form input {
   min-height: 2.25rem;
   font: inherit;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   padding: 0.25rem 0.4rem;
   color: var(--ink);
   background: var(--surface);
@@ -159,8 +159,8 @@
 }
 
 .tyres-receive label {
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
@@ -168,8 +168,8 @@
 .tyres-receive select {
   min-height: 2.75rem;
   font: inherit;
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   color: var(--ink);
 }
 
@@ -177,20 +177,22 @@
 .tyres-receive select {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   padding: 0.4rem 0.6rem;
 }
 
 .tyres-receive-hint {
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
   margin: 0;
 }
 
 /* A .note-card with its own rhythm and a tighter box. It follows a form
-   rather than standing in for a screen's content. */
-.tyres-receive-success {
+   rather than standing in for a screen's content. Both classes, so it
+   outranks .note-card whichever sheet loads first (docs/lessons.md,
+   2026-10-26). */
+.note-card.tyres-receive-success {
   margin-top: var(--space-3);
   padding: 1rem 1.5rem;
 }
@@ -201,160 +203,6 @@
   font-family: var(--font-mono);
   font-weight: 600;
   color: var(--ink);
-}
-
-/* ------------------------------------------------- the unit screen (TYRE-92) */
-
-.unit-detail {
-  max-width: 68rem;
-}
-
-.unit-detail-sub {
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  color: var(--ink-muted);
-  margin: 0 0 var(--space-3);
-}
-
-.unit-detail h2 {
-  font-family: var(--font-condensed);
-  font-size: var(--text-title);
-  margin: var(--space-4) 0 var(--space-2);
-}
-
-/* The plan view. currentColor throughout so a position's outline follows the
-   surrounding text colour: occupancy and selection are stated in words and in
-   stroke weight, never in a hue on its own (NFR-USE-009). */
-.unit-plan {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  color: var(--ink-muted);
-  margin-bottom: var(--space-3);
-}
-
-.unit-plan-chassis,
-.unit-plan-beam {
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.unit-plan-pos rect {
-  fill: var(--surface);
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.unit-plan-pos:focus-visible rect,
-.unit-plan-pos--selected rect {
-  stroke: var(--ink);
-  stroke-width: 3;
-}
-
-.unit-plan-pos {
-  cursor: pointer;
-}
-
-.unit-plan-code,
-.unit-plan-occupant {
-  text-anchor: middle;
-  fill: var(--ink);
-}
-
-/* Not type tokens, deliberately: font-size inside an SVG is measured in
-   viewBox user-space units, which the drawing's own geometry sets, not CSS
-   pixels (web/CLAUDE.md's tokens rule, TYRE-27). */
-.unit-plan-code {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
-}
-
-.unit-plan-occupant {
-  font-family: var(--font-ui);
-  font-size: 7px;
-  fill: var(--ink-muted);
-}
-
-.unit-panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  padding: var(--space-3);
-}
-
-.unit-panel-empty {
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
-  color: var(--ink-muted);
-}
-
-.unit-panel-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.2rem var(--space-3);
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  margin: 0 0 var(--space-3);
-}
-
-.unit-panel-facts dt {
-  color: var(--ink-muted);
-}
-
-.unit-panel-facts dd {
-  margin: 0;
-  color: var(--ink);
-}
-
-.unit-panel-form,
-.unit-rotate form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.unit-panel-form input,
-.unit-panel-form select,
-.unit-rotate input,
-.unit-rotate select,
-.unit-edit input,
-.unit-edit select {
-  min-height: 2.25rem;
-  font: inherit;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  padding: 0.25rem 0.4rem;
-  color: var(--ink);
-  background: var(--surface);
-}
-
-.unit-panel-radios {
-  display: flex;
-  gap: var(--space-2);
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  color: var(--ink);
-}
-
-.unit-panel-radios input {
-  min-height: 0;
-  border: 0;
-  padding: 0;
-}
-
-/* Advisories, not refusals, toned with the caution colour and still read as
-   sentences, because colour never carries the meaning alone (NFR-USE-009). */
-.unit-panel-warnings {
-  list-style: disc;
-  margin: var(--space-2) 0 0;
-  padding-left: 1.25rem;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  color: var(--status-caution);
 }
 
 /* The reorderable-row list: RotateForm's positions and RigForm's towed
@@ -373,57 +221,9 @@
   align-items: center;
   gap: 0.35rem;
   padding: 0.2rem 0;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
   color: var(--ink);
-}
-
-.unit-rotate-odometer {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  color: var(--ink-muted);
-  margin-right: var(--space-3);
-}
-
-.unit-edit {
-  max-width: 32rem;
-}
-
-.unit-edit form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-}
-
-/* Direct children only: the mount-orientation radios wrap their own labels,
-   which carry the option's wording rather than a field name. */
-.unit-edit label,
-.unit-panel-form > label,
-.unit-status form > label {
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  color: var(--ink-muted);
-}
-
-.unit-edit-layout {
-  font-family: var(--font-ui);
-  font-size: var(--text-small);
-  color: var(--ink-muted);
-  margin: 0 0 var(--space-3);
-}
-
-.unit-edit-note {
-  display: block;
-  color: var(--status-caution);
-}
-
-/* A row form, like the register's, rather than the stacked shape .unit-edit
-   uses: one select and at most one input. */
-.unit-status {
-  max-width: 32rem;
 }
 
 /* A REMOVED row's Actions cell (TYRE-93) stacks more than one form;
@@ -444,10 +244,10 @@
   color: var(--ink-muted);
 }
 
-/* Layout only: the rigs/unit screens' submits sit left-aligned, not
-   stretched. Scoped to .rigs/.unit-detail, not .tyres-receive, whose
-   full-width submit is by design. Disabled contrast is TYRE-132's. */
-.rigs .tyres-receive button[type="submit"],
-.unit-detail .tyres-receive button[type="submit"] {
+/* Layout only: the rigs screen's submits sit left-aligned, not stretched.
+   Scoped to .rigs, not .tyres-receive, whose full-width submit is by
+   design (unit.css does the same for the unit screen). Disabled contrast
+   is TYRE-132's. */
+.rigs .tyres-receive button[type="submit"] {
   align-self: flex-start;
 }

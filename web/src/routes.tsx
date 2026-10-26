@@ -5,6 +5,7 @@ import { useActorSettled, useCan, useCanAny } from "./auth/actorContext";
 import { RequireCapability } from "./auth/RequireCapability";
 import { CaptureFlow } from "./capture/CaptureFlow";
 import { DriverHome } from "./driver/DriverHome";
+import { NotFound } from "./shell/NotFound";
 
 // Every manager page loads on its own route and never on the capture
 // route's first paint (ADR-0015, TYRE-238). CaptureFlow and DriverHome stay
@@ -43,10 +44,6 @@ const FleetSettings = lazy(() =>
 const Dashboard = lazy(() => import("./dashboard/Dashboard"));
 const Exceptions = lazy(() => import("./dashboard/Exceptions"));
 const AtRisk = lazy(() => import("./dashboard/AtRisk"));
-
-function NotFound() {
-  return <p>Not found.</p>;
-}
 
 // FR-DSH-001: a ViewFleet actor lands on the dashboard, rendered here at
 // "/" rather than redirected, so the one landing has one URL. FR-DSH-012: a
@@ -106,7 +103,7 @@ function AdminRoute({
 // The gallery imports Radix, so it loads behind a lazy boundary and never
 // on the capture route (ADR-0015). DEV only, and the lazy() call itself is
 // guarded so a production build emits no gallery chunk at all.
-const Gallery = import.meta.env.DEV ? lazy(() => import("./ui/Gallery")) : null;
+const Gallery = import.meta.env.DEV ? lazy(() => import("./ui/legacy/Gallery")) : null;
 
 export function AppRoutes() {
   return (

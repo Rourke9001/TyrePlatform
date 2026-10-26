@@ -5,7 +5,7 @@ import { SignInButton } from "../auth/SignInButton";
 import { ConfirmDiscard } from "./ConfirmDiscard";
 import { discardEntry, flushOutbox, isStale, startOutboxHeartbeat } from "./outbox";
 import { useOutbox, useSignInToSend } from "./useOutbox";
-import "./capture.css";
+import "./outbox.css";
 
 // Mounted in the app shell rather than inside capture: a driver who has walked
 // away from the vehicle still needs to know something is waiting to send.

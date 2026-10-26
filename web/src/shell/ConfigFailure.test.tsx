@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { ConfigFailure } from "./ConfigFailure";
+import { installThemeStyle } from "../theme/themeStyle";
 
 describe("ConfigFailure", () => {
   it("says what failed and what to do", () => {
@@ -26,10 +27,17 @@ describe("ConfigFailure", () => {
     expect(button).toHaveAttribute("aria-disabled", "true");
   });
 
-  // NFR-USE-004; ConfigFailure.tsx says why it sets them.
-  it("sets the design system's variables itself", () => {
+  // NFR-USE-004: Try again's floor reads --target-min, which reaches this
+  // screen from the stylesheet main.tsx installs before boot, never from a
+  // value ConfigFailure writes on the root.
+  it("renders on the installed token stylesheet", () => {
     document.documentElement.style.removeProperty("--target-min");
+    installThemeStyle();
     render(<ConfigFailure onRetry={() => undefined} />);
-    expect(document.documentElement.style.getPropertyValue("--target-min")).not.toBe("");
+    expect(document.getElementById("tread-tokens")).toBeInTheDocument();
+    expect(getComputedStyle(document.documentElement).getPropertyValue("--target-min").trim()).toBe(
+      "44px",
+    );
+    expect(document.documentElement.style.getPropertyValue("--target-min")).toBe("");
   });
 });

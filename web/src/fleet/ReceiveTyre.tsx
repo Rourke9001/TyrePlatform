@@ -1,3 +1,4 @@
+import "../ui/legacy/ui.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 

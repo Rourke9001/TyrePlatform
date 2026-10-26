@@ -8,7 +8,7 @@ import type { ActedSummary } from "./PositionPanel";
 import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
 import { useUnitLabels } from "../../units/units";
 import { openFitmentsKey, tyresKey, unitFitmentsKey, unitKey } from "./queryKeys";
-import { formatCount } from "../../ui/vocabulary";
+import { formatCount } from "../../format/numbers";
 
 const REMOVE_WORDING = {
   speakable: ["TY009", "TY012", "TY014"],

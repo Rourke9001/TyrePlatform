@@ -30,6 +30,24 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-10-26 - Importing a lazy route's stylesheet first does not load it first (TYRE-443)
+
+**What happened:** to take the old kit's `ui.css` off the capture entry,
+each manager route module imported it as its first import, on the theory
+that a page's own sheet would then load after it, as it did when the kit
+was global. The production build said otherwise. Vite 7 makes a stylesheet
+shared by several lazy routes its own CSS-only chunk, and appends that
+chunk's CSS after the importing chunk's own sheet, so the unit screen
+loaded `unit.css`, then `ui.css`, then `fleet.css`. A session also loads
+lazy sheets in the order it first visits their routes, so the same pair can
+land either way round. `vite dev` injects in module order and hides this.
+
+**The rule:** never let a rule in one lazy stylesheet beat a rule in
+another by coming later. Where a page rule must win a tie against a shared
+sheet, make it more specific. To check the order, read the preload list
+after each lazy `import()` in the built entry (`__vite__mapDeps`), never
+the source import order or `vite dev`.
+
 ## 2026-10-26 - A trigger's "not found" is not always another tenant's row (PR #148)
 
 **What happened:** three BEFORE triggers in 000060 skipped their checks when

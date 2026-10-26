@@ -1,3 +1,4 @@
+import "../../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -13,8 +14,8 @@ import {
 } from "../../api/receipts";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
-import { Dialog } from "../../ui/Dialog";
-import { receiptStateLabel } from "../../ui/vocabulary";
+import { Dialog } from "../../ui/legacy/Dialog";
+import { receiptStateLabel } from "../../domain/vocabulary";
 import { RefusalAlert } from "../RefusalAlert";
 import { openReceiptsKey, tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";

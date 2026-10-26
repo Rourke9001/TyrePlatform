@@ -5,7 +5,7 @@ export type ButtonVariant = "primary" | "secondary" | "quiet" | "danger";
 interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: ButtonVariant;
   // Below the 44px floor on purpose: a control inside a table row on a desk
-  // surface, never the gloved one NFR-USE-004 is about (controls.css).
+  // surface, never the gloved one NFR-USE-004 is about (ui.css).
   compact?: boolean;
 }
 

@@ -149,7 +149,7 @@ the next copy edit.
   custom properties (TYRE-27). A hex or font literal in a component is a bug.
   The capture app's per-reading status colours are fixed and keyed to state
   *names*; the dashboard's tread bands take a one-hue ramp keyed to band
-  *ordinal* (`treadBandRamp`, `treadBandStep`), since the band count is
+  *ordinal* (`--data-1` to `--data-5`, `treadBandStep`), since the band count is
   tenant configuration; above five bands each fill blends the neighbouring
   stops (`src/ui/bandFill.ts`, U56), in a lazy module so the capture route
   does not carry it; the mm thresholds that assign either are tenant
@@ -164,8 +164,10 @@ the next copy edit.
 - Tenant branding (display name, primary colour, nullable logo) is tenant
   configuration in the database (`app.configuration` key `branding`), served
   by `GET /api/org/branding` and applied by `src/theme/ThemeProvider.tsx`,
-  which derives hover/pressed shades and a contrast-safe on-primary from the
-  one colour a tenant picks (TYRE-26/27).
+  which derives hover/pressed shades and a contrast-safe on-brand from the
+  one colour a tenant picks (TYRE-26/27), and sets only the four brand
+  tokens on the root; every other token comes from the stylesheet
+  `src/theme/themeStyle.ts` installs before boot (TYRE-445).
 
 ## The design system (ADR-0015, ADR-0020)
 
@@ -173,13 +175,14 @@ The design skills advise; `tokens.ts`, ADR-0015's substrate and ADR-0020's
 Tread system decide. Tread replaces the kit below route by route (epic
 TYRE-443); until a route moves, the kit's rules hold for it.
 
-`src/ui/` is the component set: PageHeader, StatTile, SeverityBadge,
+`src/ui/legacy/` holds the kit: PageHeader, StatTile, SeverityBadge,
 ProvenanceSplit, DataTable, Panel, EmptyState, FormField, Button, Select and
-Dialog (Radix), FilterBar, BandChart. `/dev/design` renders all of them
+Dialog (Radix), FilterBar, BandChart, with their `ui.css`, which each lazy
+route module that renders them imports. `/dev/design` renders all of them
 with example values under `vite dev` and is where a change is looked at
 before it is reviewed. Rules that are not visible in the code:
 
-- Every wire code becomes words in `src/ui/vocabulary.ts` and nowhere
+- Every wire code becomes words in `src/domain/vocabulary.ts` and nowhere
   else: severity, `judgedAt`, `unavailable`, tread source, band range. A
   band is labelled from its bounds, never from `bandLabel` (TYRE-270).
   The two exceptions are unit codes (`src/units/units.ts`) and the currency

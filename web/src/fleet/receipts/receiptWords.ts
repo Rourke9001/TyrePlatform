@@ -1,5 +1,5 @@
 import type { MoveResult } from "../../api/receipts";
-import { plural } from "../../ui/vocabulary";
+import { plural } from "../../format/numbers";
 
 // A receipt's moves answer TY026 (a move its state does not allow), TY012
 // (no such receipt in this fleet) and TY013 (a tyre on it that cannot be
