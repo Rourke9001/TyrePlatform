@@ -24,8 +24,9 @@ export class TestMediaQueryList extends EventTarget implements MediaQueryList {
 }
 
 // Every query answers `matches` until the returned function puts back the
-// desktop stub from setup.ts. One answer for every query is enough while
-// usePhone is the only caller.
+// desktop stub from setup.ts. One answer serves usePhone and the appearance
+// preference's prefers-color-scheme alike, so a test that needs the two to
+// differ spies on matchMedia itself (appearance.test.ts).
 export function forceMatchMedia(matches: boolean): () => void {
   const spy = vi
     .spyOn(window, "matchMedia")
