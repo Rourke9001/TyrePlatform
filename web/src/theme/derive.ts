@@ -2,18 +2,23 @@
 // tenant controls hue, the system computes on-primary text and, where
 // needed, tone so WCAG 2.1 AA (NFR-USE-007) holds for any input.
 
-import { palette } from "./tokens";
+import { PLATFORM_BRAND, themes } from "./tokens";
 
 export interface BrandTheme {
   primary: string;
   primaryHover: string;
   primaryPressed: string;
   onPrimary: string;
+  brand: string;
+  brandHover: string;
+  brandPressed: string;
+  onBrand: string;
 }
 
-// Text on brand uses the same white as the app's lightest neutral, so the
-// only colours in play remain the tokens' own.
-const WHITE = palette.surface;
+// Text on brand is Daylight's ink or its white surface, so the only colours
+// in play remain the tokens' own.
+const INK_HEX = themes.light.ink;
+const WHITE = themes.light.surface;
 const AA_NORMAL_TEXT = 4.5;
 
 type Rgb = [number, number, number];
@@ -65,25 +70,25 @@ function requireHex(token: string): Rgb {
   return rgb;
 }
 
-const INK: Rgb = requireHex(palette.ink);
+const INK: Rgb = requireHex(INK_HEX);
 const WHITE_RGB: Rgb = requireHex(WHITE);
 
 export function deriveBrandTheme(primaryInput: string): BrandTheme {
-  let rgb = parseHex(primaryInput) ?? requireHex(palette.brand);
+  let rgb = parseHex(primaryInput) ?? requireHex(PLATFORM_BRAND);
 
-  // A mid-tone primary clears at best ~4.15:1 against BOTH white and ink, so
-  // picking a text colour is not enough: nudge the tone (hue untouched) away
-  // from whichever text colour reads better until AA holds.
+  // A mid-tone primary clears at best about 4.3:1 against BOTH white and
+  // ink, so picking a text colour is not enough: nudge the tone (hue
+  // untouched) away from whichever text colour reads better until AA holds.
   for (let i = 0; i < 20; i++) {
     const cWhite = contrastRatio(toHex(rgb), WHITE);
-    const cInk = contrastRatio(toHex(rgb), palette.ink);
+    const cInk = contrastRatio(toHex(rgb), INK_HEX);
     if (Math.max(cWhite, cInk) >= AA_NORMAL_TEXT) break;
     rgb = mix(rgb, cWhite >= cInk ? [0, 0, 0] : WHITE_RGB, 0.08);
   }
 
   const primary = toHex(rgb);
   const onPrimary =
-    contrastRatio(primary, WHITE) >= contrastRatio(primary, palette.ink) ? WHITE : palette.ink;
+    contrastRatio(primary, WHITE) >= contrastRatio(primary, INK_HEX) ? WHITE : INK_HEX;
 
   // Hover/pressed step toward ink; a near-black primary has no darker to go,
   // so its states step toward white instead. The shift stays visible.
@@ -91,10 +96,16 @@ export function deriveBrandTheme(primaryInput: string): BrandTheme {
   const target = towardsLight ? WHITE_RGB : INK;
   const [hoverT, pressedT] = towardsLight ? [0.14, 0.26] : [0.12, 0.22];
 
+  const hover = toHex(mix(rgb, target, hoverT));
+  const pressed = toHex(mix(rgb, target, pressedT));
   return {
     primary,
-    primaryHover: toHex(mix(rgb, target, hoverT)),
-    primaryPressed: toHex(mix(rgb, target, pressedT)),
+    primaryHover: hover,
+    primaryPressed: pressed,
     onPrimary,
+    brand: primary,
+    brandHover: hover,
+    brandPressed: pressed,
+    onBrand: onPrimary,
   };
 }
