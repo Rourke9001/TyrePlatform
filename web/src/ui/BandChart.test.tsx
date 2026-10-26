@@ -126,9 +126,16 @@ describe("BandChart", () => {
 
   it("says so when every band is empty", () => {
     render(
-      <BandChart title={TITLE} bands={bands.map((b) => ({ ...b, count: 0, pctOfGroup: 0 }))} />,
+      <BandChart
+        title={TITLE}
+        bands={bands.map((b) => ({ ...b, count: 0, pctOfGroup: 0 }))}
+        data-requirement="FR-DSH-008"
+      />,
     );
-    expect(screen.getByText("No tyres in any band.")).toBeInTheDocument();
+    expect(screen.getByText("No tyres in any band.")).toHaveAttribute(
+      "data-requirement",
+      "FR-DSH-008",
+    );
     expect(screen.queryByRole("figure")).toBeNull();
   });
 });
