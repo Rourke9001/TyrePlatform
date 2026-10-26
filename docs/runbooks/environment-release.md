@@ -1053,6 +1053,16 @@ renamed column the running code reads, ships in two releases. The pull
 request template asks this of every PR that adds a migration, and TYRE-434
 adds the automatic check.
 
+Migration 000060 (TYRE-326, owner ruling U151, TYRE-326 comment 14041) is
+the one recorded exception: it ships in one release. The image production
+runs before it fails three controller routes on its schema, the
+`vehicle_driver` INSERT behind POST `/api/vehicles/{id}/drivers`, the
+`assigned_user_id` read behind GET `/api/vehicles/{id}/inspection-tasks`,
+and the `create_inspection_task(uuid, uuid, date)` call behind POST
+`/api/vehicles/{id}/inspection-tasks`. Production has no tenants, so no one
+meets the failure. The rule applies again from the moment BAC is live on
+production.
+
 ## Roll back
 
 A rollback is a dispatch of **Deploy** from the repo's Actions tab with
@@ -1071,6 +1081,11 @@ rebuilds the web from that commit too; a template change that must be
 undone is a revert on `develop`, promoted for production. A rollback runs
 no down migration, so the schema stays at head, and an old image must
 tolerate it.
+
+Until BAC is live on production, the floor for both targets is PR #148's
+merge commit (TYRE-326): an image from before it fails three controller
+routes on 000060's schema (What this order rests on names them), and the
+deploy's smoke does not exercise those routes.
 
 Re-running an old run never rolls back (TYRE-403). A re-run whose commit
 is no longer its branch's head is refused, and going back is only by this
