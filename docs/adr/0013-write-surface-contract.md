@@ -452,5 +452,9 @@ more than writing the assumption down first.
   retired (TY028), and `nomination_well_formed` an open task and an active
   nominee (TY018). Each trigger also bounds its instants at now, in words
   of its own: a trip starts and ends no later than now, and a nomination is
-  dated no later than now. A rig takes a dated start by design (U8 of the
-  rig setup), so the trip is not the only history a caller can date.
+  dated no later than now. A raw trip INSERT also skips `app.start_trip`'s
+  U148 gate and its race check, and a raw nomination skips
+  `app.nominate_for_task`'s covered-unit rule; U153 (TYRE-326 comment
+  14079, 26 Oct 2026) rules that U152's gap covers both. A rig takes a
+  dated start by design (U8 of the rig setup), so the trip is not the only
+  history a caller can date.
