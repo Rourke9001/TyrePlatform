@@ -100,10 +100,15 @@ function AdminRoute({
   return <>{children}</>;
 }
 
-// The gallery imports Radix, so it loads behind a lazy boundary and never
-// on the capture route (ADR-0015). DEV only, and the lazy() call itself is
-// guarded so a production build emits no gallery chunk at all.
-const Gallery = import.meta.env.DEV ? lazy(() => import("./ui/legacy/Gallery")) : null;
+// Both galleries load behind a lazy boundary and never on the capture route
+// (ADR-0015); the legacy one imports Radix. DEV only, and the lazy() calls
+// themselves are guarded so a production build emits no gallery chunk.
+const galleries = import.meta.env.DEV
+  ? {
+      Design: lazy(() => import("./ui/gallery/Gallery")),
+      Legacy: lazy(() => import("./ui/legacy/Gallery")),
+    }
+  : null;
 
 export function AppRoutes() {
   return (
@@ -223,11 +228,12 @@ export function AppRoutes() {
           }
         />
         {/* The catch-all is written in both branches so a production build,
-            where Gallery is null, folds this to that one route and leaves
+            where galleries is null, folds this to that one route and leaves
             nothing behind in the entry chunk the capture budget gates. */}
-        {Gallery ? (
+        {galleries ? (
           <>
-            <Route path="/dev/design" element={<Gallery />} />
+            <Route path="/dev/design" element={<galleries.Design />} />
+            <Route path="/dev/legacy" element={<galleries.Legacy />} />
             <Route path="*" element={<NotFound />} />
           </>
         ) : (
