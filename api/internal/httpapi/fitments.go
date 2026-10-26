@@ -148,9 +148,10 @@ func fitTyre(s *store.Store) http.HandlerFunc {
 			// the write runs in a separate statement, so the scope
 			// authorised is the scope it lands in. FOR SHARE, not FOR
 			// UPDATE: app.fit_tyre takes the tyre FOR UPDATE and only then
-			// the unit FOR SHARE (000039), and app.rotate_tyres takes every
-			// in-scope unit FOR SHARE in id order, so an exclusive lock here
-			// would invert that order and risk 40P01.
+			// the unit FOR SHARE (000039), and app.rotate_tyres takes its
+			// units FOR SHARE in the order units.go's rig lock order names,
+			// so an exclusive lock here would invert that order and risk
+			// 40P01.
 			if a.Scope() != auth.ScopeTenant {
 				var locked uuid.UUID
 				err := tx.QueryRow(ctx,
