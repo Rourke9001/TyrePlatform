@@ -37,4 +37,17 @@ describe("TextInput", () => {
     expect(frame).toHaveAttribute("data-invalid", "true");
     expect(frame).toHaveClass("tr-input--glove", "tr-input--mono");
   });
+
+  it("leaves its frame unflagged when aria-invalid is false", () => {
+    render(
+      <>
+        <TextInput aria-label="As a string" aria-invalid="false" />
+        <TextInput aria-label="As a boolean" aria-invalid={false} />
+      </>,
+    );
+    for (const name of ["As a string", "As a boolean"]) {
+      const frame = screen.getByRole("textbox", { name }).parentElement;
+      expect(frame).not.toHaveAttribute("data-invalid");
+    }
+  });
 });
