@@ -7,7 +7,7 @@ import { OutboxIndicator } from "../capture/OutboxIndicator";
 import { DevBar } from "../shell/DevBar";
 import { navItemsFor } from "../shell/navigation";
 import { useBranding } from "../theme/themeContext";
-import "./dashboard.css";
+import "../shell/shell.css";
 
 // A logo only exists once upload/serving lands with RBAC (TYRE-26), so the
 // type-set wordmark is the designed default, not a degraded state.

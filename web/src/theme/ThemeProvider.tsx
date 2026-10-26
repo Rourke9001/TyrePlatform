@@ -4,20 +4,17 @@ import { fetchBranding, type Branding } from "../api/branding";
 import { getDevTenantId } from "../api/devTenant";
 import { BRANDING_PREFIX, devHeaderPath, readMirror } from "../api/token";
 import { deriveBrandTheme } from "./derive";
-import { applyCssVars, brandVars, cssVars, palette } from "./tokens";
+import { PLATFORM_BRAND, applyCssVars, brandVars } from "./tokens";
 import { useActor } from "../auth/actorContext";
 import { ThemeContext } from "./themeContext";
 import "./fonts";
-import "./base.css";
-import "./controls.css";
-import "../ui/ui.css";
 
 // What renders when no tenant branding is known yet. Also exactly what the
 // API serves for a tenant that never configured the key (TYRE-26), so first
 // paint and fetched state agree for unbranded tenants.
 const PLATFORM_BRANDING: Branding = {
   displayName: "Tyre Platform",
-  primaryColor: palette.brand,
+  primaryColor: PLATFORM_BRAND,
   logoUrl: null,
 };
 
@@ -84,10 +81,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const branding = query.data ?? cached ?? PLATFORM_BRANDING;
   const theme = useMemo(() => deriveBrandTheme(branding.primaryColor), [branding.primaryColor]);
 
-  // Layout effect: the variables must be on the root before the browser
-  // paints the frame that uses them.
+  // Layout effect: the four brand tokens must be on the root before the
+  // browser paints the frame that uses them. Every other token is the
+  // stylesheet's (themeStyle.ts), so a tenant reaches chrome only (U53).
   useLayoutEffect(() => {
-    applyCssVars(document.documentElement, cssVars(theme));
     applyCssVars(document.documentElement, brandVars(theme));
   }, [theme]);
 

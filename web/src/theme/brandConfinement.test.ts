@@ -9,9 +9,17 @@ const sheets = import.meta.glob<string>("/src/**/*.css", {
   eager: true,
 });
 
-// Chrome (the wordmark, the nav's current page) and filled controls, whose
-// text is --on-primary, derived to clear 4.5:1 on the brand (TYRE-27).
+// The source files, to find who writes a brand property.
+const sources = import.meta.glob<string>(
+  ["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}", "!/src/test/**"],
+  { query: "?raw", import: "default", eager: true },
+);
+
+// Chrome and filled controls, whose text is --on-brand, derived to clear
+// 4.5:1 on the brand (TYRE-27). After wave 0 a lane that needs another
+// entry asks the orchestrator (TYRE-443).
 const BRAND_ALLOWED = new Set([
+  // Today's screens: the wordmark, the nav's current page, filled buttons.
   ".shell-wordmark",
   '.shell-nav a[aria-current="page"]',
   ".btn-primary",
@@ -27,9 +35,30 @@ const BRAND_ALLOWED = new Set([
   ".auth-primary",
   '.auth-primary:hover:not([aria-disabled="true"])',
   '.auth-primary:active:not([aria-disabled="true"])',
+  // Tread's chrome, as its component source writes it: the logo tile, the
+  // primary button, an icon button on the brand band, the keypad's go key,
+  // the active nav marker, and the driver and phone app bars.
+  ".tr-brandmark__tile",
+  ".tr-brandmark__tile--on-brand",
+  ".tr-btn--primary",
+  ".tr-btn--primary:hover:not(:disabled)",
+  ".tr-btn--primary:active:not(:disabled)",
+  ".tr-iconbtn--on-brand",
+  ".tr-iconbtn--on-brand:hover",
+  ".tr-key--go",
+  '.tr-nav[aria-current="page"]::before',
+  ".tr-driver__bar",
+  ".tr-shell__top",
 ]);
 
-const BRAND_VAR = /var\(--(?:on-)?primary(?:-hover|-pressed)?\)/;
+const BRAND_NAME = String.raw`--(?:on-)?brand(?:-hover|-pressed)?`;
+const BRAND_READ = new RegExp(String.raw`var\(${BRAND_NAME}\)`);
+const BRAND_DECLARED = new RegExp(String.raw`(?:^|[;{\s])${BRAND_NAME}\s*:`);
+const BRAND_LITERAL = new RegExp(String.raw`["'\`]${BRAND_NAME}["'\`]`);
+
+// themeCss writes the platform default and brandVars the tenant's, which
+// ThemeProvider applies to the root; both live in tokens.ts.
+const BRAND_WRITERS = new Set(["/src/theme/tokens.ts"]);
 
 // A selector list splits on top-level commas only: `:not(a, b)` is one.
 function splitSelectors(list: string): string[] {
@@ -49,16 +78,21 @@ function splitSelectors(list: string): string[] {
   return out.map((s) => s.trim().replace(/\s+/g, " ")).filter((s) => s !== "");
 }
 
-function brandRules(): { file: string; selector: string }[] {
-  const found: { file: string; selector: string }[] = [];
+function rules(): { file: string; selectors: string[]; body: string }[] {
+  const found: { file: string; selectors: string[]; body: string }[] = [];
   for (const [file, css] of Object.entries(sheets)) {
     const text = css.replace(/\/\*[\s\S]*?\*\//g, "");
     for (const m of text.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
-      if (!BRAND_VAR.test(m[2])) continue;
-      for (const selector of splitSelectors(m[1])) found.push({ file, selector });
+      found.push({ file, selectors: splitSelectors(m[1]), body: m[2] });
     }
   }
   return found;
+}
+
+function brandRules(): { file: string; selector: string }[] {
+  return rules()
+    .filter((r) => BRAND_READ.test(r.body))
+    .flatMap((r) => r.selectors.map((selector) => ({ file: r.file, selector })));
 }
 
 describe("the tenant brand stays in chrome (U53)", () => {
@@ -68,6 +102,8 @@ describe("the tenant brand stays in chrome (U53)", () => {
     const selectors = brandRules().map((r) => r.selector);
     expect(selectors).toContain(".shell-wordmark");
     expect(selectors).toContain(".cap-primary");
+    expect(Object.keys(sources)).toContain("/src/theme/tokens.ts");
+    expect(sources["/src/theme/ThemeProvider.tsx"]).toContain("brandVars(");
   });
 
   it("colours no in-content text, outline or ring with the brand", () => {
@@ -75,5 +111,18 @@ describe("the tenant brand stays in chrome (U53)", () => {
       .filter((r) => !BRAND_ALLOWED.has(r.selector))
       .map((r) => `${r.file}: ${r.selector}`);
     expect(offenders).toEqual([]);
+  });
+
+  // A stylesheet or component that set --brand itself could put the tenant
+  // colour, or a stale one, under a subtree ThemeProvider does not govern.
+  it("writes the brand tokens only through themeCss and ThemeProvider", () => {
+    const inCss = rules()
+      .filter((r) => BRAND_DECLARED.test(r.body))
+      .map((r) => `${r.file}: ${r.selectors.join(", ")}`);
+    expect(inCss).toEqual([]);
+    const inSource = Object.entries(sources)
+      .filter(([file, text]) => !BRAND_WRITERS.has(file) && BRAND_LITERAL.test(text))
+      .map(([file]) => file);
+    expect(inSource).toEqual([]);
   });
 });

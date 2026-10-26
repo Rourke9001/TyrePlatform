@@ -1,4 +1,4 @@
-import { severityLabel } from "./vocabulary";
+import { severityLabel } from "../../domain/vocabulary";
 
 // Three glyphs so the badge reads in greyscale and to a colour-blind
 // reader (NFR-USE-009); the word is the encoding and the glyph is

@@ -1,0 +1,206 @@
+/* The shell every route renders in, the route error and the dev bar
+   (TYRE-28, TYRE-242, TYRE-280). The shell, ConfigFailure and
+   RouteErrorBoundary import it, so each paints on the capture entry's
+   stylesheets alone. Custom properties only. */
+
+.shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.shell-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.5rem 0.75rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+.shell-eyebrow {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--type-eyebrow-size);
+  font-weight: 600;
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.shell-wordmark {
+  font-family: var(--font-sans);
+  font-size: var(--type-display-size);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--brand);
+}
+
+.shell-logo {
+  max-height: 2.5rem;
+  max-width: 14rem;
+}
+
+.shell-actor {
+  margin: 0.15rem 0 0;
+  font-size: var(--type-small-size);
+  color: var(--ink-muted);
+}
+
+.shell-tenant {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  font-size: var(--type-small-size);
+  color: var(--ink-muted);
+}
+
+.shell-tenant select {
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
+  color: var(--ink);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 0.3rem 0.5rem;
+}
+
+.shell-nav {
+  display: flex;
+  gap: 1.5rem;
+  padding: 0 1.5rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+/* NFR-USE-004: gloves. 44px is the smallest target a gloved thumb hits
+   reliably, and the nav is the one control a driver must not miss. */
+.shell-nav a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--type-body-size);
+  color: var(--ink-muted);
+  text-decoration: none;
+  padding: 0 var(--space-3);
+  border-bottom: 3px solid transparent;
+}
+
+.shell-nav a[aria-current="page"] {
+  color: var(--ink);
+  border-bottom-color: var(--brand);
+}
+
+/* NFR-USE-003: the focus ring must survive direct sun, so it's a solid
+   3px offset outline, as ui/base.css draws it. */
+.shell-nav a:focus-visible,
+.shell-main :focus-visible {
+  outline: 3px solid var(--interactive);
+  outline-offset: 2px;
+}
+
+.shell-main {
+  width: 100%;
+  max-width: 52rem;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+/* TYRE-280: what a render error leaves in place of a page, inside the
+   shell. The button keeps .btn's 44px floor (NFR-USE-004). */
+.route-error {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: start;
+  padding: var(--space-6) 0;
+}
+
+/* The dev switchers' home (TYRE-242): after the content, collapsed. */
+.dev-bar {
+  width: 100%;
+  margin: var(--space-6) auto 0;
+  max-width: 52rem;
+  padding: 0 1.5rem var(--space-4);
+  font-size: var(--type-small-size);
+  color: var(--ink-muted);
+}
+
+.dev-bar summary {
+  cursor: pointer;
+}
+
+.dev-bar-controls {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  margin-top: var(--space-2);
+}
+
+/* The driver's shell and the manager's shell are one product, not two: the
+   header stacks and the nav row wraps, but nothing is hidden behind a
+   disclosure the sun makes invisible. 640 is breakpoint.phone in tokens.ts;
+   @media cannot read a custom property. */
+@media (max-width: 640px) {
+  .shell-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+  /* Stacked, the header reads from the start edge (auth.css aligns sign-out
+     to the end for the desktop row). */
+  .shell-header .auth-signout {
+    justify-items: start;
+    text-align: start;
+  }
+  .shell-nav {
+    flex-wrap: wrap;
+    gap: 0 var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+  /* Below the base .shell-main on purpose: equal specificity, so order wins. */
+  .shell-main {
+    padding: var(--space-4);
+  }
+  .dev-bar {
+    padding-inline: var(--space-4);
+  }
+}
+
+/* NFR-USE-004: the shell's own Try again buttons (ConfigFailure,
+   RouteErrorBoundary) keep the 44px floor without the manager kit's
+   stylesheet, which loads only with a manager route (TYRE-281). */
+.route-error .btn {
+  min-height: var(--target-min);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: 600;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.route-error .btn-secondary {
+  color: var(--ink);
+  background: var(--surface);
+  border-color: var(--line);
+}
+.route-error .btn-secondary:hover:not(:disabled, [aria-disabled="true"]) {
+  background: var(--surface-muted);
+}
+
+/* aria-disabled keeps the busy retry focusable; it looks disabled. */
+.route-error .btn:disabled,
+.route-error .btn[aria-disabled="true"] {
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  border-color: transparent;
+  cursor: not-allowed;
+}

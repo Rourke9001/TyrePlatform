@@ -1,6 +1,8 @@
 import { Component, type ReactNode } from "react";
 import { useLocation, useMatch } from "react-router";
 
+import "./shell.css";
+
 interface BoundaryProps {
   resetKey: string;
   onCapture: boolean;

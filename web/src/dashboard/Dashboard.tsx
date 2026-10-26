@@ -1,3 +1,4 @@
+import "../ui/legacy/ui.css";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "react-router";
 
@@ -6,10 +7,11 @@ import { getDevTenantId } from "../api/devTenant";
 import { useActor } from "../auth/actorContext";
 import { dashboardKey } from "../fleet/unit/queryKeys";
 import { useTenantInstant } from "../time/tenantTime";
-import { Button } from "../ui/Button";
-import { EmptyState } from "../ui/EmptyState";
-import { PageHeader } from "../ui/PageHeader";
-import { absenceLabel, plural } from "../ui/vocabulary";
+import { Button } from "../ui/legacy/Button";
+import { EmptyState } from "../ui/legacy/EmptyState";
+import { PageHeader } from "../ui/legacy/PageHeader";
+import { absenceLabel } from "../domain/vocabulary";
+import { plural } from "../format/numbers";
 import { DashboardFilters } from "./DashboardFilters";
 import { DashboardPanels } from "./DashboardPanels";
 import { DashboardTiles } from "./DashboardTiles";

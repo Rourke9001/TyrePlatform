@@ -1,5 +1,8 @@
-import type { ProvenanceKey } from "../theme/tokens";
-import { formatCount } from "./vocabulary";
+import { formatCount } from "../../format/numbers";
+
+// The two disjoint casing partitions' names (ADR-0010, spec U27); a split
+// never receives a computed fifth.
+export type ProvenanceKey = "actual" | "audit" | "estimated" | "unvalued";
 
 export interface ProvenanceSegment {
   key: ProvenanceKey;

@@ -1,16 +1,10 @@
 import { useId, useState, type ReactNode } from "react";
 
-import { bandFallback, bandFill } from "./bandFill";
-import { usePhone } from "./useMediaQuery";
-import { bandRangeLabel, formatCount, formatPct, plural } from "./vocabulary";
-
-export interface BandDatum {
-  bandOrdinal: number;
-  lowerMm: number;
-  upperExclusiveMm: number | null;
-  tyreCount: number;
-  pctOfGroup: number;
-}
+import type { BandDatum } from "../../api/dashboard";
+import { bandFallback, bandFill } from "../bandFill";
+import { usePhone } from "../useMediaQuery";
+import { bandRangeLabel } from "../../domain/vocabulary";
+import { formatCount, formatPct, plural } from "../../format/numbers";
 
 interface BandChartProps {
   title: string;

@@ -1,14 +1,10 @@
 // Derives a full brand theme from the tenant's one colour (TYRE-27): the
-// tenant controls hue, the system computes on-primary text and, where
+// tenant controls hue, the system computes on-brand text and, where
 // needed, tone so WCAG 2.1 AA (NFR-USE-007) holds for any input.
 
 import { PLATFORM_BRAND, themes } from "./tokens";
 
 export interface BrandTheme {
-  primary: string;
-  primaryHover: string;
-  primaryPressed: string;
-  onPrimary: string;
   brand: string;
   brandHover: string;
   brandPressed: string;
@@ -59,13 +55,13 @@ function mix(a: Rgb, b: Rgb, t: number): Rgb {
   return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
 }
 
-// A palette token is ours, not a tenant's; an unparseable one fails at
+// A theme token is ours, not a tenant's; an unparseable one fails at
 // import rather than letting undefined reach a contrast calculation and
 // derive a theme from NaN (TYRE-27, TYRE-49).
 function requireHex(token: string): Rgb {
   const rgb = parseHex(token);
   if (!rgb) {
-    throw new Error(`palette token is not a hex colour: ${token}`);
+    throw new Error(`theme token is not a hex colour: ${token}`);
   }
   return rgb;
 }
@@ -73,10 +69,10 @@ function requireHex(token: string): Rgb {
 const INK: Rgb = requireHex(INK_HEX);
 const WHITE_RGB: Rgb = requireHex(WHITE);
 
-export function deriveBrandTheme(primaryInput: string): BrandTheme {
-  let rgb = parseHex(primaryInput) ?? requireHex(PLATFORM_BRAND);
+export function deriveBrandTheme(tenantColour: string): BrandTheme {
+  let rgb = parseHex(tenantColour) ?? requireHex(PLATFORM_BRAND);
 
-  // A mid-tone primary clears at best about 4.3:1 against BOTH white and
+  // A mid-tone brand clears at best about 4.3:1 against BOTH white and
   // ink, so picking a text colour is not enough: nudge the tone (hue
   // untouched) away from whichever text colour reads better until AA holds.
   for (let i = 0; i < 20; i++) {
@@ -86,26 +82,19 @@ export function deriveBrandTheme(primaryInput: string): BrandTheme {
     rgb = mix(rgb, cWhite >= cInk ? [0, 0, 0] : WHITE_RGB, 0.08);
   }
 
-  const primary = toHex(rgb);
-  const onPrimary =
-    contrastRatio(primary, WHITE) >= contrastRatio(primary, INK_HEX) ? WHITE : INK_HEX;
+  const brand = toHex(rgb);
+  const onBrand = contrastRatio(brand, WHITE) >= contrastRatio(brand, INK_HEX) ? WHITE : INK_HEX;
 
-  // Hover/pressed step toward ink; a near-black primary has no darker to go,
+  // Hover/pressed step toward ink; a near-black brand has no darker to go,
   // so its states step toward white instead. The shift stays visible.
   const towardsLight = luminance(rgb) < 0.03;
   const target = towardsLight ? WHITE_RGB : INK;
   const [hoverT, pressedT] = towardsLight ? [0.14, 0.26] : [0.12, 0.22];
 
-  const hover = toHex(mix(rgb, target, hoverT));
-  const pressed = toHex(mix(rgb, target, pressedT));
   return {
-    primary,
-    primaryHover: hover,
-    primaryPressed: pressed,
-    onPrimary,
-    brand: primary,
-    brandHover: hover,
-    brandPressed: pressed,
-    onBrand: onPrimary,
+    brand,
+    brandHover: toHex(mix(rgb, target, hoverT)),
+    brandPressed: toHex(mix(rgb, target, pressedT)),
+    onBrand,
   };
 }

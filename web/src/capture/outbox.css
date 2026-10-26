@@ -1,0 +1,69 @@
+/* The outbox band (ADR-0009, NFR-USE-010), mounted in the shell on every
+   route. OutboxIndicator imports it. */
+
+/* Mounted in the shell, so it is the one piece of capture that appears on
+   every screen. Kept to a single band: it is a status line, not a panel, and
+   it must never push the driver's work below the fold. */
+.cap-outbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-muted);
+}
+
+.cap-outbox-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* NFR-USE-009: the count is the message, no colour badge to read in sun.
+   TYRE-167: grid, not inline, since ConfirmDiscard swaps to a block-level
+   section on press, which inline flow cannot lay out below the line. */
+.cap-outbox-line {
+  display: grid;
+  gap: var(--space-2);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
+  line-height: 1.3;
+  color: var(--ink-muted);
+}
+
+.cap-outbox-line--stop {
+  font-weight: 600;
+  color: var(--critical-text);
+}
+
+.cap-outbox-sync {
+  flex: none;
+}
+
+/* Sync now's look and 44px floor (NFR-USE-004), scoped to the band so a
+   restyle of the capture screens' .cap-secondary leaves it alone. */
+.cap-outbox .cap-secondary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  appearance: none;
+  margin: 0;
+  border: 2px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: var(--type-body-size);
+  letter-spacing: var(--tracking-eyebrow);
+  text-transform: uppercase;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.cap-outbox .cap-secondary:active {
+  background: var(--surface-muted);
+}

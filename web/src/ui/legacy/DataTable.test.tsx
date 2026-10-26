@@ -1,7 +1,7 @@
 import { render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { forceMatchMedia } from "../test/media";
+import { forceMatchMedia } from "../../test/media";
 import { DataTable, type Column } from "./DataTable";
 
 interface Row {
