@@ -1,4 +1,4 @@
-import { useQueries } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import type { Dispatch, SetStateAction } from "react";
 
 import type { CaptureContext } from "./captureContext";
@@ -30,8 +30,9 @@ export function useRigComposition(
   // thresholds; only the walk-around numbering is projected across the rig.
   const memberIds = memberOrder(motive, confirmedIds, vehicleId);
   // The motive's own window, so its query and its member query share a key.
+  const client = useQueryClient();
   const memberQueries = useQueries({
-    queries: memberIds.map((id) => captureContextQuery(id, startedAt)),
+    queries: memberIds.map((id) => captureContextQuery(id, startedAt, client)),
   });
   const loaded = memberQueries
     .map((q) => q.data)

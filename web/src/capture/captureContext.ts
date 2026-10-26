@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 
 import { apiGet } from "../api/client";
 import { retryQuery } from "../api/apiError";
@@ -115,10 +115,20 @@ export function fetchCaptureContext(
 // not inlined, because a rig (useQueries) and a solo unit must produce the
 // same queryKey or the motive unit fetches twice. The key carries startedAt
 // because a read through a draft's window answers for that window, not now.
-export function captureContextQuery(vehicleId: string, startedAt?: string) {
+//
+// A windowed read is seeded from the at-now entry (FR-OFF-001, rule 7): a
+// remount keys on the draft's startedAt, which the first mount never cached,
+// and offline a query with no data does not fetch. A window that ends now
+// admits all the at-now read did, and Infinity staleTime keeps the seed from
+// refetching. The key keeps startedAt so a discard reads at now afresh.
+export function captureContextQuery(vehicleId: string, startedAt?: string, seed?: QueryClient) {
   return {
     queryKey: ["capture-context", getDevTenantId() ?? "default", vehicleId, startedAt ?? null],
     queryFn: () => fetchCaptureContext(vehicleId, startedAt),
+    initialData:
+      startedAt === undefined || !seed
+        ? undefined
+        : () => seed.getQueryData<CaptureContext>(captureContextQuery(vehicleId).queryKey),
     staleTime: Infinity,
     gcTime: Infinity,
     refetchOnWindowFocus: false,
@@ -127,5 +137,6 @@ export function captureContextQuery(vehicleId: string, startedAt?: string) {
 }
 
 export function useCaptureContext(vehicleId: string, startedAt?: string, enabled = true) {
-  return useQuery({ ...captureContextQuery(vehicleId, startedAt), enabled });
+  const client = useQueryClient();
+  return useQuery({ ...captureContextQuery(vehicleId, startedAt, client), enabled });
 }

@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
+import { onlineManager, QueryClientProvider } from "@tanstack/react-query";
+import { createElement } from "react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import { clearDevActorId, setDevActorId } from "../api/devTenant";
-import { renderWithActor } from "../test/fixtures";
+import { ActorContext } from "../auth/actorContext";
+import { me, renderWithActor, testQueryClient } from "../test/fixtures";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import { CaptureFlow } from "./CaptureFlow";
 import type { CaptureContext } from "./captureContext";
@@ -348,6 +351,48 @@ describe("CaptureFlow", () => {
     ]);
     for (const u of reads) expect(u).toContain(`?startedAt=${encodeURIComponent(startedAt)}`);
   });
+
+  // FR-OFF-001, rule 7: a remount reads through the draft's startedAt, a key
+  // the first mount never cached. Offline the query pauses, so without a seed
+  // from the at-now entry the capture sticks on "Loading..." until signal.
+  it.each([
+    ["a solo unit", [context], /^Position 1,/],
+    ["a rig", [rigMotive, trailer], /, BAC711TR, /],
+  ])(
+    "remounts %s offline on the cached context",
+    async (_name, served, cell) => {
+      const user = newUser();
+      stubApi(201, served);
+      const client = testQueryClient();
+      const mount = () =>
+        render(
+          createElement(
+            ActorContext.Provider,
+            { value: { actor: me(), settled: true } },
+            createElement(
+              QueryClientProvider,
+              { client },
+              createElement(CaptureFlow, { vehicleId: "v1", taskId: null }),
+            ),
+          ),
+        );
+
+      const first = mount();
+      await user.click(await screen.findByRole("button", { name: /start inspection/i }));
+      await screen.findAllByRole("button", { name: cell });
+      first.unmount();
+
+      onlineManager.setOnline(false);
+      try {
+        mount();
+        expect((await screen.findAllByRole("button", { name: cell })).length).toBeGreaterThan(0);
+        expect(screen.queryByText("Loading…")).toBeNull();
+      } finally {
+        onlineManager.setOnline(true);
+      }
+    },
+    20000,
+  );
 
   it("reads a fresh capture's unit at now", async () => {
     const api = stubApi();
