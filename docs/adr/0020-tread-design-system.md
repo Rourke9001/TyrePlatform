@@ -1,7 +1,10 @@
 # ADR-0020: The Tread design system replaces the TYRE-238 kit
 
 - **Status:** Accepted (owner, 21 Oct 2026, U145), with the capture rulings
-  under Decision that keep Tread inside the SRS.
+  under Decision that keep Tread inside the SRS. Amended 26 Oct 2026 by
+  owner ruling U156 (TYRE-443): every route moves to Tread now, which
+  supersedes the Sequence paragraph and nothing else
+  (`docs/superpowers/specs/2026-10-26-tread-frontend-design.md`).
 - **Date:** 2026-10-20
 - **Deciders:** Rourke (owner decision of 20 Oct 2026)
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and
