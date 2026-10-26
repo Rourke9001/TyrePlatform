@@ -256,13 +256,44 @@ ALTER TABLE app.inspection_task
 ALTER TABLE app.inspection_task
   ADD CONSTRAINT task_closed_when_not_open CHECK ((state = 'OPEN') = (closed_at IS NULL));
 
+-- The one test of what may complete a unit's task (FR-INS-052): an
+-- inspection of the unit, or one carrying a reading of it, as a rig capture
+-- addressed to its motive reads each towed unit.
+CREATE FUNCTION app.inspection_read_unit(p_tenant uuid, p_inspection uuid, p_vehicle uuid)
+RETURNS boolean
+LANGUAGE sql STABLE
+SET search_path = app, pg_temp AS $$
+  SELECT EXISTS (SELECT 1 FROM app.inspection i
+                  WHERE i.tenant_id = p_tenant AND i.id = p_inspection AND i.vehicle_id = p_vehicle)
+      OR EXISTS (SELECT 1 FROM app.reading r
+                  WHERE r.tenant_id = p_tenant AND r.vehicle_id = p_vehicle AND r.inspection_id = p_inspection)
+$$;
+
 -- A close is final (rule 3): the responsibility and capture reads judge a
 -- past instant by closed_at, so a reopened task would rewrite who held it
 -- then. An INSERT may plant a past close; an UPDATE stamps the close itself.
 CREATE FUNCTION app.inspection_task_closes_once() RETURNS trigger
 LANGUAGE plpgsql
 SET search_path = app, pg_temp AS $$
+DECLARE
+  unit text;
 BEGIN
+  -- A close cites an inspection of the task's unit or one that read it.
+  -- Otherwise the task reads done for a unit nobody inspected, its schedule
+  -- stands the next task down and the unit leaves the controller's
+  -- outstanding work (FR-INS-052). It is judged as the task leaves OPEN.
+  IF TG_OP = 'UPDATE' AND OLD.state = 'OPEN' AND NEW.state = 'COMPLETED' THEN
+    -- An inspection this fleet cannot see is the composite FK's to refuse,
+    -- so another tenant's row still answers 23503 (check 16).
+    PERFORM 1 FROM app.inspection i
+     WHERE i.tenant_id = NEW.tenant_id AND i.id = NEW.completed_inspection_id;
+    IF FOUND AND NOT app.inspection_read_unit(NEW.tenant_id, NEW.completed_inspection_id, NEW.vehicle_id) THEN
+      SELECT v.fleet_number INTO unit FROM app.vehicle v
+       WHERE v.tenant_id = NEW.tenant_id AND v.id = NEW.vehicle_id;
+      RAISE EXCEPTION USING ERRCODE = 'TY018',
+        MESSAGE = format('this inspection task is on %s; an inspection that never read that unit cannot complete it', unit);
+    END IF;
+  END IF;
   IF TG_OP = 'UPDATE' AND OLD.state IN ('COMPLETED', 'CANCELLED')
      AND NEW.state IS DISTINCT FROM OLD.state THEN
     RAISE EXCEPTION USING ERRCODE = 'TY018',
@@ -1216,21 +1247,16 @@ BEGIN
   -- driver launched from a specific task (FR-INS-048 shows them) and a unit can
   -- carry several at once (FR-INS-051), so the payload names which.
   --
-  -- The unit guard is what stops the citation being a lie. Without it a
-  -- task_id naming unit C is closed by an inspection of unit B, and the row
-  -- then asserts C was inspected when it was not: the schedule stands its
-  -- next task down and C leaves the controller's outstanding-work view. A
-  -- named task closes when its unit is the payload's or carries a reading
-  -- here, so a rig capture closes a trailer's task named through its motive;
-  -- one the submit does not cover closes nothing, silently. CANCELLED and
-  -- COMPLETED stay as they are (inspection_task_closes_once).
+  -- A named task closes only where app.inspection_read_unit holds, so a rig
+  -- capture closes a trailer's task named through its motive. One the submit
+  -- did not read closes nothing, silently, since inspection_task_closes_once
+  -- would refuse its close and the capture with it. CANCELLED and COMPLETED
+  -- stay as they are (inspection_task_closes_once).
   IF v_task IS NOT NULL THEN
     UPDATE app.inspection_task k
        SET state = 'COMPLETED', completed_inspection_id = v_insp
      WHERE k.tenant_id = v_tenant AND k.id = v_task AND k.state = 'OPEN'
-       AND (k.vehicle_id = v_vehicle
-            OR k.vehicle_id IN (SELECT r.vehicle_id FROM app.reading r
-                                 WHERE r.tenant_id = v_tenant AND r.inspection_id = v_insp));
+       AND app.inspection_read_unit(v_tenant, v_insp, k.vehicle_id);
   END IF;
 
   -- U150: an inspection covers the configuration as a whole, so each unit

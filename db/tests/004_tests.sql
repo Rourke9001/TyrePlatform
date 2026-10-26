@@ -14196,7 +14196,7 @@ BEGIN
 END $$;
 ROLLBACK;
 
-\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept and a future one refused, a closed task never changes state, completing inspection or reason, and the app role edits a task''s state, reason and citation alone (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
+\echo '== 76d. a task carries the instant it closed: none while open, now when it leaves OPEN, a planted past instant kept and a future one refused, a close cites an inspection of its unit or one that read it, a closed task never changes state, completing inspection or reason, and the app role edits a task''s state, reason and citation alone (FR-INS-052, rule 3, TY018; as BAC, rolled back)'
 BEGIN;
 DO $$
 DECLARE
@@ -14204,7 +14204,7 @@ DECLARE
   h1  constant uuid := md5('t76h1')::uuid;
   h2  constant uuid := md5('t76h2')::uuid;
   d1  constant uuid := md5('t76d1')::uuid;
-  k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; insp uuid; insp2 uuid;
+  k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; k6 uuid; k7 uuid; insp uuid; insp2 uuid; insp3 uuid;
   st text; msg text; c timestamptz; s text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
@@ -14261,6 +14261,36 @@ BEGIN
     FROM app.inspection_task WHERE id IN (k1, k2);
   IF s IS DISTINCT FROM 'CANCELLED 76d,COMPLETED true' THEN
     RAISE EXCEPTION 'FAIL 76d: the refused moves left the tasks %, not CANCELLED 76d,COMPLETED true', s;
+  END IF;
+
+  -- A raw close cites an inspection of the task's unit or one that read it,
+  -- as app.submit_inspection's does, or the task reads done for a unit
+  -- nobody inspected (FR-INS-052). The control is the fixture's rig
+  -- capture, addressed to HORSE, which reads LINK6.
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+  VALUES (bac, h2, d1, gen_random_uuid(), now() - interval '1 hour', now() - interval '40 minutes', 1000)
+  RETURNING id INTO insp3;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, h1, now() + interval '1 day') RETURNING id INTO k6;
+  s := NULL;
+  BEGIN
+    UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = insp3 WHERE id = k6;
+  EXCEPTION WHEN OTHERS THEN
+    GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE;
+    s := s || ' ' || SQLERRM;
+  END;
+  IF s IS DISTINCT FROM 'TY018 this inspection task is on T76-H1; an inspection that never read that unit cannot complete it' THEN
+    RAISE EXCEPTION 'FAIL 76d: a raw close of T76-H1''s task citing T76-H2''s inspection was answered %, not TY018', COALESCE(s, 'by success');
+  END IF;
+  INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at)
+  VALUES (bac, md5('veh2')::uuid, now() + interval '1 day') RETURNING id INTO k7;
+  UPDATE app.inspection_task SET state = 'COMPLETED', completed_inspection_id = md5('insp1')::uuid WHERE id = k7;
+  SELECT string_agg(state::text || ' ' || COALESCE((completed_inspection_id = md5('insp1')::uuid)::text, '-'),
+                    ',' ORDER BY ord) INTO s
+    FROM app.inspection_task k
+    JOIN (VALUES (k6, 1), (k7, 2)) o(id, ord) ON o.id = k.id;
+  IF s IS DISTINCT FROM 'OPEN -,COMPLETED true' THEN
+    RAISE EXCEPTION 'FAIL 76d: the refused close and the rig capture''s close left the tasks %, not OPEN -,COMPLETED true', s;
   END IF;
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
@@ -14338,7 +14368,7 @@ BEGIN
     END IF;
   END LOOP;
   PERFORM set_config('app.tenant_id', bac::text, true);
-  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted past close is kept and a future one refused, an open task has none, a closed task never changes state, completing inspection or reason, the app role edits only state, reason and citation, and none is ever ESCALATED';
+  RAISE NOTICE 'PASS  76d a task closes at now when it leaves OPEN, a planted past close is kept and a future one refused, an open task has none, a close cites an inspection of its unit or one that read it, a closed task never changes state, completing inspection or reason, the app role edits only state, reason and citation, and none is ever ESCALATED';
 END $$;
 ROLLBACK;
 

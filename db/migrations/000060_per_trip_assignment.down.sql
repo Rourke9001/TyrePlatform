@@ -51,6 +51,7 @@ REVOKE UPDATE (state, cancelled_reason, completed_inspection_id) ON app.inspecti
 GRANT UPDATE ON app.inspection_task TO app_rw;
 DROP TRIGGER inspection_task_closes_once ON app.inspection_task;
 DROP FUNCTION app.inspection_task_closes_once();
+DROP FUNCTION app.inspection_read_unit(uuid, uuid, uuid);
 ALTER TABLE app.inspection_task DROP CONSTRAINT task_closed_when_not_open;
 ALTER TABLE app.inspection_task DROP CONSTRAINT task_never_escalated;
 ALTER TABLE app.inspection_task DROP COLUMN closed_at;
