@@ -685,3 +685,55 @@ func TestObservationDismissLocksTheUnitsBeforeTheRig(t *testing.T) {
 	require.NoError(t, probeErr, "the dismiss locked the rig while it waited on a unit")
 	require.Equal(t, http.StatusNoContent, rec.Code, rec.Body.String())
 }
+
+// A depot actor outside the rig's depot is refused before any unit is taken:
+// the request answers 404 while another session still holds a trailer of the
+// rig, where a lock-then-check order would queue behind it (FR-AUT-008).
+func TestObservationOutOfDepotResolutionLocksNothing(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "obs-lock-scope")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	mine, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	elsewhere, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, mine)
+
+	for _, action := range []struct{ name, body string }{
+		{"apply", `{"note":"x"}`}, {"dismiss", `{"note":"x"}`},
+	} {
+		t.Run(action.name, func(t *testing.T) {
+			motive, _, configID := plantMotive(t, ctx, admin, tenantID)
+			_, err := admin.Exec(ctx, `UPDATE app.vehicle SET home_depot_id = $2 WHERE id = $1`, motive, elsewhere)
+			require.NoError(t, err)
+			trailer, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+			warning, rig, _ := plantReport(t, ctx, admin, tenantID, motive, driver,
+				[]uuid.UUID{motive}, trailer)
+
+			holder, err := pgx.Connect(ctx, os.Getenv("TEST_ADMIN_DATABASE_URL"))
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = holder.Close(context.Background()) })
+			hold, err := holder.Begin(ctx)
+			require.NoError(t, err)
+			t.Cleanup(func() { _ = hold.Rollback(context.Background()) })
+			_, err = hold.Exec(ctx, `SELECT 1 FROM app.vehicle WHERE id = $1 FOR UPDATE`, trailer)
+			require.NoError(t, err)
+
+			done := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				done <- post(t, h, "/api/combinations/observations/"+warning.String()+"/"+action.name,
+					tenantID.String(), manager.String(), action.body)
+			}()
+			select {
+			case rec := <-done:
+				require.Equal(t, http.StatusNotFound, rec.Code, rec.Body.String())
+			case <-time.After(5 * time.Second):
+				_ = hold.Rollback(ctx)
+				<-done
+				t.Fatalf("the out-of-depot %s queued behind a unit it may not touch", action.name)
+			}
+			require.True(t, rigIsOpen(t, ctx, admin, rig), "a refused write writes nothing")
+		})
+	}
+}
