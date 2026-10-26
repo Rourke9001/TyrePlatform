@@ -96,7 +96,7 @@
   position: sticky;
   top: var(--appbar);
   align-self: start;
-  max-height: calc(100vh - var(--appbar));
+  height: calc(100vh - var(--appbar));
   overflow-y: auto;
   padding: var(--space-4) var(--space-3);
   background: var(--surface);
@@ -203,6 +203,9 @@
 .tr-shell__content {
   flex: 1;
   display: grid;
+  /* One track no wider than the box, so a child with a wide minimum, such
+     as a tab list, scrolls inside itself instead of widening the page. */
+  grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: var(--space-6);
   width: 100%;
@@ -225,7 +228,7 @@
     inset: 0 auto 0 0;
     z-index: 20;
     width: min(var(--sidebar), 86vw);
-    max-height: none;
+    height: auto;
     box-shadow: var(--shadow-overlay);
     transform: translateX(-102%);
     visibility: hidden;
