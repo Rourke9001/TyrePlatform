@@ -1,0 +1,147 @@
+.tr-axles {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.tr-axles__front {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.tr-axles__sides {
+  display: flex;
+  justify-content: space-between;
+  padding: 0 var(--space-1);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.tr-unit {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-lg);
+  background: var(--surface-muted);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.tr-unit__head {
+  margin: 0;
+}
+
+.tr-unit__name {
+  font-weight: 800;
+  font-size: 17px;
+}
+
+.tr-unit__meta {
+  font-size: var(--type-small-size);
+  color: var(--ink-secondary);
+}
+
+/* Two halves either side of the beam, so a single sits by the hub and a
+   dual pair fills its half, whatever the count the caller draws. */
+.tr-axle {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(30px, 0.5fr) minmax(0, 2fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.tr-axle__side {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.tr-axle__side--left {
+  justify-content: flex-end;
+}
+
+.tr-axle__side--right {
+  justify-content: flex-start;
+}
+
+.tr-axle__side > .tr-tile {
+  flex: 0 1 calc(50% - 3px);
+}
+
+.tr-axle__beam {
+  position: relative;
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+}
+
+.tr-axle__beam::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  right: -6px;
+  top: 50%;
+  height: 4px;
+  margin-top: -2px;
+  border-radius: 2px;
+  background: var(--line-strong);
+}
+
+.tr-axle__label {
+  position: relative;
+  padding: 2px 4px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  font-size: var(--type-eyebrow-size);
+  line-height: var(--type-eyebrow-line);
+  font-weight: 700;
+  color: var(--ink-secondary);
+  text-align: center;
+}
+
+/* FR-INS-060: the coupling between member units. */
+.tr-axles__hitch {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  margin: calc(var(--space-1) * -1) 0;
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  color: var(--ink-muted);
+}
+
+.tr-axles__hitch::before,
+.tr-axles__hitch::after {
+  content: "";
+  width: 2px;
+  height: 14px;
+  background: var(--line-strong);
+}
+
+.tr-spares {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px dashed var(--line-strong);
+}
+
+.tr-spares__label {
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+
+.tr-spares > .tr-tile {
+  flex: none;
+  width: 84px;
+}

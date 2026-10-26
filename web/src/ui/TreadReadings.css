@@ -1,0 +1,133 @@
+.tr-tread {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.tr-tread__axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 700;
+  color: var(--ink-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* minmax(0, 1fr): a cell shrinks with the phone rather than pushing the row
+   past 360px (TYRE-220). */
+.tr-tread__cells {
+  display: grid;
+  grid-template-columns: repeat(var(--tr-cells, 3), minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+/* NFR-USE-004: 80px tall, above the 56px glove floor. */
+.tr-tread__cell {
+  position: relative;
+  display: grid;
+  gap: 2px;
+  justify-items: center;
+  align-content: center;
+  min-width: 0;
+  min-height: 80px;
+  margin: 0;
+  padding: 14px var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border: 2px solid var(--line-strong);
+  background: var(--surface);
+  color: var(--ink);
+  appearance: none;
+  font: inherit;
+  cursor: default;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button.tr-tread__cell {
+  cursor: pointer;
+}
+
+.tr-tread__cell[data-empty="true"] {
+  border-style: dashed;
+  border-color: var(--unmeasured);
+}
+
+.tr-tread__cell[aria-current="true"] {
+  border-style: solid;
+  border-color: var(--interactive);
+  background: var(--interactive-soft);
+  box-shadow: 0 0 0 2px var(--interactive);
+}
+
+.tr-tread__name {
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 700;
+  color: var(--ink-secondary);
+}
+
+.tr-tread__val {
+  font-family: var(--font-mono);
+  font-size: 26px;
+  line-height: 30px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tr-tread__unit {
+  font-size: var(--type-caption-size);
+  font-weight: 500;
+  color: var(--ink-muted);
+}
+
+.tr-tread--dense .tr-tread__val {
+  font-size: 20px;
+  line-height: 26px;
+}
+
+.tr-tread--lg .tr-tread__cell {
+  min-height: 92px;
+}
+
+.tr-tread--lg .tr-tread__val {
+  font-size: 34px;
+  line-height: 38px;
+}
+
+/* CR-011: the governing reading's mark. Eyebrow is the smallest type the
+   system sets (TYRE-446). */
+.tr-tread__low {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-sm);
+  font-size: var(--type-eyebrow-size);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  background: var(--ink);
+  color: var(--surface);
+}
+
+.tr-tread__low--warn {
+  background: var(--warn);
+  color: var(--on-warn);
+}
+
+.tr-tread__low--critical {
+  background: var(--critical);
+  color: var(--on-critical);
+}
+
+.tr-tread__low--ok {
+  background: var(--ok);
+  color: var(--on-ok);
+}
