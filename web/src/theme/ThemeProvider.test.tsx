@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 
 import { useEffect, useState } from "react";
 import { ThemeProvider } from "./ThemeProvider";
+import { deriveBrandTheme } from "./derive";
 import { useBranding } from "./themeContext";
 import { ActorContext } from "../auth/actorContext";
 import { writeMirror } from "../api/token";
@@ -114,5 +115,20 @@ describe("the branding cache key", () => {
     window.localStorage.setItem("tyre.dev.tenant-id", "dev-t");
     mount();
     await waitFor(() => expect(window.localStorage.getItem("tyre.branding.dev-t")).not.toBeNull());
+  });
+});
+
+// U53: the tenant's colour reaches the page only through the four brand
+// tokens on the root; every other token is the installed stylesheet's.
+describe("the brand tokens", () => {
+  it("sets the four brand tokens on the root from the tenant's colour", async () => {
+    mount();
+    await screen.findByText("Acme");
+    const t = deriveBrandTheme(BRANDING.primaryColor);
+    const root = document.documentElement.style;
+    await waitFor(() => expect(root.getPropertyValue("--brand")).toBe(t.brand));
+    expect(root.getPropertyValue("--brand-hover")).toBe(t.brandHover);
+    expect(root.getPropertyValue("--brand-pressed")).toBe(t.brandPressed);
+    expect(root.getPropertyValue("--on-brand")).toBe(t.onBrand);
   });
 });

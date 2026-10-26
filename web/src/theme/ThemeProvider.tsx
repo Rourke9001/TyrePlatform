@@ -4,7 +4,7 @@ import { fetchBranding, type Branding } from "../api/branding";
 import { getDevTenantId } from "../api/devTenant";
 import { BRANDING_PREFIX, devHeaderPath, readMirror } from "../api/token";
 import { deriveBrandTheme } from "./derive";
-import { applyCssVars, cssVars, palette } from "./tokens";
+import { applyCssVars, brandVars, cssVars, palette } from "./tokens";
 import { useActor } from "../auth/actorContext";
 import { ThemeContext } from "./themeContext";
 import "./fonts";
@@ -88,6 +88,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   // paints the frame that uses them.
   useLayoutEffect(() => {
     applyCssVars(document.documentElement, cssVars(theme));
+    applyCssVars(document.documentElement, brandVars(theme));
   }, [theme]);
 
   useEffect(() => {
