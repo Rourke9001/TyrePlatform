@@ -2,21 +2,21 @@ import type { HTMLAttributes } from "react";
 
 import { cx } from "./cx";
 import { Icon, type IconGlyph } from "./Icon";
-import { Alert } from "./icons/Alert";
-import { Check } from "./icons/Check";
-import { Critical } from "./icons/Critical";
-import { Minus } from "./icons/Minus";
-import { Unread } from "./icons/Unread";
+import { AlertIcon } from "./icons/Alert";
+import { CheckIcon } from "./icons/Check";
+import { CriticalIcon } from "./icons/Critical";
+import { MinusIcon } from "./icons/Minus";
+import { UnreadIcon } from "./icons/Unread";
 import type { Condition } from "./condition";
 import "./Badge.css";
 import "./StatusBadge.css";
 
 const LOOK: Record<Condition, { icon: IconGlyph; tone: string }> = {
-  ok: { icon: Check, tone: "ok" },
-  near: { icon: Alert, tone: "warn" },
-  limit: { icon: Critical, tone: "critical" },
-  unread: { icon: Unread, tone: "unread" },
-  nospare: { icon: Minus, tone: "neutral" },
+  ok: { icon: CheckIcon, tone: "ok" },
+  near: { icon: AlertIcon, tone: "warn" },
+  limit: { icon: CriticalIcon, tone: "critical" },
+  unread: { icon: UnreadIcon, tone: "unread" },
+  nospare: { icon: MinusIcon, tone: "neutral" },
 };
 
 export interface StatusBadgeProps extends HTMLAttributes<HTMLSpanElement> {

@@ -1,4 +1,4 @@
-export function Users() {
+export function UsersIcon() {
   return (
     <>
       <circle cx="9" cy="8" r="3.5" />

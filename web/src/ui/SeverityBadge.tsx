@@ -3,18 +3,18 @@ import type { HTMLAttributes } from "react";
 import { groupThousands } from "../format/groupThousands";
 import { cx } from "./cx";
 import { Icon, type IconGlyph } from "./Icon";
-import { Alert } from "./icons/Alert";
-import { Critical } from "./icons/Critical";
-import { Info } from "./icons/Info";
+import { AlertIcon } from "./icons/Alert";
+import { CriticalIcon } from "./icons/Critical";
+import { InfoIcon } from "./icons/Info";
 import "./Badge.css";
 import "./SeverityBadge.css";
 
 export type Severity = "critical" | "warning" | "info";
 
 const SEVERITY: Record<Severity, { word: string; icon: IconGlyph; tone: string }> = {
-  critical: { word: "Critical", icon: Critical, tone: "critical" },
-  warning: { word: "Warning", icon: Alert, tone: "warn" },
-  info: { word: "Info", icon: Info, tone: "info" },
+  critical: { word: "Critical", icon: CriticalIcon, tone: "critical" },
+  warning: { word: "Warning", icon: AlertIcon, tone: "warn" },
+  info: { word: "Info", icon: InfoIcon, tone: "info" },
 };
 
 export interface SeverityBadgeProps extends HTMLAttributes<HTMLSpanElement> {

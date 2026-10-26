@@ -2,7 +2,7 @@ import { useRef, type HTMLAttributes, type KeyboardEvent } from "react";
 
 import { cx } from "./cx";
 import { Icon } from "./Icon";
-import { Check } from "./icons/Check";
+import { CheckIcon } from "./icons/Check";
 import "./ChoiceChips.css";
 
 export interface ChoiceChipsProps extends Omit<HTMLAttributes<HTMLDivElement>, "onChange"> {
@@ -65,7 +65,7 @@ export function ChoiceChips({
           onClick={() => onChange(o.value)}
           onKeyDown={(event) => onKeyDown(event, i)}
         >
-          {o.value === value ? <Icon icon={Check} size={16} /> : null}
+          {o.value === value ? <Icon icon={CheckIcon} size={16} /> : null}
           {o.label}
         </button>
       ))}

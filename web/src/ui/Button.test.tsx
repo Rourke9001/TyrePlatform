@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { Button } from "./Button";
-import { Plus } from "./icons/Plus";
+import { PlusIcon } from "./icons/Plus";
 
 describe("Button", () => {
   it("defaults to type=button so a stray click never submits a form", () => {
@@ -45,7 +45,7 @@ describe("Button", () => {
 
   it("names itself by its words, with its icons hidden", () => {
     const { container } = render(
-      <Button icon={Plus} iconEnd={Plus}>
+      <Button icon={PlusIcon} iconEnd={PlusIcon}>
         Add tyre
       </Button>,
     );
@@ -57,7 +57,7 @@ describe("Button", () => {
 
   it("is busy and disabled while loading, with the spinner in place of the icon", () => {
     const { container } = render(
-      <Button icon={Plus} loading>
+      <Button icon={PlusIcon} loading>
         Send
       </Button>,
     );

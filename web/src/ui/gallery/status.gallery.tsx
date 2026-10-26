@@ -2,7 +2,7 @@ import { Badge } from "../Badge";
 import { Banner } from "../Banner";
 import { Button } from "../Button";
 import { EmptyState } from "../EmptyState";
-import { Tyre } from "../icons/Tyre";
+import { TyreIcon } from "../icons/Tyre";
 import { SeverityBadge } from "../SeverityBadge";
 import { Skeleton } from "../Skeleton";
 import { StatusBadge } from "../StatusBadge";
@@ -36,7 +36,7 @@ export const section: GallerySection = {
       <div className="tr-cluster">
         <Badge>Fitted</Badge>
         <Badge>In store</Badge>
-        <Badge icon={Tyre}>Spare</Badge>
+        <Badge icon={TyreIcon}>Spare</Badge>
       </div>
       <Banner tone="critical" title="1 inspection needs the office">
         The server refused it. Open it to see why.

@@ -1,4 +1,4 @@
-export function Sliders() {
+export function SlidersIcon() {
   return (
     <>
       <path d="M4 7h10M18 7h2M4 17h4M12 17h8" />

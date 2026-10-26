@@ -1,10 +1,10 @@
 import { Button } from "../Button";
 import { IconButton } from "../IconButton";
-import { ArrowRight } from "../icons/ArrowRight";
-import { Close } from "../icons/Close";
-import { Menu } from "../icons/Menu";
-import { Plus } from "../icons/Plus";
-import { Refresh } from "../icons/Refresh";
+import { ArrowRightIcon } from "../icons/ArrowRight";
+import { CloseIcon } from "../icons/Close";
+import { MenuIcon } from "../icons/Menu";
+import { PlusIcon } from "../icons/Plus";
+import { RefreshIcon } from "../icons/Refresh";
 import { Routed } from "./actions.demo";
 import type { GallerySection } from "./types";
 
@@ -20,10 +20,10 @@ export const section: GallerySection = {
         <Button variant="danger">Dispose</Button>
       </div>
       <div className="tr-cluster">
-        <Button size="lg" icon={Plus}>
+        <Button size="lg" icon={PlusIcon}>
           Add tyre
         </Button>
-        <Button variant="primary" size="glove" iconEnd={ArrowRight}>
+        <Button variant="primary" size="glove" iconEnd={ArrowRightIcon}>
           Next tyre
         </Button>
       </div>
@@ -33,7 +33,7 @@ export const section: GallerySection = {
         </Button>
         <Button disabled>Not yet</Button>
         <Routed>
-          <Button to="/exceptions" variant="ghost" iconEnd={ArrowRight}>
+          <Button to="/exceptions" variant="ghost" iconEnd={ArrowRightIcon}>
             See the list
           </Button>
         </Routed>
@@ -42,9 +42,9 @@ export const section: GallerySection = {
         Send inspection
       </Button>
       <div className="tr-cluster">
-        <IconButton label="Close" icon={Close} />
-        <IconButton label="Refresh" icon={Refresh} variant="secondary" />
-        <IconButton label="Menu" icon={Menu} size="glove" />
+        <IconButton label="Close" icon={CloseIcon} />
+        <IconButton label="Refresh" icon={RefreshIcon} variant="secondary" />
+        <IconButton label="Menu" icon={MenuIcon} size="glove" />
       </div>
     </div>
   ),

@@ -8,7 +8,7 @@ export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
   size?: "md" | "glove";
 }
 
-// className styles the frame; every other prop reaches the textarea.
+// className and the other props split as TextInput's do.
 export function TextArea({ size = "md", rows = 3, className, ...rest }: TextAreaProps) {
   const invalid = rest["aria-invalid"] !== undefined && String(rest["aria-invalid"]) !== "false";
   return (
