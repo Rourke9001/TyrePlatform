@@ -14205,7 +14205,7 @@ DECLARE
   h2  constant uuid := md5('t76h2')::uuid;
   d1  constant uuid := md5('t76d1')::uuid;
   k1 uuid; k2 uuid; k3 uuid; k4 uuid; k5 uuid; k6 uuid; k7 uuid; insp uuid; insp2 uuid; insp3 uuid;
-  st text; msg text; c timestamptz; s text;
+  insp_t2 uuid; st text; msg text; cn text; c timestamptz; s text;
 BEGIN
   PERFORM set_config('app.tenant_id', bac::text, true);
   PERFORM set_config('app.actor_id', '', true);
@@ -14314,6 +14314,32 @@ BEGIN
   IF s IS DISTINCT FROM 'T76-H2 COMPLETED' THEN
     RAISE EXCEPTION 'FAIL 76d: the tasks citing T76-H2''s inspection read %, not T76-H2 COMPLETED alone', s;
   END IF;
+  -- A unit or inspection this fleet cannot see is the composite FK's to
+  -- refuse, so another tenant's row still answers 23503 (check 16).
+  PERFORM set_config('app.tenant_id', '22222222-2222-2222-2222-222222222222', true);
+  INSERT INTO app.inspection (tenant_id, vehicle_id, user_id, client_uuid, started_at, submitted_at, odometer)
+  VALUES ('22222222-2222-2222-2222-222222222222', md5('t2veh1')::uuid, md5('driver2')::uuid, gen_random_uuid(),
+          now() - interval '1 hour', now() - interval '40 minutes', 1000)
+  RETURNING id INTO insp_t2;
+  PERFORM set_config('app.tenant_id', bac::text, true);
+  FOR st, msg IN SELECT * FROM (VALUES
+      (format('INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, completed_inspection_id) VALUES (%L, %L, now(), ''COMPLETED'', %L)',
+              bac, md5('t2veh1')::uuid, insp3),
+       '23503 inspection_task_tenant_id_vehicle_id_fkey'),
+      (format('UPDATE app.inspection_task SET state = ''COMPLETED'', completed_inspection_id = %L WHERE id = %L', insp_t2, k6),
+       '23503 inspection_task_tenant_id_completed_inspection_id_fkey')) v(a, b)
+  LOOP
+    s := NULL;
+    BEGIN
+      EXECUTE st;
+    EXCEPTION WHEN OTHERS THEN
+      GET STACKED DIAGNOSTICS s = RETURNED_SQLSTATE, cn = CONSTRAINT_NAME;
+      s := s || ' ' || COALESCE(NULLIF(cn, ''), SQLERRM);
+    END;
+    IF s IS DISTINCT FROM msg THEN
+      RAISE EXCEPTION 'FAIL 76d: % was answered %, not %', st, COALESCE(s, 'by success'), msg;
+    END IF;
+  END LOOP;
 
   INSERT INTO app.inspection_task (tenant_id, vehicle_id, due_at, state, cancelled_reason, closed_at)
   VALUES (bac, h1, now(), 'CANCELLED', '76d', now() - interval '1 day') RETURNING id INTO k3;

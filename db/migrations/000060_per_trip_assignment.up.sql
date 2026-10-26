@@ -284,15 +284,17 @@ BEGIN
   -- outstanding work (FR-INS-052). It is judged as the task leaves OPEN or
   -- is planted completed.
   IF NEW.state = 'COMPLETED' AND (TG_OP = 'INSERT' OR OLD.state = 'OPEN') THEN
-    -- An inspection this fleet cannot see is the composite FK's to refuse,
-    -- so another tenant's row still answers 23503 (check 16).
-    PERFORM 1 FROM app.inspection i
-     WHERE i.tenant_id = NEW.tenant_id AND i.id = NEW.completed_inspection_id;
-    IF FOUND AND NOT app.inspection_read_unit(NEW.tenant_id, NEW.completed_inspection_id, NEW.vehicle_id) THEN
-      SELECT v.fleet_number INTO unit FROM app.vehicle v
-       WHERE v.tenant_id = NEW.tenant_id AND v.id = NEW.vehicle_id;
-      RAISE EXCEPTION USING ERRCODE = 'TY018',
-        MESSAGE = format('this inspection task is on %s; an inspection that never read that unit cannot complete it', unit);
+    -- A unit or inspection this fleet cannot see is the composite FK's to
+    -- refuse, so another tenant's row still answers 23503 (check 16).
+    SELECT v.fleet_number INTO unit FROM app.vehicle v
+     WHERE v.tenant_id = NEW.tenant_id AND v.id = NEW.vehicle_id;
+    IF FOUND THEN
+      PERFORM 1 FROM app.inspection i
+       WHERE i.tenant_id = NEW.tenant_id AND i.id = NEW.completed_inspection_id;
+      IF FOUND AND NOT app.inspection_read_unit(NEW.tenant_id, NEW.completed_inspection_id, NEW.vehicle_id) THEN
+        RAISE EXCEPTION USING ERRCODE = 'TY018',
+          MESSAGE = format('this inspection task is on %s; an inspection that never read that unit cannot complete it', unit);
+      END IF;
     END IF;
   END IF;
   IF TG_OP = 'UPDATE' AND OLD.state IN ('COMPLETED', 'CANCELLED')
