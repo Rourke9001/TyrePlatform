@@ -342,6 +342,15 @@ BEGIN
     RAISE EXCEPTION USING ERRCODE = 'TY018',
       MESSAGE = format('this inspection task is %s; only a completed task cites a completing inspection', lower(NEW.state::text));
   END IF;
+  -- A task nobody cancelled carries no reason, for the same freeze. Only a
+  -- change to the reason is judged, never a change of state, so a capture
+  -- still closes an open task a raw write left a reason on (FR-INS-052).
+  IF NEW.state <> 'CANCELLED' AND NEW.cancelled_reason IS NOT NULL
+     AND (TG_OP = 'INSERT'
+          OR (OLD.state = 'OPEN' AND NEW.cancelled_reason IS DISTINCT FROM OLD.cancelled_reason)) THEN
+    RAISE EXCEPTION USING ERRCODE = 'TY018',
+      MESSAGE = format('this inspection task is %s; only a cancelled task carries a cancellation reason', lower(NEW.state::text));
+  END IF;
   IF TG_OP = 'UPDATE' AND OLD.state IN ('COMPLETED', 'CANCELLED')
      AND NEW.state IS DISTINCT FROM OLD.state THEN
     RAISE EXCEPTION USING ERRCODE = 'TY018',
