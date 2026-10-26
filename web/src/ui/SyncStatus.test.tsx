@@ -3,6 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { SyncStatus, type SyncState } from "./SyncStatus";
+import syncCss from "./SyncStatus.css?raw";
+
+// jsdom lays nothing out, so a target's size is read from its rule.
+function ruleBody(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const code = css.replace(/\/\*[\s\S]*?\*\//g, "");
+  return new RegExp(`(?:^|\\})\\s*${escaped}\\s*\\{([^}]*)\\}`).exec(code)?.[1] ?? "";
+}
 
 describe("SyncStatus", () => {
   it("says what the outbox holds in each state", () => {
@@ -32,6 +40,9 @@ describe("SyncStatus", () => {
     expect(button).toHaveAttribute("aria-live", "polite");
     await userEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
+    // NFR-USE-004: as a button the chip is a target and takes the floor.
+    expect(button.tagName).toBe("BUTTON");
+    expect(ruleBody(syncCss, "button.tr-sync")).toMatch(/min-height:\s*var\(--target-min\)/);
   });
 
   it("takes the caller's words, hides its glyph and passes unknown props on", () => {
