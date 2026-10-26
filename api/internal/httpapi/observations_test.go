@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -562,4 +564,90 @@ func TestObservationSurfaceIgnoresAClientNamedReport(t *testing.T) {
 	require.Equal(t, "TY022", ref.Code)
 	require.Equal(t, "this warning is not a composition report", ref.Message)
 	require.True(t, rigIsOpen(t, ctx, admin, clientRig), "a refused report touches no rig")
+}
+
+// The rig lock order (units.go): a rig write locks its units before its rig
+// row. A second connection holds the trailer the apply re-couples, the apply
+// queues behind it, and a third takes the offered rig FOR UPDATE NOWAIT,
+// which succeeds only while the apply holds no lock on the rig. Both scopes:
+// a depot actor's units are locked in reachableObservation, a controller's in
+// applyObservation.
+func TestObservationApplyLocksTheUnitsBeforeTheRig(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	tenantID, _ := plantTenant(t, ctx, admin, "obs-lock-order")
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+	driver := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+	controller := plantUser(t, ctx, admin, tenantID, auth.RoleController)
+	manager := plantUser(t, ctx, admin, tenantID, auth.RoleDepotManager)
+	depot, _ := plantDepotWithVehicle(t, ctx, admin, tenantID)
+	joinDepot(t, ctx, admin, tenantID, manager, depot)
+
+	for name, actor := range map[string]uuid.UUID{"controller": controller, "depot manager": manager} {
+		t.Run(name, func(t *testing.T) {
+			motive, _, configID := plantMotive(t, ctx, admin, tenantID)
+			_, err := admin.Exec(ctx, `UPDATE app.vehicle SET home_depot_id = $2 WHERE id = $1`, motive, depot)
+			require.NoError(t, err)
+			kept, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+			dropped, _ := plantTrailer(t, ctx, admin, tenantID, configID)
+			// One trailer seen gone, so the apply re-couples the other and
+			// app.create_combination_at locks it.
+			warning, rig, _ := plantReport(t, ctx, admin, tenantID, motive, driver,
+				[]uuid.UUID{motive, kept}, kept, dropped)
+
+			connect := func() *pgx.Conn {
+				t.Helper()
+				conn, err := pgx.Connect(ctx, os.Getenv("TEST_ADMIN_DATABASE_URL"))
+				require.NoError(t, err)
+				t.Cleanup(func() { _ = conn.Close(context.Background()) })
+				return conn
+			}
+			holder, prober := connect(), connect()
+			hold, err := holder.Begin(ctx)
+			require.NoError(t, err)
+			released := false
+			release := func() {
+				if !released {
+					released = true
+					_ = hold.Rollback(context.Background())
+				}
+			}
+			t.Cleanup(release)
+			_, err = hold.Exec(ctx, `SELECT 1 FROM app.vehicle WHERE id = $1 FOR UPDATE`, kept)
+			require.NoError(t, err)
+			var holderPID int
+			require.NoError(t, hold.QueryRow(ctx, `SELECT pg_backend_pid()`).Scan(&holderPID))
+
+			done := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				done <- post(t, h, "/api/combinations/observations/"+warning.String()+"/apply",
+					tenantID.String(), actor.String(), `{"note":"lock order"}`)
+			}()
+			queued := false
+			for deadline := time.Now().Add(10 * time.Second); !queued && time.Now().Before(deadline); {
+				require.NoError(t, admin.QueryRow(ctx,
+					`SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+					                 WHERE wait_event_type = 'Lock' AND $1 = ANY (pg_blocking_pids(pid)))`,
+					holderPID).Scan(&queued))
+				if !queued {
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+			require.True(t, queued, "the apply never queued behind the held trailer")
+
+			probe, err := prober.Begin(ctx)
+			require.NoError(t, err)
+			_, probeErr := probe.Exec(ctx, `SELECT 1 FROM app.combination WHERE id = $1 FOR UPDATE NOWAIT`, rig)
+			require.NoError(t, probe.Rollback(ctx))
+			release()
+			var rec *httptest.ResponseRecorder
+			select {
+			case rec = <-done:
+			case <-time.After(15 * time.Second):
+				t.Fatal("the apply did not finish once the trailer was released")
+			}
+			require.NoError(t, probeErr, "the apply locked the rig while it waited on a unit")
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+		})
+	}
 }

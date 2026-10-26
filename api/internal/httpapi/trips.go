@@ -312,9 +312,8 @@ func getMyTrip(s *store.Store) http.HandlerFunc {
 
 // startTrip is FR-VEH-007's start. Depot scope is the motive's, and the
 // added trailers are judged through it (spec, Depot scope). app.start_trip
-// reaches create_combination_at, which locks every member FOR UPDATE in id
-// order, so no unit lock is taken ahead of it (reachableObservation,
-// observations.go, records the 40P01 that order risks). The scope is
+// locks every unit it touches in id order before the rig, the rig lock
+// order (units.go), so no unit lock is taken ahead of it. The scope is
 // checked before the write, so an out-of-depot motive answers 404 before
 // any rule speaks, and again after it under the locks the write took, so the
 // scope authorised is the scope the write landed in. A start ends the
