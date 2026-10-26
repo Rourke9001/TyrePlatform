@@ -1,4 +1,4 @@
-/* The dev gallery's layout (/dev/design). Gallery.tsx imports it, so it
+/* The kit gallery's layout (/dev/legacy). Gallery.tsx imports it, so it
    ships in the gallery's lazy chunk, which a production build does not
    emit, and never in the stylesheet the capture route loads (ADR-0015). */
 
