@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { contrastRatio, deriveBrandTheme } from "./derive";
-import { palette, themes } from "./tokens";
+import { PLATFORM_BRAND, themes } from "./tokens";
 
 // WCAG 2.1 AA normal-text contrast (NFR-USE-007). The derivation must clear
-// this for ANY tenant primary. A non-technical admin picks one colour and
+// this for ANY tenant colour. A non-technical admin picks one colour and
 // cannot be allowed to make the app illegible (TYRE-27).
 const AA = 4.5;
 
@@ -19,60 +19,60 @@ describe("contrastRatio", () => {
 
 describe("deriveBrandTheme", () => {
   it("keeps the default brand and puts white on it", () => {
-    const t = deriveBrandTheme(palette.brand);
-    expect(t.primary).toBe(palette.brand);
-    expect(t.onPrimary).toBe("#ffffff");
-    expect(contrastRatio(t.onPrimary, t.primary)).toBeGreaterThanOrEqual(AA);
+    const t = deriveBrandTheme(PLATFORM_BRAND);
+    expect(t.brand).toBe(PLATFORM_BRAND);
+    expect(t.onBrand).toBe("#ffffff");
+    expect(contrastRatio(t.onBrand, t.brand)).toBeGreaterThanOrEqual(AA);
   });
 
-  it("puts ink on a light primary", () => {
+  it("puts ink on a light brand", () => {
     const t = deriveBrandTheme("#F2C744");
-    expect(t.onPrimary).toBe(themes.light.ink);
-    expect(contrastRatio(t.onPrimary, t.primary)).toBeGreaterThanOrEqual(AA);
+    expect(t.onBrand).toBe(themes.light.ink);
+    expect(contrastRatio(t.onBrand, t.brand)).toBeGreaterThanOrEqual(AA);
   });
 
-  it("adjusts a mid-tone primary until AA holds", () => {
+  it("adjusts a mid-tone brand until AA holds", () => {
     // The mid-tone case deriveBrandTheme's loop comment documents: neither
     // text colour reaches AA, so the tone itself must move.
     expect(contrastRatio("#7a7a7a", themes.light.surface)).toBeLessThan(AA);
     expect(contrastRatio("#7a7a7a", themes.light.ink)).toBeLessThan(AA);
     const t = deriveBrandTheme("#7a7a7a");
-    expect(t.primary).not.toBe("#7a7a7a");
-    expect(contrastRatio(t.onPrimary, t.primary)).toBeGreaterThanOrEqual(AA);
+    expect(t.brand).not.toBe("#7a7a7a");
+    expect(contrastRatio(t.onBrand, t.brand)).toBeGreaterThanOrEqual(AA);
   });
 
-  it("darkens hover and pressed for a mid or light primary", () => {
+  it("darkens hover and pressed for a mid or light brand", () => {
     const t = deriveBrandTheme("#14586E");
     const lum = (hex: string) => contrastRatio(hex, "#000000");
-    expect(t.primaryHover).not.toBe(t.primary);
-    expect(t.primaryPressed).not.toBe(t.primaryHover);
-    expect(lum(t.primaryHover)).toBeLessThan(lum(t.primary));
-    expect(lum(t.primaryPressed)).toBeLessThan(lum(t.primaryHover));
+    expect(t.brandHover).not.toBe(t.brand);
+    expect(t.brandPressed).not.toBe(t.brandHover);
+    expect(lum(t.brandHover)).toBeLessThan(lum(t.brand));
+    expect(lum(t.brandPressed)).toBeLessThan(lum(t.brandHover));
   });
 
-  it("lightens hover and pressed for a near-black primary", () => {
+  it("lightens hover and pressed for a near-black brand", () => {
     const t = deriveBrandTheme("#0A0A0C");
     const lum = (hex: string) => contrastRatio(hex, "#000000");
-    expect(t.onPrimary).toBe("#ffffff");
-    expect(lum(t.primaryHover)).toBeGreaterThan(lum(t.primary));
-    expect(lum(t.primaryPressed)).toBeGreaterThan(lum(t.primaryHover));
+    expect(t.onBrand).toBe("#ffffff");
+    expect(lum(t.brandHover)).toBeGreaterThan(lum(t.brand));
+    expect(lum(t.brandPressed)).toBeGreaterThan(lum(t.brandHover));
   });
 
   it("falls back to the default brand on malformed input", () => {
     for (const bad of ["", "red", "#GGGGGG", "#14586", "rgb(1,2,3)"]) {
-      expect(deriveBrandTheme(bad)).toEqual(deriveBrandTheme(palette.brand));
+      expect(deriveBrandTheme(bad)).toEqual(deriveBrandTheme(PLATFORM_BRAND));
     }
   });
 
   it("accepts shorthand and uppercase hex", () => {
-    expect(deriveBrandTheme("#FA0").primary).toBe(deriveBrandTheme("#ffaa00").primary);
+    expect(deriveBrandTheme("#FA0").brand).toBe(deriveBrandTheme("#ffaa00").brand);
   });
 
   // The rule's outputs for a spread of tenant colours, so a change to the
   // tokens it reads shows here as a moved pin with a reason (TYRE-445).
   it("pins outputs for seven inputs", () => {
     const pins: [string, string, string, string, string][] = [
-      // input, primary, hover, pressed, on-primary
+      // input, brand, hover, pressed, on-brand
       ["#14586e", "#14586e", "#145064", "#13495b", "#ffffff"],
       ["#c4271b", "#c4271b", "#af251b", "#9d231a", "#ffffff"],
       ["#f2ab00", "#f2ab00", "#d79903", "#c18a05", "#111417"],
@@ -83,21 +83,7 @@ describe("deriveBrandTheme", () => {
     ];
     for (const [input, ...expected] of pins) {
       const t = deriveBrandTheme(input);
-      expect([t.primary, t.primaryHover, t.primaryPressed, t.onPrimary], input).toEqual(expected);
-    }
-  });
-
-  // The brand fields carry the same derivation as the primary fields while
-  // both names exist (TYRE-445).
-  it("names the derivation for the brand slot too", () => {
-    for (const input of ["#14586e", "#f2ab00", "#000000"]) {
-      const t = deriveBrandTheme(input);
-      expect([t.brand, t.brandHover, t.brandPressed, t.onBrand]).toEqual([
-        t.primary,
-        t.primaryHover,
-        t.primaryPressed,
-        t.onPrimary,
-      ]);
+      expect([t.brand, t.brandHover, t.brandPressed, t.onBrand], input).toEqual(expected);
     }
   });
 });

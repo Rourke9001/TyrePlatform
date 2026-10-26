@@ -1,7 +1,7 @@
 import type { FitmentHistoryRow } from "../../api/units";
 import { useTenantDate } from "../../time/tenantTime";
 import { distanceSourceLabel, orientationLabel } from "./vocabulary";
-import { formatCount } from "../../ui/vocabulary";
+import { formatCount } from "../../format/numbers";
 import { useUnitLabels, type UnitLabels } from "../../units/units";
 import { formatTreadAge } from "../../format/treadAge";
 

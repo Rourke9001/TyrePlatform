@@ -1,7 +1,87 @@
-/* The component set's rules (ADR-0015). Custom properties only; the values
-   live in src/theme/tokens.ts. controls.css keeps .btn-primary for the
-   screens B7.4 has not restyled yet; the .btn family below is the one new
-   code uses. */
+/* The old component kit's rules and the manager screens' shared controls
+   (ADR-0015), on manager routes only: each lazy route module that renders
+   the kit imports this sheet, so the capture entry carries none of it
+   (TYRE-281). Its order against a page's own sheet is not fixed
+   (docs/lessons.md, 2026-10-26), so a page rule that must beat a rule here
+   is more specific than it. Tread's components replace it route by route
+   (TYRE-443). Custom properties only; the values live in
+   src/theme/tokens.ts. */
+
+/* ------------------------------------------------- shared controls */
+
+/* The screens B7.4 has not restyled use .btn-primary alone; the .btn
+   family below is the kit's. These come first so the kit's guarded hover
+   and active rules outrank them (TYRE-238). */
+
+/* The heading a management screen opens with. Margin is the caller's: a
+   heading in a flex bar wants none, one above a form wants rhythm below it. */
+.page-title {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: var(--type-title-3-size);
+  font-weight: 700;
+}
+
+.btn-primary {
+  /* NFR-USE-004's 44px target, in rem so it survives a browser text-size
+     setting. The capture keypad uses the same floor. */
+  min-height: 2.75rem;
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
+  font-weight: 600;
+  color: var(--on-brand);
+  background: var(--brand);
+  border: none;
+  border-radius: var(--radius-md);
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background: var(--brand-hover);
+}
+
+.btn-primary:active {
+  background: var(--brand-pressed);
+}
+
+.btn-primary:disabled {
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+/* The compact variant, for a control that sits inside a table row rather than
+   under a form. Below the 44px floor deliberately: these rows are a desk
+   surface, never the gloved-and-in-the-sun one NFR-USE-004 is about. */
+.btn-primary.btn-compact {
+  min-height: 2.25rem;
+  font-size: var(--type-small-size);
+  padding: 0.3rem 0.7rem;
+}
+
+/* The card an empty, loading or failed screen speaks from. */
+.note-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+}
+
+.note-card h2 {
+  margin: 0 0 0.35rem;
+  font-family: var(--font-sans);
+  font-size: var(--type-title-3-size);
+}
+
+.note-card p {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+.note-card .btn-primary {
+  margin-top: 1rem;
+}
 
 /* ------------------------------------------------------------ buttons */
 
@@ -11,27 +91,27 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   font-weight: 600;
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   padding: 0.5rem 1.1rem;
   cursor: pointer;
   border: 1px solid transparent;
 }
 
 .btn-primary {
-  color: var(--on-primary);
-  background: var(--primary);
+  color: var(--on-brand);
+  background: var(--brand);
 }
-/* ui.css loads after controls.css (ThemeProvider.tsx), so an unguarded hover
-   or active rule here outranks controls.css's .btn-primary:disabled at equal
-   specificity and repaints a disabled legacy button on hover (TYRE-238). */
+/* These come after the shared .btn-primary rules above, so an unguarded
+   hover or active rule here would outrank .btn-primary:disabled at equal
+   specificity and repaint a disabled legacy button on hover (TYRE-238). */
 .btn-primary:hover:not(:disabled, [aria-disabled="true"]) {
-  background: var(--primary-hover);
+  background: var(--brand-hover);
 }
 .btn-primary:active:not(:disabled, [aria-disabled="true"]) {
-  background: var(--primary-pressed);
+  background: var(--brand-pressed);
 }
 
 .btn-secondary {
@@ -40,7 +120,7 @@
   border-color: var(--line);
 }
 .btn-secondary:hover:not(:disabled, [aria-disabled="true"]) {
-  background: var(--surface-sunken);
+  background: var(--surface-muted);
 }
 
 .btn-quiet {
@@ -48,12 +128,12 @@
   background: transparent;
 }
 .btn-quiet:hover:not(:disabled, [aria-disabled="true"]) {
-  background: var(--surface-sunken);
+  background: var(--surface-muted);
 }
 
 .btn-danger {
-  color: var(--surface);
-  background: var(--severity-critical);
+  color: var(--on-critical);
+  background: var(--critical);
 }
 .btn-danger:hover:not(:disabled, [aria-disabled="true"]) {
   filter: brightness(0.92);
@@ -63,7 +143,7 @@
    same as a disabled one. */
 .btn:disabled,
 .btn[aria-disabled="true"] {
-  background: var(--surface-sunken);
+  background: var(--surface-muted);
   color: var(--ink-muted);
   border-color: transparent;
   cursor: not-allowed;
@@ -71,7 +151,7 @@
 
 .btn-compact {
   min-height: 2.25rem;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   padding: 0.3rem 0.7rem;
 }
 
@@ -83,25 +163,25 @@
   justify-content: space-between;
   gap: var(--space-4);
   flex-wrap: wrap;
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
 }
 
 .page-eyebrow {
   margin: 0 0 var(--space-1);
-  font-family: var(--font-condensed);
-  font-size: var(--text-small);
+  font-family: var(--font-sans);
+  font-size: var(--type-small-size);
   font-weight: 500;
   letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
   color: var(--ink-muted);
 }
 
-/* controls.css sets .page-title at the title size for the screens B7.4 has
-   not restyled; a page's own header leads at the display size. */
+/* The shared .page-title above sets the title size for the screens B7.4
+   has not restyled; a page's own header leads at the display size. */
 .page-header .page-title {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--text-display);
+  font-family: var(--font-sans);
+  font-size: var(--type-display-size);
   font-weight: 700;
   line-height: 1.15;
 }
@@ -123,9 +203,9 @@
 .panel {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  box-shadow: var(--elevation-raised);
-  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-6);
 }
 
 .panel-header {
@@ -138,14 +218,14 @@
 
 .panel-title {
   margin: 0;
-  font-family: var(--font-display);
-  font-size: var(--text-title);
+  font-family: var(--font-sans);
+  font-size: var(--type-title-3-size);
   font-weight: 700;
 }
 
 .panel-judged {
   margin: 0;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
@@ -156,16 +236,16 @@
 /* ------------------------------------------------------- empty state */
 
 .empty-state {
-  padding: var(--space-5);
+  padding: var(--space-6);
   border: 1px dashed var(--line);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-lg);
   color: var(--ink-muted);
 }
 
 .empty-state-title {
   margin: 0 0 var(--space-1);
-  font-family: var(--font-display);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   color: var(--ink);
 }
 
@@ -186,7 +266,7 @@
 }
 
 .field-label {
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   font-weight: 600;
   color: var(--ink);
 }
@@ -194,12 +274,12 @@
 .field input,
 .field select {
   min-height: var(--target-min);
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
 }
 
@@ -226,19 +306,19 @@
 .field-invalid input,
 .field-invalid select,
 .field-invalid .select-trigger {
-  border-color: var(--severity-critical);
+  border-color: var(--critical-text);
 }
 
 .field-hint {
   margin: 0;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
 .field-error {
   margin: 0;
-  font-size: var(--text-small);
-  color: var(--severity-critical);
+  font-size: var(--type-small-size);
+  color: var(--critical-text);
 }
 
 /* ------------------------------------------------------------ badges */
@@ -251,27 +331,27 @@
   gap: var(--space-1);
   padding: 0.1rem var(--space-2) 0.1rem var(--space-1);
   border-left: 3px solid var(--ink-muted);
-  border-radius: var(--radius-control);
-  background: var(--surface-sunken);
-  font-size: var(--text-small);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  font-size: var(--type-small-size);
   font-weight: 600;
   color: var(--ink);
   white-space: nowrap;
 }
 
 .severity-badge[data-severity="CRITICAL"] {
-  border-left-color: var(--severity-critical);
-  background: color-mix(in srgb, var(--severity-critical) 14%, var(--surface));
+  border-left-color: var(--critical-text);
+  background: var(--critical-soft);
 }
 
 .severity-badge[data-severity="WARNING"] {
-  border-left-color: var(--severity-warning);
-  background: color-mix(in srgb, var(--severity-warning) 18%, var(--surface));
+  border-left-color: var(--warn-text);
+  background: var(--warn-soft);
 }
 
 .severity-badge[data-severity="INFO"] {
-  border-left-color: var(--severity-info);
-  background: color-mix(in srgb, var(--severity-info) 12%, var(--surface));
+  border-left-color: var(--ink);
+  background: var(--info-soft);
 }
 
 .severity-glyph {
@@ -286,25 +366,25 @@
 .stat-tile {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-card);
-  box-shadow: var(--elevation-raised);
-  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  padding: var(--space-4) var(--space-6);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
 }
 
 .stat-tile-critical {
-  border-top: 3px solid var(--severity-critical);
+  border-top: 3px solid var(--critical-text);
 }
 
 .stat-tile-warning {
-  border-top: 3px solid var(--severity-warning);
+  border-top: 3px solid var(--warn-text);
 }
 
 .stat-label {
   margin: 0;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   font-weight: 600;
   color: var(--ink-muted);
 }
@@ -313,8 +393,8 @@
    a column (dataviz, figures). */
 .stat-value {
   margin: 0;
-  font-family: var(--font-ui);
-  font-size: var(--text-display);
+  font-family: var(--font-sans);
+  font-size: var(--type-display-size);
   font-weight: 600;
   line-height: 1.1;
   color: var(--ink);
@@ -323,14 +403,14 @@
 .stat-qualifier,
 .stat-judged {
   margin: 0;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
 .stat-link {
   align-self: flex-start;
   margin-top: var(--space-2);
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   font-weight: 600;
   color: var(--interactive);
 }
@@ -349,7 +429,7 @@
   height: 10px;
   border-radius: var(--radius-pill);
   overflow: hidden;
-  background: var(--surface-sunken);
+  background: var(--surface-muted);
 }
 
 .provenance-segment {
@@ -358,22 +438,18 @@
 }
 
 .provenance-actual {
-  background: var(--provenance-actual);
+  background: var(--data-5);
 }
 .provenance-audit {
-  background: var(--provenance-audit);
+  background: var(--data-4);
 }
 .provenance-estimated {
-  background: var(--provenance-estimated);
+  background: var(--data-2);
 }
 /* Unvalued is grey and hatched at 45 degrees so it reads in greyscale and
    under forced colours as "not a value" (dataviz, texture; ADR-0010). */
 .provenance-unvalued {
-  background: repeating-linear-gradient(
-    45deg,
-    var(--provenance-unvalued) 0 3px,
-    var(--surface) 3px 6px
-  );
+  background: repeating-linear-gradient(45deg, var(--unmeasured) 0 3px, var(--surface) 3px 6px);
 }
 
 .provenance-legend {
@@ -383,7 +459,7 @@
   display: flex;
   gap: var(--space-4);
   flex-wrap: wrap;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
@@ -407,7 +483,7 @@
 
 .provenance-empty {
   margin: 0;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
@@ -425,23 +501,23 @@
 .data-table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 
 .data-table {
   width: 100%;
   border-collapse: collapse;
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   color: var(--ink);
 }
 
 .data-table th {
-  background: var(--surface-sunken);
-  font-family: var(--font-condensed);
+  background: var(--surface-muted);
+  font-family: var(--font-sans);
   font-weight: 600;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   letter-spacing: 0.02em;
   text-transform: uppercase;
   color: var(--ink-muted);
@@ -469,7 +545,7 @@
 }
 
 .cell-basis {
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
@@ -492,15 +568,15 @@
 
 .data-card {
   border: 1px solid var(--line);
-  border-radius: var(--radius-card);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   padding: var(--space-3) var(--space-4) var(--space-1);
 }
 
 .data-card-heading {
   margin: 0 0 var(--space-2);
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   font-weight: 600;
   line-height: 1.35;
   color: var(--ink);
@@ -523,7 +599,7 @@
 
 .data-card-field dt {
   min-width: 0;
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   color: var(--ink-muted);
 }
 
@@ -563,7 +639,7 @@
 }
 
 .band-chart-title {
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   font-weight: 600;
   color: var(--ink-muted);
   margin-bottom: var(--space-2);
@@ -606,7 +682,7 @@
 }
 
 .band-chart-axis {
-  font-family: var(--font-ui);
+  font-family: var(--font-sans);
   font-size: 14px;
   fill: var(--ink-muted);
 }
@@ -617,10 +693,10 @@
   transform: translateX(-50%);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  box-shadow: var(--elevation-overlay);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
   padding: var(--space-2) var(--space-3);
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
   pointer-events: none;
   white-space: nowrap;
   z-index: 2;
@@ -645,7 +721,7 @@
 
 .band-chart-table {
   margin-top: var(--space-3);
-  font-size: var(--text-small);
+  font-size: var(--type-small-size);
 }
 
 /* NFR-USE-004: the disclosure is the chart's one control, so it gets the
@@ -692,12 +768,12 @@
   justify-content: space-between;
   gap: var(--space-2);
   min-width: 12rem;
-  font-family: var(--font-ui);
-  font-size: var(--text-body);
+  font-family: var(--font-sans);
+  font-size: var(--type-body-size);
   color: var(--ink);
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
+  border-radius: var(--radius-md);
   padding: var(--space-2) var(--space-3);
   cursor: pointer;
 }
@@ -710,8 +786,8 @@
 .select-content {
   background: var(--surface);
   border: 1px solid var(--line);
-  border-radius: var(--radius-control);
-  box-shadow: var(--elevation-overlay);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-overlay);
   min-width: var(--radix-select-trigger-width);
   z-index: 10;
 }
@@ -727,8 +803,8 @@
   gap: var(--space-2);
   min-height: var(--target-min);
   padding: 0.4rem 0.75rem;
-  border-radius: var(--radius-control);
-  font-size: var(--text-body);
+  border-radius: var(--radius-md);
+  font-size: var(--type-body-size);
   cursor: pointer;
   outline: none;
 }
@@ -737,7 +813,7 @@
    ring; the tint alone is 1.13:1 on the surface, so an inset ring marks the
    option a keyboard is on (WCAG 1.4.11, 3:1). */
 .select-item[data-highlighted] {
-  background: var(--surface-sunken);
+  background: var(--surface-muted);
   outline: 2px solid var(--interactive);
   outline-offset: -2px;
 }
@@ -756,7 +832,7 @@
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background: color-mix(in srgb, var(--ink) 45%, transparent);
+  background: var(--scrim);
 }
 
 .dialog-content {
@@ -768,15 +844,15 @@
   max-height: calc(100vh - 2rem);
   overflow: auto;
   background: var(--surface);
-  border-radius: var(--radius-card);
-  box-shadow: var(--elevation-overlay);
-  padding: var(--space-5);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-overlay);
+  padding: var(--space-6);
 }
 
 .dialog-title {
   margin: 0 0 var(--space-2);
-  font-family: var(--font-display);
-  font-size: var(--text-title);
+  font-family: var(--font-sans);
+  font-size: var(--type-title-3-size);
 }
 
 .dialog-description {
@@ -801,7 +877,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   flex-wrap: wrap;
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
 }
 
 .filter-bar-controls {
@@ -816,7 +892,7 @@
    inputs with one button at its end. */
 .filter-bar > .btn,
 .filter-bar .field:has(> input[type="checkbox"]) {
-  margin-top: calc(var(--text-small) * 1.5 + var(--space-1));
+  margin-top: calc(var(--type-small-size) * 1.5 + var(--space-1));
 }
 
 /* ------------------------------------------------------------- phone */
@@ -831,5 +907,23 @@
 
   .panel {
     padding: var(--space-4);
+  }
+}
+
+/* ---------------------------------------------------------- skeleton */
+
+/* A loading row's placeholder, for DataTable and the vehicle list. */
+.skeleton-block {
+  display: block;
+  height: 1rem;
+  width: 60%;
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  animation: skeleton-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes skeleton-pulse {
+  50% {
+    opacity: 0.45;
   }
 }

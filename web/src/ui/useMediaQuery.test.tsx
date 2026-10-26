@@ -9,7 +9,7 @@ describe("useMediaQuery", () => {
     vi.restoreAllMocks();
   });
 
-  it("switches at the width dashboard.css switches at", () => {
+  it("switches at the width shell.css switches at", () => {
     expect(PHONE_QUERY).toBe("(max-width: 640px)");
   });
 

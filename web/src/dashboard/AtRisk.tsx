@@ -1,3 +1,4 @@
+import "../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
@@ -9,20 +10,13 @@ import { formatTreadAge } from "../format/treadAge";
 import { useActor } from "../auth/actorContext";
 import { atRiskKey, depotsKey } from "../fleet/unit/queryKeys";
 import { useTenantInstant } from "../time/tenantTime";
-import { DataTable, type Column } from "../ui/DataTable";
-import { EmptyState } from "../ui/EmptyState";
-import { FilterBar } from "../ui/FilterBar";
-import { PageHeader } from "../ui/PageHeader";
-import { StatTile } from "../ui/StatTile";
-import {
-  absenceLabel,
-  basisLabel,
-  formatCount,
-  formatMm,
-  judgedAtLabel,
-  plural,
-  treadSourceLabel,
-} from "../ui/vocabulary";
+import { DataTable, type Column } from "../ui/legacy/DataTable";
+import { EmptyState } from "../ui/legacy/EmptyState";
+import { FilterBar } from "../ui/legacy/FilterBar";
+import { PageHeader } from "../ui/legacy/PageHeader";
+import { StatTile } from "../ui/legacy/StatTile";
+import { absenceLabel, basisLabel, judgedAtLabel, treadSourceLabel } from "../domain/vocabulary";
+import { formatCount, formatMm, plural } from "../format/numbers";
 import { readDashboardParams } from "./dashboardParams";
 import "./analytics.css";
 

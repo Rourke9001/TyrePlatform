@@ -2,19 +2,12 @@ import { Link } from "react-router";
 
 import type { DashboardBody } from "../api/dashboard";
 import { moneyOrEmpty, useCurrency, type Money } from "../api/money";
-import { Panel } from "../ui/Panel";
-import { ProvenanceSplit } from "../ui/ProvenanceSplit";
-import { SeverityBadge } from "../ui/SeverityBadge";
-import { StatTile } from "../ui/StatTile";
-import {
-  absenceLabel,
-  formatCount,
-  judgedAtLabel,
-  plural,
-  pluralWord,
-  SEVERITY_CODES,
-  severityLabel,
-} from "../ui/vocabulary";
+import { Panel } from "../ui/legacy/Panel";
+import { ProvenanceSplit } from "../ui/legacy/ProvenanceSplit";
+import { SeverityBadge } from "../ui/legacy/SeverityBadge";
+import { StatTile } from "../ui/legacy/StatTile";
+import { absenceLabel, judgedAtLabel, SEVERITY_CODES, severityLabel } from "../domain/vocabulary";
+import { formatCount, plural, pluralWord } from "../format/numbers";
 import { withDepot } from "./dashboardParams";
 
 export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: string }) {

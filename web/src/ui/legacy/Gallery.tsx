@@ -1,7 +1,7 @@
 import { useState } from "react";
 
-import type { Money } from "../api/money";
-import { formatMoney } from "../api/money";
+import type { Money } from "../../api/money";
+import { formatMoney } from "../../api/money";
 import { BandChart } from "./BandChart";
 import { Button } from "./Button";
 import { DataTable, type Column } from "./DataTable";
@@ -18,11 +18,11 @@ import { StatTile } from "./StatTile";
 import {
   INFLATION_BAND_KEYS,
   basisLabel,
-  formatCount,
-  formatMm,
   inflationBandLabel,
   judgedAtLabel,
-} from "./vocabulary";
+} from "../../domain/vocabulary";
+import { formatCount, formatMm } from "../../format/numbers";
+import "./ui.css";
 import "./gallery.css";
 
 // Example values only. The money strings are round amounts, typed as the
@@ -206,8 +206,8 @@ export default function Gallery() {
         </div>
       </Panel>
 
-      {/* The skeleton's block rule lives in dashboard.css, which only the
-          shell loads, so this sample is where a missing one shows. */}
+      {/* The skeleton's block rule lives in ui.css beside the kit's, so
+          this sample is where a missing one shows. */}
       <Panel id="g-table-loading" title="Data table, loading">
         <DataTable
           caption="Example tyres, loading"

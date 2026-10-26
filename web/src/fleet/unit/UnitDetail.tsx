@@ -1,3 +1,4 @@
+import "../../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -17,6 +18,7 @@ import { UnitStatusForm } from "./UnitStatusForm";
 import { UnitTaskList } from "./UnitTaskList";
 import { rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
 import "../fleet.css";
+import "./unit.css";
 
 // D7's unit screen: ViewFleet reads it; every form inside is ManageAssets'
 // except the inspection schedule and the trip's start and end

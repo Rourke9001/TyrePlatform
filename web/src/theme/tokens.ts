@@ -1,207 +1,36 @@
-// The design system's single source of colour and type (TYRE-27), consumed
-// only through the CSS custom properties below. "Yard signage" direction:
-// sunlight-first (NFR-USE-003), brand confined to chrome.
+// The design system's single source of colour, type and size (TYRE-27,
+// TYRE-445), consumed only through the CSS custom properties themeCss
+// writes. Tread's values (ADR-0020): sunlight-first (NFR-USE-003), brand
+// confined to chrome (U53).
 
 import type { BrandTheme } from "./derive";
 
-export const palette = {
-  ink: "#16191d",
-  inkMuted: "#5a6169",
-  surface: "#ffffff",
-  surfaceSunken: "#eff1f0",
-  line: "#d8dcda",
-  // "Convoy" petrol blue: the platform's own brand, used until a tenant
-  // configures one (same default the API serves, TYRE-26).
-  brand: "#14586e",
-  // U53: links, quiet buttons and every focus ring use this fixed platform
-  // colour, never the tenant's, so a red brand's link cannot read as
-  // CRITICAL and a light brand cannot fall under 4.5:1 as text.
-  interactive: "#14586e",
-} as const;
-
-// The capture app's per-reading status scale, keyed by state name and
-// never themed by tenant branding; the mm thresholds that assign a state
-// are tenant configuration (rule 5) and never appear here. Colour is never
-// the only encoding (NFR-USE-009). The dashboard's tread bands use
-// treadBandRamp below, keyed by ordinal, not this scale.
-export const statusColor = {
-  roadworthy: "#2e7d46",
-  caution: "#e89b0c",
-  "below-removal": "#c0361c",
-  unmeasured: "#8a9096",
-} as const;
-
-export type TreadBandName = keyof typeof statusColor;
-
-// The dashboard's severity scale (FR-EXC-006's vocabulary: INFO, WARNING,
-// CRITICAL) reuses the two status steps the capture app already means by
-// "caution" and "below removal", so one colour says one thing across both
-// surfaces. A badge never uses these as text: caution clears 2.3:1 on
-// white, so the badge tints its background and writes in ink, with a glyph
-// and a label (NFR-USE-009).
-export const severityColor = {
-  INFO: "#3a6f8f",
-  WARNING: statusColor.caution,
-  CRITICAL: statusColor["below-removal"],
-} as const;
-
-export type Severity = keyof typeof severityColor;
-
-// Provenance is certainty, so it is an ordinal ramp of the chart hue:
-// actual darkest, audit and estimated lighter, unvalued the unmeasured
-// grey with a hatch (ADR-0010, spec U27). The four keys are the two
-// disjoint casing partitions' names; a split never receives a computed
-// fifth.
-export const provenanceColor = {
-  actual: "#1f6a83",
-  audit: "#3a819a",
-  estimated: "#8fbccb",
-  unvalued: statusColor.unmeasured,
-} as const;
-
-export type ProvenanceKey = keyof typeof provenanceColor;
-
-// A tread band is a bucket, so its colour is ordinal: one hue, lightness
-// falling with depth, keyed by band ordinal and never by band name (U46).
-// The light end clears 2:1 on the surface and each step is darker than the
-// last; tokens.test.ts pins both. Five steps, not "one per band": the
-// tenant configures the band count (rule 5), and up to five bands get a
-// distinct step; above five, BandChart blends between neighbouring steps
-// (web/src/ui/bandFill.ts, U56).
-export const treadBandRamp = ["#8fbccb", "#5fa0b6", "#3a819a", "#1f6a83", "#0f4457"] as const;
+// The chart ramp's step count, --data-1 to --data-5. A tread band is a
+// bucket, so its colour is ordinal and keyed by band ordinal, never by band
+// name (U46). The tenant configures the band count (rule 5): up to five
+// bands get a distinct step; above five, BandChart blends between
+// neighbouring steps (web/src/ui/bandFill.ts, U56).
+export const DATA_STEPS = 5;
 
 // Returns the 1-based ramp step (1 to 5), not a hex: colour reaches a
-// component only through the `--band-N` custom properties cssVars emits
-// below, never a literal (TYRE-238 review).
+// component only through the --data-N custom properties themeCss writes,
+// never a literal (TYRE-238 review).
 export function treadBandStep(ordinal: number, bandCount: number): number {
-  const last = treadBandRamp.length - 1;
+  const last = DATA_STEPS - 1;
   const index = Math.round(((ordinal - 1) * last) / Math.max(bandCount - 1, 1));
   return Math.min(Math.max(index, 0), last) + 1;
 }
-
-// Self-hosted stacks; fonts.ts imports them and holds the rule-7 rationale.
-export const font = {
-  display: `"Archivo", "Arial Black", "Arial", sans-serif`,
-  ui: `"Barlow", "Segoe UI", "Helvetica Neue", sans-serif`,
-  condensed: `"Barlow Condensed", "Arial Narrow", sans-serif`,
-  mono: `"IBM Plex Mono", "Consolas", "Menlo", monospace`,
-} as const;
-
-export const typeScale = {
-  // The one figure a dashboard leads with: at least 48px, in the body sans
-  // and not the display face (dataviz, hero figure). 3rem at a 16px root.
-  hero: "3rem",
-  display: "1.75rem",
-  title: "1.1875rem",
-  body: "0.9375rem",
-  small: "0.8125rem",
-  // Caps eyebrows are set small in Archivo with wide tracking; the tracking
-  // lives with the size because one is illegible without the other.
-  eyebrow: "0.6875rem",
-  eyebrowTracking: "0.08em",
-} as const;
-
-export const radius = {
-  control: "6px",
-  card: "10px",
-  pill: "999px",
-} as const;
-
-// A gloved thumb and a stacked-on-mobile header (NFR-USE-003/004) both need
-// consistent gaps, not ad hoc rem values re-chosen at every call site.
-export const space = {
-  1: "4px",
-  2: "8px",
-  3: "12px",
-  4: "16px",
-  5: "24px",
-  6: "32px",
-  7: "48px",
-} as const;
-
-// The 44px floor for a manager's controls (NFR-USE-004); the capture keypad
-// and tiles sit higher, at 56 to 64px, for gloves. `glove` is that 56px, for
-// sign-in (NFR-USE-004).
-export const target = { min: "2.75rem", glove: "3.5rem" } as const;
-
-// Two shadows only: a card's lift off the sunken surface and an overlay's
-// (dialog, popover) lift off everything. Ink at low alpha so a tenant's
-// brand never tints a shadow.
-export const elevation = {
-  raised: "0 1px 2px rgba(22, 25, 29, 0.08)",
-  overlay: "0 8px 24px rgba(22, 25, 29, 0.18)",
-} as const;
 
 // The one width below which a page changes form: a table stacks into cards
 // and the band chart turns into rows (TYRE-238). @media cannot read a custom
 // property, so a CSS rule writes 640px and cites this constant.
 export const breakpoint = { phone: 640 } as const;
 
-// Everything the runtime themes is written to the document root as custom
-// properties; static CSS reads the same names. One surface, no divergence.
-export function cssVars(brand: BrandTheme): Record<string, string> {
-  return {
-    "--ink": palette.ink,
-    "--ink-muted": palette.inkMuted,
-    "--surface": palette.surface,
-    "--surface-sunken": palette.surfaceSunken,
-    "--line": palette.line,
-    "--interactive": palette.interactive,
-    "--primary": brand.primary,
-    "--primary-hover": brand.primaryHover,
-    "--primary-pressed": brand.primaryPressed,
-    "--on-primary": brand.onPrimary,
-    "--status-roadworthy": statusColor.roadworthy,
-    "--status-caution": statusColor.caution,
-    "--status-below-removal": statusColor["below-removal"],
-    "--status-unmeasured": statusColor.unmeasured,
-    "--font-display": font.display,
-    "--font-ui": font.ui,
-    "--font-condensed": font.condensed,
-    "--font-mono": font.mono,
-    "--text-display": typeScale.display,
-    "--text-title": typeScale.title,
-    "--text-body": typeScale.body,
-    "--text-small": typeScale.small,
-    "--text-eyebrow": typeScale.eyebrow,
-    "--text-hero": typeScale.hero,
-    "--tracking-eyebrow": typeScale.eyebrowTracking,
-    "--radius-control": radius.control,
-    "--radius-card": radius.card,
-    "--radius-pill": radius.pill,
-    "--space-1": space[1],
-    "--space-2": space[2],
-    "--space-3": space[3],
-    "--space-4": space[4],
-    "--space-5": space[5],
-    "--space-6": space[6],
-    "--space-7": space[7],
-    "--target-min": target.min,
-    "--target-glove": target.glove,
-    "--elevation-raised": elevation.raised,
-    "--elevation-overlay": elevation.overlay,
-    "--severity-info": severityColor.INFO,
-    "--severity-warning": severityColor.WARNING,
-    "--severity-critical": severityColor.CRITICAL,
-    "--provenance-actual": provenanceColor.actual,
-    "--provenance-audit": provenanceColor.audit,
-    "--provenance-estimated": provenanceColor.estimated,
-    "--provenance-unvalued": provenanceColor.unvalued,
-    "--band-1": treadBandRamp[0],
-    "--band-2": treadBandRamp[1],
-    "--band-3": treadBandRamp[2],
-    "--band-4": treadBandRamp[3],
-    "--band-5": treadBandRamp[4],
-  };
-}
-
 export function applyCssVars(el: HTMLElement, vars: Record<string, string>): void {
   for (const [name, value] of Object.entries(vars)) {
     el.style.setProperty(name, value);
   }
 }
-
-// ---------------------------------------------------------------- Tread
 
 export type ThemeName = "light" | "dark";
 
@@ -248,7 +77,8 @@ const colour = {
   scrim: ["rgba(17, 20, 23, 0.45)", "rgba(0, 0, 0, 0.6)"],
   viewer: ["#0c0e10", "#0c0e10"],
   "on-viewer": ["#ffffff", "#ffffff"],
-  "data-1": ["#c6d9e6", "#294254"],
+  // U46: off the artifact's value, in its hue, so the light end clears 2:1.
+  "data-1": ["#9abbd3", "#314e64"],
   "data-2": ["#91b6cf", "#3b6481"],
   "data-3": ["#5d90b3", "#5a8db1"],
   "data-4": ["#356f96", "#85b3d4"],
@@ -398,12 +228,15 @@ function scaleVars(): [string, string][] {
 
 // The one stylesheet the theme lives in, installed before boot
 // (themeStyle.ts). Daylight is the root's default; a [data-theme] subtree
-// takes its own theme. The dark block sets no brand token, so a dark
-// subtree keeps the tenant brand ThemeProvider writes on the root.
+// takes its own theme. The brand slot's platform default sits on :root
+// alone, so a themed subtree inherits the tenant brand ThemeProvider
+// writes on the root (U53).
 export function themeCss(): string {
-  const light = [...colourVars("light", []), ...shadowVars("light"), ...scaleVars()];
+  const brand = BRAND_SLOT.map((name): [string, string] => [name, themes.light[name]]);
+  const light = [...colourVars("light", BRAND_SLOT), ...shadowVars("light"), ...scaleVars()];
   const dark = [...colourVars("dark", BRAND_SLOT), ...shadowVars("dark")];
   return (
+    `:root{${declarations(brand)}}` +
     `:root,[data-theme="light"]{${declarations(light)}}` +
     `:root[data-theme="dark"],[data-theme="dark"]{${declarations(dark)}}`
   );

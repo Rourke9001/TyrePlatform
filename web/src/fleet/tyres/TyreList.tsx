@@ -1,3 +1,4 @@
+import "../../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";

@@ -13,23 +13,19 @@ import { getDevTenantId } from "../api/devTenant";
 import { formatTreadAge } from "../format/treadAge";
 import { sparesKey } from "../fleet/unit/queryKeys";
 import { useTenantDate } from "../time/tenantTime";
-import { BandChart } from "../ui/BandChart";
-import { DataTable, type Column } from "../ui/DataTable";
-import { EmptyState } from "../ui/EmptyState";
-import { Panel } from "../ui/Panel";
-import { StatTile } from "../ui/StatTile";
+import { BandChart } from "../ui/legacy/BandChart";
+import { DataTable, type Column } from "../ui/legacy/DataTable";
+import { EmptyState } from "../ui/legacy/EmptyState";
+import { Panel } from "../ui/legacy/Panel";
+import { StatTile } from "../ui/legacy/StatTile";
 import {
   absenceLabel,
-  formatCount,
-  formatMm,
-  formatPct,
   inflationBandLabel,
   judgedAtLabel,
-  plural,
-  pluralWord,
   treadSourceLabel,
   unavailableLabel,
-} from "../ui/vocabulary";
+} from "../domain/vocabulary";
+import { formatCount, formatMm, formatPct, plural, pluralWord } from "../format/numbers";
 import { withDepot } from "./dashboardParams";
 
 interface DashboardPanelsProps {

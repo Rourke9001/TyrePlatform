@@ -156,8 +156,8 @@ test("a production bundle without config.json says so, calls no API and keeps it
   await expect(page.getByRole("alert")).toContainText("The app could not load its settings.");
   expect(api.calls).toEqual([]);
   expect(webApi).toEqual([]);
-  // NFR-USE-004's floor, which only the CSS variables ConfigFailure sets
-  // itself provide.
+  // NFR-USE-004's floor: shell/shell.css's .route-error .btn rule, on the
+  // token stylesheet main.tsx installs before boot.
   const box = await page.getByRole("button", { name: "Try again" }).boundingBox();
   expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
   expect(violations).toEqual([]);

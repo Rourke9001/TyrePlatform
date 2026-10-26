@@ -1,18 +1,11 @@
-import { useLayoutEffect } from "react";
-
-import { deriveBrandTheme } from "../theme/derive";
-import { applyCssVars, cssVars, palette } from "../theme/tokens";
+import "./shell.css";
 
 // What a production build shows when it cannot read config.json: it sends
 // nothing, and retries in place (ADR-0019, boot.ts). NFR-USE-005: say what
-// to do, not only what failed.
+// to do, not only what failed. It renders outside ThemeProvider, on the
+// token stylesheet main.tsx installs before boot, so Try again keeps
+// NFR-USE-004's 44px floor from shell.css.
 export function ConfigFailure({ onRetry, busy = false }: { onRetry: () => void; busy?: boolean }) {
-  // Outside ThemeProvider, the only other place the variables are set.
-  // Without them .btn's min-height resolves to nothing and a gloved driver
-  // loses NFR-USE-004's 44px floor.
-  useLayoutEffect(() => {
-    applyCssVars(document.documentElement, cssVars(deriveBrandTheme(palette.brand)));
-  }, []);
   return (
     <div className="route-error" role="alert">
       <p>The app could not load its settings.</p>
