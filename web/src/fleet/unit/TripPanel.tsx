@@ -38,7 +38,7 @@ import "../fleet.css";
 // (000060), so their refusals are shown in the server's words; TY017 is the
 // rig write's, reached through an added trailer.
 const TRIP_WORDING = {
-  speakable: ["TY028", "TY018", "TY017", "TY012", "trip_overlaps"],
+  speakable: ["TY028", "TY017", "TY012", "trip_overlaps"],
   forbidden: "You do not have permission to start or end a trip.",
   fallback: "The trip could not be changed. Retry.",
 };
