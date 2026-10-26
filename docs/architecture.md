@@ -114,13 +114,13 @@ closed.**
 ## The refusal vocabulary (ADR-0012)
 
 `httpapi.refusalForPgError` sorts every SQLSTATE `submitInspection` can see
-into three groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
+into four groups: TY-prefixed codes (ADR-0012's own vocabulary, raised in
 SQL where a rule is evaluated, forwarded verbatim because the message is
 ours), the standard integrity violations (`23502`, `23503`, `23514`,
 `22P02`, `22003`, `22023`, `22007`, `22008`, canned as 422 so a client
-mistake never reads as a 500 the outbox retries forever, ADR-0009), and
-everything else (defaults to 500, the honest answer for an invariant
-breach). A blanket `23503` is safe across every write path because the
+mistake never reads as a 500 the outbox retries forever, ADR-0009), a
+deadlock (`40P01`, below), and everything else (defaults to 500, the honest
+answer for an invariant breach). A blanket `23503` is safe across every write path because the
 message is canned: a foreign-key violation means the request named
 something that does not exist, and 422 with no schema object in it is the
 honest answer wherever it is raised. `TY001`/`TY002` (DR-020 odometer plausibility) never reach the
@@ -129,9 +129,9 @@ and turned into an `app.inspection_warning` row. `TY010` (no tenant/actor
 bound) is also absent, because that is a genuine invariant breach, not a
 client mistake.
 
-A deadlock (`40P01`) is canned too, as `concurrent_change`, 503: two writes
-met each other's row locks in opposite orders, and the same request lands
-on a retry. A 409 would be wrong, since the capture outbox parks a 409 for
+A deadlock (`40P01`) is canned as `concurrent_change`, 503: two writes met
+each other's row locks in opposite orders, and the same request lands on a
+retry. A 409 would be wrong, since the capture outbox parks a 409 for
 good (ADR-0009).
 
 `withActor` sorts one case out before any of that: a fault in one of

@@ -881,10 +881,10 @@ func lockUnitInScope(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID uui
 // The rig lock order: a route that writes a rig locks its unit rows in id
 // order, as app.create_combination_at takes them (000044), and only then
 // the rig row, so two rig writes never take the same rows in opposite
-// orders (40P01).
-// app.rotate_tyres is the known exception (000039): its anchor unit, then
-// the rig, then its other units. The race it leaves answers
-// concurrent_change, 503 (refusal.go).
+// orders (40P01). Two known departures: app.rotate_tyres (000039) takes its
+// anchor unit, then the rig, then its other units, and a capture's foreign
+// keys take the addressed unit, then the rig, then each reading's unit. The
+// races they leave answer concurrent_change, 503 (refusal.go).
 
 // checkUnitInScope is lockUnitInScope's predicate with no lock, for a write
 // whose function takes its own unit locks in id order (the rig lock order,
