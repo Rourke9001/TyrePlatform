@@ -1,27 +1,15 @@
 import { useState } from "react";
 
-import type { FitWarning, OpenFitment, Unit, UnitPosition } from "../../api/units";
+import type { FitWarning, Unit, UnitPosition } from "../../api/units";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
-import { treadSourceLabel } from "../../domain/vocabulary";
-import { formatMm } from "../../format/numbers";
-import { formatTreadAge } from "../../format/treadAge";
+import { Card } from "../../ui/Card";
+import { KeyValue } from "../../ui/KeyValue";
 import { RefusalAlert } from "../RefusalAlert";
 import { FitForm } from "./FitForm";
 import { orientationLabel } from "./vocabulary";
 import { RemoveForm } from "./RemoveForm";
-
-// NFR-PRO-001: a depth and where it came from are one fact, rendered in one
-// cell as FitmentHistory renders a distance (TYRE-324).
-function lastTreadCell(fitment: OpenFitment): string {
-  if (fitment.lastTreadMm === null) return "—";
-  const mm = formatMm(Number(fitment.lastTreadMm));
-  if (fitment.lastTreadSource === null) return mm;
-  // FR-TYR-017: the measurement's age, with its source.
-  const age =
-    fitment.lastTreadAgeDays === null ? "" : `, ${formatTreadAge(fitment.lastTreadAgeDays)}`;
-  return `${mm} (${treadSourceLabel(fitment.lastTreadSource)}${age})`;
-}
+import { lastTreadCell } from "./unit.view";
 
 // Which write was made last, what it named, and which fitment it acted on:
 // needed because a form's own fields and mutation state do not survive the
@@ -77,26 +65,29 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
     acted !== null && (position.fitment === null || position.fitment.fitmentId === acted.fitmentId);
 
   return (
-    <section className="unit-panel" aria-label={`Position ${position.code}`}>
-      <h2>Position {position.code}</h2>
-
+    <Card
+      className="unit-panel"
+      padding="md"
+      aria-label={`Position ${position.code}`}
+      title={`Position ${position.code}`}
+    >
       {position.fitment === null ? (
         <p className="unit-panel-empty">No tyre is fitted here.</p>
       ) : (
-        <dl className="unit-panel-facts">
-          <dt>Tyre</dt>
-          <dd>{position.fitment.displayCode}</dd>
-          <dt>Size</dt>
-          <dd>{position.fitment.sizeName ?? "—"}</dd>
-          <dt>Retreads</dt>
-          <dd>{position.fitment.retreadCount}</dd>
-          <dt>Orientation</dt>
-          <dd>{orientationLabel(position.fitment.mountOrientation)}</dd>
-          <dt>Fitted</dt>
-          <dd>{asDate(position.fitment.fittedAt)}</dd>
-          <dt>Last tread</dt>
-          <dd>{lastTreadCell(position.fitment)}</dd>
-        </dl>
+        // One governing figure on the wire, so "Last tread" stays a line
+        // here and no TreadReadings is drawn (rule 4, CR-011).
+        <KeyValue
+          className="unit-panel-facts"
+          columns={3}
+          items={[
+            { label: "Tyre", value: position.fitment.displayCode, mono: true },
+            { label: "Size", value: position.fitment.sizeName ?? "—", mono: true },
+            { label: "Retreads", value: position.fitment.retreadCount },
+            { label: "Orientation", value: orientationLabel(position.fitment.mountOrientation) },
+            { label: "Fitted", value: asDate(position.fitment.fittedAt) },
+            { label: "Last tread", value: lastTreadCell(position.fitment) },
+          ]}
+        />
       )}
 
       {canManage && position.fitment === null && (
@@ -135,6 +126,6 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
       )}
 
       <RefusalAlert message={refused} />
-    </section>
+    </Card>
   );
 }

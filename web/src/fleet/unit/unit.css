@@ -1,22 +1,90 @@
-/* The unit screen (TYRE-92). UnitDetail imports it after fleet.css, whose
-   shared rules (the row forms, the reorderable rows) it builds on. Custom
-   properties only. */
+/* The unit screen (TYRE-92), on Tread's cards (TYRE-240). Layout only: the
+   cards, fields and buttons draw themselves. Custom properties only. */
 
 .unit-detail {
   max-width: 68rem;
 }
 
-.unit-detail-sub {
-  font-family: var(--font-sans);
+.unit-detail-rig {
+  margin: 0;
   font-size: var(--type-small-size);
   color: var(--ink-muted);
-  margin: 0 0 var(--space-3);
 }
 
-.unit-detail h2 {
-  font-family: var(--font-sans);
-  font-size: var(--type-title-3-size);
-  margin: var(--space-4) 0 var(--space-2);
+/* The plan beside the picked position, as the artifact's vehicle screen
+   sets them; one column below the shell's 1024px desktop breakpoint
+   (AppShell.css). */
+.unit-detail-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  align-items: start;
+}
+
+@media (min-width: 1024px) {
+  .unit-detail-cols {
+    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+  }
+}
+
+.unit-note {
+  margin: 0;
+  color: var(--ink-muted);
+}
+
+/* A heading and a sentence inside a Banner take the banner's own type. */
+.unit-banner-heading,
+.unit-banner-body {
+  margin: 0;
+  font: inherit;
+}
+
+/* EmptyState's page-sized padding, tightened for a card's empty list. Two
+   classes, so it wins whichever stylesheet loads first (docs/lessons.md,
+   2026-10-26). */
+.unit-detail .unit-empty {
+  padding: var(--space-6) var(--space-4);
+}
+
+/* The two native tables: open inspections and fitment history. A wide one
+   scrolls inside its card rather than widening the page. */
+.unit-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.unit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+}
+
+.unit-table th,
+.unit-table td {
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.unit-table thead th {
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.unit-table tbody th[scope="row"] {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.unit-table tbody tr:last-child > * {
+  border-bottom: 0;
 }
 
 /* The plan view. currentColor throughout so a position's outline follows the
@@ -27,7 +95,6 @@
   max-width: 100%;
   height: auto;
   color: var(--ink-muted);
-  margin-bottom: var(--space-3);
 }
 
 .unit-plan-chassis,
@@ -73,35 +140,18 @@
   fill: var(--ink-muted);
 }
 
-.unit-panel {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: var(--space-3);
+.unit-plan-card {
+  display: grid;
+  justify-items: center;
 }
 
 .unit-panel-empty {
-  font-family: var(--font-sans);
-  font-size: var(--type-body-size);
+  margin: 0;
   color: var(--ink-muted);
 }
 
 .unit-panel-facts {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 0.2rem var(--space-3);
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  margin: 0 0 var(--space-3);
-}
-
-.unit-panel-facts dt {
-  color: var(--ink-muted);
-}
-
-.unit-panel-facts dd {
-  margin: 0;
-  color: var(--ink);
+  margin-bottom: var(--space-4);
 }
 
 .unit-panel-form,

@@ -1,6 +1,7 @@
 import type { KeyboardEvent } from "react";
 
 import type { UnitPosition } from "../../api/units";
+import { occupantOf } from "./unit.view";
 
 // The unit in plan view, drawn entirely from its positions, so a superlink
 // and a light vehicle run the same code (a fleet's axle library is tenant
@@ -42,10 +43,6 @@ function topOf(position: UnitPosition): number {
     return CENTRE_Y + BEAM_GAP + (depth - 1) * (POS_H + SLOT_GAP);
   }
   return CENTRE_Y - BEAM_GAP - depth * POS_H - (depth - 1) * SLOT_GAP;
-}
-
-function occupantOf(position: UnitPosition): string {
-  return position.fitment?.displayCode ?? "empty";
 }
 
 export function UnitPlan({
