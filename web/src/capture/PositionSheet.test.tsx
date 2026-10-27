@@ -228,6 +228,34 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
+  // U146: a gloved double tap on the half key stays on the cell left, so the
+  // untouched reading keeps its value and the sheet does not move on again.
+  it("at 0.5 mm, a double half after the advance stays on the cell it left", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, context: halves }}
+        ctx={halves}
+        initial={{ ...acknowledged, treads: [12, 12, 12], warnings: [] }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(within(second).getByText("12")).toBeVisible();
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
   // A tap on the filled cell first makes the half that cell's.
   it("at 0.5 mm, a half after a tap on a filled cell adds it there", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
