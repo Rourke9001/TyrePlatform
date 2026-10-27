@@ -1,7 +1,11 @@
 import { Fragment, type HTMLAttributes } from "react";
 
+import type { Condition } from "./condition";
 import { cx } from "./cx";
-import { TyreTile, type Condition } from "./TyreTile";
+import { Icon } from "./Icon";
+import { ArrowUpIcon } from "./icons/ArrowUp";
+import { LinkIcon } from "./icons/Link";
+import { TyreTile } from "./TyreTile";
 import "./AxleDiagram.css";
 
 export interface DiagramPosition {
@@ -55,34 +59,6 @@ export interface AxleDiagramProps extends Omit<
   sparesLabel?: string;
 }
 
-// TODO(TYRE-447): these glyphs move to src/ui/icons/ when lane A's icon modules land.
-function Glyph({ d }: { d: readonly string[] }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="16"
-      height="16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {d.map((path) => (
-        <path key={path} d={path} />
-      ))}
-    </svg>
-  );
-}
-
-const ARROW_UP = ["M12 19V5M6 11l6-6 6 6"];
-const LINK = [
-  "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1",
-  "M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
-];
-
 // Plan view, nose up: the frame BR-VEH-001 numbers positions in, so every
 // screen shows a vehicle the same way round.
 export function AxleDiagram({
@@ -115,7 +91,7 @@ export function AxleDiagram({
     <div {...rest} className={cx("tr-axles", className)}>
       {frontLabel ? (
         <div className="tr-axles__front">
-          <Glyph d={ARROW_UP} />
+          <Icon icon={ArrowUpIcon} size={16} />
           {frontLabel}
         </div>
       ) : null}
@@ -129,7 +105,7 @@ export function AxleDiagram({
         <Fragment key={u.id}>
           {u.coupled ? (
             <div className="tr-axles__hitch" aria-hidden="true">
-              <Glyph d={LINK} />
+              <Icon icon={LinkIcon} size={16} />
               {couplingLabel}
             </div>
           ) : null}
