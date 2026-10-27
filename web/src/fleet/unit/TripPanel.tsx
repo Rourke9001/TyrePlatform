@@ -12,12 +12,12 @@ import {
   startTrip,
   type NewTrip,
   type Trip,
-  type UnitTrip,
 } from "../../api/trips";
 import type { Unit } from "../../api/units";
 import type { Vehicle } from "../../api/vehicles";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate, useTenantInstant } from "../../time/tenantTime";
+import { Card } from "../../ui/Card";
 import { useFormMutation } from "../useFormMutation";
 import { DriverPicker } from "./DriverPicker";
 import { NominateControl } from "./NominateControl";
@@ -32,7 +32,7 @@ import {
   unitTripsPrefix,
   vehiclesKey,
 } from "./queryKeys";
-import "../fleet.css";
+import { tripSummary } from "./unit.view";
 
 // Every rule a start or an end meets is app.start_trip's or app.end_trip's
 // (000060), so their refusals are shown in the server's words; TY017 is the
@@ -67,9 +67,8 @@ export function TripPanel({ unit }: { unit: Unit }) {
   const trip = useQuery({ queryKey: unitTripKey(unit.id), queryFn: () => fetchUnitTrip(unit.id) });
 
   return (
-    <section className="tyres-receive" aria-labelledby="trip-heading">
-      <h2 id="trip-heading">Trip</h2>
-      {trip.isPending && <p className="note-card">Loading…</p>}
+    <Card className="unit-form-card" title="Trip" padding="md">
+      {trip.isPending && <p className="unit-note">Loading…</p>}
       {trip.isError && (
         <>
           <p role="alert">The trip could not be loaded.</p>
@@ -89,18 +88,8 @@ export function TripPanel({ unit }: { unit: Unit }) {
         ) : (
           <StartTripFormFor unit={unit} />
         ))}
-    </section>
+    </Card>
   );
-}
-
-function tripSummary(unit: Unit, state: UnitTrip): string {
-  if (unit.unitKind === "TRAILER") {
-    if (state.pulledBy === null) return "Free.";
-    return state.trip !== null
-      ? `Pulled by ${state.pulledBy.fleetNumber}, on ${state.trip.driver.displayName}'s trip.`
-      : `Pulled by ${state.pulledBy.fleetNumber}, not on a trip.`;
-  }
-  return state.trip !== null ? `Driver: ${state.trip.driver.displayName}` : "Not on a trip.";
 }
 
 function OnTrip({ trip }: { trip: Trip }) {

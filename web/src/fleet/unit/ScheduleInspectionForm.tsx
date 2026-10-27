@@ -6,10 +6,10 @@ import { fetchUnitTrip } from "../../api/trips";
 import type { Unit } from "../../api/units";
 import { refusalMessage } from "../../api/refusal";
 import { useTenantDate } from "../../time/tenantTime";
+import { Card } from "../../ui/Card";
 import { useFormMutation } from "../useFormMutation";
 import { DriverPicker } from "./DriverPicker";
 import { tripBlockersPrefix, unitTasksKey, unitTripKey } from "./queryKeys";
-import "../fleet.css";
 
 // app.create_inspection_task's and app.nominate_for_task's own refusal
 // (TY018, spec U11) plus the not-visible read (TY012). The only two codes
@@ -62,8 +62,7 @@ export function ScheduleInspectionForm({ unit }: { unit: Unit }) {
   }
 
   return (
-    <section className="tyres-receive" aria-labelledby="schedule-inspection-heading">
-      <h2 id="schedule-inspection-heading">Schedule an inspection</h2>
+    <Card className="unit-form-card" title="Schedule an inspection" padding="md">
       {trip.isError && (
         <>
           <p role="alert">Who holds this unit could not be loaded.</p>
@@ -122,6 +121,6 @@ export function ScheduleInspectionForm({ unit }: { unit: Unit }) {
       {schedule.error !== null && (
         <p role="alert">{refusalMessage(schedule.error, SCHEDULE_WORDING)}</p>
       )}
-    </section>
+    </Card>
   );
 }

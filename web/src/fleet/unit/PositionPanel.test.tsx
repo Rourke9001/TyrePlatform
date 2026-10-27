@@ -642,7 +642,7 @@ describe("a position panel", () => {
   });
 
   // TYRE-324: pins the depth and the source's words in one cell, as
-  // lastTreadCell (PositionPanel.tsx) renders them.
+  // lastTreadCell (unit.view.ts) renders them.
   it("shows the last tread with the source it came from", () => {
     const lastTread = () =>
       screen.getByText("Last tread", { selector: "dt" }).nextElementSibling?.textContent;
