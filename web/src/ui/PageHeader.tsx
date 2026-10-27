@@ -7,6 +7,8 @@ import { ChevronLeftIcon } from "./icons/ChevronLeft";
 import "./PageHeader.css";
 
 export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
+  // The h1's content. PageHeader draws the h1, so a screen whose section is
+  // named by its heading puts the id on a span inside it.
   title: ReactNode;
   eyebrow?: ReactNode;
   // One sentence: what this page answers.

@@ -250,8 +250,7 @@ export function FleetSettings() {
 
   return (
     <section aria-labelledby="fleet-settings-heading" className="fleet-page tr-stack">
-      {/* PageHeader draws the h1; the id rides a span inside it, so this
-          section stays the region named by its heading. */}
+      {/* Heading id: see PageHeader's title prop. */}
       <PageHeader title={<span id="fleet-settings-heading">Fleet settings</span>} />
 
       {settings.isPending && <p>Loading…</p>}
