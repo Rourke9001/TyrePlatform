@@ -240,8 +240,7 @@ export function ReceiveTyre() {
 
   return (
     <section aria-labelledby="receive-tyre-heading" className="fleet-form-page tr-stack">
-      {/* PageHeader draws the h1; the id rides a span inside it, so this
-          section stays the region named by its heading. */}
+      {/* Heading id: see PageHeader's title prop. */}
       <PageHeader title={<span id="receive-tyre-heading">Receive tyres</span>} />
 
       <form className="tr-stack" onSubmit={submit}>
