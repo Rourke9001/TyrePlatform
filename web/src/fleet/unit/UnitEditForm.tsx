@@ -8,6 +8,7 @@ import { Banner } from "../../ui/Banner";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
 import { Field } from "../../ui/Field";
+import { Select } from "../../ui/Select";
 import { TextInput } from "../../ui/TextInput";
 import { useFormMutation } from "../useFormMutation";
 import { depotsKey, unitKey, vehiclesKey } from "./queryKeys";
@@ -217,26 +218,22 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
           </Banner>
         ) : (
           <Field label="Home depot">
-            {/* Native, not Select: its pending option is disabled while None
-                beside it is not, and Select disables only a placeholder. */}
-            <select
+            {/* None stays selectable while the list loads: "" is how the API
+                clears the id, not a placeholder standing in for one
+                (patchUnit's comment in api/units.ts). The pending option is
+                disabled, so its value is never sent. */}
+            <Select
               id="unit-home-depot"
-              className="unit-select"
               value={homeDepotId}
               onChange={(e) => setHomeDepotId(e.target.value)}
-            >
-              {/* None stays selectable while the list loads: "" is how the
-                  API clears the id, not a placeholder standing in for one
-                  (patchUnit's comment in api/units.ts). The pending option
-                  therefore carries no value of its own. */}
-              <option value="">None</option>
-              {depots.isPending && <option disabled>Loading…</option>}
-              {(depots.data ?? []).map((d) => (
-                <option key={d.id} value={d.id}>
-                  {d.name}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "", label: "None" },
+                ...(depots.isPending
+                  ? [{ value: "Loading…", label: "Loading…", disabled: true }]
+                  : []),
+                ...(depots.data ?? []).map((d) => ({ value: d.id, label: d.name })),
+              ]}
+            />
           </Field>
         )}
 
