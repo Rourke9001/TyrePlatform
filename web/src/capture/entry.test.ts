@@ -255,4 +255,47 @@ describe("the half key straight after the keypad moves on", () => {
     expect(r.state.field).toBe(1);
     expect(r.settled).toBe(false);
   });
+
+  // A reopened position, or a correction pass, moves on onto a cell that
+  // already holds a reading the driver has not touched yet.
+  const reopened = () => ({ ...newEntryState(3), treads: [12, 12, 12], pressureKpa: 800 });
+
+  it("reaches back over a cell that already holds a reading", () => {
+    const moved = applyKey(type(reopened(), "13", halves).state, { type: "next" }, halves).state;
+    const r = applyKey(moved, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13.5, 12, 12]);
+    expect(r.state.field).toBe(1);
+    expect(r.settled).toBe(false);
+  });
+
+  it("adds it to that cell once the driver taps it", () => {
+    const moved = applyKey(type(reopened(), "13", halves).state, { type: "next" }, halves).state;
+    const tapped = applyKey(moved, { type: "focus", field: 1 }, halves).state;
+    const r = applyKey(tapped, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13, 12.5, 12]);
+  });
+});
+
+// FR-INS-030: 35mm is the ceiling, and the database CHECK refuses 35.5
+// (000001_init.up.sql), so the half key never makes it.
+describe("the half key at the tread ceiling", () => {
+  it("leaves 35 alone", () => {
+    const r = applyKey(type(newEntryState(3), "35", halves).state, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([35, null, null]);
+    expect(r.settled).toBe(false);
+  });
+
+  it("leaves 35 alone after the keypad moves on", () => {
+    const moved = applyKey(type(newEntryState(3), "35", halves).state, { type: "next" }, halves);
+    const r = applyKey(moved.state, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([35, null, null]);
+    expect(r.state.field).toBe(1);
+    expect(r.settled).toBe(false);
+  });
+
+  it("still adds the half to 34", () => {
+    const r = applyKey(type(newEntryState(3), "34", halves).state, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([34.5, null, null]);
+    expect(r.settled).toBe(true);
+  });
 });
