@@ -1,9 +1,15 @@
-/* The tyre register (TYRE-91). Custom properties only, per web/CLAUDE.md. */
+/* The tyre register (TYRE-91) and the fleet screens around it. Custom
+   properties only, per web/CLAUDE.md. Layout lives here; the look is
+   Tread's components' (TYRE-240). */
 
-/* .retreads, .fitments (TYRE-93) and .rigs (TYRE-72) share this register's
-   page width. One rule, not a clone, so the screens cannot drift apart by
-   accident. */
-.tyres,
+/* The register, retreads, receipts, fitments and rigs share one page width.
+   One rule, not a clone, so the screens cannot drift apart by accident. */
+.fleet-page {
+  max-width: 68rem;
+}
+
+/* .retreads, .fitments (TYRE-93) and .rigs (TYRE-72) until each is on
+   .fleet-page. */
 .retreads,
 .fitments,
 .rigs {
@@ -18,44 +24,18 @@
 }
 
 /* .page-title supplies the type; the margin is this layout's own. */
-.tyres h1,
 .retreads h1,
 .fitments h1,
 .rigs h1 {
   margin-bottom: 1rem;
 }
 
-.tyres-lookup {
+/* A lookup's fields and buttons share one baseline and wrap below it. */
+.fleet-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-
-.tyres-lookup label {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  color: var(--ink-muted);
-}
-
-.tyres-lookup input,
-.tyres-filter input {
-  min-height: 2.75rem;
-  font: inherit;
-}
-
-.tyres-lookup input {
-  font-family: var(--font-sans);
-  font-size: var(--type-body-size);
-  color: var(--ink);
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 0.4rem 0.6rem;
 }
 
 /* NFR-USE-009: the ambiguity this names is never conveyed by colour alone,
@@ -63,17 +43,148 @@
 .tyres-lookup-note {
   color: var(--warn-text);
   font-weight: 600;
-  margin: 0 0 var(--space-3);
+  margin: 0;
 }
 
-.tyres-filter {
+/* An empty list's sentence on a card's ground. It is an answer, not an
+   error, so it carries no tone. */
+.fleet-note {
+  margin: 0;
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  color: var(--ink-secondary);
+}
+
+.fleet-hint {
+  margin: 0;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-muted);
+}
+
+/* A failed read keeps the heading it has always had inside Banner's title,
+   which already sets the weight; the heading adds no size or margin. */
+.fleet-banner-heading {
+  margin: 0;
+  font: inherit;
+}
+
+/* Today's tables in Tread's table look. They keep their row headers, which
+   the screens' tests and the e2e cell arithmetic count on, until DataTable
+   can draw one (TYRE-447). */
+.fleet-table-wrap {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.fleet-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.fleet-table caption {
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  font-weight: 700;
+  text-align: left;
+}
+
+.fleet-table thead th {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+  font-size: var(--type-caption-size);
+  line-height: var(--type-caption-line);
+  font-weight: 700;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.fleet-table thead th:first-child {
+  border-top-left-radius: var(--radius-lg);
+}
+
+.fleet-table thead th:last-child {
+  border-top-right-radius: var(--radius-lg);
+}
+
+.fleet-table tbody th,
+.fleet-table td {
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  vertical-align: middle;
+}
+
+.fleet-table tbody th {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.fleet-table tbody tr:last-child > * {
+  border-bottom: 0;
+}
+
+.fleet-table [data-align="right"] {
+  text-align: right;
+}
+
+.fleet-table [data-nowrap="true"] {
+  white-space: nowrap;
+}
+
+/* Codes, sizes and money line their digits up (TYRE-446). */
+.fleet-table [data-mono="true"] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A row's own write: its fields, choices and button on one wrapping line. */
+.fleet-row-form {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  font-family: var(--font-sans);
-  font-size: var(--type-body-size);
+}
+
+/* Two classes, so a field keeps this width whichever sheet loads first
+   (docs/lessons.md, 2026-10-26). */
+.fleet-row-form .tr-input {
+  flex: 0 1 11rem;
+}
+
+/* The one native select a row keeps, drawn as Tread's field frame. */
+.fleet-native-select {
+  min-height: var(--target-min);
+  padding: 0 var(--space-3);
+  border: 2px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
   color: var(--ink);
-  margin-bottom: var(--space-3);
+  font: inherit;
+}
+
+.fleet-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.fleet-choices label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+}
+
+.fleet-choices input {
+  width: 1.25rem;
+  height: 1.25rem;
+  margin: 0;
+  accent-color: var(--interactive);
 }
 
 /* .retreads-table and .fitments-table (TYRE-93) are this same table, so
