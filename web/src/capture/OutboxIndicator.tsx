@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 import { SignInButton } from "../auth/SignInButton";
+import { Button } from "../ui/Button";
 
 import { ConfirmDiscard } from "./ConfirmDiscard";
 import { discardEntry, flushOutbox, isStale, startOutboxHeartbeat } from "./outbox";
@@ -91,13 +92,14 @@ export function OutboxIndicator() {
       </div>
       {needSignIn > 0 && <SignInButton label="Sign in" />}
       {/* FR-OFF-010 */}
-      <button
-        type="button"
-        className="cap-secondary cap-outbox-sync"
+      <Button
+        variant="secondary"
+        size="glove"
+        className="cap-outbox-sync"
         onClick={() => void flushOutbox({ force: true })}
       >
         Sync now
-      </button>
+      </Button>
     </div>
   );
 }

@@ -37,3 +37,41 @@ export function navItemsFor(capabilities: string[]): NavItem[] {
       : item.capability.some((capability) => held.has(capability)),
   );
 }
+
+// ADR-0020's grouping of the same items, by path, so the labels and gates
+// stay NAV_ITEMS's own. "My inspections" sits alone and unnamed, where the
+// registry already puts it, for a manager who also captures.
+export interface NavGroupSpec {
+  readonly label?: string;
+  readonly paths: readonly string[];
+}
+
+export const NAV_GROUPS: readonly NavGroupSpec[] = [
+  { label: "Overview", paths: ["/", "/exceptions"] },
+  {
+    label: "Fleet",
+    paths: [
+      "/fleet",
+      "/fleet/tyres",
+      "/fleet/tyres/receipts",
+      "/fleet/rigs",
+      "/fleet/fitments",
+      "/fleet/tyres/retreads",
+    ],
+  },
+  { paths: ["/my"] },
+  { label: "Organisation", paths: ["/settings", "/admin/units/new", "/admin/users/new"] },
+];
+
+export interface NavGroup {
+  label?: string;
+  items: NavItem[];
+}
+
+export function navGroupsFor(capabilities: string[]): NavGroup[] {
+  const held = navItemsFor(capabilities);
+  return NAV_GROUPS.map((group) => ({
+    label: group.label,
+    items: held.filter((item) => group.paths.includes(item.to)),
+  })).filter((group) => group.items.length > 0);
+}

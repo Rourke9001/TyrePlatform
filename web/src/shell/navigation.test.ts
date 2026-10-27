@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { NAV_ITEMS, navItemsFor } from "./navigation";
+import { NAV_GROUPS, NAV_ITEMS, navGroupsFor, navItemsFor } from "./navigation";
 
 describe("navItemsFor", () => {
   // A DRIVER holds exactly CaptureInspection (api/internal/auth/auth.go), and
@@ -150,5 +150,39 @@ describe("navItemsFor", () => {
   it("gives a ManageAssets holder Tyres, Receipts and Add a unit, without Units", () => {
     const labels = navItemsFor(["ManageAssets"]).map((i) => i.label);
     expect(labels).toEqual(["Tyres", "Receipts", "Add a unit"]);
+  });
+});
+
+describe("navGroupsFor", () => {
+  // ADR-0020 groups today's items and adds none: a group that named a path
+  // NAV_ITEMS lacks, or dropped one it has, would change the menu.
+  it("places every item in exactly one group, in registry order", () => {
+    const grouped = NAV_GROUPS.flatMap((group) => group.paths);
+    expect(grouped).toEqual(NAV_ITEMS.map((item) => item.to));
+  });
+
+  it("names the groups Overview, Fleet and Organisation, and leaves My inspections unnamed", () => {
+    expect(NAV_GROUPS.map((group) => group.label)).toEqual([
+      "Overview",
+      "Fleet",
+      undefined,
+      "Organisation",
+    ]);
+    expect(NAV_GROUPS[2].paths).toEqual(["/my"]);
+  });
+
+  // The labels and gates are NAV_ITEMS's own, so the grouped menu cannot
+  // offer what the flat list would not.
+  it("filters each group through navItemsFor and drops a group left empty", () => {
+    const groups = navGroupsFor(["ViewFleet"]);
+    expect(groups.map((group) => group.label)).toEqual(["Overview", "Fleet"]);
+    expect(groups.flatMap((group) => group.items)).toEqual(navItemsFor(["ViewFleet"]));
+  });
+
+  it("gives a driver one unnamed group with their own destination", () => {
+    const groups = navGroupsFor(["CaptureInspection"]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].label).toBeUndefined();
+    expect(groups[0].items.map((item) => item.label)).toEqual(["My inspections"]);
   });
 });
