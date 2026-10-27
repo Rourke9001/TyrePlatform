@@ -34,7 +34,7 @@ const OPEN: OpenReceipt[] = [
   }),
 ];
 
-type Reply = () => Response;
+type Reply = () => Response | Promise<Response>;
 
 // GET /api/tyre-receipts/open answers `open` every time; each POST takes
 // the next of `moves`. Anything else is a request this screen should not
@@ -182,6 +182,65 @@ describe("open receipts", () => {
       "Estimate kept. This receipt's price is final.",
     );
     expect(posts()).toEqual([{ url: "/api/tyre-receipts/r2/keep-estimate", body: {} }]);
+  });
+
+  // The dialog answers a dismissal three ways, and all of them return focus
+  // to the button that opened it.
+  describe("the keep dialog", () => {
+    async function openKeep() {
+      const estimated = await rowFor("BAC-00012");
+      const opener = within(estimated).getByRole("button", { name: "Keep the estimate" });
+      await userEvent.click(opener);
+      const dialog = await screen.findByRole("dialog", { name: "Keep the estimate as final?" });
+      return { opener, dialog };
+    }
+    const scrim = (dialog: HTMLElement) => {
+      const el = dialog.parentElement;
+      if (el === null) throw new Error("no scrim");
+      return el;
+    };
+
+    it("closes on a backdrop click", async () => {
+      mockApi();
+      renderScreen();
+      const { dialog } = await openKeep();
+      await userEvent.click(scrim(dialog));
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+
+    it.each([
+      ["Escape", () => userEvent.keyboard("{Escape}")],
+      ["the Close button", () => userEvent.click(screen.getByRole("button", { name: "Close" }))],
+    ])("closes on %s and returns focus to its opener", async (_name, dismiss) => {
+      mockApi();
+      renderScreen();
+      const { opener } = await openKeep();
+      await dismiss();
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
+    });
+
+    it("stays open on Escape, Close and the backdrop while the write is pending", async () => {
+      let release: (r: Response) => void = () => undefined;
+      const pending = new Promise<Response>((res) => {
+        release = res;
+      });
+      mockApi({ moves: [() => pending] });
+      renderScreen();
+      const { dialog } = await openKeep();
+      await userEvent.click(within(dialog).getByRole("button", { name: "Keep the estimate" }));
+      await waitFor(() => {
+        expect(posts()).toHaveLength(1);
+      });
+
+      await userEvent.keyboard("{Escape}");
+      await userEvent.click(screen.getByRole("button", { name: "Close" }));
+      await userEvent.click(scrim(dialog));
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+      release(new Response(null, { status: 204 }));
+      expect(await screen.findByRole("status")).toBeInTheDocument();
+    });
   });
 
   // Review focus 5: a set wholly gone still moves, and says it priced none.
