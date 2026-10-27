@@ -1,6 +1,7 @@
 import { Component, type ReactNode } from "react";
 import { useLocation, useMatch } from "react-router";
 
+import { Button } from "../ui/Button";
 import "./shell.css";
 
 interface BoundaryProps {
@@ -50,11 +51,12 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     if (!this.state.failed) return this.props.children;
     return (
       <div className="route-error" role="alert">
-        <p>This page could not be shown.</p>
+        <p className="route-error__lead">This page could not be shown.</p>
         {this.props.onCapture && <p>Readings already entered are kept on this phone.</p>}
-        <button type="button" className="btn btn-secondary" onClick={this.retry}>
+        {/* NFR-USE-004: the driver's routes take the glove size. */}
+        <Button variant="secondary" size={this.props.inPlace ? "glove" : "md"} onClick={this.retry}>
           Try again
-        </button>
+        </Button>
       </div>
     );
   }
