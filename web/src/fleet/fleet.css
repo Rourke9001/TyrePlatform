@@ -370,12 +370,12 @@
 }
 
 /* A REMOVED row's Actions cell (TYRE-93) stacks more than one form;
-   .tyres-row-form styles each one, this only stacks them. The retread and
-   fitments tables take their rules by selector, not a second copy. */
+   .fleet-row-form lays out each one, this only stacks them. */
 .tyres-row-actions {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  align-items: flex-start;
+  gap: var(--space-2);
 }
 
 /* ------------------------------------------------- the rigs screen (TYRE-72) */
