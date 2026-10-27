@@ -193,3 +193,66 @@ describe("applyKey at other granularities (FR-CFG-027)", () => {
     expect(r.settled).toBe(false);
   });
 });
+
+// U146, the owner's ruling of 27 Oct 2026: 13 settles at 0.5 mm, so the
+// keypad moves on after the hold, and a half pressed straight after belongs
+// to the cell it left. Not settled, so the sheet arms no second advance.
+describe("the half key straight after the keypad moves on", () => {
+  const thirteenThenNext = (opts: typeof whole) =>
+    applyKey(type(newEntryState(3), "13", opts).state, { type: "next" }, opts).state;
+
+  it("adds the half to the cell it left", () => {
+    const r = applyKey(thirteenThenNext(halves), { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13.5, null, null]);
+    expect(r.state.field).toBe(1);
+    expect(r.settled).toBe(false);
+  });
+
+  it("adds it to the new cell once a digit lands there", () => {
+    const typed = applyKey(thirteenThenNext(halves), { type: "digit", digit: "1" }, halves).state;
+    const r = applyKey(typed, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13, 1.5, null]);
+  });
+
+  it("does not reach back after a tap on another cell", () => {
+    const tapped = applyKey(thirteenThenNext(halves), { type: "focus", field: 2 }, halves).state;
+    const r = applyKey(tapped, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13, null, null]);
+  });
+
+  it("does not reach back after a delete", () => {
+    const cleared = applyKey(thirteenThenNext(halves), { type: "delete" }, halves).state;
+    const r = applyKey(cleared, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13, null, null]);
+  });
+
+  it("adds it to the last tread when the keypad moved on to pressure", () => {
+    let s = applyKey(newEntryState(3), { type: "focus", field: 2 }, halves).state;
+    s = applyKey(type(s, "13", halves).state, { type: "next" }, halves).state;
+    expect(s.field).toBe(3);
+    const r = applyKey(s, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([null, null, 13.5]);
+    expect(r.state.pressureKpa).toBeNull();
+    expect(r.state.field).toBe(3);
+    expect(r.settled).toBe(false);
+  });
+
+  it.each([
+    ["1.0", whole],
+    ["0.1", tenths],
+  ])("changes nothing at %s mm", (_, opts) => {
+    const before = thirteenThenNext(opts);
+    const r = applyKey(before, { type: "half" }, opts);
+    expect(r.state.treads).toEqual(before.treads);
+    expect(r.state.field).toBe(1);
+  });
+
+  it("leaves a cell that already holds its half", () => {
+    const halved = applyKey(type(newEntryState(3), "13", halves).state, { type: "half" }, halves);
+    const moved = applyKey(halved.state, { type: "next" }, halves).state;
+    const r = applyKey(moved, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13.5, null, null]);
+    expect(r.state.field).toBe(1);
+    expect(r.settled).toBe(false);
+  });
+});
