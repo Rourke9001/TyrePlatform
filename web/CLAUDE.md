@@ -221,11 +221,15 @@ looked at before it is reviewed. Rules that are not visible in the code:
 - The dev tenant and actor switchers live in the collapsed dev bar after
   the content (`src/shell/DevBar.tsx`), never in the header (TYRE-242).
 - Below `breakpoint.phone` (640px, `src/theme/tokens.ts`) `DataTable` renders
-  one card per row and `BandChart` renders one row per band, chosen by
-  `usePhone()` (`src/ui/useMediaQuery.ts`), not by CSS: a table set to
-  `display: block` loses its semantics for a screen reader, and an SVG column
-  chart cannot be turned by CSS (TYRE-238 comment 12938). A CSS rule that
-  switches at the same width writes 640px and cites the constant.
+  one card per row, chosen by `usePhone()` (`src/ui/useMediaQuery.ts`), not by
+  CSS: a table set to `display: block` loses its semantics for a screen reader
+  (TYRE-238 comment 12938). `BandChart` is HTML, not SVG: one horizontal bar
+  per band at every width, each row named "<label>: <count> tyres, <pct>%",
+  with a table behind its disclosure and no hover tooltip; `usePhone()` only
+  moves each label onto its own line above its bar (`data-form="rows"`), and a
+  limit line is drawn only when the caller passes `limitBefore` (rule 5), which
+  the dashboard never does. A CSS rule that switches at the same width writes
+  640px and cites the constant.
 - A measurement always shows one decimal with a point (`formatMm`, "4.0 mm");
   millimetres never go through `Intl`'s en-ZA format, whose decimal separator
   is a comma.
