@@ -19,9 +19,7 @@ const sources = import.meta.glob<string>(
 // 4.5:1 on the brand (TYRE-27). After wave 0 a lane that needs another
 // entry asks the orchestrator (TYRE-443).
 const BRAND_ALLOWED = new Set([
-  // Today's screens: the wordmark, the nav's current page, filled buttons.
-  ".shell-wordmark",
-  '.shell-nav a[aria-current="page"]',
+  // Screens not yet on Tread: filled buttons and capture's go key.
   ".btn-primary",
   ".btn-primary:hover",
   ".btn-primary:active",
@@ -32,9 +30,6 @@ const BRAND_ALLOWED = new Set([
   ".cap-primary",
   ".cap-primary:active",
   ".cap-check",
-  ".auth-primary",
-  '.auth-primary:hover:not([aria-disabled="true"])',
-  '.auth-primary:active:not([aria-disabled="true"])',
   // Tread's chrome, as its component source writes it: the logo tile, the
   // primary button, an icon button on the brand band, the keypad's go key,
   // the active nav marker, and the driver and phone app bars.
@@ -101,7 +96,7 @@ describe("the tenant brand stays in chrome (U53)", () => {
   it("sees the stylesheets and the chrome rules in them", () => {
     expect(Object.keys(sheets).length).toBeGreaterThanOrEqual(6);
     const selectors = brandRules().map((r) => r.selector);
-    expect(selectors).toContain(".shell-wordmark");
+    expect(selectors).toContain(".tr-brandmark__tile");
     expect(selectors).toContain(".cap-primary");
     expect(Object.keys(sources)).toContain("/src/theme/tokens.ts");
     expect(sources["/src/theme/ThemeProvider.tsx"]).toContain("brandVars(");
