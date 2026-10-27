@@ -146,5 +146,9 @@ describe("TyreTile", () => {
     expect(rule).not.toBe("");
     expect(rule).not.toMatch(/text-overflow: ellipsis/);
     expect(rule).not.toMatch(/overflow: hidden/);
+    // The fit at 360px rests on this step, with under 2px to spare.
+    expect(tileCss).toMatch(
+      /@media \(max-width: 480px\) \{\s*\.tr-tile__val \{\s*font-size: var\(--type-caption-size\);/,
+    );
   });
 });
