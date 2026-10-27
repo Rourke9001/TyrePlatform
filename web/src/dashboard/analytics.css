@@ -96,6 +96,10 @@
 /* U53: the link's colour is ui/base.css's platform colour, never the
    tenant's brand. */
 .severity-lines a {
+  /* NFR-USE-004: a 44px target, not a line of text. */
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--target-min);
   margin-left: auto;
   font-weight: 700;
 }
