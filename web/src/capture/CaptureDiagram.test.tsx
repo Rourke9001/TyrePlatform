@@ -118,7 +118,7 @@ describe("CaptureDiagram", () => {
       <CaptureDiagram {...props} absentCells={new Set([cell])} />,
     );
     const el = container.querySelector<HTMLElement>(`[data-position-id="p4"]`);
-    expect(el).toHaveClass("is-absent");
+    expect(el).toHaveClass("tr-tile--neutral");
     expect(el).toHaveTextContent("No spare");
     expect(el).toHaveTextContent("none");
     expect(getByLabelText(/Position 4, BAC039SP, no spare/)).toBeTruthy();
@@ -192,7 +192,7 @@ function renderDedup(onOpen: (cell: string) => void) {
 describe("CaptureDiagram with multiple units", () => {
   it("labels the unit band once per unit, not once per axle", () => {
     const { container } = renderDedup(vi.fn());
-    const bands = Array.from(container.querySelectorAll(".cap-unitband")).map(
+    const bands = Array.from(container.querySelectorAll(".tr-unit__head")).map(
       (el) => el.textContent,
     );
     expect(bands).toEqual(["BAC039SP", "BAC040SP", "BAC039SP spare"]);
@@ -203,16 +203,18 @@ describe("CaptureDiagram with multiple units", () => {
   // (FR-INS-060/FR-INS-061, the requirements CouplingMark cites).
   it("draws one coupling mark, one axle row per axle group, and the spare row once", () => {
     const { container } = renderDedup(vi.fn());
-    expect(container.querySelectorAll(".cap-unit")).toHaveLength(3);
-    expect(container.querySelectorAll(".cap-coupling")).toHaveLength(1);
-    expect(container.querySelectorAll(".cap-axle")).toHaveLength(5);
-    expect(container.querySelectorAll(".cap-axle--spare")).toHaveLength(1);
+    expect(container.querySelectorAll(".tr-unit")).toHaveLength(3);
+    expect(container.querySelectorAll(".tr-axles__hitch")).toHaveLength(1);
+    expect(container.querySelectorAll(".tr-axle, .tr-spares")).toHaveLength(5);
+    expect(container.querySelectorAll(".tr-spares")).toHaveLength(1);
   });
 
   it("renders the governing reading where one exists and a dash where it does not", () => {
     const { container } = renderDedup(vi.fn());
-    expect(container.querySelector('[data-position-id="p1"] .cap-pos-v')?.textContent).toBe("9mm");
-    expect(container.querySelector('[data-position-id="p2"] .cap-pos-v')?.textContent).toBe("—");
+    expect(container.querySelector('[data-position-id="p1"] .tr-tile__val')?.textContent).toBe(
+      "9mm",
+    );
+    expect(container.querySelector('[data-position-id="p2"] .tr-tile__val')?.textContent).toBe("—");
   });
 
   it("opens the tapped position in the second unit, proving onOpen survives the grouping", () => {
@@ -275,7 +277,7 @@ describe("CaptureDiagram with two units of the same configuration", () => {
         absentCells={new Set()}
       />,
     );
-    const bands = Array.from(container.querySelectorAll(".cap-unitband")).map(
+    const bands = Array.from(container.querySelectorAll(".tr-unit__head")).map(
       (el) => el.textContent,
     );
     expect(bands).toHaveLength(2);
@@ -324,17 +326,58 @@ describe("CaptureDiagram with a spare on each unit", () => {
     // Asserted on the band next to each cell, not the cell count: two
     // spares under one heading satisfy "two spare cells exist" too, which
     // is how the defect survived.
-    const rows = Array.from(container.querySelectorAll(".cap-unit")).filter((u) =>
-      u.querySelector(".cap-axle--spare"),
+    const rows = Array.from(container.querySelectorAll(".tr-unit")).filter((u) =>
+      u.querySelector(".tr-spares"),
     );
     expect(rows).toHaveLength(2);
-    expect(rows.map((u) => u.querySelector(".cap-unitband")?.textContent)).toEqual([
+    expect(rows.map((u) => u.querySelector(".tr-unit__head")?.textContent)).toEqual([
       "LINK6 spare",
       "LINK12 spare",
     ]);
-    expect(rows.map((u) => u.querySelector(".cap-pos")?.getAttribute("aria-label"))).toEqual([
-      "Spare, LINK6, Not done",
-      "Spare, LINK12, Not done",
-    ]);
+    expect(
+      rows.map((u) => u.querySelector("[data-position-id]")?.getAttribute("aria-label")),
+    ).toEqual(["Spare, LINK6, Not done", "Spare, LINK12, Not done"]);
+  });
+});
+
+// FR-INS-060, FR-VEH-034 (U156): a tile shows the rig-wide number, so its
+// name carries the per-unit place in words, from the wire's axle and side
+// alone. A spare has neither and keeps the name it has.
+const placed: RigPosition[] = [
+  { id: "p3", sequence: 3, axleNumber: 2, side: "LEFT" as const, displayNumber: 3 },
+  { id: "p4", sequence: 4, axleNumber: 2, side: "RIGHT" as const, displayNumber: 4 },
+  { id: "ps", sequence: 99, axleNumber: null, side: null, displayNumber: null },
+].map((p) => ({
+  position: position({
+    id: p.id,
+    sequence: p.sequence,
+    axleNumber: p.axleNumber,
+    side: p.side,
+    isSpare: p.displayNumber === null,
+  }),
+  key: cellKey(context.vehicleId, p.id),
+  context,
+  displayNumber: p.displayNumber,
+}));
+
+describe("CaptureDiagram's place words", () => {
+  it("names a running tile's axle and side, and leaves a spare's name as it is", () => {
+    const { getByRole } = render(
+      <CaptureDiagram
+        positions={placed}
+        severityOf={() => "unmeasured"}
+        governingOf={() => null}
+        onOpen={vi.fn()}
+        activeKey={null}
+        absentCells={new Set()}
+      />,
+    );
+    expect(
+      getByRole("button", { name: "Position 3, BAC039SP, Not done, axle 2, left" }),
+    ).toBeInTheDocument();
+    expect(
+      getByRole("button", { name: "Position 4, BAC039SP, Not done, axle 2, right" }),
+    ).toBeInTheDocument();
+    expect(getByRole("button", { name: "Spare, BAC039SP, Not done" })).toBeInTheDocument();
   });
 });

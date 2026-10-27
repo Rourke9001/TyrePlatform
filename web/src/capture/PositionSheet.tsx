@@ -8,6 +8,7 @@ import { applyKey, newEntryState } from "./entry";
 import { governingTread, isComplete, positionWarnings, severityFor, treadsRead } from "./warnings";
 import { historyWarnings } from "./history";
 import { Keypad } from "./Keypad";
+import { placeWords } from "./place";
 import { TreadGlyph } from "./TreadGlyph";
 import { useUnitLabels } from "../units/units";
 import "./capture.css";
@@ -226,6 +227,7 @@ export function PositionSheet({
   // below-removal reading has to look urgent the moment it is legible, not
   // once a pressure the driver may never take has been typed.
   const severity = severityFor(warnings, treadsRead(state.treads));
+  const place = placeWords(rig);
 
   return (
     <section
@@ -249,6 +251,7 @@ export function PositionSheet({
             already carries whatever tyre id the driver was shown. */}
         <p className="cap-sheet-meta">
           {rig.context.fleetNumber} · {rig.position.axleClass.toLowerCase()}
+          {place ? ` · ${place}` : ""}
           {rig.position.tyreCode ? ` · ${rig.position.tyreCode}` : ""}
         </p>
         <button type="button" className="cap-iconbtn" aria-label="Close" onClick={close}>
