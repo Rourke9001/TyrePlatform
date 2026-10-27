@@ -150,7 +150,9 @@
   color: var(--ink-muted);
 }
 
-.unit-panel-facts {
+/* KeyValue sets its own margin to 0, so this wins by specificity, never by
+   which stylesheet loads last (docs/lessons.md, 2026-10-26). */
+dl.unit-panel-facts {
   margin-bottom: var(--space-4);
 }
 
