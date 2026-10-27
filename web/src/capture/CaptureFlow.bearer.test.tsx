@@ -58,7 +58,7 @@ describe("CaptureFlow in bearer mode", () => {
 
     expect(await screen.findByText("Sign in to load this vehicle.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Reload vehicle" })).toHaveClass("cap-secondary");
+    expect(screen.getByRole("button", { name: "Reload vehicle" })).toHaveClass("tr-btn--secondary");
   });
 
   it("offers a sign-in button beside the start refusal", async () => {
