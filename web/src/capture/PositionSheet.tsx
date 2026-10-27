@@ -59,7 +59,13 @@ export function PositionSheet({
     // with nothing left to fill, the first, so a reopen-to-look is unchanged.
     const firstEmpty = initial.treads.findIndex((t) => t === null);
     const field = firstEmpty !== -1 ? firstEmpty : initial.pressureKpa === null ? count : 0;
-    return { treads: [...initial.treads], pressureKpa: initial.pressureKpa, field, buffer: "" };
+    return {
+      treads: [...initial.treads],
+      pressureKpa: initial.pressureKpa,
+      field,
+      buffer: "",
+      advancedFrom: null,
+    };
   });
   const [acknowledged, setAcknowledged] = useState(false);
   // NFR-OBS-007. Wall clock from when the sheet opened, plus anything a
