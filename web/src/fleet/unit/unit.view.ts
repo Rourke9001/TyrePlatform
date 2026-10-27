@@ -1,11 +1,10 @@
 import type { FitmentHistoryRow, OpenFitment, Unit, UnitPosition } from "../../api/units";
 import type { UnitTrip } from "../../api/trips";
-import { treadSourceLabel } from "../../domain/vocabulary";
+import { distanceSourceLabel, treadSourceLabel } from "../../domain/vocabulary";
 import { formatCount, formatMm } from "../../format/numbers";
 import { formatTreadAge } from "../../format/treadAge";
 import type { DiagramPosition, DiagramUnit } from "../../ui/AxleDiagram";
 import type { UnitLabels } from "../../units/units";
-import { distanceSourceLabel } from "./vocabulary";
 
 // The vehicle screen's view model (ADR-0022): pure functions from the unit
 // wire to what the screen shows, tested without React.
