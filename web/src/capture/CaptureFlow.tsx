@@ -198,13 +198,14 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
             : "Could not load this vehicle. Find signal and try again."}
         </p>
         {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-        <button
-          type="button"
-          className={signedOut ? "cap-secondary" : "cap-primary"}
+        <Button
+          variant={signedOut ? "secondary" : "primary"}
+          size="glove"
+          block
           onClick={() => void motive.refetch()}
         >
           Reload vehicle
-        </button>
+        </Button>
       </section>
     );
   } else if (screen === "start") {
@@ -328,9 +329,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           {storageFault === "unavailable" && (
             // Named for what it retries. See the motive.isError branch above
             // for why both retries need distinct labels.
-            <button type="button" className="cap-secondary" onClick={lifecycle.retryStorage}>
+            <Button variant="secondary" size="glove" onClick={lifecycle.retryStorage}>
               Recheck storage
-            </button>
+            </Button>
           )}
         </div>
       )}

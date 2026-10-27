@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { Button } from "../ui/Button";
 import "./capture.css";
 
 // The one confirmation in the capture app: a wrong-vehicle Start (TYRE-146)
@@ -25,13 +26,9 @@ export function ConfirmDiscard({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        className="cap-secondary cap-discard-trigger"
-        onClick={() => setOpen(true)}
-      >
+      <Button variant="secondary" size="glove" block onClick={() => setOpen(true)}>
         {trigger}
-      </button>
+      </Button>
     );
   }
   return (
@@ -41,12 +38,12 @@ export function ConfirmDiscard({
       <div className="cap-discard-actions">
         {/* Keep first and primary: the safe answer is the easy one to hit
             with a glove (NFR-USE-004). */}
-        <button type="button" className="cap-primary" onClick={() => setOpen(false)}>
+        <Button variant="primary" size="glove" onClick={() => setOpen(false)}>
           Keep it
-        </button>
-        <button type="button" className="cap-secondary cap-discard-confirm" onClick={onConfirm}>
+        </Button>
+        <Button variant="secondary" size="glove" onClick={onConfirm}>
           {confirm}
-        </button>
+        </Button>
       </div>
     </section>
   );

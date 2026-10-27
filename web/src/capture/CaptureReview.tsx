@@ -1,5 +1,8 @@
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
+import { Button } from "../ui/Button";
+import { ListRow } from "../ui/ListRow";
+import { TextArea } from "../ui/TextArea";
 import type { CaptureContext } from "./captureContext";
 import type { Draft } from "./draft";
 import { cellKey } from "./draft";
@@ -56,6 +59,8 @@ export function CaptureReview({
   const [comment, setComment] = useState("");
   const [defect, setDefect] = useState("");
   const [openedAt] = useState(() => Date.now());
+  const commentId = useId();
+  const defectId = useId();
 
   const done = units.reduce((n, u) => n + u.done, 0);
   const total = units.reduce((n, u) => n + u.total, 0);
@@ -125,15 +130,21 @@ export function CaptureReview({
       {flagged.length === 0 ? (
         <p className="cap-hint">Nothing to flag.</p>
       ) : (
-        <ul className="cap-flags">
+        <ul className="tr-list cap-flags">
           {/* The requirement id as a data attribute, never rendered text:
               CR-010/OR-LEG-001 govern what a driver sees. A test keyed on
               the friendly name would fail on the next copy edit. */}
           {flagged.map((f) => (
-            <li key={f.key} className="cap-flag" data-warning-code={f.code}>
-              <span className="cap-flag-where">{f.where}</span>
-              <span className="cap-flag-what">{WARNING_NAME[f.code]}</span>
-              {f.enteredValue !== null && <span className="cap-flag-val">{f.enteredValue}</span>}
+            <li key={f.key} data-warning-code={f.code}>
+              <ListRow
+                title={f.where}
+                meta={WARNING_NAME[f.code]}
+                trailing={
+                  f.enteredValue !== null ? (
+                    <span className="cap-flag-val">{f.enteredValue}</span>
+                  ) : undefined
+                }
+              />
             </li>
           ))}
         </ul>
@@ -142,29 +153,38 @@ export function CaptureReview({
       {/* FR-INS-030a/FR-INS-030b are different fields with different destinations
           (workshop queue vs tyre controller); the label must say which or
           drivers use whichever box is nearer. */}
-      <label className="cap-field">
-        <span className="cap-field-label">Comments about the tyres</span>
-        <textarea
-          className="cap-textarea"
+      {/* Each label holds all the words it holds today, the hint included,
+          so a box keeps the name it reads as. */}
+      <div className="cap-field">
+        <label htmlFor={commentId}>
+          <span className="cap-field-label">Comments about the tyres</span>
+        </label>
+        <TextArea
+          id={commentId}
+          size="glove"
           rows={2}
           value={comment}
           onChange={(e) => setComment(e.target.value)}
         />
-      </label>
-      <label className="cap-field">
-        <span className="cap-field-label">Anything else wrong with the vehicle?</span>
-        <span className="cap-hint">Goes to the workshop, not the tyre office.</span>
-        <textarea
-          className="cap-textarea"
+      </div>
+      <div className="cap-field">
+        <label htmlFor={defectId}>
+          <span className="cap-field-label">Anything else wrong with the vehicle?</span>
+          <span className="cap-hint">Goes to the workshop, not the tyre office.</span>
+        </label>
+        <TextArea
+          id={defectId}
+          size="glove"
           rows={2}
           value={defect}
           onChange={(e) => setDefect(e.target.value)}
         />
-      </label>
+      </div>
 
-      <button
-        type="button"
-        className="cap-primary"
+      <Button
+        variant="primary"
+        size="glove"
+        block
         // 000023 refuses an empty readings array, and the outbox reads that
         // refusal as permanent, so an inspection sent with nothing captured
         // could never drain from the queue.
@@ -172,11 +192,11 @@ export function CaptureReview({
         onClick={() => onSubmit({ comment: comment || null, defectReport: defect || null })}
       >
         Submit inspection
-      </button>
+      </Button>
       {done === 0 && <p className="cap-hint">Capture at least one position before you send.</p>}
-      <button type="button" className="cap-secondary" onClick={onBack}>
+      <Button variant="secondary" size="glove" block onClick={onBack}>
         ‹ Back to the vehicle
-      </button>
+      </Button>
     </section>
   );
 }
