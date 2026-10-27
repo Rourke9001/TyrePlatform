@@ -18,9 +18,13 @@ export interface EntryState {
   // Digits pressed for the focused field. Kept apart from the value so a
   // leading zero and a correction are both representable.
   buffer: string;
-  // U146: the tread field the last next left, so a half pressed straight
-  // after can still reach it. Any key but next or half clears it.
+  // U146: the tread field the last next left, armed only when this visit
+  // typed into or halved it, so a half pressed straight after can still
+  // reach it. A half keeps it; a digit, delete or focus clears it.
   advancedFrom: number | null;
+  // U146: the focused field holds a digit or a half from this visit, which
+  // is what lets next arm advancedFrom.
+  touched: boolean;
 }
 
 export type EntryKey =
@@ -45,6 +49,7 @@ export function newEntryState(treadReadingCount: number): EntryState {
     field: 0,
     buffer: "",
     advancedFrom: null,
+    touched: false,
   };
 }
 
@@ -64,12 +69,13 @@ const ceilingFor = (state: EntryState, opts: EntryOptions) =>
 
 function write(state: EntryState, buffer: string, opts: EntryOptions): EntryState {
   const value = buffer === "" ? null : valueOf(buffer, state, opts);
+  const touched = buffer !== "";
   if (isPressure(state, opts)) {
-    return { ...state, buffer, pressureKpa: value, advancedFrom: null };
+    return { ...state, buffer, pressureKpa: value, advancedFrom: null, touched };
   }
   const treads = [...state.treads];
   treads[state.field] = value;
-  return { ...state, buffer, treads, advancedFrom: null };
+  return { ...state, buffer, treads, advancedFrom: null, touched };
 }
 
 // FR-INS-030: a half that would pass the ceiling changes nothing, since the
@@ -80,7 +86,7 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
   switch (key.type) {
     case "focus":
       return {
-        state: { ...state, field: key.field, buffer: "", advancedFrom: null },
+        state: { ...state, field: key.field, buffer: "", advancedFrom: null, touched: false },
         settled: false,
       };
 
@@ -90,7 +96,8 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
           ...state,
           field: Math.min(state.field + 1, opts.treadReadingCount),
           buffer: "",
-          advancedFrom: isPressure(state, opts) ? null : state.field,
+          advancedFrom: state.touched && !isPressure(state, opts) ? state.field : null,
+          touched: false,
         },
         settled: false,
       };
@@ -120,7 +127,7 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       if (current === null || halfPassesCeiling(current)) return { state, settled: false };
       const treads = [...state.treads];
       treads[state.field] = Math.floor(current) + 0.5;
-      return { state: { ...state, treads, buffer: "" }, settled: true };
+      return { state: { ...state, treads, buffer: "", touched: true }, settled: true };
     }
 
     case "digit": {

@@ -65,6 +65,7 @@ export function PositionSheet({
       field,
       buffer: "",
       advancedFrom: null,
+      touched: false,
     };
   });
   const [acknowledged, setAcknowledged] = useState(false);
