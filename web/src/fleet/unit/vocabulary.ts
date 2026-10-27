@@ -27,19 +27,6 @@ export const UNIT_STATUSES: { value: string; label: string }[] = [
   { value: "OUT_OF_SERVICE", label: "Out of service" },
 ];
 
-const DISTANCE_SOURCES: Record<string, string> = {
-  MEASURED: "Measured",
-  INFERRED: "Inferred",
-  UNAVAILABLE: "Unavailable",
-};
-
-// CR-012: a distance is never shown without where it came from. An
-// unrecognised source falls back to its own value rather than to silence.
-// An unlabelled number would read as measured.
-export function distanceSourceLabel(source: string): string {
-  return DISTANCE_SOURCES[source] ?? source;
-}
-
 export function orientationLabel(value: string): string {
   return MOUNT_ORIENTATIONS.find((o) => o.value === value)?.label ?? value;
 }

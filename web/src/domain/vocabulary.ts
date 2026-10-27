@@ -1,9 +1,9 @@
-// The dashboard's words, written once so no page spells one itself (U48).
-// The server owns the code vocabularies (severity, judgedAt, unavailable
-// reasons, tread source, cost basis, inflation bands), so each code map
-// passes an unknown code through rather than throwing; absenceLabel is a
-// closed set the pages choose from. Counts and measurements are formatted
-// in src/format/numbers.ts (U55, ADR-0022).
+// The manager screens' words, written once so no page spells one itself
+// (U48). The server owns the code vocabularies (severity, judgedAt,
+// unavailable reasons, tread and distance source, cost basis, inflation
+// bands), so each code map passes an unknown code through rather than
+// throwing; absenceLabel is a closed set the pages choose from. Counts and
+// measurements are formatted in src/format/numbers.ts (U55, ADR-0022).
 
 // FR-DSH-003: most urgent first, the one order the tiles and the
 // exceptions filter both list.
@@ -119,6 +119,19 @@ const TREAD_SOURCE_LABELS: Record<string, string> = {
 
 export function treadSourceLabel(code: string): string {
   return TREAD_SOURCE_LABELS[code] ?? code;
+}
+
+const DISTANCE_SOURCE_LABELS: Record<string, string> = {
+  MEASURED: "Measured",
+  INFERRED: "Inferred",
+  UNAVAILABLE: "Unavailable",
+};
+
+// CR-012: a distance is never shown without where it came from. An
+// unrecognised source falls back to its own value rather than to silence.
+// An unlabelled number would read as measured.
+export function distanceSourceLabel(code: string): string {
+  return DISTANCE_SOURCE_LABELS[code] ?? code;
 }
 
 // The register's cost_source vocabulary (ADR-0010, TYRE-176).
