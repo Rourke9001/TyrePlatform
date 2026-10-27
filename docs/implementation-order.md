@@ -86,6 +86,17 @@ exceptions and at-risk; landing and shell), then 449. Also 209 with 236,
 
 ## The Tread rework (epic TYRE-443)
 
+**U156 (owner, 26 Oct 2026) moves the rework to now.** Every route moves to
+Tread in one branch, `TYRE-443-tread-frontend`, which carries 445, 446, 447
+and 240's screen ports together. The sprint placements of 445, 446, 447a,
+447b and 240's ports in the table above, and 240 under "After the pilot",
+are superseded. ADR-0020's Sequence paragraph is superseded. The rest of its
+Decision stands: the capture rulings, the navigation rule and the
+non-negotiable rules. The design spec is
+`docs/superpowers/specs/2026-10-26-tread-frontend-design.md`, and ADR-0022
+holds the frontend layers. The list below is the U145 plan as it stood
+before U156.
+
 ADR-0020 is accepted with the capture rulings of U145 (#141): capture keeps
 numbered tread cells (IR-UI-014), the rig-wide tile number with per-unit
 place words (FR-INS-060, Appendix I) and a non-modal sheet; the navigation
@@ -97,7 +108,8 @@ rework to land:
    (`docs/lessons.md`, 2026-10-20).
 2. **TYRE-445 takes four more things:** TYRE-281's gate on the capture
    entry's CSS and fonts (`scripts/check-capture-bundle.mjs` counts
-   JavaScript only), a gate on hex colour literals (none exists), Tread's
+   JavaScript only), a gate on colour literals (now
+   `scripts/check-colour-literals.mjs`, in `make lint`), Tread's
    spacing, radius and size tokens, and TYRE-343's confinement test,
    rewritten to the new names and made to fail first. `applyCssVars` sets
    every token inline, so only the brand slot stays inline; Tread's
@@ -122,9 +134,10 @@ rework to land:
 A bug found on a branch is fixed on that branch (U146, CLAUDE.md); Set aside
 holds only what is not a bug.
 
-The capture route's entry closure budget is 140373 gzip bytes in
-`web/bundle-budget.json`, recorded 20 Oct 2026 by TYRE-283 (#139). The gate
-only lets that figure go down. Every capture-route change in the queue adds
+The capture route's entry budget in `web/bundle-budget.json` was recorded
+on 27 Oct 2026 by TYRE-443, for Tread's capture set and both shells: 147899
+gzip bytes of JavaScript, 6436 of CSS and 70188 raw bytes of fonts. The gate
+only lets those figures go down. Every capture-route change in the queue adds
 bytes: the capture fixes, photos, the manifest and the Tread capture slice.
 Each such PR re-records the budget in its own commit and says why, so the
 growth is a decision, not an accident (ADR-0015).
