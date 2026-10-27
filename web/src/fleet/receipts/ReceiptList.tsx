@@ -110,6 +110,7 @@ function ReceiptRow({
         <Dialog
           open={keeping}
           onClose={closeKeeping}
+          dismissOnBackdrop
           title="Keep the estimate as final?"
           description="No invoice can be recorded for this receipt afterwards."
           actions={
