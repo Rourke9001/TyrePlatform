@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  fetchAtRisk,
   fetchDashboard,
   fetchExceptions,
   fetchSpares,
@@ -9,7 +10,13 @@ import {
 } from "../api/dashboard";
 import { getDevTenantId } from "../api/devTenant";
 import { fetchDepots } from "../api/units";
-import { dashboardKey, depotsKey, exceptionsKey, sparesKey } from "../fleet/unit/queryKeys";
+import {
+  atRiskKey,
+  dashboardKey,
+  depotsKey,
+  exceptionsKey,
+  sparesKey,
+} from "../fleet/unit/queryKeys";
 
 // The queries the overview, exceptions and at-risk pages read through
 // (ADR-0022). Each key, staleness and retry is the page's own contract with
@@ -78,6 +85,17 @@ export function useExceptions(params: ExceptionsParams) {
   return useQuery({
     queryKey: exceptionsKey(tenantKey(), params),
     queryFn: () => fetchExceptions(params),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    retry: 0,
+  });
+}
+
+// FR-DSH-017: judged today, refetched by its own Refresh (FR-DSH-013).
+export function useAtRisk(depot?: string) {
+  return useQuery({
+    queryKey: atRiskKey(tenantKey(), depot),
+    queryFn: () => fetchAtRisk(depot),
     staleTime: Infinity,
     refetchOnWindowFocus: false,
     retry: 0,
