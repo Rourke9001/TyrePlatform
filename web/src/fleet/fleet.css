@@ -8,9 +8,8 @@
   max-width: 68rem;
 }
 
-/* .retreads and .fitments (TYRE-93) until each is on .fleet-page. */
-.retreads,
-.fitments {
+/* .retreads (TYRE-93) until it is on .fleet-page. */
+.retreads {
   max-width: 68rem;
 }
 
@@ -22,8 +21,7 @@
 }
 
 /* .page-title supplies the type; the margin is this layout's own. */
-.retreads h1,
-.fitments h1 {
+.retreads h1 {
   margin-bottom: 1rem;
 }
 
@@ -184,10 +182,10 @@
   accent-color: var(--interactive);
 }
 
-/* .retreads-table and .fitments-table (TYRE-93) are this same table, so
-   they take these four rules by selector, not by a second copy. The
-   register, the retread queue and the fitments list cannot render three
-   different tables by accident. */
+/* The unit screen's tables: .tyres-table and .fitments-table (TYRE-93) are
+   one table, taking these four rules by selector, not by a second copy, so
+   they cannot drift apart by accident. .retreads-table until the retread
+   queue is on .fleet-table. */
 .tyres-table,
 .retreads-table,
 .fitments-table {
