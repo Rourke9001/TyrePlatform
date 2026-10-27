@@ -1,3 +1,4 @@
+import { diagramSide } from "../domain/side";
 import { AxleDiagram, type DiagramPosition, type DiagramUnit } from "../ui/AxleDiagram";
 import type { Condition } from "../ui/condition";
 import { placeWords } from "./place";
@@ -116,6 +117,7 @@ export function CaptureDiagram({
       ariaLabel: `${name}, ${r.context.fleetNumber}${absent ? ", no spare" : `, ${SEVERITY_LABEL[severity]}`}${place ? `, ${place}` : ""}`,
       dataPositionId: r.position.id,
       active: activeKey === r.key,
+      side: diagramSide(r.position.side),
     };
   };
 
