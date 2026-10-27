@@ -60,8 +60,10 @@ a {
   font-variant-numeric: tabular-nums;
 }
 
+/* minmax(0, 1fr), not the implicit auto track, or a wide child widens the page. */
 .tr-stack {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
   align-content: start;
 }

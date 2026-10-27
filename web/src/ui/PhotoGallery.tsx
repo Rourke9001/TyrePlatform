@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 
 import { cx } from "./cx";
+import { Icon } from "./Icon";
+import { ChevronLeftIcon } from "./icons/ChevronLeft";
+import { ChevronRightIcon } from "./icons/ChevronRight";
+import { CloseIcon } from "./icons/Close";
 import "./PhotoGallery.css";
 
 export interface GalleryPhoto {
@@ -16,32 +20,6 @@ export interface PhotoGalleryProps extends Omit<HTMLAttributes<HTMLElement>, "ch
   photos: readonly GalleryPhoto[];
   // Shown when there are none; the caller says whether one was required.
   empty?: ReactNode;
-}
-
-// TODO(TYRE-447): these glyphs move to src/ui/icons/ when lane A's icon modules land.
-const PATHS = {
-  "chevron-left": "M15 5l-7 7 7 7",
-  "chevron-right": "M9 5l7 7-7 7",
-  close: "M6 6l12 12M18 6L6 18",
-} as const;
-
-function Glyph({ name }: { name: keyof typeof PATHS }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="20"
-      height="20"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d={PATHS[name]} />
-    </svg>
-  );
 }
 
 export function PhotoGallery({
@@ -133,7 +111,7 @@ export function PhotoGallery({
                     aria-label="Previous photo"
                     onClick={() => step(-1)}
                   >
-                    <Glyph name="chevron-left" />
+                    <Icon icon={ChevronLeftIcon} />
                   </button>
                   <button
                     type="button"
@@ -141,7 +119,7 @@ export function PhotoGallery({
                     aria-label="Next photo"
                     onClick={() => step(1)}
                   >
-                    <Glyph name="chevron-right" />
+                    <Icon icon={ChevronRightIcon} />
                   </button>
                 </>
               ) : null}
@@ -152,7 +130,7 @@ export function PhotoGallery({
                 onClick={close}
                 autoFocus
               >
-                <Glyph name="close" />
+                <Icon icon={CloseIcon} />
               </button>
             </span>
           </div>

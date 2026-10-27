@@ -1,7 +1,8 @@
 import { AxleDiagram, type DiagramAxle, type DiagramUnit } from "../AxleDiagram";
 import { Keypad } from "../Keypad";
 import { TreadReadings, type TreadPressure } from "../TreadReadings";
-import { TyreTile, type Condition } from "../TyreTile";
+import type { Condition } from "../condition";
+import { TyreTile } from "../TyreTile";
 import type { GallerySection } from "./types";
 
 // Sample strings only, shaped as capture passes them, and invented fleets:
