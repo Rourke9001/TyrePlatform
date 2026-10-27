@@ -4,6 +4,7 @@ import { useState } from "react";
 import { bearerMode } from "../api/token";
 import { failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
+import { Button } from "../ui/Button";
 
 import { CaptureDiagram } from "./CaptureDiagram";
 import { BackToWork, CaptureDone } from "./CaptureDone";
@@ -274,9 +275,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           absentCells={absent}
         />
 
-        <button type="button" className="cap-primary" onClick={() => setScreen("review")}>
+        <Button variant="primary" size="glove" block onClick={() => setScreen("review")}>
           Review and submit ›
-        </button>
+        </Button>
 
         {/* Below the primary action and secondary in weight: a recovery path,
             never on the clean one (0 taps; 2 to discard). */}

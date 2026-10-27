@@ -450,10 +450,10 @@ describe("CaptureFlow", () => {
     await user.click(await screen.findByRole("button", { name: /start inspection/i }));
     await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
 
-    const cells = Array.from(document.querySelectorAll<HTMLElement>(".cap-pos"));
+    const cells = Array.from(document.querySelectorAll<HTMLElement>("[data-position-id]"));
     expect(cells).toHaveLength(2);
     expect(
-      cells.filter((c) => c.classList.contains("is-active")).map((c) => c.dataset.positionId),
+      cells.filter((c) => c.dataset.active === "true").map((c) => c.dataset.positionId),
     ).toEqual(["p1"]);
   });
 
@@ -676,7 +676,7 @@ describe("CaptureFlow", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
 
     expect(
-      await screen.findByRole("button", { name: "Position 1, BAC039SP, Report" }),
+      await screen.findByRole("button", { name: "Position 1, BAC039SP, Report, axle 1, left" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "1 of 1 done" })).toBeInTheDocument();
   });
