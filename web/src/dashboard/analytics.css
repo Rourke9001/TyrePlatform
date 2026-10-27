@@ -10,14 +10,6 @@
   gap: var(--space-6);
 }
 
-/* A KPI row needs more than the 52rem the shell gives a form. :has(), not a
-   class the shell sets, because the shell ships in the capture route's
-   entry chunk and this sheet loads only with these pages (U84). */
-.shell-main:has(.dashboard),
-.shell-main:has(.analytics-page) {
-  max-width: 76rem;
-}
-
 .dashboard-loading {
   margin: 0;
   color: var(--ink-muted);
