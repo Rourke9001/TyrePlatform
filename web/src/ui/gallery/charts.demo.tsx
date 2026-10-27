@@ -3,8 +3,8 @@ import { bandRangeLabel } from "../../domain/vocabulary";
 import { BandChart, type Band } from "../BandChart";
 import { ProvenanceBar } from "../ProvenanceBar";
 
-// Example values only; none is a fleet figure. The labels are written from
-// sample bounds the way the dashboard writes them (U40).
+// Invented counts, none taken from a fixture or a fleet. The labels are
+// written from sample bounds the way the dashboard writes them (U40).
 function sample(bounds: number[], counts: number[]): Band[] {
   const total = counts.reduce((sum, n) => sum + n, 0);
   return bounds.map((lower, i) => ({
@@ -14,7 +14,7 @@ function sample(bounds: number[], counts: number[]): Band[] {
   }));
 }
 
-const five = sample([0, 5, 8, 11, 14], [10, 4, 6, 5, 2]);
+const five = sample([0, 5, 8, 11, 14], [8, 6, 5, 3, 2]);
 
 // Seven, so the blend above five (U56) can be seen beside the five.
 const seven = sample([0, 3, 5, 7, 9, 11, 14], [9, 8, 7, 6, 5, 4, 3]);
@@ -41,10 +41,10 @@ export function ChartSamples() {
       <ProvenanceBar
         caption="How the sample value was valued"
         segments={[
-          { key: "actual", label: "actual", count: 3 },
-          { key: "audit", label: "audit", count: 9 },
-          { key: "estimated", label: "estimated", count: 5 },
-          { key: "unvalued", label: "not valued", count: 2 },
+          { key: "actual", label: "actual", count: 4 },
+          { key: "audit", label: "audit", count: 6 },
+          { key: "estimated", label: "estimated", count: 3 },
+          { key: "unvalued", label: "not valued", count: 1 },
         ]}
       />
     </div>

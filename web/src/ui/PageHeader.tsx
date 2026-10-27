@@ -24,7 +24,7 @@ function BackGlyph() {
   );
 }
 
-export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
+export interface PageHeaderProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   title: ReactNode;
   eyebrow?: ReactNode;
   // One sentence: what this page answers.
@@ -43,7 +43,9 @@ export function PageHeader({
   ...rest
 }: PageHeaderProps) {
   return (
-    <header className={cx("tr-pagehead", className)} {...rest}>
+    // A div, not a header element: inside a shell a header reads as a
+    // second banner beside the shell's own.
+    <div className={cx("tr-pagehead", className)} {...rest}>
       <div className="tr-pagehead__text">
         {back ? (
           <Link className="tr-pagehead__back" to={back.to}>
@@ -56,6 +58,6 @@ export function PageHeader({
         {description ? <p className="tr-pagehead__desc">{description}</p> : null}
       </div>
       {actions ? <div className="tr-pagehead__actions">{actions}</div> : null}
-    </header>
+    </div>
   );
 }

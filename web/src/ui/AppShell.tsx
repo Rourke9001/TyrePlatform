@@ -1,9 +1,15 @@
-import { useEffect, useId, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import { useId, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 import { NavLink } from "react-router";
 
 import { formatCount } from "../format/numbers";
 import { cx } from "./cx";
+import { useFocusTrap } from "./focusTrap";
+import { useMediaQuery } from "./useMediaQuery";
 import "./AppShell.css";
+
+// The width below which the side nav is a drawer; AppShell.css's @media
+// rule writes the same 1023px.
+const DRAWER_QUERY = "(max-width: 1023px)";
 
 // TODO(TYRE-447): move to src/ui/icons/ when lane A lands
 function MenuGlyph() {
@@ -80,20 +86,14 @@ export function AppShell({
 }: AppShellProps) {
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLButtonElement>(null);
+  const drawer = useRef<HTMLDivElement>(null);
   const drawerId = useId();
   const groupId = useId();
   const groups = nav.filter((g) => g.items.length > 0);
-
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      setOpen(false);
-      menu.current?.focus();
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open]);
+  // Open over a scrim, the drawer is modal: Tab stays in it, Escape closes
+  // it, and focus goes back to Menu. On a desk the side nav is no overlay.
+  const narrow = useMediaQuery(DRAWER_QUERY);
+  useFocusTrap(drawer, open && narrow, () => setOpen(false), menu);
 
   return (
     <div className={cx("tr-shell", className)} data-open={open ? "true" : undefined} {...rest}>
@@ -128,7 +128,7 @@ export function AppShell({
         {groups.length > 0 ? (
           <>
             {open ? <div className="tr-shell__scrim" onClick={() => setOpen(false)} /> : null}
-            <div className="tr-shell__side" id={drawerId}>
+            <div ref={drawer} className="tr-shell__side" id={drawerId} tabIndex={-1}>
               <nav aria-label="Main" className="tr-shell__nav">
                 {groups.map((group, gi) => {
                   const labelId = `${groupId}-${gi}`;

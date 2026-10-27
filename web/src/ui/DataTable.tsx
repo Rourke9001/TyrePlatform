@@ -1,4 +1,10 @@
-import { useId, type HTMLAttributes, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useId,
+  type HTMLAttributes,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import { cx } from "./cx";
 import { usePhone } from "./useMediaQuery";
@@ -62,6 +68,19 @@ export interface DataTableProps<T> extends HTMLAttributes<HTMLDivElement> {
 }
 
 const SKELETON_ROWS = [0, 1, 2, 3];
+
+const CONTROL = "a, button, input, select, textarea, label, summary, [role='button'], [tabindex]";
+
+// A link, button or field inside a clickable row keeps its own action, as
+// today's tyre rows' "Price it on its receipt" does (e2e/tyres.spec.ts):
+// the row opens only from its own cells.
+function fromControl(event: MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>): boolean {
+  if (!(event.target instanceof Element)) return false;
+  const control = event.target.closest(CONTROL);
+  return (
+    control !== null && control !== event.currentTarget && event.currentTarget.contains(control)
+  );
+}
 
 function cellData<T>(column: Column<T>) {
   return {
@@ -179,10 +198,13 @@ export function DataTable<T>({
     );
   }
 
-  const open = (row: T) => (event: KeyboardEvent<HTMLTableRowElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
+  const openOnKey = (row: T) => (event: KeyboardEvent<HTMLTableRowElement>) => {
+    if ((event.key !== "Enter" && event.key !== " ") || fromControl(event)) return;
     event.preventDefault();
     onRowClick?.(row);
+  };
+  const openOnClick = (row: T) => (event: MouseEvent<HTMLTableRowElement>) => {
+    if (!fromControl(event)) onRowClick?.(row);
   };
   return frame(
     <table className="tr-table" aria-busy={loading || undefined}>
@@ -221,8 +243,8 @@ export function DataTable<T>({
                   data-tone={rowTone?.(row)}
                   aria-current={selectedKey === key ? "true" : undefined}
                   tabIndex={onRowClick ? 0 : undefined}
-                  onClick={onRowClick ? () => onRowClick(row) : undefined}
-                  onKeyDown={onRowClick ? open(row) : undefined}
+                  onClick={onRowClick ? openOnClick(row) : undefined}
+                  onKeyDown={onRowClick ? openOnKey(row) : undefined}
                 >
                   {columns.map((c, i) => (
                     <td key={c.key} {...cellData(c)}>

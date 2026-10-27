@@ -1,6 +1,6 @@
-/* Tread's confirmation dialog (ADR-0020). Colours, spacing and type are
-   tokens from src/theme/tokens.ts; tokens.ts has no motion scale yet, so
-   the 200ms duration and its curve are written here. */
+/* Tread's confirmation dialog (ADR-0020). Every colour is a token from
+   src/theme/tokens.ts; tokens.ts has no motion scale yet, so the 200ms
+   duration and its curve are written here. */
 
 .tr-dialog__scrim {
   position: fixed;
@@ -31,15 +31,20 @@
   }
 }
 
+/* Never taller than the viewport: the body scrolls first, and the panel
+   itself if the rest is still too tall. */
 .tr-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
   width: min(440px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
   padding: var(--space-6);
   border-radius: var(--radius-lg);
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-overlay);
-  display: grid;
-  gap: var(--space-3);
   animation: tr-dialog-rise 200ms cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -50,6 +55,8 @@
 }
 
 .tr-dialog__icon {
+  flex: none;
+  align-self: flex-start;
   display: grid;
   place-items: center;
   width: var(--target-min);
@@ -66,13 +73,22 @@
   font-weight: 800;
 }
 
-.tr-dialog__desc,
+.tr-dialog__desc {
+  flex: none;
+  margin: 0;
+  color: var(--ink-secondary);
+}
+
 .tr-dialog__body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   margin: 0;
   color: var(--ink-secondary);
 }
 
 .tr-dialog__actions {
+  flex: none;
   display: flex;
   flex-wrap: wrap-reverse;
   justify-content: flex-end;
