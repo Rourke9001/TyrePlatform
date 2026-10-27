@@ -3,6 +3,7 @@ import { type FormEvent, useState } from "react";
 import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { setUnitStatus, type Unit } from "../../api/units";
+import { Card } from "../../ui/Card";
 import { useFormMutation } from "../useFormMutation";
 import { unitKey, vehiclesKey } from "./queryKeys";
 import { UNIT_STATUSES } from "./vocabulary";
@@ -40,8 +41,7 @@ export function UnitStatusForm({ unit }: { unit: Unit }) {
   }
 
   return (
-    <section className="unit-status" aria-labelledby="unit-status-heading">
-      <h2 id="unit-status-heading">Status</h2>
+    <Card className="unit-status" title="Status" padding="md">
       <form className="tyres-row-form" onSubmit={submit}>
         <label htmlFor={`unit-status-${unit.id}`}>Status</label>
         <select
@@ -75,6 +75,6 @@ export function UnitStatusForm({ unit }: { unit: Unit }) {
 
       {change.isSuccess && <p role="status">The status was changed.</p>}
       {change.error !== null && <p role="alert">{refusalMessage(change.error, STATUS_WORDING)}</p>}
-    </section>
+    </Card>
   );
 }
