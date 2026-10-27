@@ -55,12 +55,20 @@ export function tripSummary(unit: Unit, state: UnitTrip): string {
 }
 
 // BR-VEH-001, plan view nose up: the left side from the outside in, then the
-// right from the inside out. AxleDiagram draws an axle's first half left of
-// the beam, so this order is what puts each tyre on its own side. Side and
-// slot are the wire's (unitPositionJSON); nothing here derives them.
+// right from the inside out, the order AxleDiagram draws each side in. Side
+// and slot are the wire's (unitPositionJSON); nothing here derives them.
 function acrossVehicle(position: UnitPosition): number {
   const depth = position.slot === "OUTER" ? 2 : 1;
   return position.side === "RIGHT" ? depth : -depth;
+}
+
+// app.side is LEFT or RIGHT, and null on a spare (000001). Anything else is
+// left unset, so AxleDiagram splits that axle by count rather than by a
+// side nobody sent.
+function sideOf(position: UnitPosition): DiagramPosition["side"] {
+  if (position.side === "LEFT") return "left";
+  if (position.side === "RIGHT") return "right";
+  return undefined;
 }
 
 function tile(position: UnitPosition): DiagramPosition {
@@ -73,11 +81,14 @@ function tile(position: UnitPosition): DiagramPosition {
     valueText: occupant,
     ariaLabel: `Position ${position.code}: ${occupant}`,
     dataPositionId: position.id,
+    side: sideOf(position),
   };
 }
 
 // Axles ascending, whatever the read happened to contain: a unit with axles
-// 1 and 3 still draws two axles, not a gap where axle 2 is not.
+// 1 and 3 still draws two axles, not a gap where axle 2 is not. Each axle and
+// the spares are named groups, which is how fitments.spec.ts tells a mounted
+// position from a spare.
 export function diagramUnit(unit: Unit): DiagramUnit {
   const mounted = unit.positions.filter((p) => !p.isSpare);
   const axleNumbers = [...new Set(mounted.map((p) => p.axleNumber ?? 0))].sort((a, b) => a - b);
@@ -86,11 +97,13 @@ export function diagramUnit(unit: Unit): DiagramUnit {
     unitHeading: unit.fleetNumber,
     axles: axleNumbers.map((axleNumber) => ({
       id: `axle-${axleNumber}`,
+      ariaLabel: `Axle ${axleNumber}`,
       positions: mounted
         .filter((p) => (p.axleNumber ?? 0) === axleNumber)
         .sort((a, b) => acrossVehicle(a) - acrossVehicle(b) || a.sequence - b.sequence)
         .map(tile),
     })),
     spares: unit.positions.filter((p) => p.isSpare).map(tile),
+    sparesAriaLabel: "Spares",
   };
 }

@@ -87,62 +87,11 @@
   border-bottom: 0;
 }
 
-/* The plan view. currentColor throughout so a position's outline follows the
-   surrounding text colour: occupancy and selection are stated in words and in
-   stroke weight, never in a hue on its own (NFR-USE-009). */
+/* AxleDiagram fills the card; this only stops a tile growing past a size
+   that still reads as a tyre on a wide single column. */
 .unit-plan {
-  display: block;
-  max-width: 100%;
-  height: auto;
-  color: var(--ink-muted);
-}
-
-.unit-plan-chassis,
-.unit-plan-beam {
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.unit-plan-pos rect {
-  fill: var(--surface);
-  stroke: currentColor;
-  stroke-width: 1.5;
-}
-
-.unit-plan-pos:focus-visible rect,
-.unit-plan-pos--selected rect {
-  stroke: var(--ink);
-  stroke-width: 3;
-}
-
-.unit-plan-pos {
-  cursor: pointer;
-}
-
-.unit-plan-code,
-.unit-plan-occupant {
-  text-anchor: middle;
-  fill: var(--ink);
-}
-
-/* Not type tokens, deliberately: font-size inside an SVG is measured in
-   viewBox user-space units, which the drawing's own geometry sets, not CSS
-   pixels (web/CLAUDE.md's tokens rule, TYRE-27). */
-.unit-plan-code {
-  font-family: var(--font-mono);
-  font-size: 8px;
-  font-weight: 600;
-}
-
-.unit-plan-occupant {
-  font-family: var(--font-sans);
-  font-size: 7px;
-  fill: var(--ink-muted);
-}
-
-.unit-plan-card {
-  display: grid;
-  justify-items: center;
+  max-width: 30rem;
+  margin-inline: auto;
 }
 
 .unit-panel-empty {
