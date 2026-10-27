@@ -1,9 +1,15 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { fetchDashboard, fetchSpares, type DashboardParams } from "../api/dashboard";
+import {
+  fetchDashboard,
+  fetchExceptions,
+  fetchSpares,
+  type DashboardParams,
+  type ExceptionsParams,
+} from "../api/dashboard";
 import { getDevTenantId } from "../api/devTenant";
 import { fetchDepots } from "../api/units";
-import { dashboardKey, depotsKey, sparesKey } from "../fleet/unit/queryKeys";
+import { dashboardKey, depotsKey, exceptionsKey, sparesKey } from "../fleet/unit/queryKeys";
 
 // The queries the overview, exceptions and at-risk pages read through
 // (ADR-0022). Each key, staleness and retry is the page's own contract with
@@ -54,4 +60,26 @@ export function useSpares(depot?: string) {
 
 export function useDepots() {
   return useQuery({ queryKey: depotsKey(tenantKey()), queryFn: () => fetchDepots() });
+}
+
+// A depot view names its depot; the depots query shares the dashboard's
+// cache entry, and runs only when there is a depot to name.
+export function useDepotName(depot: string | undefined): string | undefined {
+  const depots = useQuery({
+    queryKey: depotsKey(tenantKey()),
+    queryFn: () => fetchDepots(),
+    enabled: depot !== undefined,
+  });
+  return depots.data?.find((d) => d.id === depot)?.name;
+}
+
+// U18: judged as inspected, refetched by its own Refresh (FR-DSH-013).
+export function useExceptions(params: ExceptionsParams) {
+  return useQuery({
+    queryKey: exceptionsKey(tenantKey(), params),
+    queryFn: () => fetchExceptions(params),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    retry: 0,
+  });
 }
