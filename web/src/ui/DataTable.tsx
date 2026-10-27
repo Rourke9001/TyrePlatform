@@ -8,28 +8,9 @@ import {
 
 import { cx } from "./cx";
 import { usePhone } from "./useMediaQuery";
+import { Icon } from "./Icon";
+import { ChevronRightIcon } from "./icons/ChevronRight";
 import "./DataTable.css";
-
-// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
-function ChevronGlyph({ className }: { className: string }) {
-  return (
-    <svg
-      className={className}
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
 
 export interface Column<T> {
   key: string;
@@ -189,7 +170,9 @@ export function DataTable<T>({
                         </div>
                       ))}
                     </dl>
-                    {onRowClick ? <ChevronGlyph className="tr-tcards__chev" /> : null}
+                    {onRowClick ? (
+                      <Icon icon={ChevronRightIcon} size={18} className="tr-tcards__chev" />
+                    ) : null}
                   </li>
                 );
               })}
@@ -250,7 +233,7 @@ export function DataTable<T>({
                     <td key={c.key} {...cellData(c)}>
                       {c.render(row)}
                       {onRowClick && i === columns.length - 1 ? (
-                        <ChevronGlyph className="tr-table__chev" />
+                        <Icon icon={ChevronRightIcon} size={18} className="tr-table__chev" />
                       ) : null}
                     </td>
                   ))}

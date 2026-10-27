@@ -5,31 +5,13 @@ import { formatCount } from "../format/numbers";
 import { cx } from "./cx";
 import { useFocusTrap } from "./focusTrap";
 import { useMediaQuery } from "./useMediaQuery";
+import { Icon } from "./Icon";
+import { MenuIcon } from "./icons/Menu";
 import "./AppShell.css";
 
 // The width below which the side nav is a drawer; AppShell.css's @media
 // rule writes the same 1023px.
 const DRAWER_QUERY = "(max-width: 1023px)";
-
-// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
-function MenuGlyph() {
-  return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M4 6.5h16M4 12h16M4 17.5h16" />
-    </svg>
-  );
-}
 
 export interface NavItem {
   label: string;
@@ -108,7 +90,7 @@ export function AppShell({
             aria-controls={drawerId}
             onClick={() => setOpen((was) => !was)}
           >
-            <MenuGlyph />
+            <Icon icon={MenuIcon} size={24} />
           </button>
         ) : null}
         {brand || scope ? (

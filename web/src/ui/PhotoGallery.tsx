@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
 
 import { cx } from "./cx";
+import { useFocusTrap } from "./focusTrap";
 import { Icon } from "./Icon";
 import { ChevronLeftIcon } from "./icons/ChevronLeft";
 import { ChevronRightIcon } from "./icons/ChevronRight";
@@ -33,13 +34,22 @@ export function PhotoGallery({
   const opener = useRef<HTMLButtonElement | null>(null);
   const count = photos.length;
 
+  const viewer = useRef<HTMLDivElement | null>(null);
+  const closeButton = useRef<HTMLButtonElement | null>(null);
+  // The trap owns Escape, Tab and the focus return to the thumbnail.
+  const isOpen = open !== null;
+  useFocusTrap(viewer, isOpen, () => setOpen(null), opener);
+
+  // The trap puts focus on the panel as it opens; Close is where a
+  // keyboard user starts, and this effect runs after the trap's.
+  useEffect(() => {
+    if (isOpen) closeButton.current?.focus();
+  }, [isOpen]);
+
   useEffect(() => {
     if (open === null) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(null);
-        opener.current?.focus();
-      } else if (e.key === "ArrowRight") {
+      if (e.key === "ArrowRight") {
         setOpen((i) => (i === null ? i : (i + 1) % count));
       } else if (e.key === "ArrowLeft") {
         setOpen((i) => (i === null ? i : (i - 1 + count) % count));
@@ -57,10 +67,7 @@ export function PhotoGallery({
     );
   }
 
-  const close = () => {
-    setOpen(null);
-    opener.current?.focus();
-  };
+  const close = () => setOpen(null);
   const step = (by: number) => setOpen((i) => (i === null ? i : (i + by + count) % count));
   const current = open === null ? null : photos[open];
 
@@ -86,8 +93,9 @@ export function PhotoGallery({
         ))}
       </ul>
       {current ? (
-        // TODO(TYRE-447): trap Tab inside the viewer with lane B's focusTrap.ts when it lands.
         <div
+          ref={viewer}
+          tabIndex={-1}
           className="tr-viewer"
           role="dialog"
           aria-modal="true"
@@ -128,7 +136,7 @@ export function PhotoGallery({
                 className="tr-viewer__btn"
                 aria-label="Close"
                 onClick={close}
-                autoFocus
+                ref={closeButton}
               >
                 <Icon icon={CloseIcon} />
               </button>
