@@ -160,4 +160,67 @@ describe("AxleDiagram", () => {
       within(container).getByRole("img", { name: "Position 1, BAC039SP" }),
     ).toBeInTheDocument();
   });
+
+  it("names an axle and the spares as groups only when given a label", () => {
+    const units: DiagramUnit[] = [
+      {
+        ...rig[0],
+        sparesAriaLabel: "Spares",
+        axles: [
+          { ...axle("BAC039SP", "a1", [1, 2]), ariaLabel: "Axle 1" },
+          axle("BAC039SP", "a2", [3, 4]),
+        ],
+      },
+    ];
+    render(<AxleDiagram units={units} />);
+    const named = screen.getByRole("group", { name: "Axle 1" });
+    expect(within(named).getAllByRole("img")).toHaveLength(2);
+    const spares = screen.getByRole("group", { name: "Spares" });
+    expect(within(spares).getAllByRole("img")).toHaveLength(1);
+    expect(screen.getAllByRole("group")).toHaveLength(2);
+  });
+
+  it("gives no spares group without a label", () => {
+    render(<AxleDiagram units={rig.slice(0, 1)} />);
+    expect(screen.queryAllByRole("group")).toHaveLength(0);
+  });
+
+  // U146: an uneven axle drew its middle tyre on the wrong side.
+  it("splits an axle by each position's side when all carry one", () => {
+    const sided = (n: number, side: "left" | "right"): DiagramPosition => ({
+      ...pos("U", n),
+      side,
+    });
+    const units: DiagramUnit[] = [
+      {
+        id: "u",
+        unitHeading: "U",
+        axles: [{ id: "a", positions: [sided(1, "left"), sided(2, "right"), sided(3, "right")] }],
+      },
+    ];
+    const { container } = render(<AxleDiagram units={units} />);
+    const ids = (sel: string) =>
+      Array.from(container.querySelectorAll(`${sel} [data-position-id]`)).map((t) =>
+        t.getAttribute("data-position-id"),
+      );
+    expect(ids(".tr-axle__side--left")).toEqual(["U-p1"]);
+    expect(ids(".tr-axle__side--right")).toEqual(["U-p2", "U-p3"]);
+  });
+
+  it("keeps the count split when any position lacks a side", () => {
+    const units: DiagramUnit[] = [
+      {
+        id: "u",
+        unitHeading: "U",
+        axles: [
+          {
+            id: "a",
+            positions: [{ ...pos("U", 1), side: "right" }, pos("U", 2), pos("U", 3)],
+          },
+        ],
+      },
+    ];
+    const { container } = render(<AxleDiagram units={units} />);
+    expect(container.querySelectorAll(".tr-axle__side--left [data-position-id]")).toHaveLength(2);
+  });
 });
