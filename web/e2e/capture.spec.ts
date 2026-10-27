@@ -105,7 +105,11 @@ test("an inspection survives a browser restart mid-capture", async ({ page, requ
   // The readings themselves, not just the count: a resumed inspection that kept
   // its progress bar and lost its numbers would pass a weaker check.
   await page.locator("[data-position-id]").first().click();
-  await expect(page.getByLabel(/Tread reading 1 of 3/)).toContainText("13");
+  // The value alone, exactly: the cell also reads its number and unit, so
+  // a substring match would pass for a 3 or a 30 to 39.
+  await expect(
+    page.getByLabel(/Tread reading 1 of 3/).getByText("13", { exact: true }),
+  ).toBeVisible();
 });
 
 test("a rig walks as one sequence and attributes every reading to its own unit", async ({

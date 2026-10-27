@@ -19,17 +19,14 @@ const sources = import.meta.glob<string>(
 // 4.5:1 on the brand (TYRE-27). After wave 0 a lane that needs another
 // entry asks the orchestrator (TYRE-443).
 const BRAND_ALLOWED = new Set([
-  // Screens not yet on Tread: filled buttons and capture's go key.
+  // Screens not yet on Tread: filled buttons and capture's two anchors.
   ".btn-primary",
   ".btn-primary:hover",
   ".btn-primary:active",
   '.btn-primary:hover:not(:disabled, [aria-disabled="true"])',
   '.btn-primary:active:not(:disabled, [aria-disabled="true"])',
-  ".cap-key--go",
-  ".cap-key--go:active",
   ".cap-primary",
   ".cap-primary:active",
-  ".cap-check",
   // Tread's chrome, as its component source writes it: the logo tile, the
   // primary button, an icon button on the brand band, the keypad's go key,
   // the active nav marker, and the driver and phone app bars.
