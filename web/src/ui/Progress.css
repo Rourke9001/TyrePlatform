@@ -1,6 +1,6 @@
-/* Tread's segmented progress bar (ADR-0020). Every colour and size is a
-   token from src/theme/tokens.ts; tokens.ts has no motion scale yet, so
-   the fill's 200ms and its curve are written here. */
+/* Tread's segmented progress bar (ADR-0020). Every colour is a token from
+   src/theme/tokens.ts; tokens.ts has no motion scale yet, so the fill's
+   200ms and its curve are written here. */
 
 .tr-progress {
   display: grid;

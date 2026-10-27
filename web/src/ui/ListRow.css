@@ -1,4 +1,4 @@
-/* Tread's list row (ADR-0020). Every colour and size is a token from
+/* Tread's list row (ADR-0020). Every colour is a token from
    src/theme/tokens.ts. A row is a glove target (NFR-USE-004). */
 
 .tr-list {

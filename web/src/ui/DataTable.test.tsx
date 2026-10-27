@@ -1,9 +1,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { Link, MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { forceMatchMedia } from "../test/media";
 import { DataTable, type Column } from "./DataTable";
+import tableCss from "./DataTable.css?raw";
 
 interface Row {
   id: string;
@@ -24,6 +26,47 @@ const rows: Row[] = [
 ];
 
 const base = { caption: "Tyres at risk", columns, rowKey: (r: Row) => r.id };
+
+// A cell with its own link and button, as today's tyre rows carry "Price
+// it on its receipt" (e2e/tyres.spec.ts:46).
+function withControls(onHold: (id: string) => void): Column<Row>[] {
+  return [
+    ...columns,
+    {
+      key: "act",
+      header: "Action",
+      render: (r) => (
+        <>
+          <Link to={`/receipts/${r.id}`}>Price it on its receipt</Link>
+          <button type="button" onClick={() => onHold(r.id)}>
+            Hold {r.unit}
+          </button>
+        </>
+      ),
+    },
+  ];
+}
+
+function renderClickable(onRowClick: (row: Row) => void, onHold: (id: string) => void) {
+  return render(
+    <MemoryRouter>
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <DataTable
+              {...base}
+              columns={withControls(onHold)}
+              rows={rows}
+              onRowClick={onRowClick}
+            />
+          }
+        />
+        <Route path="/receipts/:id" element={<p>Receipt page</p>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
 
 describe("DataTable", () => {
   it("DataTable renders a table at desktop and cards below 640px", () => {
@@ -96,6 +139,40 @@ describe("DataTable", () => {
     expect(onRowClick).toHaveBeenCalledTimes(3);
   });
 
+  it("leaves a button inside a clickable row to its own action, on click, Space and Enter", async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    const onHold = vi.fn();
+    renderClickable(onRowClick, onHold);
+    const hold = screen.getByRole("button", { name: "Hold TRK-01" });
+    await user.click(hold);
+    hold.focus();
+    await user.keyboard(" ");
+    await user.keyboard("{Enter}");
+    expect(onHold).toHaveBeenCalledTimes(3);
+    expect(onHold).toHaveBeenLastCalledWith("t1");
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("leaves a link inside a clickable row to open itself on click", async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    renderClickable(onRowClick, vi.fn());
+    await user.click(screen.getAllByRole("link", { name: "Price it on its receipt" })[0]);
+    expect(await screen.findByText("Receipt page")).toBeInTheDocument();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
+  it("leaves a link inside a clickable row to open itself on Enter", async () => {
+    const user = userEvent.setup();
+    const onRowClick = vi.fn();
+    renderClickable(onRowClick, vi.fn());
+    screen.getAllByRole("link", { name: "Price it on its receipt" })[1].focus();
+    await user.keyboard("{Enter}");
+    expect(await screen.findByText("Receipt page")).toBeInTheDocument();
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+
   it("opens a row from its card title on a phone", async () => {
     const restore = forceMatchMedia(true);
     try {
@@ -140,6 +217,26 @@ describe("DataTable", () => {
       expect(list).toHaveAttribute("aria-busy", "true");
       expect(within(list).getAllByRole("listitem")).toHaveLength(4);
       expect(screen.getByRole("status")).toHaveTextContent("Loading Tyres at risk");
+    });
+
+    it("leaves a link or button in a card's terms to its own action", async () => {
+      const user = userEvent.setup();
+      const onRowClick = vi.fn();
+      const onHold = vi.fn();
+      renderClickable(onRowClick, onHold);
+      await user.click(screen.getByRole("button", { name: "Hold TRL-02" }));
+      expect(onHold).toHaveBeenCalledWith("t2");
+      await user.click(screen.getAllByRole("link", { name: "Price it on its receipt" })[0]);
+      expect(await screen.findByText("Receipt page")).toBeInTheDocument();
+      expect(onRowClick).not.toHaveBeenCalled();
+    });
+
+    // jsdom lays nothing out, so the card's tap target is read from the
+    // source: the title's target covers the title row, never the terms
+    // under it, where a cell's own control sits.
+    it("keeps the title's tap target off the card's terms", () => {
+      expect(tableCss).not.toMatch(/\.tr-tcards__hit::after/);
+      expect(tableCss).toMatch(/\.tr-tcards__hit \{[^}]*min-height: var\(--target-min\);/);
     });
 
     it("shows the caption over the cards when asked to", () => {

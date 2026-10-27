@@ -16,7 +16,9 @@ describe("PageHeader", () => {
       />,
     );
     const heading = screen.getByRole("heading", { level: 1, name: "Exceptions" });
-    const header = heading.closest("header");
+    // Inside a shell, a header element would read as a second banner.
+    expect(screen.queryByRole("banner")).toBeNull();
+    const header = heading.closest(".tr-pagehead");
     expect(header).toHaveAttribute("data-requirement", "FR-EXC-001");
     expect(header).toHaveTextContent("Fleet");
     expect(header).toHaveTextContent("judged at each unit's latest inspection");

@@ -1,5 +1,5 @@
-/* Tread's tabs (ADR-0020). Every colour and size is a
-   token from src/theme/tokens.ts. */
+/* Tread's tabs (ADR-0020). Every colour is a token from
+   src/theme/tokens.ts. */
 
 .tr-tabs {
   display: flex;

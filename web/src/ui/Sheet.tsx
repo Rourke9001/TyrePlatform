@@ -37,6 +37,9 @@ interface SheetOwnProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   side?: "bottom" | "right";
   // Controls in the head, before Close.
   actions?: ReactNode;
+  // A control after Close, last in the head's tab order, where today's
+  // spare sheet keeps "No spare" (TYRE-155).
+  trailing?: ReactNode;
   footer?: ReactNode;
   titleAs?: "h2" | "h3" | "p";
   closeLabel?: string;
@@ -70,6 +73,7 @@ export function Sheet({
   description,
   side = "bottom",
   actions,
+  trailing,
   footer,
   titleAs: Title = "h2",
   closeLabel = "Close",
@@ -108,6 +112,7 @@ export function Sheet({
             <CloseGlyph />
           </button>
         ) : null}
+        {trailing}
       </div>
       <div className="tr-sheet__body">{children}</div>
       {footer ? <div className="tr-sheet__foot">{footer}</div> : null}

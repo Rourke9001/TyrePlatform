@@ -1,5 +1,5 @@
-/* Tread's table and its phone cards (ADR-0020). Every colour and size is a
-   token from src/theme/tokens.ts. */
+/* Tread's table and its phone cards (ADR-0020). Every colour is a token
+   from src/theme/tokens.ts. */
 
 /* A table wider than its box scrolls inside it, as today's tables do,
    rather than widening the page. */
@@ -149,9 +149,14 @@
   font-weight: 700;
 }
 
-/* The title is the card's one control; its ::after stretches the target
-   over the whole card, so the card stays a list item with a term list. */
+/* The title is the card's own control, as wide as the card and the 44px
+   floor tall (NFR-USE-004). It covers no term, so a control in a cell
+   keeps its own tap. */
 .tr-tcards__hit {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: var(--target-min);
   padding: 0;
   border: 0;
   background: transparent;
@@ -159,12 +164,6 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-.tr-tcards__hit::after {
-  content: "";
-  position: absolute;
-  inset: 0;
 }
 
 .tr-tcards__chev {

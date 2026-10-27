@@ -1,4 +1,4 @@
-import { useId, useRef, type HTMLAttributes, type ReactNode } from "react";
+import { Children, useId, useRef, type HTMLAttributes, type ReactNode } from "react";
 
 import { cx } from "./cx";
 import { useFocusTrap } from "./focusTrap";
@@ -60,7 +60,11 @@ export function Dialog({
   const describedId = useId();
   useFocusTrap(panel, open, onClose);
   if (!open) return null;
-  const described = description !== undefined || children !== undefined;
+  // false, null and undefined render nothing, so they draw no element and
+  // describe nothing.
+  const hasDescription = Children.toArray(description).length > 0;
+  const hasBody = Children.toArray(children).length > 0;
+  const described = hasDescription || hasBody;
   return (
     <div className={cx("tr-dialog__scrim", inline && "tr-dialog__scrim--inline")}>
       <div
@@ -81,13 +85,13 @@ export function Dialog({
         <h2 className="tr-dialog__title" id={titleId}>
           {title}
         </h2>
-        {description !== undefined ? (
+        {hasDescription ? (
           <p className="tr-dialog__desc" id={describedId}>
             {description}
           </p>
         ) : null}
-        {children !== undefined ? (
-          <div className="tr-dialog__body" id={description === undefined ? describedId : undefined}>
+        {hasBody ? (
+          <div className="tr-dialog__body" id={hasDescription ? undefined : describedId}>
             {children}
           </div>
         ) : null}

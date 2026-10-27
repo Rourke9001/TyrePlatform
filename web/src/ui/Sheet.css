@@ -1,4 +1,4 @@
-/* Tread's sheet (ADR-0020). Colours, spacing and type are tokens from
+/* Tread's sheet (ADR-0020). Every colour is a token from
    src/theme/tokens.ts; tokens.ts has no motion scale yet, so the 200ms
    duration and its curve are written here. */
 
