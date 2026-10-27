@@ -109,6 +109,23 @@ describe("CaptureDiagram", () => {
     expect(getByLabelText(/Position 4, BAC039SP, Not done/)).toBeTruthy();
   });
 
+  // AxleDiagram splits an axle by side only when every tile has one. The
+  // sides here would put p1 and p2 left under a count split, so seeing p2
+  // and p3 left proves the wire's side was passed.
+  it("draws each tile on its wire side, and falls back to the count split without sides", () => {
+    const withSides = (sides: CapturePosition["side"][]) =>
+      rigPositions.map((r, i) => ({ ...r, position: { ...r.position, side: sides[i] } }));
+    const leftIds = (positions: RigPosition[]) => {
+      const { container } = render(<CaptureDiagram {...props} positions={positions} />);
+      return [
+        ...container.querySelectorAll<HTMLElement>(".tr-axle__side--left [data-position-id]"),
+      ].map((el) => el.dataset.positionId);
+    };
+
+    expect(leftIds(withSides(["RIGHT", "LEFT", "LEFT", "RIGHT"]))).toEqual(["p2", "p3"]);
+    expect(leftIds(withSides([null, null, null, null]))).toEqual(["p1", "p2"]);
+  });
+
   // TYRE-155: an absent cell is settled, not unmeasured. The severity was
   // computed off nothing entered, so "Not done" would contradict the "done"
   // the header and tally already count it as.
