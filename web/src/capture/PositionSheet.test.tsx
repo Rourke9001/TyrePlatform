@@ -279,6 +279,61 @@ describe("PositionSheet", () => {
     expect(within(screen.getByLabelText("Tread reading 2 of 3")).getByText("12.5")).toBeVisible();
   });
 
+  // FR-OFF-005: the half a reach-back adds is written to the draft like any
+  // keystroke, or a restart would lose it.
+  it("at 0.5 mm, saves the half a reach-back adds", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet {...props({ onChange })} rig={{ ...rig, context: halves }} ctx={halves} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "½" }));
+
+    expect(onChange.mock.lastCall?.[0].treads).toEqual([13.5, null, null]);
+  });
+
+  // FR-INS-030: a half at the 35mm ceiling changes nothing, and the hold
+  // 35 armed still moves the keypad on exactly once.
+  it("at 0.5 mm, a half at 35 inside the hold leaves 35 and advances once", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("button", { name: "5" }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("35")).toBeVisible();
+    expect(screen.getByLabelText("Tread reading 2 of 3")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
+  // U146: 3mm never settles, so the driver moves on with the go key, and a
+  // half straight after still reaches back without skipping a cell.
+  it("at 0.5 mm, a half after the go key reaches back and nothing skips", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("button", { name: /next ›/i }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("3.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(second).toHaveAttribute("data-empty", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
   // FR-INS-029a: the driver never sees the words inner, outer or centre. The
   // prototype's Outer/Centre/Inner labels are not carried over (decision D-A).
   // Swept with the one shared list (test/spoken.ts), which carries CR-010's
