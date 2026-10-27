@@ -196,6 +196,7 @@
 
 /* The rendered legend sits in the fieldset's border area, outside the
    flex gap, so its own padding spaces it from the edge and the first line. */
+/* Card's own title size (ui/Card.css); the type scale has no 20px step. */
 .cap-card-title {
   padding: var(--space-4) 0 var(--space-3);
   font-size: 20px;
@@ -234,6 +235,8 @@
   font-weight: 400;
 }
 
+/* TextInput's affix size (ui/TextInput.css); the scale has no 15px sans
+   step. */
 .cap-odo-unit {
   font-family: var(--font-sans);
   font-size: 15px;
@@ -277,10 +280,12 @@
   margin-top: 2px;
 }
 
-/* A plain anchor in a glove button's look (NFR-USE-004). These two leave
-   capture by a full page load, so a held outbox flushes on app-open
-   (FR-OFF-009), and BackToWork renders without a Router; Tread's Button
-   links are router Links, so they cannot be one. */
+/* A glove button's look (NFR-USE-004) for capture's two plain anchors,
+   "Go to it" and "My inspections". Both leave by a full page load, so a
+   held outbox flushes on app-open (FR-OFF-009), and BackToWork renders
+   without a Router; Tread's Button links are router Links, so they cannot
+   be one. OutboxIndicator's Sync now also carries .cap-secondary, and
+   outbox.css's rule scoped to the band sets its own look over this one. */
 .cap-primary,
 .cap-secondary {
   display: flex;
@@ -291,7 +296,6 @@
   border: 2px solid transparent;
   border-radius: var(--radius-md);
   font-size: var(--type-body-lg-size);
-  line-height: 20px;
   font-weight: 700;
   text-decoration: none;
   -webkit-tap-highlight-color: transparent;

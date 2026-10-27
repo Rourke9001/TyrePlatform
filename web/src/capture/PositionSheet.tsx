@@ -285,9 +285,7 @@ export function PositionSheet({
             if (k.type === "next" && complete) finish();
             else press(k);
           }}
-          // U145: no decimal key. At 0.5mm the half key takes Delete's slot,
-          // since a fourth key row would push go off a small screen; the
-          // driver retypes over a mistake instead.
+          // U145: the half key's slot is ui/Keypad.tsx's rule.
           altKey={ctx.config.treadGranularityMm === 0.5 ? "half" : "delete"}
           goLabel={held ? "Seen it ›" : complete ? "Done ›" : "Next ›"}
           goTone={held ? "warn" : "primary"}
