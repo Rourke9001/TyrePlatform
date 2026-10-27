@@ -118,6 +118,9 @@ export const shadow: Record<ThemeName, { raised: string; overlay: string; sheet:
   },
 };
 
+// The artifact's motion values; components name these, never the literals.
+const motion = { fast: "120ms", medium: "200ms", ease: "cubic-bezier(0.2, 0, 0, 1)" };
+
 // NFR-USE-004: 44px floors every control, 56px is every driver-route
 // control for gloves, 64px the keypad.
 export const tread = {
@@ -215,6 +218,7 @@ function scaleVars(): [string, string][] {
   const out: [string, string][] = [];
   for (const [step, value] of Object.entries(tread.space)) out.push([`space-${step}`, value]);
   for (const [name, value] of Object.entries(tread.radius)) out.push([`radius-${name}`, value]);
+  for (const [name, value] of Object.entries(motion)) out.push([`motion-${name}`, value]);
   for (const [name, value] of Object.entries(tread.size)) out.push([name, value]);
   out.push(["font-sans", treadFont.sans], ["font-mono", treadFont.mono]);
   for (const [style, spec] of Object.entries(treadType)) {

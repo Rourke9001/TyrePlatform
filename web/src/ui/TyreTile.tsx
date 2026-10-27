@@ -1,11 +1,14 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import type { HTMLAttributes } from "react";
 
+import type { Condition } from "./condition";
 import { cx } from "./cx";
+import { Icon, type IconGlyph } from "./Icon";
+import { AlertIcon } from "./icons/Alert";
+import { CheckIcon } from "./icons/Check";
+import { CriticalIcon } from "./icons/Critical";
+import { MinusIcon } from "./icons/Minus";
+import { UnreadIcon } from "./icons/Unread";
 import "./TyreTile.css";
-
-// A tyre's state against the tenant's configured thresholds. The caller
-// decides it; this only draws it (rule 5).
-export type Condition = "ok" | "near" | "limit" | "unread" | "nospare";
 
 const TONE: Record<Condition, string> = {
   ok: "ok",
@@ -15,45 +18,13 @@ const TONE: Record<Condition, string> = {
   nospare: "neutral",
 };
 
-// TODO(TYRE-447): these glyphs move to src/ui/icons/ when lane A's icon modules land.
-const GLYPH: Record<Condition, ReactNode> = {
-  ok: <path d="M5 12.5l4.5 4.5L19 7.5" />,
-  near: (
-    <>
-      <path d="M10.3 4.4L2.6 18a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.4a2 2 0 0 0-3.4 0z" />
-      <path d="M12 9.5v4.5" />
-      <path d="M12 17.5h.01" />
-    </>
-  ),
-  limit: (
-    <>
-      <path d="M8.2 2.5h7.6l5.7 5.7v7.6l-5.7 5.7H8.2l-5.7-5.7V8.2z" />
-      <path d="M12 7.5v5.5" />
-      <path d="M12 16.5h.01" />
-    </>
-  ),
-  unread: <circle cx="12" cy="12" r="8" strokeDasharray="3.2 3" />,
-  nospare: <path d="M6 12h12" />,
+const GLYPH: Record<Condition, IconGlyph> = {
+  ok: CheckIcon,
+  near: AlertIcon,
+  limit: CriticalIcon,
+  unread: UnreadIcon,
+  nospare: MinusIcon,
 };
-
-function ConditionGlyph({ condition }: { condition: Condition }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="16"
-      height="16"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      {GLYPH[condition]}
-    </svg>
-  );
-}
 
 export interface TyreTileProps extends Omit<HTMLAttributes<HTMLElement>, "children" | "onClick"> {
   // The position's number as the caller shows it: capture's rig-wide number
@@ -98,7 +69,7 @@ export function TyreTile({
     <>
       <span className="tr-tile__top" aria-hidden={hidden}>
         <span>{numberText}</span>
-        {condition && !empty ? <ConditionGlyph condition={condition} /> : null}
+        {condition && !empty ? <Icon icon={GLYPH[condition]} size={16} /> : null}
       </span>
       {valueText ? (
         <span className="tr-tile__val" aria-hidden={hidden}>

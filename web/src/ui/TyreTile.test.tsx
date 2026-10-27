@@ -3,7 +3,8 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { expectNothingForbiddenSpoken } from "../test/spoken";
-import { TyreTile, type Condition } from "./TyreTile";
+import type { Condition } from "./condition";
+import { TyreTile } from "./TyreTile";
 
 const CONDITIONS: Condition[] = ["ok", "near", "limit", "unread", "nospare"];
 

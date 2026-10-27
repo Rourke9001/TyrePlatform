@@ -46,6 +46,7 @@ const BRAND_ALLOWED = new Set([
   ".tr-iconbtn--on-brand",
   ".tr-iconbtn--on-brand:hover",
   ".tr-key--go",
+  ".tr-key--go:active:not(:disabled)",
   '.tr-nav[aria-current="page"]::before',
   ".tr-driver__bar",
   ".tr-shell__top",
