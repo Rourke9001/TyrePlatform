@@ -111,6 +111,25 @@ describe("TyreTile", () => {
     expect(tile()).toHaveAttribute("data-active", "true");
   });
 
+  // The inventory's passthrough: an undefined ariaLabel must not erase the
+  // caller's own aria-label or role.
+  it("keeps a caller's aria-label and role when no ariaLabel is given", () => {
+    const { rerender } = render(
+      <TyreTile numberText="1" aria-label="Position 1, from the caller" onClick={vi.fn()} />,
+    );
+    expect(screen.getByRole("button", { name: "Position 1, from the caller" })).toBeInTheDocument();
+
+    rerender(<TyreTile numberText="1" aria-label="Position 1, static" />);
+    expect(screen.getByRole("img", { name: "Position 1, static" })).toBeInTheDocument();
+
+    rerender(
+      <ul>
+        <TyreTile numberText="1" role="listitem" />
+      </ul>,
+    );
+    expect(screen.getByRole("listitem")).toHaveTextContent("1");
+  });
+
   it("speaks no compliance or side word of its own", () => {
     const { container } = render(
       <TyreTile numberText="1" valueText="9mm" badgeText="OK" condition="ok" onClick={vi.fn()} />,

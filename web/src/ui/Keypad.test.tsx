@@ -35,15 +35,15 @@ describe("Keypad", () => {
   });
 
   // U145: whole millimetres and the half key, never a decimal point under a
-  // glove.
+  // glove. hidden: true, so a key made aria-hidden cannot slip past.
   it("Keypad has no decimal key", () => {
     render(<Keypad onKey={vi.fn()} goLabel="Next ›" altKey="half" />);
     const names = screen
-      .getAllByRole("button")
+      .getAllByRole("button", { hidden: true })
       .map((b) => b.getAttribute("aria-label") ?? b.textContent);
     expect(names).not.toContain(".");
     expect(names).not.toContain(",");
-    expect(screen.queryByRole("button", { name: /decimal|point/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /decimal|point/i, hidden: true })).toBeNull();
   });
 
   it("the go key is named exactly goLabel", async () => {
@@ -70,12 +70,13 @@ describe("Keypad", () => {
     expect(onKey.mock.calls.map(([key]) => key)).toEqual(DIGITS);
   });
 
-  // NFR-USE-004 and TYRE-220: four rows, so the go key stays on a 780px
-  // screen; the alt key sits left of 0 and go to its right.
+  // DOM order only, every key counted even if aria-hidden: the alt key
+  // before 0 and go after it. The four rows that keep go on a 780px screen
+  // are Keypad.css's grid (TYRE-220), which jsdom does not apply.
   it("lays the keys out as 1 to 9, then the alt key, 0 and go", () => {
     render(<Keypad onKey={vi.fn()} goLabel="Done ›" />);
     const order = screen
-      .getAllByRole("button")
+      .getAllByRole("button", { hidden: true })
       .map((b) => b.getAttribute("aria-label") ?? b.textContent);
     expect(order).toEqual(["1", "2", "3", "4", "5", "6", "7", "8", "9", "Delete", "0", "Done ›"]);
   });
@@ -87,6 +88,14 @@ describe("Keypad", () => {
 
     render(<Keypad onKey={vi.fn()} goLabel="Next ›" ariaLabel="Number keypad" />);
     expect(screen.getByRole("group", { name: "Number keypad" })).toBeInTheDocument();
+  });
+
+  it("keeps a caller's aria-label and role when no ariaLabel is given", () => {
+    const { rerender } = render(<Keypad onKey={vi.fn()} goLabel="Next ›" aria-label="Keys" />);
+    expect(screen.getByRole("group", { name: "Keys" })).toBeInTheDocument();
+
+    rerender(<Keypad onKey={vi.fn()} goLabel="Next ›" ariaLabel="Keys" role="toolbar" />);
+    expect(screen.getByRole("toolbar", { name: "Keys" })).toBeInTheDocument();
   });
 
   it("passes unknown props to its root and disables go on request", () => {

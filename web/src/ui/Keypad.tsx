@@ -16,8 +16,8 @@ export interface KeypadProps extends Omit<HTMLAttributes<HTMLDivElement>, "child
   altKey?: "delete" | "half";
   goTone?: "primary" | "warn";
   goDisabled?: boolean;
-  // Names the pad as a group. Optional, so a screen with no group today
-  // gains no landmark word.
+  // Names the pad, and only then makes it a group, so a screen whose keypad
+  // has no role or name today gains neither (copy unchanged, TYRE-443).
   ariaLabel?: string;
 }
 
@@ -57,12 +57,15 @@ export function Keypad({
   className,
   ...rest
 }: KeypadProps) {
+  // Falls back to the caller's own attributes, so an absent ariaLabel never
+  // erases a passed-through aria-label or role.
+  const name = ariaLabel ?? rest["aria-label"];
   return (
     <div
       {...rest}
       className={cx("tr-keypad", className)}
-      role={ariaLabel ? "group" : undefined}
-      aria-label={ariaLabel}
+      role={rest.role ?? (name ? "group" : undefined)}
+      aria-label={name}
     >
       {DIGITS.map((d) => (
         <button key={d} type="button" className="tr-key" onClick={() => onKey(d)}>
