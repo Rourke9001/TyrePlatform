@@ -20,6 +20,7 @@ import { useTenantDate, useTenantInstant } from "../../time/tenantTime";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
 import { Field } from "../../ui/Field";
+import { Select } from "../../ui/Select";
 import { useFormMutation } from "../useFormMutation";
 import { DriverPicker } from "./DriverPicker";
 import { NominateControl } from "./NominateControl";
@@ -214,26 +215,24 @@ function StartTripForm({ unit }: { unit: Unit }) {
 
         <div className="unit-form unit-form--row">
           <Field label="Add a trailer">
-            {/* Native, not Select: a trailer held by another rig is shown but
-                disabled, and Select disables only a placeholder. */}
-            <select
+            <Select
               id="tripTrailer"
-              className="unit-select"
               value={pick}
               onChange={(e) => setPick(e.target.value)}
-            >
-              <option value="">Choose…</option>
-              {offered.map((v) => {
-                const holder = heldBy.get(v.id);
-                return (
-                  <option key={v.id} value={v.id} disabled={holder !== undefined}>
-                    {holder !== undefined
-                      ? `${v.fleetNumber}, coupled to ${holder}`
-                      : v.fleetNumber}
-                  </option>
-                );
-              })}
-            </select>
+              options={[
+                { value: "", label: "Choose…" },
+                ...offered.map((v) => {
+                  const holder = heldBy.get(v.id);
+                  return holder !== undefined
+                    ? {
+                        value: v.id,
+                        label: `${v.fleetNumber}, coupled to ${holder}`,
+                        disabled: true,
+                      }
+                    : { value: v.id, label: v.fleetNumber };
+                }),
+              ]}
+            />
           </Field>
           <Button onClick={addTrailer} disabled={pick === "" || !rigs.data}>
             Add
