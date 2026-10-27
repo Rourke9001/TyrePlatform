@@ -24,12 +24,11 @@ const sources = import.meta.glob<string>(
 // After wave 0 a lane that needs another entry asks the orchestrator
 // (TYRE-443).
 const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
-  // Today's screens: filled buttons and the go key.
+  // Screens not yet on Tread: capture's two anchors and the legacy filled
+  // buttons.
   "/src/capture/capture.css": {
-    ".cap-key--go": ["border-color", "background", "color"],
-    ".cap-key--go:active": ["background"],
-    ".cap-primary": ["border", "background", "color"],
-    ".cap-primary:active": ["background", "border-color"],
+    ".cap-primary": ["background", "color"],
+    ".cap-primary:active": ["background"],
   },
   "/src/ui/legacy/ui.css": {
     ".btn-primary": ["background", "color"],
