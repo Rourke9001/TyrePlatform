@@ -106,14 +106,7 @@ nothing about isolation, for the reason its own header gives
 
 ## Architecture
 
-See `docs/architecture.md` and the ADRs in `docs/adr/`. In short:
-
-- `db/` — PostgreSQL 16. The business rules live here: valuation functions,
-  exception views, RLS policies. This is deliberate, not laziness.
-- `api/` — Go. Thin. Auth, tenant context, transport, sync reconciliation.
-- `web/` — React + Vite. One application (IR-UI-001): the driver capture PWA
-  and the manager dashboard, reached by role-appropriate routes.
-- `infra/` — Bicep. Azure.
+See `docs/architecture.md` and the ADRs in `docs/adr/`.
 
 **Where logic belongs:** if it is a business rule about tyres, it goes in SQL
 and gets a test in `db/tests/`. If it is about HTTP, auth, or moving bytes, it
@@ -122,29 +115,8 @@ acceptance gate rests on there being exactly one implementation.
 
 ## Code style
 
-**Go**
-- stdlib `net/http` plus `chi` for routing. No web framework.
-- `pgx` directly. **No ORM.** RLS requires explicit control of the connection
-  and transaction so `SET LOCAL app.tenant_id` binds correctly; an ORM with a
-  connection pool will silently leak context between tenants.
-- Errors are values. Wrap with `fmt.Errorf("...: %w", err)`. Never `panic` in
-  request handling.
-- Accept interfaces, return structs. Keep interfaces at the consumer.
-- `context.Context` is the first parameter, always.
-
-**TypeScript / React**
-- Function components, hooks. No class components, with one named
-  exception: `web/src/shell/RouteErrorBoundary.tsx`, because React catches
-  a render error only in a class (U54). eslint refuses any other.
-- `strict: true`. No `any` — if you reach for it, the type is wrong.
-  `@typescript-eslint/no-explicit-any` is an error, not a warning.
-- Tanstack Query for server state, plain `useState`/`useReducer` for local.
-  No Redux.
-- Dexie over IndexedDB for the durable submit outbox (ADR-0009).
-- Prettier owns layout — do not hand-format, and do not argue with it in
-  review. eslint runs the type-aware recommended and stylistic tiers with
-  `eslint-config-prettier` last, so exactly one tool has an opinion about any
-  given line.
+Go conventions are in `api/CLAUDE.md` and TypeScript/React ones in
+`web/CLAUDE.md`; each loads when you work in that folder.
 
 **UI design skills advise; this file, ADR-0015 and ADR-0020 decide.** `ui-ux-pro-max`
 (project plugin) is for design direction: palette, type, layout, UX rules.
@@ -159,15 +131,6 @@ PR. Where either one contradicts the repo, the repo wins:
   (`web/src/theme/fonts.ts`), never a CDN.
 - Never run `ui-ux-pro-max` with `--persist`. The token file is the design
   authority, and a `design-system/MASTER.md` would be a second one.
-- Copy stays straight-quoted and sentence case (`/unslop`), not curly quotes
-  or Title Case.
-- Dates render through `web/src/time/tenantTime.ts` (rule 6) and money through
-  `formatMoney` in `web/src/api/money.ts` (rule 2), never through `Intl`
-  directly.
-- The capture route is designed to the three-minute target and held to its
-  bundle budget first. NFR-USE-004 floors its targets at 44px, and the keypad and tiles sit
-  at 56 to 64px for gloves. A skill's 44px is that floor, not a size to
-  shrink to.
 - ADR-0020's Tread design system replaces the TYRE-238 kit and its accepted
   mockups on every route, capture included (epic TYRE-443).
 
@@ -224,8 +187,6 @@ Every non-obvious rule should cite its requirement ID (`FR-VAL-006`,
   "Three tiers agree" means each checks the same pinned expectation
   independently, so a change that moves one without the others is what
   makes a drift visible.
-- Go: table-driven tests, `testify/require`. Integration tests hit a real
-  Postgres, not a mock.
 - Do not weaken a test to make it pass. If a test is wrong, say so and explain
   why before changing it.
 

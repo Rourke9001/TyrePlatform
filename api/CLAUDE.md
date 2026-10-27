@@ -112,7 +112,8 @@ copy cannot drift.
 - Errors are values. `fmt.Errorf("fetching vehicle %s: %w", id, err)`. No panic
   in request handling.
 - Accept interfaces, return structs. Define interfaces where they are consumed.
-- Table-driven tests. Integration tests hit a real Postgres, never a mock — a
+- Table-driven tests with `testify/require`. Integration tests hit a real
+  Postgres, never a mock — a
   mocked database cannot fail an RLS policy, which is the thing worth testing.
 - Handlers stay dumb. If a handler is making a business decision about tyres,
   that decision belongs in SQL.

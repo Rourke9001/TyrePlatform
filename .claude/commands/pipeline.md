@@ -159,7 +159,8 @@ the ticket: the final verdict, and the counts fixed and ruled.
 
 ## Implementation (implementer)
 
-Spawn a teammate named `implementer` (general-purpose) with:
+Spawn a teammate named `implementer` (general-purpose, model `sonnet`: it
+follows a red-teamed plan, and stage 5 reviews the result) with:
 
 > You implement `<plan path>` for $ARGUMENTS with
 > superpowers:executing-plans, inline; the spec is `<spec path>`. Do not

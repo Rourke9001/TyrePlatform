@@ -140,6 +140,11 @@ the next copy edit.
 - Function components and hooks, except `src/shell/RouteErrorBoundary.tsx`,
   the one class (U54). `strict: true`. No `any`.
 - Tanstack Query for server state; `useState`/`useReducer` for local. No Redux.
+- Dexie over IndexedDB for the durable submit outbox (ADR-0009).
+- Prettier owns layout — do not hand-format, and do not argue with it in
+  review. eslint runs the type-aware recommended and stylistic tiers with
+  `eslint-config-prettier` last, so exactly one tool has an opinion about any
+  given line.
 - Money arrives from the API as a **string**. Keep it a string. Format for
   display, never `Number()` it — JavaScript has no decimal type and this is the
   one place that matters.
@@ -173,11 +178,18 @@ The design skills advise; `tokens.ts`, ADR-0015's substrate and ADR-0020's
 Tread system decide. Tread replaces the kit below route by route (epic
 TYRE-443); until a route moves, the kit's rules hold for it.
 
-`src/ui/` is the component set: PageHeader, StatTile, SeverityBadge,
-ProvenanceSplit, DataTable, Panel, EmptyState, FormField, Button, Select and
-Dialog (Radix), FilterBar, BandChart. `/dev/design` renders all of them
+`src/ui/` is the component set. `/dev/design` renders all of them
 with example values under `vite dev` and is where a change is looked at
 before it is reviewed. Rules that are not visible in the code:
+
+- Copy stays straight-quoted and sentence case (`/unslop`), not curly quotes
+  or Title Case.
+- Dates render through `src/time/tenantTime.ts` (rule 6), never through
+  `Intl` directly.
+- The capture route is designed to the three-minute target and held to its
+  bundle budget first. NFR-USE-004 floors its targets at 44px, and the
+  keypad and tiles sit at 56 to 64px for gloves. A design skill's 44px is
+  that floor, not a size to shrink to.
 
 - Every wire code becomes words in `src/ui/vocabulary.ts` and nowhere
   else: severity, `judgedAt`, `unavailable`, tread source, band range. A
