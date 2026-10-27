@@ -1,6 +1,9 @@
 import { type FormEvent, useId, useState } from "react";
 
 import { COST_SOURCES, setTyreCost, type CostSource, type Tyre } from "../../api/tyres";
+import { Button } from "../../ui/Button";
+import { Select } from "../../ui/Select";
+import { TextInput } from "../../ui/TextInput";
 import { RefusalAlert } from "../RefusalAlert";
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
@@ -54,16 +57,17 @@ export function CostForm({
   }
 
   return (
-    <form onSubmit={submit} className="tyres-row-form">
-      <input
+    <form onSubmit={submit} className="fleet-row-form">
+      <TextInput
         aria-label={`Purchase price for ${tyre.displayCode}`}
+        mono
         value={price}
         onChange={(e) => setPrice(e.target.value)}
         inputMode="decimal"
         required
       />
 
-      <select
+      <Select
         aria-label={`Cost source for ${tyre.displayCode}`}
         value={costSource}
         onChange={(e) =>
@@ -71,27 +75,17 @@ export function CostForm({
         }
         required
         aria-describedby={sourceMissing ? hintId : undefined}
-      >
-        <option value="">Choose a source</option>
-        {COST_SOURCES.map((c) => (
-          <option key={c.value} value={c.value}>
-            {c.label}
-          </option>
-        ))}
-      </select>
+        options={[{ value: "", label: "Choose a source" }, ...COST_SOURCES]}
+      />
       {sourceMissing && (
-        <p className="tyres-receive-hint" id={hintId}>
+        <p className="fleet-hint" id={hintId}>
           Choose where this price came from. A cost cannot be corrected once it is recorded.
         </p>
       )}
 
-      <button
-        className="btn-primary btn-compact"
-        type="submit"
-        disabled={price.trim() === "" || costSource === "" || cost.isPending}
-      >
+      <Button type="submit" disabled={price.trim() === "" || costSource === "" || cost.isPending}>
         {cost.isPending ? "Saving…" : "Set cost"}
-      </button>
+      </Button>
 
       <RefusalAlert error={cost.error} wording={COST_WORDING} />
     </form>

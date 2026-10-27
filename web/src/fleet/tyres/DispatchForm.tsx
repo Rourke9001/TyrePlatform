@@ -3,6 +3,9 @@ import { type FormEvent, useState } from "react";
 
 import { DESTINATIONS, dispatchTyre, type Destination, type Tyre } from "../../api/tyres";
 import { fetchDepots } from "../../api/units";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
+import { TextInput } from "../../ui/TextInput";
 import { RefusalAlert } from "../RefusalAlert";
 import { depotsKey, retreadJobsKey, tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
@@ -74,8 +77,8 @@ export function DispatchForm({
   }
 
   return (
-    <form onSubmit={submit} className="tyres-row-form">
-      <div role="radiogroup" aria-label="Destination">
+    <form onSubmit={submit} className="fleet-row-form">
+      <div role="radiogroup" aria-label="Destination" className="fleet-choices">
         {DESTINATIONS.map((d) => (
           <label key={d.value}>
             <input
@@ -97,17 +100,20 @@ export function DispatchForm({
       </div>
 
       {destination !== "" && depots.isError && (
-        <div className="note-card" role="alert">
-          <h2>Depots didn&apos;t load</h2>
-          <p>The server could not be reached. Check your connection, then retry.</p>
-          <button className="btn-primary" type="button" onClick={() => void depots.refetch()}>
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="critical"
+          title={<h2 className="fleet-banner-heading">Depots didn&apos;t load</h2>}
+          action={<Button onClick={() => void depots.refetch()}>Retry</Button>}
+        >
+          The server could not be reached. Check your connection, then retry.
+        </Banner>
       )}
 
       {destination !== "" && !depots.isError && (
+        // Native, not Select: its first option is disabled only while the
+        // depots load, which Select's options cannot say.
         <select
+          className="fleet-native-select"
           aria-label={`Depot for ${tyre.displayCode}`}
           value={depotId}
           onChange={(e) => setDepotId(e.target.value)}
@@ -123,20 +129,16 @@ export function DispatchForm({
         </select>
       )}
 
-      <input
+      <TextInput
         aria-label="Sent on"
         type="date"
         value={sentOn}
         onChange={(e) => setSentOn(e.target.value)}
       />
 
-      <button
-        className="btn-primary btn-compact"
-        type="submit"
-        disabled={destination === "" || depotId === "" || dispatch.isPending}
-      >
+      <Button type="submit" disabled={destination === "" || depotId === "" || dispatch.isPending}>
         {dispatch.isPending ? "Dispatching…" : "Dispatch"}
-      </button>
+      </Button>
 
       <RefusalAlert error={dispatch.error} wording={DISPATCH_WORDING} />
     </form>

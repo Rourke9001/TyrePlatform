@@ -1,6 +1,9 @@
 import { type FormEvent, useState } from "react";
 
 import { disposalsFor, disposeTyre, type Disposal, type Tyre } from "../../api/tyres";
+import { Button } from "../../ui/Button";
+import { Select } from "../../ui/Select";
+import { TextInput } from "../../ui/TextInput";
 import { RefusalAlert } from "../RefusalAlert";
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
@@ -69,22 +72,16 @@ export function DisposeForm({
   }
 
   return (
-    <form onSubmit={submit} className="tyres-row-form">
-      <select
+    <form onSubmit={submit} className="fleet-row-form">
+      <Select
         aria-label={`Disposal for ${tyre.displayCode}`}
         value={disposal}
         onChange={(e) => setDisposal(e.target.value as Disposal | "")}
-      >
-        <option value="">Choose…</option>
-        {offered.map((d) => (
-          <option key={d.value} value={d.value}>
-            {d.label}
-          </option>
-        ))}
-      </select>
+        options={[{ value: "", label: "Choose…" }, ...offered]}
+      />
 
       {disposal === "SCRAPPED" && (
-        <input
+        <TextInput
           aria-label={`Reason for ${tyre.displayCode}`}
           value={reason}
           onChange={(e) => setReason(e.target.value)}
@@ -93,8 +90,9 @@ export function DisposeForm({
       )}
 
       {disposal === "SOLD" && (
-        <input
+        <TextInput
           aria-label={`Proceeds for ${tyre.displayCode}`}
+          mono
           value={proceeds}
           onChange={(e) => setProceeds(e.target.value)}
           inputMode="decimal"
@@ -102,13 +100,9 @@ export function DisposeForm({
         />
       )}
 
-      <button
-        className="btn-primary btn-compact"
-        type="submit"
-        disabled={disposal === "" || dispose.isPending}
-      >
+      <Button type="submit" disabled={disposal === "" || dispose.isPending}>
         {dispose.isPending ? "Disposing…" : "Dispose"}
-      </button>
+      </Button>
 
       <RefusalAlert message={refused} />
       <RefusalAlert error={dispose.error} wording={DISPOSE_WORDING} />
