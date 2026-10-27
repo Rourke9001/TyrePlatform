@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { onlineManager } from "@tanstack/react-query";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
@@ -321,7 +321,7 @@ describe("CaptureFlow", () => {
 
     renderFlow();
     await user.click(await screen.findByRole("button", { name: /^Position 1,/ }));
-    expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
+    expect(within(screen.getByLabelText(/Tread reading 1 of 3/)).getByText("13")).toBeVisible();
   });
 
   // U148: a resumed draft reads its units through the window its submit is
