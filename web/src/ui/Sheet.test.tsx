@@ -161,6 +161,30 @@ describe("Sheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  // Today's spare sheet puts "No spare" after Close (capture/PositionSheet.tsx).
+  it("puts its actions before Close and its trailing control after it", async () => {
+    const user = userEvent.setup();
+    render(
+      <Sheet
+        modal={false}
+        open
+        title="Spare tyre"
+        ariaLabel="Spare, TRL-02"
+        onClose={() => undefined}
+        actions={<button type="button">Tread guide</button>}
+        trailing={<button type="button">No spare</button>}
+      >
+        <p>body</p>
+      </Sheet>,
+    );
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Tread guide" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "Close" })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "No spare" })).toHaveFocus();
+  });
+
   it("names a non-modal sheet by its title when it has no ariaLabel", () => {
     render(
       <Sheet modal={false} open title="Position 3">

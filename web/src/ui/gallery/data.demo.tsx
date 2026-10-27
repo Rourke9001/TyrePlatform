@@ -13,11 +13,12 @@ import { Metric } from "../Metric";
 import { Progress } from "../Progress";
 import { Timeline } from "../Timeline";
 
-// Example values only, in the Sandbox tenant's voice; none is a fleet
-// figure. The money strings are round amounts typed as the brand, so the
-// gallery formats them the way a page would. The gallery's own test
-// renders it without a router and the dev route inside one, so a sample
-// with links brings a router only when it has none.
+// Invented round figures in the Sandbox tenant's voice, none taken from a
+// fixture or a fleet. The money strings are typed as the brand, so the
+// gallery formats them the way a page would.
+
+// The gallery's own test renders it without a router and the dev route
+// inside one, so a sample with links brings a router only when it has none.
 function Routed({ children }: { children: ReactNode }) {
   return useInRouterContext() ? children : <MemoryRouter>{children}</MemoryRouter>;
 }
@@ -48,7 +49,7 @@ const rows: SampleRow[] = [
     unit: "TRK-01",
     position: "3",
     tread: formatMm(2),
-    value: formatMoney(rand("15000.00"), "ZAR"),
+    value: formatMoney(rand("9000.00"), "ZAR"),
     basis: basisLabel("AUDIT"),
   },
   {
@@ -56,7 +57,7 @@ const rows: SampleRow[] = [
     unit: "TRL-02",
     position: "10",
     tread: formatMm(3.5),
-    value: formatMoney(rand("4000.00"), "ZAR"),
+    value: formatMoney(rand("3000.00"), "ZAR"),
     basis: basisLabel("ESTIMATED"),
   },
   {
@@ -64,7 +65,7 @@ const rows: SampleRow[] = [
     unit: "TRL-03",
     position: "22",
     tread: formatMm(11),
-    value: formatMoney(rand("1250.50"), "ZAR"),
+    value: formatMoney(rand("1250.00"), "ZAR"),
     basis: basisLabel("ESTIMATED"),
   },
 ];
@@ -121,26 +122,26 @@ export function DataSamples() {
         <div style={grid}>
           <Metric
             label="Open exceptions"
-            value={formatCount(19)}
+            value={formatCount(7)}
             tone="critical"
-            detail="11 urgent; 9 rules configured"
+            detail="2 urgent; 4 rules configured"
             link={{ to: "/exceptions", label: "See the list" }}
           >
             as inspected
           </Metric>
           <Metric
             label="Inspection coverage"
-            value={`${formatCount(42)} of ${formatCount(48)}`}
-            detail="6 overdue"
+            value={`${formatCount(40)} of ${formatCount(50)}`}
+            detail="10 overdue"
             tone="warning"
           />
-          <Metric label="Spares fitted" value={formatCount(12)} unit="tyres" tone="ok" />
+          <Metric label="Spares fitted" value={formatCount(8)} unit="tyres" tone="ok" />
         </div>
         <Metric
           size="hero"
           label="Value at risk"
-          value={formatMoney(rand("16537.50"), "ZAR")}
-          detail="from 9 running tyres at or below the sample threshold today"
+          value={formatMoney(rand("12000.00"), "ZAR")}
+          detail="from 5 running tyres at or below the sample threshold today"
           headingLevel={2}
         />
         <Card

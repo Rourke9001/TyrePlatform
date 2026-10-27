@@ -25,17 +25,20 @@ const open: HTMLElement[] = [];
 // 2026-10-26-tread-frontend-design.md): while active, Tab cycles inside
 // `ref`, Escape calls onEscape, and on release focus goes back to whatever
 // held it when the trap opened (WCAG 2.4.3). The panel takes focus itself,
-// so it needs tabIndex={-1}.
+// so it needs tabIndex={-1}. Safari does not focus a button on click, so a
+// caller that knows its opener passes it as returnTo.
 export function useFocusTrap(
   ref: RefObject<HTMLElement | null>,
   active: boolean,
   onEscape: () => void,
+  returnTo?: RefObject<HTMLElement | null>,
 ): void {
   const escape = useEffectEvent(onEscape);
   useEffect(() => {
     const root = ref.current;
     if (!active || root === null) return;
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const back = returnTo?.current ?? focused;
     open.push(root);
     root.focus();
     const innermost = () => open[open.length - 1] === root;
@@ -78,7 +81,7 @@ export function useFocusTrap(
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("focusin", onFocusIn);
       open.splice(open.indexOf(root), 1);
-      if (opener?.isConnected) opener.focus();
+      if (back?.isConnected) back.focus();
     };
-  }, [active, ref]);
+  }, [active, ref, returnTo]);
 }

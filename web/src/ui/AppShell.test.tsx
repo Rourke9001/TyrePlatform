@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
+import { forceMatchMedia } from "../test/media";
 import { AppShell, type NavGroup } from "./AppShell";
 import shellCss from "./AppShell.css?raw";
 
@@ -83,24 +84,54 @@ describe("AppShell", () => {
     expect(screen.getByRole("link", { name: "Tyres" })).toHaveAttribute("href", "/fleet/tyres");
   });
 
+  // The drawer exists below 1024px only, so these run at a narrow width.
   it("opens and closes the drawer from the menu button, Escape and a nav link", async () => {
-    const user = userEvent.setup();
-    renderShell("/");
-    const menu = screen.getByRole("button", { name: "Menu" });
-    const drawer = document.getElementById(menu.getAttribute("aria-controls") ?? "");
-    expect(drawer).toContainElement(screen.getByRole("navigation", { name: "Main" }));
-    expect(menu).toHaveAttribute("aria-expanded", "false");
+    const restore = forceMatchMedia(true);
+    try {
+      const user = userEvent.setup();
+      renderShell("/");
+      const menu = screen.getByRole("button", { name: "Menu" });
+      const drawer = document.getElementById(menu.getAttribute("aria-controls") ?? "");
+      expect(drawer).toContainElement(screen.getByRole("navigation", { name: "Main" }));
+      expect(menu).toHaveAttribute("aria-expanded", "false");
 
-    await user.click(menu);
-    expect(menu).toHaveAttribute("aria-expanded", "true");
-    await user.keyboard("{Escape}");
-    expect(menu).toHaveAttribute("aria-expanded", "false");
-    expect(menu).toHaveFocus();
+      await user.click(menu);
+      expect(menu).toHaveAttribute("aria-expanded", "true");
+      await user.keyboard("{Escape}");
+      expect(menu).toHaveAttribute("aria-expanded", "false");
+      expect(menu).toHaveFocus();
 
-    await user.click(menu);
-    await user.click(screen.getByRole("link", { name: "Units" }));
-    expect(menu).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("link", { name: "Units", current: "page" })).toBeInTheDocument();
+      await user.click(menu);
+      await user.click(screen.getByRole("link", { name: "Units" }));
+      expect(menu).toHaveAttribute("aria-expanded", "false");
+      expect(screen.getByRole("link", { name: "Units", current: "page" })).toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
+  it("holds focus in the open drawer and hands it back to Menu on Escape", async () => {
+    const restore = forceMatchMedia(true);
+    try {
+      const user = userEvent.setup();
+      renderShell("/");
+      const menu = screen.getByRole("button", { name: "Menu" });
+      await user.click(menu);
+      const drawer = document.getElementById(menu.getAttribute("aria-controls") ?? "");
+      expect(drawer).toHaveFocus();
+      const names = ["Dashboard", "Exceptions", "Units", "Tyres", "Retreads", "Dashboard"];
+      for (const name of names) {
+        await user.tab();
+        expect(screen.getByRole("link", { name })).toHaveFocus();
+      }
+      await user.tab({ shift: true });
+      expect(screen.getByRole("link", { name: "Retreads" })).toHaveFocus();
+      await user.keyboard("{Escape}");
+      expect(menu).toHaveAttribute("aria-expanded", "false");
+      expect(menu).toHaveFocus();
+    } finally {
+      restore();
+    }
   });
 
   // jsdom applies no stylesheet, so the drawer's closed state is read from

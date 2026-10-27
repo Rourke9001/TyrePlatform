@@ -1,4 +1,4 @@
-/* Tread's page header (ADR-0020). Every colour and size is a token from
+/* Tread's page header (ADR-0020). Every colour is a token from
    src/theme/tokens.ts. */
 
 .tr-pagehead {

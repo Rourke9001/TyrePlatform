@@ -1,4 +1,4 @@
-/* Tread's term list (ADR-0020). Every colour and size is a token from
+/* Tread's term list (ADR-0020). Every colour is a token from
    src/theme/tokens.ts. */
 
 /* columns is a maximum: each column keeps at least --tr-kv-min and the
