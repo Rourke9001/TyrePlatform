@@ -4,6 +4,7 @@ import {
   absenceLabel,
   bandRangeLabel,
   basisLabel,
+  distanceSourceLabel,
   INFLATION_BAND_KEYS,
   inflationBandLabel,
   judgedAtLabel,
@@ -69,6 +70,17 @@ describe("treadSourceLabel and basisLabel", () => {
     expect(basisLabel("ESTIMATED")).toBe("estimated");
     expect(basisLabel("AUDIT")).toBe("audit valuation");
     expect(basisLabel("OTHER")).toBe("OTHER");
+  });
+});
+
+// CR-012: a distance never stands without its source, so an unknown one is
+// passed through rather than dropped.
+describe("distanceSourceLabel", () => {
+  it("says where each distance came from and passes an unknown source through", () => {
+    expect(distanceSourceLabel("MEASURED")).toBe("Measured");
+    expect(distanceSourceLabel("INFERRED")).toBe("Inferred");
+    expect(distanceSourceLabel("UNAVAILABLE")).toBe("Unavailable");
+    expect(distanceSourceLabel("ESTIMATED")).toBe("ESTIMATED");
   });
 });
 
