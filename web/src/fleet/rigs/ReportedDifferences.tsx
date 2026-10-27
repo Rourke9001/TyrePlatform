@@ -11,6 +11,11 @@ import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
+import { Card } from "../../ui/Card";
+import { Field } from "../../ui/Field";
+import { TextInput } from "../../ui/TextInput";
 import { useFormMutation } from "../useFormMutation";
 import { observationsKey, rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
@@ -52,41 +57,39 @@ function DifferenceCard({ row, tenantKey }: { row: ReportedDifference; tenantKey
   const error = apply.error ?? dismiss.error;
 
   return (
-    <li className="note-card">
-      <p>{sentence(row, asDate)}</p>
+    <li className="fleet-report">
+      <p className="fleet-report__sentence">{sentence(row, asDate)}</p>
       {canAction && (
-        <>
-          <label htmlFor={`note-${row.id}`}>Note</label>
-          <input
-            id={`note-${row.id}`}
-            type="text"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-          />
+        <div className="fleet-toolbar">
+          <Field label="Note" className="fleet-field-narrow">
+            <TextInput
+              id={`note-${row.id}`}
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </Field>
           {stale ? (
-            <p>This rig has since ended; dismiss the report.</p>
+            <p className="fleet-hint">This rig has since ended; dismiss the report.</p>
           ) : (
-            <button
-              className="btn-primary btn-compact"
-              type="button"
+            <Button
+              variant="primary"
               disabled={apply.isPending}
               onClick={() => apply.submit(undefined)}
             >
               Apply
-            </button>
+            </Button>
           )}
-          <button
-            className="btn-compact"
-            type="button"
+          <Button
             disabled={dismiss.isPending || note.trim() === ""}
             onClick={() => dismiss.submit(undefined)}
           >
             Dismiss
-          </button>
-        </>
+          </Button>
+        </div>
       )}
       {error !== null && error !== undefined && (
-        <p role="alert">{refusalMessage(error, WORDING)}</p>
+        <Banner tone="critical" title={refusalMessage(error, WORDING)} />
       )}
     </li>
   );
@@ -107,13 +110,12 @@ export function ReportedDifferences() {
     return null;
   }
   return (
-    <section aria-labelledby="reported-differences-heading">
-      <h2 id="reported-differences-heading">Reported differences</h2>
-      <ul>
+    <Card title="Reported differences" padding="none">
+      <ul className="fleet-reports">
         {reports.data.map((row) => (
           <DifferenceCard key={row.id} row={row} tenantKey={tenantKey} />
         ))}
       </ul>
-    </section>
+    </Card>
   );
 }

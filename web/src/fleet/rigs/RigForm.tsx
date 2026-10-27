@@ -5,6 +5,13 @@ import { createRig, fetchRigs, type NewRig } from "../../api/combinations";
 import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { fetchVehicles } from "../../api/vehicles";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
+import { Card } from "../../ui/Card";
+import { Field } from "../../ui/Field";
+import { PlusIcon } from "../../ui/icons/Plus";
+import { Select } from "../../ui/Select";
+import { TextInput } from "../../ui/TextInput";
 import { useFormMutation } from "../useFormMutation";
 import { rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
@@ -121,125 +128,130 @@ export function RigForm() {
   }
 
   return (
-    <section className="tyres-receive" aria-labelledby="set-rig-heading">
-      <h2 id="set-rig-heading">Set a rig</h2>
-      {vehicles.isError && (
-        <p role="alert">
-          The unit list could not be loaded.{" "}
-          <button type="button" onClick={() => void vehicles.refetch()}>
-            Retry
-          </button>
-        </p>
-      )}
-      <form onSubmit={submit}>
-        <div className="tyres-row-form">
-          <label htmlFor="rigMotive">Motive unit</label>
-          <select id="rigMotive" value={motiveId} onChange={(e) => setMotiveId(e.target.value)}>
-            <option value="">Choose…</option>
-            {motiveOptions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.fleetNumber}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <p id="rig-towed-heading">Towed, in walk order</p>
-        {towed.length > 0 && (
-          <ul className="unit-rotate-rows" aria-labelledby="rig-towed-heading">
-            {towed.map((row, index) => {
-              const fleetNumber = fleetNumberOf(row.vehicleId);
-              const atStart = index === 0;
-              const atEnd = index === towed.length - 1;
-              return (
-                <li key={row.vehicleId}>
-                  <span>{index + 1}</span>
-                  <span>{fleetNumber}</span>
-                  <input
-                    aria-label={`Descriptor for ${fleetNumber}`}
-                    placeholder="Descriptor"
-                    value={row.descriptor}
-                    onChange={(e) => {
-                      const next = [...towed];
-                      next[index] = { ...next[index], descriptor: e.target.value };
-                      setTowed(next);
-                    }}
-                  />
-                  {/* aria-disabled, not disabled: a boundary row stays in the
-                      tab order so focus survives a reorder that lands it
-                      there. move() already no-ops past either end. */}
-                  <button
-                    type="button"
-                    aria-label={`Move ${fleetNumber} up`}
-                    aria-disabled={atStart ? "true" : undefined}
-                    onClick={() => move(index, -1)}
-                  >
-                    Up
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Move ${fleetNumber} down`}
-                    aria-disabled={atEnd ? "true" : undefined}
-                    onClick={() => move(index, 1)}
-                  >
-                    Down
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={`Remove ${fleetNumber}`}
-                    onClick={() => remove(index)}
-                  >
-                    Remove
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-
-        <div className="tyres-row-form">
-          <label htmlFor="rigTrailer">Trailer</label>
-          <select
-            id="rigTrailer"
-            value={trailerPick}
-            onChange={(e) => setTrailerPick(e.target.value)}
-          >
-            <option value="">Choose…</option>
-            {trailerOptions.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.fleetNumber}
-              </option>
-            ))}
-          </select>
-          <button type="button" onClick={addTrailer}>
-            Add
-          </button>
-        </div>
-
-        <div className="tyres-row-form">
-          <label htmlFor="rigEffectiveOn">Effective from</label>
-          <input
-            id="rigEffectiveOn"
-            type="date"
-            value={effectiveOn}
-            onChange={(e) => setEffectiveOn(e.target.value)}
+    <Card title="Set a rig">
+      <div className="tr-stack">
+        {vehicles.isError && (
+          <Banner
+            tone="critical"
+            title="The unit list could not be loaded."
+            action={<Button onClick={() => void vehicles.refetch()}>Retry</Button>}
           />
-        </div>
-        <p className="tyres-receive-hint">Leave empty for today.</p>
+        )}
+        <form className="tr-stack" onSubmit={submit}>
+          <Field label="Motive unit" className="fleet-field-narrow">
+            <Select
+              id="rigMotive"
+              value={motiveId}
+              onChange={(e) => setMotiveId(e.target.value)}
+              options={[
+                { value: "", label: "Choose…" },
+                ...motiveOptions.map((v) => ({ value: v.id, label: v.fleetNumber })),
+              ]}
+            />
+          </Field>
 
-        <button
-          className="btn-primary"
-          type="submit"
-          disabled={motiveId === "" || towed.length === 0 || create.isPending}
-        >
-          {create.isPending ? "Setting…" : "Set rig"}
-        </button>
-      </form>
+          <p id="rig-towed-heading" className="fleet-subhead">
+            Towed, in walk order
+          </p>
+          {towed.length > 0 && (
+            <ul className="unit-rotate-rows fleet-towed" aria-labelledby="rig-towed-heading">
+              {towed.map((row, index) => {
+                const fleetNumber = fleetNumberOf(row.vehicleId);
+                const atStart = index === 0;
+                const atEnd = index === towed.length - 1;
+                return (
+                  <li key={row.vehicleId}>
+                    <span className="fleet-towed__seq">{index + 1}</span>
+                    <span className="fleet-towed__unit">{fleetNumber}</span>
+                    <TextInput
+                      aria-label={`Descriptor for ${fleetNumber}`}
+                      placeholder="Descriptor"
+                      value={row.descriptor}
+                      onChange={(e) => {
+                        const next = [...towed];
+                        next[index] = { ...next[index], descriptor: e.target.value };
+                        setTowed(next);
+                      }}
+                    />
+                    {/* aria-disabled, not disabled: a boundary row stays in the
+                        tab order so focus survives a reorder that lands it
+                        there. move() already no-ops past either end. */}
+                    <Button
+                      variant="ghost"
+                      aria-label={`Move ${fleetNumber} up`}
+                      aria-disabled={atStart ? "true" : undefined}
+                      onClick={() => move(index, -1)}
+                    >
+                      Up
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      aria-label={`Move ${fleetNumber} down`}
+                      aria-disabled={atEnd ? "true" : undefined}
+                      onClick={() => move(index, 1)}
+                    >
+                      Down
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      aria-label={`Remove ${fleetNumber}`}
+                      onClick={() => remove(index)}
+                    >
+                      Remove
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
 
-      {create.isSuccess && create.result && (
-        <p role="status">Rig set for {create.result.motiveFleetNumber}.</p>
-      )}
-      {create.error !== null && <p role="alert">{refusalMessage(create.error, CREATE_WORDING)}</p>}
-    </section>
+          <div className="fleet-toolbar">
+            <Field label="Trailer" className="fleet-field-narrow">
+              <Select
+                id="rigTrailer"
+                value={trailerPick}
+                onChange={(e) => setTrailerPick(e.target.value)}
+                options={[
+                  { value: "", label: "Choose…" },
+                  ...trailerOptions.map((v) => ({ value: v.id, label: v.fleetNumber })),
+                ]}
+              />
+            </Field>
+            <Button icon={PlusIcon} onClick={addTrailer}>
+              Add
+            </Button>
+          </div>
+
+          <div className="fleet-field-group fleet-field-narrow">
+            <Field label="Effective from">
+              <TextInput
+                id="rigEffectiveOn"
+                type="date"
+                value={effectiveOn}
+                onChange={(e) => setEffectiveOn(e.target.value)}
+              />
+            </Field>
+            <p className="fleet-hint">Leave empty for today.</p>
+          </div>
+
+          <div>
+            <Button
+              variant="primary"
+              type="submit"
+              disabled={motiveId === "" || towed.length === 0 || create.isPending}
+            >
+              {create.isPending ? "Setting…" : "Set rig"}
+            </Button>
+          </div>
+        </form>
+
+        {create.isSuccess && create.result && (
+          <p role="status">Rig set for {create.result.motiveFleetNumber}.</p>
+        )}
+        {create.error !== null && (
+          <Banner tone="critical" title={refusalMessage(create.error, CREATE_WORDING)} />
+        )}
+      </div>
+    </Card>
   );
 }
