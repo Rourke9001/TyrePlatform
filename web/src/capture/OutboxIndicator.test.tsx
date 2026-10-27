@@ -181,6 +181,38 @@ describe("OutboxIndicator", () => {
     expect(remaining.clientUuid).toBe("u-202");
     expect(screen.getByRole("button", { name: /the office has bac 202/i })).toBeInTheDocument();
   });
+
+  // NFR-USE-010, ADR-0009: what is stuck, and the way to unstick it, show
+  // with nothing to open first. A disclosure or a chip that folded them away
+  // would leave a driver in the sun reading "all fine". jsdom applies no
+  // stylesheet, so this pins the markup: no hidden attribute, no closed
+  // details around any of them.
+  it("stale and failed lines and Sync now are visible", async () => {
+    window.localStorage.setItem("tyre.dev.auth", "bearer");
+    window.localStorage.setItem("tyre.auth.subject", "oid-driver-1");
+    try {
+      await outbox().put({ ...entry("u-stale", "queued"), queuedAt: Date.now() - 49 * 3_600_000 });
+      await outbox().put({ ...entry("u-held", "queued"), lastStatus: 401 });
+      await outbox().put(entry("u-failed", "failed", "SBX 101"));
+      render(<OutboxIndicator />);
+
+      const shown = [
+        await screen.findByText("Waiting over two days. Please find signal and sync."),
+        screen.getByText("2 inspections waiting to send"),
+        screen.getByText("1 inspection needs the office"),
+        screen.getByRole("button", { name: "The office has SBX 101" }),
+        screen.getByText("Sign in to send 1 inspection"),
+        screen.getByRole("button", { name: "Sign in" }),
+        screen.getByRole("button", { name: "Sync now" }),
+      ];
+      for (const element of shown) {
+        expect(element).toBeVisible();
+        expect(element.closest("details:not([open])")).toBeNull();
+      }
+    } finally {
+      window.localStorage.clear();
+    }
+  });
 });
 
 describe("the sign-in line", () => {

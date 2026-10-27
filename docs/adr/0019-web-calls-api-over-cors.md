@@ -156,7 +156,7 @@ TYRE-317's first signed-in request is the last proof it needs.
 front of either origin; photo capture (FR-INS-023/024) or a captured
 position (NFR-PRV-005) needs `camera` or `geolocation`, which the
 `Permissions-Policy` denies; a tenant logo is served from blob storage or the
-API (`logoUrl` in `web/src/dashboard/AppShell.tsx`), which `default-src
+API (`logoUrl` in `web/src/shell/Chrome.tsx`), which `default-src
 'self'` blocks for images. None of these headers apply under `vite dev`, so
 only the production browser check (`web/playwright.production.config.ts`) or
 staging shows such a block.

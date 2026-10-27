@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 
 import { authChunk, bearerMode, lastKnownSubject } from "../api/token";
 import { heldCount, type HeldWork } from "../capture/outbox";
+import { Button } from "../ui/Button";
 import "./auth.css";
 
 // U108: the refusal names the fix. A draft never sends by itself, so for a
@@ -24,7 +25,9 @@ function stillHeld({ draft, entries }: HeldWork): string {
 // state. The guard lives here and not in signOut(), because the U104 undo
 // has to sign a person out while another driver's work is held. A storage
 // read that fails holds nothing, so sign-out goes ahead (heldCount).
-export function SignOutButton() {
+// NFR-USE-004: the driver's bar takes the glove size; the manager's header
+// keeps the 44px floor.
+export function SignOutButton({ size = "md" }: { size?: "md" | "glove" }) {
   const queryClient = useQueryClient();
   const [held, setHeld] = useState<HeldWork | null>(null);
   const [failed, setFailed] = useState(false);
@@ -76,14 +79,14 @@ export function SignOutButton() {
     <div className="auth-signout">
       {/* aria-disabled, so a focused button keeps keyboard focus while the
           guard reads storage. */}
-      <button
-        type="button"
-        className="auth-secondary"
+      <Button
+        variant="secondary"
+        size={size}
         aria-disabled={phase !== "idle"}
         onClick={() => void onClick()}
       >
         {phase === "signing-out" ? "Signing out…" : "Sign out"}
-      </button>
+      </Button>
       <p role="status" className="auth-note auth-live">
         {held !== null ? stillHeld(held) : ""}
       </p>

@@ -16,6 +16,10 @@ test("a controller lands on the dashboard and reaches the units from it", async 
   const asAt = page.getByText(/^As at /);
   await expect(asAt).toBeVisible();
   await expect(asAt).not.toContainText("invalid date");
+  // Below 1024px the nav is a drawer whose closed links are hidden, so the
+  // phone projects open Menu first; a desk has no Menu button.
+  const menu = page.getByRole("button", { name: "Menu" });
+  if (await menu.isVisible()) await menu.click();
   // The dashboard has its own "Units" panel and a "Stale units" tile, so
   // the click is proved by the URL and the exact h1, not a loose name.
   await page.getByRole("link", { name: "Units", exact: true }).click();
