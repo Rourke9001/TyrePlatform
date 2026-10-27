@@ -38,19 +38,26 @@
   font-weight: 700;
 }
 
-/* The data style, not reading: the caller's string carries its unit
-   ("13mm"), and a dual tile on a 360px phone has about 50px for it. */
+/* The data style, not reading: the caller's string carries its unit. It is
+   never clipped (U146): "13.5mm" at 15px is about 57px, so the half
+   millimetre would go. */
 .tr-tile__val {
   align-self: end;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
   font-family: var(--font-mono);
   font-weight: 700;
   font-size: var(--type-data-size);
   line-height: var(--type-data-line);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* A running tile on a 360px phone has about 50px for its value, so the data
+   style steps down to caption size there and "13.5mm" fits whole. */
+@media (max-width: 480px) {
+  .tr-tile__val {
+    font-size: var(--type-caption-size);
+  }
 }
 
 .tr-tile__sub {
