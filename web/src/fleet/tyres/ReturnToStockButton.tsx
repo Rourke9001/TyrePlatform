@@ -1,4 +1,5 @@
 import { returnTyreToStock, type Tyre } from "../../api/tyres";
+import { Button } from "../../ui/Button";
 import { RefusalAlert } from "../RefusalAlert";
 import { tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
@@ -33,14 +34,9 @@ export function ReturnToStockButton({
 
   return (
     <>
-      <button
-        className="btn-primary btn-compact"
-        type="button"
-        disabled={ret.isPending}
-        onClick={() => ret.submit(undefined)}
-      >
+      <Button disabled={ret.isPending} onClick={() => ret.submit(undefined)}>
         {ret.isPending ? "Returning…" : "Return to stock"}
-      </button>
+      </Button>
 
       <RefusalAlert error={ret.error} wording={RETURN_WORDING} />
     </>
