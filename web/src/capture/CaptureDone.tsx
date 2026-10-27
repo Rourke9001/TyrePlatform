@@ -1,4 +1,7 @@
 import { ACCESS_COPY } from "../auth/actorContext";
+import { Icon } from "../ui/Icon";
+import { CheckIcon } from "../ui/icons/Check";
+import { CriticalIcon } from "../ui/icons/Critical";
 import "./capture.css";
 
 // A 401 waits for a sign-in. A latched store and a held 403 do not clear with
@@ -40,7 +43,7 @@ export function CaptureDone({
     return (
       <section className="cap-screen cap-done" role="status">
         <p className="cap-done-mark cap-done-mark--ok" aria-hidden="true">
-          ✓
+          <Icon icon={CheckIcon} size={48} />
         </p>
         <h1 className="cap-done-title">Inspection sent</h1>
         <p className="cap-done-body">The tyre office has it.</p>
@@ -55,7 +58,7 @@ export function CaptureDone({
     return (
       <section className="cap-screen cap-done" role="status">
         <p className="cap-done-mark cap-done-mark--ok" aria-hidden="true">
-          ✓
+          <Icon icon={CheckIcon} size={48} />
         </p>
         <h1 className="cap-done-title">Inspection saved</h1>
         <p className="cap-done-body">{waitingOn(lastStatus, lastCode)}</p>
@@ -70,7 +73,7 @@ export function CaptureDone({
   return (
     <section className="cap-screen cap-done" role="alert">
       <p className="cap-done-mark cap-done-mark--stop" aria-hidden="true">
-        !
+        <Icon icon={CriticalIcon} size={48} />
       </p>
       <h1 className="cap-done-title">This one needs the office</h1>
       <p className="cap-done-body">
