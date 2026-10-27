@@ -1,17 +1,15 @@
 import { useState } from "react";
 
+import { Button } from "../ui/Button";
+import { Checkbox } from "../ui/Checkbox";
+import { Keypad } from "../ui/Keypad";
 import type { CaptureContext } from "./captureContext";
 import { odometerRejection, odometerWarnings, projectedOdometerKm } from "./history";
 import type { RecordedWarning } from "./draft";
-import { Keypad } from "./Keypad";
+import { entryKey } from "./keypadKey";
 import { groupThousands } from "../format/groupThousands";
 import { useUnitLabels } from "../units/units";
 import "./capture.css";
-
-// The keypad's granularity is the field's own unit (whole km), never the
-// tenant's tread granularity: at 0.5mm that would put a half key on a
-// kilometre reading.
-const ODOMETER_GRANULARITY_KM = 1.0;
 
 // Seven digits covers 9,999,999km, past any unit's life; an eighth is a
 // mis-tap that would break the readout FR-INS-033 argues from.
@@ -123,22 +121,25 @@ export function CaptureStart({
           Nothing here writes fleet state. */}
       {motive.combination && (
         <fieldset className="cap-card">
-          <legend className="cap-eyebrow">Your rig</legend>
+          <legend className="cap-card-title">Your rig</legend>
           <p className="cap-hint">Confirm what is coupled up. Untick anything that is not here.</p>
           <ul className="cap-members">
             {motive.combination.members.map((m) => (
               <li key={m.vehicleId}>
-                <label className="cap-member">
-                  <input
-                    type="checkbox"
-                    className="cap-check"
-                    checked={attachedIds.includes(m.vehicleId)}
-                    disabled={m.vehicleId === motive.vehicleId}
-                    onChange={() => onToggleAttached(m.vehicleId)}
-                  />
-                  <span className="cap-member-id">{m.fleetNumber}</span>
-                  {m.descriptor && <span className="cap-member-note">{m.descriptor}</span>}
-                </label>
+                {/* The descriptor stays inside the label, not Checkbox's
+                    description, so the box keeps the name it reads as. */}
+                <Checkbox
+                  variant="card"
+                  checked={attachedIds.includes(m.vehicleId)}
+                  disabled={m.vehicleId === motive.vehicleId}
+                  onChange={() => onToggleAttached(m.vehicleId)}
+                  label={
+                    <>
+                      <span className="cap-member-id">{m.fleetNumber}</span>
+                      {m.descriptor && <span className="cap-member-note">{m.descriptor}</span>}
+                    </>
+                  }
+                />
               </li>
             ))}
           </ul>
@@ -150,7 +151,7 @@ export function CaptureStart({
 
       {wantsOdometer && (
         <fieldset className="cap-card">
-          <legend className="cap-eyebrow">Odometer</legend>
+          <legend className="cap-card-title">Odometer</legend>
           {/* Grouped in threes, the way the instrument reads, with the comma
               every displayed number uses (U55): a driver transcribing six
               digits from a dial in the sun has nothing to check their place
@@ -171,9 +172,9 @@ export function CaptureStart({
               the label carries the number so agreement is informed.
               Disappears once the value is the driver's. */}
           {value === null && projected !== null && (
-            <button type="button" className="cap-secondary" onClick={() => setAccepted(true)}>
+            <Button variant="secondary" size="glove" block onClick={() => setAccepted(true)}>
               Confirm {groupThousands(String(projected))} {labels.distance}
-            </button>
+            </Button>
           )}
           {value === null && projected !== null && (
             <p className="cap-hint">
@@ -182,10 +183,12 @@ export function CaptureStart({
             </p>
           )}
           <Keypad
-            granularityMm={ODOMETER_GRANULARITY_KM}
+            // Delete, whatever the tenant's tread granularity: a kilometre
+            // reading is whole, so a half key here would be a mis-tap.
+            altKey="delete"
             goLabel="Done ›"
-            goTone="default"
-            onKey={(k) => {
+            onKey={(key) => {
+              const k = entryKey(key);
               // Typing supersedes the projection rather than editing it: the
               // driver is reading six digits off a dial, and appending to a
               // number they did not enter is how a transcription becomes a
@@ -213,18 +216,19 @@ export function CaptureStart({
             </p>
           )}
           {warnings.map((w) => (
-            <label key={w.code} className="cap-confirm">
-              <input
-                type="checkbox"
-                className="cap-check"
-                checked={plausible}
-                onChange={(e) => setPlausible(e.target.checked)}
-              />
-              <span>
-                <span className="cap-confirm-msg">{w.message}</span>
-                <span className="cap-hint">Tick to confirm the reading is right.</span>
-              </span>
-            </label>
+            <Checkbox
+              key={w.code}
+              variant="card"
+              className="cap-confirm"
+              checked={plausible}
+              onChange={(e) => setPlausible(e.target.checked)}
+              label={
+                <>
+                  <span className="cap-confirm-msg">{w.message}</span>
+                  <span className="cap-hint">Tick to confirm the reading is right.</span>
+                </>
+              }
+            />
           ))}
         </fieldset>
       )}
@@ -237,14 +241,15 @@ export function CaptureStart({
         identifies the phone to the platform, not you. Nothing else about the fleet is stored here.
       </p>
 
-      <button
-        type="button"
-        className="cap-primary"
+      <Button
+        variant="primary"
+        size="glove"
+        block
         onClick={start}
         disabled={storageBlocked || rejection !== null || held}
       >
         Start inspection
-      </button>
+      </Button>
     </section>
   );
 }
