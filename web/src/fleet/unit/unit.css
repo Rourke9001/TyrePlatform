@@ -1,5 +1,7 @@
-/* The unit screen (TYRE-92), on Tread's cards (TYRE-240). Layout only: the
-   cards, fields and buttons draw themselves. Custom properties only. */
+/* The unit screen (TYRE-92), on Tread (TYRE-240). The cards, fields,
+   buttons and the plan draw themselves; this sheet lays them out and draws
+   what no component covers: the two native tables, the native radios, and
+   the muted and caution sentences. Custom properties only. */
 
 .unit-detail {
   max-width: 68rem;
