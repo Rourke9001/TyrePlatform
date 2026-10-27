@@ -128,6 +128,18 @@ describe("Exceptions", () => {
     );
   });
 
+  // NFR-USE-009: a critical row carries the critical edge beside its
+  // badge's word, and no other row does.
+  it("marks only a critical row with the critical edge", async () => {
+    renderWithActor(<Exceptions />, { capabilities: ["ViewFleet"], withRouter: true });
+    const table = await screen.findByRole("table", { name: "Exceptions" });
+    await waitFor(() => expect(table).not.toHaveAttribute("aria-busy"));
+    const rowOf = (name: string) => within(table).getByRole("cell", { name }).closest("tr");
+    expect(rowOf("Pressure dangerously under FR-EXC-022")).toHaveAttribute("data-tone", "critical");
+    expect(rowOf("Irregular wear across the tread FR-EXC-035")).not.toHaveAttribute("data-tone");
+    expect(rowOf("Dual-mate mismatch FR-EXC-036")).not.toHaveAttribute("data-tone");
+  });
+
   // U14, FR-EXC-010: a row a fitment resolved is shown only when asked
   // for, and says it was replaced.
   it("shows a replaced row only when replaced rows are included", async () => {
