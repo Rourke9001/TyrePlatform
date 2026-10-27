@@ -158,4 +158,13 @@ describe("TyreTile", () => {
     const css = tileCss.replace(/\/\*[\s\S]*?\*\//g, "");
     expect(css).toMatch(/\.tr-tile:focus-visible \{[^}]*z-index: 1;/);
   });
+
+  it("never clips the value, so a half millimetre stays whole (U146)", () => {
+    render(<TyreTile numberText="3" valueText="13.5mm" />);
+    expect(screen.getByText("13.5mm")).toBeInTheDocument();
+    const rule = /\.tr-tile__val \{[^}]*\}/.exec(tileCss)?.[0] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).not.toMatch(/text-overflow: ellipsis/);
+    expect(rule).not.toMatch(/overflow: hidden/);
+  });
 });
