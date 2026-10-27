@@ -138,7 +138,7 @@ describe("PositionSheet", () => {
 
     await user.click(screen.getByRole("button", { name: "1" }));
     await user.click(screen.getByRole("button", { name: "3" }));
-    expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
+    expect(within(screen.getByLabelText(/Tread reading 1 of 3/)).getByText("13")).toBeVisible();
   });
 
   // U145: no decimal key. A 0.5 mm tenant gets the half key in Delete's
@@ -500,7 +500,7 @@ describe("PositionSheet", () => {
         }}
       />,
     );
-    expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
+    expect(within(screen.getByLabelText(/Tread reading 1 of 3/)).getByText("13")).toBeVisible();
     expect(screen.getByLabelText(/Pressure/)).toHaveTextContent("800");
   });
 
