@@ -28,9 +28,18 @@
   color: var(--ink-muted);
 }
 
-/* The card's corners clip the first and last rows. */
-.unit-rows {
-  overflow: hidden;
+/* WCAG 2.4.7: nothing clips the list, since base.css draws each link's
+   focus ring outside it, so the end rows take the card's corners instead. */
+.unit-rows > li:first-child > .tr-row {
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.unit-rows > li:last-child > .tr-row {
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+}
+
+/* One row is both ends. */
+.unit-rows > li:only-child > .tr-row {
   border-radius: var(--radius-lg);
 }
 
