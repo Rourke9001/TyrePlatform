@@ -1,185 +1,29 @@
-import type { KeyboardEvent } from "react";
-
-import type { UnitPosition } from "../../api/units";
-import { occupantOf } from "./unit.view";
+import type { Unit } from "../../api/units";
+import { AxleDiagram } from "../../ui/AxleDiagram";
+import { diagramUnit } from "./unit.view";
 
 // The unit in plan view, drawn entirely from its positions, so a superlink
 // and a light vehicle run the same code (a fleet's axle library is tenant
 // data, FR-VEH-002). Occupancy is text, never colour alone (NFR-USE-009).
-
-const POS_W = 58;
-const POS_H = 24;
-const SLOT_GAP = 4;
-// Half the gap the chassis line is drawn in, so the innermost slot clears it.
-const BEAM_GAP = 15;
-const AXLE_PITCH = POS_W + 26;
-const PAD = 6;
-// A stroke straddles its path, so half falls outside the rect's own box;
-// without this margin the outermost positions would clip against the
-// viewBox.
-const STROKE_MARGIN = 2;
-// Two slots deep is app.fitment_slot's maximum, so the axle stack reaches
-// a fixed distance either side of the chassis line; the drawing's height
-// is not fixed, since spare count is tenant data (FR-VEH-002).
-const HALF_H = BEAM_GAP + 2 * POS_H + SLOT_GAP + STROKE_MARGIN;
-const AXLE_STACK_H = 2 * HALF_H;
-const CENTRE_Y = HALF_H;
-
-// The top of the i-th spare, counting from zero.
-function spareTop(i: number): number {
-  return CENTRE_Y - POS_H / 2 + i * (POS_H + SLOT_GAP);
-}
-
-// How far from the chassis line a slot sits, in whole position heights.
-function depthOf(slot: string | null): number {
-  return slot === "OUTER" ? 2 : 1;
-}
-
-function topOf(position: UnitPosition): number {
-  const depth = depthOf(position.slot);
-  // RIGHT is the only side drawn below the line; a position that records no
-  // side at all is a spare, which never reaches this function.
-  if (position.side === "RIGHT") {
-    return CENTRE_Y + BEAM_GAP + (depth - 1) * (POS_H + SLOT_GAP);
-  }
-  return CENTRE_Y - BEAM_GAP - depth * POS_H - (depth - 1) * SLOT_GAP;
-}
-
 export function UnitPlan({
-  positions,
+  unit,
   selectedId,
   onSelect,
 }: {
-  positions: UnitPosition[];
+  unit: Unit;
   selectedId: string | null;
   onSelect: (positionId: string) => void;
 }) {
-  const spares = positions.filter((p) => p.isSpare);
-  const mounted = positions.filter((p) => !p.isSpare);
-
-  // Axle numbers ascending, whatever the read happened to contain: a unit
-  // with axles 1 and 3 (a member of a combination read on its own) must
-  // still draw two axles side by side rather than a gap where axle 2 is not.
-  const axleNumbers = [...new Set(mounted.map((p) => p.axleNumber ?? 0))].sort((a, b) => a - b);
-
-  const spareColumn = spares.length > 0 ? POS_W + 20 : 0;
-  const width =
-    (PAD + STROKE_MARGIN) * 2 + spareColumn + Math.max(axleNumbers.length, 1) * AXLE_PITCH;
-  const spareStack = spares.length > 0 ? spareTop(spares.length - 1) + POS_H + STROKE_MARGIN : 0;
-  const height = Math.max(AXLE_STACK_H, spareStack);
-
-  function axleX(index: number): number {
-    return PAD + STROKE_MARGIN + spareColumn + index * AXLE_PITCH;
-  }
-
   return (
-    <svg
+    <AxleDiagram
       className="unit-plan"
-      viewBox={`0 0 ${width} ${height}`}
-      width={width}
-      height={height}
-      // group, not img: an img's descendants are presentational, which would
-      // take every position button out of the accessibility tree.
       role="group"
       aria-label="Unit plan view"
-    >
-      {axleNumbers.length > 0 && (
-        <line
-          className="unit-plan-chassis"
-          x1={axleX(0)}
-          y1={CENTRE_Y}
-          x2={axleX(axleNumbers.length - 1) + POS_W}
-          y2={CENTRE_Y}
-        />
-      )}
-
-      {axleNumbers.map((axleNumber, index) => (
-        <g key={axleNumber} role="group" aria-label={`Axle ${axleNumber}`}>
-          <line
-            className="unit-plan-beam"
-            x1={axleX(index) + POS_W / 2}
-            y1={CENTRE_Y - HALF_H + PAD}
-            x2={axleX(index) + POS_W / 2}
-            y2={CENTRE_Y + HALF_H - PAD}
-          />
-          {mounted
-            .filter((p) => (p.axleNumber ?? 0) === axleNumber)
-            .sort((a, b) => a.sequence - b.sequence)
-            .map((position) => (
-              <PlanPosition
-                key={position.id}
-                position={position}
-                x={axleX(index)}
-                y={topOf(position)}
-                selected={position.id === selectedId}
-                onSelect={onSelect}
-              />
-            ))}
-        </g>
-      ))}
-
-      {spares.length > 0 && (
-        <g role="group" aria-label="Spares">
-          {spares.map((position, i) => (
-            <PlanPosition
-              key={position.id}
-              position={position}
-              x={PAD + STROKE_MARGIN}
-              y={spareTop(i)}
-              selected={position.id === selectedId}
-              onSelect={onSelect}
-            />
-          ))}
-        </g>
-      )}
-    </svg>
-  );
-}
-
-function PlanPosition({
-  position,
-  x,
-  y,
-  selected,
-  onSelect,
-}: {
-  position: UnitPosition;
-  x: number;
-  y: number;
-  selected: boolean;
-  onSelect: (positionId: string) => void;
-}) {
-  // A <g> carries no default activation behaviour, so the keys a button
-  // answers to have to be spelled out. Space is prevented from scrolling the
-  // page under the drawing.
-  function onKeyDown(e: KeyboardEvent<SVGGElement>) {
-    if (e.key !== "Enter" && e.key !== " ") return;
-    e.preventDefault();
-    onSelect(position.id);
-  }
-
-  return (
-    <g
-      role="button"
-      tabIndex={0}
-      aria-label={`Position ${position.code}: ${occupantOf(position)}`}
-      aria-pressed={selected}
-      // The e2e specs reach a position by its id rather than its wording:
-      // CR-010 keeps requirement ids out of user-facing text, so a spec keyed
-      // on the friendly name would fail on the next copy edit
-      // (web/CLAUDE.md).
-      data-position-id={position.id}
-      className={selected ? "unit-plan-pos unit-plan-pos--selected" : "unit-plan-pos"}
-      onClick={() => onSelect(position.id)}
-      onKeyDown={onKeyDown}
-    >
-      <rect x={x} y={y} width={POS_W} height={POS_H} rx="4" />
-      <text className="unit-plan-code" x={x + POS_W / 2} y={y + 10}>
-        {position.code}
-      </text>
-      <text className="unit-plan-occupant" x={x + POS_W / 2} y={y + 20}>
-        {occupantOf(position)}
-      </text>
-    </g>
+      units={[diagramUnit(unit)]}
+      // "" rather than null: every tile is a toggle, so with nothing picked
+      // each still states aria-pressed="false".
+      selectedId={selectedId ?? ""}
+      onSelect={(position) => onSelect(position.id)}
+    />
   );
 }
