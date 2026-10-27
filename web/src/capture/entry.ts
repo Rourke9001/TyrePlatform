@@ -77,6 +77,10 @@ function write(state: EntryState, buffer: string, opts: EntryOptions): EntryStat
 const forget = (state: EntryState): EntryState =>
   state.advancedFrom === null ? state : { ...state, advancedFrom: null };
 
+// FR-INS-030: a half that would pass the ceiling changes nothing, since the
+// CHECK at db/migrations/000001_init.up.sql:368 would refuse the reading.
+const halfPassesCeiling = (mm: number) => Math.floor(mm) + 0.5 > TREAD_CEILING_MM;
+
 export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): EntryResult {
   switch (key.type) {
     case "focus":
@@ -103,24 +107,25 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       // U145: the half key is a 0.5mm tenant's, and it only ever adds to a tread.
       if (opts.granularityMm !== 0.5) return { state: forget(state), settled: false };
       const from = state.advancedFrom;
-      const here = isPressure(state, opts) ? state.pressureKpa : state.treads[state.field];
-      // U146, the owner's ruling of 27 Oct 2026: a half straight after the
-      // keypad moves on, onto an empty field, belongs to the whole reading it
-      // left. Not settled, so the sheet arms no second advance.
-      if (from !== null && here === null && state.buffer === "") {
+      // U146, the owner's ruling of 27 Oct 2026: after next and before any
+      // other key, the half belongs to the whole reading the keypad left,
+      // never to the field it moved on to. Not settled, so the sheet arms no
+      // second advance.
+      if (from !== null) {
         const left = state.treads[from];
-        if (left !== null && Number.isInteger(left)) {
-          const treads = [...state.treads];
-          treads[from] = left + 0.5;
-          return { state: { ...state, treads, advancedFrom: null }, settled: false };
+        if (left === null || !Number.isInteger(left) || halfPassesCeiling(left)) {
+          return { state: forget(state), settled: false };
         }
+        const treads = [...state.treads];
+        treads[from] = left + 0.5;
+        return { state: { ...state, treads, advancedFrom: null }, settled: false };
       }
-      if (isPressure(state, opts)) return { state: forget(state), settled: false };
+      if (isPressure(state, opts)) return { state, settled: false };
       const current = state.treads[state.field];
-      if (current === null) return { state: forget(state), settled: false };
+      if (current === null || halfPassesCeiling(current)) return { state, settled: false };
       const treads = [...state.treads];
       treads[state.field] = Math.floor(current) + 0.5;
-      return { state: { ...state, treads, buffer: "", advancedFrom: null }, settled: true };
+      return { state: { ...state, treads, buffer: "" }, settled: true };
     }
 
     case "digit": {
