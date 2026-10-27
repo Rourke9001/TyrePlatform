@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -43,6 +43,23 @@ describe("ChoiceChips", () => {
     expect(screen.getByRole("radio", { name: "Uneven wear" })).toHaveFocus();
     expect(screen.getByRole("radio", { name: "Uneven wear" })).toBeChecked();
     expect(tabStops()).toEqual(["Uneven wear"]);
+  });
+
+  // The same browser and screen reader keys SegmentedControl lets through.
+  it("leaves an arrow with a modifier to the browser", () => {
+    const onChange = vi.fn();
+    render(<ChoiceChips label="Damage" options={options} value="bulge" onChange={onChange} />);
+    const bulge = screen.getByRole("radio", { name: "Bulge" });
+    bulge.focus();
+    for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+      for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+        expect(fireEvent.keyDown(bulge, { key, [modifier]: true })).toBe(true);
+      }
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    expect(bulge).toHaveFocus();
+    expect(fireEvent.keyDown(bulge, { key: "ArrowLeft" })).toBe(false);
+    expect(onChange).toHaveBeenCalledWith("cut");
   });
 
   it("takes the glove size and passes unknown props to the group", () => {

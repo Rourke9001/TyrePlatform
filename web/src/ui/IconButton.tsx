@@ -24,9 +24,10 @@ export function IconButton({
 }: IconButtonProps) {
   return (
     <button
-      aria-label={label}
       title={label}
       {...rest}
+      // After the spread: with no visible word, the name is always label.
+      aria-label={label}
       type={type}
       className={cx(
         "tr-iconbtn",

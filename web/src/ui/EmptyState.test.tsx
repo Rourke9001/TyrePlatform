@@ -27,4 +27,20 @@ describe("EmptyState", () => {
     expect(container.querySelector(".tr-empty__body")).toBeNull();
     expect(container.querySelectorAll("svg circle")).toHaveLength(2);
   });
+
+  // A paragraph cannot hold a list or a second paragraph, so the body is a
+  // div that takes any block a caller passes.
+  it("holds a block body in valid markup", () => {
+    const { container } = render(
+      <EmptyState title="Nothing to send">
+        <p>The outbox is empty.</p>
+        <ul>
+          <li>Readings send as you capture them.</li>
+        </ul>
+      </EmptyState>,
+    );
+    const body = container.querySelector(".tr-empty__body");
+    expect(body?.tagName).toBe("DIV");
+    expect(body?.querySelector("p, ul")).not.toBeNull();
+  });
 });

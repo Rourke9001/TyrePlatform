@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
@@ -55,6 +55,24 @@ describe("SegmentedControl", () => {
     await userEvent.keyboard("{ArrowUp}");
     expect(screen.getByRole("radio", { name: "Week" })).toBeChecked();
     expect(tabStops()).toEqual(["Week"]);
+  });
+
+  // Alt+Left is the browser's back, and Ctrl, Cmd and Shift arrows belong to
+  // the browser and the screen reader, so the group lets them through.
+  it("leaves an arrow with a modifier to the browser", () => {
+    const onChange = vi.fn();
+    render(<SegmentedControl label="Period" options={options} value="week" onChange={onChange} />);
+    const week = screen.getByRole("radio", { name: "Week" });
+    week.focus();
+    for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+      for (const key of ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]) {
+        expect(fireEvent.keyDown(week, { key, [modifier]: true })).toBe(true);
+      }
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    expect(week).toHaveFocus();
+    expect(fireEvent.keyDown(week, { key: "ArrowRight" })).toBe(false);
+    expect(onChange).toHaveBeenCalledWith("month");
   });
 
   it("keeps the first option as the tab stop when the value matches none", () => {
