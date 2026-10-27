@@ -1,3 +1,4 @@
+import { Button } from "../ui/Button";
 import { ACCESS_COPY } from "./actorContext";
 import "./auth.css";
 
@@ -15,9 +16,9 @@ export function AccessScreen({ failure }: { failure: keyof typeof ACCESS_COPY })
         {copy.body}
       </p>
       {failure === "unavailable" && (
-        <button type="button" className="auth-secondary" onClick={() => window.location.reload()}>
+        <Button variant="secondary" size="glove" onClick={() => window.location.reload()}>
           Try again
-        </button>
+        </Button>
       )}
     </section>
   );
