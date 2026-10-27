@@ -193,113 +193,6 @@
   accent-color: var(--interactive);
 }
 
-/* The unit screen's tables: .tyres-table and .fitments-table (TYRE-93) are
-   one table, taking these four rules by selector, not by a second copy, so
-   they cannot drift apart by accident. */
-.tyres-table,
-.fitments-table {
-  width: 100%;
-  border-collapse: collapse;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  overflow: hidden;
-}
-
-.tyres-table th,
-.tyres-table td,
-.fitments-table th,
-.fitments-table td {
-  padding: 0.5rem 0.75rem;
-  text-align: left;
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  border-bottom: 1px solid var(--line);
-}
-
-.tyres-table thead th,
-.fitments-table thead th {
-  font-family: var(--font-sans);
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-eyebrow);
-  color: var(--ink-muted);
-}
-
-.tyres-table tbody th[scope="row"],
-.fitments-table tbody th[scope="row"] {
-  font-family: var(--font-mono);
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.tyres-row-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
-}
-
-.tyres-row-form select,
-.tyres-row-form input {
-  min-height: 2.25rem;
-  font: inherit;
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 0.25rem 0.4rem;
-  color: var(--ink);
-  background: var(--surface);
-}
-
-/* The stacked form the unit screen's panels share (TYRE-91). Stacked, since
-   the unit screen is reachable from the phone the capture app runs on and
-   two columns at 360px scroll sideways. */
-.tyres-receive {
-  max-width: 32rem;
-}
-
-.tyres-receive h1 {
-  margin-bottom: 1rem;
-}
-
-.tyres-receive form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.tyres-receive label {
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  color: var(--ink-muted);
-}
-
-.tyres-receive input,
-.tyres-receive select {
-  min-height: 2.75rem;
-  font: inherit;
-  font-family: var(--font-sans);
-  font-size: var(--type-body-size);
-  color: var(--ink);
-}
-
-.tyres-receive input,
-.tyres-receive select {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 0.4rem 0.6rem;
-}
-
-.tyres-receive-hint {
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  color: var(--ink-muted);
-  margin: 0;
-}
-
 /* Receive tyres and the other one-form screens on Tread (TYRE-240): cards
    of fields, two to a row where the width allows, one on a phone. */
 .fleet-form-page {
@@ -348,9 +241,8 @@
   font-weight: 700;
 }
 
-/* The reorderable-row list: RotateForm's positions and RigForm's towed
-   units (TYRE-72) both need one row per item with a Move/Remove strip, so
-   this is the shared shape rather than a second copy in this file. */
+/* The reorderable-row list: RigForm's towed units (TYRE-72), one row per
+   unit with its Move/Remove strip. */
 .unit-rotate-rows {
   list-style: none;
   margin: 0 0 var(--space-2);
