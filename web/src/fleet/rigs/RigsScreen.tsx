@@ -1,5 +1,5 @@
-import "../../ui/legacy/ui.css";
 import { useCan } from "../../auth/actorContext";
+import { PageHeader } from "../../ui/PageHeader";
 import { ReportedDifferences } from "./ReportedDifferences";
 import { RigForm } from "./RigForm";
 import { RigList } from "./RigList";
@@ -13,10 +13,10 @@ export function RigsScreen() {
   const canAssign = useCan("ManageAssignments");
 
   return (
-    <section aria-labelledby="rigs-heading" className="rigs">
-      <h1 className="page-title" id="rigs-heading">
-        Rigs
-      </h1>
+    <section aria-labelledby="rigs-heading" className="fleet-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader title={<span id="rigs-heading">Rigs</span>} />
       <ReportedDifferences />
       {canAssign && <RigForm />}
       <RigList />

@@ -8,11 +8,9 @@
   max-width: 68rem;
 }
 
-/* .retreads, .fitments (TYRE-93) and .rigs (TYRE-72) until each is on
-   .fleet-page. */
+/* .retreads and .fitments (TYRE-93) until each is on .fleet-page. */
 .retreads,
-.fitments,
-.rigs {
+.fitments {
   max-width: 68rem;
 }
 
@@ -25,8 +23,7 @@
 
 /* .page-title supplies the type; the margin is this layout's own. */
 .retreads h1,
-.fitments h1,
-.rigs h1 {
+.fitments h1 {
   margin-bottom: 1rem;
 }
 
@@ -253,9 +250,9 @@
   background: var(--surface);
 }
 
-/* The stacked form the unit screen's panels and the rigs screen's Set a rig
-   share (TYRE-91). Stacked, since these screens are reachable from the
-   phone the capture app runs on and two columns at 360px scroll sideways. */
+/* The stacked form the unit screen's panels share (TYRE-91). Stacked, since
+   the unit screen is reachable from the phone the capture app runs on and
+   two columns at 360px scroll sideways. */
 .tyres-receive {
   max-width: 32rem;
 }
@@ -387,10 +384,58 @@
   color: var(--ink-muted);
 }
 
-/* Layout only: the rigs screen's submits sit left-aligned, not stretched.
-   Scoped to .rigs, not .tyres-receive, whose full-width submit is by
-   design (unit.css does the same for the unit screen). Disabled contrast
-   is TYRE-132's. */
-.rigs .tyres-receive button[type="submit"] {
-  align-self: flex-start;
+/* A section's heading between a page's cards, at a card title's size. */
+.fleet-section-title {
+  margin: var(--space-2) 0 0;
+  font-size: var(--type-title-3-size);
+  line-height: var(--type-title-3-line);
+  font-weight: var(--type-title-3-weight);
+}
+
+.fleet-subhead {
+  margin: 0;
+  font-weight: 700;
+  font-size: var(--type-small-size);
+  line-height: var(--type-small-line);
+  color: var(--ink-secondary);
+}
+
+/* A single field that would stretch across a wide card. */
+.fleet-field-narrow {
+  width: min(100%, 20rem);
+}
+
+.fleet-towed__seq {
+  min-width: 1.5rem;
+  font-family: var(--font-mono);
+  color: var(--ink-muted);
+}
+
+.fleet-towed__unit {
+  min-width: 6rem;
+  font-family: var(--font-mono);
+  font-weight: 700;
+}
+
+/* Two classes, so the descriptor keeps this width whichever sheet loads
+   first (docs/lessons.md, 2026-10-26). */
+.fleet-towed .tr-input {
+  flex: 0 1 12rem;
+}
+
+.fleet-reports {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fleet-report {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  border-top: 1px solid var(--line);
+}
+
+.fleet-report__sentence {
+  margin: 0;
 }
