@@ -10,10 +10,11 @@ import { Sheet } from "../Sheet";
 import { TabPanel } from "../TabPanel";
 import { Tabs } from "../Tabs";
 
-// Example values only, in the Sandbox tenant's voice; none is a fleet
-// figure. The gallery's own test renders it without a router and the dev
-// route inside one, so a sample with links brings a router only when it
-// has none.
+// Invented round figures in the Sandbox tenant's voice, none taken from a
+// fixture or a fleet.
+
+// The gallery's own test renders it without a router and the dev route
+// inside one, so a sample with links brings a router only when it has none.
 function Routed({ children }: { children: ReactNode }) {
   return useInRouterContext() ? children : <MemoryRouter>{children}</MemoryRouter>;
 }
@@ -36,7 +37,7 @@ const nav: NavGroup[] = [
     label: "Overview",
     items: [
       { label: "Dashboard", to: "/" },
-      { label: "Exceptions", to: "/exceptions", count: 19, critical: true },
+      { label: "Exceptions", to: "/exceptions", count: 7, critical: true },
     ],
   },
   { label: "Development", items: [{ label: "Design gallery", to: "/dev/design" }] },

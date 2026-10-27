@@ -4,6 +4,7 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Dialog } from "./Dialog";
+import dialogCss from "./Dialog.css?raw";
 
 describe("Dialog", () => {
   it("is a dialog named by its title and described by its description", () => {
@@ -54,6 +55,34 @@ describe("Dialog", () => {
     );
     const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
     expect(dialog).toHaveAccessibleDescription("The tyre leaves the register.");
+  });
+
+  // A caller's `{pending && <p>...</p>}` passes false; nothing renders, so
+  // nothing may describe the dialog.
+  it("draws no body and no description for children that render nothing", () => {
+    const pending = false;
+    render(
+      <Dialog
+        open
+        onClose={() => undefined}
+        title="Dispose tyre"
+        description={null}
+        actions={<button type="button">Dispose</button>}
+      >
+        {pending && <p>Saving</p>}
+        {null}
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
+    expect(dialog).not.toHaveAttribute("aria-describedby");
+    expect(dialog.querySelector(".tr-dialog__body, .tr-dialog__desc")).toBeNull();
+  });
+
+  // jsdom lays nothing out, so the panel's fit is read from the source: it
+  // never grows past the viewport, and its body scrolls inside it.
+  it("keeps the panel inside the viewport and scrolls its body", () => {
+    expect(dialogCss).toMatch(/\.tr-dialog \{[^}]*max-height: 100%;/);
+    expect(dialogCss).toMatch(/\.tr-dialog__body \{[^}]*overflow-y: auto;/);
   });
 
   it("traps focus, closes on Escape and returns focus to the control that opened it", async () => {

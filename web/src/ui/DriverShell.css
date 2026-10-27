@@ -1,5 +1,5 @@
 /* Tread's driver shell (ADR-0020): phone first, one task per screen, the
-   action in the thumb zone. Every colour and size is a token from
+   action in the thumb zone. Every colour is a token from
    src/theme/tokens.ts; the brand reaches the app bar alone (U53). */
 
 .tr-driver {

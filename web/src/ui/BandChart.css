@@ -1,6 +1,6 @@
-/* Tread's band chart (ADR-0020). Every colour and size is a token from
-   src/theme/tokens.ts; a bar's fill is a --data-N ramp step, never a tenant
-   colour (U53). */
+/* Tread's band chart (ADR-0020). Every colour is a token from
+   src/theme/tokens.ts; a bar's fill is a --data-N ramp step, never a
+   tenant colour (U53). */
 
 .tr-bands {
   display: grid;
@@ -53,8 +53,8 @@
   height: 24px;
 }
 
-/* U56: color-mix needs Safari 16.2 and the floor is 15.4, so the nearest
-   stop is the fill unless the blend can be drawn. */
+/* U56: the nearest stop unless the blend can be drawn; src/ui/bandFill.ts
+   holds why. */
 .tr-bands__bar {
   display: block;
   height: 100%;

@@ -1,4 +1,4 @@
-/* Tread's event timeline (ADR-0020). Every colour and size is a token from
+/* Tread's event timeline (ADR-0020). Every colour is a token from
    src/theme/tokens.ts. */
 
 .tr-timeline {
