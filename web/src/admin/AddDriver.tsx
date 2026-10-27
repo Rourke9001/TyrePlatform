@@ -5,6 +5,13 @@ import { createUser, type CreatedUser, type TenantRole } from "../api/admin";
 import { ApiError } from "../api/client";
 import { refusalMessage } from "../api/refusal";
 import { useCan } from "../auth/actorContext";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import { Field } from "../ui/Field";
+import { PageHeader } from "../ui/PageHeader";
+import { Select } from "../ui/Select";
+import { TextInput } from "../ui/TextInput";
 import "./admin.css";
 
 // The roles a tenant may create. PLATFORM_ADMIN is absent because it is not
@@ -79,78 +86,87 @@ export function AddDriver() {
   }
 
   return (
-    <section aria-labelledby="add-user-heading" className="adm-form">
-      <h1 id="add-user-heading">Add a user</h1>
+    <section aria-labelledby="add-user-heading" className="adm-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader title={<span id="add-user-heading">Add a user</span>} />
 
-      <form onSubmit={submitUser}>
-        <label htmlFor="email">Email address</label>
-        <input
-          id="email"
-          type="email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          required
-        />
+      <Card>
+        <form className="tr-stack" onSubmit={submitUser}>
+          <Field label="Email address">
+            <TextInput
+              id="email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </Field>
 
-        <label htmlFor="displayName">Name</label>
-        <input
-          id="displayName"
-          value={displayName}
-          onChange={(e) => setDisplayName(e.target.value)}
-          required
-        />
+          <Field label="Name">
+            <TextInput
+              id="displayName"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              required
+            />
+          </Field>
 
-        {/* FR-AUT-022: a durable identifier independent of the display name,
-            and optional. R13 identifies its driver as "Melusi" and nothing
-            else. */}
-        <label htmlFor="staffNumber">Staff number</label>
-        <input
-          id="staffNumber"
-          value={staffNumber}
-          onChange={(e) => setStaffNumber(e.target.value)}
-        />
+          {/* FR-AUT-022: a durable identifier independent of the display name,
+              and optional. R13 identifies its driver as "Melusi" and nothing
+              else. */}
+          <Field label="Staff number">
+            <TextInput
+              id="staffNumber"
+              mono
+              value={staffNumber}
+              onChange={(e) => setStaffNumber(e.target.value)}
+            />
+          </Field>
 
-        <label htmlFor="role">Role</label>
-        <select
-          id="role"
-          value={role}
-          onChange={(e) => setRole(e.target.value as TenantRole)}
-          required
-        >
-          {roles.map((r) => (
-            <option key={r.value} value={r.value}>
-              {r.label}
-            </option>
-          ))}
-        </select>
+          <Field label="Role">
+            <Select
+              id="role"
+              value={role}
+              onChange={(e) => setRole(e.target.value as TenantRole)}
+              required
+              options={roles}
+            />
+          </Field>
 
-        <button type="submit" disabled={create.isPending}>
-          {create.isPending ? "Adding…" : "Add user"}
-        </button>
-      </form>
+          <div>
+            <Button variant="primary" type="submit" disabled={create.isPending}>
+              {create.isPending ? "Adding…" : "Add user"}
+            </Button>
+          </div>
+        </form>
+      </Card>
 
-      {create.isError && rehire === null && <p role="alert">{refused(create.error)}</p>}
+      {create.isError && rehire === null && (
+        <Banner tone="critical" title={refused(create.error)} />
+      )}
       {rehire !== null && (
         <>
-          <p role="alert">{rehire.message}</p>
+          <Banner tone="critical" title={rehire.message} />
           {/* A focusable descendant of role="alert" is not reliably surfaced
               by assistive tech, which announces the region's text and stops;
               the button is a sibling so a screen-reader user can reach it. */}
-          <button
-            type="button"
-            disabled={create.isPending}
-            onClick={() =>
-              create.mutate({
-                email: rehire.email,
-                displayName,
-                staffNumber: staffNumber === "" ? undefined : staffNumber,
-                role,
-                reactivate: true,
-              })
-            }
-          >
-            Reactivate {rehire.email}
-          </button>
+          <div>
+            <Button
+              disabled={create.isPending}
+              onClick={() =>
+                create.mutate({
+                  email: rehire.email,
+                  displayName,
+                  staffNumber: staffNumber === "" ? undefined : staffNumber,
+                  role,
+                  reactivate: true,
+                })
+              }
+            >
+              Reactivate {rehire.email}
+            </Button>
+          </div>
         </>
       )}
       {created && (
