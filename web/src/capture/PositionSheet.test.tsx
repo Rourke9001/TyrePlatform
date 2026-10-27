@@ -447,6 +447,22 @@ describe("PositionSheet", () => {
     expect(screen.getByRole("region", { name: "Spare, BAC039SP" })).toBeInTheDocument();
   });
 
+  // FR-INS-060, FR-VEH-034 (U156): the header names the per-unit place the
+  // tile has no room for, from the wire's axle and side alone. A spare has
+  // neither, so its header is the unit and the class.
+  it("names the unit, the axle and the side in the header", () => {
+    const { rerender } = render(
+      <PositionSheet {...props({})} rig={{ ...rig, position: { ...position, side: "RIGHT" } }} />,
+    );
+    expect(screen.getByText("BAC039SP · steer · axle 1, right")).toBeInTheDocument();
+
+    const spare = { ...position, isSpare: true, axleClass: "SPARE", axleNumber: null, side: null };
+    rerender(
+      <PositionSheet {...props({})} rig={{ ...rig, position: spare, displayNumber: null }} />,
+    );
+    expect(screen.getByText("BAC039SP · spare")).toBeInTheDocument();
+  });
+
   // FR-OFF-006: reopening a captured position shows what was entered.
   // Without this the draft survives a restart and the screen does not,
   // which from the driver's side is the same as having lost it.
