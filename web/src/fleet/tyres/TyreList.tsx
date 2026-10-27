@@ -1,4 +1,3 @@
-import "../../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
@@ -8,6 +7,15 @@ import { formatMoney, useCurrency } from "../../api/money";
 import { fetchTyres, isDisposed, type Destination, type Tyre } from "../../api/tyres";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
+import { Card } from "../../ui/Card";
+import { Checkbox } from "../../ui/Checkbox";
+import { Field } from "../../ui/Field";
+import { PlusIcon } from "../../ui/icons/Plus";
+import { RefreshIcon } from "../../ui/icons/Refresh";
+import { PageHeader } from "../../ui/PageHeader";
+import { TextInput } from "../../ui/TextInput";
 import { byNaturalCode } from "../unit/naturalOrder";
 import { tyresKey } from "../unit/queryKeys";
 import { CostForm } from "./CostForm";
@@ -158,59 +166,63 @@ export function TyreList() {
     : [];
 
   return (
-    <section aria-labelledby="tyres-heading" className="tyres">
-      <div className="tyres-heading-row">
-        <h1 className="page-title" id="tyres-heading">
-          Tyres
-        </h1>
-        {/* The register's only route to intake (FR-TYR-040): ReceiveTyre is
-            otherwise reachable by URL alone, and a screen someone cannot find
-            their way to might as well not exist. */}
-        <Link to="/fleet/tyres/new">Receive tyres</Link>
-        {/* The queue's only discoverable entry point, gated on LogRetread
-            since an actor who cannot log a return has nothing to do on that
-            screen. */}
-        {canLogRetread && <Link to="/fleet/tyres/retreads">Retreads</Link>}
-      </div>
+    <section aria-labelledby="tyres-heading" className="fleet-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader
+        title={<span id="tyres-heading">Tyres</span>}
+        actions={
+          <>
+            {/* The register's only route to intake (FR-TYR-040): ReceiveTyre
+                is otherwise reachable by URL alone, and a screen someone
+                cannot find their way to might as well not exist. */}
+            <Button to="/fleet/tyres/new" variant="primary" icon={PlusIcon}>
+              Receive tyres
+            </Button>
+            {/* The queue's only discoverable entry point, gated on LogRetread
+                since an actor who cannot log a return has nothing to do on
+                that screen. */}
+            {canLogRetread && (
+              <Button to="/fleet/tyres/retreads" icon={RefreshIcon}>
+                Retreads
+              </Button>
+            )}
+          </>
+        }
+      />
 
-      <form className="tyres-lookup" onSubmit={submitLookup}>
-        <label htmlFor="lookup-code">Display code</label>
-        <input
-          id="lookup-code"
-          value={codeInput}
-          onChange={(e) => setCodeInput(e.target.value)}
-          required
-        />
-        <label htmlFor="lookup-date">As of date</label>
-        <input
-          id="lookup-date"
-          type="date"
-          value={dateInput}
-          onChange={(e) => setDateInput(e.target.value)}
-          required
-        />
-        <button className="btn-primary" type="submit">
-          Find tyre
-        </button>
-        {lookup && (
-          <button className="btn-primary" type="button" onClick={clearLookup}>
-            Show full register
-          </button>
-        )}
+      <form className="fleet-toolbar" onSubmit={submitLookup}>
+        <Field label="Display code">
+          <TextInput
+            id="lookup-code"
+            mono
+            value={codeInput}
+            onChange={(e) => setCodeInput(e.target.value)}
+            required
+          />
+        </Field>
+        <Field label="As of date">
+          <TextInput
+            id="lookup-date"
+            type="date"
+            value={dateInput}
+            onChange={(e) => setDateInput(e.target.value)}
+            required
+          />
+        </Field>
+        <Button type="submit">Find tyre</Button>
+        {lookup && <Button onClick={clearLookup}>Show full register</Button>}
       </form>
 
       {!lookup && (
-        <label className="tyres-filter">
-          <input
-            type="checkbox"
-            checked={awaitingCost}
-            onChange={(e) => {
-              setAwaitingCost(e.target.checked);
-              setActed(null);
-            }}
-          />
-          Awaiting cost only
-        </label>
+        <Checkbox
+          label="Awaiting cost only"
+          checked={awaitingCost}
+          onChange={(e) => {
+            setAwaitingCost(e.target.checked);
+            setActed(null);
+          }}
+        />
       )}
 
       {lookup && tyres.isSuccess && rows.length > 1 && (
@@ -224,76 +236,92 @@ export function TyreList() {
       {tyres.isPending && <p>Loading…</p>}
 
       {tyres.isError && (
-        <div className="note-card" role="alert">
-          <h2>Tyres didn&apos;t load</h2>
-          <p>The server could not be reached. Check your connection, then retry.</p>
-          <button className="btn-primary" type="button" onClick={() => void tyres.refetch()}>
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="critical"
+          title={<h2 className="fleet-banner-heading">Tyres didn&apos;t load</h2>}
+          action={<Button onClick={() => void tyres.refetch()}>Retry</Button>}
+        >
+          The server could not be reached. Check your connection, then retry.
+        </Banner>
       )}
 
-      {tyres.isSuccess && rows.length === 0 && <p className="note-card">No tyres match.</p>}
+      {tyres.isSuccess && rows.length === 0 && <p className="fleet-note">No tyres match.</p>}
 
       {tyres.isSuccess && rows.length > 0 && (
-        <table className="tyres-table">
-          <thead>
-            <tr>
-              <th scope="col">Code</th>
-              <th scope="col">Size</th>
-              <th scope="col">Brand</th>
-              <th scope="col">Pattern</th>
-              <th scope="col">State</th>
-              <th scope="col">Received</th>
-              <th scope="col">Awaiting cost</th>
-              <th scope="col">Set cost</th>
-              {canSeeMoney && <th scope="col">Purchase price</th>}
-              {canSeeMoney && <th scope="col">Cost per mm</th>}
-              {canSeeMoney && <th scope="col">Casing value</th>}
-              <th scope="col">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((t) => (
-              <tr key={t.id}>
-                <th scope="row">{t.displayCode}</th>
-                <td>{t.sizeName ?? "—"}</td>
-                <td>{t.brandName ?? "—"}</td>
-                <td>{t.patternName ?? "—"}</td>
-                <td>{t.state}</td>
-                <td>{t.receivedDate ? asOf(t.receivedDate) : "Not received"}</td>
-                <td>{t.awaitingCost ? "Yes" : "No"}</td>
-                <td>
-                  {/* FR-CFG-041: a received tyre is priced with its set,
-                      on its receipt; set_tyre_cost refuses it alone. */}
-                  {t.awaitingCost && t.receiptId !== null ? (
-                    <Link to="/fleet/tyres/receipts">Price it on its receipt</Link>
-                  ) : t.awaitingCost ? (
-                    <CostForm
-                      tyre={t}
-                      tenantKey={tenantKey}
-                      onSuccess={() => setActed({ kind: "cost", code: t.displayCode })}
-                    />
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                {canSeeMoney && (
-                  <td>{t.purchasePrice ? formatMoney(t.purchasePrice, currency) : "—"}</td>
-                )}
-                {canSeeMoney && <td>{t.randPerMm ? formatMoney(t.randPerMm, currency) : "—"}</td>}
-                {canSeeMoney && (
-                  <td>{t.casingValue ? formatMoney(t.casingValue, currency) : "—"}</td>
-                )}
-                {/* No active-only filter on this register (TYRE-91): a
-                    disposed row stays visible, so rowActions hides every
-                    form once the state is terminal, matching the Set-cost
-                    column's dash. */}
-                <td>{rowActions(t, tenantKey, setActed)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Card padding="none">
+          <div className="fleet-table-wrap">
+            <table className="fleet-table">
+              <thead>
+                <tr>
+                  <th scope="col">Code</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Brand</th>
+                  <th scope="col">Pattern</th>
+                  <th scope="col">State</th>
+                  <th scope="col">Received</th>
+                  <th scope="col">Awaiting cost</th>
+                  <th scope="col">Set cost</th>
+                  {canSeeMoney && <th scope="col">Purchase price</th>}
+                  {canSeeMoney && <th scope="col">Cost per mm</th>}
+                  {canSeeMoney && <th scope="col">Casing value</th>}
+                  <th scope="col">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((t) => (
+                  <tr key={t.id}>
+                    <th scope="row" data-mono="true">
+                      {t.displayCode}
+                    </th>
+                    <td data-mono="true">{t.sizeName ?? "—"}</td>
+                    <td>{t.brandName ?? "—"}</td>
+                    <td>{t.patternName ?? "—"}</td>
+                    <td>{t.state}</td>
+                    <td data-nowrap="true">
+                      {t.receivedDate ? asOf(t.receivedDate) : "Not received"}
+                    </td>
+                    <td>{t.awaitingCost ? "Yes" : "No"}</td>
+                    <td>
+                      {/* FR-CFG-041: a received tyre is priced with its set,
+                          on its receipt; set_tyre_cost refuses it alone. */}
+                      {t.awaitingCost && t.receiptId !== null ? (
+                        <Link to="/fleet/tyres/receipts">Price it on its receipt</Link>
+                      ) : t.awaitingCost ? (
+                        <CostForm
+                          tyre={t}
+                          tenantKey={tenantKey}
+                          onSuccess={() => setActed({ kind: "cost", code: t.displayCode })}
+                        />
+                      ) : (
+                        "—"
+                      )}
+                    </td>
+                    {canSeeMoney && (
+                      <td data-align="right" data-mono="true">
+                        {t.purchasePrice ? formatMoney(t.purchasePrice, currency) : "—"}
+                      </td>
+                    )}
+                    {canSeeMoney && (
+                      <td data-align="right" data-mono="true">
+                        {t.randPerMm ? formatMoney(t.randPerMm, currency) : "—"}
+                      </td>
+                    )}
+                    {canSeeMoney && (
+                      <td data-align="right" data-mono="true">
+                        {t.casingValue ? formatMoney(t.casingValue, currency) : "—"}
+                      </td>
+                    )}
+                    {/* No active-only filter on this register (TYRE-91): a
+                        disposed row stays visible, so rowActions hides every
+                        form once the state is terminal, matching the Set-cost
+                        column's dash. */}
+                    <td>{rowActions(t, tenantKey, setActed)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </section>
   );
