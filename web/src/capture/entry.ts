@@ -18,6 +18,9 @@ export interface EntryState {
   // Digits pressed for the focused field. Kept apart from the value so a
   // leading zero and a correction are both representable.
   buffer: string;
+  // U146: the tread field the last next left, so a half pressed straight
+  // after can still reach it. Every other key clears it.
+  advancedFrom: number | null;
 }
 
 export type EntryKey =
@@ -41,6 +44,7 @@ export function newEntryState(treadReadingCount: number): EntryState {
     pressureKpa: null,
     field: 0,
     buffer: "",
+    advancedFrom: null,
   };
 }
 
@@ -60,16 +64,26 @@ const ceilingFor = (state: EntryState, opts: EntryOptions) =>
 
 function write(state: EntryState, buffer: string, opts: EntryOptions): EntryState {
   const value = buffer === "" ? null : valueOf(buffer, state, opts);
-  if (isPressure(state, opts)) return { ...state, buffer, pressureKpa: value };
+  if (isPressure(state, opts)) {
+    return { ...state, buffer, pressureKpa: value, advancedFrom: null };
+  }
   const treads = [...state.treads];
   treads[state.field] = value;
-  return { ...state, buffer, treads };
+  return { ...state, buffer, treads, advancedFrom: null };
 }
+
+// The same object when nothing changes, so a no-op key fires no FR-OFF-005
+// save.
+const forget = (state: EntryState): EntryState =>
+  state.advancedFrom === null ? state : { ...state, advancedFrom: null };
 
 export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): EntryResult {
   switch (key.type) {
     case "focus":
-      return { state: { ...state, field: key.field, buffer: "" }, settled: false };
+      return {
+        state: { ...state, field: key.field, buffer: "", advancedFrom: null },
+        settled: false,
+      };
 
     case "next":
       return {
@@ -77,6 +91,7 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
           ...state,
           field: Math.min(state.field + 1, opts.treadReadingCount),
           buffer: "",
+          advancedFrom: isPressure(state, opts) ? null : state.field,
         },
         settled: false,
       };
@@ -85,15 +100,27 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       return { state: write(state, "", opts), settled: false };
 
     case "half": {
-      // Only meaningful at 0.5mm granularity, and only on a tread field.
-      if (opts.granularityMm !== 0.5 || isPressure(state, opts)) {
-        return { state, settled: false };
+      // U145: the half key is a 0.5mm tenant's, and it only ever adds to a tread.
+      if (opts.granularityMm !== 0.5) return { state: forget(state), settled: false };
+      const from = state.advancedFrom;
+      const here = isPressure(state, opts) ? state.pressureKpa : state.treads[state.field];
+      // U146, the owner's ruling of 27 Oct 2026: a half straight after the
+      // keypad moves on, onto an empty field, belongs to the whole reading it
+      // left. Not settled, so the sheet arms no second advance.
+      if (from !== null && here === null && state.buffer === "") {
+        const left = state.treads[from];
+        if (left !== null && Number.isInteger(left)) {
+          const treads = [...state.treads];
+          treads[from] = left + 0.5;
+          return { state: { ...state, treads, advancedFrom: null }, settled: false };
+        }
       }
+      if (isPressure(state, opts)) return { state: forget(state), settled: false };
       const current = state.treads[state.field];
-      if (current === null) return { state, settled: false };
+      if (current === null) return { state: forget(state), settled: false };
       const treads = [...state.treads];
       treads[state.field] = Math.floor(current) + 0.5;
-      return { state: { ...state, treads, buffer: "" }, settled: true };
+      return { state: { ...state, treads, buffer: "", advancedFrom: null }, settled: true };
     }
 
     case "digit": {
