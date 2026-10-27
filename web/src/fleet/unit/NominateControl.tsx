@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 
 import { refusalMessage } from "../../api/refusal";
 import { nominate } from "../../api/tasks";
+import { Button } from "../../ui/Button";
 import { useFormMutation } from "../useFormMutation";
 import { DriverPicker } from "./DriverPicker";
 import { unitTasksKey } from "./queryKeys";
@@ -41,7 +42,7 @@ export function NominateControl({
   }
 
   return (
-    <form className="tyres-row-form" onSubmit={submit}>
+    <form className="unit-form unit-form--row" onSubmit={submit}>
       <DriverPicker
         id={`nominate-${taskId}`}
         label={label}
@@ -49,13 +50,9 @@ export function NominateControl({
         onChange={setUserId}
         placeholder="Choose…"
       />
-      <button
-        className="btn-primary"
-        type="submit"
-        disabled={userId === "" || nomination.isPending}
-      >
+      <Button variant="primary" type="submit" disabled={userId === "" || nomination.isPending}>
         {nomination.isPending ? "Nominating…" : "Nominate"}
-      </button>
+      </Button>
       {nomination.error !== null && (
         <p role="alert">{refusalMessage(nomination.error, NOMINATE_WORDING)}</p>
       )}

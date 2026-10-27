@@ -154,43 +154,77 @@
   margin-bottom: var(--space-4);
 }
 
-.unit-panel-form,
-.unit-rotate form {
+/* A form's fields top to bottom, each sized to its content up to a
+   readable width, never stretched across a wide card. */
+.unit-form {
+  display: grid;
+  gap: var(--space-4);
+  justify-items: start;
+}
+
+.unit-form > .tr-field {
+  width: min(100%, 24rem);
+}
+
+/* One select or two and a button on a line: the status, a nomination and
+   the trailer picker. Two classes, so it outranks .unit-form. */
+.unit-form.unit-form--row {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
-  align-items: center;
+  align-items: flex-end;
+  gap: var(--space-3);
 }
 
-.unit-panel-form input,
-.unit-panel-form select,
-.unit-rotate input,
-.unit-rotate select,
-.unit-edit input,
-.unit-edit select {
-  min-height: 2.25rem;
-  font: inherit;
-  font-family: var(--font-sans);
+.unit-form--row > .tr-field {
+  width: auto;
+  min-width: 12rem;
+}
+
+.unit-hint {
+  margin: 0;
   font-size: var(--type-small-size);
-  border: 1px solid var(--line);
-  border-radius: var(--radius-md);
-  padding: 0.25rem 0.4rem;
-  color: var(--ink);
-  background: var(--surface);
+  color: var(--ink-muted);
 }
 
-.unit-panel-radios {
+/* Mount orientation stays three native radios, each label the 44px target
+   (NFR-USE-004). */
+.unit-radios {
   display: flex;
-  gap: var(--space-2);
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  color: var(--ink);
+  flex-wrap: wrap;
+  gap: 0 var(--space-4);
 }
 
-.unit-panel-radios input {
-  min-height: 0;
-  border: 0;
-  padding: 0;
+.unit-radios label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--target-min);
+  cursor: pointer;
+}
+
+.unit-radios input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--interactive);
+}
+
+/* The two pickers that stay native selects, framed to sit beside Select. */
+.unit-select {
+  min-height: var(--target-min);
+  min-width: 12rem;
+  padding: 0 var(--space-3);
+  border: 2px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+}
+
+.unit-select:focus-visible {
+  outline: 0;
+  border-color: var(--interactive);
+  box-shadow: 0 0 0 2px var(--interactive-soft);
 }
 
 /* Advisories, not refusals, toned with the caution colour and still read as
@@ -199,61 +233,48 @@
   list-style: disc;
   margin: var(--space-2) 0 0;
   padding-left: 1.25rem;
-  font-family: var(--font-sans);
   font-size: var(--type-small-size);
   color: var(--warn-text);
 }
 
-.unit-rotate-odometer {
+/* One row per item: the rotate picker's positions, the trailers to add and
+   the due inspections. */
+.unit-rows {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.unit-rows > li {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.35rem;
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  color: var(--ink-muted);
-  margin-right: var(--space-3);
+  gap: var(--space-2) var(--space-3);
 }
 
-.unit-edit {
-  max-width: 32rem;
+.unit-rows .tr-input {
+  min-width: 8rem;
 }
 
-.unit-edit form {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
+.unit-rotate-pick {
+  min-width: 5rem;
 }
 
-/* Direct children only: the mount-orientation radios wrap their own labels,
-   which carry the option's wording rather than a field name. */
-.unit-edit label,
-.unit-panel-form > label,
-.unit-status form > label {
-  font-family: var(--font-sans);
-  font-size: var(--type-small-size);
-  color: var(--ink-muted);
+.unit-rows .unit-rotate-tread {
+  width: 7rem;
+  min-width: 0;
 }
 
 .unit-edit-layout {
-  font-family: var(--font-sans);
+  margin: 0 0 var(--space-4);
   font-size: var(--type-small-size);
   color: var(--ink-muted);
-  margin: 0 0 var(--space-3);
 }
 
 .unit-edit-note {
   display: block;
   color: var(--warn-text);
-}
-
-/* A row form, like the register's, rather than the stacked shape .unit-edit
-   uses: one select and at most one input. */
-.unit-status {
-  max-width: 32rem;
-}
-
-/* Layout only: the unit screen's submits sit left-aligned, not stretched,
-   as the rigs screen's do (fleet.css). Disabled contrast is TYRE-132's. */
-.unit-detail .tyres-receive button[type="submit"] {
-  align-self: flex-start;
 }

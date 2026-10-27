@@ -12,7 +12,12 @@ import {
   type Unit,
   type UnitPosition,
 } from "../../api/units";
+import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
+import { Checkbox } from "../../ui/Checkbox";
+import { Field } from "../../ui/Field";
+import { Select } from "../../ui/Select";
+import { TextInput } from "../../ui/TextInput";
 import { useFormMutation } from "../useFormMutation";
 import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
 import { useUnitLabels } from "../../units/units";
@@ -194,38 +199,36 @@ export function RotateForm({ unit }: { unit: Unit }) {
 
   if (occupied.length === 0) {
     return (
-      <Card className="unit-rotate" title="Rotate" padding="md">
+      <Card title="Rotate" padding="md">
         <p>This unit carries no tyres to rotate.</p>
       </Card>
     );
   }
 
   return (
-    <Card className="unit-rotate" title="Rotate" padding="md">
-      <form onSubmit={submit}>
-        <ul className="unit-rotate-rows">
+    <Card title="Rotate" padding="md">
+      <form className="unit-form" onSubmit={submit}>
+        <ul className="unit-rows">
           {occupied.map((p) => (
             <li key={p.id}>
-              <label>
-                <input
-                  type="checkbox"
-                  aria-label={`Rotate ${p.code}`}
-                  checked={picked[p.id] ?? false}
-                  onChange={(e) => {
-                    setPicked({ ...picked, [p.id]: e.target.checked });
-                    // Dropped with the row, like the destination select drops
-                    // it: a target chosen against one picked set is not a
-                    // target the next one has to offer.
-                    if (!e.target.checked) setTargets({ ...targets, [p.id]: "" });
-                  }}
-                />
-                {p.code}
-              </label>
+              <Checkbox
+                className="unit-rotate-pick"
+                label={p.code}
+                aria-label={`Rotate ${p.code}`}
+                checked={picked[p.id] ?? false}
+                onChange={(e) => {
+                  setPicked({ ...picked, [p.id]: e.target.checked });
+                  // Dropped with the row, like the destination select drops
+                  // it: a target chosen against one picked set is not a
+                  // target the next one has to offer.
+                  if (!e.target.checked) setTargets({ ...targets, [p.id]: "" });
+                }}
+              />
 
               {picked[p.id] && (
                 <>
                   {openRig !== undefined && (
-                    <select
+                    <Select
                       aria-label={`Unit for ${p.code}`}
                       value={destinationOf(p.id)}
                       onChange={(e) => {
@@ -235,29 +238,26 @@ export function RotateForm({ unit }: { unit: Unit }) {
                         // names a position this picker does not offer.
                         setTargets({ ...targets, [p.id]: "" });
                       }}
-                    >
-                      {rigUnits.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.fleetNumber}
-                        </option>
-                      ))}
-                    </select>
+                      options={rigUnits.map((u) => ({ value: u.id, label: u.fleetNumber }))}
+                    />
                   )}
-                  <select
+                  <Select
                     aria-label={`Target for ${p.code}`}
                     value={targets[p.id] ?? ""}
                     onChange={(e) => setTargets({ ...targets, [p.id]: e.target.value })}
-                  >
-                    <option value="">Choose…</option>
-                    {targetsFor(destinationOf(p.id)).map((target) => (
-                      <option key={target.id} value={target.id}>
-                        {target.code}
-                      </option>
-                    ))}
-                  </select>
-                  <input
+                    options={[
+                      { value: "", label: "Choose…" },
+                      ...targetsFor(destinationOf(p.id)).map((target) => ({
+                        value: target.id,
+                        label: target.code,
+                      })),
+                    ]}
+                  />
+                  <TextInput
+                    className="unit-rotate-tread"
                     aria-label={`Tread for ${p.code}`}
                     inputMode="decimal"
+                    mono
                     value={treads[p.id] ?? ""}
                     onChange={(e) => setTreads({ ...treads, [p.id]: e.target.value })}
                   />
@@ -269,31 +269,31 @@ export function RotateForm({ unit }: { unit: Unit }) {
 
         {perUnit
           ? needReadings.map((u) => (
-              <label className="unit-rotate-odometer" key={u.id}>
-                {`Odometer for ${u.fleetNumber}`}
-                <input
+              <Field label={`Odometer for ${u.fleetNumber}`} key={u.id}>
+                <TextInput
                   inputMode="numeric"
+                  mono
                   value={odometers[u.id] ?? ""}
                   onChange={(e) => setOdometers({ ...odometers, [u.id]: e.target.value })}
                   required
                 />
-              </label>
+              </Field>
             ))
           : unit.hasOdometer && (
-              <label className="unit-rotate-odometer">
-                Odometer
-                <input
+              <Field label="Odometer">
+                <TextInput
                   inputMode="numeric"
+                  mono
                   value={odometers[unit.id] ?? ""}
                   onChange={(e) => setOdometers({ ...odometers, [unit.id]: e.target.value })}
                   required
                 />
-              </label>
+              </Field>
             )}
 
-        <button className="btn-primary" type="submit" disabled={rotate.isPending}>
+        <Button variant="primary" type="submit" disabled={rotate.isPending}>
           {rotate.isPending ? "Rotating…" : "Rotate"}
-        </button>
+        </Button>
       </form>
 
       {/* useFormMutation keeps isSuccess for the life of the form, so a guard

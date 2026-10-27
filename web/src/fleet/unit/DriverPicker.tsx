@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 
 import { getDevTenantId } from "../../api/devTenant";
 import { fetchDrivers } from "../../api/trips";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { Select } from "../../ui/Select";
 import { driversKey } from "./queryKeys";
 
 // The one driver picker, for a trip start and a nomination alike: active
@@ -26,24 +29,28 @@ export function DriverPicker({
 
   return (
     <>
-      <label htmlFor={id}>{label}</label>
-      <select id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">{placeholder}</option>
-        {(drivers.data ?? []).map((d) => (
-          <option key={d.userId} value={d.userId}>
-            {d.displayName}
-            {d.onTrip ? `, on the trip with ${d.onTrip.fleetNumber}` : ""}
-          </option>
-        ))}
-      </select>
+      {/* An ordinary first option, not Select's disabled placeholder: a
+          picked driver can be taken back to none. */}
+      <Field label={label}>
+        <Select
+          id={id}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          options={[
+            { value: "", label: placeholder },
+            ...(drivers.data ?? []).map((d) => ({
+              value: d.userId,
+              label: `${d.displayName}${d.onTrip ? `, on the trip with ${d.onTrip.fleetNumber}` : ""}`,
+            })),
+          ]}
+        />
+      </Field>
       {drivers.isError && (
         <>
           <p role="alert">The driver list could not be loaded.</p>
           {/* A sibling of the alert, not inside it, so assistive tech that
               reads the region and stops still reaches it (AddDriver.tsx). */}
-          <button type="button" onClick={() => void drivers.refetch()}>
-            Retry
-          </button>
+          <Button onClick={() => void drivers.refetch()}>Retry</Button>
         </>
       )}
     </>
