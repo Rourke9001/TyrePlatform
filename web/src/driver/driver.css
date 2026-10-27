@@ -1,0 +1,49 @@
+/* The driver's Today (FR-DSH-012). Layout and the screen's own lines;
+   every colour is a token from src/theme/tokens.ts. */
+
+.driver-home__title {
+  margin: 0;
+  font-size: var(--type-title-1-size);
+  line-height: var(--type-title-1-line);
+  font-weight: 800;
+  letter-spacing: var(--tracking-title-1);
+}
+
+.driver-home__note,
+.driver-home__empty {
+  margin: 0;
+  color: var(--ink-secondary);
+}
+
+.driver-home__empty {
+  padding: var(--space-3) var(--space-6) var(--space-5);
+}
+
+/* NFR-USE-009: a refusal reads as one in words; the bar only reinforces. */
+.driver-home__alert {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--critical);
+  border-radius: var(--radius-md);
+  background: var(--critical-soft);
+  color: var(--ink);
+}
+
+/* The tasks before the trip read answers, on the same ground as a card. */
+.driver-home__rows {
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+}
+
+/* A row's hover ground and focus ring follow the card's rounded corners
+   rather than poking past them. */
+.driver-home__list > li:last-child > .tr-row {
+  border-bottom-left-radius: var(--radius-lg);
+  border-bottom-right-radius: var(--radius-lg);
+}
+
+.driver-home__rows .driver-home__list > li:first-child > .tr-row {
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+}
