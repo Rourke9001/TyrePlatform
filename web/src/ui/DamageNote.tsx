@@ -16,7 +16,6 @@ export interface DamageNoteProps extends Omit<HTMLAttributes<HTMLDivElement>, "c
   onTypeChange: (value: string) => void;
   note: string;
   onNoteChange: (value: string) => void;
-  size?: "md" | "glove";
 }
 
 // TODO(TYRE-447): moves to src/ui/icons/ when lane A's icon modules land.
@@ -39,6 +38,9 @@ function CheckGlyph() {
   );
 }
 
+// A driver control by design (TYRE-152, TYRE-448), so every control in it is
+// the glove target. It is on the capture entry's forbidden list on this
+// branch only because no capture route renders it yet (spec, non-goals).
 // TODO(TYRE-447): the chips and the note become lane A's ChoiceChips and TextArea when they land.
 export function DamageNote({
   types,
@@ -46,13 +48,12 @@ export function DamageNote({
   onTypeChange,
   note,
   onNoteChange,
-  size = "glove",
   className,
   ...rest
 }: DamageNoteProps) {
   const id = useId();
   return (
-    <div {...rest} className={cx("tr-damage", size === "glove" && "tr-damage--glove", className)}>
+    <div {...rest} className={cx("tr-damage", className)}>
       <span className="tr-damage__label">Damage</span>
       <div role="radiogroup" aria-label="Damage type" className="tr-damage__chips">
         {types.map((t) => (

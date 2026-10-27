@@ -21,28 +21,23 @@
   gap: var(--space-2);
 }
 
-/* NFR-USE-004: 44px chips by default, 56px for gloves. */
+/* NFR-USE-004: every control here is the 56px glove target, since this is
+   a driver component (TYRE-152, TYRE-448). */
 .tr-damage__chip {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  min-height: var(--target-min);
+  min-height: var(--target-glove);
   margin: 0;
-  padding: 0 var(--space-4);
+  padding: 0 var(--space-5);
   border-radius: var(--radius-pill);
   border: 2px solid var(--line-strong);
   background: var(--surface);
   color: var(--ink);
   font: inherit;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   cursor: pointer;
-}
-
-.tr-damage--glove .tr-damage__chip {
-  min-height: var(--target-glove);
-  padding: 0 var(--space-5);
-  font-size: 17px;
 }
 
 .tr-damage__chip[aria-checked="true"] {
@@ -54,21 +49,17 @@
   display: flex;
   align-items: stretch;
   min-width: 0;
-  min-height: var(--target-min);
+  min-height: var(--target-glove);
   border: 2px solid var(--line-strong);
   border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--ink);
+  font-size: var(--type-body-lg-size);
 }
 
 .tr-damage__input:focus-within {
   border-color: var(--interactive);
   box-shadow: 0 0 0 2px var(--interactive-soft);
-}
-
-.tr-damage--glove .tr-damage__input {
-  min-height: var(--target-glove);
-  font-size: var(--type-body-lg-size);
 }
 
 .tr-damage__input textarea {

@@ -10,7 +10,8 @@ export interface TreadPressure {
   value: string;
   caption: string;
   unitText?: string;
-  // Defaults to the caption.
+  // Names the cell when it is a button (onSelect given), defaulting to the
+  // caption. A static pressure cell has no accessible name of its own.
   ariaLabel?: string;
   active?: boolean;
   onSelect?: () => void;
@@ -27,20 +28,25 @@ export interface TreadReadingsProps extends Omit<
   // (rule 4: the database owns that rule).
   governingIndex: number | null;
   activeIndex?: number;
-  // Makes each cell a button.
+  // Makes each cell a button named by cellLabel. Without it the cells are
+  // divs with no accessible name, read as their text.
   onSelect?: (index: number) => void;
   cellLabel?: (index: number, count: number) => string;
   // FR-CFG-021: the unit under each tread value, from the caller.
   unitText?: string;
   pressure?: TreadPressure;
   // FR-INS-029a and U145: a driver's cells are numbered. Named cells
-  // (outer, centre, inner from the side, CHG-010) are for manager screens.
+  // (outer, centre, inner from the side, CHG-010) are for manager screens,
+  // and only where orientation_known is true. A pre-convention capture
+  // stays numbered.
   naming?: "numbered" | "named";
   side?: "left" | "right";
   // Colours the governing mark; the caller judges it against the tenant's
   // thresholds (rule 5).
   condition?: Condition;
-  // Words on the governing mark. Without them the mark is a glyph.
+  // Words on the governing mark. Without them the mark is an aria-hidden
+  // glyph, so a manager screen passes words here. On a button cell the
+  // whole mark is aria-hidden, so cellLabel carries any spoken word.
   governingText?: string;
   size?: "md" | "lg";
 }

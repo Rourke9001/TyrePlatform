@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { DamageNote } from "./DamageNote";
+import css from "./DamageNote.css?raw";
 
 // FR-INS-024: the types are tenant configuration, so the fixture's words are
 // the test's own and the component brings none.
@@ -59,8 +60,8 @@ describe("DamageNote", () => {
     expect(onNoteChange).toHaveBeenLastCalledWith("Sidewall!");
   });
 
-  it("sizes for gloves by default and passes unknown props to its root", () => {
-    const { container, rerender } = render(
+  it("passes unknown props to its root", () => {
+    const { container } = render(
       <DamageNote
         types={types}
         type={null}
@@ -70,20 +71,19 @@ describe("DamageNote", () => {
         data-testid="damage"
       />,
     );
-    const root = container.firstElementChild;
-    expect(root).toHaveAttribute("data-testid", "damage");
-    expect(root).toHaveClass("tr-damage--glove");
+    expect(container.firstElementChild).toHaveAttribute("data-testid", "damage");
+  });
 
-    rerender(
-      <DamageNote
-        types={types}
-        type={null}
-        onTypeChange={vi.fn()}
-        note=""
-        onNoteChange={vi.fn()}
-        size="md"
-      />,
-    );
-    expect(container.firstElementChild).not.toHaveClass("tr-damage--glove");
+  // TYRE-152, TYRE-448: a driver control by design, so every target is the
+  // glove size and none drops to the 44px floor. jsdom applies no CSS, so
+  // this reads the stylesheet.
+  it("sizes every control for gloves", () => {
+    const sheet = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(sheet).not.toContain("--target-min");
+    for (const selector of [".tr-damage__chip", ".tr-damage__input"]) {
+      const at = sheet.indexOf(`${selector} {`);
+      expect(at, selector).toBeGreaterThan(-1);
+      expect(sheet.slice(at, sheet.indexOf("}", at))).toContain("min-height: var(--target-glove)");
+    }
   });
 });

@@ -1,19 +1,18 @@
-import { unitLabels } from "../../units/units";
 import { AxleDiagram, type DiagramAxle, type DiagramUnit } from "../AxleDiagram";
 import { Keypad } from "../Keypad";
 import { TreadReadings, type TreadPressure } from "../TreadReadings";
 import { TyreTile, type Condition } from "../TyreTile";
 import type { GallerySection } from "./types";
 
-// Sample strings only, shaped as capture passes them. The pressure word is
-// the metric default's (FR-CFG-021); the tread word is capture's own.
-const PRESSURE = unitLabels(undefined, undefined).pressure;
+// Sample strings only, shaped as capture passes them, and invented fleets:
+// gallery screenshots are public, so no tenant's fleet number appears here.
+const PRESSURE = "kPa";
 const MM = "mm";
 const ignore = () => undefined;
 
-// Static on purpose: a *.gallery.tsx exports a section object, so it may
-// not declare a stateful demo component beside it
-// (react-refresh/only-export-components).
+// Static on purpose. A *.gallery.tsx exports only its section object
+// (react-refresh/only-export-components), so a stateful demo would live in
+// a sibling tyres.demo.tsx.
 const pressure = (value: string, active: boolean): TreadPressure => ({
   value,
   caption: "Press.",
@@ -54,34 +53,37 @@ const axle = (unit: string, id: string, label: string, numbers: number[]): Diagr
 const RIG: DiagramUnit[] = [
   {
     id: "horse",
-    unitHeading: "BAC039SP",
+    unitHeading: "SBX 101",
     description: "Horse",
     axles: [
-      axle("BAC039SP", "1", "Steer", [1, 2]),
-      axle("BAC039SP", "2", "Drive", [3, 4, 5, 6]),
-      axle("BAC039SP", "3", "Drive", [7, 8, 9, 10]),
+      axle("SBX 101", "1", "Steer", [1, 2]),
+      axle("SBX 101", "2", "Drive", [3, 4, 5, 6]),
+      axle("SBX 101", "3", "Drive", [7, 8, 9, 10]),
     ],
   },
   {
-    id: "link6",
-    unitHeading: "LINK6",
+    id: "sbx102",
+    unitHeading: "SBX 102",
     description: "2-axle trailer",
     coupled: true,
-    axles: [axle("LINK6", "1", "1", [11, 12, 13, 14]), axle("LINK6", "2", "2", [15, 16, 17, 18])],
+    axles: [
+      axle("SBX 102", "1", "1", [11, 12, 13, 14]),
+      axle("SBX 102", "2", "2", [15, 16, 17, 18]),
+    ],
   },
   {
     id: "spares",
-    unitHeading: "BAC039SP spare",
+    unitHeading: "SBX 101 spare",
     axles: [],
     spares: [
       {
-        id: "BAC039SP:S",
+        id: "SBX 101:S",
         label: "S",
         valueText: "—",
         badgeText: "Not done",
         condition: "unread",
-        ariaLabel: "Spare, BAC039SP, Not done",
-        dataPositionId: "BAC039SP-S",
+        ariaLabel: "Spare, SBX 101, Not done",
+        dataPositionId: "SBX 101-S",
       },
     ],
   },

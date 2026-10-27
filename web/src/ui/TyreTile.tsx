@@ -90,7 +90,10 @@ export function TyreTile({
   ...rest
 }: TyreTileProps) {
   const tone = empty ? "empty" : condition ? TONE[condition] : "neutral";
-  const hidden = ariaLabel ? true : undefined;
+  // Each attribute written after the spread falls back to the caller's own,
+  // so an absent prop never erases a passed-through aria-label or role.
+  const name = ariaLabel ?? rest["aria-label"];
+  const hidden = name ? true : undefined;
   const content = (
     <>
       <span className="tr-tile__top" aria-hidden={hidden}>
@@ -112,18 +115,23 @@ export function TyreTile({
   const shared = {
     ...rest,
     className: cx("tr-tile", `tr-tile--${tone}`, className),
-    "aria-label": ariaLabel,
+    "aria-label": name,
     "data-active": active ? "true" : undefined,
   };
   if (!onClick || empty) {
     return (
-      <div {...shared} role={ariaLabel ? "img" : undefined} data-static="true">
+      <div {...shared} role={rest.role ?? (name ? "img" : undefined)} data-static="true">
         {content}
       </div>
     );
   }
   return (
-    <button {...shared} type="button" aria-pressed={selected} onClick={onClick}>
+    <button
+      {...shared}
+      type="button"
+      aria-pressed={selected ?? rest["aria-pressed"]}
+      onClick={onClick}
+    >
       {content}
     </button>
   );

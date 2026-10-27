@@ -120,15 +120,16 @@
   color: var(--on-critical);
 }
 
-/* NFR-USE-004: the visible disc is 28px; the button is the 44px floor. */
+/* NFR-USE-004: the visible disc is 28px; the button is the 56px glove
+   target, like every control in this driver component (TYRE-152). */
 .tr-photo__remove {
   position: absolute;
   top: 0;
   right: 0;
   display: grid;
   place-items: center;
-  width: var(--target-min);
-  height: var(--target-min);
+  width: var(--target-glove);
+  height: var(--target-glove);
   padding: 0;
   border: 0;
   background: transparent;

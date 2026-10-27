@@ -87,6 +87,9 @@ const PHOTO_STATE: Record<PhotoState, { glyph: keyof typeof PATHS; label: string
   failed: { glyph: "critical", label: "Not sent yet" },
 };
 
+// A driver control by design (TYRE-152, TYRE-448), so every control in it is
+// the glove target. It is on the capture entry's forbidden list on this
+// branch only because no capture route renders it yet (spec, non-goals).
 export function PhotoCapture({
   photos,
   onAdd,
@@ -113,7 +116,7 @@ export function PhotoCapture({
       aria-hidden="true"
       onChange={(e) => {
         const files = Array.from(e.currentTarget.files ?? []);
-        if (files.length > 0) onAdd(files.slice(0, room));
+        if (room > 0 && files.length > 0) onAdd(files.slice(0, room));
         e.currentTarget.value = "";
       }}
     />

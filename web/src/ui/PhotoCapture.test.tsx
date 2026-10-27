@@ -1,8 +1,9 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { PhotoCapture, type Photo } from "./PhotoCapture";
+import css from "./PhotoCapture.css?raw";
 
 const photos: Photo[] = [
   { id: "p1", src: "data:image/png;base64,AA==", state: "saved" },
@@ -43,10 +44,11 @@ describe("PhotoCapture", () => {
     expect(click).toHaveBeenCalledOnce();
   });
 
-  it("hands the camera's files to onAdd, no more than max allows", async () => {
-    const user = userEvent.setup();
+  // fireEvent, not user.upload, because user-event keeps one file on an
+  // input without `multiple` and so never offers more than there is room for.
+  it("hands onAdd only the files there is room for, and nothing once max is reached", () => {
     const onAdd = vi.fn<(files: File[]) => void>();
-    const { container } = render(
+    const { container, rerender } = render(
       <PhotoCapture
         photos={photos.slice(0, 2)}
         onAdd={onAdd}
@@ -54,9 +56,29 @@ describe("PhotoCapture", () => {
         max={3}
       />,
     );
-    await user.upload(picker(container), [file("a.jpg"), file("b.jpg")]);
+    fireEvent.change(picker(container), { target: { files: [file("a.jpg"), file("b.jpg")] } });
     expect(onAdd).toHaveBeenCalledOnce();
     expect(onAdd.mock.calls[0][0].map((f) => f.name)).toEqual(["a.jpg"]);
+
+    onAdd.mockClear();
+    rerender(
+      <PhotoCapture
+        photos={photos.slice(0, 3)}
+        onAdd={onAdd}
+        subject="LINK-A position 3"
+        max={3}
+      />,
+    );
+    fireEvent.change(picker(container), { target: { files: [file("c.jpg")] } });
+    expect(onAdd).not.toHaveBeenCalled();
+
+    // Required with a cap of 0 still renders the take button and the picker.
+    rerender(
+      <PhotoCapture photos={[]} onAdd={onAdd} required subject="LINK-A position 3" max={0} />,
+    );
+    expect(screen.getByRole("button", { name: "Take photo" })).toBeInTheDocument();
+    fireEvent.change(picker(container), { target: { files: [file("d.jpg")] } });
+    expect(onAdd).not.toHaveBeenCalled();
   });
 
   // NFR-USE-009 and FR-OFF-018: each photo's place in the queue, in words.
@@ -113,5 +135,21 @@ describe("PhotoCapture", () => {
       <PhotoCapture photos={[]} onAdd={vi.fn()} subject="LINK-A position 3" data-testid="photos" />,
     );
     expect(container.firstElementChild).toHaveAttribute("data-testid", "photos");
+  });
+
+  // TYRE-152, TYRE-448: a driver control by design, so every target is the
+  // glove size, the remove button included. jsdom applies no CSS, so this
+  // reads the stylesheet.
+  it("sizes every control for gloves", () => {
+    const sheet = css.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(sheet).not.toContain("--target-min");
+    const rule = (selector: string) => {
+      const at = sheet.indexOf(`${selector} {`);
+      expect(at, selector).toBeGreaterThan(-1);
+      return sheet.slice(at, sheet.indexOf("}", at));
+    };
+    expect(rule(".tr-photos__take")).toContain("min-height: var(--target-glove)");
+    expect(rule(".tr-photo__remove")).toContain("width: var(--target-glove)");
+    expect(rule(".tr-photo__remove")).toContain("height: var(--target-glove)");
   });
 });
