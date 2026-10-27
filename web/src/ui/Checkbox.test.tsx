@@ -23,10 +23,13 @@ describe("Checkbox", () => {
     expect(ruleBody(checkboxCss, ".tr-check")).toMatch(/min-height:\s*var\(--target-min\)/);
   });
 
-  it("is named by its label, described by its line, and toggles", async () => {
+  // A screen asserts a checkbox by its exact name, so the line under the
+  // label describes the box and never joins its name.
+  it("is named by its label alone, described by its line, and toggles", async () => {
     render(<Checkbox label="Valve caps fitted" description="All positions" />);
-    const box = screen.getByRole("checkbox", { name: /Valve caps fitted/ });
-    expect(screen.getByText("All positions")).toBeInTheDocument();
+    const box = screen.getByRole("checkbox", { name: "Valve caps fitted" });
+    expect(box).toHaveAccessibleName("Valve caps fitted");
+    expect(box).toHaveAccessibleDescription("All positions");
     expect(box).not.toBeChecked();
     await userEvent.click(screen.getByText("Valve caps fitted"));
     expect(box).toBeChecked();
@@ -41,5 +44,28 @@ describe("Checkbox", () => {
     expect(box).toHaveAttribute("name", "replaced");
     expect(box).toBeChecked();
     expect(container.querySelector(".tr-check__box")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("keeps a caller's description and name ahead of its own", () => {
+    render(
+      <>
+        <p id="outside">Checked at the depot</p>
+        <Checkbox label="Spare checked" description="Inflated" aria-describedby="outside" />
+        <Checkbox label="Seen" description="Both sides" aria-label="Sidewalls seen" />
+      </>,
+    );
+    expect(screen.getByRole("checkbox", { name: "Spare checked" })).toHaveAccessibleDescription(
+      "Checked at the depot Inflated",
+    );
+    expect(screen.getByRole("checkbox", { name: "Sidewalls seen" })).toHaveAccessibleDescription(
+      "Both sides",
+    );
+  });
+
+  it("leaves a box without a description named by its label element", () => {
+    render(<Checkbox label="Include replaced" />);
+    const box = screen.getByRole("checkbox", { name: "Include replaced" });
+    expect(box).not.toHaveAttribute("aria-labelledby");
+    expect(box).not.toHaveAttribute("aria-describedby");
   });
 });

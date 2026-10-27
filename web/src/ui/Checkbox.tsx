@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode } from "react";
+import { useId, type InputHTMLAttributes, type ReactNode } from "react";
 
 import { cx } from "./cx";
 import { Icon } from "./Icon";
@@ -23,15 +23,36 @@ export function Checkbox({
   className,
   ...rest
 }: CheckboxProps) {
+  const base = useId();
+  const labelId = `${base}-label`;
+  const descriptionId = `${base}-description`;
+  // The whole label stays the target, so its text would name the box with
+  // the description in it; the label line names it and the description
+  // describes it instead, unless the caller names the box itself.
+  const named = rest["aria-label"] !== undefined || rest["aria-labelledby"] !== undefined;
+  const describedBy = [rest["aria-describedby"], description ? descriptionId : undefined]
+    .filter(Boolean)
+    .join(" ");
   return (
     <label className={cx("tr-check", variant === "card" && "tr-check--card", className)}>
-      <input type="checkbox" {...rest} />
+      <input
+        type="checkbox"
+        {...rest}
+        aria-labelledby={description && !named ? labelId : rest["aria-labelledby"]}
+        aria-describedby={describedBy || undefined}
+      />
       <span className="tr-check__box" aria-hidden="true">
         <Icon icon={CheckIcon} size={18} />
       </span>
       <span className="tr-check__text">
-        <span className="tr-check__label">{label}</span>
-        {description ? <span className="tr-check__desc">{description}</span> : null}
+        <span className="tr-check__label" id={labelId}>
+          {label}
+        </span>
+        {description ? (
+          <span className="tr-check__desc" id={descriptionId}>
+            {description}
+          </span>
+        ) : null}
       </span>
     </label>
   );

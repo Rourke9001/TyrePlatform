@@ -32,4 +32,16 @@ describe("IconButton", () => {
     await userEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
   });
+
+  // The button has no visible word, so its name always comes from label.
+  it("keeps its label as its name when a caller passes aria-label", () => {
+    render(
+      <>
+        <IconButton label="Close" icon={CloseIcon} aria-label={undefined} />
+        <IconButton label="Refresh" icon={CloseIcon} aria-label="Something else" />
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  });
 });

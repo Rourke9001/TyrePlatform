@@ -37,6 +37,8 @@ export function ChoiceChips({
   const selected = options.findIndex((o) => o.value === value);
   const stop = selected === -1 ? 0 : selected;
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    // A modified arrow is the browser's, as SegmentedControl's comment says.
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const d = step(event.key);
     if (d === 0) return;
     event.preventDefault();

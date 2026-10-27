@@ -97,7 +97,7 @@ export function Button(props: ButtonProps) {
       type={type}
       className={lookClass({ variant, size, block, className })}
       disabled={disabled === true || loading === true}
-      aria-busy={loading ? true : undefined}
+      aria-busy={loading ? true : rest["aria-busy"]}
     >
       <Content icon={icon} iconEnd={iconEnd} size={size} loading={loading}>
         {children}
