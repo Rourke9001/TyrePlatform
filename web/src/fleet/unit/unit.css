@@ -13,9 +13,10 @@
   color: var(--ink-muted);
 }
 
-/* The plan beside the picked position, as the artifact's vehicle screen
-   sets them; one column below the shell's 1024px desktop breakpoint
-   (AppShell.css). */
+/* The plan beside the picked position from 1280px, the plan taking the
+   wider share; one column below, under the 30rem cap. A dual tile must hold
+   a whole tyre code such as "SBX-00003", and beside the panel at 1024px
+   beside the shell's nav it cannot. */
 .unit-detail-cols {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -23,9 +24,9 @@
   align-items: start;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 1280px) {
   .unit-detail-cols {
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+    grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
   }
 }
 
@@ -94,6 +95,23 @@
 .unit-plan {
   max-width: 30rem;
   margin-inline: auto;
+}
+
+/* A tile here shows a tyre code, not a reading, and TyreTile never clips
+   its value, so at data size a nine-character code spills past a dual tile
+   on a 1024px screen. Two classes, so it beats TyreTile.css whichever sheet
+   loads last (docs/lessons.md, 2026-10-26). */
+.unit-plan .tr-tile__val {
+  font-size: var(--type-caption-size);
+}
+
+/* breakpoint.phone (640px, src/theme/tokens.ts): a dual tile is narrower
+   than a code even at caption size, so the code wraps inside its tile. */
+@media (max-width: 640px) {
+  .unit-plan .tr-tile__val {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
 }
 
 .unit-panel-empty {
