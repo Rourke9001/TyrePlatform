@@ -9,10 +9,10 @@ import { ActorContext } from "../auth/actorContext";
 import { db } from "../capture/draft";
 import type { OutboxEntry } from "../capture/outbox";
 import type { SubmitPayload } from "../capture/payload";
-import { AppShell } from "../dashboard/AppShell";
 import { me } from "../test/fixtures";
 import { deriveBrandTheme } from "../theme/derive";
 import { ThemeContext } from "../theme/themeContext";
+import { Chrome } from "./Chrome";
 import { RouteErrorBoundary } from "./RouteErrorBoundary";
 
 const branding = { displayName: "Sandbox Fleet", primaryColor: "#1F7A5A", logoUrl: null };
@@ -66,13 +66,13 @@ function renderAt(path: string, routes: ReactNode) {
           }}
         >
           <MemoryRouter initialEntries={[path]}>
-            <AppShell>
+            <Chrome>
               <RouteErrorBoundary reload={reload}>
                 <Suspense fallback={<p>Loading.</p>}>
                   <Routes>{routes}</Routes>
                 </Suspense>
               </RouteErrorBoundary>
-            </AppShell>
+            </Chrome>
           </MemoryRouter>
         </ActorContext>
       </ThemeContext>
