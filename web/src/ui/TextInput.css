@@ -23,6 +23,13 @@
   border-color: var(--critical);
 }
 
+/* U53's ring (ui/base.css) on the frame, since the control inside draws no
+   outline; an invalid field's red border would otherwise be all it shows. */
+.tr-input:has(:focus-visible) {
+  outline: 3px solid var(--interactive);
+  outline-offset: 2px;
+}
+
 /* NFR-USE-004: a driver-route field is a 56px target. */
 .tr-input--glove {
   min-height: var(--target-glove);

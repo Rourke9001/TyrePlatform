@@ -62,6 +62,12 @@
   box-shadow: 0 0 0 2px var(--interactive-soft);
 }
 
+/* The frame carries the focus ring, as TextInput.css's does. */
+.tr-damage__input:has(:focus-visible) {
+  outline: 3px solid var(--interactive);
+  outline-offset: 2px;
+}
+
 .tr-damage__input textarea {
   flex: 1;
   min-width: 0;
