@@ -87,8 +87,7 @@ export function AddDriver() {
 
   return (
     <section aria-labelledby="add-user-heading" className="adm-page tr-stack">
-      {/* PageHeader draws the h1; the id rides a span inside it, so this
-          section stays the region named by its heading. */}
+      {/* Heading id: see PageHeader's title prop. */}
       <PageHeader title={<span id="add-user-heading">Add a user</span>} />
 
       <Card>
