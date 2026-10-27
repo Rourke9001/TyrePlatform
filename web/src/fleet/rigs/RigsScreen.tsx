@@ -14,8 +14,7 @@ export function RigsScreen() {
 
   return (
     <section aria-labelledby="rigs-heading" className="fleet-page tr-stack">
-      {/* PageHeader draws the h1; the id rides a span inside it, so this
-          section stays the region named by its heading. */}
+      {/* Heading id: see PageHeader's title prop. */}
       <PageHeader title={<span id="rigs-heading">Rigs</span>} />
       <ReportedDifferences />
       {canAssign && <RigForm />}

@@ -69,8 +69,7 @@ export function AddUnit() {
 
   return (
     <section aria-labelledby="add-unit-heading" className="adm-page tr-stack">
-      {/* PageHeader draws the h1; the id rides a span inside it, so this
-          section stays the region named by its heading. */}
+      {/* Heading id: see PageHeader's title prop. */}
       <PageHeader title={<span id="add-unit-heading">Add a unit</span>} />
 
       {configs.isPending && <p>Loading…</p>}
