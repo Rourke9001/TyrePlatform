@@ -19,7 +19,7 @@ export interface EntryState {
   // leading zero and a correction are both representable.
   buffer: string;
   // U146: the tread field the last next left, so a half pressed straight
-  // after can still reach it. Every other key clears it.
+  // after can still reach it. Any key but next or half clears it.
   advancedFrom: number | null;
 }
 
@@ -72,11 +72,6 @@ function write(state: EntryState, buffer: string, opts: EntryOptions): EntryStat
   return { ...state, buffer, treads, advancedFrom: null };
 }
 
-// The same object when nothing changes, so a no-op key fires no FR-OFF-005
-// save.
-const forget = (state: EntryState): EntryState =>
-  state.advancedFrom === null ? state : { ...state, advancedFrom: null };
-
 // FR-INS-030: a half that would pass the ceiling changes nothing, since the
 // CHECK at db/migrations/000001_init.up.sql:368 would refuse the reading.
 const halfPassesCeiling = (mm: number) => Math.floor(mm) + 0.5 > TREAD_CEILING_MM;
@@ -105,20 +100,20 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
 
     case "half": {
       // U145: the half key is a 0.5mm tenant's, and it only ever adds to a tread.
-      if (opts.granularityMm !== 0.5) return { state: forget(state), settled: false };
+      if (opts.granularityMm !== 0.5) return { state, settled: false };
       const from = state.advancedFrom;
-      // U146, the owner's ruling of 27 Oct 2026: after next and before any
-      // other key, the half belongs to the whole reading the keypad left,
-      // never to the field it moved on to. Not settled, so the sheet arms no
-      // second advance.
+      // U146, the owner's ruling of 27 Oct 2026: after next, every half until
+      // another key belongs to the whole reading the keypad left, never to the
+      // field it moved on to, so a double tap finds it at x.5 and stops. Not
+      // settled, so the sheet arms no second advance.
       if (from !== null) {
         const left = state.treads[from];
         if (left === null || !Number.isInteger(left) || halfPassesCeiling(left)) {
-          return { state: forget(state), settled: false };
+          return { state, settled: false };
         }
         const treads = [...state.treads];
         treads[from] = left + 0.5;
-        return { state: { ...state, treads, advancedFrom: null }, settled: false };
+        return { state: { ...state, treads }, settled: false };
       }
       if (isPressure(state, opts)) return { state, settled: false };
       const current = state.treads[state.field];

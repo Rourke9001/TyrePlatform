@@ -268,6 +268,17 @@ describe("the half key straight after the keypad moves on", () => {
     expect(r.settled).toBe(false);
   });
 
+  // A gloved double tap: the second half finds the cell left at x.5 and
+  // does nothing, rather than landing on the untouched reading.
+  it("keeps a second half on the cell it left", () => {
+    const moved = applyKey(type(reopened(), "13", halves).state, { type: "next" }, halves).state;
+    const once = applyKey(moved, { type: "half" }, halves).state;
+    const r = applyKey(once, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13.5, 12, 12]);
+    expect(r.state.field).toBe(1);
+    expect(r.settled).toBe(false);
+  });
+
   it("adds it to that cell once the driver taps it", () => {
     const moved = applyKey(type(reopened(), "13", halves).state, { type: "next" }, halves).state;
     const tapped = applyKey(moved, { type: "focus", field: 1 }, halves).state;
