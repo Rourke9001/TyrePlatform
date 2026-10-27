@@ -2,27 +2,9 @@ import { useId, type HTMLAttributes, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import { cx } from "./cx";
+import { Icon } from "./Icon";
+import { ChevronRightIcon } from "./icons/ChevronRight";
 import "./Metric.css";
-
-// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
-function ChevronGlyph() {
-  return (
-    <svg
-      width="18"
-      height="18"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
 
 export interface MetricProps extends Omit<HTMLAttributes<HTMLElement>, "children"> {
   label: ReactNode;
@@ -90,7 +72,7 @@ export function Metric({
       {link ? (
         <Link className="tr-metric__link" to={link.to}>
           {link.label}
-          <ChevronGlyph />
+          <Icon icon={ChevronRightIcon} size={18} />
         </Link>
       ) : null}
     </article>

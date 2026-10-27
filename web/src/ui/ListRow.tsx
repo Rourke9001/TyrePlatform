@@ -2,28 +2,9 @@ import type { HTMLAttributes, ReactNode } from "react";
 import { Link } from "react-router";
 
 import { cx } from "./cx";
+import { Icon } from "./Icon";
+import { ChevronRightIcon } from "./icons/ChevronRight";
 import "./ListRow.css";
-
-// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
-function ChevronGlyph() {
-  return (
-    <svg
-      className="tr-row__chev"
-      width="20"
-      height="20"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M9 5l7 7-7 7" />
-    </svg>
-  );
-}
 
 export interface ListRowProps extends Omit<HTMLAttributes<HTMLElement>, "title" | "onClick"> {
   title?: ReactNode;
@@ -73,7 +54,7 @@ export function ListRow({
       {trailing || target ? (
         <span className="tr-row__trail">
           {trailing}
-          {target ? <ChevronGlyph /> : null}
+          {target ? <Icon icon={ChevronRightIcon} className="tr-row__chev" /> : null}
         </span>
       ) : null}
     </>

@@ -59,6 +59,31 @@ describe("PhotoGallery", () => {
     expect(opener).toHaveFocus();
   });
 
+  it("keeps Tab and Shift+Tab inside the open viewer, wrapping at both ends", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">Behind the viewer</button>
+        <PhotoGallery photos={photos} />
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Open photo: LINK-A position 3" }));
+    const previous = screen.getByRole("button", { name: "Previous photo" });
+    const close = screen.getByRole("button", { name: "Close" });
+    expect(close).toHaveFocus();
+
+    await user.tab();
+    expect(previous).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(close).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(screen.getByRole("button", { name: "Next photo" })).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+    await user.tab();
+    expect(previous).toHaveFocus();
+  });
+
   it("offers no previous or next for a single photo", async () => {
     const user = userEvent.setup();
     render(<PhotoGallery photos={photos.slice(0, 1)} />);

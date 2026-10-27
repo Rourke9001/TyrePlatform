@@ -1,5 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
-import { MemoryRouter, useInRouterContext } from "react-router";
+import { useState, type CSSProperties } from "react";
 
 import { formatMoney, type Money } from "../../api/money";
 import { basisLabel } from "../../domain/vocabulary";
@@ -12,16 +11,11 @@ import { ListRow } from "../ListRow";
 import { Metric } from "../Metric";
 import { Progress } from "../Progress";
 import { Timeline } from "../Timeline";
+import { Routed } from "./routed";
 
 // Invented round figures in the Sandbox tenant's voice, none taken from a
 // fixture or a fleet. The money strings are typed as the brand, so the
 // gallery formats them the way a page would.
-
-// The gallery's own test renders it without a router and the dev route
-// inside one, so a sample with links brings a router only when it has none.
-function Routed({ children }: { children: ReactNode }) {
-  return useInRouterContext() ? children : <MemoryRouter>{children}</MemoryRouter>;
-}
 
 const rand = (s: string) => s as Money;
 const ZONE = "Africa/Johannesburg";

@@ -1,6 +1,5 @@
 /* Tread's confirmation dialog (ADR-0020). Every colour is a token from
-   src/theme/tokens.ts; tokens.ts has no motion scale yet, so the 200ms
-   duration and its curve are written here. */
+   src/theme/tokens.ts, motion from the --motion-* tokens. */
 
 .tr-dialog__scrim {
   position: fixed;
@@ -11,7 +10,7 @@
   justify-content: center;
   padding: var(--space-4);
   background: var(--scrim);
-  animation: tr-dialog-fade 200ms cubic-bezier(0.2, 0, 0, 1);
+  animation: tr-dialog-fade var(--motion-medium) var(--motion-ease);
 }
 
 .tr-dialog__scrim--inline {
@@ -45,7 +44,7 @@
   background: var(--surface);
   color: var(--ink);
   box-shadow: var(--shadow-overlay);
-  animation: tr-dialog-rise 200ms cubic-bezier(0.2, 0, 0, 1);
+  animation: tr-dialog-rise var(--motion-medium) var(--motion-ease);
 }
 
 /* The panel takes focus only by script, when it opens; the ring belongs
