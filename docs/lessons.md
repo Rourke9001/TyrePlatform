@@ -30,6 +30,20 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-10-27 - `make db-reset` under a running API fails the e2e run as "internal error" (TYRE-443)
+
+**What happened:** an e2e run reset the database while `make api-run` was
+still up. The reset drops and recreates the `app` schema under the API's
+open connections, and six specs failed with
+`{"code":"internal","message":"internal error"}`. Other specs never ran.
+It looked like a frontend regression. Restarting the API after a fresh
+reset turned the same commit green (47 passed).
+
+**The rule:** before an e2e run, stop the API, run `make db-reset`, then
+start `make api-run` and wait for `/api/me` to answer. A run that fails
+with the API's "internal error" is not evidence about the web until it has
+been rerun that way.
+
 ## 2026-10-26 - Importing a lazy route's stylesheet first does not load it first (TYRE-443)
 
 **What happened:** to take the old kit's `ui.css` off the capture entry,
