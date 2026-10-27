@@ -285,6 +285,46 @@ describe("the half key straight after the keypad moves on", () => {
     const r = applyKey(tapped, { type: "half" }, halves);
     expect(r.state.treads).toEqual([13, 12.5, 12]);
   });
+
+  // The reach-back arms only for a cell typed into or halved on this visit,
+  // so a reading nobody typed is never halved and an emptied cell does not
+  // swallow the half.
+  it("does not reach back to a cell that was only tapped", () => {
+    const tapped = applyKey(reopened(), { type: "focus", field: 0 }, halves).state;
+    const moved = applyKey(tapped, { type: "next" }, halves).state;
+    const r = applyKey(moved, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([12, 12.5, 12]);
+    expect(r.settled).toBe(true);
+  });
+
+  it("does not reach back to a cell that was tapped and cleared", () => {
+    let s = applyKey(reopened(), { type: "focus", field: 0 }, halves).state;
+    s = applyKey(s, { type: "delete" }, halves).state;
+    s = applyKey(s, { type: "next" }, halves).state;
+    const r = applyKey(s, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([null, 12.5, 12]);
+    expect(r.settled).toBe(true);
+  });
+
+  it("does not reach back to a cell typed into and then cleared", () => {
+    let s = applyKey(reopened(), { type: "digit", digit: "1" }, halves).state;
+    s = applyKey(s, { type: "delete" }, halves).state;
+    s = applyKey(s, { type: "next" }, halves).state;
+    const r = applyKey(s, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([null, 12.5, 12]);
+  });
+
+  // A half counts as touching the cell, so a double tap that spans the
+  // advance still lands both halves on the one cell.
+  it("reaches back to a cell halved on this visit", () => {
+    const start = { ...reopened(), treads: [13, 12, 12] };
+    const halved = applyKey(start, { type: "half" }, halves).state;
+    const moved = applyKey(halved, { type: "next" }, halves).state;
+    const r = applyKey(moved, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([13.5, 12, 12]);
+    expect(r.state.field).toBe(1);
+    expect(r.settled).toBe(false);
+  });
 });
 
 // FR-INS-030: 35mm is the ceiling, and the database CHECK refuses 35.5
