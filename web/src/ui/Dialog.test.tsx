@@ -195,4 +195,30 @@ describe("Dialog", () => {
     await user.click(scrim);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  // A drag that starts or ends in the panel is targeted at the scrim, their
+  // common ancestor, so the click alone cannot tell it from a scrim click.
+  it.each([
+    ["press on the scrim, release on the panel", "scrim", "panel"],
+    ["press on the panel, release on the scrim", "panel", "scrim"],
+  ])("a drag does not close: %s", (_name, from, to) => {
+    const onClose = vi.fn();
+    render(
+      <Dialog
+        open
+        onClose={onClose}
+        dismissOnBackdrop
+        title="Dispose tyre"
+        actions={<button type="button">Dispose</button>}
+      />,
+    );
+    const panel = screen.getByRole("dialog");
+    const scrim = panel.parentElement;
+    if (scrim === null) throw new Error("the dialog has no scrim");
+    const el = (which: string) => (which === "scrim" ? scrim : panel);
+    fireEvent.mouseDown(el(from));
+    fireEvent.mouseUp(el(to));
+    fireEvent.click(scrim);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
