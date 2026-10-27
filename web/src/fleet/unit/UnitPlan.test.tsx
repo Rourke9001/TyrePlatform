@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { UnitPlan } from "./UnitPlan";
-import { openFitment, unitPosition } from "../../test/fixtures";
+import { openFitment, unit, unitPosition } from "../../test/fixtures";
 
 // A four-axle interlink with a spare: enough axles that a layout carrying a
 // hard-coded count would drop one, and enough sides and slots that the
@@ -32,24 +32,35 @@ const POSITIONS = [
     isSpare: true,
   }),
 ];
+const UNIT = unit({ positions: POSITIONS });
 
 describe("the unit plan", () => {
   it("draws one button per position, spare included, however many axles there are", () => {
-    render(<UnitPlan positions={POSITIONS} selectedId={null} onSelect={vi.fn()} />);
+    render(<UnitPlan unit={UNIT} selectedId={null} onSelect={vi.fn()} />);
 
     expect(screen.getAllByRole("button")).toHaveLength(POSITIONS.length);
     expect(screen.getByRole("button", { name: "Position SPARE1: empty" })).toBeTruthy();
   });
 
   it("names each position by its occupant, or says it is empty", () => {
-    render(<UnitPlan positions={POSITIONS} selectedId={null} onSelect={vi.fn()} />);
+    render(<UnitPlan unit={UNIT} selectedId={null} onSelect={vi.fn()} />);
 
     expect(screen.getByRole("button", { name: "Position POS3: TY100" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Position POS4: empty" })).toBeTruthy();
   });
 
+  // A toggle states its state either way, so a plan with nothing picked
+  // says every position is unpressed rather than saying nothing.
+  it("states every position unpressed until one is picked", () => {
+    render(<UnitPlan unit={UNIT} selectedId={null} onSelect={vi.fn()} />);
+
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.getAttribute("aria-pressed")).toBe("false");
+    }
+  });
+
   it("marks the selected position and no other", () => {
-    render(<UnitPlan positions={POSITIONS} selectedId="p3" onSelect={vi.fn()} />);
+    render(<UnitPlan unit={UNIT} selectedId="p3" onSelect={vi.fn()} />);
 
     const pressed = screen
       .getAllByRole("button")
@@ -58,13 +69,12 @@ describe("the unit plan", () => {
     expect(pressed[0].getAttribute("data-position-id")).toBe("p3");
   });
 
-  // A <g> has no activation behaviour of its own, so both keys a button
-  // answers to have to be handled. Each must fire exactly once, since a
-  // second call would select a position the user did not pick.
+  // Both keys a button answers to select, each exactly once, since a second
+  // call would select a position the user did not pick.
   it("selects on click, on Enter and on Space, so the plan needs no mouse", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
-    render(<UnitPlan positions={POSITIONS} selectedId={null} onSelect={onSelect} />);
+    render(<UnitPlan unit={UNIT} selectedId={null} onSelect={onSelect} />);
 
     await user.click(screen.getByRole("button", { name: "Position POS2: empty" }));
     expect(onSelect).toHaveBeenCalledTimes(1);
@@ -83,10 +93,9 @@ describe("the unit plan", () => {
     expect(onSelect).toHaveBeenCalledWith("p6");
   });
 
-  // Spare count is tenant data (FR-VEH-002); the spare column runs
-  // downward past the axle stack, and a height fixed to the axles would
-  // draw the fourth spare outside the viewBox.
-  it("holds every spare inside the viewBox, however many there are", () => {
+  // Spare count is tenant data (FR-VEH-002), so a plan that drew a fixed
+  // number of spare slots would drop the fourth.
+  it("draws every spare as a button in the spares group, however many there are", () => {
     const spares = [1, 2, 3, 4].map((n) =>
       unitPosition({
         id: `sp${n}`,
@@ -98,19 +107,25 @@ describe("the unit plan", () => {
         isSpare: true,
       }),
     );
-    render(<UnitPlan positions={[...POSITIONS, ...spares]} selectedId={null} onSelect={vi.fn()} />);
+    render(
+      <UnitPlan
+        unit={unit({ positions: [...POSITIONS, ...spares] })}
+        selectedId={null}
+        onSelect={vi.fn()}
+      />,
+    );
 
-    const svg = screen.getByRole("group", { name: "Unit plan view" });
-    const viewBoxHeight = Number(svg.getAttribute("viewBox")?.split(" ")[3]);
-    for (const spare of spares) {
-      const rect = svg.querySelector(`[data-position-id="${spare.id}"] rect`);
-      const bottom = Number(rect?.getAttribute("y")) + Number(rect?.getAttribute("height"));
-      expect(bottom).toBeLessThanOrEqual(viewBoxHeight);
-    }
+    const plan = screen.getByRole("group", { name: "Unit plan view" });
+    const group = within(plan).getByRole("group", { name: "Spares" });
+    expect(
+      within(group)
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("data-position-id")),
+    ).toEqual(["sp", ...spares.map((s) => s.id)]);
   });
 
   it("labels each axle group so a reader can tell axle 2 from axle 3", () => {
-    render(<UnitPlan positions={POSITIONS} selectedId={null} onSelect={vi.fn()} />);
+    render(<UnitPlan unit={UNIT} selectedId={null} onSelect={vi.fn()} />);
 
     const axle2 = screen.getByRole("group", { name: "Axle 2" });
     expect(within(axle2).getAllByRole("button")).toHaveLength(2);
