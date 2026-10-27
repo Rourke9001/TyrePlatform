@@ -19,9 +19,9 @@
   cursor: pointer;
   white-space: nowrap;
   transition:
-    background-color 120ms cubic-bezier(0.2, 0, 0, 1),
-    border-color 120ms cubic-bezier(0.2, 0, 0, 1),
-    transform 120ms cubic-bezier(0.2, 0, 0, 1);
+    background-color var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease),
+    transform var(--motion-fast) var(--motion-ease);
 }
 
 .tr-btn:active:not(:disabled) {

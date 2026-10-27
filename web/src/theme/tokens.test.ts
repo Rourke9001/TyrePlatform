@@ -318,6 +318,16 @@ describe("themeCss", () => {
     expect(light).toContain("--radius-pill:999px");
     expect(light).toContain("--type-hero-size:56px");
   });
+
+  // The artifact's motion values, so a component names a duration and an
+  // easing instead of repeating the literal.
+  it("emits the motion tokens in the light block only", () => {
+    const light = blocks().get(LIGHT) ?? "";
+    expect(light).toContain("--motion-fast:120ms");
+    expect(light).toContain("--motion-medium:200ms");
+    expect(light).toContain("--motion-ease:cubic-bezier(0.2, 0, 0, 1)");
+    expect(declares(blocks().get(DARK) ?? "", "motion-fast")).toBe(false);
+  });
 });
 
 describe("brandVars", () => {

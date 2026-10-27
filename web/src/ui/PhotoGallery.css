@@ -58,7 +58,7 @@
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   background: var(--viewer);
-  animation: tr-viewer-fade 200ms cubic-bezier(0.2, 0, 0, 1);
+  animation: tr-viewer-fade var(--motion-medium) var(--motion-ease);
 }
 
 @keyframes tr-viewer-fade {

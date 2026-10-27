@@ -55,7 +55,7 @@ button.tr-sync {
 }
 
 .tr-sync--sending .tr-sync__dot .tr-icon {
-  animation: tr-pulse 1.2s cubic-bezier(0.2, 0, 0, 1) infinite;
+  animation: tr-pulse 1.2s var(--motion-ease) infinite;
 }
 
 @keyframes tr-pulse {

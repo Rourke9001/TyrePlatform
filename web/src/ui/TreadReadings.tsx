@@ -1,7 +1,7 @@
 import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "./cx";
-import type { Condition } from "./TyreTile";
+import type { Condition } from "./condition";
 import "./TreadReadings.css";
 
 // The pressure cell sits in the treads' row, so the whole position is on
