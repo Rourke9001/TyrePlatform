@@ -1,7 +1,5 @@
-import "../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { Link } from "react-router";
 
 import { getDevTenantId } from "../api/devTenant";
 import {
@@ -11,6 +9,11 @@ import {
   type RetreadReturn,
 } from "../api/retreads";
 import { useTenantDate } from "../time/tenantTime";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import { PageHeader } from "../ui/PageHeader";
+import { TextInput } from "../ui/TextInput";
 import { RefusalAlert } from "./RefusalAlert";
 import { retreadJobsKey, tyresKey } from "./unit/queryKeys";
 import { useFormMutation } from "./useFormMutation";
@@ -112,13 +115,17 @@ function RetreadReturnRow({
 
   return (
     <tr>
-      <th scope="row">{job.displayCode}</th>
+      <th scope="row" data-mono="true">
+        {job.displayCode}
+      </th>
       <td>{job.depotName}</td>
-      <td>{sentOnDisplay}</td>
-      <td>{job.daysOut}</td>
+      <td data-nowrap="true">{sentOnDisplay}</td>
+      <td data-align="right" data-mono="true">
+        {job.daysOut}
+      </td>
       <td>
-        <form onSubmit={submit} className="tyres-row-form">
-          <div role="radiogroup" aria-label="Outcome">
+        <form onSubmit={submit} className="fleet-row-form">
+          <div role="radiogroup" aria-label="Outcome" className="fleet-choices">
             <label>
               <input
                 type="radio"
@@ -147,14 +154,14 @@ function RetreadReturnRow({
             </label>
           </div>
 
-          <input
+          <TextInput
             aria-label={`Report reference for ${job.displayCode}`}
             value={reportReference}
             onChange={(e) => setReportReference(e.target.value)}
             required
           />
 
-          <input
+          <TextInput
             aria-label={`Returned on for ${job.displayCode}`}
             type="date"
             value={returnedOn}
@@ -164,22 +171,25 @@ function RetreadReturnRow({
 
           {outcome === "accepted" && (
             <>
-              <input
+              <TextInput
                 aria-label={`Retread cost for ${job.displayCode}`}
+                mono
                 inputMode="decimal"
                 value={retreadCost}
                 onChange={(e) => setRetreadCost(e.target.value)}
                 required
               />
-              <input
+              <TextInput
                 aria-label={`Post-tread for ${job.displayCode}`}
+                mono
                 inputMode="decimal"
                 value={postTreadMm}
                 onChange={(e) => setPostTreadMm(e.target.value)}
                 required
               />
-              <input
+              <TextInput
                 aria-label={`Casing value for ${job.displayCode}`}
+                mono
                 inputMode="decimal"
                 value={casingValue}
                 onChange={(e) => setCasingValue(e.target.value)}
@@ -188,13 +198,9 @@ function RetreadReturnRow({
             </>
           )}
 
-          <button
-            className="btn-primary btn-compact"
-            type="submit"
-            disabled={outcome === "" || logReturn.isPending}
-          >
+          <Button type="submit" disabled={outcome === "" || logReturn.isPending}>
             {logReturn.isPending ? "Logging…" : "Log return"}
-          </button>
+          </Button>
         </form>
 
         <RefusalAlert message={refused} />
@@ -218,56 +224,62 @@ export function RetreadQueue() {
   const jobs = useQuery({ queryKey: retreadJobsKey(tenantKey), queryFn: fetchRetreadJobs });
 
   return (
-    <section aria-labelledby="retreads-heading" className="retreads">
-      <div className="tyres-heading-row">
-        <h1 className="page-title" id="retreads-heading">
-          Retreads
-        </h1>
-        <Link to="/fleet/tyres">Back to register</Link>
-      </div>
+    <section aria-labelledby="retreads-heading" className="fleet-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader
+        title={<span id="retreads-heading">Retreads</span>}
+        back={{ label: "Back to register", to: "/fleet/tyres" }}
+      />
 
       {closedCode !== null && <p role="status">{`The return for ${closedCode} was logged.`}</p>}
 
       {jobs.isPending && <p>Loading…</p>}
 
       {jobs.isError && (
-        <div className="note-card" role="alert">
-          <h2>Retreads didn&apos;t load</h2>
-          <p>The server could not be reached. Check your connection, then retry.</p>
-          <button className="btn-primary" type="button" onClick={() => void jobs.refetch()}>
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="critical"
+          title={<h2 className="fleet-banner-heading">Retreads didn&apos;t load</h2>}
+          action={<Button onClick={() => void jobs.refetch()}>Retry</Button>}
+        >
+          The server could not be reached. Check your connection, then retry.
+        </Banner>
       )}
 
       {jobs.isSuccess && jobs.data.length === 0 && (
-        <p className="note-card">No casings are out for retread.</p>
+        <p className="fleet-note">No casings are out for retread.</p>
       )}
 
       {jobs.isSuccess && jobs.data.length > 0 && (
-        <table className="retreads-table">
-          <thead>
-            <tr>
-              <th scope="col">Code</th>
-              <th scope="col">Depot</th>
-              <th scope="col">Sent on</th>
-              <th scope="col">Days out</th>
-              <th scope="col">Return</th>
-            </tr>
-          </thead>
-          <tbody>
-            {jobs.data.map((job: RetreadJob) => (
-              <RetreadReturnRow
-                key={job.id}
-                job={job}
-                tenantKey={tenantKey}
-                sentOnDisplay={asDate(job.sentAt)}
-                onSuccess={() => setClosedCode(job.displayCode)}
-                onStart={() => setClosedCode(null)}
-              />
-            ))}
-          </tbody>
-        </table>
+        <Card padding="none">
+          <div className="fleet-table-wrap">
+            <table className="fleet-table">
+              <thead>
+                <tr>
+                  <th scope="col">Code</th>
+                  <th scope="col">Depot</th>
+                  <th scope="col">Sent on</th>
+                  <th scope="col" data-align="right">
+                    Days out
+                  </th>
+                  <th scope="col">Return</th>
+                </tr>
+              </thead>
+              <tbody>
+                {jobs.data.map((job: RetreadJob) => (
+                  <RetreadReturnRow
+                    key={job.id}
+                    job={job}
+                    tenantKey={tenantKey}
+                    sentOnDisplay={asDate(job.sentAt)}
+                    onSuccess={() => setClosedCode(job.displayCode)}
+                    onStart={() => setClosedCode(null)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </section>
   );
