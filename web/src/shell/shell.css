@@ -34,12 +34,40 @@
 }
 
 /* TYRE-280: what a render error leaves in place of a page, inside the
-   shell. The button keeps .btn's 44px floor (NFR-USE-004). */
+   shell. */
 .route-error {
   display: grid;
   gap: var(--space-3);
   justify-items: start;
   padding: var(--space-6) 0;
+}
+
+/* ConfigFailure renders with no shell around it, so it brings its own
+   gutter. */
+.route-error--page {
+  max-width: 28rem;
+  padding: var(--space-8) var(--space-4);
+}
+
+.route-error > p {
+  margin: 0;
+  color: var(--ink-secondary);
+}
+
+.route-error > .route-error__lead {
+  font-size: var(--type-title-3-size);
+  line-height: var(--type-title-3-line);
+  font-weight: var(--type-title-3-weight);
+  color: var(--ink);
+}
+
+/* aria-disabled keeps the busy retry focusable; it looks disabled. Two
+   classes on the button, so it beats Button.css's hover fill. */
+.route-error .tr-btn.tr-btn--secondary[aria-disabled="true"] {
+  background: var(--surface-muted);
+  color: var(--ink-muted);
+  border-color: var(--line);
+  cursor: not-allowed;
 }
 
 /* The dev switchers' home (TYRE-242): after the content, collapsed. */
@@ -78,40 +106,4 @@
   border: 1px solid var(--line);
   border-radius: var(--radius-md);
   padding: var(--space-1) var(--space-2);
-}
-
-/* NFR-USE-004: the shell's own Try again buttons (ConfigFailure,
-   RouteErrorBoundary) keep the 44px floor without the manager kit's
-   stylesheet, which loads only with a manager route (TYRE-281). */
-.route-error .btn {
-  min-height: var(--target-min);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-2);
-  font-family: var(--font-sans);
-  font-size: var(--type-body-size);
-  font-weight: 600;
-  border-radius: var(--radius-md);
-  padding: 0.5rem 1.1rem;
-  cursor: pointer;
-  border: 1px solid transparent;
-}
-
-.route-error .btn-secondary {
-  color: var(--ink);
-  background: var(--surface);
-  border-color: var(--line);
-}
-.route-error .btn-secondary:hover:not(:disabled, [aria-disabled="true"]) {
-  background: var(--surface-muted);
-}
-
-/* aria-disabled keeps the busy retry focusable; it looks disabled. */
-.route-error .btn:disabled,
-.route-error .btn[aria-disabled="true"] {
-  background: var(--surface-muted);
-  color: var(--ink-muted);
-  border-color: transparent;
-  cursor: not-allowed;
 }
