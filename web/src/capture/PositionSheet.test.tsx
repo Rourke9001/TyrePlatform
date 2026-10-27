@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
@@ -139,6 +139,22 @@ describe("PositionSheet", () => {
     await user.click(screen.getByRole("button", { name: "1" }));
     await user.click(screen.getByRole("button", { name: "3" }));
     expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
+  });
+
+  // U145: no decimal key. A 0.5 mm tenant gets the half key in Delete's
+  // slot, and it adds the half to the whole millimetres typed. The value is
+  // matched on its own, apart from the cell's number and unit.
+  it("at 0.5 mm, 1 3 then half reads 13.5", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
   });
 
   // FR-INS-029a: the driver never sees the words inner, outer or centre. The
