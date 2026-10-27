@@ -3,13 +3,6 @@
    RouteErrorBoundary import it, so each paints on the capture entry's
    stylesheets alone. Custom properties only. */
 
-/* TODO(TYRE-240): no element carries this class. It stays until
-   theme/brandConfinement.test.ts takes Tread's tile as its sentinel for
-   the chrome rules it finds. */
-.shell-wordmark {
-  color: var(--brand);
-}
-
 /* A sign-out refusal takes a row of its own under the bar, so it neither
    moves the button nor squeezes the actor line beside it. The live region
    stays in the tree while empty (auth.css), so only a message takes the

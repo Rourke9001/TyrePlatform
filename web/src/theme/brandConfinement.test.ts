@@ -25,11 +25,6 @@ const sources = import.meta.glob<string>(
 // (TYRE-443).
 const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
   // Today's screens: filled buttons and the go key.
-  "/src/auth/auth.css": {
-    ".auth-primary": ["border", "background", "color"],
-    '.auth-primary:hover:not([aria-disabled="true"])': ["background", "border-color"],
-    '.auth-primary:active:not([aria-disabled="true"])': ["background", "border-color"],
-  },
   "/src/capture/capture.css": {
     ".cap-key--go": ["border-color", "background", "color"],
     ".cap-key--go:active": ["background"],
@@ -154,7 +149,7 @@ describe("the tenant brand stays in chrome (U53)", () => {
   it("sees the stylesheets and the chrome rules in them", () => {
     expect(Object.keys(sheets).length).toBeGreaterThanOrEqual(6);
     const selectors = brandReads(sheets).map((r) => r.selector);
-    expect(selectors).toContain(".btn-primary");
+    expect(selectors).toContain(".tr-brandmark__tile");
     expect(selectors).toContain(".cap-primary");
     expect(Object.keys(sources)).toContain("/src/theme/tokens.ts");
     expect(sources["/src/theme/ThemeProvider.tsx"]).toContain("brandVars(");

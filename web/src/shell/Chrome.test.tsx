@@ -15,9 +15,9 @@ import { ThemeContext } from "../theme/themeContext";
 
 const branding = { displayName: "Sandbox Fleet", primaryColor: "#E2202A", logoUrl: null };
 
-// The nav is the only thing under test, but AppShell mounts OutboxIndicator,
-// which flushes the queue on mount (FR-OFF-009) and would otherwise reach the
-// network. That is the same stub that OutboxIndicator's own suite uses.
+// Chrome mounts OutboxIndicator in both frames, which flushes the queue on
+// mount (FR-OFF-009) and would otherwise reach the network. That is the same
+// stub that OutboxIndicator's own suite uses.
 function renderShellAt(path: string, capabilities: string[]) {
   return render(
     <QueryClientProvider client={new QueryClient()}>
