@@ -1,6 +1,7 @@
 import { useState } from "react";
 
 import { authChunk } from "../api/token";
+import { Button } from "../ui/Button";
 import "./auth.css";
 
 // The path to come back to rides in the request's state (callback.ts checks
@@ -24,9 +25,11 @@ export function SignInButton({ label }: { label: string }) {
     <div className="auth-action">
       {/* aria-disabled, because a disabled button drops keyboard focus to
           the page. */}
-      <button
-        type="button"
-        className="auth-primary"
+      <Button
+        variant="primary"
+        // NFR-USE-004: a gloved tap at the capture keypad's size, not the
+        // manager's 44px floor.
+        size="glove"
         aria-disabled={pending}
         onClick={() => {
           if (pending) return;
@@ -38,7 +41,7 @@ export function SignInButton({ label }: { label: string }) {
         }}
       >
         {pending ? "Opening sign-in…" : label}
-      </button>
+      </Button>
       {failed && (
         <p role="alert" className="auth-note">
           Could not start sign-in. Find signal and try again.

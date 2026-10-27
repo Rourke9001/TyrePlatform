@@ -1,7 +1,7 @@
 import { apiGet } from "./client";
 
 // Wire shape of GET /api/org/branding (TYRE-26). logoUrl is null until logo
-// serving arrives with RBAC; AppShell's BrandMark holds the render rationale.
+// serving arrives with RBAC; shell/Chrome.tsx holds the render rationale.
 export interface Branding {
   displayName: string;
   primaryColor: string;
