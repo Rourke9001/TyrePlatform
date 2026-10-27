@@ -8,7 +8,7 @@ import "./Dialog.css";
 
 export interface DialogProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   open: boolean;
-  // Called on Escape. The caller owns the open state, so a form can refuse
+  // Called on Escape, and on a backdrop click when dismissOnBackdrop is set. The caller owns the open state, so a form can refuse
   // to close while a write is pending.
   onClose: () => void;
   title: ReactNode;
@@ -19,6 +19,9 @@ export interface DialogProps extends Omit<HTMLAttributes<HTMLDivElement>, "title
   actions: ReactNode;
   tone?: "default" | "danger";
   inline?: boolean;
+  // A click on the scrim outside the panel calls onClose, as Escape does.
+  // Off by default: a confirmation is answered by one of its actions.
+  dismissOnBackdrop?: boolean;
 }
 
 // role="dialog", not the artifact's alertdialog: the screens it replaces
@@ -32,10 +35,14 @@ export function Dialog({
   actions,
   tone = "default",
   inline,
+  dismissOnBackdrop = false,
   className,
   ...rest
 }: DialogProps) {
   const panel = useRef<HTMLDivElement>(null);
+  // A text selection dragged from the panel out over the scrim ends in a
+  // click on the scrim; only a press that began there is a dismissal.
+  const pressedScrim = useRef(false);
   const titleId = useId();
   const describedId = useId();
   useFocusTrap(panel, open, onClose);
@@ -46,7 +53,16 @@ export function Dialog({
   const hasBody = Children.toArray(children).length > 0;
   const described = hasDescription || hasBody;
   return (
-    <div className={cx("tr-dialog__scrim", inline && "tr-dialog__scrim--inline")}>
+    <div
+      className={cx("tr-dialog__scrim", inline && "tr-dialog__scrim--inline")}
+      onMouseDown={(e) => {
+        pressedScrim.current = e.target === e.currentTarget;
+      }}
+      onClick={(e) => {
+        if (dismissOnBackdrop && pressedScrim.current && e.target === e.currentTarget) onClose();
+        pressedScrim.current = false;
+      }}
+    >
       <div
         ref={panel}
         role="dialog"
