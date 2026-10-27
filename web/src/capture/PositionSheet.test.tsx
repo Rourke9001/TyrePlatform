@@ -201,6 +201,56 @@ describe("PositionSheet", () => {
     expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
+  // U146: the reach-back holds when the keypad moves on onto a cell that
+  // already holds a reading, since the driver has not touched that cell yet.
+  it("at 0.5 mm, a half after the advance reaches back over a filled cell", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, context: halves }}
+        ctx={halves}
+        initial={{ ...acknowledged, treads: [12, 12, 12], warnings: [] }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(within(second).getByText("12")).toBeVisible();
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
+  // A tap on the filled cell first makes the half that cell's.
+  it("at 0.5 mm, a half after a tap on a filled cell adds it there", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, context: halves }}
+        ctx={halves}
+        initial={{ ...acknowledged, treads: [12, 12, 12], warnings: [] }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByLabelText("Tread reading 2 of 3"));
+    await user.click(screen.getByRole("button", { name: "½" }));
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13")).toBeVisible();
+    expect(within(screen.getByLabelText("Tread reading 2 of 3")).getByText("12.5")).toBeVisible();
+  });
+
   // FR-INS-029a: the driver never sees the words inner, outer or centre. The
   // prototype's Outer/Centre/Inner labels are not carried over (decision D-A).
   // Swept with the one shared list (test/spoken.ts), which carries CR-010's
