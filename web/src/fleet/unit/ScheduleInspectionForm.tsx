@@ -6,7 +6,10 @@ import { fetchUnitTrip } from "../../api/trips";
 import type { Unit } from "../../api/units";
 import { refusalMessage } from "../../api/refusal";
 import { useTenantDate } from "../../time/tenantTime";
+import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
+import { Field } from "../../ui/Field";
+import { TextInput } from "../../ui/TextInput";
 import { useFormMutation } from "../useFormMutation";
 import { DriverPicker } from "./DriverPicker";
 import { tripBlockersPrefix, unitTasksKey, unitTripKey } from "./queryKeys";
@@ -62,48 +65,42 @@ export function ScheduleInspectionForm({ unit }: { unit: Unit }) {
   }
 
   return (
-    <Card className="unit-form-card" title="Schedule an inspection" padding="md">
+    <Card title="Schedule an inspection" padding="md">
       {trip.isError && (
         <>
           <p role="alert">Who holds this unit could not be loaded.</p>
-          <button type="button" onClick={() => void trip.refetch()}>
-            Retry
-          </button>
+          <Button onClick={() => void trip.refetch()}>Retry</Button>
         </>
       )}
-      <form onSubmit={submit}>
+      <form className="unit-form" onSubmit={submit}>
         {covered !== null && (
-          <p className="tyres-receive-hint">
+          <p className="unit-hint">
             This inspection goes to {covered.driver.displayName}, on the trip with{" "}
             {covered.motive.fleetNumber}.
           </p>
         )}
         {trip.isSuccess && covered === null && (
-          <div className="tyres-row-form">
-            <DriverPicker
-              id="taskDriver"
-              label="Driver"
-              value={nomineeId}
-              onChange={setNomineeId}
-              placeholder="Nobody yet"
-            />
-          </div>
+          <DriverPicker
+            id="taskDriver"
+            label="Driver"
+            value={nomineeId}
+            onChange={setNomineeId}
+            placeholder="Nobody yet"
+          />
         )}
 
-        <div className="tyres-row-form">
-          <label htmlFor="taskDueOn">Due</label>
-          <input
+        <Field label="Due" hint="Leave empty for today.">
+          <TextInput
             id="taskDueOn"
             type="date"
             value={dueOn}
             onChange={(e) => setDueOn(e.target.value)}
           />
-        </div>
-        <p className="tyres-receive-hint">Leave empty for today.</p>
+        </Field>
 
-        <button className="btn-primary" type="submit" disabled={schedule.isPending}>
+        <Button variant="primary" type="submit" disabled={schedule.isPending}>
           {schedule.isPending ? "Scheduling…" : "Schedule inspection"}
-        </button>
+        </Button>
       </form>
 
       {schedule.isSuccess &&

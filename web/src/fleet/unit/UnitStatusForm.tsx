@@ -3,7 +3,11 @@ import { type FormEvent, useState } from "react";
 import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { setUnitStatus, type Unit } from "../../api/units";
+import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
+import { Field } from "../../ui/Field";
+import { Select } from "../../ui/Select";
+import { TextInput } from "../../ui/TextInput";
 import { useFormMutation } from "../useFormMutation";
 import { unitKey, vehiclesKey } from "./queryKeys";
 import { UNIT_STATUSES } from "./vocabulary";
@@ -41,36 +45,31 @@ export function UnitStatusForm({ unit }: { unit: Unit }) {
   }
 
   return (
-    <Card className="unit-status" title="Status" padding="md">
-      <form className="tyres-row-form" onSubmit={submit}>
-        <label htmlFor={`unit-status-${unit.id}`}>Status</label>
-        <select
-          id={`unit-status-${unit.id}`}
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-        >
-          {UNIT_STATUSES.map((s) => (
-            <option key={s.value} value={s.value}>
-              {s.label}
-            </option>
-          ))}
-        </select>
+    <Card title="Status" padding="md">
+      <form className="unit-form unit-form--row" onSubmit={submit}>
+        <Field label="Status">
+          <Select
+            id={`unit-status-${unit.id}`}
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            options={UNIT_STATUSES}
+          />
+        </Field>
 
         {status === "DISPOSED" && (
-          <>
-            <label htmlFor={`unit-status-reason-${unit.id}`}>Reason</label>
-            <input
+          <Field label="Reason">
+            <TextInput
               id={`unit-status-reason-${unit.id}`}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               required
             />
-          </>
+          </Field>
         )}
 
-        <button className="btn-primary btn-compact" type="submit" disabled={change.isPending}>
+        <Button variant="primary" type="submit" disabled={change.isPending}>
           {change.isPending ? "Setting…" : "Set status"}
-        </button>
+        </Button>
       </form>
 
       {change.isSuccess && <p role="status">The status was changed.</p>}
