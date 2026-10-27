@@ -135,8 +135,8 @@ A bug found on a branch is fixed on that branch (U146, CLAUDE.md); Set aside
 holds only what is not a bug.
 
 The capture route's entry budget in `web/bundle-budget.json` was recorded
-on 27 Oct 2026 by TYRE-443, for Tread's capture set and both shells: 147899
-gzip bytes of JavaScript, 6436 of CSS and 70188 raw bytes of fonts. The gate
+on 27 Oct 2026 by TYRE-443, for Tread's capture set and both shells: 148039
+gzip bytes of JavaScript, 6479 of CSS and 70188 raw bytes of fonts. The gate
 only lets those figures go down. Every capture-route change in the queue adds
 bytes: the capture fixes, photos, the manifest and the Tread capture slice.
 Each such PR re-records the budget in its own commit and says why, so the
