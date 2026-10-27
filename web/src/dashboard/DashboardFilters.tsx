@@ -1,16 +1,14 @@
-import { useQuery } from "@tanstack/react-query";
 import { useEffect, useEffectEvent, useState } from "react";
 
 import type { DashboardParams } from "../api/dashboard";
-import { getDevTenantId } from "../api/devTenant";
-import { fetchDepots } from "../api/units";
 import { useActor } from "../auth/actorContext";
-import { depotsKey } from "../fleet/unit/queryKeys";
-import { FilterBar } from "../ui/legacy/FilterBar";
-import { FormField } from "../ui/legacy/FormField";
-import { Select } from "../ui/legacy/Select";
 import { absenceLabel } from "../domain/vocabulary";
+import { Field } from "../ui/Field";
+import { Select } from "../ui/legacy/Select";
+import { TextInput } from "../ui/TextInput";
+import { useDepots } from "./dashboard.data";
 import { PERIOD_SETTLE_MS, settlePeriod } from "./dashboardParams";
+import { FilterBar } from "./FilterBar";
 
 // U85: the dashboard's depot filter offers these two types only. GET
 // /api/depots takes one ?type= per call, so the one untyped list is
@@ -31,8 +29,7 @@ export function DashboardFilters({
   refreshing,
 }: DashboardFiltersProps) {
   const actor = useActor();
-  const tenantKey = getDevTenantId() ?? "default";
-  const depots = useQuery({ queryKey: depotsKey(tenantKey), queryFn: () => fetchDepots() });
+  const depots = useDepots();
   // FR-DSH-011: the fields hold what is being typed and the URL holds the
   // period, so a link or Back that moves the URL resets the fields to it.
   const [draft, setDraft] = useState({ from: params.from ?? "", to: params.to ?? "" });
@@ -89,7 +86,7 @@ export function DashboardFilters({
 
   return (
     <FilterBar onRefresh={onRefresh} refreshing={refreshing}>
-      <FormField id="depot" label="Depot" hint={depots.isError ? "Depots did not load" : undefined}>
+      <Field label="Depot" hint={depots.isError ? "Depots did not load" : undefined}>
         <Select
           id="depot"
           value={naming ? "" : (params.depot ?? "")}
@@ -101,37 +98,36 @@ export function DashboardFilters({
           }}
           options={naming ? [] : options}
         />
-      </FormField>
-      <FormField
-        id="from"
-        label="Inflation period from"
-        hint="Both dates, or neither for the configured window"
-      >
-        <input
+      </Field>
+      <Field label="Inflation period from" hint="Both dates, or neither for the configured window">
+        <TextInput
           id="from"
           type="date"
           value={draft.from}
           onChange={(e) => setDraft({ ...draft, from: e.target.value })}
         />
-      </FormField>
-      <FormField
-        id="to"
+      </Field>
+      <Field
         label="to"
         hint="Exclusive"
         error={
-          settled.kind === "wait" && settled.misordered ? "Must be after the from date" : undefined
+          settled.kind === "wait" && settled.misordered ? (
+            // Spoken when it appears: the period is refused without moving
+            // focus off the field being typed in.
+            <span role="alert">Must be after the from date</span>
+          ) : undefined
         }
       >
-        {/* WCAG 2.5.3: the mockup's visible label is "to"; the accessible
-            name says which field, and still contains the visible word. */}
-        <input
+        {/* WCAG 2.5.3: the visible label is "to"; the accessible name says
+            which field, and still contains the visible word. */}
+        <TextInput
           id="to"
           type="date"
           aria-label="Inflation period to"
           value={draft.to}
           onChange={(e) => setDraft({ ...draft, to: e.target.value })}
         />
-      </FormField>
+      </Field>
     </FilterBar>
   );
 }
