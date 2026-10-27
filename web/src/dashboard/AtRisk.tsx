@@ -1,151 +1,107 @@
-import "../ui/legacy/ui.css";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useSearchParams } from "react-router";
 
-import { fetchAtRisk, type AtRiskClass, type TyreAtRisk } from "../api/dashboard";
-import { getDevTenantId } from "../api/devTenant";
-import { moneyOrEmpty, moneyText, useCurrency } from "../api/money";
-import { fetchDepots } from "../api/units";
-import { formatTreadAge } from "../format/treadAge";
 import { useActor } from "../auth/actorContext";
-import { atRiskKey, depotsKey } from "../fleet/unit/queryKeys";
+import { absenceLabel } from "../domain/vocabulary";
 import { useTenantInstant } from "../time/tenantTime";
-import { DataTable, type Column } from "../ui/legacy/DataTable";
-import { EmptyState } from "../ui/legacy/EmptyState";
-import { FilterBar } from "../ui/legacy/FilterBar";
-import { PageHeader } from "../ui/legacy/PageHeader";
-import { StatTile } from "../ui/legacy/StatTile";
-import { absenceLabel, basisLabel, judgedAtLabel, treadSourceLabel } from "../domain/vocabulary";
-import { formatCount, formatMm, plural } from "../format/numbers";
+import { Banner } from "../ui/Banner";
+import { Card } from "../ui/Card";
+import { DataTable, type Column } from "../ui/DataTable";
+import { EmptyState } from "../ui/EmptyState";
+import { Metric } from "../ui/Metric";
+import { PageHeader } from "../ui/PageHeader";
+import { atRiskClassView, atRiskLede, atRiskRows, type AtRiskRowView } from "./atRisk.view";
+import { useAtRisk, useDepotName } from "./dashboard.data";
 import { readDashboardParams } from "./dashboardParams";
+import { FilterBar } from "./FilterBar";
+import { useMoneyText } from "./useMoneyText";
 import "./analytics.css";
 
-// U47: the hero's own words for the same breakdown, so the figure and the
-// list it opens read alike.
-function classQualifier(c: AtRiskClass): string {
-  return `${plural(c.tyreCount, "tyre", "tyres")}: ${formatCount(c.actualCount)} at actual cost, ${formatCount(c.estimatedOrAuditCount)} estimated or audit, of which ${formatCount(c.auditCount)} audit; ${formatCount(c.unvaluedCount)} unvalued`;
-}
-
-function classValue(c: AtRiskClass, currency: string): string {
-  return moneyOrEmpty(c.casingValueAtRisk, true, c.tyreCount, absenceLabel("noneAtRisk"), currency);
-}
-
-// FR-DSH-017, U47: every tyre at or below the removal threshold today, with
-// its casing value and the basis it was priced on (ADR-0010, TYRE-176). The
-// route is gated on ViewValuation (routes.tsx), so money is visible here by
-// construction; a null is an empty class or an unvalued one (U36).
+// FR-DSH-017, U47: every tyre at or below the removal threshold today
+// (atRisk.view.ts says what each figure holds).
 export default function AtRisk() {
   const [search] = useSearchParams();
   const depot = readDashboardParams(search).depot;
-  const tenantKey = getDevTenantId() ?? "default";
   const actor = useActor();
-  const currency = useCurrency();
+  const money = useMoneyText();
   const formatInstant = useTenantInstant();
-  const list = useQuery({
-    queryKey: atRiskKey(tenantKey, depot),
-    queryFn: () => fetchAtRisk(depot),
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-    retry: 0,
-  });
-  // A depot view names its depot; the depots query shares the dashboard's
-  // cache entry.
-  const depots = useQuery({
-    queryKey: depotsKey(tenantKey),
-    queryFn: () => fetchDepots(),
-    enabled: depot !== undefined,
-  });
-  const depotName = depots.data?.find((d) => d.id === depot)?.name;
+  const list = useAtRisk(depot);
+  const depotName = useDepotName(depot);
 
-  const columns: Column<TyreAtRisk>[] = [
-    { key: "code", header: "Tyre", cell: (t) => t.displayCode },
+  const columns: Column<AtRiskRowView>[] = [
+    { key: "code", header: "Tyre", mono: true, nowrap: true, render: (t) => t.code },
     {
       key: "unit",
       header: "Unit",
-      cell: (t) => <Link to={`/fleet/units/${t.vehicleId}`}>{t.fleetNumber}</Link>,
+      nowrap: true,
+      render: (t) => <Link to={`/fleet/units/${t.vehicleId}`}>{t.fleetNumber}</Link>,
     },
-    { key: "position", header: "Position", cell: (t) => t.positionCode },
+    { key: "position", header: "Position", mono: true, render: (t) => t.position },
     {
       key: "tread",
       header: "Tread against threshold",
       align: "right",
-      cell: (t) => `${formatMm(t.currentTreadMm)} of ${formatMm(t.removalThresholdMm)}`,
+      mono: true,
+      render: (t) => t.tread,
     },
-    {
-      key: "source",
-      header: "Tread source",
-      basis: true,
-      cell: (t) => treadSourceLabel(t.treadSource),
-    },
-    {
-      key: "read",
-      header: "Read at",
-      // FR-TYR-017: the read's age joins its date in this cell, never a
-      // column of its own (TYRE-238's layout is fixed).
-      cell: (t) =>
-        t.readAt === null
-          ? absenceLabel("undated")
-          : t.treadAgeDays === null
-            ? formatInstant(t.readAt)
-            : `${formatInstant(t.readAt)}, ${formatTreadAge(t.treadAgeDays)}`,
-    },
+    { key: "source", header: "Tread source", basis: true, render: (t) => t.source },
+    { key: "read", header: "Read at", render: (t) => t.read },
     {
       key: "value",
       header: "Casing value",
       align: "right",
-      cell: (t) => moneyText(t.casingValue, true, currency),
+      mono: true,
+      render: (t) => money.figure(t.value),
     },
-    { key: "basis", header: "Basis", basis: true, cell: (t) => basisLabel(t.casingBasis) },
+    { key: "basis", header: "Basis", basis: true, render: (t) => t.basis },
   ];
 
-  const lede = list.data
-    ? [
-        `Tyres at or below the removal threshold, judged ${judgedAtLabel(list.data.judgedAt)}`,
-        depot === undefined ? undefined : `at ${depotName ?? absenceLabel("unnamedDepot")}`,
-      ]
-        .filter((part) => part !== undefined)
-        .join(", ")
-    : undefined;
+  const running = list.data ? atRiskClassView(list.data.running) : undefined;
+  const spare = list.data ? atRiskClassView(list.data.spare) : undefined;
 
   return (
     <div className="analytics-page">
-      <PageHeader title="Value at risk" lede={lede} />
+      <PageHeader
+        title="Value at risk"
+        description={list.data ? atRiskLede(list.data.judgedAt, depot, depotName) : undefined}
+      />
       {/* FR-DSH-013: the list's one refetch, as on /exceptions; it has no
           filters of its own. */}
       <FilterBar onRefresh={() => void list.refetch()} refreshing={list.isFetching} />
-      {list.data && (
+      {running && spare && (
         <div className="tile-grid">
-          <StatTile
+          <Metric
             label="Running"
-            value={classValue(list.data.running, currency)}
-            qualifier={classQualifier(list.data.running)}
-            requirement="FR-RPT-040"
+            value={money.figure(running.value)}
+            detail={running.detail}
             headingLevel={2}
+            data-requirement="FR-RPT-040"
           />
-          <StatTile
+          <Metric
             label="Spares"
-            value={classValue(list.data.spare, currency)}
-            qualifier={classQualifier(list.data.spare)}
+            value={money.figure(spare.value)}
+            detail={spare.detail}
             headingLevel={2}
           />
         </div>
       )}
       {list.isError ? (
-        <p role="alert">The at-risk list did not load.</p>
+        <Banner tone="warning" title="The at-risk list did not load." />
       ) : (
-        <DataTable
-          caption="Tyres at or below the removal threshold"
-          columns={columns}
-          rows={list.data?.tyres ?? []}
-          rowKey={(t) => t.tyreId}
-          loading={list.isPending}
-          cardHeadingLevel={2}
-          empty={
-            <EmptyState title={absenceLabel("noTyresAtRisk")} headingLevel={2}>
-              {absenceLabel("noTyresAtRiskBody")}
-            </EmptyState>
-          }
-        />
+        <Card padding="none">
+          <DataTable
+            caption="Tyres at or below the removal threshold"
+            columns={columns}
+            rows={list.data ? atRiskRows(list.data.tyres, formatInstant) : []}
+            rowKey={(t) => t.key}
+            loading={list.isPending}
+            cardHeadingLevel={2}
+            empty={
+              <EmptyState title={absenceLabel("noTyresAtRisk")} headingLevel={2}>
+                {absenceLabel("noTyresAtRiskBody")}
+              </EmptyState>
+            }
+          />
+        </Card>
       )}
       {/* Rule 6: every time above is the tenant's, named once, here, as
           /exceptions names it. */}
