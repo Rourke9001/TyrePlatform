@@ -8,23 +8,6 @@
   max-width: 68rem;
 }
 
-/* .retreads (TYRE-93) until it is on .fleet-page. */
-.retreads {
-  max-width: 68rem;
-}
-
-.tyres-heading-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
-}
-
-/* .page-title supplies the type; the margin is this layout's own. */
-.retreads h1 {
-  margin-bottom: 1rem;
-}
-
 /* A lookup's fields and buttons share one baseline and wrap below it. */
 .fleet-toolbar {
   display: flex;
@@ -204,10 +187,8 @@
 
 /* The unit screen's tables: .tyres-table and .fitments-table (TYRE-93) are
    one table, taking these four rules by selector, not by a second copy, so
-   they cannot drift apart by accident. .retreads-table until the retread
-   queue is on .fleet-table. */
+   they cannot drift apart by accident. */
 .tyres-table,
-.retreads-table,
 .fitments-table {
   width: 100%;
   border-collapse: collapse;
@@ -219,8 +200,6 @@
 
 .tyres-table th,
 .tyres-table td,
-.retreads-table th,
-.retreads-table td,
 .fitments-table th,
 .fitments-table td {
   padding: 0.5rem 0.75rem;
@@ -231,7 +210,6 @@
 }
 
 .tyres-table thead th,
-.retreads-table thead th,
 .fitments-table thead th {
   font-family: var(--font-sans);
   font-weight: 500;
@@ -241,7 +219,6 @@
 }
 
 .tyres-table tbody th[scope="row"],
-.retreads-table tbody th[scope="row"],
 .fitments-table tbody th[scope="row"] {
   font-family: var(--font-mono);
   font-weight: 600;
