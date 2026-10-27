@@ -24,6 +24,9 @@ export interface Column<T> {
   basis?: boolean;
   // Short values (codes, times, fleet numbers) stay on one line.
   nowrap?: boolean;
+  // Names the row for a screen reader: its desktop cells are th scope="row".
+  // One per table; the first wins. Cards are unchanged.
+  rowHeader?: boolean;
   width?: string;
   render: (row: T) => ReactNode;
 }
@@ -43,6 +46,9 @@ export interface DataTableProps<T> extends HTMLAttributes<HTMLDivElement> {
   rowTone?: (row: T) => "critical" | undefined;
   // Replaces an empty table, which reads as a broken one.
   empty?: ReactNode;
+  // Passing it, true or false, mounts the status line that announces a load.
+  // A screen with its own status region leaves it out and keeps a single
+  // role="status".
   loading?: boolean;
   // The phone form heads each card under the heading the table sits beneath.
   cardHeadingLevel?: 2 | 3 | 4;
@@ -85,7 +91,7 @@ export function DataTable<T>({
   selectedKey,
   rowTone,
   empty,
-  loading = false,
+  loading,
   cardHeadingLevel = 3,
   className,
   ...rest
@@ -95,11 +101,12 @@ export function DataTable<T>({
   // NVDA and JAWS do not announce aria-busy, so a status line says the load
   // (WCAG 4.1.3). It heads every form, so one live region outlasts the
   // switch from loading to rows or to empty.
-  const status = (
-    <p role="status" className="tr-vh">
-      {loading ? `Loading ${caption}` : ""}
-    </p>
-  );
+  const status =
+    loading === undefined ? null : (
+      <p role="status" className="tr-vh">
+        {loading ? `Loading ${caption}` : ""}
+      </p>
+    );
   const frame = (body: ReactNode) => (
     <div className={cx("tr-table-wrap", className)} {...rest}>
       {status}
@@ -126,7 +133,7 @@ export function DataTable<T>({
           role="list"
           aria-label={captionVisible ? undefined : caption}
           aria-labelledby={captionVisible ? captionId : undefined}
-          aria-busy={loading || undefined}
+          aria-busy={loading === true ? true : undefined}
         >
           {loading
             ? SKELETON_ROWS.map((i) => (
@@ -181,6 +188,8 @@ export function DataTable<T>({
     );
   }
 
+  // A second flagged column is ignored: two row headers name the row twice.
+  const headerKey = columns.find((c) => c.rowHeader)?.key;
   const openOnKey = (row: T) => (event: KeyboardEvent<HTMLTableRowElement>) => {
     if ((event.key !== "Enter" && event.key !== " ") || fromControl(event)) return;
     event.preventDefault();
@@ -190,7 +199,7 @@ export function DataTable<T>({
     if (!fromControl(event)) onRowClick?.(row);
   };
   return frame(
-    <table className="tr-table" aria-busy={loading || undefined}>
+    <table className="tr-table" aria-busy={loading === true ? true : undefined}>
       <caption className={captionVisible ? undefined : "tr-vh"}>{caption}</caption>
       <thead>
         <tr>
@@ -229,14 +238,17 @@ export function DataTable<T>({
                   onClick={onRowClick ? openOnClick(row) : undefined}
                   onKeyDown={onRowClick ? openOnKey(row) : undefined}
                 >
-                  {columns.map((c, i) => (
-                    <td key={c.key} {...cellData(c)}>
-                      {c.render(row)}
-                      {onRowClick && i === columns.length - 1 ? (
-                        <Icon icon={ChevronRightIcon} size={18} className="tr-table__chev" />
-                      ) : null}
-                    </td>
-                  ))}
+                  {columns.map((c, i) => {
+                    const Cell = c.key === headerKey ? "th" : "td";
+                    return (
+                      <Cell key={c.key} scope={Cell === "th" ? "row" : undefined} {...cellData(c)}>
+                        {c.render(row)}
+                        {onRowClick && i === columns.length - 1 ? (
+                          <Icon icon={ChevronRightIcon} size={18} className="tr-table__chev" />
+                        ) : null}
+                      </Cell>
+                    );
+                  })}
                 </tr>
               );
             })}

@@ -147,4 +147,52 @@ describe("Dialog", () => {
     fireEvent.mouseDown(scrim);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  it("a backdrop click closes when dismissOnBackdrop is set", async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Dispose
+          </button>
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            dismissOnBackdrop
+            title="Dispose tyre"
+            actions={<button type="button">Keep it</button>}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Dispose" });
+    await user.click(opener);
+    const scrim = screen.getByRole("dialog").parentElement;
+    if (scrim === null) throw new Error("the dialog has no scrim");
+    await user.click(screen.getByRole("heading", { name: "Dispose tyre" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.click(scrim);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
+  it("a backdrop click does nothing by default", async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(
+      <Dialog
+        open
+        onClose={onClose}
+        title="Dispose tyre"
+        actions={<button type="button">Dispose</button>}
+      />,
+    );
+    const scrim = screen.getByRole("dialog").parentElement;
+    if (scrim === null) throw new Error("the dialog has no scrim");
+    await user.click(scrim);
+    expect(onClose).not.toHaveBeenCalled();
+  });
 });
