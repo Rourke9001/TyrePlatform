@@ -8,8 +8,9 @@ import "./Dialog.css";
 
 export interface DialogProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   open: boolean;
-  // Called on Escape, and on a backdrop click when dismissOnBackdrop is set. The caller owns the open state, so a form can refuse
-  // to close while a write is pending.
+  // Called on Escape, and on a backdrop click when dismissOnBackdrop is set.
+  // The caller owns the open state, so a form can refuse to close while a
+  // write is pending.
   onClose: () => void;
   title: ReactNode;
   description?: ReactNode;
@@ -42,7 +43,11 @@ export function Dialog({
   const panel = useRef<HTMLDivElement>(null);
   // A text selection dragged from the panel out over the scrim ends in a
   // click on the scrim; only a press that began there is a dismissal.
+  // A click closes only when the press and the release both landed on the
+  // scrim: a drag across the panel edge clicks the scrim, their common
+  // ancestor.
   const pressedScrim = useRef(false);
+  const releasedScrim = useRef(false);
   const titleId = useId();
   const describedId = useId();
   useFocusTrap(panel, open, onClose);
@@ -57,10 +62,20 @@ export function Dialog({
       className={cx("tr-dialog__scrim", inline && "tr-dialog__scrim--inline")}
       onMouseDown={(e) => {
         pressedScrim.current = e.target === e.currentTarget;
+        releasedScrim.current = false;
+      }}
+      onMouseUp={(e) => {
+        releasedScrim.current = e.target === e.currentTarget;
       }}
       onClick={(e) => {
-        if (dismissOnBackdrop && pressedScrim.current && e.target === e.currentTarget) onClose();
+        const closes =
+          dismissOnBackdrop &&
+          pressedScrim.current &&
+          releasedScrim.current &&
+          e.target === e.currentTarget;
         pressedScrim.current = false;
+        releasedScrim.current = false;
+        if (closes) onClose();
       }}
     >
       <div
