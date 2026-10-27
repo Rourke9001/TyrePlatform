@@ -5,6 +5,13 @@ import { createUnit, fetchAxleConfigurations, type CreatedUnit, type UnitKind } 
 import { refusalMessage } from "../api/refusal";
 import { getDevTenantId } from "../api/devTenant";
 import { axleConfigurationsKey } from "../fleet/unit/queryKeys";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import { Field } from "../ui/Field";
+import { PageHeader } from "../ui/PageHeader";
+import { Select } from "../ui/Select";
+import { TextInput } from "../ui/TextInput";
 import "./admin.css";
 
 // The kinds a unit can be, in the order a fleet thinks of them. The values are
@@ -61,72 +68,79 @@ export function AddUnit() {
   }
 
   return (
-    <section aria-labelledby="add-unit-heading" className="adm-form">
-      <h1 id="add-unit-heading">Add a unit</h1>
+    <section aria-labelledby="add-unit-heading" className="adm-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader title={<span id="add-unit-heading">Add a unit</span>} />
 
       {configs.isPending && <p>Loading…</p>}
       {configs.isError && (
-        <p role="alert">
-          The axle configuration library could not be loaded, so a unit cannot be added yet.
-        </p>
+        <Banner
+          tone="critical"
+          title="The axle configuration library could not be loaded, so a unit cannot be added yet."
+        />
       )}
 
       {configs.isSuccess && (
-        <form onSubmit={submit}>
-          <label htmlFor="fleetNumber">Fleet number</label>
-          {/* FR-VEH-003: alphanumeric, never assumed numeric, so this is a
-              text input with no pattern, and the server checks only that
-              there is one. */}
-          <input
-            id="fleetNumber"
-            value={fleetNumber}
-            onChange={(e) => setFleetNumber(e.target.value)}
-            required
-          />
+        <Card>
+          <form className="tr-stack" onSubmit={submit}>
+            {/* FR-VEH-003: alphanumeric, never assumed numeric, so this is a
+                text input with no pattern, and the server checks only that
+                there is one. */}
+            <Field label="Fleet number">
+              <TextInput
+                id="fleetNumber"
+                mono
+                value={fleetNumber}
+                onChange={(e) => setFleetNumber(e.target.value)}
+                required
+              />
+            </Field>
 
-          <label htmlFor="registration">Registration</label>
-          <input
-            id="registration"
-            value={registration}
-            onChange={(e) => setRegistration(e.target.value)}
-          />
+            <Field label="Registration">
+              <TextInput
+                id="registration"
+                mono
+                value={registration}
+                onChange={(e) => setRegistration(e.target.value)}
+              />
+            </Field>
 
-          <label htmlFor="unitKind">Unit kind</label>
-          <select
-            id="unitKind"
-            value={unitKind}
-            onChange={(e) => setUnitKind(e.target.value as UnitKind)}
-            required
-          >
-            <option value="">Choose…</option>
-            {KINDS.map((k) => (
-              <option key={k.value} value={k.value}>
-                {k.label}
-              </option>
-            ))}
-          </select>
+            <Field label="Unit kind">
+              <Select
+                id="unitKind"
+                value={unitKind}
+                onChange={(e) => setUnitKind(e.target.value as UnitKind)}
+                required
+                options={[{ value: "", label: "Choose…" }, ...KINDS]}
+              />
+            </Field>
 
-          <label htmlFor="configurationId">Axle configuration</label>
-          <select
-            id="configurationId"
-            value={configurationId === "" ? (configs.data[0]?.id ?? "") : configurationId}
-            onChange={(e) => setConfigurationId(e.target.value)}
-            required
-          >
-            {configs.data.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} ({c.code} v{c.version})
-              </option>
-            ))}
-          </select>
+            <Field label="Axle configuration">
+              <Select
+                id="configurationId"
+                value={configurationId === "" ? (configs.data[0]?.id ?? "") : configurationId}
+                onChange={(e) => setConfigurationId(e.target.value)}
+                required
+                options={configs.data.map((c) => ({
+                  value: c.id,
+                  label: `${c.name} (${c.code} v${String(c.version)})`,
+                }))}
+              />
+            </Field>
 
-          <button type="submit" disabled={create.isPending}>
-            {create.isPending ? "Adding…" : "Add unit"}
-          </button>
-        </form>
+            <div>
+              <Button variant="primary" type="submit" disabled={create.isPending}>
+                {create.isPending ? "Adding…" : "Add unit"}
+              </Button>
+            </div>
+          </form>
+        </Card>
       )}
 
-      {create.isError && <p role="alert">{refusalMessage(create.error, CREATE_WORDING)}</p>}
+      {create.isError && (
+        <Banner tone="critical" title={refusalMessage(create.error, CREATE_WORDING)} />
+      )}
       {added && <p role="status">{added.fleetNumber} was added.</p>}
     </section>
   );
