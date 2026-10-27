@@ -284,8 +284,7 @@
    "Go to it" and "My inspections". Both leave by a full page load, so a
    held outbox flushes on app-open (FR-OFF-009), and BackToWork renders
    without a Router; Tread's Button links are router Links, so they cannot
-   be one. OutboxIndicator's Sync now also carries .cap-secondary, and
-   outbox.css's rule scoped to the band sets its own look over this one. */
+   be one. OutboxIndicator's Sync now is a Tread Button, not one of these. */
 .cap-primary,
 .cap-secondary {
   display: flex;
