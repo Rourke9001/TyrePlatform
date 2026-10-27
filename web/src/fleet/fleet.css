@@ -151,6 +151,26 @@
   flex: 0 1 11rem;
 }
 
+/* A row's refusal reads under its controls, in the critical text colour
+   beside the words that say what went wrong (NFR-USE-009). */
+.fleet-row-form > p[role="alert"],
+.fleet-table td > p[role="alert"] {
+  flex-basis: 100%;
+  margin: var(--space-1) 0 0;
+  font-weight: 700;
+  color: var(--critical-text);
+}
+
+/* The invoice form's labelled fields line up on their controls. */
+.fleet-invoice {
+  align-items: flex-end;
+  margin-top: var(--space-3);
+}
+
+.fleet-invoice .tr-field {
+  flex: 0 1 11rem;
+}
+
 /* The one native select a row keeps, drawn as Tread's field frame. */
 .fleet-native-select {
   min-height: var(--target-min);

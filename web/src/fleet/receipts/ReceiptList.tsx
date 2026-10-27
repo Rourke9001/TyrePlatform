@@ -1,7 +1,5 @@
-import "../../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link } from "react-router";
 
 import { getDevTenantId } from "../../api/devTenant";
 import { moneyText, useCurrency } from "../../api/money";
@@ -14,7 +12,13 @@ import {
 } from "../../api/receipts";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
-import { Dialog } from "../../ui/legacy/Dialog";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
+import { Card } from "../../ui/Card";
+import { Dialog } from "../../ui/Dialog";
+import { IconButton } from "../../ui/IconButton";
+import { CloseIcon } from "../../ui/icons/Close";
+import { PageHeader } from "../../ui/PageHeader";
 import { receiptStateLabel } from "../../domain/vocabulary";
 import { RefusalAlert } from "../RefusalAlert";
 import { openReceiptsKey, tyresKey } from "../unit/queryKeys";
@@ -58,6 +62,11 @@ function ReceiptRow({
     },
   });
 
+  // Escape, Cancel and Close all leave it open while the write is pending.
+  const closeKeeping = () => {
+    if (!keep.isPending) setKeeping(false);
+  };
+
   const codes = receipt.displayCodes.join(", ");
   const quantity =
     receipt.inFleet === receipt.quantity
@@ -65,44 +74,30 @@ function ReceiptRow({
       : `${String(receipt.quantity)}, ${String(receipt.inFleet)} in the fleet`;
   return (
     <tr>
-      <td>{asDate(receipt.receivedDate)}</td>
+      <td data-nowrap="true">{asDate(receipt.receivedDate)}</td>
       <td>{receipt.depotName ?? "Not recorded"}</td>
-      <td>{receipt.sizeName}</td>
+      <td data-mono="true">{receipt.sizeName}</td>
       <td>{receipt.brandName ?? "No brand"}</td>
       <td>{receipt.patternName}</td>
       <td>{quantity}</td>
-      <th scope="row">{codes}</th>
-      <td>{moneyText(receipt.unitPrice ?? null, canSeeMoney, currency)}</td>
+      <th scope="row" data-mono="true">
+        {codes}
+      </th>
+      <td data-align="right" data-mono="true">
+        {moneyText(receipt.unitPrice ?? null, canSeeMoney, currency)}
+      </td>
       <td>{receiptStateLabel(receipt.priceState)}</td>
       <td>
-        <div className="tyres-row-form">
-          <button
-            className="btn-primary btn-compact"
-            type="button"
-            aria-expanded={invoicing}
-            onClick={() => setInvoicing((open) => !open)}
-          >
+        <div className="fleet-row-form">
+          <Button aria-expanded={invoicing} onClick={() => setInvoicing((open) => !open)}>
             Record invoice
-          </button>
+          </Button>
           {receipt.priceState === "UNPRICED" && (
-            <button
-              className="btn-primary btn-compact"
-              type="button"
-              disabled={listPrice.isPending}
-              onClick={() => listPrice.submit(undefined)}
-            >
+            <Button disabled={listPrice.isPending} onClick={() => listPrice.submit(undefined)}>
               Apply list price
-            </button>
+            </Button>
           )}
-          {estimated && (
-            <button
-              className="btn-primary btn-compact"
-              type="button"
-              onClick={() => setKeeping(true)}
-            >
-              Keep the estimate
-            </button>
-          )}
+          {estimated && <Button onClick={() => setKeeping(true)}>Keep the estimate</Button>}
         </div>
         {invoicing && (
           <InvoiceForm
@@ -114,31 +109,26 @@ function ReceiptRow({
         <RefusalAlert error={listPrice.error} wording={RECEIPT_WORDING} />
         <Dialog
           open={keeping}
-          onOpenChange={(open) => {
-            if (!keep.isPending) setKeeping(open);
-          }}
+          onClose={closeKeeping}
           title="Keep the estimate as final?"
           description="No invoice can be recorded for this receipt afterwards."
+          actions={
+            <>
+              <Button
+                variant="primary"
+                disabled={keep.isPending}
+                onClick={() => keep.submit(undefined)}
+              >
+                Keep the estimate
+              </Button>
+              <Button variant="ghost" disabled={keep.isPending} onClick={() => setKeeping(false)}>
+                Cancel
+              </Button>
+              <IconButton label="Close" icon={CloseIcon} onClick={closeKeeping} />
+            </>
+          }
         >
-          <div className="tyres-row-form">
-            <button
-              className="btn-primary"
-              type="button"
-              disabled={keep.isPending}
-              onClick={() => keep.submit(undefined)}
-            >
-              Keep the estimate
-            </button>
-            <button
-              className="btn btn-quiet"
-              type="button"
-              disabled={keep.isPending}
-              onClick={() => setKeeping(false)}
-            >
-              Cancel
-            </button>
-          </div>
-          <RefusalAlert error={keep.error} wording={RECEIPT_WORDING} />
+          {keep.error !== null && <RefusalAlert error={keep.error} wording={RECEIPT_WORDING} />}
         </Dialog>
       </td>
     </tr>
@@ -156,60 +146,66 @@ export function ReceiptList() {
   const receipts = useQuery({ queryKey: openReceiptsKey(tenantKey), queryFn: fetchOpenReceipts });
 
   return (
-    <section aria-labelledby="receipts-heading" className="receipts">
-      <div className="tyres-heading-row">
-        <h1 className="page-title" id="receipts-heading">
-          Receipts
-        </h1>
-        <Link to="/fleet/tyres">Back to register</Link>
-      </div>
+    <section aria-labelledby="receipts-heading" className="fleet-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader
+        title={<span id="receipts-heading">Receipts</span>}
+        back={{ label: "Back to register", to: "/fleet/tyres" }}
+      />
 
       {moved !== null && <p role="status">{moved}</p>}
 
       {receipts.isPending && <p>Loading…</p>}
 
       {receipts.isError && (
-        <div className="note-card" role="alert">
-          <h2>Receipts didn&apos;t load</h2>
-          <p>The server could not be reached. Check your connection, then retry.</p>
-          <button className="btn-primary" type="button" onClick={() => void receipts.refetch()}>
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="critical"
+          title={<h2 className="fleet-banner-heading">Receipts didn&apos;t load</h2>}
+          action={<Button onClick={() => void receipts.refetch()}>Retry</Button>}
+        >
+          The server could not be reached. Check your connection, then retry.
+        </Banner>
       )}
 
       {receipts.isSuccess && receipts.data.length === 0 && (
-        <p className="note-card">No receipts are waiting for their price.</p>
+        <p className="fleet-note">No receipts are waiting for their price.</p>
       )}
 
       {receipts.isSuccess && receipts.data.length > 0 && (
-        <table className="tyres-table">
-          <thead>
-            <tr>
-              <th scope="col">Received</th>
-              <th scope="col">Depot</th>
-              <th scope="col">Size</th>
-              <th scope="col">Brand</th>
-              <th scope="col">Pattern</th>
-              <th scope="col">Quantity</th>
-              <th scope="col">Codes</th>
-              <th scope="col">Unit price</th>
-              <th scope="col">State</th>
-              <th scope="col">Price it</th>
-            </tr>
-          </thead>
-          <tbody>
-            {receipts.data.map((r) => (
-              <ReceiptRow
-                key={r.id}
-                receipt={r}
-                tenantKey={tenantKey}
-                canSeeMoney={canSeeMoney}
-                onMoved={setMoved}
-              />
-            ))}
-          </tbody>
-        </table>
+        <Card padding="none">
+          <div className="fleet-table-wrap">
+            <table className="fleet-table">
+              <thead>
+                <tr>
+                  <th scope="col">Received</th>
+                  <th scope="col">Depot</th>
+                  <th scope="col">Size</th>
+                  <th scope="col">Brand</th>
+                  <th scope="col">Pattern</th>
+                  <th scope="col">Quantity</th>
+                  <th scope="col">Codes</th>
+                  <th scope="col" data-align="right">
+                    Unit price
+                  </th>
+                  <th scope="col">State</th>
+                  <th scope="col">Price it</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receipts.data.map((r) => (
+                  <ReceiptRow
+                    key={r.id}
+                    receipt={r}
+                    tenantKey={tenantKey}
+                    canSeeMoney={canSeeMoney}
+                    onMoved={setMoved}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
     </section>
   );

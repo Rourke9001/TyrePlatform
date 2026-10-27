@@ -1,6 +1,9 @@
 import { useState, type FormEvent } from "react";
 
 import { recordReceiptInvoice, type MoveResult, type OpenReceipt } from "../../api/receipts";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { TextInput } from "../../ui/TextInput";
 import { RefusalAlert } from "../RefusalAlert";
 import { openReceiptsKey, tyresKey } from "../unit/queryKeys";
 import { useFormMutation } from "../useFormMutation";
@@ -51,38 +54,43 @@ export function InvoiceForm({
 
   const id = (field: string) => `${field}-${receipt.id}`;
   return (
-    <form onSubmit={submit} className="tyres-row-form">
-      <label htmlFor={id("invoicePrice")}>Unit price</label>
-      <input
-        id={id("invoicePrice")}
-        name="price"
-        inputMode="decimal"
-        autoComplete="off"
-        value={price}
-        onChange={(e) => setPrice(e.target.value)}
-        required
-      />
-      <label htmlFor={id("invoiceNumber")}>Invoice number (optional)</label>
-      <input
-        id={id("invoiceNumber")}
-        name="invoiceNumber"
-        autoComplete="off"
-        spellCheck={false}
-        value={invoiceNumber}
-        onChange={(e) => setInvoiceNumber(e.target.value)}
-      />
-      <label htmlFor={id("invoiceDate")}>Invoice date (optional)</label>
-      <input
-        id={id("invoiceDate")}
-        name="invoiceDate"
-        type="date"
-        autoComplete="off"
-        value={invoiceDate}
-        onChange={(e) => setInvoiceDate(e.target.value)}
-      />
-      <button className="btn-primary btn-compact" type="submit" disabled={record.isPending}>
+    <form onSubmit={submit} className="fleet-row-form fleet-invoice">
+      <Field label="Unit price">
+        <TextInput
+          id={id("invoicePrice")}
+          name="price"
+          mono
+          inputMode="decimal"
+          autoComplete="off"
+          value={price}
+          onChange={(e) => setPrice(e.target.value)}
+          required
+        />
+      </Field>
+      <Field label="Invoice number (optional)">
+        <TextInput
+          id={id("invoiceNumber")}
+          name="invoiceNumber"
+          mono
+          autoComplete="off"
+          spellCheck={false}
+          value={invoiceNumber}
+          onChange={(e) => setInvoiceNumber(e.target.value)}
+        />
+      </Field>
+      <Field label="Invoice date (optional)">
+        <TextInput
+          id={id("invoiceDate")}
+          name="invoiceDate"
+          type="date"
+          autoComplete="off"
+          value={invoiceDate}
+          onChange={(e) => setInvoiceDate(e.target.value)}
+        />
+      </Field>
+      <Button type="submit" disabled={record.isPending}>
         {record.isPending ? "Saving…" : "Save invoice"}
-      </button>
+      </Button>
       <RefusalAlert message={refused} />
       <RefusalAlert error={record.error} wording={RECEIPT_WORDING} />
     </form>
