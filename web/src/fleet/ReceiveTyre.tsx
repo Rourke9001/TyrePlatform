@@ -1,4 +1,3 @@
-import "../ui/legacy/ui.css";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type FormEvent } from "react";
 
@@ -10,6 +9,13 @@ import { refusalMessage } from "../api/refusal";
 import { receiveTyres, type NewTyres, type ReceivedTyre } from "../api/tyres";
 import { useActor } from "../auth/actorContext";
 import { useTenantDate } from "../time/tenantTime";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import { Field } from "../ui/Field";
+import { PageHeader } from "../ui/PageHeader";
+import { Select } from "../ui/Select";
+import { TextInput } from "../ui/TextInput";
 import { byNaturalCode } from "./unit/naturalOrder";
 import { priceEstimateKey, tyreCatalogueKey } from "./unit/queryKeys";
 import "./fleet.css";
@@ -233,215 +239,237 @@ export function ReceiveTyre() {
   }
 
   return (
-    <section aria-labelledby="receive-tyre-heading" className="tyres-receive">
-      <h1 className="page-title" id="receive-tyre-heading">
-        Receive tyres
-      </h1>
+    <section aria-labelledby="receive-tyre-heading" className="fleet-form-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader title={<span id="receive-tyre-heading">Receive tyres</span>} />
 
-      <form onSubmit={submit}>
-        {isFree ? (
-          <>
-            <label htmlFor="displayCode">Display code</label>
-            <input
-              id="displayCode"
-              name="displayCode"
-              value={displayCode}
-              onChange={(e) => setDisplayCode(e.target.value)}
-              autoComplete="off"
-              spellCheck={false}
-              required
-            />
-          </>
-        ) : (
-          <>
-            {/* AS-014: under a generated scheme nobody types a code, so the
-                one thing this screen must say out loud is the workshop step
-                that follows saving. Otherwise a minted code sits unread on
-                screen and the sidewall never gets marked. */}
-            <p className="tyres-receive-hint">
-              The platform assigns the next code. Mark the sidewall with the code shown after
-              saving.
-            </p>
-            <label htmlFor="quantity">Quantity</label>
-            <input
-              id="quantity"
-              name="quantity"
-              type="number"
-              min={1}
-              max={200}
-              value={quantity}
-              onChange={(e) => setQuantity(e.target.value)}
-              required
-            />
-          </>
-        )}
+      <form className="tr-stack" onSubmit={submit}>
+        <Card>
+          <div className="fleet-fields">
+            {isFree ? (
+              <Field label="Display code">
+                <TextInput
+                  id="displayCode"
+                  name="displayCode"
+                  mono
+                  value={displayCode}
+                  onChange={(e) => setDisplayCode(e.target.value)}
+                  autoComplete="off"
+                  spellCheck={false}
+                  required
+                />
+              </Field>
+            ) : (
+              <>
+                {/* AS-014: under a generated scheme nobody types a code, so
+                    the one thing this screen must say out loud is the
+                    workshop step that follows saving. Otherwise a minted
+                    code sits unread on screen and the sidewall never gets
+                    marked. */}
+                <p className="fleet-hint fleet-fields__wide">
+                  The platform assigns the next code. Mark the sidewall with the code shown after
+                  saving.
+                </p>
+                <Field label="Quantity">
+                  <TextInput
+                    id="quantity"
+                    name="quantity"
+                    type="number"
+                    mono
+                    min={1}
+                    max={200}
+                    value={quantity}
+                    onChange={(e) => setQuantity(e.target.value)}
+                    required
+                  />
+                </Field>
+              </>
+            )}
 
-        {catalogue.isPending && <p className="tyres-receive-hint">Loading the tyre catalogue…</p>}
-        {catalogue.isError && catalogue.data === undefined && (
-          <div className="note-card" role="alert">
-            <p>The tyre catalogue could not be loaded. Check your connection, then retry.</p>
-            <button className="btn-primary" type="button" onClick={() => void catalogue.refetch()}>
-              Retry
-            </button>
+            {catalogue.isPending && (
+              <p className="fleet-hint fleet-fields__wide">Loading the tyre catalogue…</p>
+            )}
+            {catalogue.isError && catalogue.data === undefined && (
+              <Banner
+                className="fleet-fields__wide"
+                tone="critical"
+                title="The tyre catalogue could not be loaded. Check your connection, then retry."
+                action={<Button onClick={() => void catalogue.refetch()}>Retry</Button>}
+              />
+            )}
+            {loaded !== null && !ready && (
+              // TYRE-369 provisions a catalogue and TYRE-417 adds to it; until
+              // then a receive here could only be refused.
+              <p className="fleet-callout fleet-fields__wide">
+                This fleet has no tyre catalogue yet. Ask an administrator to add its tyre sizes and
+                new-tyre patterns.
+              </p>
+            )}
+            {ready && (
+              <>
+                <Field label="Size">
+                  <Select
+                    id="sizeId"
+                    name="sizeId"
+                    value={sizeId}
+                    onChange={(e) => chooseSize(e.target.value)}
+                    required
+                    options={[
+                      { value: "", label: "Choose a size" },
+                      ...sizes.map((z) => ({ value: z.id, label: z.name })),
+                    ]}
+                  />
+                </Field>
+
+                <Field label="Brand">
+                  <Select
+                    id="brandId"
+                    name="brandId"
+                    value={brandId}
+                    onChange={(e) => chooseBrand(e.target.value)}
+                    options={[
+                      { value: "", label: "No brand chosen" },
+                      ...brands.map((b) => ({ value: b.id, label: b.name })),
+                    ]}
+                  />
+                </Field>
+
+                <Field label="Pattern">
+                  <Select
+                    id="patternId"
+                    name="patternId"
+                    value={patternId}
+                    onChange={(e) => choosePattern(e.target.value)}
+                    required
+                    options={[
+                      { value: "", label: "Choose a pattern" },
+                      ...patterns.map((pt) => ({ value: pt.id, label: pt.name })),
+                    ]}
+                  />
+                </Field>
+              </>
+            )}
+
+            <Field
+              label="New tread (mm)"
+              error={
+                treadMisshapen
+                  ? "Enter the depth in millimetres, for example 25.0. Use at most three digits and one decimal place."
+                  : undefined
+              }
+            >
+              <TextInput
+                id="newTreadMm"
+                name="newTreadMm"
+                mono
+                inputMode="decimal"
+                autoComplete="off"
+                value={newTread}
+                onChange={(e) => setNewTread(e.target.value)}
+                required
+                aria-invalid={treadMisshapen}
+              />
+            </Field>
+
+            <Field label="Received date (optional, blank is today)">
+              <TextInput
+                id="receivedDate"
+                name="receivedDate"
+                type="date"
+                autoComplete="off"
+                value={receivedDate}
+                onChange={(e) => setReceivedDate(e.target.value)}
+              />
+            </Field>
           </div>
-        )}
-        {loaded !== null && !ready && (
-          // TYRE-369 provisions a catalogue and TYRE-417 adds to it; until
-          // then a receive here could only be refused.
-          <p className="note-card">
-            This fleet has no tyre catalogue yet. Ask an administrator to add its tyre sizes and
-            new-tyre patterns.
-          </p>
-        )}
-        {ready && (
-          <>
-            <label htmlFor="sizeId">Size</label>
-            <select
-              id="sizeId"
-              name="sizeId"
-              value={sizeId}
-              onChange={(e) => chooseSize(e.target.value)}
-              required
-            >
-              <option value="">Choose a size</option>
-              {sizes.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+        </Card>
 
-            <label htmlFor="brandId">Brand</label>
-            <select
-              id="brandId"
-              name="brandId"
-              value={brandId}
-              onChange={(e) => chooseBrand(e.target.value)}
-            >
-              <option value="">No brand chosen</option>
-              {brands.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name}
-                </option>
-              ))}
-            </select>
+        <Card>
+          <div className="fleet-fields">
+            <div className="fleet-field-group">
+              <Field label="Unit price">
+                <TextInput
+                  id="purchasePrice"
+                  name="purchasePrice"
+                  mono
+                  inputMode="decimal"
+                  autoComplete="off"
+                  value={shownPrice}
+                  onChange={(e) => setTyped(e.target.value)}
+                  aria-describedby="purchasePrice-source"
+                />
+              </Field>
+              <p className="fleet-hint" id="purchasePrice-source" aria-live="polite">
+                {priceHint()}
+              </p>
+            </div>
 
-            <label htmlFor="patternId">Pattern</label>
-            <select
-              id="patternId"
-              name="patternId"
-              value={patternId}
-              onChange={(e) => choosePattern(e.target.value)}
-              required
-            >
-              <option value="">Choose a pattern</option>
-              {patterns.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
+            {invoicePrice && (
+              <Field label="Invoice number (optional)">
+                <TextInput
+                  id="invoiceNumber"
+                  name="invoiceNumber"
+                  mono
+                  autoComplete="off"
+                  spellCheck={false}
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value)}
+                />
+              </Field>
+            )}
 
-        <label htmlFor="newTreadMm">New tread (mm)</label>
-        <input
-          id="newTreadMm"
-          name="newTreadMm"
-          inputMode="decimal"
-          autoComplete="off"
-          value={newTread}
-          onChange={(e) => setNewTread(e.target.value)}
-          required
-          aria-invalid={treadMisshapen}
-          aria-describedby={treadMisshapen ? "newTreadMm-shape" : undefined}
-        />
-        {treadMisshapen && (
-          <p className="tyres-receive-hint" id="newTreadMm-shape">
-            Enter the depth in millimetres, for example 25.0. Use at most three digits and one
-            decimal place.
-          </p>
-        )}
+            <Field label="Purchase date (optional)">
+              <TextInput
+                id="purchaseDate"
+                name="purchaseDate"
+                type="date"
+                autoComplete="off"
+                value={purchaseDate}
+                onChange={(e) => setPurchaseDate(e.target.value)}
+              />
+            </Field>
 
-        <label htmlFor="receivedDate">Received date (optional, blank is today)</label>
-        <input
-          id="receivedDate"
-          name="receivedDate"
-          type="date"
-          autoComplete="off"
-          value={receivedDate}
-          onChange={(e) => setReceivedDate(e.target.value)}
-        />
-
-        <label htmlFor="purchasePrice">Unit price</label>
-        <input
-          id="purchasePrice"
-          name="purchasePrice"
-          inputMode="decimal"
-          autoComplete="off"
-          value={shownPrice}
-          onChange={(e) => setTyped(e.target.value)}
-          aria-describedby="purchasePrice-source"
-        />
-        <p className="tyres-receive-hint" id="purchasePrice-source" aria-live="polite">
-          {priceHint()}
-        </p>
-        {estimateFailed && (
-          <div className="note-card" role="alert">
-            <p>The price list could not be read. Retry, or type the invoice price.</p>
-            <button className="btn-primary" type="button" onClick={() => void estimate.refetch()}>
-              Retry
-            </button>
+            {estimateFailed && (
+              <Banner
+                className="fleet-fields__wide"
+                tone="critical"
+                title="The price list could not be read. Retry, or type the invoice price."
+                action={<Button onClick={() => void estimate.refetch()}>Retry</Button>}
+              />
+            )}
           </div>
-        )}
+        </Card>
 
-        {invoicePrice && (
-          <>
-            <label htmlFor="invoiceNumber">Invoice number (optional)</label>
-            <input
-              id="invoiceNumber"
-              name="invoiceNumber"
-              autoComplete="off"
-              spellCheck={false}
-              value={invoiceNumber}
-              onChange={(e) => setInvoiceNumber(e.target.value)}
-            />
-          </>
-        )}
-
-        <label htmlFor="purchaseDate">Purchase date (optional)</label>
-        <input
-          id="purchaseDate"
-          name="purchaseDate"
-          type="date"
-          autoComplete="off"
-          value={purchaseDate}
-          onChange={(e) => setPurchaseDate(e.target.value)}
-        />
-
-        <button
-          className="btn-primary"
-          type="submit"
-          disabled={receive.isPending || !ready || priceUnsettled}
-        >
-          {receive.isPending ? "Receiving…" : "Receive"}
-        </button>
+        <div className="fleet-form-actions">
+          <Button
+            variant="primary"
+            type="submit"
+            disabled={receive.isPending || !ready || priceUnsettled}
+          >
+            {receive.isPending ? "Receiving…" : "Receive"}
+          </Button>
+        </div>
       </form>
 
-      {receive.isError && <p role="alert">{refusalMessage(receive.error, RECEIVE_WORDING)}</p>}
+      {receive.isError && (
+        <Banner tone="critical" title={refusalMessage(receive.error, RECEIVE_WORDING)} />
+      )}
 
       {received && (
         // NFR-USE-010: success is shown explicitly, never inferred from the
         // absence of an error. Every code minted here is one the
         // operator still has to go mark a sidewall with.
-        <div role="status" className="tyres-receive-success note-card">
-          <p>{received.length === 1 ? "1 tyre" : `${received.length} tyres`} received.</p>
-          <ul>
+        <Banner
+          tone="success"
+          title={`${received.length === 1 ? "1 tyre" : `${received.length} tyres`} received.`}
+        >
+          <ul className="fleet-codes">
             {received.map((t) => (
               <li key={t.id}>{t.displayCode}</li>
             ))}
           </ul>
-        </div>
+        </Banner>
       )}
     </section>
   );
