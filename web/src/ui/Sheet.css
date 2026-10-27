@@ -1,6 +1,5 @@
 /* Tread's sheet (ADR-0020). Every colour is a token from
-   src/theme/tokens.ts; tokens.ts has no motion scale yet, so the 200ms
-   duration and its curve are written here. */
+   src/theme/tokens.ts, motion from the --motion-* tokens. */
 
 .tr-overlay {
   position: fixed;
@@ -10,7 +9,7 @@
   align-items: flex-end;
   justify-content: center;
   background: var(--scrim);
-  animation: tr-sheet-fade 200ms cubic-bezier(0.2, 0, 0, 1);
+  animation: tr-sheet-fade var(--motion-medium) var(--motion-ease);
 }
 
 .tr-overlay--inline {
@@ -51,7 +50,7 @@
   color: var(--ink);
   border-radius: var(--radius-xl) var(--radius-xl) 0 0;
   box-shadow: var(--shadow-sheet);
-  animation: tr-sheet-rise 200ms cubic-bezier(0.2, 0, 0, 1);
+  animation: tr-sheet-rise var(--motion-medium) var(--motion-ease);
 }
 
 /* The panel takes focus only by script, when it opens; the ring belongs
