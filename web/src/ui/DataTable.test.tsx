@@ -202,6 +202,29 @@ describe("DataTable", () => {
     expect(screen.queryByText("none")).toBeNull();
   });
 
+  it("a rowHeader column renders th scope=row on desktop", () => {
+    const cols = columns.map((c) => ({ ...c, rowHeader: c.key === "unit" || c.key === "tread" }));
+    render(<DataTable {...base} columns={cols} rows={rows} />);
+    const header = screen.getByRole("rowheader", { name: "TRK-01" });
+    expect(header.tagName).toBe("TH");
+    expect(header).toHaveAttribute("scope", "row");
+    expect(header).toHaveAttribute("data-nowrap", "true");
+    expect(screen.queryByRole("rowheader", { name: "2.0 mm" })).toBeNull();
+    expect(screen.getByRole("cell", { name: "2.0 mm" })).toBeInTheDocument();
+  });
+
+  it("renders no status line unless loading", () => {
+    render(<DataTable {...base} rows={rows} />);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("renders its status line while loading", () => {
+    const { rerender } = render(<DataTable {...base} rows={rows} loading />);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading Tyres at risk");
+    rerender(<DataTable {...base} rows={rows} loading={false} />);
+    expect(screen.getByRole("status")).toHaveTextContent("");
+  });
+
   describe("on a phone", () => {
     let restore: () => void;
     beforeEach(() => {
