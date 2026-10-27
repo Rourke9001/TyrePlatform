@@ -43,6 +43,9 @@ export function SegmentedControl({
   const selected = options.findIndex((o) => o.value === value);
   const stop = selected === -1 ? 0 : selected;
   const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    // Alt+Left is the browser's back, and Ctrl, Cmd and Shift arrows belong
+    // to the browser and the screen reader, so a modified arrow passes by.
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const d = step(event.key);
     if (d === 0) return;
     event.preventDefault();

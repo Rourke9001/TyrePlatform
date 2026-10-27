@@ -79,4 +79,20 @@ describe("Button", () => {
     expect(button).toHaveAttribute("aria-describedby", "hint");
     expect(button).toHaveAttribute("type", "submit");
   });
+
+  it("a caller's aria-busy survives when not loading", () => {
+    render(
+      <>
+        <Button aria-busy="true">Saving draft</Button>
+        <Button aria-busy loading={false}>
+          Refreshing
+        </Button>
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Saving draft" })).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Refreshing" })).toHaveAttribute("aria-busy", "true");
+  });
 });
