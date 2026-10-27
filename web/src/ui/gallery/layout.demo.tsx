@@ -1,5 +1,4 @@
-import { useId, useState, type CSSProperties, type ReactNode } from "react";
-import { MemoryRouter, useInRouterContext } from "react-router";
+import { useId, useState, type CSSProperties } from "react";
 
 import { AppShell, type NavGroup } from "../AppShell";
 import { Dialog } from "../Dialog";
@@ -9,15 +8,10 @@ import { PageHeader } from "../PageHeader";
 import { Sheet } from "../Sheet";
 import { TabPanel } from "../TabPanel";
 import { Tabs } from "../Tabs";
+import { Routed } from "./routed";
 
 // Invented round figures in the Sandbox tenant's voice, none taken from a
 // fixture or a fleet.
-
-// The gallery's own test renders it without a router and the dev route
-// inside one, so a sample with links brings a router only when it has none.
-function Routed({ children }: { children: ReactNode }) {
-  return useInRouterContext() ? children : <MemoryRouter>{children}</MemoryRouter>;
-}
 
 // A positioned, contained box: an inline overlay, a sticky bar and the
 // drawer stay inside it instead of covering the page.

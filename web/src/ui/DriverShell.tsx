@@ -1,27 +1,9 @@
 import type { HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "./cx";
+import { Icon } from "./Icon";
+import { ChevronLeftIcon } from "./icons/ChevronLeft";
 import "./DriverShell.css";
-
-// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
-function BackGlyph() {
-  return (
-    <svg
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M15 5l-7 7 7 7" />
-    </svg>
-  );
-}
 
 export interface DriverShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   // The tenant's mark on the app bar, where the back button goes instead.
@@ -75,7 +57,7 @@ export function DriverShell({
       <header className="tr-driver__bar">
         {onBack ? (
           <button type="button" className="tr-driver__back" aria-label={backLabel} onClick={onBack}>
-            <BackGlyph />
+            <Icon icon={ChevronLeftIcon} size={24} />
           </button>
         ) : (
           brand

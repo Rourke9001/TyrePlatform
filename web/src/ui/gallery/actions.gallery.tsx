@@ -5,7 +5,7 @@ import { CloseIcon } from "../icons/Close";
 import { MenuIcon } from "../icons/Menu";
 import { PlusIcon } from "../icons/Plus";
 import { RefreshIcon } from "../icons/Refresh";
-import { Routed } from "./actions.demo";
+import { Routed } from "./routed";
 import type { GallerySection } from "./types";
 
 export const section: GallerySection = {

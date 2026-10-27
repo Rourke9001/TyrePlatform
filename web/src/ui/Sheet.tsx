@@ -2,28 +2,9 @@ import { useId, useRef, type HTMLAttributes, type ReactNode } from "react";
 
 import { cx } from "./cx";
 import { useFocusTrap } from "./focusTrap";
+import { Icon } from "./Icon";
+import { CloseIcon } from "./icons/Close";
 import "./Sheet.css";
-
-// TODO(TYRE-447): move to src/ui/icons/ when lane A lands
-function CloseGlyph() {
-  return (
-    <svg
-      className="tr-sheet__glyph"
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M6 6l12 12M18 6L6 18" />
-    </svg>
-  );
-}
 
 interface SheetOwnProps extends Omit<HTMLAttributes<HTMLElement>, "title"> {
   open: boolean;
@@ -109,7 +90,7 @@ export function Sheet({
             aria-label={closeLabel}
             onClick={onClose}
           >
-            <CloseGlyph />
+            <Icon icon={CloseIcon} size={22} className="tr-sheet__glyph" />
           </button>
         ) : null}
         {trailing}
