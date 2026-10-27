@@ -2,8 +2,28 @@ import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import unitCss from "./unit.css?raw";
 import { UnitPlan } from "./UnitPlan";
 import { openFitment, unit, unitPosition } from "../../test/fixtures";
+
+// jsdom lays nothing out, so whether a tile holds its tyre code is read from
+// the rules that size it; a browser measured 360 to 1440px on 27 Oct 2026.
+describe("the unit plan's sheet", () => {
+  const code = unitCss.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  it("sets the plan beside the panel only from 1280px, the plan wider", () => {
+    expect(code).toMatch(
+      /@media \(min-width: 1280px\) \{\s*\.unit-detail-cols \{\s*grid-template-columns: minmax\(0, 7fr\) minmax\(0, 5fr\);/,
+    );
+  });
+
+  it("shows a tile's code at caption size, and wraps it inside the tile on a phone", () => {
+    expect(code).toMatch(/\.unit-plan \.tr-tile__val \{\s*font-size: var\(--type-caption-size\);/);
+    expect(code).toMatch(
+      /@media \(max-width: 640px\) \{\s*\.unit-plan \.tr-tile__val \{\s*white-space: normal;\s*overflow-wrap: anywhere;/,
+    );
+  });
+});
 
 // A four-axle interlink with a spare: enough axles that a layout carrying a
 // hard-coded count would drop one, and enough sides and slots that the
