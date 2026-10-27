@@ -6,6 +6,9 @@ import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate } from "../../time/tenantTime";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
+import { Card } from "../../ui/Card";
 import { useFormMutation } from "../useFormMutation";
 import { rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
@@ -56,98 +59,103 @@ export function RigList() {
       {rigs.isPending && <p>Loading…</p>}
 
       {rigs.isError && (
-        <div className="note-card" role="alert">
-          <h2>Rigs didn&apos;t load</h2>
-          <p>The server could not be reached. Check your connection, then retry.</p>
-          <button className="btn-primary" type="button" onClick={() => void rigs.refetch()}>
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="critical"
+          title={<h2 className="fleet-banner-heading">Rigs didn&apos;t load</h2>}
+          action={<Button onClick={() => void rigs.refetch()}>Retry</Button>}
+        >
+          The server could not be reached. Check your connection, then retry.
+        </Banner>
       )}
 
       {end.isSuccess && end.result && (
         <p role="status">Rig ended for {end.result.motiveFleetNumber}.</p>
       )}
-      {end.error !== null && <p role="alert">{refusalMessage(end.error, END_WORDING)}</p>}
+      {end.error !== null && (
+        <Banner tone="critical" title={refusalMessage(end.error, END_WORDING)} />
+      )}
 
       {rigs.isSuccess && (
         <>
-          <h2>Open rigs</h2>
+          <h2 className="fleet-section-title">Open rigs</h2>
           {(() => {
             const open = rigs.data.filter((r) => r.effectiveTo === null);
             return open.length === 0 ? (
-              <p className="note-card">
+              <p className="fleet-note">
                 No open rigs. A unit not in a rig is inspected on its own.
               </p>
             ) : (
-              <table className="fitments-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Motive</th>
-                    <th scope="col">Rig</th>
-                    <th scope="col">Since</th>
-                    {canEnd && <th scope="col">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {open.map((rig) => (
-                    <tr key={rig.id}>
-                      <th scope="row">
-                        <Link to={`/fleet/units/${rig.motiveVehicleId}`}>
-                          {rig.motiveFleetNumber}
-                        </Link>
-                      </th>
-                      <TrainCell rig={rig} />
-                      <td>{asDate(rig.effectiveFrom)}</td>
-                      {canEnd && (
-                        <td>
-                          <button
-                            className="btn-primary btn-compact"
-                            type="button"
-                            disabled={end.isPending}
-                            onClick={() => end.submit(rig.id)}
-                          >
-                            End rig
-                          </button>
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Card padding="none">
+                <div className="fleet-table-wrap">
+                  <table className="fleet-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Motive</th>
+                        <th scope="col">Rig</th>
+                        <th scope="col">Since</th>
+                        {canEnd && <th scope="col">Actions</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {open.map((rig) => (
+                        <tr key={rig.id}>
+                          <th scope="row" data-mono="true">
+                            <Link to={`/fleet/units/${rig.motiveVehicleId}`}>
+                              {rig.motiveFleetNumber}
+                            </Link>
+                          </th>
+                          <TrainCell rig={rig} />
+                          <td data-nowrap="true">{asDate(rig.effectiveFrom)}</td>
+                          {canEnd && (
+                            <td>
+                              <Button disabled={end.isPending} onClick={() => end.submit(rig.id)}>
+                                End rig
+                              </Button>
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             );
           })()}
 
-          <h2>Ended rigs</h2>
+          <h2 className="fleet-section-title">Ended rigs</h2>
           {(() => {
             const ended = rigs.data.filter((r) => r.effectiveTo !== null);
             return ended.length === 0 ? (
-              <p className="note-card">No ended rigs yet.</p>
+              <p className="fleet-note">No ended rigs yet.</p>
             ) : (
-              <table className="fitments-table">
-                <thead>
-                  <tr>
-                    <th scope="col">Motive</th>
-                    <th scope="col">Rig</th>
-                    <th scope="col">Since</th>
-                    <th scope="col">Until</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {ended.map((rig) => (
-                    <tr key={rig.id}>
-                      <th scope="row">
-                        <Link to={`/fleet/units/${rig.motiveVehicleId}`}>
-                          {rig.motiveFleetNumber}
-                        </Link>
-                      </th>
-                      <TrainCell rig={rig} />
-                      <td>{asDate(rig.effectiveFrom)}</td>
-                      <td>{rig.effectiveTo && asDate(rig.effectiveTo)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <Card padding="none">
+                <div className="fleet-table-wrap">
+                  <table className="fleet-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Motive</th>
+                        <th scope="col">Rig</th>
+                        <th scope="col">Since</th>
+                        <th scope="col">Until</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {ended.map((rig) => (
+                        <tr key={rig.id}>
+                          <th scope="row" data-mono="true">
+                            <Link to={`/fleet/units/${rig.motiveVehicleId}`}>
+                              {rig.motiveFleetNumber}
+                            </Link>
+                          </th>
+                          <TrainCell rig={rig} />
+                          <td data-nowrap="true">{asDate(rig.effectiveFrom)}</td>
+                          <td data-nowrap="true">{rig.effectiveTo && asDate(rig.effectiveTo)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
             );
           })()}
         </>
