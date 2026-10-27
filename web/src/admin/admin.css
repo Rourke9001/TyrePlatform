@@ -1,14 +1,20 @@
-/* The admin forms. Layout only. Colour comes from the theme tokens
-   (web/src/theme/tokens.ts), so a tenant's branding reaches these screens
-   without either file knowing about the other. */
-
-.adm-form {
-  max-width: 32rem;
-}
+/* The admin forms. Layout only; the look is Tread's components' (TYRE-240),
+   and colour comes from the theme tokens (web/src/theme/tokens.ts), so a
+   tenant's branding reaches these screens without either file knowing
+   about the other. */
 
 /* Stacked, never side by side: these screens are reachable from the same
    phone the capture app runs on, and a two-column form at 360px is a
    horizontal scroll. */
+.adm-page {
+  max-width: 32rem;
+}
+
+/* Add a user, until it is on .adm-page. */
+.adm-form {
+  max-width: 32rem;
+}
+
 .adm-form form {
   display: flex;
   flex-direction: column;
