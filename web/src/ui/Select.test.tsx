@@ -42,4 +42,12 @@ describe("Select", () => {
     expect(frame).toHaveAttribute("data-invalid", "true");
     expect(frame).toHaveClass("tr-input", "tr-input--glove");
   });
+
+  it("disables only the options marked disabled", () => {
+    render(
+      <Select aria-label="Severity" options={[options[0], { ...options[1], disabled: true }]} />,
+    );
+    expect(screen.getByRole("option", { name: "Critical" })).toBeEnabled();
+    expect(screen.getByRole("option", { name: "Warning" })).toBeDisabled();
+  });
 });
