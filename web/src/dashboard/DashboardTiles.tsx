@@ -1,173 +1,123 @@
 import { Link } from "react-router";
 
 import type { DashboardBody } from "../api/dashboard";
-import { moneyOrEmpty, useCurrency, type Money } from "../api/money";
-import { Panel } from "../ui/legacy/Panel";
-import { ProvenanceSplit } from "../ui/legacy/ProvenanceSplit";
-import { SeverityBadge } from "../ui/legacy/SeverityBadge";
-import { StatTile } from "../ui/legacy/StatTile";
-import { absenceLabel, judgedAtLabel, SEVERITY_CODES, severityLabel } from "../domain/vocabulary";
-import { formatCount, plural, pluralWord } from "../format/numbers";
-import { withDepot } from "./dashboardParams";
+import { Card } from "../ui/Card";
+import { Icon } from "../ui/Icon";
+import { AlertIcon } from "../ui/icons/Alert";
+import { ClockIcon } from "../ui/icons/Clock";
+import { Metric } from "../ui/Metric";
+import { ProvenanceBar } from "../ui/ProvenanceBar";
+import { tilesView } from "./dashboard.view";
+import { ExceptionSeverity } from "./ExceptionSeverity";
+import { useMoneyText } from "./useMoneyText";
 
 export function DashboardTiles({ body, depot }: { body: DashboardBody; depot?: string }) {
-  const { exceptions, belowThreshold, estate, units, moneyVisible } = body;
-  const currency = useCurrency();
-  const severities = SEVERITY_CODES.filter((s) => s in exceptions.bySeverity).concat(
-    Object.keys(exceptions.bySeverity).filter((s) => !SEVERITY_CODES.includes(s)),
-  );
-  const estateMoney = (value: Money | null) =>
-    moneyOrEmpty(value, moneyVisible, estate.tyreCount, absenceLabel("noTyres"), currency);
-  // U44: an empty estate's total line is the absence alone; "across 0
-  // tyres" would only restate it.
-  const estateEmpty = moneyVisible && estate.tyreCount === 0;
-  // U44, 000049: the total is a partial sum when one side has no valued
-  // member, so it discloses both sides' unvalued counts when either is not 0.
-  const partial =
-    estate.unvaluedCount > 0 || estate.casingUnvaluedCount > 0
-      ? `; tread ${formatCount(estate.unvaluedCount)} of ${formatCount(estate.tyreCount)} unvalued, casing ${formatCount(estate.casingUnvaluedCount)} of ${formatCount(estate.tyreCount)} unvalued`
-      : "";
+  const { estate, exceptions, below, units } = tilesView(body, depot);
+  const money = useMoneyText();
 
   return (
     <>
-      {/* FR-DSH-002: tread and casing, each with its own provenance split.
-          The casing partitions are the view's four disjoint counts (U27). */}
-      {/* U48: estateRowJSON carries no judgedAt; loadEstate values the
-          estate as at today, so the page names that clock itself. */}
-      <Panel id="estate-panel" title="Estate value" judged={judgedAtLabel("TODAY")}>
+      {/* FR-DSH-002: tread and casing, each with its own provenance split. */}
+      <Card title="Estate value" description={estate.judged} className="overview-wide">
         <div className="tile-grid">
-          <StatTile
+          <Metric
             label="Tread value"
-            value={estateMoney(estate.treadValue)}
-            qualifier={
-              <>
-                {formatCount(estate.unvaluedCount)} of {formatCount(estate.tyreCount)} unvalued
-                <ProvenanceSplit
-                  caption="Tread value provenance"
-                  segments={[
-                    { key: "actual", label: "Actual", count: estate.actualCount },
-                    { key: "estimated", label: "Estimated", count: estate.estimatedCount },
-                    { key: "unvalued", label: "Unvalued", count: estate.unvaluedCount },
-                  ]}
-                />
-              </>
-            }
-            requirement="FR-DSH-002"
-          />
-          <StatTile
+            value={money.figure(estate.tread.value)}
+            detail={estate.tread.unvalued}
+            data-requirement="FR-DSH-002"
+          >
+            <ProvenanceBar caption="Tread value provenance" segments={estate.tread.segments} />
+          </Metric>
+          <Metric
             label="Casing value"
-            value={estateMoney(estate.casingValue)}
-            qualifier={
-              <>
-                {formatCount(estate.casingUnvaluedCount)} of {formatCount(estate.tyreCount)}{" "}
-                unvalued
-                <ProvenanceSplit
-                  caption="Casing value provenance"
-                  segments={[
-                    { key: "actual", label: "Actual", count: estate.casingActualCount },
-                    { key: "estimated", label: "Estimated", count: estate.casingEstimatedCount },
-                    { key: "audit", label: "Audit", count: estate.casingAuditCount },
-                    { key: "unvalued", label: "Unvalued", count: estate.casingUnvaluedCount },
-                  ]}
-                />
-              </>
-            }
-          />
+            value={money.figure(estate.casing.value)}
+            detail={estate.casing.unvalued}
+          >
+            <ProvenanceBar caption="Casing value provenance" segments={estate.casing.segments} />
+          </Metric>
         </div>
-        <p className="clock-note">
-          {estateEmpty
-            ? `${absenceLabel("noTyres")}.`
-            : `${estateMoney(estate.totalValue)} across ${plural(estate.tyreCount, "tyre", "tyres")} in total${partial}.`}
-        </p>
-      </Panel>
+        <p className="clock-note">{money.line(estate.total)}</p>
+      </Card>
 
       {/* U18: FR-DSH-003 counts v_exception rows and FR-DSH-004 is the
           register's count, judged at different clocks; the note says so,
           since on a fixture they agree and after a policy change they will
           not. */}
-      <Panel id="exceptions-panel" title="Exceptions">
+      <Card title="Exceptions">
         <div className="tile-grid">
-          <StatTile
+          <Metric
+            icon={<Icon icon={AlertIcon} />}
             label="Open exceptions"
-            value={formatCount(exceptions.open)}
-            qualifier={
+            value={exceptions.value}
+            tone={exceptions.tone}
+            detail={
               <>
-                {plural(exceptions.urgent, "urgent", "urgent")};{" "}
-                {plural(exceptions.rulesConfigured, "rule configured", "rules configured")}
+                {exceptions.detail}
                 <ul className="severity-lines">
-                  {severities.map((s) => (
-                    <li key={s}>
-                      <SeverityBadge severity={s} />
-                      <Link to={withDepot(`/exceptions?severity=${encodeURIComponent(s)}`, depot)}>
-                        {severityLabel(s)} {formatCount(exceptions.bySeverity[s])}
-                      </Link>
+                  {exceptions.severities.map((s) => (
+                    <li key={s.code}>
+                      <ExceptionSeverity code={s.code} />
+                      <Link to={s.to}>{s.text}</Link>
                     </li>
                   ))}
                 </ul>
               </>
             }
-            judged={judgedAtLabel(exceptions.judgedAt)}
-            to={withDepot("/exceptions", depot)}
-            requirement="FR-DSH-003"
-            tone={exceptions.urgent > 0 ? "critical" : "default"}
-          />
-          <StatTile
+            link={exceptions.link}
+            data-requirement="FR-DSH-003"
+          >
+            <p className="tile-judged">{exceptions.judged}</p>
+          </Metric>
+          <Metric
             label="Below the removal threshold"
-            value={formatCount(belowThreshold.running)}
-            qualifier={`${pluralWord(belowThreshold.running, "running position", "running positions")}; ${plural(belowThreshold.spare, "spare", "spares")} disclosed separately`}
-            judged={judgedAtLabel(belowThreshold.judgedAt)}
-            to={moneyVisible ? withDepot("/at-risk", depot) : undefined}
-            linkLabel="See the at-risk list"
-            requirement="FR-DSH-004"
-            tone={belowThreshold.running > 0 ? "critical" : "default"}
-          />
+            value={below.value}
+            tone={below.tone}
+            detail={below.detail}
+            link={below.link}
+            data-requirement="FR-DSH-004"
+          >
+            <p className="tile-judged">{below.judged}</p>
+          </Metric>
         </div>
         <p className="clock-note">
           Exceptions are judged at each unit's latest inspection; the threshold count is judged
           today against the policy in force now.
         </p>
-      </Panel>
+      </Card>
 
       {/* FR-DSH-005, 006; FR-EXC-026, 027, 029: four tiles on the tenant's
-          calendar day. Unscheduled and unknown are disclosed, never folded
-          into the covered figure. */}
-      <Panel id="units-panel" title="Units" judged={judgedAtLabel(units.judgedAt)}>
+          calendar day. */}
+      <Card title="Units" description={units.judged}>
         <div className="tile-grid">
-          <StatTile
+          <Metric
+            icon={<Icon icon={ClockIcon} />}
             label="Inspection coverage"
-            value={`${formatCount(units.covered)} of ${formatCount(units.total)}`}
-            qualifier={`${formatCount(units.scheduled)} scheduled, ${formatCount(units.unscheduled)} unscheduled`}
-            requirement="FR-DSH-005"
+            value={units.coverage.value}
+            detail={units.coverage.detail}
+            data-requirement="FR-DSH-005"
           />
-          <StatTile
+          <Metric
             label="Overdue tasks"
-            value={formatCount(body.overdueTasks)}
-            requirement="FR-DSH-006"
-            tone={body.overdueTasks > 0 ? "warning" : "default"}
+            value={units.overdue.value}
+            tone={units.overdue.tone}
+            data-requirement="FR-DSH-006"
           />
-          <StatTile
+          <Metric
             label="Stale units"
-            value={formatCount(units.stale)}
-            qualifier={
-              units.staleUnknown > 0
-                ? `${formatCount(units.staleUnknown)} unknown, never inspected`
-                : undefined
-            }
-            requirement="FR-EXC-027"
-            tone={units.stale > 0 ? "warning" : "default"}
+            value={units.stale.value}
+            tone={units.stale.tone}
+            detail={units.stale.detail}
+            data-requirement="FR-EXC-027"
           />
-          {/* U17: /fleet/rigs cannot narrow to a depot, so a depot view
-              offers no link to a list that counts every depot. */}
-          <StatTile
+          <Metric
             label="Unreconciled rig reports"
-            value={formatCount(body.pendingCompositionReports)}
-            to={depot ? undefined : "/fleet/rigs"}
-            linkLabel="See the rigs"
-            requirement="FR-EXC-029"
-            tone={body.pendingCompositionReports > 0 ? "warning" : "default"}
+            value={units.rigs.value}
+            tone={units.rigs.tone}
+            link={units.rigs.link}
+            data-requirement="FR-EXC-029"
           />
         </div>
-      </Panel>
+      </Card>
     </>
   );
 }
