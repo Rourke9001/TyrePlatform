@@ -12,6 +12,7 @@ import {
   type Unit,
   type UnitPosition,
 } from "../../api/units";
+import { Card } from "../../ui/Card";
 import { useFormMutation } from "../useFormMutation";
 import { ODOMETER_REQUIRED, odometerRefusal, readOdometer } from "./odometer";
 import { useUnitLabels } from "../../units/units";
@@ -193,16 +194,14 @@ export function RotateForm({ unit }: { unit: Unit }) {
 
   if (occupied.length === 0) {
     return (
-      <section className="unit-rotate" aria-labelledby="rotate-heading">
-        <h2 id="rotate-heading">Rotate</h2>
+      <Card className="unit-rotate" title="Rotate" padding="md">
         <p>This unit carries no tyres to rotate.</p>
-      </section>
+      </Card>
     );
   }
 
   return (
-    <section className="unit-rotate" aria-labelledby="rotate-heading">
-      <h2 id="rotate-heading">Rotate</h2>
+    <Card className="unit-rotate" title="Rotate" padding="md">
       <form onSubmit={submit}>
         <ul className="unit-rotate-rows">
           {occupied.map((p) => (
@@ -303,6 +302,6 @@ export function RotateForm({ unit }: { unit: Unit }) {
       {rotate.isSuccess && refused === "" && <p role="status">The rotation was applied.</p>}
       {refused !== "" && <p role="alert">{refused}</p>}
       {rotate.error !== null && <p role="alert">{refusalMessage(rotate.error, ROTATE_WORDING)}</p>}
-    </section>
+    </Card>
   );
 }

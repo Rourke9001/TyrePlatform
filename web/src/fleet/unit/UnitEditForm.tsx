@@ -4,6 +4,7 @@ import { type FormEvent, useRef, useState } from "react";
 import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { fetchDepots, patchUnit, type Unit, type UnitPatch } from "../../api/units";
+import { Card } from "../../ui/Card";
 import { useFormMutation } from "../useFormMutation";
 import { depotsKey, unitKey, vehiclesKey } from "./queryKeys";
 
@@ -140,9 +141,7 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   }
 
   return (
-    <section className="unit-edit" aria-labelledby="unit-edit-heading">
-      <h2 id="unit-edit-heading">Details</h2>
-
+    <Card className="unit-edit" title="Details" padding="md">
       <p className="unit-edit-layout">
         Axle layout: <strong>{unit.configurationName}</strong>
         {unit.hasHistory && (
@@ -236,6 +235,6 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
       {advisory !== "" && <p role="status">{advisory}</p>}
       {refusal !== "" && <p role="alert">{refusal}</p>}
       {save.error !== null && <p role="alert">{refusalMessage(save.error, EDIT_WORDING)}</p>}
-    </section>
+    </Card>
   );
 }
