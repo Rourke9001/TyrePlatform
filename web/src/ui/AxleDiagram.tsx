@@ -22,10 +22,15 @@ export interface DiagramPosition {
   condition?: Condition;
   empty?: boolean;
   active?: boolean;
+  // Which side of the centreline it sits on. When every position on an
+  // axle has one, the axle is split by it instead of by count (U146).
+  side?: "left" | "right";
 }
 
 export interface DiagramAxle {
   id: string;
+  // Opt-in: names the axle as a group for assistive tech.
+  ariaLabel?: string;
   // A short name on the beam, shown only when given.
   label?: string;
   // Left to right in plan view, nose up (BR-VEH-001). Drawn in this order.
@@ -43,6 +48,7 @@ export interface DiagramUnit {
   coupled?: boolean;
   axles: readonly DiagramAxle[];
   spares?: readonly DiagramPosition[];
+  sparesAriaLabel?: string;
 }
 
 export interface AxleDiagramProps extends Omit<
@@ -57,6 +63,17 @@ export interface AxleDiagramProps extends Omit<
   sideLabels?: { left: string; right: string };
   couplingLabel?: string;
   sparesLabel?: string;
+}
+
+function splitAxle(positions: readonly DiagramPosition[]) {
+  if (positions.length > 0 && positions.every((p) => p.side !== undefined)) {
+    return {
+      left: positions.filter((p) => p.side === "left"),
+      right: positions.filter((p) => p.side === "right"),
+    };
+  }
+  const half = Math.ceil(positions.length / 2);
+  return { left: positions.slice(0, half), right: positions.slice(half) };
 }
 
 // Plan view, nose up: the frame BR-VEH-001 numbers positions in, so every
@@ -120,11 +137,16 @@ export function AxleDiagram({
               ) : null}
             </p>
             {u.axles.map((a) => {
-              const half = Math.ceil(a.positions.length / 2);
+              const { left, right } = splitAxle(a.positions);
               return (
-                <div key={a.id} className="tr-axle">
+                <div
+                  key={a.id}
+                  className="tr-axle"
+                  role={a.ariaLabel ? "group" : undefined}
+                  aria-label={a.ariaLabel}
+                >
                   <div className="tr-axle__side tr-axle__side--left">
-                    {a.positions.slice(0, half).map((p) => tile(p, u))}
+                    {left.map((p) => tile(p, u))}
                   </div>
                   <div className="tr-axle__beam">
                     {a.label ? (
@@ -134,13 +156,17 @@ export function AxleDiagram({
                     ) : null}
                   </div>
                   <div className="tr-axle__side tr-axle__side--right">
-                    {a.positions.slice(half).map((p) => tile(p, u))}
+                    {right.map((p) => tile(p, u))}
                   </div>
                 </div>
               );
             })}
             {u.spares && u.spares.length > 0 ? (
-              <div className="tr-spares">
+              <div
+                className="tr-spares"
+                role={u.sparesAriaLabel ? "group" : undefined}
+                aria-label={u.sparesAriaLabel}
+              >
                 {sparesLabel ? <span className="tr-spares__label">{sparesLabel}</span> : null}
                 {u.spares.map((p) => tile(p, u))}
               </div>
