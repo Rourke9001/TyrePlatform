@@ -1,4 +1,3 @@
-import "../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 
 import type { TyreCatalogue } from "../api/catalogue";
@@ -7,6 +6,11 @@ import { currencyName, moneyText } from "../api/money";
 import { fetchFleetSettings, type ConsentCurrent, type FleetSettingsBody } from "../api/settings";
 import { fleetSettingsKey } from "../fleet/unit/queryKeys";
 import { useTenantDate } from "../time/tenantTime";
+import { Banner } from "../ui/Banner";
+import { Button } from "../ui/Button";
+import { Card } from "../ui/Card";
+import { KeyValue } from "../ui/KeyValue";
+import { PageHeader } from "../ui/PageHeader";
 import { unitLabels } from "../units/units";
 import {
   CONSENT_PURPOSES,
@@ -36,25 +40,24 @@ function Fleet({ body }: { body: FleetSettingsBody }) {
   const asDate = useTenantDate();
   const units = unitLabels(body.fleet.pressureUnit, body.fleet.distanceUnit);
   return (
-    <section aria-labelledby="settings-fleet" className="note-card">
-      <h2 id="settings-fleet">Fleet</h2>
-      <dl>
-        <dt>Timezone</dt>
-        <dd>{body.fleet.timezone}</dd>
-        <dt>Currency</dt>
-        <dd>{currencyName(body.fleet.currency)}</dd>
-        <dt>Pressure</dt>
-        <dd>{units.pressure}</dd>
-        <dt>Distance</dt>
-        <dd>{units.distance}</dd>
-        <dt>History</dt>
-        <dd>
-          {body.fleet.historyHorizon === null
-            ? "No imported history"
-            : `Live capture from ${asDate(body.fleet.historyHorizon)}`}
-        </dd>
-      </dl>
-    </section>
+    <Card title="Fleet">
+      <KeyValue
+        columns={3}
+        items={[
+          { label: "Timezone", value: body.fleet.timezone },
+          { label: "Currency", value: currencyName(body.fleet.currency) },
+          { label: "Pressure", value: units.pressure },
+          { label: "Distance", value: units.distance },
+          {
+            label: "History",
+            value:
+              body.fleet.historyHorizon === null
+                ? "No imported history"
+                : `Live capture from ${asDate(body.fleet.historyHorizon)}`,
+          },
+        ]}
+      />
+    </Card>
   );
 }
 
@@ -63,42 +66,51 @@ function Fleet({ body }: { body: FleetSettingsBody }) {
 function Thresholds({ body }: { body: FleetSettingsBody }) {
   const asDate = useTenantDate();
   return (
-    <section aria-labelledby="settings-thresholds">
-      <h2 id="settings-thresholds">Tread thresholds</h2>
+    <Card title="Tread thresholds" padding="none">
       {body.thresholds.length === 0 ? (
-        <p className="note-card">No tread thresholds are in force.</p>
+        <p className="fleet-card-empty">No tread thresholds are in force.</p>
       ) : (
-        <table className="tyres-table">
-          <thead>
-            <tr>
-              <th scope="col">Scope</th>
-              <th scope="col">Removal threshold</th>
-              <th scope="col">Warning threshold</th>
-              <th scope="col">Retreads</th>
-              <th scope="col">In force since</th>
-            </tr>
-          </thead>
-          <tbody>
-            {body.thresholds.map((t) => {
-              const scope = thresholdScopeLabel(t.operatingGroupName, t.axleClass);
-              return (
-                <tr key={scope}>
-                  <th scope="row">{scope}</th>
-                  <td>{formatMm(t.removalThresholdMm)}</td>
-                  <td>
-                    {t.warningThresholdMm === null ? "Not set" : formatMm(t.warningThresholdMm)}
-                  </td>
-                  <td>
-                    {t.retreadsPermitted ? `${String(t.maxRetreads)} allowed` : "Not permitted"}
-                  </td>
-                  <td>{t.effectiveFrom === null ? "From the start" : asDate(t.effectiveFrom)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+        <div className="fleet-table-wrap">
+          <table className="fleet-table">
+            <thead>
+              <tr>
+                <th scope="col">Scope</th>
+                <th scope="col" data-align="right">
+                  Removal threshold
+                </th>
+                <th scope="col" data-align="right">
+                  Warning threshold
+                </th>
+                <th scope="col">Retreads</th>
+                <th scope="col">In force since</th>
+              </tr>
+            </thead>
+            <tbody>
+              {body.thresholds.map((t) => {
+                const scope = thresholdScopeLabel(t.operatingGroupName, t.axleClass);
+                return (
+                  <tr key={scope}>
+                    <th scope="row">{scope}</th>
+                    <td data-align="right" data-mono="true">
+                      {formatMm(t.removalThresholdMm)}
+                    </td>
+                    <td data-align="right" data-mono="true">
+                      {t.warningThresholdMm === null ? "Not set" : formatMm(t.warningThresholdMm)}
+                    </td>
+                    <td>
+                      {t.retreadsPermitted ? `${String(t.maxRetreads)} allowed` : "Not permitted"}
+                    </td>
+                    <td data-nowrap="true">
+                      {t.effectiveFrom === null ? "From the start" : asDate(t.effectiveFrom)}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -107,29 +119,30 @@ function Thresholds({ body }: { body: FleetSettingsBody }) {
 function Consent({ body }: { body: FleetSettingsBody }) {
   const asDate = useTenantDate();
   return (
-    <section aria-labelledby="settings-consent">
-      <h2 id="settings-consent">Consent</h2>
-      <table className="tyres-table">
-        <thead>
-          <tr>
-            <th scope="col">Purpose</th>
-            <th scope="col">State</th>
-            <th scope="col">Notice version</th>
-            <th scope="col">Given</th>
-          </tr>
-        </thead>
-        <tbody>
-          {consentRows(body.consent).map(({ purpose, row }) => (
-            <tr key={purpose}>
-              <th scope="row">{consentPurposeLabel(purpose)}</th>
-              <td>{consentStateLabel(row === null ? null : row.granted)}</td>
-              <td>{row === null ? "None" : row.noticeVersion}</td>
-              <td>{row === null ? "None" : asDate(row.givenAt)}</td>
+    <Card title="Consent" padding="none">
+      <div className="fleet-table-wrap">
+        <table className="fleet-table">
+          <thead>
+            <tr>
+              <th scope="col">Purpose</th>
+              <th scope="col">State</th>
+              <th scope="col">Notice version</th>
+              <th scope="col">Given</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
+          </thead>
+          <tbody>
+            {consentRows(body.consent).map(({ purpose, row }) => (
+              <tr key={purpose}>
+                <th scope="row">{consentPurposeLabel(purpose)}</th>
+                <td>{consentStateLabel(row === null ? null : row.granted)}</td>
+                <td data-mono="true">{row === null ? "None" : row.noticeVersion}</td>
+                <td data-nowrap="true">{row === null ? "None" : asDate(row.givenAt)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }
 
@@ -138,33 +151,40 @@ function Consent({ body }: { body: FleetSettingsBody }) {
 function PriceList({ body }: { body: FleetSettingsBody }) {
   const asDate = useTenantDate();
   return (
-    <section aria-labelledby="settings-prices">
-      <h2 id="settings-prices">Price list</h2>
+    <Card title="Price list" padding="none">
       {body.priceList.length === 0 ? (
-        <p className="note-card">No price list entries are in force.</p>
+        <p className="fleet-card-empty">No price list entries are in force.</p>
       ) : (
-        <table className="tyres-table">
-          <thead>
-            <tr>
-              <th scope="col">Size</th>
-              <th scope="col">Brand</th>
-              <th scope="col">Typical price</th>
-              <th scope="col">Effective from</th>
-            </tr>
-          </thead>
-          <tbody>
-            {body.priceList.map((p) => (
-              <tr key={`${p.sizeName}:${p.brandName ?? ""}`}>
-                <th scope="row">{p.sizeName}</th>
-                <td>{p.brandName ?? "Any brand"}</td>
-                <td>{moneyText(p.typicalPrice, body.moneyVisible, body.fleet.currency)}</td>
-                <td>{asDate(p.effectiveFrom)}</td>
+        <div className="fleet-table-wrap">
+          <table className="fleet-table">
+            <thead>
+              <tr>
+                <th scope="col">Size</th>
+                <th scope="col">Brand</th>
+                <th scope="col" data-align="right">
+                  Typical price
+                </th>
+                <th scope="col">Effective from</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {body.priceList.map((p) => (
+                <tr key={`${p.sizeName}:${p.brandName ?? ""}`}>
+                  <th scope="row" data-mono="true">
+                    {p.sizeName}
+                  </th>
+                  <td>{p.brandName ?? "Any brand"}</td>
+                  <td data-align="right" data-mono="true">
+                    {moneyText(p.typicalPrice, body.moneyVisible, body.fleet.currency)}
+                  </td>
+                  <td data-nowrap="true">{asDate(p.effectiveFrom)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -177,23 +197,25 @@ function CatalogueList({
 }) {
   if (rows.length === 0) return null;
   return (
-    <table className="tyres-table">
-      <caption>{title}</caption>
-      <thead>
-        <tr>
-          <th scope="col">Name</th>
-          <th scope="col">Lineage</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={r.id}>
-            <th scope="row">{r.name}</th>
-            <td>{lineageLabel(r.platformCatalogueId)}</td>
+    <div className="fleet-table-wrap">
+      <table className="fleet-table">
+        <caption>{title}</caption>
+        <thead>
+          <tr>
+            <th scope="col">Name</th>
+            <th scope="col">Lineage</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.id}>
+              <th scope="row">{r.name}</th>
+              <td>{lineageLabel(r.platformCatalogueId)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -202,10 +224,9 @@ function CatalogueList({
 function Catalogue({ catalogue }: { catalogue: TyreCatalogue }) {
   const empty = catalogue.sizes.length + catalogue.brands.length + catalogue.patterns.length === 0;
   return (
-    <section aria-labelledby="settings-catalogue">
-      <h2 id="settings-catalogue">Catalogue</h2>
+    <Card title="Catalogue" padding="none">
       {empty ? (
-        <p className="note-card">This fleet has no catalogue yet.</p>
+        <p className="fleet-card-empty">This fleet has no catalogue yet.</p>
       ) : (
         <>
           <CatalogueList title="Sizes" rows={catalogue.sizes} />
@@ -213,7 +234,7 @@ function Catalogue({ catalogue }: { catalogue: TyreCatalogue }) {
           <CatalogueList title="Patterns" rows={catalogue.patterns} />
         </>
       )}
-    </section>
+    </Card>
   );
 }
 
@@ -222,24 +243,27 @@ function Catalogue({ catalogue }: { catalogue: TyreCatalogue }) {
 // editable; an admin surface is post-POC (U143 item 4).
 export function FleetSettings() {
   const tenantKey = getDevTenantId() ?? "default";
-  const settings = useQuery({ queryKey: fleetSettingsKey(tenantKey), queryFn: fetchFleetSettings });
+  const settings = useQuery({
+    queryKey: fleetSettingsKey(tenantKey),
+    queryFn: fetchFleetSettings,
+  });
 
   return (
-    <section aria-labelledby="fleet-settings-heading" className="fleet-settings">
-      <h1 className="page-title" id="fleet-settings-heading">
-        Fleet settings
-      </h1>
+    <section aria-labelledby="fleet-settings-heading" className="fleet-page tr-stack">
+      {/* PageHeader draws the h1; the id rides a span inside it, so this
+          section stays the region named by its heading. */}
+      <PageHeader title={<span id="fleet-settings-heading">Fleet settings</span>} />
 
       {settings.isPending && <p>Loading…</p>}
 
       {settings.isError && (
-        <div className="note-card" role="alert">
-          <h2>Settings didn&apos;t load</h2>
-          <p>The server could not be reached. Check your connection, then retry.</p>
-          <button className="btn-primary" type="button" onClick={() => void settings.refetch()}>
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="critical"
+          title={<h2 className="fleet-banner-heading">Settings didn&apos;t load</h2>}
+          action={<Button onClick={() => void settings.refetch()}>Retry</Button>}
+        >
+          The server could not be reached. Check your connection, then retry.
+        </Banner>
       )}
 
       {settings.isSuccess && (

@@ -35,6 +35,14 @@
   color: var(--ink-secondary);
 }
 
+/* An empty table's sentence inside its card, which draws no padding of its
+   own around a table. */
+.fleet-card-empty {
+  margin: 0;
+  padding: var(--space-2) var(--space-6) var(--space-5);
+  color: var(--ink-secondary);
+}
+
 .fleet-hint {
   margin: 0;
   font-size: var(--type-small-size);
