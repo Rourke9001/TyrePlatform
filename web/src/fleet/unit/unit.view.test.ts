@@ -73,9 +73,8 @@ const UNIT = unit({
 });
 
 describe("the vehicle screen's diagram", () => {
-  // BR-VEH-001: plan view, nose up. AxleDiagram draws the first half of an
-  // axle left of the beam and the second half right of it, so the order
-  // here is what puts each tyre on its own side.
+  // BR-VEH-001: plan view, nose up. AxleDiagram draws each side of an axle
+  // in the order given, so the left runs outside in and the right inside out.
   it("orders each axle across the vehicle, axles ascending, and keeps spares apart", () => {
     const drawn = diagramUnit(UNIT);
 
@@ -100,6 +99,34 @@ describe("the vehicle screen's diagram", () => {
       dataPositionId: "l-out",
     });
     expect(inner).toMatchObject({ label: "6", valueText: "empty", ariaLabel: "Position 6: empty" });
+  });
+
+  // fitments.spec.ts finds the mounted positions as the buttons inside an
+  // "Axle" group, which is what keeps the spares out of them.
+  it("names each axle and the spares as groups", () => {
+    const drawn = diagramUnit(UNIT);
+
+    expect(drawn.axles.map((a) => a.ariaLabel)).toEqual(["Axle 1", "Axle 3"]);
+    expect(drawn.sparesAriaLabel).toBe("Spares");
+  });
+
+  // The wire's side is app.side, LEFT or RIGHT, and null on a spare (000001).
+  // AxleDiagram splits an axle by side only when every tile has one, so a
+  // value it does not know is left unset rather than guessed.
+  it("carries the wire's side onto each tile, and leaves an unknown one unset", () => {
+    const drawn = diagramUnit(UNIT);
+    const sideOf = (id: string) =>
+      [...drawn.axles.flatMap((a) => a.positions), ...(drawn.spares ?? [])].find((p) => p.id === id)
+        ?.side;
+
+    expect(sideOf("l-out")).toBe("left");
+    expect(sideOf("r-in")).toBe("right");
+    expect(sideOf("sp")).toBeUndefined();
+
+    const odd = diagramUnit(
+      unit({ positions: [unitPosition({ id: "m", side: "MIDDLE" }), unitPosition({ id: "n" })] }),
+    );
+    expect(odd.axles[0].positions.map((p) => p.side)).toEqual([undefined, "left"]);
   });
 
   // The unit wire carries no condition, so a tile states none; and an empty

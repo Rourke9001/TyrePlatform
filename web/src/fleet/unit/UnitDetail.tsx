@@ -88,9 +88,9 @@ export function UnitDetail({ unitId }: { unitId: string }) {
       )}
 
       <div className="unit-detail-cols">
-        <Card className="unit-plan-card" padding="md">
+        <Card padding="md">
           <UnitPlan
-            positions={unit.data.positions}
+            unit={unit.data}
             selectedId={selectedPositionId}
             onSelect={setSelectedPositionId}
           />
