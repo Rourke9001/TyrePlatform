@@ -1,4 +1,3 @@
-import "../../ui/legacy/ui.css";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link } from "react-router";
@@ -21,7 +20,6 @@ import { UnitPlan } from "./UnitPlan";
 import { UnitStatusForm } from "./UnitStatusForm";
 import { UnitTaskList } from "./UnitTaskList";
 import { rigsKey, unitFitmentsKey, unitKey } from "./queryKeys";
-import "../fleet.css";
 import "./unit.css";
 
 // D7's unit screen: ViewFleet reads it; every form inside is ManageAssets'
@@ -99,7 +97,7 @@ export function UnitDetail({ unitId }: { unitId: string }) {
         </Card>
 
         {selected === null ? (
-          <Card className="unit-panel" padding="md">
+          <Card padding="md">
             <p className="unit-panel-empty">
               {canManage
                 ? "Pick a position on the plan to fit or remove a tyre."

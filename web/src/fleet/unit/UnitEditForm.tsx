@@ -4,7 +4,11 @@ import { type FormEvent, useRef, useState } from "react";
 import { getDevTenantId } from "../../api/devTenant";
 import { refusalMessage } from "../../api/refusal";
 import { fetchDepots, patchUnit, type Unit, type UnitPatch } from "../../api/units";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
+import { Field } from "../../ui/Field";
+import { TextInput } from "../../ui/TextInput";
 import { useFormMutation } from "../useFormMutation";
 import { depotsKey, unitKey, vehiclesKey } from "./queryKeys";
 
@@ -141,7 +145,7 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
   }
 
   return (
-    <Card className="unit-edit" title="Details" padding="md">
+    <Card title="Details" padding="md">
       <p className="unit-edit-layout">
         Axle layout: <strong>{unit.configurationName}</strong>
         {unit.hasHistory && (
@@ -149,56 +153,75 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
         )}
       </p>
 
-      <form onSubmit={submit}>
-        <label htmlFor="unit-fleet-number">Fleet number</label>
-        <input
-          id="unit-fleet-number"
-          value={fleetNumber}
-          onChange={(e) => setFleetNumber(e.target.value)}
-          required
-        />
+      <form className="unit-form" onSubmit={submit}>
+        <Field label="Fleet number">
+          <TextInput
+            id="unit-fleet-number"
+            mono
+            value={fleetNumber}
+            onChange={(e) => setFleetNumber(e.target.value)}
+            required
+          />
+        </Field>
 
-        <label htmlFor="unit-registration">Registration</label>
-        <input
-          id="unit-registration"
-          value={registration}
-          onChange={(e) => setRegistration(e.target.value)}
-        />
+        <Field label="Registration">
+          <TextInput
+            id="unit-registration"
+            mono
+            value={registration}
+            onChange={(e) => setRegistration(e.target.value)}
+          />
+        </Field>
 
-        <label htmlFor="unit-description">Description</label>
-        <input
-          id="unit-description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-        />
+        <Field label="Description">
+          <TextInput
+            id="unit-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+          />
+        </Field>
 
-        <label htmlFor="unit-body-type">Body type</label>
-        <input id="unit-body-type" value={bodyType} onChange={(e) => setBodyType(e.target.value)} />
+        <Field label="Body type">
+          <TextInput
+            id="unit-body-type"
+            value={bodyType}
+            onChange={(e) => setBodyType(e.target.value)}
+          />
+        </Field>
 
-        <label htmlFor="unit-descriptor">Unit descriptor</label>
-        <input
-          id="unit-descriptor"
-          value={unitDescriptor}
-          onChange={(e) => setUnitDescriptor(e.target.value)}
-        />
+        <Field label="Unit descriptor">
+          <TextInput
+            id="unit-descriptor"
+            value={unitDescriptor}
+            onChange={(e) => setUnitDescriptor(e.target.value)}
+          />
+        </Field>
 
         {/* operating_group_id is a patchable column with no field here: the API
             lists depots but exposes no read of the operating groups, so a
             picker could only invent the list. It is edited from this form when
             that read exists. */}
         {depots.isError ? (
-          <div className="note-card" role="alert">
-            <h3>Depots didn&apos;t load</h3>
-            <p>The server could not be reached. Check your connection, then retry.</p>
-            <button className="btn-primary" type="button" onClick={() => void depots.refetch()}>
-              Retry
-            </button>
-          </div>
+          <Banner
+            tone="critical"
+            title={<h3 className="unit-banner-heading">Depots didn&apos;t load</h3>}
+            action={
+              <Button variant="primary" onClick={() => void depots.refetch()}>
+                Retry
+              </Button>
+            }
+          >
+            <p className="unit-banner-body">
+              The server could not be reached. Check your connection, then retry.
+            </p>
+          </Banner>
         ) : (
-          <>
-            <label htmlFor="unit-home-depot">Home depot</label>
+          <Field label="Home depot">
+            {/* Native, not Select: its pending option is disabled while None
+                beside it is not, and Select disables only a placeholder. */}
             <select
               id="unit-home-depot"
+              className="unit-select"
               value={homeDepotId}
               onChange={(e) => setHomeDepotId(e.target.value)}
             >
@@ -214,18 +237,19 @@ export function UnitEditForm({ unit }: { unit: Unit }) {
                 </option>
               ))}
             </select>
-          </>
+          </Field>
         )}
 
         {/* One field, comma separated: app.vehicle_tag holds a replacement
             list per unit (FR-VEH-041, U6), so this posts the whole list and
             an empty one clears it. */}
-        <label htmlFor="unit-tags">Tags</label>
-        <input id="unit-tags" value={tags} onChange={(e) => setTags(e.target.value)} />
+        <Field label="Tags">
+          <TextInput id="unit-tags" value={tags} onChange={(e) => setTags(e.target.value)} />
+        </Field>
 
-        <button className="btn-primary" type="submit" disabled={save.isPending}>
+        <Button variant="primary" type="submit" disabled={save.isPending}>
           {save.isPending ? "Saving…" : "Save changes"}
-        </button>
+        </Button>
       </form>
 
       {/* useFormMutation keeps isSuccess for the life of the form, so a later

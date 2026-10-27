@@ -4,6 +4,11 @@ import { type FormEvent, useRef, useState } from "react";
 import { getDevTenantId } from "../../api/devTenant";
 import { fetchTyres } from "../../api/tyres";
 import { fitTyre, type NewFitment, type Unit, type UnitPosition } from "../../api/units";
+import { Banner } from "../../ui/Banner";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { Select } from "../../ui/Select";
+import { TextInput } from "../../ui/TextInput";
 import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
@@ -112,45 +117,54 @@ export function FitForm({
   }
 
   return (
-    <form className="unit-panel-form" onSubmit={submitFit}>
+    <form className="unit-form" onSubmit={submitFit}>
       {stock.isError ? (
-        <div className="note-card" role="alert">
-          <h3>Tyres didn&apos;t load</h3>
-          <p>The server could not be reached. Check your connection, then retry.</p>
-          <button className="btn-primary" type="button" onClick={() => void stock.refetch()}>
-            Retry
-          </button>
-        </div>
+        <Banner
+          tone="critical"
+          title={<h3 className="unit-banner-heading">Tyres didn&apos;t load</h3>}
+          action={
+            <Button variant="primary" onClick={() => void stock.refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          <p className="unit-banner-body">
+            The server could not be reached. Check your connection, then retry.
+          </p>
+        </Banner>
       ) : (
-        <>
-          <label htmlFor={`fit-tyre-${position.id}`}>Tyre</label>
-          <select
+        <Field label="Tyre">
+          {/* Pending, the one option says so and cannot be chosen; loaded,
+              "Choose…" is an ordinary option again. */}
+          <Select
             id={`fit-tyre-${position.id}`}
             value={tyreId}
             onChange={(e) => setTyreId(e.target.value)}
-          >
-            <option value="" disabled={stock.isPending}>
-              {stock.isPending ? "Loading…" : "Choose…"}
-            </option>
-            {inStock.map((t) => (
-              <option key={t.id} value={t.id}>
-                {t.displayCode}
-              </option>
-            ))}
-          </select>
-        </>
+            placeholder={stock.isPending ? "Loading…" : undefined}
+            options={
+              stock.isPending
+                ? []
+                : [
+                    { value: "", label: "Choose…" },
+                    ...inStock.map((t) => ({ value: t.id, label: t.displayCode })),
+                  ]
+            }
+          />
+        </Field>
       )}
 
-      <label htmlFor={`fit-tread-${position.id}`}>Tread (mm)</label>
-      <input
-        id={`fit-tread-${position.id}`}
-        inputMode="decimal"
-        value={fitTread}
-        onChange={(e) => setFitTread(e.target.value)}
-        required
-      />
+      <Field label="Tread (mm)">
+        <TextInput
+          id={`fit-tread-${position.id}`}
+          inputMode="decimal"
+          mono
+          value={fitTread}
+          onChange={(e) => setFitTread(e.target.value)}
+          required
+        />
+      </Field>
 
-      <div role="radiogroup" aria-label="Mount orientation" className="unit-panel-radios">
+      <div role="radiogroup" aria-label="Mount orientation" className="unit-radios">
         {MOUNT_ORIENTATIONS.map((o) => (
           <label key={o.value}>
             <input
@@ -170,25 +184,21 @@ export function FitForm({
           Asking for it here costs a tap; leaving it optional costs a
           refusal the controller has to read and retry. */}
       {unit.hasOdometer && (
-        <>
-          <label htmlFor={`fit-odometer-${position.id}`}>Odometer</label>
-          <input
+        <Field label="Odometer">
+          <TextInput
             id={`fit-odometer-${position.id}`}
             inputMode="numeric"
+            mono
             value={fitOdometer}
             onChange={(e) => setFitOdometer(e.target.value)}
             required
           />
-        </>
+        </Field>
       )}
 
-      <button
-        className="btn-primary btn-compact"
-        type="submit"
-        disabled={tyreId === "" || fit.isPending}
-      >
+      <Button variant="primary" type="submit" disabled={tyreId === "" || fit.isPending}>
         {fit.isPending ? "Fitting…" : "Fit tyre"}
-      </button>
+      </Button>
 
       <RefusalAlert error={fit.error} wording={FIT_WORDING} />
     </form>
