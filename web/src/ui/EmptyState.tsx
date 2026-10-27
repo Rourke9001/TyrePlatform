@@ -33,7 +33,7 @@ export function EmptyState({
         <Icon icon={icon} size={28} />
       </span>
       <Heading className="tr-empty__title">{title}</Heading>
-      {children ? <p className="tr-empty__body">{children}</p> : null}
+      {children ? <div className="tr-empty__body">{children}</div> : null}
       {action ? <div className="tr-empty__action">{action}</div> : null}
     </div>
   );
