@@ -2,6 +2,10 @@ import { type FormEvent, useRef, useState } from "react";
 
 import { getDevTenantId } from "../../api/devTenant";
 import { removeFitment, type Removal, type Unit, type UnitPosition } from "../../api/units";
+import { Button } from "../../ui/Button";
+import { Field } from "../../ui/Field";
+import { Select } from "../../ui/Select";
+import { TextInput } from "../../ui/TextInput";
 import { RefusalAlert } from "../RefusalAlert";
 import { useFormMutation } from "../useFormMutation";
 import type { ActedSummary } from "./PositionPanel";
@@ -102,52 +106,48 @@ export function RemoveForm({
   }
 
   return (
-    <form className="unit-panel-form" onSubmit={submitRemove}>
+    <form className="unit-form" onSubmit={submitRemove}>
       {/* FR-FIT-008: which reasons exist is tenant configuration, read off
           the unit rather than listed here (rule 5). */}
-      <label htmlFor={`remove-reason-${position.id}`}>Reason</label>
-      <select
-        id={`remove-reason-${position.id}`}
-        value={reason}
-        onChange={(e) => setReason(e.target.value)}
-      >
-        <option value="">Choose…</option>
-        {unit.removalReasons.map((r) => (
-          <option key={r} value={r}>
-            {r}
-          </option>
-        ))}
-      </select>
+      <Field label="Reason">
+        <Select
+          id={`remove-reason-${position.id}`}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          options={[
+            { value: "", label: "Choose…" },
+            ...unit.removalReasons.map((r) => ({ value: r, label: r })),
+          ]}
+        />
+      </Field>
 
-      <label htmlFor={`remove-tread-${position.id}`}>Tread (mm)</label>
-      <input
-        id={`remove-tread-${position.id}`}
-        inputMode="decimal"
-        value={removeTread}
-        onChange={(e) => setRemoveTread(e.target.value)}
-        required
-      />
+      <Field label="Tread (mm)">
+        <TextInput
+          id={`remove-tread-${position.id}`}
+          inputMode="decimal"
+          mono
+          value={removeTread}
+          onChange={(e) => setRemoveTread(e.target.value)}
+          required
+        />
+      </Field>
 
       {unit.hasOdometer && (
-        <>
-          <label htmlFor={`remove-odometer-${position.id}`}>Odometer</label>
-          <input
+        <Field label="Odometer">
+          <TextInput
             id={`remove-odometer-${position.id}`}
             inputMode="numeric"
+            mono
             value={removeOdometer}
             onChange={(e) => setRemoveOdometer(e.target.value)}
             required
           />
-        </>
+        </Field>
       )}
 
-      <button
-        className="btn-primary btn-compact"
-        type="submit"
-        disabled={reason === "" || remove.isPending}
-      >
+      <Button variant="primary" type="submit" disabled={reason === "" || remove.isPending}>
         {remove.isPending ? "Removing…" : "Remove tyre"}
-      </button>
+      </Button>
 
       <RefusalAlert error={remove.error} wording={REMOVE_WORDING} />
     </form>

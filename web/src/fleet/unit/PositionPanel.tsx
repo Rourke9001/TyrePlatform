@@ -65,12 +65,7 @@ export function PositionPanel({ unit, position }: { unit: Unit; position: UnitPo
     acted !== null && (position.fitment === null || position.fitment.fitmentId === acted.fitmentId);
 
   return (
-    <Card
-      className="unit-panel"
-      padding="md"
-      aria-label={`Position ${position.code}`}
-      title={`Position ${position.code}`}
-    >
+    <Card padding="md" aria-label={`Position ${position.code}`} title={`Position ${position.code}`}>
       {position.fitment === null ? (
         <p className="unit-panel-empty">No tyre is fitted here.</p>
       ) : (

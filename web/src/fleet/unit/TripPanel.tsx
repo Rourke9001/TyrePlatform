@@ -17,7 +17,9 @@ import type { Unit } from "../../api/units";
 import type { Vehicle } from "../../api/vehicles";
 import { useCan } from "../../auth/actorContext";
 import { useTenantDate, useTenantInstant } from "../../time/tenantTime";
+import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
+import { Field } from "../../ui/Field";
 import { useFormMutation } from "../useFormMutation";
 import { DriverPicker } from "./DriverPicker";
 import { NominateControl } from "./NominateControl";
@@ -67,14 +69,12 @@ export function TripPanel({ unit }: { unit: Unit }) {
   const trip = useQuery({ queryKey: unitTripKey(unit.id), queryFn: () => fetchUnitTrip(unit.id) });
 
   return (
-    <Card className="unit-form-card" title="Trip" padding="md">
+    <Card title="Trip" padding="md">
       {trip.isPending && <p className="unit-note">Loading…</p>}
       {trip.isError && (
         <>
           <p role="alert">The trip could not be loaded.</p>
-          <button type="button" onClick={() => void trip.refetch()}>
-            Retry
-          </button>
+          <Button onClick={() => void trip.refetch()}>Retry</Button>
         </>
       )}
       {/* One line that stays mounted, polite, so a start or an end is
@@ -113,14 +113,9 @@ function OnTrip({ trip }: { trip: Trip }) {
           : "Towing nothing."}
       </p>
       {canAssign && (
-        <button
-          className="btn-primary"
-          type="button"
-          disabled={end.isPending}
-          onClick={() => end.submit(undefined)}
-        >
+        <Button variant="primary" disabled={end.isPending} onClick={() => end.submit(undefined)}>
           {end.isPending ? "Ending…" : "End trip"}
-        </button>
+        </Button>
       )}
       {end.error !== null && <p role="alert">{refusalMessage(end.error, TRIP_WORDING)}</p>}
     </>
@@ -205,72 +200,70 @@ function StartTripForm({ unit }: { unit: Unit }) {
   // Start joins the form by its id.
   return (
     <>
-      <form id="trip-start" onSubmit={submit}>
-        <div className="tyres-row-form">
-          <DriverPicker
-            id="tripDriver"
-            label="Driver"
-            value={driverId}
-            onChange={setDriverId}
-            placeholder="Choose…"
-          />
-        </div>
+      <form id="trip-start" className="unit-form" onSubmit={submit}>
+        <DriverPicker
+          id="tripDriver"
+          label="Driver"
+          value={driverId}
+          onChange={setDriverId}
+          placeholder="Choose…"
+        />
         {coupled.length > 0 && (
-          <p className="tyres-receive-hint">
-            Coupled now: {coupled.map((m) => m.fleetNumber).join(", ")}
-          </p>
+          <p className="unit-hint">Coupled now: {coupled.map((m) => m.fleetNumber).join(", ")}</p>
         )}
 
-        <div className="tyres-row-form">
-          <label htmlFor="tripTrailer">Add a trailer</label>
-          <select id="tripTrailer" value={pick} onChange={(e) => setPick(e.target.value)}>
-            <option value="">Choose…</option>
-            {offered.map((v) => {
-              const holder = heldBy.get(v.id);
-              return (
-                <option key={v.id} value={v.id} disabled={holder !== undefined}>
-                  {holder !== undefined ? `${v.fleetNumber}, coupled to ${holder}` : v.fleetNumber}
-                </option>
-              );
-            })}
-          </select>
-          <button type="button" onClick={addTrailer} disabled={pick === "" || !rigs.data}>
+        <div className="unit-form unit-form--row">
+          <Field label="Add a trailer">
+            {/* Native, not Select: a trailer held by another rig is shown but
+                disabled, and Select disables only a placeholder. */}
+            <select
+              id="tripTrailer"
+              className="unit-select"
+              value={pick}
+              onChange={(e) => setPick(e.target.value)}
+            >
+              <option value="">Choose…</option>
+              {offered.map((v) => {
+                const holder = heldBy.get(v.id);
+                return (
+                  <option key={v.id} value={v.id} disabled={holder !== undefined}>
+                    {holder !== undefined
+                      ? `${v.fleetNumber}, coupled to ${holder}`
+                      : v.fleetNumber}
+                  </option>
+                );
+              })}
+            </select>
+          </Field>
+          <Button onClick={addTrailer} disabled={pick === "" || !rigs.data}>
             Add
-          </button>
+          </Button>
         </div>
         {vehicles.isError && (
           <>
             <p role="alert">The trailers could not be loaded.</p>
-            <button
-              type="button"
-              aria-label="Retry loading trailers"
-              onClick={() => void vehicles.refetch()}
-            >
+            <Button aria-label="Retry loading trailers" onClick={() => void vehicles.refetch()}>
               Retry
-            </button>
+            </Button>
           </>
         )}
         {rigs.isError && (
           <>
             <p role="alert">The rigs could not be loaded. Trailers show once they load.</p>
-            <button
-              type="button"
-              aria-label="Retry loading rigs"
-              onClick={() => void rigs.refetch()}
-            >
+            <Button aria-label="Retry loading rigs" onClick={() => void rigs.refetch()}>
               Retry
-            </button>
+            </Button>
           </>
         )}
-        {rigs.isPending && <p>Trailers show once the rigs load.</p>}
+        {rigs.isPending && <p className="unit-hint">Trailers show once the rigs load.</p>}
         {added.length > 0 && (
-          <ul className="unit-rotate-rows" aria-label="Trailers to add">
+          <ul className="unit-rows" aria-label="Trailers to add">
             {added.map((id) => (
               <li key={id}>
                 <span>{fleetOf.get(id) ?? id}</span>{" "}
-                <button type="button" onClick={() => setAdded(added.filter((a) => a !== id))}>
+                <Button variant="ghost" onClick={() => setAdded(added.filter((a) => a !== id))}>
                   Remove {fleetOf.get(id) ?? "trailer"}
-                </button>
+                </Button>
               </li>
             ))}
           </ul>
@@ -283,7 +276,7 @@ function StartTripForm({ unit }: { unit: Unit }) {
       {blocking.length > 0 && (
         <>
           <p>These inspections are due and must be done before the trip starts:</p>
-          <ul className="unit-rotate-rows" aria-label="Due inspections">
+          <ul className="unit-rows" aria-label="Due inspections">
             {blocking.map((b) => (
               <li key={b.taskId}>
                 <span>
@@ -299,28 +292,27 @@ function StartTripForm({ unit }: { unit: Unit }) {
           </ul>
         </>
       )}
-      {blockers.isPending && <p>Checking due inspections…</p>}
+      {blockers.isPending && <p className="unit-hint">Checking due inspections…</p>}
       {blockers.isError && (
         <>
           <p role="alert">The due inspections could not be checked.</p>
-          <button
-            type="button"
+          <Button
             aria-label="Retry checking due inspections"
             onClick={() => void blockers.refetch()}
           >
             Retry
-          </button>
+          </Button>
         </>
       )}
 
-      <button
-        className="btn-primary"
+      <Button
+        variant="primary"
         type="submit"
         form="trip-start"
         disabled={driverId === "" || !blockers.isSuccess || blocking.length > 0 || start.isPending}
       >
         {start.isPending ? "Starting…" : "Start trip"}
-      </button>
+      </Button>
       {start.error !== null && <p role="alert">{refusalMessage(start.error, TRIP_WORDING)}</p>}
     </>
   );
