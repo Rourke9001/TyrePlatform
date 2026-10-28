@@ -100,13 +100,12 @@ function AdminRoute({
   return <>{children}</>;
 }
 
-// Both galleries load behind a lazy boundary and never on the capture route
-// (ADR-0015); the legacy one imports Radix. DEV only, and the lazy() calls
-// themselves are guarded so a production build emits no gallery chunk.
+// The gallery loads behind a lazy boundary and never on the capture route
+// (ADR-0015). DEV only, and the lazy() call itself is guarded so a
+// production build emits no gallery chunk.
 const galleries = import.meta.env.DEV
   ? {
       Design: lazy(() => import("./ui/gallery/Gallery")),
-      Legacy: lazy(() => import("./ui/legacy/Gallery")),
     }
   : null;
 
@@ -233,7 +232,6 @@ export function AppRoutes() {
         {galleries ? (
           <>
             <Route path="/dev/design" element={<galleries.Design />} />
-            <Route path="/dev/legacy" element={<galleries.Legacy />} />
             <Route path="*" element={<NotFound />} />
           </>
         ) : (

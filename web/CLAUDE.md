@@ -178,14 +178,13 @@ the next copy edit.
 ## The design system (ADR-0015, ADR-0020)
 
 The design skills advise; `tokens.ts`, ADR-0015's substrate and ADR-0020's
-Tread system decide. Tread replaces the kit below route by route (epic
-TYRE-443); until a route moves, the kit's rules hold for it.
+Tread system decide. Every route is on Tread (epic TYRE-443).
 
-`src/ui/legacy/` holds the kit: PageHeader, StatTile, SeverityBadge,
-ProvenanceSplit, DataTable, Panel, EmptyState, FormField, Button, Select and
-Dialog (Radix), FilterBar, BandChart, with their `ui.css`, which each lazy
-route module that renders them imports. `/dev/legacy` renders all of them
-with example values under `vite dev`. `/dev/design` is Tread's gallery: each
+`src/ui/legacy/` holds what is left of the old kit: the Radix Select the
+dashboard's and Exceptions' filters keep until a Tread select keeps the
+combobox role, with its rules in `ui.css`, which both route modules
+import. eslint refuses any other import from it. `/dev/design` is Tread's
+gallery: each
 `src/ui/gallery/<group>.gallery.tsx` exports a `section`, shown in a
 Daylight and a Night shift column side by side, and it is where a change is
 looked at before it is reviewed. Rules that are not visible in the code:

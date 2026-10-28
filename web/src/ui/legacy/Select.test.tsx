@@ -2,7 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { FormField } from "./FormField";
+import { Field } from "../Field";
 import { Select } from "./Select";
 
 const options = [
@@ -32,13 +32,13 @@ describe("Select", () => {
     expect(onValueChange).toHaveBeenCalledWith("d2");
   });
 
-  // FormField wires its hint and error by id; a Radix trigger only hears them
-  // if Select forwards what FormField clones onto it (ruling P5).
+  // Field wires its hint and error by id; a Radix trigger only hears them if
+  // Select forwards what Field clones onto it (ruling P5).
   it("takes its name from the field's label and its description from the hint and error", () => {
     render(
-      <FormField id="depot" label="Depot" hint="Active depots only" error="Choose a depot">
+      <Field label="Depot" hint="Active depots only" error="Choose a depot">
         <Select id="depot" value="ALL" onValueChange={() => undefined} options={options} />
-      </FormField>,
+      </Field>,
     );
     const trigger = screen.getByRole("combobox", { name: "Depot" });
     expect(trigger).toHaveAccessibleDescription("Active depots only Choose a depot");
