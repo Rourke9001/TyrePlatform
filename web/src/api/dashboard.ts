@@ -107,19 +107,14 @@ export interface InflationCompliance {
   bands: InflationBand[];
 }
 
-// One tread band as the chart draws it. The wire type lives here, beside
-// its fetcher, so the data layer imports nothing from ui/ (ADR-0022).
-export interface BandDatum {
+// bandLabel is typed and never rendered: the view labels a band from its
+// bounds (U40, dashboard/dashboard.view.ts).
+export interface TreadBand {
   bandOrdinal: number;
   lowerMm: number;
   upperExclusiveMm: number | null;
   tyreCount: number;
   pctOfGroup: number;
-}
-
-// BandDatum is what the chart draws; bandLabel and keyName ride along
-// unread by the chart, so the label cannot render by accident (U40).
-export interface TreadBand extends BandDatum {
   keyName: string | null;
   bandLabel: string;
 }
