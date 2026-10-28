@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "../ui/Button";
+import { Keypad } from "../ui/Keypad";
+import { Sheet } from "../ui/Sheet";
+import { TreadReadings } from "../ui/TreadReadings";
 import type { CaptureContext, CapturePosition } from "./captureContext";
 import type { RigPosition } from "./rig";
 import type { DraftPosition, RecordedWarning } from "./draft";
@@ -7,15 +11,11 @@ import type { EntryKey, EntryState } from "./entry";
 import { applyKey, newEntryState } from "./entry";
 import { governingTread, isComplete, positionWarnings, severityFor, treadsRead } from "./warnings";
 import { historyWarnings } from "./history";
-import { Keypad } from "./Keypad";
+import { entryKey } from "./keypadKey";
+import { placeWords } from "./place";
 import { TreadGlyph } from "./TreadGlyph";
 import { useUnitLabels } from "../units/units";
 import "./capture.css";
-
-// FR-INS-029a and decision D-A: numbered, not named. The driver never sees
-// the words inner or outer, and the three fields sit left to right in the
-// plan view, the same direction the diagram above them reads.
-const FIELD_LABEL = (i: number, count: number) => `Tread reading ${i + 1} of ${count}`;
 
 // The beat between the last digit that could change a field and the sheet
 // acting on it, both the prototype's own numbers; longer off the pressure
@@ -59,7 +59,14 @@ export function PositionSheet({
     // with nothing left to fill, the first, so a reopen-to-look is unchanged.
     const firstEmpty = initial.treads.findIndex((t) => t === null);
     const field = firstEmpty !== -1 ? firstEmpty : initial.pressureKpa === null ? count : 0;
-    return { treads: [...initial.treads], pressureKpa: initial.pressureKpa, field, buffer: "" };
+    return {
+      treads: [...initial.treads],
+      pressureKpa: initial.pressureKpa,
+      field,
+      buffer: "",
+      advancedFrom: null,
+      touched: false,
+    };
   });
   const [acknowledged, setAcknowledged] = useState(false);
   // NFR-OBS-007. Wall clock from when the sheet opened, plus anything a
@@ -226,48 +233,72 @@ export function PositionSheet({
   // below-removal reading has to look urgent the moment it is legible, not
   // once a pressure the driver may never take has been typed.
   const severity = severityFor(warnings, treadsRead(state.treads));
+  const place = placeWords(rig);
 
   return (
-    <section
+    <Sheet
+      open
+      // U145: not modal. The rig stays in the page and the tab order, so
+      // nothing traps focus, and the layer the caller draws places it.
+      modal={false}
       className="cap-sheet"
       // Named the way the diagram cell that opens it is named. A spare
       // carries no walk-around number, so naming it for its unit is the
       // only thing that tells them apart: every configuration has a spare
       // count, so a rig has one per unit (BR-VEH-003).
-      aria-label={
+      ariaLabel={
         rig.displayNumber === null
           ? `Spare, ${rig.context.fleetNumber}`
           : `Position ${rig.displayNumber}`
       }
-    >
-      <header className="cap-sheet-head">
-        <p className="cap-sheet-pos">
-          {rig.displayNumber === null ? "Spare tyre" : `Position ${rig.displayNumber}`}
-        </p>
-        {/* FR-INS-026: the tyre identified from fitment state, shown for
-            confirmation. FR-INS-027's dispute is a later ticket; the payload
-            already carries whatever tyre id the driver was shown. */}
-        <p className="cap-sheet-meta">
+      title={rig.displayNumber === null ? "Spare tyre" : `Position ${rig.displayNumber}`}
+      titleAs="p"
+      // FR-INS-026: the tyre identified from fitment state, shown for
+      // confirmation. FR-INS-027's dispute is a later ticket; the payload
+      // already carries whatever tyre id the driver was shown.
+      description={
+        <>
           {rig.context.fleetNumber} · {rig.position.axleClass.toLowerCase()}
+          {place ? ` · ${place}` : ""}
           {rig.position.tyreCode ? ` · ${rig.position.tyreCode}` : ""}
-        </p>
-        <button type="button" className="cap-iconbtn" aria-label="Close" onClick={close}>
-          ✕
-        </button>
-        {/* TYRE-155 / FR-INS-066: one tap, on the spare sheet only. It replaces
-            the close tap a driver with no spare pays today, so the ledger is
-            net zero; the observation rides to the server (000041). */}
-        {rig.position.isSpare && onAbsent && (
-          <button
-            type="button"
-            className="cap-secondary"
+        </>
+      }
+      onClose={close}
+      trailing={
+        // TYRE-155 / FR-INS-066: one tap, on the spare sheet only. It replaces
+        // the close tap a driver with no spare pays today, so the ledger is
+        // net zero; the observation rides to the server (000041).
+        rig.position.isSpare && onAbsent ? (
+          <Button
+            variant="secondary"
+            size="glove"
+            className="cap-sheet-spare"
             onClick={() => onAbsent(rig.position, !absent)}
           >
             {absent ? "Spare is here" : "No spare on this unit"}
-          </button>
-        )}
-      </header>
-
+          </Button>
+        ) : undefined
+      }
+      footer={
+        <Keypad
+          // Next advances while the position is unfinished and finishes it
+          // once it is complete. Wiring it straight to finish() strands a
+          // 0-3mm tread: those never settle (30 is still under the 35mm
+          // ceiling, so another digit is possible), finish() returns early on
+          // an incomplete position, and the driver has no way forward, on
+          // the exact reading the product exists to catch.
+          onKey={(key) => {
+            const k = entryKey(key);
+            if (k.type === "next" && complete) finish();
+            else press(k);
+          }}
+          // U145: the half key's slot is ui/Keypad.tsx's rule.
+          altKey={ctx.config.treadGranularityMm === 0.5 ? "half" : "delete"}
+          goLabel={held ? "Seen it ›" : complete ? "Done ›" : "Next ›"}
+          goTone={held ? "warn" : "primary"}
+        />
+      }
+    >
       {rig.position.side !== null && (
         <div className="cap-frame">
           <TreadGlyph side={rig.position.side} count={count} />
@@ -277,37 +308,26 @@ export function PositionSheet({
         </div>
       )}
 
-      <div className="cap-fields">
-        {state.treads.map((value, i) => (
-          <button
-            key={i}
-            type="button"
-            className={`cap-fld${state.field === i ? " is-on" : ""}`}
-            aria-label={FIELD_LABEL(i, count)}
-            // Which field is live, for a screen reader and for a test that
-            // needs to wait for the auto-advance rather than race it.
-            aria-current={state.field === i ? "true" : undefined}
-            onClick={() => press({ type: "focus", field: i })}
-          >
-            <span className="cap-fld-k">{i + 1}</span>
-            <span className="cap-fld-u">mm</span>
-            <span className={`cap-fld-v${value === null ? " is-empty" : ""}`}>{value ?? "–"}</span>
-          </button>
-        ))}
-        <button
-          type="button"
-          className={`cap-fld${state.field === count ? " is-on" : ""}`}
-          aria-label="Pressure"
-          aria-current={state.field === count ? "true" : undefined}
-          onClick={() => press({ type: "focus", field: count })}
-        >
-          <span className="cap-fld-k">Press.</span>
-          <span className="cap-fld-u">{labels.pressure}</span>
-          <span className={`cap-fld-v${state.pressureKpa === null ? " is-empty" : ""}`}>
-            {state.pressureKpa ?? "–"}
-          </span>
-        </button>
-      </div>
+      <TreadReadings
+        // FR-INS-029a and decision D-A: numbered, not named. The driver never
+        // sees the words inner or outer, and the cells sit left to right in
+        // the plan view, the same direction the diagram reads. Each cell is
+        // named "Tread reading N of M" and carries aria-current while it is
+        // live, which a test waits on rather than racing the auto-advance.
+        readings={state.treads.map((t) => (t === null ? "" : String(t)))}
+        governingIndex={null}
+        activeIndex={state.field < count ? state.field : undefined}
+        onSelect={(i) => press({ type: "focus", field: i })}
+        unitText="mm"
+        pressure={{
+          value: state.pressureKpa === null ? "" : String(state.pressureKpa),
+          caption: "Press.",
+          unitText: labels.pressure,
+          ariaLabel: "Pressure",
+          active: state.field === count,
+          onSelect: () => press({ type: "focus", field: count }),
+        }}
+      />
 
       <div className="cap-alerts">
         {warnings.map((w) => (
@@ -319,19 +339,6 @@ export function PositionSheet({
           <p className="cap-alert cap-alert--ok">Nothing to flag ({governing}mm).</p>
         )}
       </div>
-
-      <Keypad
-        // Next advances while the position is unfinished and finishes it
-        // once it is complete. Wiring it straight to finish() strands a
-        // 0-3mm tread: those never settle (30 is still under the 35mm
-        // ceiling, so another digit is possible), finish() returns early on
-        // an incomplete position, and the driver has no way forward, on
-        // the exact reading the product exists to catch.
-        onKey={(k) => (k.type === "next" && complete ? finish() : press(k))}
-        granularityMm={ctx.config.treadGranularityMm}
-        goLabel={held ? "Seen it ›" : complete ? "Done ›" : "Next ›"}
-        goTone={held ? "warn" : "default"}
-      />
-    </section>
+    </Sheet>
   );
 }

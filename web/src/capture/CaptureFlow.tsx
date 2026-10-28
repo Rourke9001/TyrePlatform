@@ -4,6 +4,7 @@ import { useState } from "react";
 import { bearerMode } from "../api/token";
 import { failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
+import { Button } from "../ui/Button";
 
 import { CaptureDiagram } from "./CaptureDiagram";
 import { BackToWork, CaptureDone } from "./CaptureDone";
@@ -197,13 +198,14 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
             : "Could not load this vehicle. Find signal and try again."}
         </p>
         {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-        <button
-          type="button"
-          className={signedOut ? "cap-secondary" : "cap-primary"}
+        <Button
+          variant={signedOut ? "secondary" : "primary"}
+          size="glove"
+          block
           onClick={() => void motive.refetch()}
         >
           Reload vehicle
-        </button>
+        </Button>
       </section>
     );
   } else if (screen === "start") {
@@ -274,9 +276,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           absentCells={absent}
         />
 
-        <button type="button" className="cap-primary" onClick={() => setScreen("review")}>
+        <Button variant="primary" size="glove" block onClick={() => setScreen("review")}>
           Review and submit ›
-        </button>
+        </Button>
 
         {/* Below the primary action and secondary in weight: a recovery path,
             never on the clean one (0 taps; 2 to discard). */}
@@ -327,9 +329,9 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
           {storageFault === "unavailable" && (
             // Named for what it retries. See the motive.isError branch above
             // for why both retries need distinct labels.
-            <button type="button" className="cap-secondary" onClick={lifecycle.retryStorage}>
+            <Button variant="secondary" size="glove" onClick={lifecycle.retryStorage}>
               Recheck storage
-            </button>
+            </Button>
           )}
         </div>
       )}

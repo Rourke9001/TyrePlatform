@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 import { CaptureStart } from "./CaptureStart";
@@ -154,6 +154,28 @@ describe("CaptureStart's odometer", () => {
     expect(screen.queryByText(/000,000/)).toBeNull();
     expect(screen.queryByText(/416,180/)).toBeNull();
     expect(screen.getByRole("button", { name: /start inspection/i })).toBeEnabled();
+  });
+});
+
+// FR-INS-062: the driver confirms the rig a controller set. Each box's
+// name keeps the descriptor beside the fleet number, as it reads today;
+// e2e/rigs.spec.ts finds the box by the fleet number within that name.
+describe("CaptureStart's rig", () => {
+  it("names each coupled unit's box by its fleet number and descriptor", () => {
+    renderStart(vi.fn(), {
+      combination: {
+        id: "c1",
+        members: [
+          { vehicleId: "v1", fleetNumber: "BAC039SP", sequence: 1, descriptor: "Horse" },
+          { vehicleId: "v2", fleetNumber: "BAC711TR", sequence: 2, descriptor: "Link 1" },
+        ],
+      },
+    });
+    const rig = screen.getByRole("group", { name: "Your rig" });
+    const motive = within(rig).getByRole("checkbox", { name: /BAC039SP.*Horse/ });
+    expect(motive).toBeChecked();
+    expect(motive).toBeDisabled();
+    expect(within(rig).getByRole("checkbox", { name: /BAC711TR.*Link 1/ })).not.toBeChecked();
   });
 });
 

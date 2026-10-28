@@ -5,6 +5,7 @@ import { DESTINATIONS, dispatchTyre, type Destination, type Tyre } from "../../a
 import { fetchDepots } from "../../api/units";
 import { Banner } from "../../ui/Banner";
 import { Button } from "../../ui/Button";
+import { Select } from "../../ui/Select";
 import { TextInput } from "../../ui/TextInput";
 import { RefusalAlert } from "../RefusalAlert";
 import { depotsKey, retreadJobsKey, tyresKey } from "../unit/queryKeys";
@@ -110,23 +111,19 @@ export function DispatchForm({
       )}
 
       {destination !== "" && !depots.isError && (
-        // Native, not Select: its first option is disabled only while the
-        // depots load, which Select's options cannot say.
-        <select
-          className="fleet-native-select"
+        <Select
           aria-label={`Depot for ${tyre.displayCode}`}
           value={depotId}
           onChange={(e) => setDepotId(e.target.value)}
-        >
-          <option value="" disabled={depots.isPending}>
-            {depots.isPending ? "Loading…" : "Choose…"}
-          </option>
-          {(depots.data ?? []).map((d) => (
-            <option key={d.id} value={d.id}>
-              {d.name}
-            </option>
-          ))}
-        </select>
+          options={[
+            {
+              value: "",
+              label: depots.isPending ? "Loading…" : "Choose…",
+              disabled: depots.isPending,
+            },
+            ...(depots.data ?? []).map((d) => ({ value: d.id, label: d.name })),
+          ]}
+        />
       )}
 
       <TextInput

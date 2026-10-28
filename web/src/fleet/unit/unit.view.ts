@@ -1,5 +1,6 @@
 import type { FitmentHistoryRow, OpenFitment, Unit, UnitPosition } from "../../api/units";
 import type { UnitTrip } from "../../api/trips";
+import { diagramSide } from "../../domain/side";
 import { distanceSourceLabel, treadSourceLabel } from "../../domain/vocabulary";
 import { formatCount, formatMm } from "../../format/numbers";
 import { formatTreadAge } from "../../format/treadAge";
@@ -61,15 +62,6 @@ function acrossVehicle(position: UnitPosition): number {
   return position.side === "RIGHT" ? depth : -depth;
 }
 
-// app.side is LEFT or RIGHT, and null on a spare (000001). Anything else is
-// left unset, so AxleDiagram splits that axle by count rather than by a
-// side nobody sent.
-function sideOf(position: UnitPosition): DiagramPosition["side"] {
-  if (position.side === "LEFT") return "left";
-  if (position.side === "RIGHT") return "right";
-  return undefined;
-}
-
 function tile(position: UnitPosition): DiagramPosition {
   const occupant = occupantOf(position);
   // No condition, since the unit wire carries none, and never `empty`: an
@@ -80,7 +72,7 @@ function tile(position: UnitPosition): DiagramPosition {
     valueText: occupant,
     ariaLabel: `Position ${position.code}: ${occupant}`,
     dataPositionId: position.id,
-    side: sideOf(position),
+    side: diagramSide(position.side),
   };
 }
 

@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import type { Condition } from "./condition";
 import { TyreTile } from "./TyreTile";
+import tileCss from "./TyreTile.css?raw";
 
 const CONDITIONS: Condition[] = ["ok", "near", "limit", "unread", "nospare"];
 
@@ -136,5 +137,18 @@ describe("TyreTile", () => {
       <TyreTile numberText="1" valueText="9mm" badgeText="OK" condition="ok" onClick={vi.fn()} />,
     );
     expectNothingForbiddenSpoken(container, /9mm/);
+  });
+
+  it("never clips the value, so a half millimetre stays whole (U146)", () => {
+    render(<TyreTile numberText="3" valueText="13.5mm" />);
+    expect(screen.getByText("13.5mm")).toBeInTheDocument();
+    const rule = /\.tr-tile__val \{[^}]*\}/.exec(tileCss)?.[0] ?? "";
+    expect(rule).not.toBe("");
+    expect(rule).not.toMatch(/text-overflow: ellipsis/);
+    expect(rule).not.toMatch(/overflow: hidden/);
+    // The fit at 360px rests on this step, with under 2px to spare.
+    expect(tileCss).toMatch(
+      /@media \(max-width: 480px\) \{\s*\.tr-tile__val \{\s*font-size: var\(--type-caption-size\);/,
+    );
   });
 });

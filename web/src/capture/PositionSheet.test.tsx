@@ -1,6 +1,6 @@
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 
 import type { CaptureContext, CapturePosition } from "./captureContext";
@@ -138,7 +138,200 @@ describe("PositionSheet", () => {
 
     await user.click(screen.getByRole("button", { name: "1" }));
     await user.click(screen.getByRole("button", { name: "3" }));
-    expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
+    expect(within(screen.getByLabelText(/Tread reading 1 of 3/)).getByText("13")).toBeVisible();
+  });
+
+  // U145: no decimal key. A 0.5 mm tenant gets the half key in Delete's
+  // slot, and it adds the half to the whole millimetres typed. The value is
+  // matched on its own, apart from the cell's number and unit.
+  it("at 0.5 mm, 1 3 then half reads 13.5", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+  });
+
+  // U146, the owner's ruling of 27 Oct 2026: 13 settles, so the keypad moves
+  // on after the hold, and a half pressed straight after lands on the cell
+  // it left with no tap back. The clock advance after the half is what
+  // tells one advance from two.
+  it("at 0.5 mm, a half straight after the keypad moves on lands on the cell it left", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    expect(screen.getByLabelText("Tread reading 2 of 3")).toHaveAttribute("aria-current", "true");
+
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(second).toHaveAttribute("data-empty", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
+  // U146: a half inside the hold re-settles the same cell and re-arms its
+  // one advance, so the driver still moves on exactly once.
+  it("at 0.5 mm, a half inside the hold gives 13.5 and one advance", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(second).toHaveAttribute("data-empty", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
+  // U146: the reach-back holds when the keypad moves on onto a cell that
+  // already holds a reading, since the driver has not touched that cell yet.
+  it("at 0.5 mm, a half after the advance reaches back over a filled cell", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, context: halves }}
+        ctx={halves}
+        initial={{ ...acknowledged, treads: [12, 12, 12], warnings: [] }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(within(second).getByText("12")).toBeVisible();
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
+  // U146: a gloved double tap on the half key stays on the cell left, so the
+  // untouched reading keeps its value and the sheet does not move on again.
+  it("at 0.5 mm, a double half after the advance stays on the cell it left", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, context: halves }}
+        ctx={halves}
+        initial={{ ...acknowledged, treads: [12, 12, 12], warnings: [] }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(within(second).getByText("12")).toBeVisible();
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
+  // A tap on the filled cell first makes the half that cell's.
+  it("at 0.5 mm, a half after a tap on a filled cell adds it there", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet
+        {...props({})}
+        rig={{ ...rig, context: halves }}
+        ctx={halves}
+        initial={{ ...acknowledged, treads: [12, 12, 12], warnings: [] }}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByLabelText("Tread reading 2 of 3"));
+    await user.click(screen.getByRole("button", { name: "½" }));
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13")).toBeVisible();
+    expect(within(screen.getByLabelText("Tread reading 2 of 3")).getByText("12.5")).toBeVisible();
+  });
+
+  // FR-OFF-005: the half a reach-back adds is written to the draft like any
+  // keystroke, or a restart would lose it.
+  it("at 0.5 mm, saves the half a reach-back adds", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const onChange = vi.fn<(p: DraftPosition) => void>();
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(
+      <PositionSheet {...props({ onChange })} rig={{ ...rig, context: halves }} ctx={halves} />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "1" }));
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await advance(250);
+    await user.click(screen.getByRole("button", { name: "½" }));
+
+    expect(onChange.mock.lastCall?.[0].treads).toEqual([13.5, null, null]);
+  });
+
+  // FR-INS-030: a half at the 35mm ceiling changes nothing, and the hold
+  // 35 armed still moves the keypad on exactly once.
+  it("at 0.5 mm, a half at 35 inside the hold leaves 35 and advances once", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("button", { name: "5" }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("35")).toBeVisible();
+    expect(screen.getByLabelText("Tread reading 2 of 3")).toHaveAttribute("aria-current", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
+  });
+
+  // U146: 3mm never settles, so the driver moves on with the go key, and a
+  // half straight after still reaches back without skipping a cell.
+  it("at 0.5 mm, a half after the go key reaches back and nothing skips", async () => {
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
+    render(<PositionSheet {...props({})} rig={{ ...rig, context: halves }} ctx={halves} />);
+
+    await user.click(screen.getByRole("button", { name: "3" }));
+    await user.click(screen.getByRole("button", { name: /next ›/i }));
+    await user.click(screen.getByRole("button", { name: "½" }));
+    await advance(250);
+
+    expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("3.5")).toBeVisible();
+    const second = screen.getByLabelText("Tread reading 2 of 3");
+    expect(second).toHaveAttribute("aria-current", "true");
+    expect(second).toHaveAttribute("data-empty", "true");
+    expect(screen.getByLabelText("Tread reading 3 of 3")).not.toHaveAttribute("aria-current");
   });
 
   // FR-INS-029a: the driver never sees the words inner, outer or centre. The
@@ -447,6 +640,22 @@ describe("PositionSheet", () => {
     expect(screen.getByRole("region", { name: "Spare, BAC039SP" })).toBeInTheDocument();
   });
 
+  // FR-INS-060, FR-VEH-034 (U156): the header names the per-unit place the
+  // tile has no room for, from the wire's axle and side alone. A spare has
+  // neither, so its header is the unit and the class.
+  it("names the unit, the axle and the side in the header", () => {
+    const { rerender } = render(
+      <PositionSheet {...props({})} rig={{ ...rig, position: { ...position, side: "RIGHT" } }} />,
+    );
+    expect(screen.getByText("BAC039SP · steer · axle 1, right")).toBeInTheDocument();
+
+    const spare = { ...position, isSpare: true, axleClass: "SPARE", axleNumber: null, side: null };
+    rerender(
+      <PositionSheet {...props({})} rig={{ ...rig, position: spare, displayNumber: null }} />,
+    );
+    expect(screen.getByText("BAC039SP · spare")).toBeInTheDocument();
+  });
+
   // FR-OFF-006: reopening a captured position shows what was entered.
   // Without this the draft survives a restart and the screen does not,
   // which from the driver's side is the same as having lost it.
@@ -468,7 +677,7 @@ describe("PositionSheet", () => {
         }}
       />,
     );
-    expect(screen.getByLabelText(/Tread reading 1 of 3/)).toHaveTextContent("13");
+    expect(within(screen.getByLabelText(/Tread reading 1 of 3/)).getByText("13")).toBeVisible();
     expect(screen.getByLabelText(/Pressure/)).toHaveTextContent("800");
   });
 

@@ -18,6 +18,13 @@ export interface EntryState {
   // Digits pressed for the focused field. Kept apart from the value so a
   // leading zero and a correction are both representable.
   buffer: string;
+  // U146: the tread field the last next left, armed only when this visit
+  // typed into or halved it, so a half pressed straight after can still
+  // reach it. A half keeps it; a digit, delete or focus clears it.
+  advancedFrom: number | null;
+  // U146: the focused field holds a digit or a half from this visit, which
+  // is what lets next arm advancedFrom.
+  touched: boolean;
 }
 
 export type EntryKey =
@@ -41,6 +48,8 @@ export function newEntryState(treadReadingCount: number): EntryState {
     pressureKpa: null,
     field: 0,
     buffer: "",
+    advancedFrom: null,
+    touched: false,
   };
 }
 
@@ -60,16 +69,26 @@ const ceilingFor = (state: EntryState, opts: EntryOptions) =>
 
 function write(state: EntryState, buffer: string, opts: EntryOptions): EntryState {
   const value = buffer === "" ? null : valueOf(buffer, state, opts);
-  if (isPressure(state, opts)) return { ...state, buffer, pressureKpa: value };
+  const touched = buffer !== "";
+  if (isPressure(state, opts)) {
+    return { ...state, buffer, pressureKpa: value, advancedFrom: null, touched };
+  }
   const treads = [...state.treads];
   treads[state.field] = value;
-  return { ...state, buffer, treads };
+  return { ...state, buffer, treads, advancedFrom: null, touched };
 }
+
+// FR-INS-030: a half that would pass the ceiling changes nothing, since the
+// CHECK at db/migrations/000001_init.up.sql:368 would refuse the reading.
+const halfPassesCeiling = (mm: number) => Math.floor(mm) + 0.5 > TREAD_CEILING_MM;
 
 export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): EntryResult {
   switch (key.type) {
     case "focus":
-      return { state: { ...state, field: key.field, buffer: "" }, settled: false };
+      return {
+        state: { ...state, field: key.field, buffer: "", advancedFrom: null, touched: false },
+        settled: false,
+      };
 
     case "next":
       return {
@@ -77,6 +96,8 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
           ...state,
           field: Math.min(state.field + 1, opts.treadReadingCount),
           buffer: "",
+          advancedFrom: state.touched && !isPressure(state, opts) ? state.field : null,
+          touched: false,
         },
         settled: false,
       };
@@ -85,15 +106,28 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       return { state: write(state, "", opts), settled: false };
 
     case "half": {
-      // Only meaningful at 0.5mm granularity, and only on a tread field.
-      if (opts.granularityMm !== 0.5 || isPressure(state, opts)) {
-        return { state, settled: false };
+      // U145: the half key is a 0.5mm tenant's, and it only ever adds to a tread.
+      if (opts.granularityMm !== 0.5) return { state, settled: false };
+      const from = state.advancedFrom;
+      // U146, the owner's ruling of 27 Oct 2026: after next, every half until
+      // another key belongs to the whole reading the keypad left, never to the
+      // field it moved on to, so a double tap finds it at x.5 and stops. Not
+      // settled, so the sheet arms no second advance.
+      if (from !== null) {
+        const left = state.treads[from];
+        if (left === null || !Number.isInteger(left) || halfPassesCeiling(left)) {
+          return { state, settled: false };
+        }
+        const treads = [...state.treads];
+        treads[from] = left + 0.5;
+        return { state: { ...state, treads }, settled: false };
       }
+      if (isPressure(state, opts)) return { state, settled: false };
       const current = state.treads[state.field];
-      if (current === null) return { state, settled: false };
+      if (current === null || halfPassesCeiling(current)) return { state, settled: false };
       const treads = [...state.treads];
       treads[state.field] = Math.floor(current) + 0.5;
-      return { state: { ...state, treads, buffer: "" }, settled: true };
+      return { state: { ...state, treads, buffer: "", touched: true }, settled: true };
     }
 
     case "digit": {
