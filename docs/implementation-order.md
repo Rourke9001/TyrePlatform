@@ -48,7 +48,7 @@ whichever database branch is cut first.
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
 | 0 | 21 to 23 Oct | #141 (ADR-0020, TYRE-444); #142 (U146, TYRE-452); this page's PR with ADR-0021 (TYRE-350) | | A board with only build work on it |
-| 1. Foundations and trips | 22 to 30 Oct | TYRE-445 colour and themes (with 281; 343 folded in); 446 type; the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334; the network PR (389, 381, 388); 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
+| 1. Foundations and trips | 22 to 30 Oct | Tread's ports landed ahead of the plan: 445 colour and themes (with 281; 343 folded in), 446 type, 447's components and 240's screen ports, as four stacked PRs (U156, below); the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334 and the network PR (389, 381, 388), both now rebasing onto Tread's capture files; 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
 | 2. Driver path and manager views | 31 Oct to 7 Nov | 447a core components (275 folded in); 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 (425 folded in); 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
 | 3. Capture slice and reports | 8 to 16 Nov | The Tread capture slice: 447b with 152's screens, 448, 285 and 319's Today screen; 320 reports and export (ADR first); 354, 363 and 367 | 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
 | 4. Hardening | 17 to 24 Nov | 115 with 140; 159; 377; 366 if BAC runs two or more operating groups; 434; 398 as a release step | The register batch (123, 120, 121, 244, 131, 113, 105); the suite PR (245, 112); 76 depot capture; 441; 243 slice 3, rule administration | Money and dates right per tenant; the suite covering exceptions |
@@ -88,7 +88,9 @@ exceptions and at-risk; landing and shell), then 449. Also 209 with 236,
 
 **U156 (owner, 26 Oct 2026) moves the rework to now.** Every route moves to
 Tread in one branch, `TYRE-443-tread-frontend`, which carries 445, 446, 447
-and 240's screen ports together. The sprint placements of 445, 446, 447a,
+and 240's screen ports together. It lands as four stacked PRs cut from it
+after the 28 Oct demo: the foundation (445, 446), the components (447), the
+manager screens and capture (240's ports). The sprint placements of 445, 446, 447a,
 447b and 240's ports in the table above, and 240 under "After the pilot",
 are superseded. ADR-0020's Sequence paragraph is superseded. The rest of its
 Decision stands: the capture rulings, the navigation rule and the
