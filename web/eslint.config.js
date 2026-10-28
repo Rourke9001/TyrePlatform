@@ -158,6 +158,21 @@ const transformBans = {
     "A *.view.ts is a transform: plain functions from wire shapes to what a screen shows, tested without React. It imports domain, format and other transforms; units/ and time/ read the actor, so the screen passes the formatted string (ADR-0022).",
 };
 
+// Every manager screen is on Tread, so none reaches back for the old kit.
+// The Radix Select stays for the dashboard's and Exceptions' filters until
+// a Tread select keeps the combobox role (TYRE-443).
+const legacyBan = {
+  group: [
+    "**/ui/legacy/**",
+    "!**/ui/legacy/Select",
+    "!**/ui/legacy/Select.*",
+    "!**/ui/legacy/ui.css",
+  ],
+  allowTypeImports: true,
+  message:
+    "The old kit is retired (TYRE-443). Use Tread's component in src/ui/; only the Radix Select is left in src/ui/legacy/.",
+};
+
 // TYRE-443: the capture entry carries no manager component. The rule reads
 // static imports alone, so a lazy route's import() passes. Patterns match
 // as gitignore globs, which have no brace expansion, so each manager-only
@@ -247,7 +262,7 @@ export default tseslint.config(
     },
   },
   // ADR-0022's layers. Each later block replaces the list for the files it
-  // matches, so the order of the next seven is part of the rule.
+  // matches, so the order of the next nine is part of the rule.
   {
     files: ["src/**/*.{ts,tsx}"],
     ignores: testFiles,
@@ -255,11 +270,11 @@ export default tseslint.config(
       "@typescript-eslint/no-restricted-imports": ["error", { patterns: [dexieBan] }],
     },
   },
-  // The legacy kit and the gallery are exempt. The kit is retired route by
-  // route, and a gallery sample formats money the way a page does (TYRE-443).
+  // The gallery is exempt: a gallery sample formats money the way a page
+  // does (TYRE-443).
   {
     files: ["src/ui/**/*.{ts,tsx}"],
-    ignores: ["src/ui/legacy/**", "src/ui/gallery/**", ...testFiles],
+    ignores: ["src/ui/gallery/**", ...testFiles],
     rules: {
       "@typescript-eslint/no-restricted-imports": ["error", { patterns: [dexieBan, uiBans] }],
     },
@@ -283,6 +298,13 @@ export default tseslint.config(
         "error",
         { patterns: [dexieBan, domainBans, pureBans] },
       ],
+    },
+  },
+  {
+    files: ["src/{dashboard,fleet,admin,settings}/**/*.{ts,tsx}"],
+    ignores: testFiles,
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [dexieBan, legacyBan] }],
     },
   },
   {
@@ -320,6 +342,16 @@ export default tseslint.config(
       "@typescript-eslint/no-restricted-imports": [
         "error",
         { patterns: [dexieBan, transformBans] },
+      ],
+    },
+  },
+  {
+    files: ["src/{capture,driver,shell,auth,theme,api,time,units}/**/*.view.ts"],
+    ignores: testFiles,
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        { patterns: [dexieBan, entryForbidden, transformBans] },
       ],
     },
   },

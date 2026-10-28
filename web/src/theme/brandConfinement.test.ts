@@ -24,18 +24,10 @@ const sources = import.meta.glob<string>(
 // After wave 0 a lane that needs another entry asks the orchestrator
 // (TYRE-443).
 const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
-  // Screens not yet on Tread: capture's two anchors and the legacy filled
-  // buttons.
+  // Capture's two anchors.
   "/src/capture/capture.css": {
     ".cap-primary": ["background", "color"],
     ".cap-primary:active": ["background"],
-  },
-  "/src/ui/legacy/ui.css": {
-    ".btn-primary": ["background", "color"],
-    ".btn-primary:hover": ["background"],
-    ".btn-primary:active": ["background"],
-    '.btn-primary:hover:not(:disabled, [aria-disabled="true"])': ["background"],
-    '.btn-primary:active:not(:disabled, [aria-disabled="true"])': ["background"],
   },
   // Tread's chrome, as its component source writes it: the logo tile, the
   // primary button, an icon button on the brand band, the keypad's go key,
