@@ -52,10 +52,11 @@ const NAMED = `
   .split(/\s+/)
   .join("|");
 const WORD = String.raw`(?<![-\w.#])(?:${NAMED})(?![-\w])`;
-// A value follows "property:" at the start of a declaration and ends at ";"
-// or "}". A selector ends at "{", so a pseudo-class's colon opens nothing.
+// A value follows "property:" after "{", ";" or a nested block's "}", and
+// ends at ";" or "}". A selector ends at "{", so a pseudo-class's colon
+// opens nothing.
 const CSS_COLOUR = new RegExp(
-  String.raw`(?<=[{;]\s*[-\w]+\s*:[^;{}]*)(?:${HEX}|${FUNCTION}|${WORD})(?=[^;{}]*[;}])`,
+  String.raw`(?<=[{};]\s*[-\w]+\s*:[^;{}]*)(?:${HEX}|${FUNCTION}|${WORD})(?=[^;{}]*[;}])`,
   "gi",
 );
 const STRING = /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/g;
@@ -190,6 +191,7 @@ if (process.argv.includes("--self-test")) {
         ".a:hover #bad { color: var(--ink); }",
         '.b:not([href="#add"]) { color: var(--ink); }',
         ".c { color: var(--ink); a:hover #bad { color: var(--ink); } }",
+        "a:hover #bad { color: var(--ink); }",
       ].join("\n"),
     );
     plant("theme/tokens.ts", 'export const ink = "#111417";\n');
@@ -230,6 +232,19 @@ if (process.argv.includes("--self-test")) {
         ".f { color: lch(50% 40 60); stroke: oklab(0.6 0.1 0.1); }",
       ].join("\n"),
     );
+    plant(
+      "ui/nested.css",
+      [
+        ".a {",
+        "  &:hover { color: var(--ink); }",
+        "  border-color: red;",
+        "}",
+        ".b {",
+        "  @media (min-width: 40rem) { color: var(--ink); }",
+        "  background: #123456;",
+        "}",
+      ].join("\n"),
+    );
     const want = [
       "ui/planted.css:2: #123456",
       "ui/Planted.tsx:2: rgba(",
@@ -247,6 +262,8 @@ if (process.argv.includes("--self-test")) {
       "ui/named.css:8: hwb(",
       "ui/named.css:9: lch(",
       "ui/named.css:9: oklab(",
+      "ui/nested.css:3: red",
+      "ui/nested.css:7: #123456",
     ];
     const got = scanTree(dir).found.sort();
     if (JSON.stringify(got) !== JSON.stringify(want.sort())) {
