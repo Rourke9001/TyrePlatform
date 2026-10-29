@@ -52,9 +52,9 @@ describe("Icon", () => {
 
   // The Icon suffix keeps a glyph clear of a screen's own names, such as
   // react-router's Link (TYRE-447).
-  it("has 41 glyph modules, each exporting one component named for its file plus Icon", () => {
+  it("has 42 glyph modules, each exporting one component named for its file plus Icon", () => {
     const entries = Object.entries(glyphs);
-    expect(entries).toHaveLength(41);
+    expect(entries).toHaveLength(42);
     for (const [path, mod] of entries) {
       const name = `${/\.\/icons\/(\w+)\.tsx$/.exec(path)?.[1]}Icon`;
       expect(Object.keys(mod)).toEqual([name]);

@@ -2,6 +2,8 @@ import type { CSSProperties, HTMLAttributes, ReactNode } from "react";
 
 import { cx } from "./cx";
 import type { Condition } from "./condition";
+import { Icon } from "./Icon";
+import { ArrowDownIcon } from "./icons/ArrowDown";
 import "./TreadReadings.css";
 
 // The pressure cell sits in the treads' row, so the whole position is on
@@ -64,26 +66,6 @@ function cellNames(count: number, naming: "numbered" | "named", side?: "left" | 
     return side === "left" ? ["Outer", "Centre", "Inner"] : ["Inner", "Centre", "Outer"];
   }
   return Array.from({ length: count }, (_, i) => String(i + 1));
-}
-
-// TODO(TYRE-447): moves to src/ui/icons/ when lane A's icon modules land.
-function LowGlyph() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width="14"
-      height="14"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <path d="M12 5v14M6 13l6 6 6-6" />
-    </svg>
-  );
 }
 
 interface CellProps {
@@ -154,7 +136,7 @@ export function TreadReadings({
       className={cx("tr-tread__low", tone && `tr-tread__low--${tone}`)}
       aria-hidden={onSelect ? true : undefined}
     >
-      {governingText ?? <LowGlyph />}
+      {governingText ?? <Icon icon={ArrowDownIcon} size={14} />}
     </span>
   );
   return (
