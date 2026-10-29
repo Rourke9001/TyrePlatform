@@ -5,6 +5,7 @@ import { formatCount } from "../format/numbers";
 import { cx } from "./cx";
 import { useFocusTrap } from "./focusTrap";
 import { useMediaQuery } from "./useMediaQuery";
+import { useScrollPadding } from "./useScrollPadding";
 import { Icon } from "./Icon";
 import { MenuIcon } from "./icons/Menu";
 import "./AppShell.css";
@@ -67,6 +68,8 @@ export function AppShell({
   ...rest
 }: AppShellProps) {
   const [open, setOpen] = useState(false);
+  const bar = useRef<HTMLElement>(null);
+  useScrollPadding(bar, "top");
   const menu = useRef<HTMLButtonElement>(null);
   const drawer = useRef<HTMLDivElement>(null);
   const drawerId = useId();
@@ -82,7 +85,7 @@ export function AppShell({
 
   return (
     <div className={cx("tr-shell", className)} data-open={open ? "true" : undefined} {...rest}>
-      <header className="tr-shell__top">
+      <header ref={bar} className="tr-shell__top">
         {groups.length > 0 ? (
           <button
             ref={menu}

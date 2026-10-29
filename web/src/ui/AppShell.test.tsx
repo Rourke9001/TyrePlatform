@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { forceMatchMedia, TestMediaQueryList } from "../test/media";
+import { stubResize } from "../test/resize";
 import { AppShell, type NavGroup } from "./AppShell";
 import shellCss from "./AppShell.css?raw";
 
@@ -178,5 +179,23 @@ describe("AppShell", () => {
     expect(shellCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
       /\.tr-shell__top :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,
     );
+  });
+
+  // WCAG 2.4.11: the bar wraps on a phone, to 117px at 360px wide in
+  // Chromium, past the --appbar figure base.css pads by.
+  it("pads the page's scroll by the bar's height", () => {
+    const layout = stubResize(117);
+    const html = document.documentElement;
+    try {
+      const { unmount } = renderShell();
+      act(() => layout.resize());
+      expect(html.style.getPropertyValue("scroll-padding-top")).toBe(
+        "calc(117px + var(--space-2))",
+      );
+      unmount();
+      expect(html.style.getPropertyValue("scroll-padding-top")).toBe("");
+    } finally {
+      layout.restore();
+    }
   });
 });
