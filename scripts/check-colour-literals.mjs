@@ -51,7 +51,8 @@ const NAMED = `
   .trim()
   .split(/\s+/)
   .join("|");
-const WORD = String.raw`(?<![-\w.#])(?:${NAMED})(?![-\w])`;
+// A colour word in a path such as "./red.svg" names a file, not a colour.
+const WORD = String.raw`(?<![-\w.#/])(?:${NAMED})(?![-\w.])`;
 // A value follows "property:" after "{", ";" or a nested block's "}", and
 // ends at ";" or "}". A selector ends at "{", so a pseudo-class's colon
 // opens nothing.
@@ -67,9 +68,9 @@ const TS_NAMED = new RegExp(WORD, "gi");
 const STYLE_KEY =
   /\b(?:color|fill|stroke|stopColor|floodColor|lightingColor|background\w*|border\w*|outline\w*|boxShadow|textShadow|caretColor|accentColor|textDecorationColor|columnRuleColor)\s*[:=]\s*\{?\s*$/;
 const ENTITY = /&#x?[0-9a-fA-F]+;/g;
-// A url() path names a file, so "./red.svg" is blanked. A data: URL is
-// read, since it can carry a colour.
-const URL_PATH = /url\(\s*(?!["']?data:)(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/g;
+// An inline SVG writes "#" as %23, and its ";utf8" would end the value, so
+// both are rewritten, at the same length, before the scan.
+const DATA_URL = /url\(\s*(?:"data:[^"]*"|'data:[^']*'|data:[^)]*)\s*\)/gi;
 const SCANNED = /\.(ts|tsx|css)$/;
 
 // tokens.ts is the one home. Tests pin literal values on purpose.
@@ -104,9 +105,9 @@ function code(text, css) {
       for (; i < out.length && out[i] !== "\n"; i++) out[i] = " ";
     }
   }
-  const blank = (m) => " ".repeat(m.length);
-  const kept = out.join("").replace(ENTITY, blank);
-  return css ? kept.replace(URL_PATH, blank) : kept;
+  const kept = out.join("").replace(ENTITY, (m) => " ".repeat(m.length));
+  const readable = (m) => m.replace(/;/g, " ").replace(/%23/gi, "  #");
+  return css ? kept.replace(DATA_URL, readable) : kept;
 }
 
 // The whole file is matched at once, so a value that runs onto the next
@@ -204,6 +205,8 @@ if (process.argv.includes("--self-test")) {
       [
         '.a { background: url("./red.svg"); }',
         ".b { mask: url(./icons/white.svg) no-repeat; }",
+        '.c { background: URL("./red.svg"); }',
+        ".d { background: url(red.svg); }",
       ].join("\n"),
     );
     plant("theme/tokens.ts", 'export const ink = "#111417";\n');
@@ -246,6 +249,18 @@ if (process.argv.includes("--self-test")) {
       ].join("\n"),
     );
     plant(
+      "ui/data.css",
+      [
+        ".b { background: url(\"data:image/svg+xml;utf8,<svg fill='red'/>\"); }",
+        ".c { background: url(\"data:image/svg+xml;charset=utf-8,%3Csvg fill='rgb(1,2,3)'/%3E\"); }",
+        ".d { background: url(\"data:image/svg+xml,%3Csvg fill='%23ff0000'/%3E\"); }",
+        ".e { mask: url(\"DATA:image/svg+xml;utf8,<svg fill='red'/>\") center; color: var(--ink); }",
+        '.g { content: "url("; }',
+        ".h { color: red; }",
+        ".i { width: calc(1px); }",
+      ].join("\n"),
+    );
+    plant(
       "ui/nested.css",
       [
         ".a {",
@@ -278,6 +293,11 @@ if (process.argv.includes("--self-test")) {
       "ui/named.css:10: red",
       "ui/nested.css:3: red",
       "ui/nested.css:7: #123456",
+      "ui/data.css:1: red",
+      "ui/data.css:2: rgb(",
+      "ui/data.css:3: #ff0000",
+      "ui/data.css:4: red",
+      "ui/data.css:6: red",
     ];
     const got = scanTree(dir).found.sort();
     if (JSON.stringify(got) !== JSON.stringify(want.sort())) {
