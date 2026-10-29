@@ -146,9 +146,9 @@ export function DataTable<T>({
                   <span className="tr-table__skeleton" />
                 </li>
               ))
-            : rows.map((row) => {
+            : rows.map((row, i) => {
                 const key = rowKey(row);
-                const title = first.render(row);
+                const titleId = `${captionId}-${i}`;
                 return (
                   <li
                     key={key}
@@ -156,19 +156,22 @@ export function DataTable<T>({
                     data-tone={rowTone?.(row)}
                     aria-current={selectedKey === key ? "true" : undefined}
                   >
-                    <Heading className="tr-tcards__title">
+                    {/* The button is named by the title, not wrapped round
+                        it: a control in the first column stays its own,
+                        outside the button. */}
+                    <div className="tr-tcards__head">
+                      <Heading className="tr-tcards__title" id={titleId}>
+                        {first.render(row)}
+                      </Heading>
                       {onRowClick ? (
                         <button
                           type="button"
                           className="tr-tcards__hit"
+                          aria-labelledby={titleId}
                           onClick={() => onRowClick(row)}
-                        >
-                          {title}
-                        </button>
-                      ) : (
-                        title
-                      )}
-                    </Heading>
+                        />
+                      ) : null}
+                    </div>
                     <dl className="tr-tcards__list">
                       {others.map((c) => (
                         <div key={c.key} className="tr-tcards__item">

@@ -180,7 +180,9 @@ describe("DataTable", () => {
       const onRowClick = vi.fn();
       render(<DataTable {...base} rows={rows} onRowClick={onRowClick} cardHeadingLevel={2} />);
       const heading = screen.getByRole("heading", { level: 2, name: "TRL-02" });
-      await user.click(within(heading).getByRole("button", { name: "TRL-02" }));
+      const card = heading.closest("li");
+      expect(card).not.toBeNull();
+      await user.click(within(card as HTMLElement).getByRole("button", { name: "TRL-02" }));
       expect(onRowClick).toHaveBeenCalledWith(rows[1]);
     } finally {
       restore();
@@ -254,12 +256,57 @@ describe("DataTable", () => {
       expect(onRowClick).not.toHaveBeenCalled();
     });
 
+    // A control in the first column is the title's, not the card button's:
+    // interactive content inside a button is invalid, and its click would
+    // open the row as well.
+    it("leaves a link in the card's title to its own action, outside the card's button", async () => {
+      const user = userEvent.setup();
+      const onRowClick = vi.fn();
+      const linked: Column<Row>[] = [
+        {
+          key: "unit",
+          header: "Unit",
+          render: (r) => <Link to={`/receipts/${r.id}`}>{r.unit}</Link>,
+        },
+        ...columns.slice(1),
+      ];
+      render(
+        <MemoryRouter>
+          <Routes>
+            <Route
+              path="/"
+              element={<DataTable {...base} columns={linked} rows={rows} onRowClick={onRowClick} />}
+            />
+            <Route path="/receipts/:id" element={<p>Receipt page</p>} />
+          </Routes>
+        </MemoryRouter>,
+      );
+      const link = screen.getByRole("link", { name: "TRL-02" });
+      expect(link.closest("button")).toBeNull();
+      const open = screen.getByRole("button", { name: "TRL-02" });
+      expect(open).toBeEmptyDOMElement();
+      await user.click(open);
+      expect(onRowClick).toHaveBeenCalledExactlyOnceWith(rows[1]);
+
+      await user.click(link);
+      expect(await screen.findByText("Receipt page")).toBeInTheDocument();
+      expect(onRowClick).toHaveBeenCalledTimes(1);
+    });
+
     // jsdom lays nothing out, so the card's tap target is read from the
-    // source: the title's target covers the title row, never the terms
-    // under it, where a cell's own control sits.
+    // source: the button covers the title row, which is the 44px floor tall
+    // (NFR-USE-004), never the terms under it, and a control in the title
+    // sits above it.
     it("keeps the title's tap target off the card's terms", () => {
-      expect(tableCss).not.toMatch(/\.tr-tcards__hit::after/);
-      expect(tableCss).toMatch(/\.tr-tcards__hit \{[^}]*min-height: var\(--target-min\);/);
+      const bare = tableCss.replace(/\/\*[\s\S]*?\*\//g, "");
+      expect(bare).not.toMatch(/\.tr-tcards__hit::after/);
+      expect(bare).toMatch(
+        /\.tr-tcards__head \{[^}]*position: relative;[^}]*min-height: var\(--target-min\);/,
+      );
+      expect(bare).toMatch(/\.tr-tcards__hit \{[^}]*position: absolute;[^}]*inset: 0;/);
+      expect(bare).toMatch(
+        /\.tr-tcards__title\s+:is\(a, [^)]*\) \{[^}]*position: relative;[^}]*z-index: 1;/,
+      );
     });
 
     it("shows the caption over the cards when asked to", () => {

@@ -159,21 +159,30 @@
   font-weight: 700;
 }
 
-/* The title is the card's own control, as wide as the card and the 44px
-   floor tall (NFR-USE-004). It covers no term, so a control in a cell
-   keeps its own tap. */
-.tr-tcards__hit {
+/* The title row is the card's own control, as wide as the card and the
+   44px floor tall (NFR-USE-004). The button lies over the row and covers
+   no term, so a control in a cell keeps its own tap. */
+.tr-tcards__head {
+  position: relative;
   display: flex;
   align-items: center;
-  width: 100%;
   min-height: var(--target-min);
+}
+
+.tr-tcards__hit {
+  position: absolute;
+  inset: 0;
   padding: 0;
   border: 0;
   background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
   cursor: pointer;
+}
+
+/* A control in the title sits above the button and keeps its own tap. */
+.tr-tcards__title
+  :is(a, button, input, select, textarea, label, summary, [role="button"], [tabindex]) {
+  position: relative;
+  z-index: 1;
 }
 
 .tr-tcards__chev {
