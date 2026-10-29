@@ -1,4 +1,4 @@
-import type { HTMLAttributes, ReactNode } from "react";
+import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 
 import { cx } from "./cx";
 import { Icon } from "./Icon";
@@ -52,6 +52,25 @@ export function DriverShell({
   children,
   ...rest
 }: DriverShellProps) {
+  const foot = useRef<HTMLDivElement>(null);
+  const hasFooter = Boolean(footer);
+  // WCAG 2.4.11: the footer sticks to the bottom at whatever height its
+  // content takes, so the page's scroll padding follows it, and a control
+  // focus scrolls to stops above it, as base.css does for the bar.
+  useEffect(() => {
+    const el = foot.current;
+    if (!hasFooter || el === null || typeof ResizeObserver === "undefined") return;
+    const html = document.documentElement;
+    const observer = new ResizeObserver(() => {
+      const height = el.getBoundingClientRect().height;
+      html.style.setProperty("scroll-padding-bottom", `calc(${height}px + var(--space-2))`);
+    });
+    observer.observe(el);
+    return () => {
+      observer.disconnect();
+      html.style.removeProperty("scroll-padding-bottom");
+    };
+  }, [hasFooter]);
   return (
     <div className={cx("tr-driver", className)} {...rest}>
       <header className="tr-driver__bar">
@@ -83,7 +102,11 @@ export function DriverShell({
         <div className="tr-driver__body">{children}</div>
       </main>
       {devBar}
-      {footer ? <div className="tr-driver__foot">{footer}</div> : null}
+      {footer ? (
+        <div ref={foot} className="tr-driver__foot">
+          {footer}
+        </div>
+      ) : null}
     </div>
   );
 }
