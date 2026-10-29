@@ -1,4 +1,4 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -86,5 +86,40 @@ describe("DriverShell", () => {
     expect(driverCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
       /\.tr-driver__bar :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,
     );
+  });
+
+  // WCAG 2.4.11: the footer sticks to the bottom at the caller's height, so
+  // the page's scroll padding follows it. jsdom has no ResizeObserver and
+  // lays nothing out, so both are stood in.
+  it("pads the page's scroll by the footer's height while it is shown", () => {
+    let resized: () => void = () => undefined;
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resized = () => callback([], this as unknown as ResizeObserver);
+        }
+        observe = vi.fn();
+        disconnect = vi.fn();
+      },
+    );
+    const rect = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({ height: 96 } as DOMRect);
+    const html = document.documentElement;
+    try {
+      const { unmount } = render(
+        <DriverShell footer={<button type="button">Submit</button>}>Body</DriverShell>,
+      );
+      act(() => resized());
+      expect(html.style.getPropertyValue("scroll-padding-bottom")).toBe(
+        "calc(96px + var(--space-2))",
+      );
+      unmount();
+      expect(html.style.getPropertyValue("scroll-padding-bottom")).toBe("");
+    } finally {
+      vi.unstubAllGlobals();
+      rect.mockRestore();
+    }
   });
 });
