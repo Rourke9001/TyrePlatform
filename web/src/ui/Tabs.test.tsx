@@ -1,7 +1,7 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { TabPanel } from "./TabPanel";
 import { Tabs, type TabItem } from "./Tabs";
@@ -69,6 +69,55 @@ describe("Tabs", () => {
 
     await user.tab();
     expect(screen.getByRole("tabpanel", { name: "Events 3" })).toHaveFocus();
+  });
+
+  // As SegmentedControl's test of the same name: Alt+Left is the browser's
+  // back, and Ctrl, Cmd and Shift keys belong to the browser and the screen
+  // reader.
+  it("leaves an arrow, Home or End with a modifier to the browser", () => {
+    const onChange = vi.fn();
+    render(<Tabs label="Vehicle" items={items} value="inspections" onChange={onChange} />);
+    const inspections = screen.getByRole("tab", { name: "Inspections" });
+    inspections.focus();
+    for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+      for (const key of ["ArrowLeft", "ArrowRight", "Home", "End"]) {
+        expect(fireEvent.keyDown(inspections, { key, [modifier]: true })).toBe(true);
+      }
+    }
+    expect(onChange).not.toHaveBeenCalled();
+    expect(inspections).toHaveFocus();
+    expect(fireEvent.keyDown(inspections, { key: "ArrowLeft" })).toBe(false);
+    expect(onChange).toHaveBeenCalledWith("tyres");
+  });
+
+  it("runs a caller's onKeyDown as well as its own, and yields when the caller prevents it", () => {
+    const onChange = vi.fn();
+    const onKeyDown = vi.fn();
+    const { rerender } = render(
+      <Tabs
+        label="Vehicle"
+        items={items}
+        value="tyres"
+        onChange={onChange}
+        onKeyDown={onKeyDown}
+      />,
+    );
+    const tyres = screen.getByRole("tab", { name: "Tyres 12" });
+    fireEvent.keyDown(tyres, { key: "ArrowRight" });
+    expect(onKeyDown).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledExactlyOnceWith("inspections");
+
+    rerender(
+      <Tabs
+        label="Vehicle"
+        items={items}
+        value="tyres"
+        onChange={onChange}
+        onKeyDown={(e) => e.preventDefault()}
+      />,
+    );
+    fireEvent.keyDown(tyres, { key: "ArrowRight" });
+    expect(onChange).toHaveBeenCalledTimes(1);
   });
 
   it("selects a tab on click", async () => {
