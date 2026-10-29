@@ -71,8 +71,9 @@ const STYLE_KEY =
   /\b(?:color|fill|stroke|stopColor|floodColor|lightingColor|background\w*|border\w*|outline\w*|boxShadow|textShadow|caretColor|accentColor|textDecorationColor|columnRuleColor)\s*[:=]\s*\{?\s*$/;
 const ENTITY = /&#x?[0-9a-fA-F]+;/g;
 // The CSP's default-src 'self' loads no data: image (ADR-0019), and an
-// encoded one hides its colours from this scan, so a stylesheet holds none.
-const DATA_URL = /url\(\s*["']?data:/gi;
+// encoded one hides its colours from this scan, so a stylesheet holds none,
+// in url() or as the bare string image-set() and @import take.
+const DATA_URL = /(?:url\(\s*["']?|["'])data:/gi;
 const SCANNED = /\.(ts|tsx|css)$/;
 
 // tokens.ts is the one home. Tests pin literal values on purpose.
@@ -262,6 +263,9 @@ if (process.argv.includes("--self-test")) {
         '.g { content: "url("; }',
         ".h { color: red; }",
         ".i { width: calc(1px); }",
+        ".l { background-image: image-set(\"data:image/svg+xml;utf8,<svg fill='red'/>\" 1x); }",
+        '.m { background-image: -webkit-image-set("data:image/svg+xml,%3Csvg%20fill%3D%22red%22%2F%3E" 1x); }',
+        '@import "data:text/css,.x%7Bcolor:red%7D";',
       ].join("\n"),
     );
     plant(
@@ -303,6 +307,9 @@ if (process.argv.includes("--self-test")) {
       "ui/data.css:5: data: URL",
       "ui/data.css:6: data: URL",
       "ui/data.css:8: red",
+      "ui/data.css:10: data: URL",
+      "ui/data.css:11: data: URL",
+      "ui/data.css:12: data: URL",
     ];
     const got = scanTree(dir).found.sort();
     if (JSON.stringify(got) !== JSON.stringify(want.sort())) {
