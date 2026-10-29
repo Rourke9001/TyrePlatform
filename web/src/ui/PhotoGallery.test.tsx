@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
@@ -83,6 +83,25 @@ describe("PhotoGallery", () => {
     expect(close).toHaveFocus();
     await user.tab();
     expect(previous).toHaveFocus();
+  });
+
+  // As Tabs' test of the same name: Alt+Left is the browser's back, and
+  // Ctrl, Cmd and Shift arrows belong to the browser and the screen reader.
+  it("leaves an arrow with a modifier to the browser", async () => {
+    const user = userEvent.setup();
+    render(<PhotoGallery photos={photos} />);
+    await user.click(screen.getByRole("button", { name: "Open photo: LINK-A position 4" }));
+    for (const modifier of ["altKey", "ctrlKey", "metaKey", "shiftKey"]) {
+      for (const key of ["ArrowLeft", "ArrowRight"]) {
+        fireEvent.keyDown(document, { key, [modifier]: true });
+        expect(
+          screen.getByRole("dialog", { name: "LINK-A position 4" }),
+          `${modifier} ${key}`,
+        ).toBeInTheDocument();
+      }
+    }
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    expect(screen.getByRole("dialog", { name: "LINK-B spare" })).toBeInTheDocument();
   });
 
   it("offers no previous or next for a single photo", async () => {
