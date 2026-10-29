@@ -170,4 +170,13 @@ describe("AppShell", () => {
     expect(screen.queryByRole("button", { name: "Menu" })).toBeNull();
     expect(screen.getByRole("banner")).toBeInTheDocument();
   });
+  // U53 keeps the ring --interactive, which nearly vanishes on a dark brand
+  // bar or the viewer (1.08:1 on the default brand in Daylight). A surface
+  // halo fills the ring's offset, so the ring meets the surface on its inner
+  // edge, the pair tokens.test.ts holds at 4.5:1. jsdom applies no CSS.
+  it("haloes the focus ring on the bar, which carries the brand below 1024px", () => {
+    expect(shellCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
+      /\.tr-shell__top :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,
+    );
+  });
 });

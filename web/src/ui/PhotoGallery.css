@@ -108,3 +108,9 @@
 .tr-viewer__btn:hover {
   box-shadow: inset 0 0 0 2px var(--on-viewer);
 }
+
+/* The halo AppShell.css gives its bar: the viewer is near black in both
+   themes. It replaces the hover inset while a button has focus. */
+.tr-viewer :focus-visible {
+  box-shadow: 0 0 0 2px var(--surface);
+}
