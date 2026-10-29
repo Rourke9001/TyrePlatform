@@ -189,6 +189,13 @@ describe("DataTable", () => {
     }
   });
 
+  // A row header in the last column is a th, and the chevron sits in it.
+  it("anchors the chevron in the last cell, td or th", () => {
+    expect(tableCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
+      /\.tr-table tbody tr\[data-clickable="true"\] :is\(td, th\):last-child \{[^}]*position: relative;/,
+    );
+  });
+
   it("renders the empty state instead of an empty table", () => {
     render(<DataTable {...base} rows={[]} empty={<p>none</p>} />);
     expect(screen.queryByRole("table")).toBeNull();
@@ -294,19 +301,25 @@ describe("DataTable", () => {
     });
 
     // jsdom lays nothing out, so the card's tap target is read from the
-    // source: the button covers the title row, which is the 44px floor tall
-    // (NFR-USE-004), never the terms under it, and a control in the title
-    // sits above it.
-    it("keeps the title's tap target off the card's terms", () => {
+    // source: the button lies over the whole card, chevron included, as a
+    // desk row opens from any cell, and every control in the card sits
+    // above it. The list scrolls inside its wrapper, so the ring is inset.
+    it("makes the whole card its target, with the card's controls above it", () => {
       const bare = tableCss.replace(/\/\*[\s\S]*?\*\//g, "");
-      expect(bare).not.toMatch(/\.tr-tcards__hit::after/);
-      expect(bare).toMatch(
-        /\.tr-tcards__head \{[^}]*position: relative;[^}]*min-height: var\(--target-min\);/,
-      );
+      expect(bare).toMatch(/\.tr-tcards__card \{[^}]*position: relative;/);
       expect(bare).toMatch(/\.tr-tcards__hit \{[^}]*position: absolute;[^}]*inset: 0;/);
+      expect(bare).toMatch(/\.tr-tcards__hit:focus-visible \{[^}]*outline-offset: -3px;/);
       expect(bare).toMatch(
-        /\.tr-tcards__title\s+:is\(a, [^)]*\) \{[^}]*position: relative;[^}]*z-index: 1;/,
+        /\.tr-tcards__card\s+:is\(\s*a,[\s\S]*?\[tabindex\]\s*\) \{[^}]*position: relative;[^}]*z-index: 1;/,
       );
+      expect(bare).not.toMatch(/\.tr-tcards__head/);
+    });
+
+    it("draws cards without a title when given no columns", () => {
+      render(<DataTable {...base} columns={[]} rows={rows} onRowClick={vi.fn()} />);
+      expect(screen.getAllByRole("listitem")).toHaveLength(2);
+      expect(screen.queryByRole("heading")).toBeNull();
+      expect(screen.queryByRole("button")).toBeNull();
     });
 
     it("shows the caption over the cards when asked to", () => {

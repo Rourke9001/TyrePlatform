@@ -118,7 +118,8 @@ export function DataTable<T>({
 
   if (phone) {
     const Heading = `h${cardHeadingLevel}` as const;
-    const [first, ...others] = columns;
+    const first = columns.at(0);
+    const others = columns.slice(1);
     return frame(
       <>
         {captionVisible ? (
@@ -159,19 +160,21 @@ export function DataTable<T>({
                     {/* The button is named by the title, not wrapped round
                         it: a control in the first column stays its own,
                         outside the button. */}
-                    <div className="tr-tcards__head">
-                      <Heading className="tr-tcards__title" id={titleId}>
-                        {first.render(row)}
-                      </Heading>
-                      {onRowClick ? (
-                        <button
-                          type="button"
-                          className="tr-tcards__hit"
-                          aria-labelledby={titleId}
-                          onClick={() => onRowClick(row)}
-                        />
-                      ) : null}
-                    </div>
+                    {first ? (
+                      <>
+                        <Heading className="tr-tcards__title" id={titleId}>
+                          {first.render(row)}
+                        </Heading>
+                        {onRowClick ? (
+                          <button
+                            type="button"
+                            className="tr-tcards__hit"
+                            aria-labelledby={titleId}
+                            onClick={() => onRowClick(row)}
+                          />
+                        ) : null}
+                      </>
+                    ) : null}
                     <dl className="tr-tcards__list">
                       {others.map((c) => (
                         <div key={c.key} className="tr-tcards__item">
