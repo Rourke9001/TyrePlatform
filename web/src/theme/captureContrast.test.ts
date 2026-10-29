@@ -62,6 +62,9 @@ const DIVIDER: ColorToken = "line";
 
 const FILLS = ON_FILL.map(([, fill]) => fill);
 
+const isBackground = (property: string) =>
+  property === "background" || property === "background-color";
+
 // The colour tokens a value reads; space, type and radius tokens are not
 // colours.
 function tokensIn(value: string): ColorToken[] {
@@ -109,7 +112,7 @@ function fillPairs(files: Record<string, string> = sheets): string[] {
   const out: string[] = [];
   for (const rule of all) {
     for (const { property, value } of rule.decls) {
-      if (property !== "background" && property !== "background-color") continue;
+      if (!isBackground(property)) continue;
       const mix = MIX.exec(value);
       const [fill] = tokensIn(value);
       const pair = mix ? undefined : ON_FILL.find(([, f]) => f === fill);
@@ -144,25 +147,36 @@ function unchecked(files: Record<string, string> = sheets): string[] {
     for (const rule of cssRules(css)) {
       if (devOnly(rule.selectors)) continue;
       const decls = declarations(rule.body);
-      const own = decls
-        .filter((d) => d.property === "background" || d.property === "background-color")
+      const own = decls.filter((d) => isBackground(d.property)).flatMap((d) => tokensIn(d.value));
+      const solid = decls
+        .filter((d) => !d.value.includes("color-mix("))
         .flatMap((d) => tokensIn(d.value));
       for (const { property, value } of decls) {
         if (/-(?:radius|width|style)$/.test(property)) continue;
         // Dimming takes text and marks under their floors by an amount no
-        // token states: TYRE-155's absent spare read at 3.19:1.
+        // token states (TYRE-155's absent spare).
         const alpha = value.endsWith("%") ? parseFloat(value) / 100 : parseFloat(value);
         if ((property === "opacity" && alpha < 1) || property === "filter") {
           out.push(`${file}: ${rule.selectors.join(", ")} { ${property}: ${value} }`);
           continue;
         }
         // fillPairs works a mixed fill out against its text.
-        if (MIX.test(value)) continue;
+        if (isBackground(property) && MIX.test(value)) continue;
+        // A see-through colour composites under its floor, so it may only
+        // echo a token the rule also draws solid.
+        if (/color-mix\(.*\btransparent\b/.test(value)) {
+          for (const token of tokensIn(value).filter((t) => !solid.includes(t))) {
+            out.push(
+              `${file}: ${rule.selectors.join(", ")} { ${property}: see-through --${token} }`,
+            );
+          }
+          continue;
+        }
         for (const token of tokensIn(value)) {
           const allowed =
             property === "color"
-              ? [...TEXT, ...ON_FILL.map(([text]) => text)]
-              : property === "background" || property === "background-color"
+              ? [...TEXT, ...ON_FILL.filter(([, fill]) => own.includes(fill)).map(([text]) => text)]
+              : isBackground(property)
                 ? [...GROUNDS, ...FILLS, DIVIDER]
                 : /^(?:border|outline|box-shadow)/.test(property)
                   ? [...MARKS, DIVIDER, ...own]
@@ -244,6 +258,12 @@ describe("the capture contrast check catches each planted case", () => {
     ["a dimmed rule in percent", ".x { opacity: 60%; }"],
     ["a filtered rule", ".x { filter: brightness(0.8); }"],
     ["a box ticked in the brand", ".x { accent-color: var(--brand); }"],
+    ["a fill's text with no fill", ".x { color: var(--on-warn); }"],
+    ["a mixed text colour", ".x { color: color-mix(in srgb, var(--ink) 50%, var(--surface)); }"],
+    [
+      "a see-through ring with no solid mark",
+      ".x { box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive) 25%, transparent); }",
+    ],
   ])("%s", (_, css) => {
     expect(unchecked({ [planted]: css })).not.toEqual([]);
   });
