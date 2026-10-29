@@ -5,7 +5,7 @@
 //    are already compressed). A lazy chunk loads with its route, so it is not
 //    counted. A rise fails until --record writes the new figures, with the
 //    reason given in the PR. --record-css writes the CSS and font figures and
-//    leaves the JS one as it is (TYRE-445).
+//    their date, cssRecordedAt, and leaves the JS one as it is (TYRE-445).
 // 2. No module under src/capture/ or src/driver/ is reachable from the entry
 //    only through a dynamic import (ADR-0009): the driver's flow never waits
 //    on a chunk fetch.
@@ -104,24 +104,63 @@ function closureAssets(manifest, order, readBytes) {
 
 function budgetFindings(got, budget) {
   const out = [];
+  // A budget recorded before cssRecordedAt existed dates every figure by
+  // recordedAt.
+  const cssDate = budget.cssRecordedAt ?? budget.recordedAt;
   const figures = [
-    ["entry closure", "gzip bytes", got.jsGzipBytes, "entryClosureGzipBytes"],
-    ["entry CSS", "gzip bytes", got.cssGzipBytes, "entryCssGzipBytes"],
-    ["entry fonts", "bytes", got.fontBytes, "entryFontBytes"],
+    [
+      "entry closure",
+      "gzip bytes",
+      got.jsGzipBytes,
+      "entryClosureGzipBytes",
+      budget.recordedAt,
+      "--record",
+    ],
+    [
+      "entry CSS",
+      "gzip bytes",
+      got.cssGzipBytes,
+      "entryCssGzipBytes",
+      cssDate,
+      "--record-css",
+    ],
+    [
+      "entry fonts",
+      "bytes",
+      got.fontBytes,
+      "entryFontBytes",
+      cssDate,
+      "--record-css",
+    ],
   ];
-  for (const [label, unit, value, field] of figures) {
+  for (const [label, unit, value, field, date, flag] of figures) {
     if (typeof budget[field] !== "number") {
       out.push(
         `web/bundle-budget.json has no ${field}; run --record (or --record-css for the CSS and font figures) on a known-good tree`,
       );
     } else if (value > budget[field]) {
       out.push(
-        `${label} ${value} ${unit} exceeds the budget ${budget[field]} (${field}, recorded ${budget.recordedAt}). ` +
-          "Put the new import behind React.lazy, or if the growth is the capture route's own, record it with --record and say why in the PR.",
+        `${label} ${value} ${unit} exceeds the budget ${budget[field]} (${field}, recorded ${date}). ` +
+          `Put the new import behind React.lazy, or if the growth is the capture route's own, record it with ${flag} and say why in the PR.`,
       );
     }
   }
   return out;
+}
+
+// --record-css keeps the JS figure, its date and its chunk list, since the JS
+// figure is the one --record alone may move.
+function nextBudget(budget, got, chunkFiles, cssOnly, today) {
+  return {
+    entryClosureGzipBytes: cssOnly
+      ? budget.entryClosureGzipBytes
+      : got.jsGzipBytes,
+    entryCssGzipBytes: got.cssGzipBytes,
+    entryFontBytes: got.fontBytes,
+    recordedAt: cssOnly ? budget.recordedAt : today,
+    cssRecordedAt: today,
+    chunks: cssOnly ? budget.chunks : chunkFiles,
+  };
 }
 
 // A guard that finds nothing has to be shown able to find something (TYRE-49).
@@ -248,6 +287,89 @@ if (process.argv.includes("--self-test")) {
     );
     process.exit(1);
   }
+  // A CSS or font rise must not be told to run --record, which would also
+  // re-record the JS figure, and each figure cites its own date.
+  const dated = {
+    entryClosureGzipBytes: 5,
+    entryCssGzipBytes: 6,
+    entryFontBytes: 7,
+    recordedAt: "2026-01-01",
+    cssRecordedAt: "2026-02-02",
+    chunks: ["old.js"],
+  };
+  const oneDate = { ...dated, cssRecordedAt: undefined };
+  const flagCases = [
+    [
+      "JS",
+      { jsGzipBytes: 6, cssGzipBytes: 6, fontBytes: 7 },
+      dated,
+      "2026-01-01",
+      "--record",
+    ],
+    [
+      "CSS",
+      { jsGzipBytes: 5, cssGzipBytes: 7, fontBytes: 7 },
+      dated,
+      "2026-02-02",
+      "--record-css",
+    ],
+    [
+      "fonts",
+      { jsGzipBytes: 5, cssGzipBytes: 6, fontBytes: 8 },
+      dated,
+      "2026-02-02",
+      "--record-css",
+    ],
+    [
+      "CSS, one date",
+      { jsGzipBytes: 5, cssGzipBytes: 7, fontBytes: 7 },
+      oneDate,
+      "2026-01-01",
+      "--record-css",
+    ],
+  ];
+  for (const [name, got, budget, date, flag] of flagCases) {
+    const found = budgetFindings(got, budget);
+    const flags = found[0]?.match(/--record(?:-css)?/g) ?? [];
+    if (
+      found.length !== 1 ||
+      !found[0].includes(`recorded ${date}`) ||
+      flags.join() !== flag
+    ) {
+      console.error(
+        `self-test: ${name} over budget must cite ${date} and name only ${flag}, got ${JSON.stringify(found)}`,
+      );
+      process.exit(1);
+    }
+  }
+  const got = { jsGzipBytes: 9, cssGzipBytes: 8, fontBytes: 4 };
+  const cssOnly = nextBudget(dated, got, ["new.js"], true, "2026-03-03");
+  const full = nextBudget(dated, got, ["new.js"], false, "2026-03-03");
+  const wantCssOnly = {
+    ...dated,
+    entryCssGzipBytes: 8,
+    entryFontBytes: 4,
+    cssRecordedAt: "2026-03-03",
+  };
+  const wantFull = {
+    entryClosureGzipBytes: 9,
+    entryCssGzipBytes: 8,
+    entryFontBytes: 4,
+    recordedAt: "2026-03-03",
+    cssRecordedAt: "2026-03-03",
+    chunks: ["new.js"],
+  };
+  for (const [name, gotBudget, want] of [
+    ["--record-css", cssOnly, wantCssOnly],
+    ["--record", full, wantFull],
+  ]) {
+    if (JSON.stringify(gotBudget) !== JSON.stringify(want)) {
+      console.error(
+        `self-test: ${name} wrote ${JSON.stringify(gotBudget)}, expected ${JSON.stringify(want)}`,
+      );
+      process.exit(1);
+    }
+  }
   for (const [name, found] of budgetCases) {
     for (const f of found) console.log(`self-test (${name}): ${f}`);
   }
@@ -340,19 +462,17 @@ if (record || recordCss) {
     );
     process.exit(2);
   }
-  const next = record
-    ? {
-        entryClosureGzipBytes: total,
-        entryCssGzipBytes: assets.cssGzipBytes,
-        entryFontBytes: assets.fontBytes,
-        recordedAt: new Date().toISOString().slice(0, 10),
-        chunks: chunks.map((c) => c.file),
-      }
-    : {
-        ...budget,
-        entryCssGzipBytes: assets.cssGzipBytes,
-        entryFontBytes: assets.fontBytes,
-      };
+  const next = nextBudget(
+    budget,
+    {
+      jsGzipBytes: total,
+      cssGzipBytes: assets.cssGzipBytes,
+      fontBytes: assets.fontBytes,
+    },
+    chunks.map((c) => c.file),
+    !record,
+    new Date().toISOString().slice(0, 10),
+  );
   writeFileSync(budgetPath, JSON.stringify(next, null, 2) + "\n");
   console.log(
     `recorded ${record ? `${total} JS, ` : ""}${assets.cssGzipBytes} CSS and ${assets.fontBytes} font bytes to web/bundle-budget.json`,
@@ -380,5 +500,5 @@ if (findings.length > 0) {
   process.exit(1);
 }
 console.log(
-  `OK: within budget ${budget.entryClosureGzipBytes} JS, ${budget.entryCssGzipBytes} CSS, ${budget.entryFontBytes} fonts (recorded ${budget.recordedAt})`,
+  `OK: within budget ${budget.entryClosureGzipBytes} JS (recorded ${budget.recordedAt}), ${budget.entryCssGzipBytes} CSS and ${budget.entryFontBytes} fonts (recorded ${budget.cssRecordedAt ?? budget.recordedAt})`,
 );
