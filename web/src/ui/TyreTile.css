@@ -93,13 +93,24 @@
   cursor: default;
 }
 
+/* Selection draws its ring with box-shadow, never the outline focus owns
+   (base.css), so focus on a selected tile still shows: it steps out past
+   the ring's 5px. */
 .tr-tile[aria-pressed="true"] {
-  outline: 3px solid var(--interactive);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px var(--surface);
+  box-shadow:
+    0 0 0 2px var(--surface),
+    0 0 0 5px var(--interactive);
+}
+
+.tr-tile[aria-pressed="true"]:focus-visible {
+  outline-offset: 7px;
 }
 
 /* The open position: a ring, never the border, which the condition owns. */
 .tr-tile[data-active="true"] {
   box-shadow: 0 0 0 3px var(--interactive);
+}
+
+.tr-tile[aria-pressed="true"][data-active="true"] {
+  box-shadow: 0 0 0 5px var(--interactive);
 }

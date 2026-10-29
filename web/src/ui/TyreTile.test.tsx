@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import { expectNothingForbiddenSpoken } from "../test/spoken";
 import type { Condition } from "./condition";
 import { TyreTile } from "./TyreTile";
+import tileCss from "./TyreTile.css?raw";
 
 const CONDITIONS: Condition[] = ["ok", "near", "limit", "unread", "nospare"];
 
@@ -136,5 +137,18 @@ describe("TyreTile", () => {
       <TyreTile numberText="1" valueText="9mm" badgeText="OK" condition="ok" onClick={vi.fn()} />,
     );
     expectNothingForbiddenSpoken(container, /9mm/);
+  });
+
+  // base.css draws focus as a 3px outline 2px out. Selection draws the same
+  // ring with box-shadow, so it never shares focus's property, and focus on
+  // a selected tile steps outside it. jsdom applies no CSS.
+  it("keeps keyboard focus visible on a selected tile", () => {
+    const css = tileCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    const selected = /\.tr-tile\[aria-pressed="true"\] \{([^}]*)\}/.exec(css)?.[1] ?? "";
+    expect(selected).toMatch(/box-shadow:[^;]*var\(--interactive\)/);
+    expect(selected).not.toMatch(/outline/);
+    expect(css).toMatch(
+      /\.tr-tile\[aria-pressed="true"\]:focus-visible \{[^}]*outline-offset: 7px;/,
+    );
   });
 });
