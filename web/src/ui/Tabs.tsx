@@ -32,9 +32,21 @@ const MOVES: Partial<Record<string, (at: number, last: number) => number>> = {
 
 // WAI-ARIA's tabs pattern with automatic activation: one tab stop, the
 // arrows, Home and End move and select at once, and Tab goes on to the panel.
-export function Tabs({ label, items, value, onChange, className, ...rest }: TabsProps) {
+export function Tabs({
+  label,
+  items,
+  value,
+  onChange,
+  onKeyDown: callerKeyDown,
+  className,
+  ...rest
+}: TabsProps) {
   const list = useRef<HTMLDivElement>(null);
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    callerKeyDown?.(event);
+    if (event.defaultPrevented) return;
+    // A modified key is the browser's, as SegmentedControl's comment says.
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const move = MOVES[event.key];
     if (move === undefined || items.length === 0) return;
     event.preventDefault();
@@ -52,8 +64,8 @@ export function Tabs({ label, items, value, onChange, className, ...rest }: Tabs
       role="tablist"
       aria-label={label}
       className={cx("tr-tabs", className)}
-      onKeyDown={onKeyDown}
       {...rest}
+      onKeyDown={onKeyDown}
     >
       {items.map((t) => {
         const selected = t.value === value;
