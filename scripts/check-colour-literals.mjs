@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 // TYRE-445, TYRE-27: a colour reaches a component only through custom
 // properties. themeCss writes them from web/src/theme/tokens.ts, and
-// ThemeProvider writes the four brand ones from tenant configuration. This
-// refuses a hex literal, a colour function or a named colour anywhere else
-// in web/src.
+// ThemeProvider writes the four brand ones from tenant configuration.
+// Outside tokens.ts this refuses, in a stylesheet, a hex literal, a colour
+// function or a named colour in a declaration's value; in a component, a hex
+// literal or colour function inside a string, and a named colour in a string
+// given to a style property or a fill, stroke or color prop.
 import {
   mkdirSync,
   mkdtempSync,
@@ -17,8 +19,9 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const LITERAL =
-  /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|\b(?:oklch|oklab|lab|lch|hwb|color)\(/g;
+// A hex ends where a word would, so "#add-driver" is an anchor, not #add.
+const HEX = String.raw`#[0-9a-fA-F]{3,8}(?![\w-])`;
+const FUNCTION = String.raw`\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\(`;
 // CSS's named colours. transparent and currentColor name no colour of their
 // own, so they stay allowed.
 const NAMED = `
@@ -48,23 +51,27 @@ const NAMED = `
   .trim()
   .split(/\s+/)
   .join("|");
-// In a stylesheet, a named colour in a declaration's value; in a component,
-// a string that is a named colour and nothing else.
-const CSS_NAMED = new RegExp(
-  String.raw`(?<=:[^;{}]*)(?<![-\w.#])(?:${NAMED})(?![-\w])`,
+const WORD = String.raw`(?<![-\w.#])(?:${NAMED})(?![-\w])`;
+// A declaration's value follows a colon, so a selector is never read.
+const CSS_COLOUR = new RegExp(
+  String.raw`(?<=:[^;{}]*)(?:${HEX}|${FUNCTION}|${WORD})`,
   "gi",
 );
-const TS_NAMED = new RegExp(String.raw`(["'\`])(?:${NAMED})\1`, "gi");
+const STRING = /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/g;
+const TS_LITERAL = new RegExp(`${HEX}|${FUNCTION}`, "g");
+const TS_NAMED = new RegExp(WORD, "gi");
+// A label or a code may say "Green"; a colour word counts only where a
+// style key or a fill, stroke or color prop takes the string.
+const STYLE_KEY =
+  /\b(?:color|fill|stroke|stopColor|floodColor|lightingColor|background\w*|border\w*|outline\w*|boxShadow|textShadow|caretColor|accentColor|textDecorationColor|columnRuleColor)\s*[:=]\s*\{?\s*$/;
 const ENTITY = /&#x?[0-9a-fA-F]+;/g;
 const SCANNED = /\.(ts|tsx|css)$/;
 
-// tokens.ts is the one home; fonts.css holds only the @font-face block.
-// Tests pin literal values on purpose.
+// tokens.ts is the one home. Tests pin literal values on purpose.
 function exempt(rel) {
   const base = rel.slice(rel.lastIndexOf("/") + 1);
   return (
     rel === "theme/tokens.ts" ||
-    rel === "theme/fonts.css" ||
     rel.startsWith("test/") ||
     base.includes(".test.")
   );
@@ -101,10 +108,18 @@ function scanFile(rel, text) {
   const css = rel.endsWith(".css");
   const body = code(text, css);
   const found = [];
-  for (const pattern of [LITERAL, css ? CSS_NAMED : TS_NAMED]) {
-    for (const m of body.matchAll(pattern)) {
-      const line = body.slice(0, m.index).split("\n").length;
-      found.push(`${rel}:${line}: ${m[0]}`);
+  const report = (index, match) =>
+    found.push(`${rel}:${body.slice(0, index).split("\n").length}: ${match}`);
+  if (css) {
+    for (const m of body.matchAll(CSS_COLOUR)) report(m.index, m[0]);
+    return found;
+  }
+  for (const s of body.matchAll(STRING)) {
+    const inner = s[0].slice(1, -1);
+    const start = s.index + 1;
+    for (const m of inner.matchAll(TS_LITERAL)) report(start + m.index, m[0]);
+    if (STYLE_KEY.test(body.slice(Math.max(0, s.index - 40), s.index))) {
+      for (const m of inner.matchAll(TS_NAMED)) report(start + m.index, m[0]);
     }
   }
   return found;
@@ -162,8 +177,12 @@ if (process.argv.includes("--self-test")) {
         "const c = bandColor(1);",
         'const label = "Red tyre";',
         'const k = "green-ish";',
+        'const band = { label: "Green" };',
+        'const link = <a href="#add-driver">Add</a>;',
+        "const shade = color(1);",
       ].join("\n"),
     );
+    plant("ui/anchors.css", "#fee-section .a { color: var(--ink); }\n");
     plant("theme/tokens.ts", 'export const ink = "#111417";\n');
     plant("theme/fonts.css", '@font-face { src: url("./a.woff2"); }\n');
     plant("ui/Box.test.tsx", 'const c = "#ffffff";\n');
@@ -183,6 +202,9 @@ if (process.argv.includes("--self-test")) {
         "// */",
         'const d = <path fill="white" />;',
         "const e = { color: 'Tomato' };",
+        'const f = <div style={{ border: "1px solid red" }} />;',
+        'const g = { boxShadow: "0 0 0 1px black" };',
+        'const h = { background: "oklch(70% 0.1 200)" };',
       ].join("\n"),
     );
     plant(
@@ -203,8 +225,11 @@ if (process.argv.includes("--self-test")) {
       "ui/planted.css:2: #123456",
       "ui/Planted.tsx:2: rgba(",
       "ui/Planted.tsx:3: hsl(",
-      'ui/Planted.tsx:5: "white"',
-      "ui/Planted.tsx:6: 'Tomato'",
+      "ui/Planted.tsx:5: white",
+      "ui/Planted.tsx:6: Tomato",
+      "ui/Planted.tsx:7: red",
+      "ui/Planted.tsx:8: black",
+      "ui/Planted.tsx:9: oklch(",
       "ui/named.css:1: red",
       "ui/named.css:4: black",
       "ui/named.css:6: oklch(",
