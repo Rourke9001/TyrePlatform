@@ -42,6 +42,11 @@ export function Tabs({
   ...rest
 }: TabsProps) {
   const list = useRef<HTMLDivElement>(null);
+  // A value no tab holds still leaves one tab stop, the first.
+  const stop = Math.max(
+    items.findIndex((t) => t.value === value),
+    0,
+  );
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     callerKeyDown?.(event);
     if (event.defaultPrevented) return;
@@ -50,11 +55,7 @@ export function Tabs({
     const move = MOVES[event.key];
     if (move === undefined || items.length === 0) return;
     event.preventDefault();
-    const at = Math.max(
-      items.findIndex((t) => t.value === value),
-      0,
-    );
-    const next = items[move(at, items.length - 1)];
+    const next = items[move(stop, items.length - 1)];
     onChange(next.value);
     list.current?.querySelector<HTMLElement>(`[data-tab="${CSS.escape(next.value)}"]`)?.focus();
   };
@@ -67,7 +68,7 @@ export function Tabs({
       {...rest}
       onKeyDown={onKeyDown}
     >
-      {items.map((t) => {
+      {items.map((t, i) => {
         const selected = t.value === value;
         return (
           <button
@@ -77,7 +78,7 @@ export function Tabs({
             id={t.id}
             aria-controls={t.panelId}
             aria-selected={selected}
-            tabIndex={selected ? 0 : -1}
+            tabIndex={i === stop ? 0 : -1}
             data-tab={t.value}
             className="tr-tab"
             onClick={() => onChange(t.value)}

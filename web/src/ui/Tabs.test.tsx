@@ -4,7 +4,9 @@ import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { TabPanel } from "./TabPanel";
+import panelCss from "./TabPanel.css?raw";
 import { Tabs, type TabItem } from "./Tabs";
+import tabsCss from "./Tabs.css?raw";
 
 const items: TabItem[] = [
   { value: "tyres", label: "Tyres", id: "t-tyres", panelId: "p-tyres", count: 12 },
@@ -118,6 +120,24 @@ describe("Tabs", () => {
     );
     fireEvent.keyDown(tyres, { key: "ArrowRight" });
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  // A value no tab holds (a filtered-out tab, a stale URL) still leaves one
+  // tab stop, the first, as ChoiceChips does.
+  it("keeps the first tab as the tab stop when the value matches none", async () => {
+    const user = userEvent.setup();
+    render(<Tabs label="Vehicle" items={items} value="gone" onChange={vi.fn()} />);
+    await user.tab();
+    expect(screen.getByRole("tab", { name: "Tyres 12" })).toHaveFocus();
+  });
+
+  // jsdom applies no CSS. A class that sets display, such as tr-stack,
+  // outranks the browser's [hidden] rule, so the panel restates it; and the
+  // list scrolls, which clips an outline drawn outside a tab.
+  it("keeps an inactive panel hidden and a focused tab's ring inside the list", () => {
+    const bare = (css: string) => css.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(bare(panelCss)).toMatch(/\.tr-tabpanel\[hidden\] \{[^}]*display: none;/);
+    expect(bare(tabsCss)).toMatch(/\.tr-tab:focus-visible \{[^}]*outline-offset: -3px;/);
   });
 
   it("selects a tab on click", async () => {
