@@ -1,4 +1,11 @@
-import { useEffect, useRef, useState, type HTMLAttributes, type ReactNode } from "react";
+import {
+  useEffect,
+  useEffectEvent,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+} from "react";
 
 import { cx } from "./cx";
 import { useFocusTrap } from "./focusTrap";
@@ -29,15 +36,21 @@ export function PhotoGallery({
   className,
   ...rest
 }: PhotoGalleryProps) {
-  const [open, setOpen] = useState<number | null>(null);
+  // The open photo by id, so a refetch that reorders the list keeps it.
+  const [open, setOpen] = useState<string | null>(null);
   // The thumbnail that opened the viewer, which takes focus back on close.
   const opener = useRef<HTMLButtonElement | null>(null);
   const count = photos.length;
+  const at = open === null ? -1 : photos.findIndex((p) => p.id === open);
+  // A refetch or a removal can take the open photo away. The viewer closes
+  // with it, or its trap holds Tab on a viewer that is gone (WCAG 2.1.2).
+  if (open !== null && at === -1) setOpen(null);
+  const current = at === -1 ? null : photos[at];
 
   const viewer = useRef<HTMLDivElement | null>(null);
   const closeButton = useRef<HTMLButtonElement | null>(null);
   // The trap owns Escape, Tab and the focus return to the thumbnail.
-  const isOpen = open !== null;
+  const isOpen = current !== null;
   useFocusTrap(viewer, isOpen, () => setOpen(null), opener);
 
   // The trap puts focus on the panel as it opens; Close is where a
@@ -46,18 +59,19 @@ export function PhotoGallery({
     if (isOpen) closeButton.current?.focus();
   }, [isOpen]);
 
+  const step = (by: number) => {
+    if (at !== -1) setOpen(photos[(at + by + count) % count].id);
+  };
+  const onArrow = useEffectEvent((e: KeyboardEvent) => {
+    if (e.key === "ArrowRight") step(1);
+    else if (e.key === "ArrowLeft") step(-1);
+  });
   useEffect(() => {
-    if (open === null) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "ArrowRight") {
-        setOpen((i) => (i === null ? i : (i + 1) % count));
-      } else if (e.key === "ArrowLeft") {
-        setOpen((i) => (i === null ? i : (i - 1 + count) % count));
-      }
-    };
+    if (!isOpen) return;
+    const onKey = (e: KeyboardEvent) => onArrow(e);
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [open, count]);
+  }, [isOpen]);
 
   if (count === 0) {
     return (
@@ -68,13 +82,11 @@ export function PhotoGallery({
   }
 
   const close = () => setOpen(null);
-  const step = (by: number) => setOpen((i) => (i === null ? i : (i + by + count) % count));
-  const current = open === null ? null : photos[open];
 
   return (
     <>
       <ul {...rest} className={cx("tr-photo-gallery", className)}>
-        {photos.map((p, i) => (
+        {photos.map((p) => (
           <li key={p.id}>
             <button
               type="button"
@@ -82,7 +94,7 @@ export function PhotoGallery({
               aria-label={`Open photo: ${p.caption}`}
               onClick={(e) => {
                 opener.current = e.currentTarget;
-                setOpen(i);
+                setOpen(p.id);
               }}
             >
               <img src={p.src} alt="" />
