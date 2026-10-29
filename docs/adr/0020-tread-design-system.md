@@ -203,7 +203,8 @@ What this record settles beyond ADR-0015:
   - `DataTable` stacks on a phone by rendering cards, not by CSS
     `display: block`, which drops table semantics (TYRE-238 comment 12938).
   - A measurement renders through `formatMm` with one decimal.
-  - Wire codes become words only in `src/ui/vocabulary.ts`.
+  - Wire codes become words only in `src/domain/vocabulary.ts`, where
+    ADR-0022 moved it.
 
 The non-negotiable rules (CLAUDE.md), stated because a design system could
 erode them:
