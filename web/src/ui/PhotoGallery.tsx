@@ -59,6 +59,20 @@ export function PhotoGallery({
     if (isOpen) closeButton.current?.focus();
   }, [isOpen]);
 
+  // A photo that leaves the list takes its thumbnail, the trap's return
+  // target, with it, and focus falls to the page. It goes to the thumbnail
+  // now in that place instead. This cleanup runs after the trap's.
+  const list = useRef<HTMLUListElement | null>(null);
+  useEffect(() => {
+    if (at === -1) return;
+    const shelf = list.current;
+    return () => {
+      if (shelf === null || document.activeElement !== document.body) return;
+      const thumbs = shelf.querySelectorAll<HTMLElement>(".tr-photo-gallery__item");
+      if (thumbs.length > 0) thumbs[Math.min(at, thumbs.length - 1)].focus();
+    };
+  }, [at]);
+
   const step = (by: number) => {
     if (at !== -1) setOpen(photos[(at + by + count) % count].id);
   };
@@ -87,7 +101,7 @@ export function PhotoGallery({
 
   return (
     <>
-      <ul {...rest} className={cx("tr-photo-gallery", className)}>
+      <ul {...rest} ref={list} className={cx("tr-photo-gallery", className)}>
         {photos.map((p) => (
           <li key={p.id}>
             <button
