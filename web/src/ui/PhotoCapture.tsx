@@ -111,7 +111,6 @@ export function PhotoCapture({
           <div className="tr-photos__title">Photo needed</div>
           {reason ? <div className="tr-photos__reason">{reason}</div> : null}
         </div>
-        {/* TODO(TYRE-447): becomes lane A's glove Button when it lands. */}
         <button type="button" className="tr-photos__take" onClick={open}>
           <Icon icon={CameraIcon} size={22} />
           <span>Take photo</span>
