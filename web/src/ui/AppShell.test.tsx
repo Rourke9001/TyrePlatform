@@ -1,9 +1,9 @@
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { forceMatchMedia } from "../test/media";
+import { forceMatchMedia, TestMediaQueryList } from "../test/media";
 import { AppShell, type NavGroup } from "./AppShell";
 import shellCss from "./AppShell.css?raw";
 
@@ -131,6 +131,25 @@ describe("AppShell", () => {
       expect(menu).toHaveFocus();
     } finally {
       restore();
+    }
+  });
+
+  // A tablet turned to landscape and back must not bring the drawer back
+  // open over its scrim without a tap.
+  it("closes the drawer when the window widens to the desk layout", async () => {
+    const list = new TestMediaQueryList("", true);
+    const spy = vi.spyOn(window, "matchMedia").mockReturnValue(list);
+    try {
+      const user = userEvent.setup();
+      renderShell("/");
+      const menu = screen.getByRole("button", { name: "Menu" });
+      await user.click(menu);
+      expect(menu).toHaveAttribute("aria-expanded", "true");
+      act(() => list.change(false));
+      act(() => list.change(true));
+      expect(menu).toHaveAttribute("aria-expanded", "false");
+    } finally {
+      spy.mockRestore();
     }
   });
 
