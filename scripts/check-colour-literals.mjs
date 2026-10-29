@@ -52,9 +52,10 @@ const NAMED = `
   .split(/\s+/)
   .join("|");
 const WORD = String.raw`(?<![-\w.#])(?:${NAMED})(?![-\w])`;
-// A declaration's value follows a colon, so a selector is never read.
+// A value follows "property:" at the start of a declaration and ends at ";"
+// or "}". A selector ends at "{", so a pseudo-class's colon opens nothing.
 const CSS_COLOUR = new RegExp(
-  String.raw`(?<=:[^;{}]*)(?:${HEX}|${FUNCTION}|${WORD})`,
+  String.raw`(?<=[{;]\s*[-\w]+\s*:[^;{}]*)(?:${HEX}|${FUNCTION}|${WORD})(?=[^;{}]*[;}])`,
   "gi",
 );
 const STRING = /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|`(?:\\.|[^`\\])*`/g;
@@ -182,7 +183,15 @@ if (process.argv.includes("--self-test")) {
         "const shade = color(1);",
       ].join("\n"),
     );
-    plant("ui/anchors.css", "#fee-section .a { color: var(--ink); }\n");
+    plant(
+      "ui/anchors.css",
+      [
+        "#fee-section .a { color: var(--ink); }",
+        ".a:hover #bad { color: var(--ink); }",
+        '.b:not([href="#add"]) { color: var(--ink); }',
+        ".c { color: var(--ink); a:hover #bad { color: var(--ink); } }",
+      ].join("\n"),
+    );
     plant("theme/tokens.ts", 'export const ink = "#111417";\n');
     plant("theme/fonts.css", '@font-face { src: url("./a.woff2"); }\n');
     plant("ui/Box.test.tsx", 'const c = "#ffffff";\n');
