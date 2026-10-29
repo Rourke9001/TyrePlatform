@@ -106,7 +106,12 @@ export const themes: Record<ThemeName, Record<ColorToken, string>> = {
 
 // ThemeProvider sets these four on the root from the tenant's colour; every
 // other token comes from the stylesheet themeCss writes (U53).
-const BRAND_SLOT: readonly ColorToken[] = ["brand", "brand-hover", "brand-pressed", "on-brand"];
+export const BRAND_SLOT: readonly ColorToken[] = [
+  "brand",
+  "brand-hover",
+  "brand-pressed",
+  "on-brand",
+];
 
 // Ink at low alpha, so a tenant's brand never tints a shadow.
 export const shadow: Record<ThemeName, { raised: string; overlay: string; sheet: string }> = {
