@@ -146,6 +146,22 @@ describe("PhotoGallery", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
+  // The thumbnail that opened the viewer leaves with its photo, so focus
+  // goes to the one now in its place, or the new last, not the page.
+  it("puts focus on the thumbnail in the place of a photo that left", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<PhotoGallery photos={photos} />);
+    await user.click(screen.getByRole("button", { name: "Open photo: LINK-A position 4" }));
+    rerender(<PhotoGallery photos={[photos[0], photos[2]]} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open photo: LINK-B spare" })).toHaveFocus();
+
+    await user.click(screen.getByRole("button", { name: "Open photo: LINK-B spare" }));
+    rerender(<PhotoGallery photos={[photos[0]]} />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Open photo: LINK-A position 3" })).toHaveFocus();
+  });
+
   it("keeps the open photo when the list changes around it", async () => {
     const user = userEvent.setup();
     const { rerender } = render(<PhotoGallery photos={photos} />);
