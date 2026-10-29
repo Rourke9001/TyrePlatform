@@ -5,7 +5,7 @@
 // Outside tokens.ts this refuses, in a stylesheet, a hex literal, a colour
 // function or a named colour in a declaration's value; in a component, a hex
 // literal or colour function inside a string, and a named colour in a string
-// given to a style property or a fill, stroke or color prop.
+// written straight after a style key or a fill, stroke or color prop.
 import {
   mkdirSync,
   mkdtempSync,
