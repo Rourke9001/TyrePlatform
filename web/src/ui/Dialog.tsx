@@ -30,7 +30,7 @@ export interface DialogProps extends Omit<HTMLAttributes<HTMLDivElement>, "title
   // Off by default: a confirmation is answered by one of its actions.
   dismissOnBackdrop?: boolean;
   // Takes focus back on close; see useFocusTrap for when a caller needs it.
-  returnTo?: RefObject<HTMLElement | null>;
+  returnTo?: RefObject<HTMLElement | SVGElement | null>;
 }
 
 // role="dialog", not the artifact's alertdialog: the screens it replaces
