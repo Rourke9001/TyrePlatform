@@ -67,6 +67,9 @@ const TS_NAMED = new RegExp(WORD, "gi");
 const STYLE_KEY =
   /\b(?:color|fill|stroke|stopColor|floodColor|lightingColor|background\w*|border\w*|outline\w*|boxShadow|textShadow|caretColor|accentColor|textDecorationColor|columnRuleColor)\s*[:=]\s*\{?\s*$/;
 const ENTITY = /&#x?[0-9a-fA-F]+;/g;
+// A url() path names a file, so "./red.svg" is blanked. A data: URL is
+// read, since it can carry a colour.
+const URL_PATH = /url\(\s*(?!["']?data:)(?:"[^"]*"|'[^']*'|[^)]*)\s*\)/g;
 const SCANNED = /\.(ts|tsx|css)$/;
 
 // tokens.ts is the one home. Tests pin literal values on purpose.
@@ -101,7 +104,9 @@ function code(text, css) {
       for (; i < out.length && out[i] !== "\n"; i++) out[i] = " ";
     }
   }
-  return out.join("").replace(ENTITY, (m) => " ".repeat(m.length));
+  const blank = (m) => " ".repeat(m.length);
+  const kept = out.join("").replace(ENTITY, blank);
+  return css ? kept.replace(URL_PATH, blank) : kept;
 }
 
 // The whole file is matched at once, so a value that runs onto the next
@@ -194,6 +199,13 @@ if (process.argv.includes("--self-test")) {
         "a:hover #bad { color: var(--ink); }",
       ].join("\n"),
     );
+    plant(
+      "ui/paths.css",
+      [
+        '.a { background: url("./red.svg"); }',
+        ".b { mask: url(./icons/white.svg) no-repeat; }",
+      ].join("\n"),
+    );
     plant("theme/tokens.ts", 'export const ink = "#111417";\n');
     plant("theme/fonts.css", '@font-face { src: url("./a.woff2"); }\n');
     plant("ui/Box.test.tsx", 'const c = "#ffffff";\n');
@@ -230,6 +242,7 @@ if (process.argv.includes("--self-test")) {
         ".d { outline-color: color(display-p3 1 0 0); }",
         ".e { fill: lab(50% 40 59); border-color: hwb(0 0% 0%); }",
         ".f { color: lch(50% 40 60); stroke: oklab(0.6 0.1 0.1); }",
+        ".g { background: url(\"data:image/svg+xml,%3Csvg fill='red'%3E\"); }",
       ].join("\n"),
     );
     plant(
@@ -262,6 +275,7 @@ if (process.argv.includes("--self-test")) {
       "ui/named.css:8: hwb(",
       "ui/named.css:9: lch(",
       "ui/named.css:9: oklab(",
+      "ui/named.css:10: red",
       "ui/nested.css:3: red",
       "ui/nested.css:7: #123456",
     ];
