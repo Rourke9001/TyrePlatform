@@ -7,31 +7,46 @@ import { themes, type ColorToken, type ThemeName } from "./tokens";
 // IR-UI-005 (SRS §3.1): the capture interface holds 7:1 for text and 4.5:1
 // for a mark that carries a state, in Daylight and in Night shift. U157's
 // erratum holds text on the tenant's brand fill at 4.5:1, the floor
-// deriveBrandTheme guarantees for any tenant colour (derive.test.ts).
-const sheets = import.meta.glob<string>("/src/capture/**/*.css", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-});
+// deriveBrandTheme guarantees for any tenant colour (derive.test.ts). U158:
+// the floors cover everything a driver sees, so the shell, sign-in and base
+// sheets the driver routes render are read too.
+const sheets = import.meta.glob<string>(
+  [
+    "/src/capture/**/*.css",
+    "/src/driver/**/*.css",
+    "/src/shell/shell.css",
+    "/src/auth/auth.css",
+    "/src/ui/base.css",
+  ],
+  { query: "?raw", import: "default", eager: true },
+);
+
+// DevBar and the tenant switcher render in development only.
+const DEV_ONLY = [".dev-bar", ".shell-tenant"];
+
+const devOnly = (selectors: string[]) =>
+  selectors.every((s) => DEV_ONLY.some((prefix) => s.startsWith(prefix)));
 
 const THEME_NAMES: ThemeName[] = ["light", "dark"];
 
-// Every ground capture sets text or a mark on.
+// Every ground a driver's screen sets text or a mark on.
 const GROUNDS: ColorToken[] = ["canvas", "surface", "surface-muted", "warn-soft", "critical-soft"];
 
-// Text that may sit on any ground above.
-const TEXT: ColorToken[] = ["ink", "ink-secondary", "critical-text"];
+// Text that may sit on any ground above; a link is --interactive.
+const TEXT: ColorToken[] = ["ink", "ink-secondary", "critical-text", "interactive"];
 
-// Text on a fill, with the fill and its floor. A pressed brand fill keeps
-// the brand's floor.
+// Text on a fill, with the fill and its floor. A hovered or pressed brand
+// fill keeps the brand's floor.
 const ON_FILL: [ColorToken, ColorToken, number][] = [
   ["on-ok", "ok", 7],
   ["on-warn", "warn", 7],
   ["on-brand", "brand", 4.5],
+  ["on-brand", "brand-hover", 4.5],
   ["on-brand", "brand-pressed", 4.5],
 ];
 
-// A tile's border, an alert's bar, the active ring and field, a ticked box.
+// A tile's border, an alert's bar, the active ring and field, a ticked box,
+// the current page's underline.
 const MARKS: ColorToken[] = [
   "ok-text",
   "warn-text",
@@ -39,6 +54,7 @@ const MARKS: ColorToken[] = [
   "unmeasured",
   "interactive",
   "ink-muted",
+  "ink",
 ];
 
 // --line draws dividers and resting edges, which carry no state.
@@ -75,11 +91,9 @@ const restyled = (selector: string) =>
 // restyles. A mixed fill is worked out and held to its text's floor.
 function fillPairs(files: Record<string, string> = sheets): string[] {
   const all = Object.entries(files).flatMap(([file, css]) =>
-    cssRules(css).map((rule) => ({
-      file,
-      selectors: rule.selectors,
-      decls: declarations(rule.body),
-    })),
+    cssRules(css)
+      .filter((rule) => !devOnly(rule.selectors))
+      .map((rule) => ({ file, selectors: rule.selectors, decls: declarations(rule.body) })),
   );
   const textOf = (selector: string): ColorToken | undefined => {
     for (const wanted of [selector, restyled(selector)]) {
@@ -122,12 +136,13 @@ function fillPairs(files: Record<string, string> = sheets): string[] {
   return out;
 }
 
-// Each colour a capture stylesheet reads, with the role this file checks it
+// Each colour a driver's stylesheet reads, with the role this file checks it
 // in, or "unchecked" when no table above holds that use.
 function unchecked(files: Record<string, string> = sheets): string[] {
   const out: string[] = [];
   for (const [file, css] of Object.entries(files)) {
     for (const rule of cssRules(css)) {
+      if (devOnly(rule.selectors)) continue;
       const decls = declarations(rule.body);
       const own = decls
         .filter((d) => d.property === "background" || d.property === "background-color")
@@ -167,8 +182,15 @@ function unchecked(files: Record<string, string> = sheets): string[] {
 
 describe("capture contrast (IR-UI-005)", () => {
   // Without this, a glob or parser that found nothing would pass.
-  it("sees the capture stylesheets and a mark in them", () => {
-    expect(Object.keys(sheets)).toContain("/src/capture/capture.css");
+  it("sees the driver's stylesheets and a mark in them", () => {
+    expect(Object.keys(sheets)).toEqual(
+      expect.arrayContaining([
+        "/src/capture/capture.css",
+        "/src/shell/shell.css",
+        "/src/auth/auth.css",
+        "/src/ui/base.css",
+      ]),
+    );
     const unmeasured = cssRules(sheets["/src/capture/capture.css"]).find((r) =>
       r.selectors.includes(".cap-pos--unmeasured"),
     );
