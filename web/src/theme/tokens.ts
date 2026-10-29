@@ -53,8 +53,10 @@ const colour = {
   "on-inverse": ["#ffffff", "#111417"],
   line: ["#dadedb", "#2b3035"],
   "line-strong": ["#7f878e", "#737b83"],
-  interactive: ["#0a5bb0", "#73b2ff"],
-  "interactive-hover": ["#084a8f", "#9cc8ff"],
+  // IR-UI-005 (U158): a driver's links clear 7:1 on every capture ground
+  // (captureContrast.test.ts); the hover stays a step darker in Daylight.
+  interactive: ["#084c93", "#8abfff"],
+  "interactive-hover": ["#063a70", "#9cc8ff"],
   "interactive-soft": ["#e4eefa", "#15304f"],
   "on-interactive": ["#ffffff", "#08182c"],
   brand: [PLATFORM_BRAND, PLATFORM_BRAND],

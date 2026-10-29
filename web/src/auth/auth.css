@@ -33,7 +33,7 @@
 .auth-primary[aria-disabled="true"] {
   border-color: var(--line);
   background: var(--surface-muted);
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   cursor: default;
 }
 
@@ -123,7 +123,7 @@
    (NFR-USE-009). */
 .auth-secondary[aria-disabled="true"] {
   border-style: dashed;
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   background: var(--surface-muted);
   cursor: default;
 }

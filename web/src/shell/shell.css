@@ -26,7 +26,7 @@
   font-weight: 600;
   letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }
 
 .shell-wordmark {
@@ -45,7 +45,7 @@
 .shell-actor {
   margin: 0.15rem 0 0;
   font-size: var(--type-small-size);
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }
 
 .shell-tenant {
@@ -83,7 +83,7 @@
   font-family: var(--font-sans);
   font-weight: 600;
   font-size: var(--type-body-size);
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   text-decoration: none;
   padding: 0 var(--space-3);
   border-bottom: 3px solid transparent;
@@ -200,7 +200,7 @@
 .route-error .btn:disabled,
 .route-error .btn[aria-disabled="true"] {
   background: var(--surface-muted);
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   border-color: transparent;
   cursor: not-allowed;
 }
