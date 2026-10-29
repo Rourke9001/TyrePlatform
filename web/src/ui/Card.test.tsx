@@ -55,4 +55,10 @@ describe("Card", () => {
     expect(screen.queryByRole("region")).toBeNull();
     expect(screen.getByText("body")).toBeInTheDocument();
   });
+
+  it("shows its eyebrow and description without a title or actions", () => {
+    render(<Card eyebrow="This week" description="Shown on its own" />);
+    expect(screen.getByText("This week")).toBeInTheDocument();
+    expect(screen.getByText("Shown on its own")).toBeInTheDocument();
+  });
 });

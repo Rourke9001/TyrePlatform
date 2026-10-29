@@ -46,4 +46,13 @@ describe("BrandMark", () => {
       "tr-brandmark__tile--on-brand",
     );
   });
+
+  // A name can start with a character outside the basic plane, which takes
+  // two UTF-16 units; half of one draws a broken glyph.
+  it("takes whole characters for the monogram", () => {
+    const { container, rerender } = render(<BrandMark name="𝒜cme Logistics" logoUrl={null} />);
+    expect(container.querySelector(".tr-brandmark__tile")).toHaveTextContent(/^𝒜L$/);
+    rerender(<BrandMark name="𝒜cme" logoUrl={null} />);
+    expect(container.querySelector(".tr-brandmark__tile")).toHaveTextContent(/^𝒜C$/);
+  });
 });

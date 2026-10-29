@@ -64,7 +64,7 @@ const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
   },
   "/src/ui/IconButton.css": {
     ".tr-iconbtn--on-brand": ["color"],
-    ".tr-iconbtn--on-brand:hover": ["background"],
+    ".tr-iconbtn--on-brand:hover:not(:disabled)": ["background"],
   },
   "/src/ui/Keypad.css": {
     ".tr-key--go": ["background", "color"],

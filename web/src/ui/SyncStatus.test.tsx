@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -28,7 +28,7 @@ describe("SyncStatus", () => {
       const { unmount } = render(<SyncStatus state={state} count={count} />);
       const status = screen.getByRole("status");
       expect(status).toHaveTextContent(new RegExp(`^${words}$`));
-      expect(status).toHaveClass("tr-sync", `tr-sync--${state}`);
+      expect(status.firstElementChild).toHaveClass("tr-sync", `tr-sync--${state}`);
       unmount();
     }
   });
@@ -37,7 +37,7 @@ describe("SyncStatus", () => {
     const onClick = vi.fn();
     render(<SyncStatus state="waiting" count={2} onClick={onClick} />);
     const button = screen.getByRole("button", { name: "2 waiting for signal" });
-    expect(button).toHaveAttribute("aria-live", "polite");
+    expect(button.parentElement).toHaveAttribute("role", "status");
     await userEvent.click(button);
     expect(onClick).toHaveBeenCalledTimes(1);
     // NFR-USE-004: as a button the chip is a target and takes the floor.
@@ -51,5 +51,16 @@ describe("SyncStatus", () => {
     );
     expect(screen.getByTestId("sync")).toHaveTextContent(/^Held on this phone$/);
     expect(container.querySelector(".tr-sync__dot")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  // NFR-USE-010: a live region announces a change only once it is in the
+  // page, so one that a new onClick swaps out announces nothing.
+  it("keeps one live region when it becomes a button", () => {
+    const { rerender } = render(<SyncStatus state="sent" />);
+    const live = screen.getByRole("status");
+    rerender(<SyncStatus state="waiting" count={2} onClick={vi.fn()} />);
+    expect(screen.getByRole("status")).toBe(live);
+    expect(live).toHaveTextContent(/^2 waiting for signal$/);
+    expect(within(live).getByRole("button", { name: "2 waiting for signal" })).toBeInTheDocument();
   });
 });

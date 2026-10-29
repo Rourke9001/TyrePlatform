@@ -34,8 +34,9 @@ export interface SyncStatusProps extends Omit<HTMLAttributes<HTMLElement>, "onCl
   label?: string;
 }
 
-// The chip is a live region either way, so a change of state is announced
-// without the driver looking (NFR-USE-010).
+// The live region wraps the chip, button or not, so it stays in the page
+// when onClick comes or goes and a change of state is announced without
+// the driver looking (NFR-USE-010).
 export function SyncStatus({
   state,
   count = 1,
@@ -54,13 +55,17 @@ export function SyncStatus({
       {label ?? s.words(groupThousands(String(count)), count)}
     </>
   );
-  return onClick ? (
-    <button aria-live="polite" {...rest} type="button" className={classes} onClick={onClick}>
-      {content}
-    </button>
-  ) : (
-    <span role="status" {...rest} className={classes}>
-      {content}
+  return (
+    <span role="status">
+      {onClick ? (
+        <button {...rest} type="button" className={classes} onClick={onClick}>
+          {content}
+        </button>
+      ) : (
+        <span {...rest} className={classes}>
+          {content}
+        </span>
+      )}
     </span>
   );
 }

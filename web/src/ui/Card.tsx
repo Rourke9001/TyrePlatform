@@ -39,7 +39,7 @@ export function Card({
       aria-labelledby={title && rest["aria-label"] === undefined ? titleId : undefined}
       {...rest}
     >
-      {title || actions ? (
+      {title || actions || eyebrow || description ? (
         <div className="tr-card__head">
           <div>
             {eyebrow ? <span className="tr-card__eyebrow">{eyebrow}</span> : null}
