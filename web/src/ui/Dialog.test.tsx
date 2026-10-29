@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { Dialog } from "./Dialog";
 import dialogCss from "./Dialog.css?raw";
+import { Sheet } from "./Sheet";
 
 describe("Dialog", () => {
   it("is a dialog named by its title and described by its description", () => {
@@ -214,6 +215,42 @@ describe("Dialog", () => {
     expect(screen.getByRole("dialog", { name: "Dispose tyre" })).toHaveFocus();
 
     await user.keyboard("{Escape}");
+    expect(opener).toHaveFocus();
+  });
+
+  // One update closes the sheet and opens the dialog, so the sheet's action
+  // that held focus is gone before the dialog's trap reads its opener.
+  it("returns focus to the sheet's opener when a sheet hands on to a dialog", async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [step, setStep] = useState<"none" | "sheet" | "dialog">("none");
+      return (
+        <>
+          <button type="button" onClick={() => setStep("sheet")}>
+            Open sheet
+          </button>
+          <Sheet open={step === "sheet"} onClose={() => setStep("none")} title="Tyre T-104">
+            <button type="button" onClick={() => setStep("dialog")}>
+              Next
+            </button>
+          </Sheet>
+          <Dialog
+            open={step === "dialog"}
+            onClose={() => setStep("none")}
+            title="Dispose tyre"
+            actions={<button type="button">Dispose it</button>}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Open sheet" });
+    await user.click(opener);
+    await user.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByRole("dialog", { name: "Dispose tyre" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(opener).toHaveFocus();
   });
 
