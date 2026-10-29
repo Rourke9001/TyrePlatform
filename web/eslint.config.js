@@ -131,12 +131,15 @@ const pureBans = {
     "src/domain/ and src/format/ are plain functions, tested without React, and import no component (ADR-0022).",
 };
 
-// The same folders as uiBans, refused with domain and format's own reason.
+// uiBans' folders and theme/, refused with domain and format's own reason.
 const pureLayerBans = {
   ...uiBans,
+  group: [...uiBans.group, "**/theme/**"],
   message:
-    "src/domain/ and src/format/ import only each other and src/theme/ (ADR-0022). units/ and time/ are hooks over the actor, so the screen passes the formatted string.",
+    "src/format/ imports only src/domain/ and src/format/, and src/domain/ imports no other layer (ADR-0022). units/ and time/ are hooks over the actor, so the screen passes the formatted string.",
 };
+
+const domainBans = { ...pureLayerBans, group: [...pureLayerBans.group, "**/format/**"] };
 
 // TYRE-443: the capture entry carries no manager component. The rule reads
 // static imports alone, so a lazy route's import() passes. Patterns match
@@ -227,7 +230,7 @@ export default tseslint.config(
     },
   },
   // ADR-0022's layers. Each later block replaces the list for the files it
-  // matches, so the order of the next five is part of the rule.
+  // matches, so the order of the next six is part of the rule.
   {
     files: ["src/**/*.{ts,tsx}"],
     ignores: testFiles,
@@ -245,7 +248,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["src/domain/**/*.{ts,tsx}", "src/format/**/*.{ts,tsx}"],
+    files: ["src/format/**/*.{ts,tsx}"],
     ignores: testFiles,
     rules: {
       "@typescript-eslint/no-restricted-imports": [
@@ -255,10 +258,21 @@ export default tseslint.config(
     },
   },
   {
+    files: ["src/domain/**/*.{ts,tsx}"],
+    ignores: testFiles,
+    rules: {
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        { patterns: [dexieBan, domainBans, pureBans] },
+      ],
+    },
+  },
+  {
     files: [
       "src/{capture,driver,shell,auth}/**/*.{ts,tsx}",
       // main.tsx imports these folders statically, and App.tsx the manager
-      // shell, so each is entry code.
+      // shell, so each is entry code. So are domain/ and format/, held by
+      // their stricter blocks above.
       "src/{theme,api,time,units}/**/*.{ts,tsx}",
       "src/dashboard/AppShell.tsx",
       "src/App.tsx",
