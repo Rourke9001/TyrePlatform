@@ -7,9 +7,9 @@ describe("SeverityBadge", () => {
   it("SeverityBadge renders Critical, Warning, Info with a count", () => {
     render(
       <>
-        <SeverityBadge severity="critical" count={4} data-testid="critical" />
-        <SeverityBadge severity="warning" count={1200} data-testid="warning" />
-        <SeverityBadge severity="info" count={0} data-testid="info" />
+        <SeverityBadge severity="critical" label="Critical" count={4} data-testid="critical" />
+        <SeverityBadge severity="warning" label="Warning" count={1200} data-testid="warning" />
+        <SeverityBadge severity="info" label="Info" count={0} data-testid="info" />
       </>,
     );
     expect(screen.getByTestId("critical")).toHaveTextContent(/^Critical 4$/);
@@ -24,9 +24,9 @@ describe("SeverityBadge", () => {
   it("shows the word alone without a count, in a glyph per severity", () => {
     const { container } = render(
       <>
-        <SeverityBadge severity="critical" />
-        <SeverityBadge severity="warning" />
-        <SeverityBadge severity="info" />
+        <SeverityBadge severity="critical" label="Critical" />
+        <SeverityBadge severity="warning" label="Warning" />
+        <SeverityBadge severity="info" label="Info" />
       </>,
     );
     expect(screen.getByText("Critical")).toHaveTextContent(/^Critical$/);
@@ -35,7 +35,8 @@ describe("SeverityBadge", () => {
     for (const svg of glyphs) expect(svg).toHaveAttribute("aria-hidden", "true");
   });
 
-  it("takes the caller's word in place of the default", () => {
+  // TYRE-270: the words are vocabulary.ts's, so the badge brings none.
+  it("says the caller's word and no word of its own", () => {
     render(<SeverityBadge severity="critical" label="Urgent" count={2} size="md" />);
     expect(screen.getByText("Urgent")).toHaveClass("tr-badge--md");
     expect(screen.queryByText(/Critical/)).toBeNull();

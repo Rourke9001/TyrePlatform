@@ -1,3 +1,4 @@
+import { severityLabel } from "../../domain/vocabulary";
 import { Badge } from "../Badge";
 import { Banner } from "../Banner";
 import { Button } from "../Button";
@@ -28,10 +29,10 @@ export const section: GallerySection = {
         <StatusBadge status="limit" label="Report" size="md" />
       </div>
       <div className="tr-cluster">
-        <SeverityBadge severity="critical" count={4} />
-        <SeverityBadge severity="warning" count={12} />
-        <SeverityBadge severity="info" />
-        <SeverityBadge severity="critical" size="md" />
+        <SeverityBadge severity="critical" label={severityLabel("CRITICAL")} count={4} />
+        <SeverityBadge severity="warning" label={severityLabel("WARNING")} count={12} />
+        <SeverityBadge severity="info" label={severityLabel("INFO")} />
+        <SeverityBadge severity="critical" label={severityLabel("CRITICAL")} size="md" />
       </div>
       <div className="tr-cluster">
         <Badge>Fitted</Badge>
