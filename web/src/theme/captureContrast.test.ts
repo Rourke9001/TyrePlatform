@@ -22,11 +22,13 @@ const GROUNDS: ColorToken[] = ["canvas", "surface", "surface-muted", "warn-soft"
 // Text that may sit on any ground above.
 const TEXT: ColorToken[] = ["ink", "ink-secondary", "critical-text"];
 
-// Text on a fill, with the fill and its floor.
+// Text on a fill, with the fill and its floor. A pressed brand fill keeps
+// the brand's floor.
 const ON_FILL: [ColorToken, ColorToken, number][] = [
   ["on-ok", "ok", 7],
   ["on-warn", "warn", 7],
   ["on-brand", "brand", 4.5],
+  ["on-brand", "brand-pressed", 4.5],
 ];
 
 // A tile's border, an alert's bar, the active ring and field, a ticked box.
@@ -42,17 +44,82 @@ const MARKS: ColorToken[] = [
 // --line draws dividers and resting edges, which carry no state.
 const DIVIDER: ColorToken = "line";
 
-// A pressed key's fill lasts as long as the tap.
-const PRESSED: ColorToken[] = ["brand-pressed", "on-warn"];
-
 const FILLS = ON_FILL.map(([, fill]) => fill);
 
 // The colour tokens a value reads; space, type and radius tokens are not
 // colours.
-function tokensIn(value: string): string[] {
+function tokensIn(value: string): ColorToken[] {
   return [...value.matchAll(/var\(\s*--([a-z0-9-]+)/g)]
     .map((m) => m[1])
-    .filter((name) => name in themes.light);
+    .filter((name): name is ColorToken => name in themes.light);
+}
+
+// color-mix(in srgb, ...) mixes the encoded channels, as a browser does.
+const MIX =
+  /^color-mix\(\s*in srgb\s*,\s*var\(--([a-z0-9-]+)\)\s+(\d+(?:\.\d+)?)%\s*,\s*var\(--([a-z0-9-]+)\)\s*\)$/;
+
+function mixHex(a: string, b: string, share: number): string {
+  const channels = (hex: string) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  const [ca, cb] = [channels(a), channels(b)];
+  return `#${ca
+    .map((v, i) => Math.round(v * share + cb[i] * (1 - share)))
+    .map((n) => n.toString(16).padStart(2, "0"))
+    .join("")}`;
+}
+
+// The rule a hovered, pressed or focused state restyles, whose text it keeps.
+const restyled = (selector: string) =>
+  selector.replace(/:(?:hover|active|focus-visible|focus)|:not\([^)]*\)/g, "");
+
+// A fill's text is that fill's own token, set by the rule or by the rule it
+// restyles. A mixed fill is worked out and held to its text's floor.
+function fillPairs(files: Record<string, string> = sheets): string[] {
+  const all = Object.entries(files).flatMap(([file, css]) =>
+    cssRules(css).map((rule) => ({
+      file,
+      selectors: rule.selectors,
+      decls: declarations(rule.body),
+    })),
+  );
+  const textOf = (selector: string): ColorToken | undefined => {
+    for (const wanted of [selector, restyled(selector)]) {
+      for (const rule of all) {
+        if (!rule.selectors.includes(wanted)) continue;
+        const color = rule.decls.find((d) => d.property === "color");
+        const token = color ? tokensIn(color.value)[0] : undefined;
+        if (token) return token;
+      }
+    }
+    return undefined;
+  };
+  const out: string[] = [];
+  for (const rule of all) {
+    for (const { property, value } of rule.decls) {
+      if (property !== "background" && property !== "background-color") continue;
+      const mix = MIX.exec(value);
+      const [fill] = tokensIn(value);
+      const pair = mix ? undefined : ON_FILL.find(([, f]) => f === fill);
+      if (!mix && !pair) continue;
+      for (const selector of rule.selectors) {
+        const text = textOf(selector);
+        const where = `${rule.file}: ${selector}`;
+        if (pair) {
+          if (text !== pair[0]) out.push(`${where} sets --${fill} under ${text ?? "no text"}`);
+          continue;
+        }
+        const [, a, share, b] = mix ?? [];
+        const floor = text === "on-brand" ? 4.5 : 7;
+        for (const theme of THEME_NAMES) {
+          const t: Record<string, string> = themes[theme];
+          const ground = mixHex(t[a], t[b], Number(share) / 100);
+          const ratio = text && t[a] && t[b] ? contrastRatio(t[text], ground) : 0;
+          if (ratio < floor)
+            out.push(`${theme}: ${where} has ${text ?? "no text"} at ${ratio.toFixed(2)}`);
+        }
+      }
+    }
+  }
+  return out;
 }
 
 // Each colour a capture stylesheet reads, with the role this file checks it
@@ -65,7 +132,6 @@ function unchecked(files: Record<string, string> = sheets): string[] {
       const own = decls
         .filter((d) => d.property === "background" || d.property === "background-color")
         .flatMap((d) => tokensIn(d.value));
-      const pressed = rule.selectors.every((s) => s.includes(":active"));
       for (const { property, value } of decls) {
         if (/-(?:radius|width|style)$/.test(property)) continue;
         // Dimming takes text and marks under their floors by an amount no
@@ -75,12 +141,14 @@ function unchecked(files: Record<string, string> = sheets): string[] {
           out.push(`${file}: ${rule.selectors.join(", ")} { ${property}: ${value} }`);
           continue;
         }
+        // fillPairs works a mixed fill out against its text.
+        if (MIX.test(value)) continue;
         for (const token of tokensIn(value)) {
           const allowed =
             property === "color"
               ? [...TEXT, ...ON_FILL.map(([text]) => text)]
               : property === "background" || property === "background-color"
-                ? [...GROUNDS, ...FILLS, DIVIDER, ...(pressed ? PRESSED : [])]
+                ? [...GROUNDS, ...FILLS, DIVIDER]
                 : /^(?:border|outline|box-shadow)/.test(property)
                   ? [...MARKS, DIVIDER, ...own]
                   : // A ticked box's fill is the state, so it is a mark.
@@ -105,6 +173,10 @@ describe("capture contrast (IR-UI-005)", () => {
       r.selectors.includes(".cap-pos--unmeasured"),
     );
     expect(unmeasured?.body).toContain("var(--unmeasured)");
+  });
+
+  it("puts each fill's own text on it, pressed fills included", () => {
+    expect(fillPairs()).toEqual([]);
   });
 
   it("sets only the colours this file checks", () => {
@@ -152,5 +224,17 @@ describe("the capture contrast check catches each planted case", () => {
     ["a box ticked in the brand", ".x { accent-color: var(--brand); }"],
   ])("%s", (_, css) => {
     expect(unchecked({ [planted]: css })).not.toEqual([]);
+  });
+
+  it.each([
+    ["a fill with no text of its own", ".x { background: var(--warn); }"],
+    ["a fill under another fill's text", ".x { background: var(--ok); color: var(--ink); }"],
+    [
+      "a pressed mix under its text's floor",
+      ".k { background: var(--warn); color: var(--on-warn); }\n" +
+        ".k:active { background: color-mix(in srgb, var(--warn) 80%, var(--on-warn)); }",
+    ],
+  ])("%s", (_, css) => {
+    expect(fillPairs({ [planted]: css })).not.toEqual([]);
   });
 });

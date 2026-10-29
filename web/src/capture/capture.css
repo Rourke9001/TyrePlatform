@@ -424,8 +424,10 @@
   background: var(--warn);
   color: var(--on-warn);
 }
+/* 10% of the text colour keeps the label at 7:1 while pressed (IR-UI-005);
+   20% took it to 6.28:1. */
 .cap-key--warn:active {
-  background: color-mix(in srgb, var(--warn) 80%, var(--on-warn));
+  background: color-mix(in srgb, var(--warn) 90%, var(--on-warn));
 }
 /* ------------------------------------------------- start / review / done */
 
