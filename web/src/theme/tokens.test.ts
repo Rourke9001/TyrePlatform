@@ -161,8 +161,10 @@ function declares(block: string | undefined, name: string): boolean {
 const LIGHT = ':root,[data-theme="light"]';
 const DARK = ':root[data-theme="dark"],[data-theme="dark"]';
 
-// NFR-USE-007 and NFR-USE-003: 7:1 for ink, 4.5:1 for other text, 3:1 for a
-// control's border and the focus colour, in Daylight and in Night shift.
+// NFR-USE-007 (WCAG 2.1 AA): 4.5:1 for text, 3:1 for a control's border and
+// the focus colour, in Daylight and in Night shift. Ink holds 7:1 for direct
+// sun (NFR-USE-003 sets no ratio). Capture's floors are IR-UI-005's
+// (captureContrast.test.ts).
 describe("Tread's colours", () => {
   it("every text pair clears its ratio in both themes", () => {
     const pairs: [ColorToken, ColorToken, number][] = [

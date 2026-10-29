@@ -1,8 +1,9 @@
 {
   "entryClosureGzipBytes": 141852,
-  "entryCssGzipBytes": 3540,
+  "entryCssGzipBytes": 3549,
   "entryFontBytes": 70188,
   "recordedAt": "2026-10-28",
+  "cssRecordedAt": "2026-10-29",
   "chunks": [
     "assets/index-Ml4GLatf.js"
   ]
