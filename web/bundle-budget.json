@@ -1,10 +1,10 @@
 {
-  "entryClosureGzipBytes": 141852,
-  "entryCssGzipBytes": 3549,
+  "entryClosureGzipBytes": 141906,
+  "entryCssGzipBytes": 3564,
   "entryFontBytes": 70188,
-  "recordedAt": "2026-10-28",
+  "recordedAt": "2026-10-29",
   "cssRecordedAt": "2026-10-29",
   "chunks": [
-    "assets/index-Ml4GLatf.js"
+    "assets/index-ILFc3Td3.js"
   ]
 }
