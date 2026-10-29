@@ -19,9 +19,7 @@ const sources = import.meta.glob<string>(
 // 4.5:1 on the brand (TYRE-27). After wave 0 a lane that needs another
 // entry asks the orchestrator (TYRE-443).
 const BRAND_ALLOWED = new Set([
-  // Today's screens: the wordmark, the nav's current page, filled buttons.
-  ".shell-wordmark",
-  '.shell-nav a[aria-current="page"]',
+  // Today's screens: filled buttons.
   ".btn-primary",
   ".btn-primary:hover",
   ".btn-primary:active",
@@ -100,10 +98,21 @@ describe("the tenant brand stays in chrome (U53)", () => {
   it("sees the stylesheets and the chrome rules in them", () => {
     expect(Object.keys(sheets).length).toBeGreaterThanOrEqual(6);
     const selectors = brandRules().map((r) => r.selector);
-    expect(selectors).toContain(".shell-wordmark");
+    expect(selectors).toContain(".btn-primary");
     expect(selectors).toContain(".cap-primary");
     expect(Object.keys(sources)).toContain("/src/theme/tokens.ts");
     expect(sources["/src/theme/ThemeProvider.tsx"]).toContain("brandVars(");
+  });
+
+  // Text in a brand colour fails on some ground for some tenant: the platform
+  // brand is 2.21:1 on Night shift's surface, a light one fails on white.
+  // Text on a brand fill is --on-brand, derived to clear 4.5:1 (U53).
+  it("sets no text in a brand colour", () => {
+    const brandText = /(?:^|[;\s])color\s*:[^;]*var\(\s*--brand(?:-hover|-pressed)?\s*[,)]/;
+    const offenders = rules()
+      .filter((r) => brandText.test(r.body))
+      .map((r) => `${r.file}: ${r.selectors.join(", ")}`);
+    expect(offenders).toEqual([]);
   });
 
   it("colours no in-content text, outline or ring with the brand", () => {

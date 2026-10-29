@@ -34,7 +34,7 @@
   font-size: var(--type-display-size);
   font-weight: 700;
   line-height: 1.15;
-  color: var(--brand);
+  color: var(--ink);
 }
 
 .shell-logo {
@@ -91,7 +91,7 @@
 
 .shell-nav a[aria-current="page"] {
   color: var(--ink);
-  border-bottom-color: var(--brand);
+  border-bottom-color: var(--ink);
 }
 
 /* NFR-USE-003: the focus ring must survive direct sun, so it's a solid
