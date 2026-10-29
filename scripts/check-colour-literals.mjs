@@ -3,9 +3,10 @@
 // properties. themeCss writes them from web/src/theme/tokens.ts, and
 // ThemeProvider writes the four brand ones from tenant configuration.
 // Outside tokens.ts this refuses, in a stylesheet, a hex literal, a colour
-// function or a named colour in a declaration's value; in a component, a hex
-// literal or colour function inside a string, and a named colour in a string
-// written straight after a style key or a fill, stroke or color prop.
+// function or a named colour in a declaration's value, and any data: URL; in
+// a component, a hex literal or colour function inside a string, and a named
+// colour in a string written straight after a style key or a fill, stroke or
+// color prop.
 import {
   mkdirSync,
   mkdtempSync,
@@ -19,8 +20,9 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-// A hex ends where a word would, so "#add-driver" is an anchor, not #add.
-const HEX = String.raw`#[0-9a-fA-F]{3,8}(?![\w-])`;
+// A hex ends where a word would, so "#add-driver" is an anchor, not #add,
+// and url(#fade) names an SVG element.
+const HEX = String.raw`(?<!url\(\s*["']?)#[0-9a-fA-F]{3,8}(?![\w-])`;
 const FUNCTION = String.raw`\b(?:rgba?|hsla?|oklch|oklab|lab|lch|hwb|color)\(`;
 // CSS's named colours. transparent and currentColor name no colour of their
 // own, so they stay allowed.
@@ -68,9 +70,9 @@ const TS_NAMED = new RegExp(WORD, "gi");
 const STYLE_KEY =
   /\b(?:color|fill|stroke|stopColor|floodColor|lightingColor|background\w*|border\w*|outline\w*|boxShadow|textShadow|caretColor|accentColor|textDecorationColor|columnRuleColor)\s*[:=]\s*\{?\s*$/;
 const ENTITY = /&#x?[0-9a-fA-F]+;/g;
-// An inline SVG writes "#" as %23, and its ";utf8" would end the value, so
-// both are rewritten, at the same length, before the scan.
-const DATA_URL = /url\(\s*(?:"data:[^"]*"|'data:[^']*'|data:[^)]*)\s*\)/gi;
+// The CSP's default-src 'self' loads no data: image (ADR-0019), and an
+// encoded one hides its colours from this scan, so a stylesheet holds none.
+const DATA_URL = /url\(\s*["']?data:/gi;
 const SCANNED = /\.(ts|tsx|css)$/;
 
 // tokens.ts is the one home. Tests pin literal values on purpose.
@@ -105,9 +107,7 @@ function code(text, css) {
       for (; i < out.length && out[i] !== "\n"; i++) out[i] = " ";
     }
   }
-  const kept = out.join("").replace(ENTITY, (m) => " ".repeat(m.length));
-  const readable = (m) => m.replace(/;/g, " ").replace(/%23/gi, "  #");
-  return css ? kept.replace(DATA_URL, readable) : kept;
+  return out.join("").replace(ENTITY, (m) => " ".repeat(m.length));
 }
 
 // The whole file is matched at once, so a value that runs onto the next
@@ -120,6 +120,7 @@ function scanFile(rel, text) {
     found.push(`${rel}:${body.slice(0, index).split("\n").length}: ${match}`);
   if (css) {
     for (const m of body.matchAll(CSS_COLOUR)) report(m.index, m[0]);
+    for (const m of body.matchAll(DATA_URL)) report(m.index, "data: URL");
     return found;
   }
   for (const s of body.matchAll(STRING)) {
@@ -188,6 +189,7 @@ if (process.argv.includes("--self-test")) {
         'const band = { label: "Green" };',
         'const link = <a href="#add-driver">Add</a>;',
         "const shade = color(1);",
+        'const grad = <path fill="url(#fade)" />;',
       ].join("\n"),
     );
     plant(
@@ -207,6 +209,7 @@ if (process.argv.includes("--self-test")) {
         ".b { mask: url(./icons/white.svg) no-repeat; }",
         '.c { background: URL("./red.svg"); }',
         ".d { background: url(red.svg); }",
+        '.e { mask: url(#fade); fill: url("#bead"); }',
       ].join("\n"),
     );
     plant("theme/tokens.ts", 'export const ink = "#111417";\n');
@@ -245,7 +248,6 @@ if (process.argv.includes("--self-test")) {
         ".d { outline-color: color(display-p3 1 0 0); }",
         ".e { fill: lab(50% 40 59); border-color: hwb(0 0% 0%); }",
         ".f { color: lch(50% 40 60); stroke: oklab(0.6 0.1 0.1); }",
-        ".g { background: url(\"data:image/svg+xml,%3Csvg fill='red'%3E\"); }",
       ].join("\n"),
     );
     plant(
@@ -255,6 +257,8 @@ if (process.argv.includes("--self-test")) {
         ".c { background: url(\"data:image/svg+xml;charset=utf-8,%3Csvg fill='rgb(1,2,3)'/%3E\"); }",
         ".d { background: url(\"data:image/svg+xml,%3Csvg fill='%23ff0000'/%3E\"); }",
         ".e { mask: url(\"DATA:image/svg+xml;utf8,<svg fill='red'/>\") center; color: var(--ink); }",
+        '.f { background: url("data:image/svg+xml,%3Csvg%20fill%3D%22red%22%2F%3E"); }',
+        ".k { background: url(data:image/svg+xml;base64,PHN2Zy8+); }",
         '.g { content: "url("; }',
         ".h { color: red; }",
         ".i { width: calc(1px); }",
@@ -290,14 +294,15 @@ if (process.argv.includes("--self-test")) {
       "ui/named.css:8: hwb(",
       "ui/named.css:9: lch(",
       "ui/named.css:9: oklab(",
-      "ui/named.css:10: red",
       "ui/nested.css:3: red",
       "ui/nested.css:7: #123456",
-      "ui/data.css:1: red",
-      "ui/data.css:2: rgb(",
-      "ui/data.css:3: #ff0000",
-      "ui/data.css:4: red",
-      "ui/data.css:6: red",
+      "ui/data.css:1: data: URL",
+      "ui/data.css:2: data: URL",
+      "ui/data.css:3: data: URL",
+      "ui/data.css:4: data: URL",
+      "ui/data.css:5: data: URL",
+      "ui/data.css:6: data: URL",
+      "ui/data.css:8: red",
     ];
     const got = scanTree(dir).found.sort();
     if (JSON.stringify(got) !== JSON.stringify(want.sort())) {
