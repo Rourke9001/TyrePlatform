@@ -57,10 +57,11 @@ export function Dialog({
   const describedId = useId();
   useFocusTrap(panel, open, onClose, returnTo);
   if (!open) return null;
-  // false, null and undefined render nothing, so they draw no element and
-  // describe nothing.
-  const hasDescription = Children.toArray(description).length > 0;
-  const hasBody = Children.toArray(children).length > 0;
+  // false, null, undefined and "" render nothing, so they draw no element
+  // and describe nothing. toArray drops the first three, not "".
+  const drawn = (node: ReactNode) => Children.toArray(node).some((child) => child !== "");
+  const hasDescription = drawn(description);
+  const hasBody = drawn(children);
   const described = hasDescription || hasBody;
   return (
     <div
