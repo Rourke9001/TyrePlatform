@@ -151,4 +151,11 @@ describe("TyreTile", () => {
       /\.tr-tile\[aria-pressed="true"\]:focus-visible \{[^}]*outline-offset: 7px;/,
     );
   });
+
+  // That ring reaches 10px out, past the axle's 6px gap, where a dual
+  // partner later in the row would paint over it.
+  it("raises a focused tile over its neighbours", () => {
+    const css = tileCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(css).toMatch(/\.tr-tile:focus-visible \{[^}]*z-index: 1;/);
+  });
 });

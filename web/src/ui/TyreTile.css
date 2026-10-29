@@ -106,6 +106,12 @@
   outline-offset: 7px;
 }
 
+/* That ring reaches past the axle's 6px gap (AxleDiagram.css), where a
+   dual partner later in the row would paint over it. */
+.tr-tile:focus-visible {
+  z-index: 1;
+}
+
 /* The open position: a ring, never the border, which the condition owns. */
 .tr-tile[data-active="true"] {
   box-shadow: 0 0 0 3px var(--interactive);
