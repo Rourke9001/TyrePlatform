@@ -14,7 +14,7 @@
   padding: 0;
 }
 
-.tr-iconbtn:hover {
+.tr-iconbtn:hover:not(:disabled) {
   background: var(--surface-muted);
 }
 
@@ -27,8 +27,13 @@
   color: var(--on-brand);
 }
 
-.tr-iconbtn--on-brand:hover {
+.tr-iconbtn--on-brand:hover:not(:disabled) {
   background: var(--brand-hover);
+}
+
+.tr-iconbtn:disabled {
+  cursor: not-allowed;
+  color: var(--ink-muted);
 }
 
 .tr-iconbtn--glove {

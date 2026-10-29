@@ -23,8 +23,11 @@ function monogram(name: string): string {
     .split(/\s+/)
     .filter(Boolean);
   if (words.length === 0) return "?";
-  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
-  return (words[0][0] + words[1][0]).toUpperCase();
+  // By code point, not UTF-16 unit, so a character outside the basic
+  // plane is never cut in half.
+  const chars = words.map((w) => Array.from(w));
+  if (words.length === 1) return chars[0].slice(0, 2).join("").toUpperCase();
+  return (chars[0][0] + chars[1][0]).toUpperCase();
 }
 
 // The tile is decoration: the name is read once, from the visible line or

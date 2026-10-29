@@ -29,4 +29,11 @@ describe("Timeline", () => {
     expect(second.querySelector(".tr-timeline__dot")).toHaveAttribute("aria-hidden", "true");
     expect(second.querySelector(".tr-timeline__dot--critical svg")).not.toBeNull();
   });
+
+  // WebKit drops list semantics from a list styled list-style: none, and
+  // VoiceOver then reads no count, as DataTable's card list says.
+  it("keeps its list role for VoiceOver", () => {
+    render(<Timeline items={[{ id: "a", when: "08:00", title: "Fitted" }]} />);
+    expect(screen.getByRole("list")).toHaveAttribute("role", "list");
+  });
 });

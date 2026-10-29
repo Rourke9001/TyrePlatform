@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { IconButton } from "./IconButton";
+import iconCss from "./IconButton.css?raw";
 import { CloseIcon } from "./icons/Close";
 
 describe("IconButton", () => {
@@ -43,5 +44,12 @@ describe("IconButton", () => {
     );
     expect(screen.getByRole("button", { name: "Close" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Refresh" })).toBeInTheDocument();
+  });
+
+  // jsdom applies no CSS, so the disabled look is read from the sheet.
+  it("looks disabled when disabled, with no hover tint", () => {
+    const bare = iconCss.replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(bare).toMatch(/\.tr-iconbtn:disabled \{[^}]*cursor: not-allowed;/);
+    expect(bare).not.toMatch(/:hover \{/);
   });
 });

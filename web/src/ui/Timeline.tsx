@@ -36,7 +36,8 @@ export interface TimelineProps extends HTMLAttributes<HTMLOListElement> {
 // colour, so it is hidden (NFR-USE-009).
 export function Timeline({ items, className, ...rest }: TimelineProps) {
   return (
-    <ol className={cx("tr-timeline", className)} {...rest}>
+    // role="list" for WebKit, as DataTable.tsx's card list says.
+    <ol role="list" className={cx("tr-timeline", className)} {...rest}>
       {items.map((item) => {
         const tone = item.tone ?? "neutral";
         return (
