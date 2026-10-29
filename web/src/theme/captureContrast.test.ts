@@ -29,7 +29,7 @@ const ON_FILL: [ColorToken, ColorToken, number][] = [
   ["on-brand", "brand", 4.5],
 ];
 
-// A tile's border, an alert's bar, the active ring and field.
+// A tile's border, an alert's bar, the active ring and field, a ticked box.
 const MARKS: ColorToken[] = [
   "ok-text",
   "warn-text",
@@ -83,10 +83,9 @@ function unchecked(files: Record<string, string> = sheets): string[] {
                 ? [...GROUNDS, ...FILLS, DIVIDER, ...(pressed ? PRESSED : [])]
                 : /^(?:border|outline|box-shadow)/.test(property)
                   ? [...MARKS, DIVIDER, ...own]
-                  : // The checkbox's tick is drawn by the browser to contrast
-                    // with the brand fill it sets.
+                  : // A ticked box's fill is the state, so it is a mark.
                     property === "accent-color"
-                    ? ["brand"]
+                    ? MARKS
                     : [];
           if (!allowed.includes(token)) {
             out.push(`${file}: ${rule.selectors.join(", ")} { ${property}: --${token} }`);
@@ -150,6 +149,7 @@ describe("the capture contrast check catches each planted case", () => {
     ["a dimmed rule", ".x { opacity: 0.6; }"],
     ["a dimmed rule in percent", ".x { opacity: 60%; }"],
     ["a filtered rule", ".x { filter: brightness(0.8); }"],
+    ["a box ticked in the brand", ".x { accent-color: var(--brand); }"],
   ])("%s", (_, css) => {
     expect(unchecked({ [planted]: css })).not.toEqual([]);
   });

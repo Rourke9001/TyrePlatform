@@ -608,13 +608,15 @@
 
 /* Scaled up rather than replaced by a styled span: a real checkbox keeps the
    ticked/unticked distinction in shape, which is the non-colour channel
-   NFR-USE-009 asks for, and keeps the control keyboard-operable for free. */
+   NFR-USE-009 asks for, and keeps the control keyboard-operable for free.
+   The tick is a state, so it fills in --interactive, which holds 4.5:1 on
+   every capture ground; a tenant brand does not (IR-UI-005, U53). */
 .cap-check {
   flex: none;
   width: 28px;
   height: 28px;
   margin: 0;
-  accent-color: var(--brand);
+  accent-color: var(--interactive);
 }
 
 /* The motive unit's box is disabled because it cannot be unticked
