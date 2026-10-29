@@ -63,6 +63,8 @@ export function PhotoGallery({
     if (at !== -1) setOpen(photos[(at + by + count) % count].id);
   };
   const onArrow = useEffectEvent((e: KeyboardEvent) => {
+    // A modified arrow is the browser's, as SegmentedControl's comment says.
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     if (e.key === "ArrowRight") step(1);
     else if (e.key === "ArrowLeft") step(-1);
   });
