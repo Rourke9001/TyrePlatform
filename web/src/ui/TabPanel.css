@@ -3,3 +3,9 @@
 .tr-tabpanel {
   padding-top: var(--space-4);
 }
+
+/* A class that sets display, such as tr-stack, outranks the browser's own
+   [hidden] rule, so an inactive panel restates it. */
+.tr-tabpanel[hidden] {
+  display: none;
+}

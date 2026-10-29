@@ -25,6 +25,12 @@
   white-space: nowrap;
 }
 
+/* The list scrolls, which clips an outline drawn outside a tab, so the
+   ring is drawn inside it. */
+.tr-tab:focus-visible {
+  outline-offset: -3px;
+}
+
 .tr-tab:hover,
 .tr-tab[aria-selected="true"] {
   color: var(--ink);
