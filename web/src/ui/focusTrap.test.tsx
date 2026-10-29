@@ -85,4 +85,54 @@ describe("useFocusTrap", () => {
     await user.tab({ shift: true });
     expect(panel).toHaveFocus();
   });
+
+  // A control the trap lists can still refuse focus: one in a disabled
+  // fieldset, a closed details, or a display: none box. Tab moves past it.
+  it("passes over a stop that refuses focus, both ways", async () => {
+    const user = userEvent.setup();
+    render(
+      <Trap name="Pending" onEscape={() => undefined}>
+        <button type="button">Before</button>
+        <fieldset disabled>
+          <input aria-label="Amount" />
+        </fieldset>
+        <button type="button">Save</button>
+      </Trap>,
+    );
+    const before = screen.getByRole("button", { name: "Before" });
+    const save = screen.getByRole("button", { name: "Save" });
+    before.focus();
+    await user.tab();
+    expect(save).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(before).toHaveFocus();
+  });
+
+  // A caller may pass returnTo as an object built in render; the trap must
+  // not reopen on every render, or a typed field loses focus each key.
+  it("keeps focus in a field when returnTo is a new object on every render", async () => {
+    const user = userEvent.setup();
+    function Typing() {
+      const [opener, setOpener] = useState<HTMLButtonElement | null>(null);
+      const [value, setValue] = useState("");
+      const ref = useRef<HTMLDivElement>(null);
+      useFocusTrap(ref, true, () => undefined, { current: opener });
+      return (
+        <>
+          <button type="button" ref={setOpener}>
+            Opener
+          </button>
+          <div ref={ref} role="dialog" aria-label="Typing" tabIndex={-1}>
+            <input aria-label="Note" value={value} onChange={(e) => setValue(e.target.value)} />
+          </div>
+        </>
+      );
+    }
+    render(<Typing />);
+    const note = screen.getByRole("textbox", { name: "Note" });
+    await user.click(note);
+    await user.keyboard("12");
+    expect(note).toHaveValue("12");
+    expect(note).toHaveFocus();
+  });
 });

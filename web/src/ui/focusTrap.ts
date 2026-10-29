@@ -35,6 +35,9 @@ export function useFocusTrap(
   returnTo?: RefObject<HTMLElement | null>,
 ): void {
   const escape = useEffectEvent(onEscape);
+  // Read through an effect event, so a returnTo built in render does not
+  // reopen the trap on every render.
+  const returnTarget = useEffectEvent(() => returnTo?.current ?? null);
   const opener = useRef<HTMLElement | null>(null);
   // Insertion effects run before React applies a child's autoFocus or any
   // child's mount effect, so the opener still holds focus here (TYRE-275
@@ -46,7 +49,7 @@ export function useFocusTrap(
   useEffect(() => {
     const root = ref.current;
     if (!active || root === null) return;
-    const back = returnTo?.current ?? opener.current;
+    const back = returnTarget() ?? opener.current;
     open.push(root);
     if (!root.contains(document.activeElement)) root.focus();
     const innermost = () => open[open.length - 1] === root;
@@ -70,12 +73,20 @@ export function useFocusTrap(
         root.focus();
         return;
       }
+      const n = stops.length;
       const at =
         document.activeElement instanceof HTMLElement ? stops.indexOf(document.activeElement) : -1;
+      const step = event.shiftKey ? -1 : 1;
       // From the panel itself (at -1), Tab goes to the first stop and
-      // Shift+Tab to the last.
-      const back = at <= 0 ? stops.length - 1 : at - 1;
-      stops[event.shiftKey ? back : (at + 1) % stops.length].focus();
+      // Shift+Tab to the last. A stop in a disabled fieldset, a closed
+      // details or a hidden box refuses focus, so the next one is tried.
+      let next = at === -1 ? (event.shiftKey ? n - 1 : 0) : (at + step + n) % n;
+      for (let tried = 0; tried < n; tried++) {
+        stops[next].focus();
+        if (document.activeElement === stops[next]) return;
+        next = (next + step + n) % n;
+      }
+      root.focus();
     };
     // A screen reader's cursor or a script can still move focus out.
     const onFocusIn = (event: FocusEvent) => {
@@ -91,5 +102,5 @@ export function useFocusTrap(
       open.splice(open.indexOf(root), 1);
       if (back?.isConnected) back.focus();
     };
-  }, [active, ref, returnTo]);
+  }, [active, ref]);
 }
