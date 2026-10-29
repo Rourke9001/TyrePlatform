@@ -247,13 +247,14 @@ export default tseslint.config(
       "@typescript-eslint/no-restricted-imports": ["error", { patterns: [dexieBan, uiBans] }],
     },
   },
+  // Capture imports format/ statically, so it is entry code too.
   {
     files: ["src/format/**/*.{ts,tsx}"],
     ignores: testFiles,
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
-        { patterns: [dexieBan, pureLayerBans, pureBans] },
+        { patterns: [dexieBan, pureLayerBans, pureBans, entryForbidden] },
       ],
     },
   },
@@ -271,8 +272,8 @@ export default tseslint.config(
     files: [
       "src/{capture,driver,shell,auth}/**/*.{ts,tsx}",
       // main.tsx imports these folders statically, and App.tsx the manager
-      // shell, so each is entry code. So are domain/ and format/, held by
-      // their stricter blocks above.
+      // shell, so each is entry code. format/'s block above carries the
+      // same bans.
       "src/{theme,api,time,units}/**/*.{ts,tsx}",
       "src/dashboard/AppShell.tsx",
       "src/App.tsx",
