@@ -65,6 +65,8 @@ const FILLS = ON_FILL.map(([, fill]) => fill);
 const isBackground = (property: string) =>
   property === "background" || property === "background-color";
 
+const isMark = (property: string) => /^(?:border|outline|box-shadow)/.test(property);
+
 // The colour tokens a value reads; space, type and radius tokens are not
 // colours.
 function tokensIn(value: string): ColorToken[] {
@@ -149,7 +151,10 @@ function unchecked(files: Record<string, string> = sheets): string[] {
       const decls = declarations(rule.body);
       const own = decls.filter((d) => isBackground(d.property)).flatMap((d) => tokensIn(d.value));
       const solid = decls
-        .filter((d) => !d.value.includes("color-mix("))
+        .filter(
+          (d) =>
+            (isMark(d.property) || isBackground(d.property)) && !d.value.includes("color-mix("),
+        )
         .flatMap((d) => tokensIn(d.value));
       for (const { property, value } of decls) {
         if (/-(?:radius|width|style)$/.test(property)) continue;
@@ -163,16 +168,16 @@ function unchecked(files: Record<string, string> = sheets): string[] {
         // fillPairs works a mixed fill out against its text.
         if (isBackground(property) && MIX.test(value)) continue;
         // A see-through colour composites under its floor, so only a ring
-        // may use one, echoing a token the rule also draws solid.
+        // may use one, echoing a token the rule draws solid as a mark or a
+        // fill. That solid use takes the role check below.
         if (/color-mix\(.*\btransparent\b/.test(value)) {
           const ring = /^(?:box-shadow|outline)/.test(property);
-          const faint = tokensIn(value).filter((t) => !ring || !solid.includes(t));
-          for (const token of faint) {
+          for (const token of tokensIn(value).filter((t) => !ring || !solid.includes(t))) {
             out.push(
               `${file}: ${rule.selectors.join(", ")} { ${property}: see-through --${token} }`,
             );
           }
-          if (faint.length > 0) continue;
+          continue;
         }
         for (const token of tokensIn(value)) {
           const allowed =
@@ -180,7 +185,7 @@ function unchecked(files: Record<string, string> = sheets): string[] {
               ? [...TEXT, ...ON_FILL.filter(([, fill]) => own.includes(fill)).map(([text]) => text)]
               : isBackground(property)
                 ? [...GROUNDS, ...FILLS, DIVIDER]
-                : /^(?:border|outline|box-shadow)/.test(property)
+                : isMark(property)
                   ? [...MARKS, DIVIDER, ...own]
                   : // A ticked box's fill is the state, so it is a mark.
                     property === "accent-color"
@@ -269,6 +274,14 @@ describe("the capture contrast check catches each planted case", () => {
     [
       "a see-through ring with no solid mark",
       ".x { box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive) 25%, transparent); }",
+    ],
+    [
+      "a see-through ring whose token only text draws solid",
+      ".x { color: var(--interactive); box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive) 25%, transparent); }",
+    ],
+    [
+      "a see-through ring in a text colour",
+      ".x { color: var(--ink-secondary); outline: 2px solid color-mix(in srgb, var(--ink-secondary) 50%, transparent); }",
     ],
   ])("%s", (_, css) => {
     expect(unchecked({ [planted]: css })).not.toEqual([]);
