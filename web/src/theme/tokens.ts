@@ -69,11 +69,15 @@ const colour = {
   "warn-text": ["#8a5300", "#ffc95c"],
   critical: ["#c4271b", "#ff6f61"],
   "on-critical": ["#ffffff", "#1f0604"],
-  "critical-text": ["#b0231a", "#ff8a7e"],
+  // IR-UI-005 (U157): off the artifact's values, in their hue, so capture's
+  // text clears 7:1 and its unmeasured mark 4.5:1 on every capture ground
+  // (captureContrast.test.ts).
+  "critical-text": ["#941e16", "#ffa39a"],
   "critical-soft": ["#fbe5e2", "#3a1513"],
   "warn-soft": ["#fdf0d2", "#3a2c0c"],
   "info-soft": ["#e6ecf2", "#1c2834"],
-  unmeasured: ["#8a9199", "#6d757d"],
+  // IR-UI-005 (U157), as critical-text above.
+  unmeasured: ["#64696f", "#91979d"],
   scrim: ["rgba(17, 20, 23, 0.45)", "rgba(0, 0, 0, 0.6)"],
   viewer: ["#0c0e10", "#0c0e10"],
   "on-viewer": ["#ffffff", "#ffffff"],
