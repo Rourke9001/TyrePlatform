@@ -92,6 +92,50 @@ describe("PhotoGallery", () => {
     expect(screen.queryByRole("button", { name: "Next photo" })).toBeNull();
   });
 
+  // TYRE-152 wires a live photo list: a refetch or a removal under an open
+  // viewer must not leave its trap holding Tab on the page (WCAG 2.1.2).
+  it("closes the viewer when its photo leaves the list, and Tab moves on", async () => {
+    const user = userEvent.setup();
+    const two = photos.slice(0, 2);
+    const { rerender } = render(
+      <>
+        <PhotoGallery photos={two} />
+        <button type="button">After the gallery</button>
+      </>,
+    );
+    await user.click(screen.getByRole("button", { name: "Open photo: LINK-A position 4" }));
+    rerender(
+      <>
+        <PhotoGallery photos={two.slice(0, 1)} />
+        <button type="button">After the gallery</button>
+      </>,
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    screen.getByRole("button", { name: "Open photo: LINK-A position 3" }).focus();
+    await user.tab();
+    expect(screen.getByRole("button", { name: "After the gallery" })).toHaveFocus();
+
+    // A photo that arrives later does not open a viewer by itself.
+    rerender(
+      <>
+        <PhotoGallery photos={[two[0], photos[2]]} />
+        <button type="button">After the gallery</button>
+      </>,
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps the open photo when the list changes around it", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<PhotoGallery photos={photos} />);
+    await user.click(screen.getByRole("button", { name: "Open photo: LINK-A position 4" }));
+    rerender(<PhotoGallery photos={photos.slice(1)} />);
+    expect(screen.getByRole("dialog", { name: "LINK-A position 4" })).toBeInTheDocument();
+    await user.keyboard("{ArrowRight}");
+    expect(screen.getByRole("dialog", { name: "LINK-B spare" })).toBeInTheDocument();
+  });
+
   it("passes unknown props to its list", () => {
     render(<PhotoGallery photos={photos} data-testid="gallery" />);
     expect(screen.getByRole("list")).toHaveAttribute("data-testid", "gallery");
