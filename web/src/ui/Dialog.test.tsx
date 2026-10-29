@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useRef, useState } from "react";
+import { Children, useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Dialog } from "./Dialog";
@@ -71,6 +71,26 @@ describe("Dialog", () => {
       >
         {pending && <p>Saving</p>}
         {null}
+      </Dialog>,
+    );
+    const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
+    expect(dialog).not.toHaveAttribute("aria-describedby");
+    expect(dialog.querySelector(".tr-dialog__body, .tr-dialog__desc")).toBeNull();
+  });
+
+  // React keeps "" as a child, so an empty description must be dropped by
+  // hand or it draws an empty paragraph and describes the dialog by it.
+  it("draws no description for an empty string", () => {
+    expect(Children.toArray("")).toEqual([""]);
+    render(
+      <Dialog
+        open
+        onClose={() => undefined}
+        title="Dispose tyre"
+        description=""
+        actions={<button type="button">Dispose</button>}
+      >
+        {""}
       </Dialog>,
     );
     const dialog = screen.getByRole("dialog", { name: "Dispose tyre" });
