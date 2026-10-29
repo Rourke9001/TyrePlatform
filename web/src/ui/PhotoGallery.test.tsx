@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it } from "vitest";
 
 import { PhotoGallery, type GalleryPhoto } from "./PhotoGallery";
+import galleryCss from "./PhotoGallery.css?raw";
 
 const photos: GalleryPhoto[] = [
   { id: "a", src: "data:image/png;base64,AA==", caption: "LINK-A position 3", meta: "today 07:42" },
@@ -139,5 +140,12 @@ describe("PhotoGallery", () => {
   it("passes unknown props to its list", () => {
     render(<PhotoGallery photos={photos} data-testid="gallery" />);
     expect(screen.getByRole("list")).toHaveAttribute("data-testid", "gallery");
+  });
+  // As AppShell's test of the same name: the viewer is near black in both
+  // themes, where the Daylight ring measures 2.27:1.
+  it("haloes the focus ring in the viewer", () => {
+    expect(galleryCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
+      /\.tr-viewer :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,
+    );
   });
 });

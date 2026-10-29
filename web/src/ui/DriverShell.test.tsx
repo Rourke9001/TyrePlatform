@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
 import { DriverShell } from "./DriverShell";
+import driverCss from "./DriverShell.css?raw";
 
 // Every stop Tab reaches, in order, from the top of the page until it cycles.
 async function tabStops(user: ReturnType<typeof userEvent.setup>): Promise<string[]> {
@@ -79,5 +80,11 @@ describe("DriverShell", () => {
     expect(within(banner).getByText("TRK-01")).toBeInTheDocument();
     await user.click(within(banner).getByRole("button", { name: "Back to the rig" }));
     expect(onBack).toHaveBeenCalledTimes(1);
+  });
+  // As AppShell's test of the same name: the bar carries the brand.
+  it("haloes the focus ring on the bar, which carries the brand", () => {
+    expect(driverCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
+      /\.tr-driver__bar :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,
+    );
   });
 });

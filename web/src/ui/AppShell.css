@@ -23,6 +23,12 @@
   background: var(--canvas);
 }
 
+/* U53's ring stays --interactive; a surface halo fills its offset so it
+   shows on the brand, against the surface (AppShell.test.tsx). */
+.tr-shell__top :focus-visible {
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
 .tr-shell__menu {
   position: relative;
   display: none;

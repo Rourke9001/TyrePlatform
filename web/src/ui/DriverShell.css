@@ -26,6 +26,11 @@
   color: var(--on-brand);
 }
 
+/* The halo AppShell.css gives its bar, for the same reason. */
+.tr-driver__bar :focus-visible {
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
 /* NFR-USE-004: a glove target. Its hover tint is the bar's own text
    colour, so it reads on any tenant's brand. */
 .tr-driver__back {
