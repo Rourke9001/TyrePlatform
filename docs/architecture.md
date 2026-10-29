@@ -317,3 +317,4 @@ draft sat on the phone does not strand it (U148).
 | [0019](adr/0019-web-calls-api-over-cors.md) | The web calls the API at its own origin, over CORS | Accepted |
 | [0020](adr/0020-tread-design-system.md) | The Tread design system replaces the TYRE-238 kit | Accepted |
 | [0021](adr/0021-governing-tread-definer-owner.md) | The governing-tread definer runs as the migrating role | Accepted |
+| [0022](adr/0022-frontend-layers.md) | The web app is held to four layers: data, transform, domain, presentation | Accepted |
