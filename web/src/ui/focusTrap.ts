@@ -49,7 +49,14 @@ export function useFocusTrap(
   useEffect(() => {
     const root = ref.current;
     if (!active || root === null) return;
-    const back = returnTarget() ?? opener.current;
+    let back = returnTarget() ?? opener.current;
+    // One update can close a trap and open this one, taking the control
+    // that held focus with it. The closing trap has put focus back on its
+    // own opener by now, so that is where this one returns it too.
+    if (back === null || back === document.body || !back.isConnected) {
+      const now = document.activeElement;
+      if (now instanceof HTMLElement && now !== document.body && !root.contains(now)) back = now;
+    }
     open.push(root);
     if (!root.contains(document.activeElement)) root.focus();
     const innermost = () => open[open.length - 1] === root;
