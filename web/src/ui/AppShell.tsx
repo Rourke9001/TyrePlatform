@@ -75,6 +75,9 @@ export function AppShell({
   // Open over a scrim, the drawer is modal: Tab stays in it, Escape closes
   // it, and focus goes back to Menu. On a desk the side nav is no overlay.
   const narrow = useMediaQuery(DRAWER_QUERY);
+  // A widen to the desk layout closes the drawer, so turning a tablet to
+  // landscape and back does not bring it back open over its scrim.
+  if (open && !narrow) setOpen(false);
   useFocusTrap(drawer, open && narrow, () => setOpen(false), menu);
 
   return (
