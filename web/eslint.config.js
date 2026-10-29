@@ -250,6 +250,8 @@ export default tseslint.config(
   {
     files: [
       "src/{capture,driver,shell,auth}/**/*.{ts,tsx}",
+      // App.tsx imports the manager shell statically, so it is entry code.
+      "src/dashboard/AppShell.tsx",
       "src/App.tsx",
       "src/main.tsx",
       "src/routes.tsx",
