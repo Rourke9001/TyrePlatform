@@ -1,8 +1,9 @@
-import { useEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
+import { useRef, type HTMLAttributes, type ReactNode } from "react";
 
 import { cx } from "./cx";
 import { Icon } from "./Icon";
 import { ChevronLeftIcon } from "./icons/ChevronLeft";
+import { useScrollPadding } from "./useScrollPadding";
 import "./DriverShell.css";
 
 export interface DriverShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
@@ -52,28 +53,13 @@ export function DriverShell({
   children,
   ...rest
 }: DriverShellProps) {
+  const bar = useRef<HTMLElement>(null);
   const foot = useRef<HTMLDivElement>(null);
-  const hasFooter = Boolean(footer);
-  // WCAG 2.4.11: the footer sticks to the bottom at whatever height its
-  // content takes, so the page's scroll padding follows it, and a control
-  // focus scrolls to stops above it, as base.css does for the bar.
-  useEffect(() => {
-    const el = foot.current;
-    if (!hasFooter || el === null || typeof ResizeObserver === "undefined") return;
-    const html = document.documentElement;
-    const observer = new ResizeObserver(() => {
-      const height = el.getBoundingClientRect().height;
-      html.style.setProperty("scroll-padding-bottom", `calc(${height}px + var(--space-2))`);
-    });
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      html.style.removeProperty("scroll-padding-bottom");
-    };
-  }, [hasFooter]);
+  useScrollPadding(bar, "top");
+  useScrollPadding(foot, "bottom", Boolean(footer));
   return (
     <div className={cx("tr-driver", className)} {...rest}>
-      <header className="tr-driver__bar">
+      <header ref={bar} className="tr-driver__bar">
         {onBack ? (
           <button type="button" className="tr-driver__back" aria-label={backLabel} onClick={onBack}>
             <Icon icon={ChevronLeftIcon} size={24} />

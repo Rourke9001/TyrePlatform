@@ -2,6 +2,7 @@ import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
+import { stubResize } from "../test/resize";
 import { DriverShell } from "./DriverShell";
 import driverCss from "./DriverShell.css?raw";
 
@@ -89,37 +90,42 @@ describe("DriverShell", () => {
   });
 
   // WCAG 2.4.11: the footer sticks to the bottom at the caller's height, so
-  // the page's scroll padding follows it. jsdom has no ResizeObserver and
-  // lays nothing out, so both are stood in.
+  // the page's scroll padding follows it.
   it("pads the page's scroll by the footer's height while it is shown", () => {
-    let resized: () => void = () => undefined;
-    vi.stubGlobal(
-      "ResizeObserver",
-      class {
-        constructor(callback: ResizeObserverCallback) {
-          resized = () => callback([], this as unknown as ResizeObserver);
-        }
-        observe = vi.fn();
-        disconnect = vi.fn();
-      },
-    );
-    const rect = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockReturnValue({ height: 96 } as DOMRect);
+    const layout = stubResize(96);
     const html = document.documentElement;
     try {
       const { unmount } = render(
         <DriverShell footer={<button type="button">Submit</button>}>Body</DriverShell>,
       );
-      act(() => resized());
+      act(() => layout.resize());
       expect(html.style.getPropertyValue("scroll-padding-bottom")).toBe(
         "calc(96px + var(--space-2))",
       );
       unmount();
       expect(html.style.getPropertyValue("scroll-padding-bottom")).toBe("");
     } finally {
-      vi.unstubAllGlobals();
-      rect.mockRestore();
+      layout.restore();
+    }
+  });
+
+  // The back button and its padding make the bar taller than the --appbar
+  // figure base.css pads by.
+  it("pads the page's scroll by the bar's height", () => {
+    const layout = stubResize(64);
+    const html = document.documentElement;
+    try {
+      const { unmount } = render(
+        <DriverShell onBack={() => undefined} barTitle="LINK-A">
+          Body
+        </DriverShell>,
+      );
+      act(() => layout.resize());
+      expect(html.style.getPropertyValue("scroll-padding-top")).toBe("calc(64px + var(--space-2))");
+      unmount();
+      expect(html.style.getPropertyValue("scroll-padding-top")).toBe("");
+    } finally {
+      layout.restore();
     }
   });
 });

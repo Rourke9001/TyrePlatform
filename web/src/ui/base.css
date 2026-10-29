@@ -38,8 +38,9 @@ body {
   outline-offset: 2px;
 }
 
-/* WCAG 2.4.11: both shells' bars stick to the top, so a control scrolled
-   into view by focus stops below the bar, not under it. */
+/* WCAG 2.4.11: both shells' bars stick to the top. This is the bar's
+   height before it is measured; each shell then pads by the height its bar
+   wraps to (useScrollPadding.ts). */
 html {
   scroll-padding-top: calc(var(--appbar) + var(--space-2));
 }
