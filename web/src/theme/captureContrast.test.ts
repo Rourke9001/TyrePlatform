@@ -162,15 +162,17 @@ function unchecked(files: Record<string, string> = sheets): string[] {
         }
         // fillPairs works a mixed fill out against its text.
         if (isBackground(property) && MIX.test(value)) continue;
-        // A see-through colour composites under its floor, so it may only
-        // echo a token the rule also draws solid.
+        // A see-through colour composites under its floor, so only a ring
+        // may use one, echoing a token the rule also draws solid.
         if (/color-mix\(.*\btransparent\b/.test(value)) {
-          for (const token of tokensIn(value).filter((t) => !solid.includes(t))) {
+          const ring = /^(?:box-shadow|outline)/.test(property);
+          const faint = tokensIn(value).filter((t) => !ring || !solid.includes(t));
+          for (const token of faint) {
             out.push(
               `${file}: ${rule.selectors.join(", ")} { ${property}: see-through --${token} }`,
             );
           }
-          continue;
+          if (faint.length > 0) continue;
         }
         for (const token of tokensIn(value)) {
           const allowed =
@@ -260,6 +262,10 @@ describe("the capture contrast check catches each planted case", () => {
     ["a box ticked in the brand", ".x { accent-color: var(--brand); }"],
     ["a fill's text with no fill", ".x { color: var(--on-warn); }"],
     ["a mixed text colour", ".x { color: color-mix(in srgb, var(--ink) 50%, var(--surface)); }"],
+    [
+      "see-through text beside a solid mark",
+      ".x { border-color: var(--ink); color: color-mix(in srgb, var(--ink) 60%, transparent); }",
+    ],
     [
       "a see-through ring with no solid mark",
       ".x { box-shadow: 0 0 0 3px color-mix(in srgb, var(--interactive) 25%, transparent); }",
