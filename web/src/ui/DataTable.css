@@ -92,7 +92,7 @@
   background: var(--surface-muted);
 }
 
-.tr-table tbody tr[data-clickable="true"] td:last-child {
+.tr-table tbody tr[data-clickable="true"] :is(td, th):last-child {
   position: relative;
   padding-right: var(--space-8);
 }
@@ -159,16 +159,9 @@
   font-weight: 700;
 }
 
-/* The title row is the card's own control, as wide as the card and the
-   44px floor tall (NFR-USE-004). The button lies over the row and covers
-   no term, so a control in a cell keeps its own tap. */
-.tr-tcards__head {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-height: var(--target-min);
-}
-
+/* The whole card is the row's control, as a desk row opens from any cell:
+   the button lies over it, chevron included, and a control in the card
+   sits above it and keeps its own tap. Text on a card cannot be selected. */
 .tr-tcards__hit {
   position: absolute;
   inset: 0;
@@ -178,9 +171,24 @@
   cursor: pointer;
 }
 
-/* A control in the title sits above the button and keeps its own tap. */
-.tr-tcards__title
-  :is(a, button, input, select, textarea, label, summary, [role="button"], [tabindex]) {
+/* The list scrolls inside its wrapper, which would clip a ring drawn
+   outside the card. */
+.tr-tcards__hit:focus-visible {
+  outline-offset: -3px;
+}
+
+.tr-tcards__card
+  :is(
+    a,
+    button:not(.tr-tcards__hit),
+    input,
+    select,
+    textarea,
+    label,
+    summary,
+    [role="button"],
+    [tabindex]
+  ) {
   position: relative;
   z-index: 1;
 }
