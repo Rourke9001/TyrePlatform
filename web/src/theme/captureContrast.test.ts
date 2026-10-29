@@ -287,6 +287,13 @@ describe("the capture contrast check catches each planted case", () => {
     expect(unchecked({ [planted]: css })).not.toEqual([]);
   });
 
+  // The real sheets show a ring echoing a border; this is the fill half.
+  it("lets a see-through ring echo its rule's own fill", () => {
+    const css =
+      ".x { background: var(--warn); color: var(--on-warn); box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent); }";
+    expect(unchecked({ [planted]: css })).toEqual([]);
+  });
+
   it.each([
     ["a fill with no text of its own", ".x { background: var(--warn); }"],
     ["a fill under another fill's text", ".x { background: var(--ok); color: var(--ink); }"],
