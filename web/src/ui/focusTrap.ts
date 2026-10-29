@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, type RefObject } from "react";
+import { useEffect, useEffectEvent, useInsertionEffect, useRef, type RefObject } from "react";
 
 const FOCUSABLE = [
   "a[href]",
@@ -24,9 +24,10 @@ const open: HTMLElement[] = [];
 // The Tread do-not-port row for Sheet and Dialog (docs/superpowers/specs/
 // 2026-10-26-tread-frontend-design.md): while active, Tab cycles inside
 // `ref`, Escape calls onEscape, and on release focus goes back to whatever
-// held it when the trap opened (WCAG 2.4.3). The panel takes focus itself,
-// so it needs tabIndex={-1}. Safari does not focus a button on click, so a
-// caller that knows its opener passes it as returnTo.
+// held it when the trap opened (WCAG 2.4.3). The panel takes focus itself
+// unless something inside took it first, so it needs tabIndex={-1}. Safari
+// does not focus a button on click, so a caller that knows its opener passes
+// it as returnTo.
 export function useFocusTrap(
   ref: RefObject<HTMLElement | null>,
   active: boolean,
@@ -34,13 +35,20 @@ export function useFocusTrap(
   returnTo?: RefObject<HTMLElement | null>,
 ): void {
   const escape = useEffectEvent(onEscape);
+  const opener = useRef<HTMLElement | null>(null);
+  // Insertion effects run before React applies a child's autoFocus or any
+  // child's mount effect, so the opener still holds focus here (TYRE-275
+  // item 1). The passive effect below runs too late to see it.
+  useInsertionEffect(() => {
+    if (!active) return;
+    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  }, [active]);
   useEffect(() => {
     const root = ref.current;
     if (!active || root === null) return;
-    const focused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const back = returnTo?.current ?? focused;
+    const back = returnTo?.current ?? opener.current;
     open.push(root);
-    root.focus();
+    if (!root.contains(document.activeElement)) root.focus();
     const innermost = () => open[open.length - 1] === root;
 
     // Every Tab is placed by hand, wrapping at both ends, so focus never

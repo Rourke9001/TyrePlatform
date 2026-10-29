@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { Dialog } from "./Dialog";
@@ -127,6 +127,73 @@ describe("Dialog", () => {
     await user.keyboard("{Escape}");
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("dialog")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
+  // TYRE-275 item 1, folded into TYRE-447: a field that takes focus as the
+  // dialog mounts keeps it, and the opener still gets focus back.
+  it("leaves focus on a body field that takes it on open, and returns focus to the opener", async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>
+            Record invoice
+          </button>
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            title="Record invoice"
+            actions={<button type="button">Save</button>}
+          >
+            <label>
+              Invoice number
+              <input autoFocus />
+            </label>
+          </Dialog>
+        </>
+      );
+    }
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Record invoice" });
+    await user.click(opener);
+    expect(screen.getByRole("textbox", { name: "Invoice number" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
+  // Safari does not focus a button on click, so focus is on the body when
+  // the dialog opens; the caller names the opener instead.
+  it("returns focus to returnTo when nothing held focus on open", async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const opener = useRef<HTMLButtonElement>(null);
+      return (
+        <>
+          <button type="button" ref={opener} onClick={() => setOpen(true)}>
+            Dispose
+          </button>
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            returnTo={opener}
+            title="Dispose tyre"
+            actions={<button type="button">Dispose it</button>}
+          />
+        </>
+      );
+    }
+    render(<Harness />);
+    const opener = screen.getByRole("button", { name: "Dispose" });
+    fireEvent.click(opener);
+    expect(opener).not.toHaveFocus();
+    expect(screen.getByRole("dialog", { name: "Dispose tyre" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
     expect(opener).toHaveFocus();
   });
 

@@ -1,4 +1,4 @@
-import { useId, useRef, type HTMLAttributes, type ReactNode } from "react";
+import { useId, useRef, type HTMLAttributes, type ReactNode, type RefObject } from "react";
 
 import { cx } from "./cx";
 import { useFocusTrap } from "./focusTrap";
@@ -33,6 +33,8 @@ interface ModalSheetProps extends SheetOwnProps {
   // Positions the overlay in its nearest positioned ancestor, not the
   // viewport.
   inline?: boolean;
+  // Takes focus back on close; see useFocusTrap for when a caller needs it.
+  returnTo?: RefObject<HTMLElement | null>;
 }
 
 // The capture tyre sheet is not modal (ADR-0020, U145): the rig stays
@@ -41,6 +43,7 @@ interface DockedSheetProps extends SheetOwnProps {
   modal: false;
   onClose?: () => void;
   inline?: never;
+  returnTo?: never;
 }
 
 export type SheetProps = ModalSheetProps | DockedSheetProps;
@@ -60,13 +63,14 @@ export function Sheet({
   closeLabel = "Close",
   modal = true,
   inline,
+  returnTo,
   className,
   children,
   ...rest
 }: SheetProps) {
   const panel = useRef<HTMLDivElement>(null);
   const titleId = useId();
-  useFocusTrap(panel, open && modal, () => onClose?.());
+  useFocusTrap(panel, open && modal, () => onClose?.(), returnTo);
   if (!open) return null;
 
   const naming = ariaLabel ? { "aria-label": ariaLabel } : { "aria-labelledby": titleId };

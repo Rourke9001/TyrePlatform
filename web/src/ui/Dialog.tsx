@@ -1,4 +1,11 @@
-import { Children, useId, useRef, type HTMLAttributes, type ReactNode } from "react";
+import {
+  Children,
+  useId,
+  useRef,
+  type HTMLAttributes,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { cx } from "./cx";
 import { useFocusTrap } from "./focusTrap";
@@ -22,6 +29,8 @@ export interface DialogProps extends Omit<HTMLAttributes<HTMLDivElement>, "title
   // A click on the scrim outside the panel calls onClose, as Escape does.
   // Off by default: a confirmation is answered by one of its actions.
   dismissOnBackdrop?: boolean;
+  // Takes focus back on close; see useFocusTrap for when a caller needs it.
+  returnTo?: RefObject<HTMLElement | null>;
 }
 
 // role="dialog", not the artifact's alertdialog: the screens it replaces
@@ -36,6 +45,7 @@ export function Dialog({
   tone = "default",
   inline,
   dismissOnBackdrop = false,
+  returnTo,
   className,
   ...rest
 }: DialogProps) {
@@ -45,7 +55,7 @@ export function Dialog({
   const pressedScrim = useRef(false);
   const titleId = useId();
   const describedId = useId();
-  useFocusTrap(panel, open, onClose);
+  useFocusTrap(panel, open, onClose, returnTo);
   if (!open) return null;
   // false, null and undefined render nothing, so they draw no element and
   // describe nothing.
