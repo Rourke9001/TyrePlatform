@@ -2,7 +2,8 @@
 // TYRE-445, TYRE-27: a colour reaches a component only through custom
 // properties. themeCss writes them from web/src/theme/tokens.ts, and
 // ThemeProvider writes the four brand ones from tenant configuration. This
-// refuses a hex, rgb() or hsl() literal anywhere else in web/src.
+// refuses a hex literal, a colour function or a named colour anywhere else
+// in web/src.
 import {
   mkdirSync,
   mkdtempSync,
@@ -16,7 +17,44 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const LITERAL = /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/g;
+const LITERAL =
+  /#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(|\b(?:oklch|oklab|lab|lch|hwb|color)\(/g;
+// CSS's named colours. transparent and currentColor name no colour of their
+// own, so they stay allowed.
+const NAMED = `
+  aliceblue antiquewhite aqua aquamarine azure beige bisque black
+  blanchedalmond blue blueviolet brown burlywood cadetblue chartreuse
+  chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan
+  darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta
+  darkolivegreen darkorange darkorchid darkred darksalmon darkseagreen
+  darkslateblue darkslategray darkslategrey darkturquoise darkviolet
+  deeppink deepskyblue dimgray dimgrey dodgerblue firebrick floralwhite
+  forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green
+  greenyellow grey honeydew hotpink indianred indigo ivory khaki lavender
+  lavenderblush lawngreen lemonchiffon lightblue lightcoral lightcyan
+  lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon
+  lightseagreen lightskyblue lightslategray lightslategrey lightsteelblue
+  lightyellow lime limegreen linen magenta maroon mediumaquamarine
+  mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue
+  mediumspringgreen mediumturquoise mediumvioletred midnightblue mintcream
+  mistyrose moccasin navajowhite navy oldlace olive olivedrab orange
+  orangered orchid palegoldenrod palegreen paleturquoise palevioletred
+  papayawhip peachpuff peru pink plum powderblue purple rebeccapurple red
+  rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna
+  silver skyblue slateblue slategray slategrey snow springgreen steelblue
+  tan teal thistle tomato turquoise violet wheat white whitesmoke yellow
+  yellowgreen
+`
+  .trim()
+  .split(/\s+/)
+  .join("|");
+// In a stylesheet, a named colour in a declaration's value; in a component,
+// a string that is a named colour and nothing else.
+const CSS_NAMED = new RegExp(
+  String.raw`(?<=:[^;{}]*)(?<![-\w.#])(?:${NAMED})(?![-\w])`,
+  "gi",
+);
+const TS_NAMED = new RegExp(String.raw`(["'\`])(?:${NAMED})\1`, "gi");
 const ENTITY = /&#x?[0-9a-fA-F]+;/g;
 const SCANNED = /\.(ts|tsx|css)$/;
 
@@ -57,14 +95,18 @@ function code(text, css) {
   return out.join("").replace(ENTITY, (m) => " ".repeat(m.length));
 }
 
+// The whole file is matched at once, so a value that runs onto the next
+// line is still read.
 function scanFile(rel, text) {
+  const css = rel.endsWith(".css");
+  const body = code(text, css);
   const found = [];
-  code(text, rel.endsWith(".css"))
-    .split("\n")
-    .forEach((line, i) => {
-      for (const m of line.matchAll(LITERAL))
-        found.push(`${rel}:${i + 1}: ${m[0]}`);
-    });
+  for (const pattern of [LITERAL, css ? CSS_NAMED : TS_NAMED]) {
+    for (const m of body.matchAll(pattern)) {
+      const line = body.slice(0, m.index).split("\n").length;
+      found.push(`${rel}:${line}: ${m[0]}`);
+    }
+  }
   return found;
 }
 
@@ -106,6 +148,22 @@ if (process.argv.includes("--self-test")) {
         'const ellipsis = "&#8230;";',
       ].join("\n"),
     );
+    plant(
+      "ui/keywords.css",
+      [
+        ".tan { white-space: nowrap; color: transparent; }",
+        ".a { border-color: currentColor; }",
+        ".b { background: color-mix(in srgb, var(--warn) 80%, var(--ink)); }",
+      ].join("\n"),
+    );
+    plant(
+      "ui/Words.tsx",
+      [
+        "const c = bandColor(1);",
+        'const label = "Red tyre";',
+        'const k = "green-ish";',
+      ].join("\n"),
+    );
     plant("theme/tokens.ts", 'export const ink = "#111417";\n');
     plant("theme/fonts.css", '@font-face { src: url("./a.woff2"); }\n');
     plant("ui/Box.test.tsx", 'const c = "#ffffff";\n');
@@ -123,12 +181,38 @@ if (process.argv.includes("--self-test")) {
         'const a = { color: "rgba(0, 0, 0, 0.5)" };',
         "const b = `hsl(${1}, 50%, 50%)`;",
         "// */",
+        'const d = <path fill="white" />;',
+        "const e = { color: 'Tomato' };",
+      ].join("\n"),
+    );
+    plant(
+      "ui/named.css",
+      [
+        ".a { color: red; }",
+        ".b {",
+        "  box-shadow:",
+        "    0 0 0 1px black;",
+        "}",
+        ".c { background: oklch(70% 0.1 200); }",
+        ".d { outline-color: color(display-p3 1 0 0); }",
+        ".e { fill: lab(50% 40 59); border-color: hwb(0 0% 0%); }",
+        ".f { color: lch(50% 40 60); stroke: oklab(0.6 0.1 0.1); }",
       ].join("\n"),
     );
     const want = [
       "ui/planted.css:2: #123456",
       "ui/Planted.tsx:2: rgba(",
       "ui/Planted.tsx:3: hsl(",
+      'ui/Planted.tsx:5: "white"',
+      "ui/Planted.tsx:6: 'Tomato'",
+      "ui/named.css:1: red",
+      "ui/named.css:4: black",
+      "ui/named.css:6: oklch(",
+      "ui/named.css:7: color(",
+      "ui/named.css:8: lab(",
+      "ui/named.css:8: hwb(",
+      "ui/named.css:9: lch(",
+      "ui/named.css:9: oklab(",
     ];
     const got = scanTree(dir).found.sort();
     if (JSON.stringify(got) !== JSON.stringify(want.sort())) {
