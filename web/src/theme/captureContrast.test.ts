@@ -57,9 +57,9 @@ function tokensIn(value: string): string[] {
 
 // Each colour a capture stylesheet reads, with the role this file checks it
 // in, or "unchecked" when no table above holds that use.
-function unchecked(): string[] {
+function unchecked(files: Record<string, string> = sheets): string[] {
   const out: string[] = [];
-  for (const [file, css] of Object.entries(sheets)) {
+  for (const [file, css] of Object.entries(files)) {
     for (const rule of cssRules(css)) {
       const decls = declarations(rule.body);
       const own = decls
@@ -68,6 +68,13 @@ function unchecked(): string[] {
       const pressed = rule.selectors.every((s) => s.includes(":active"));
       for (const { property, value } of decls) {
         if (/-(?:radius|width|style)$/.test(property)) continue;
+        // Dimming takes text and marks under their floors by an amount no
+        // token states: TYRE-155's absent spare read at 3.19:1.
+        const alpha = value.endsWith("%") ? parseFloat(value) / 100 : parseFloat(value);
+        if ((property === "opacity" && alpha < 1) || property === "filter") {
+          out.push(`${file}: ${rule.selectors.join(", ")} { ${property}: ${value} }`);
+          continue;
+        }
         for (const token of tokensIn(value)) {
           const allowed =
             property === "color"
@@ -133,5 +140,17 @@ describe("capture contrast (IR-UI-005)", () => {
       }
     }
     expect(short).toEqual([]);
+  });
+});
+
+describe("the capture contrast check catches each planted case", () => {
+  const planted = "/src/capture/planted.css";
+
+  it.each([
+    ["a dimmed rule", ".x { opacity: 0.6; }"],
+    ["a dimmed rule in percent", ".x { opacity: 60%; }"],
+    ["a filtered rule", ".x { filter: brightness(0.8); }"],
+  ])("%s", (_, css) => {
+    expect(unchecked({ [planted]: css })).not.toEqual([]);
   });
 });

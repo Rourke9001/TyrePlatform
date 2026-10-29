@@ -120,9 +120,9 @@
 }
 
 /* TYRE-155: settled, not flagged. The strike-through is the words-not-colour
-   half (NFR-USE-009) of a state the accessible name already says. */
+   half (NFR-USE-009) of a state the accessible name already says. It is not
+   dimmed: "No spare" holds 7:1 like any capture text (IR-UI-005). */
 .cap-pos.is-absent {
-  opacity: 0.6;
   text-decoration: line-through;
 }
 
