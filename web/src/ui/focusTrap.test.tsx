@@ -108,6 +108,43 @@ describe("useFocusTrap", () => {
     expect(before).toHaveFocus();
   });
 
+  // TYRE-275 item 1: a diagram's position can be an SVG control.
+  it("returns focus to an SVG opener", async () => {
+    const user = userEvent.setup();
+    function Diagram() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <svg>
+            <g
+              role="button"
+              tabIndex={0}
+              aria-label="Position 3"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") setOpen(true);
+              }}
+            />
+          </svg>
+          {open && (
+            <Trap name="Position 3" onEscape={() => setOpen(false)}>
+              <button type="button">Fit a tyre</button>
+            </Trap>
+          )}
+        </>
+      );
+    }
+    render(<Diagram />);
+    const opener = screen.getByRole("button", { name: "Position 3" });
+    await user.tab();
+    expect(opener).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("dialog", { name: "Position 3" })).toHaveFocus();
+
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(opener).toHaveFocus();
+  });
+
   // A caller may pass returnTo as an object built in render; the trap must
   // not reopen on every render, or a typed field loses focus each key.
   it("keeps focus in a field when returnTo is a new object on every render", async () => {

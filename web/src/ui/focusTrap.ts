@@ -17,6 +17,15 @@ function tabbable(root: HTMLElement): HTMLElement[] {
   );
 }
 
+// An SVG control, such as a diagram's position, can open a trap too
+// (TYRE-275 item 1).
+type Opener = HTMLElement | SVGElement;
+
+function focused(): Opener | null {
+  const el = document.activeElement;
+  return el instanceof HTMLElement || el instanceof SVGElement ? el : null;
+}
+
 // Every trap open now, innermost last. Only the innermost acts on a key or
 // a stray focus, so a dialog opened over a sheet does not fight it for focus.
 const open: HTMLElement[] = [];
@@ -32,19 +41,19 @@ export function useFocusTrap(
   ref: RefObject<HTMLElement | null>,
   active: boolean,
   onEscape: () => void,
-  returnTo?: RefObject<HTMLElement | null>,
+  returnTo?: RefObject<Opener | null>,
 ): void {
   const escape = useEffectEvent(onEscape);
   // Read through an effect event, so a returnTo built in render does not
   // reopen the trap on every render.
   const returnTarget = useEffectEvent(() => returnTo?.current ?? null);
-  const opener = useRef<HTMLElement | null>(null);
+  const opener = useRef<Opener | null>(null);
   // Insertion effects run before React applies a child's autoFocus or any
   // child's mount effect, so the opener still holds focus here (TYRE-275
   // item 1). The passive effect below runs too late to see it.
   useInsertionEffect(() => {
     if (!active) return;
-    opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    opener.current = focused();
   }, [active]);
   useEffect(() => {
     const root = ref.current;
@@ -54,8 +63,8 @@ export function useFocusTrap(
     // that held focus with it. The closing trap has put focus back on its
     // own opener by now, so that is where this one returns it too.
     if (back === null || back === document.body || !back.isConnected) {
-      const now = document.activeElement;
-      if (now instanceof HTMLElement && now !== document.body && !root.contains(now)) back = now;
+      const now = focused();
+      if (now !== null && now !== document.body && !root.contains(now)) back = now;
     }
     open.push(root);
     if (!root.contains(document.activeElement)) root.focus();
@@ -107,6 +116,7 @@ export function useFocusTrap(
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("focusin", onFocusIn);
       open.splice(open.indexOf(root), 1);
+      opener.current = null;
       if (back?.isConnected) back.focus();
     };
   }, [active, ref]);

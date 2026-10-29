@@ -34,7 +34,7 @@ interface ModalSheetProps extends SheetOwnProps {
   // viewport.
   inline?: boolean;
   // Takes focus back on close; see useFocusTrap for when a caller needs it.
-  returnTo?: RefObject<HTMLElement | null>;
+  returnTo?: RefObject<HTMLElement | SVGElement | null>;
 }
 
 // The capture tyre sheet is not modal (ADR-0020, U145): the rig stays
