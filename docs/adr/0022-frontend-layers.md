@@ -71,15 +71,16 @@ by eslint `no-restricted-imports` and `no-restricted-globals`:
   beside them so two features never edit one file), and, for capture,
   `capture/outbox.ts`, `capture/draft.ts` and their hooks. Only `src/api/`
   calls `fetch`, and only the outbox and draft open Dexie.
-- **Transform** is `src/format/`, `src/time/` and each feature's
-  `*.view.ts`: pure functions from wire shapes to what a screen shows,
-  tested without React. A transform imports from domain and other
-  transforms only.
+- **Transform** is `src/format/` and each feature's `*.view.ts`: pure
+  functions from wire shapes to what a screen shows, tested without React.
+  A transform imports from domain and other transforms only.
 - **Domain** is `src/domain/`: types and vocabulary, with
   `ui/vocabulary.ts` moved into it. It holds no tyre business rule. It
   imports nothing from the other layers.
 - **Presentation** is `src/ui/` (Tread's components) and the feature
-  folders' screens. `src/ui/` imports only `src/theme/`, `src/format/` and
+  folders' screens, with the hooks the screens call: `src/time/` and
+  `src/units/` are React hooks over the signed-in actor, not transforms.
+  `src/ui/` imports only `src/theme/`, `src/format/` and
   domain, never `api/`, `auth/`, `units/`, `time/` (both read the actor)
   or a feature. A screen reads data through a
   hook and renders a view model; it never calls `fetch`.

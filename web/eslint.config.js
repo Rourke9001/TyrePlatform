@@ -131,6 +131,13 @@ const pureBans = {
     "src/domain/ and src/format/ are plain functions, tested without React, and import no component (ADR-0022).",
 };
 
+// The same folders as uiBans, refused with domain and format's own reason.
+const pureLayerBans = {
+  ...uiBans,
+  message:
+    "src/domain/ and src/format/ import only each other and src/theme/ (ADR-0022). units/ and time/ are hooks over the actor, so the screen passes the formatted string.",
+};
+
 // TYRE-443: the capture entry carries no manager component. The rule reads
 // static imports alone, so a lazy route's import() passes. Patterns match
 // as gitignore globs, which have no brace expansion, so each manager-only
@@ -243,7 +250,7 @@ export default tseslint.config(
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
-        { patterns: [dexieBan, uiBans, pureBans] },
+        { patterns: [dexieBan, pureLayerBans, pureBans] },
       ],
     },
   },
