@@ -24,7 +24,7 @@ const sources = import.meta.glob<string>(
 // After wave 0 a lane that needs another entry asks the orchestrator
 // (TYRE-443).
 const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
-  // Today's screens: filled buttons, the go key and the confirm tick.
+  // Today's screens: filled buttons and the go key.
   "/src/auth/auth.css": {
     ".auth-primary": ["border", "background", "color"],
     '.auth-primary:hover:not([aria-disabled="true"])': ["background", "border-color"],
@@ -33,7 +33,6 @@ const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
   "/src/capture/capture.css": {
     ".cap-key--go": ["border-color", "background", "color"],
     ".cap-key--go:active": ["background"],
-    ".cap-check": ["accent-color"],
     ".cap-primary": ["border", "background", "color"],
     ".cap-primary:active": ["background", "border-color"],
   },
