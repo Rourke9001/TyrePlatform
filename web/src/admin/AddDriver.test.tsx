@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 import { AddDriver } from "./AddDriver";
+import adminCss from "./admin.css?raw";
 import { renderWithActor, requestedUrl, respond, sentBody } from "../test/fixtures";
 
 // Capabilities rather than a role name: the screen branches on useCan
@@ -151,6 +152,12 @@ describe("adding a driver", () => {
     await fillAndSubmit();
 
     const again = await screen.findByRole("button", { name: /reactivate/i });
+    // The address can be wider than a phone's column, so the label wraps.
+    // jsdom lays nothing out, so the rule is read from the sheet.
+    expect(again).toHaveClass("adm-reactivate");
+    expect(adminCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
+      /\.adm-page \.adm-reactivate \{[^}]*white-space: normal;/,
+    );
     await userEvent.click(again);
 
     expect(await screen.findByRole("status")).toHaveTextContent(/was restored/);
