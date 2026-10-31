@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import analyticsCss from "./analytics.css?raw";
 import unitListCss from "./dashboard.css?raw";
+import pageHeadCss from "../ui/PageHeader.css?raw";
 
 // jsdom lays nothing out, so a target size or a clip is read from the rule
 // the class carries.
@@ -30,6 +31,14 @@ describe("the unit list's sheet", () => {
       /border-radius:\s*var\(--radius-lg\);/,
     );
     expect(code.indexOf("li:only-child")).toBeGreaterThan(code.indexOf("li:last-child"));
+  });
+});
+
+describe("the unit search", () => {
+  // jsdom lays nothing out, so the two rules that size it are read.
+  it("takes a definite width that a phone's header can shrink", () => {
+    expect(ruleBody(unitListCss, ".unit-search")).toMatch(/width:\s*24rem;\s*max-width:\s*100%/);
+    expect(ruleBody(pageHeadCss, ".tr-pagehead__actions")).toMatch(/min-width:\s*0/);
   });
 });
 
