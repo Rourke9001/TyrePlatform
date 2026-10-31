@@ -288,11 +288,9 @@ export default tseslint.config(
   {
     files: [
       "src/{capture,driver,shell,auth}/**/*.{ts,tsx}",
-      // main.tsx imports these folders statically, and App.tsx the manager
-      // shell, so each is entry code. format/'s block above carries the
-      // same bans.
+      // main.tsx imports these folders statically, so each is entry code.
+      // format/'s block above carries the same bans.
       "src/{theme,api,time,units}/**/*.{ts,tsx}",
-      "src/dashboard/AppShell.tsx",
       "src/App.tsx",
       "src/main.tsx",
       "src/routes.tsx",
@@ -317,7 +315,7 @@ export default tseslint.config(
   // entry folder keeps the entry's bans.
   {
     files: ["src/**/*.view.ts"],
-    ignores: ["src/{capture,driver,shell,auth}/**", ...testFiles],
+    ignores: ["src/{capture,driver,shell,auth,theme,api,time,units}/**", ...testFiles],
     rules: {
       "@typescript-eslint/no-restricted-imports": [
         "error",
