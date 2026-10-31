@@ -89,7 +89,6 @@ export function DriverShell({
         <nav aria-label="Main" className="tr-driver__nav">
           {nav.map((item) => (
             <Link key={item.to} to={item.to} className="tr-driver__nav-link">
-              <Icon icon={ChevronLeftIcon} />
               {item.label}
             </Link>
           ))}
