@@ -58,7 +58,7 @@
    classes on the button, so it beats Button.css's hover fill. */
 .route-error .tr-btn.tr-btn--secondary[aria-disabled="true"] {
   background: var(--surface-muted);
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   border-color: var(--line);
   cursor: not-allowed;
 }
