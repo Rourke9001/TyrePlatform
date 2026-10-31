@@ -57,20 +57,14 @@ export interface DataTableProps<T> extends HTMLAttributes<HTMLDivElement> {
 // WCAG 2.1.1: a table wider than its box scrolls inside it, and a box with
 // nothing focusable in it is out of a keyboard's reach, so it is a named
 // region in the tab order.
+const scrollRegion = (label: string) => ({ role: "region", "aria-label": label, tabIndex: 0 });
+
 export function TableScroll({
   label,
   className,
   ...rest
 }: HTMLAttributes<HTMLDivElement> & { label: string }) {
-  return (
-    <div
-      role="region"
-      aria-label={label}
-      tabIndex={0}
-      {...rest}
-      className={cx("tr-table-wrap", className)}
-    />
-  );
+  return <div {...scrollRegion(label)} {...rest} className={cx("tr-table-wrap", className)} />;
 }
 
 const SKELETON_ROWS = [0, 1, 2, 3];
@@ -126,17 +120,18 @@ export function DataTable<T>({
         {loading ? `Loading ${caption}` : ""}
       </p>
     );
-  const frame = (body: ReactNode) => (
-    <div className={cx("tr-table-wrap", className)} {...rest}>
+  // One host element on every path, so the status line keeps its node
+  // across empty, loading, rows and the phone's cards. Only a table that can
+  // scroll takes the region and its tab stop.
+  const frame = (body: ReactNode, scrolls = false) => (
+    <div
+      {...(scrolls ? scrollRegion(caption) : {})}
+      className={cx("tr-table-wrap", className)}
+      {...rest}
+    >
       {status}
       {body}
     </div>
-  );
-  const scroller = (body: ReactNode) => (
-    <TableScroll label={caption} className={className} {...rest}>
-      {status}
-      {body}
-    </TableScroll>
   );
 
   if (!loading && rows.length === 0 && empty !== undefined) return frame(empty);
@@ -230,7 +225,7 @@ export function DataTable<T>({
     if (!fromControl(event)) onRowClick?.(row);
   };
   // A clickable row takes focus itself, so its box needs no tab stop.
-  return (onRowClick ? frame : scroller)(
+  return frame(
     <table className="tr-table" aria-busy={loading === true ? true : undefined}>
       <caption className={captionVisible ? undefined : "tr-vh"}>{caption}</caption>
       <thead>
@@ -286,5 +281,6 @@ export function DataTable<T>({
             })}
       </tbody>
     </table>,
+    onRowClick === undefined,
   );
 }

@@ -256,6 +256,21 @@ describe("DataTable", () => {
     expect(screen.getByRole("status")).toHaveTextContent("");
   });
 
+  // WCAG 4.1.3: a live region mounted with its text already in it is often
+  // not announced, so the line keeps its node when an empty list starts
+  // loading and when a load ends empty.
+  it("keeps its status line's node across the switch to and from empty", () => {
+    const empty = <p>No tyres at risk</p>;
+    const { rerender } = render(<DataTable {...base} rows={[]} loading={false} empty={empty} />);
+    const line = screen.getByRole("status");
+    rerender(<DataTable {...base} rows={[]} loading empty={empty} />);
+    expect(screen.getByRole("status")).toBe(line);
+    expect(line).toHaveTextContent("Loading Tyres at risk");
+    rerender(<DataTable {...base} rows={[]} loading={false} empty={empty} />);
+    expect(screen.getByRole("status")).toBe(line);
+    expect(line).toHaveTextContent("");
+  });
+
   describe("on a phone", () => {
     let restore: () => void;
     beforeEach(() => {
