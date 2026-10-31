@@ -43,6 +43,7 @@ const TEXT: ColorToken[] = ["ink", "ink-secondary", "critical-text", "interactiv
 const ON_FILL: [ColorToken, ColorToken, number][] = [
   ["on-ok", "ok", 7],
   ["on-warn", "warn", 7],
+  ["on-critical", "critical", 7],
   ["on-brand", "brand", 4.5],
   ["on-brand", "brand-hover", 4.5],
   ["on-brand", "brand-pressed", 4.5],
@@ -54,14 +55,16 @@ const MARKS: ColorToken[] = [
   "ok-text",
   "warn-text",
   "critical-text",
+  "critical",
   "unmeasured",
   "interactive",
   "ink-muted",
   "ink",
 ];
 
-// --line draws dividers and resting edges, which carry no state.
-const DIVIDER: ColorToken = "line";
+// Dividers and resting edges, which carry no state. --line-strong outlines
+// a control at rest, so it holds NFR-USE-007's 3:1 for a control's border.
+const EDGES: ColorToken[] = ["line", "line-strong"];
 
 const FILLS = ON_FILL.map(([, fill]) => fill);
 
@@ -190,11 +193,11 @@ function unchecked(files: Record<string, string> = sheets): string[] {
             property === "color"
               ? [...TEXT, ...ON_FILL.filter(([, fill]) => own.includes(fill)).map(([text]) => text)]
               : isBackground(property)
-                ? [...GROUNDS, ...FILLS, DIVIDER]
+                ? [...GROUNDS, ...FILLS, ...EDGES]
                 : isMark(property)
                   ? [
                       ...MARKS,
-                      DIVIDER,
+                      ...EDGES,
                       ...own,
                       ...(halo && property === "box-shadow" ? GROUNDS : []),
                     ]
@@ -224,10 +227,10 @@ describe("capture contrast (IR-UI-005)", () => {
         "/src/ui/DriverShell.css",
       ]),
     );
-    const unmeasured = cssRules(sheets["/src/capture/capture.css"]).find((r) =>
-      r.selectors.includes(".cap-pos--unmeasured"),
+    const belowRemoval = cssRules(sheets["/src/capture/capture.css"]).find((r) =>
+      r.selectors.includes(".cap-alert--below-removal"),
     );
-    expect(unmeasured?.body).toContain("var(--unmeasured)");
+    expect(belowRemoval?.body).toContain("var(--critical-text)");
   });
 
   it("puts each fill's own text on it, pressed fills included", () => {
@@ -267,6 +270,17 @@ describe("capture contrast (IR-UI-005)", () => {
     }
     expect(short).toEqual([]);
   });
+
+  it("holds a control's resting edge at 3:1 on every capture ground", () => {
+    const short: string[] = [];
+    for (const theme of THEME_NAMES) {
+      for (const ground of GROUNDS) {
+        const ratio = contrastRatio(themes[theme]["line-strong"], themes[theme][ground]);
+        if (ratio < 3) short.push(`${theme}: line-strong on ${ground} is ${ratio.toFixed(2)}`);
+      }
+    }
+    expect(short).toEqual([]);
+  });
 });
 
 describe("the capture contrast check catches each planted case", () => {
@@ -278,6 +292,8 @@ describe("the capture contrast check catches each planted case", () => {
     ["a filtered rule", ".x { filter: brightness(0.8); }"],
     ["a box ticked in the brand", ".x { accent-color: var(--brand); }"],
     ["a fill's text with no fill", ".x { color: var(--on-warn); }"],
+    ["text in an edge colour", ".x { color: var(--line-strong); }"],
+    ["text in a mark colour", ".x { color: var(--critical); }"],
     ["a mixed text colour", ".x { color: color-mix(in srgb, var(--ink) 50%, var(--surface)); }"],
     [
       "see-through text beside a solid mark",
