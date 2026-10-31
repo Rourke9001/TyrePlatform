@@ -19,7 +19,8 @@ interface BoundaryState {
 
 // U54: the one class component in web/src, a named exception to CLAUDE.md's
 // rule, because React catches a render error only in a class. It sits
-// inside <main>, so the nav and the outbox indicator stay mounted.
+// inside <main>, so the shell around it stays mounted: the bar, any nav
+// and the outbox indicator.
 class Boundary extends Component<BoundaryProps, BoundaryState> {
   state: BoundaryState = { failed: false, resetKey: this.props.resetKey };
 
@@ -27,9 +28,9 @@ class Boundary extends Component<BoundaryProps, BoundaryState> {
     return { failed: true };
   }
 
-  // A navigation clears the error, as react-router's own boundary does: with
-  // the nav still mounted, picking another page is how a user leaves a
-  // broken one.
+  // A navigation clears the error, as react-router's own boundary does:
+  // picking another page from the nav is how a user leaves a broken one. A
+  // driver's nav links to /my from every other page (U159).
   static getDerivedStateFromProps(
     props: BoundaryProps,
     state: BoundaryState,

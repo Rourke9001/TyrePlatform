@@ -4,7 +4,10 @@
   under Decision that keep Tread inside the SRS. Amended 26 Oct 2026 by
   owner ruling U156 (TYRE-443): every route moves to Tread now, which
   supersedes the Sequence paragraph and nothing else
-  (`docs/superpowers/specs/2026-10-26-tread-frontend-design.md`).
+  (`docs/superpowers/specs/2026-10-26-tread-frontend-design.md`). Amended
+  31 Oct 2026 by owner ruling U159 (TYRE-240): under Shells, `DriverShell`
+  keeps a driver's "My inspections" link on every other page, as
+  Navigation requires.
 - **Date:** 2026-10-20
 - **Deciders:** Rourke (owner decision of 20 Oct 2026)
 - **Related:** ADR-0015 (UI substrate; this keeps its substrate and

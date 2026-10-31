@@ -74,6 +74,30 @@
   overflow-wrap: anywhere;
 }
 
+.tr-driver__nav {
+  display: flex;
+  flex-wrap: wrap;
+  padding: 0 var(--space-2);
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+}
+
+/* NFR-USE-004: a glove target. */
+.tr-driver__nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--target-glove);
+  padding: 0 var(--space-2);
+  font-weight: 700;
+  color: var(--interactive);
+  text-decoration: none;
+}
+
+.tr-driver__nav-link:hover {
+  text-decoration: underline;
+}
+
 .tr-driver__main {
   flex: 1;
   display: flex;

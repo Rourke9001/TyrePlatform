@@ -225,6 +225,11 @@ with requirement IDs, every colour and size through a token.
 
 **Tier 1, recomposed to the artifact's screens** (the demo path):
 
+*Amended by owner ruling U159 (31 Oct 2026, TYRE-240), from the review of
+PR #153. `DriverShell` keeps the old shell's one link for a driver, "My
+inspections", in a row under its bar on every page but `/my`. Dropping it
+was a navigation change, which the non-goal above rules out.*
+
 - Both shells: `DriverShell` for actors without `ViewFleet`, `AppShell` with
   today's nav items grouped (`shell/navigation.ts`) and filtered by
   capability. Hiding an item stays a courtesy (NFR-SEC-006). The outbox

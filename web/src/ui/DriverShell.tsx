@@ -1,10 +1,16 @@
 import { useRef, type HTMLAttributes, type ReactNode } from "react";
+import { Link } from "react-router";
 
 import { cx } from "./cx";
 import { Icon } from "./Icon";
 import { ChevronLeftIcon } from "./icons/ChevronLeft";
 import { useScrollPadding } from "./useScrollPadding";
 import "./DriverShell.css";
+
+export interface DriverNavItem {
+  readonly to: string;
+  readonly label: string;
+}
 
 export interface DriverShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "title"> {
   // The tenant's mark on the app bar, where the back button goes instead.
@@ -17,6 +23,9 @@ export interface DriverShellProps extends Omit<HTMLAttributes<HTMLDivElement>, "
   // Who the app thinks is asking, as one string, so it reads as one line.
   actor?: string;
   signOut?: ReactNode;
+  // U159: under the bar, not in it, so the bar keeps its width for the name
+  // on a phone and the links scroll away on capture.
+  nav?: readonly DriverNavItem[];
   // Right of the app bar, before sign-out.
   sync?: ReactNode;
   // The outbox (ADR-0009): under the bar, ahead of everything a screen draws.
@@ -41,6 +50,7 @@ export function DriverShell({
   backLabel = "Back",
   actor,
   signOut,
+  nav,
   sync,
   status,
   signIn,
@@ -75,6 +85,16 @@ export function DriverShell({
         {sync}
         {signOut}
       </header>
+      {nav && nav.length > 0 ? (
+        <nav aria-label="Main" className="tr-driver__nav">
+          {nav.map((item) => (
+            <Link key={item.to} to={item.to} className="tr-driver__nav-link">
+              <Icon icon={ChevronLeftIcon} />
+              {item.label}
+            </Link>
+          ))}
+        </nav>
+      ) : null}
       {status}
       {signIn}
       <main className="tr-driver__main">
