@@ -1,9 +1,10 @@
 {
-  "entryClosureGzipBytes": 148042,
-  "entryCssGzipBytes": 6479,
+  "entryClosureGzipBytes": 148578,
+  "entryCssGzipBytes": 6591,
   "entryFontBytes": 70188,
-  "recordedAt": "2026-10-28",
+  "recordedAt": "2026-10-31",
+  "cssRecordedAt": "2026-10-31",
   "chunks": [
-    "assets/index-DXJO9TE5.js"
+    "assets/index-BFcROCJm.js"
   ]
 }
