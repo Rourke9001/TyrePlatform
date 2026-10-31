@@ -1,5 +1,6 @@
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter } from "react-router";
 import { describe, expect, it, vi } from "vitest";
 
 import { stubResize } from "../test/resize";
@@ -61,6 +62,42 @@ describe("DriverShell", () => {
       "Dev: tenant and actor",
       "Start inspection",
     ]);
+  });
+
+  // U159: the driver's links sit under the bar, after sign-out and ahead of
+  // the outbox, each a glove target.
+  it("puts the nav under the bar, ahead of the outbox", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <MemoryRouter>
+        <DriverShell
+          signOut={<button type="button">Sign out</button>}
+          nav={[{ to: "/my", label: "My inspections" }]}
+          status={<button type="button">Retry</button>}
+        >
+          <p>body</p>
+        </DriverShell>
+      </MemoryRouter>,
+    );
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getByRole("link", { name: "My inspections" })).toHaveAttribute(
+      "href",
+      "/my",
+    );
+    expect(within(screen.getByRole("banner")).queryByRole("link")).toBeNull();
+    expect(await tabStops(user)).toEqual(["Sign out", "My inspections", "Retry"]);
+    expect(driverCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
+      /\.tr-driver__nav-link \{[^}]*min-height: var\(--target-glove\);/,
+    );
+
+    rerender(
+      <MemoryRouter>
+        <DriverShell nav={[]}>
+          <p>body</p>
+        </DriverShell>
+      </MemoryRouter>,
+    );
+    expect(screen.queryByRole("navigation")).toBeNull();
   });
 
   it("puts a back button where the brand sits when given onBack", async () => {

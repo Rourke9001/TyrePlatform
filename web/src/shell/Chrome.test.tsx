@@ -206,6 +206,31 @@ describe("the shell for each audience", () => {
     expect(within(screen.getByRole("main")).getByText("screen")).toBeInTheDocument();
   });
 
+  // U159: the old shell's one link for a driver, kept on every page but its
+  // own, NotFound and a crashed capture included; none before /api/me.
+  it("gives a driver a link to My inspections from every other page", async () => {
+    const client = new QueryClient();
+    const driver = me({ role: "DRIVER", capabilities: ["CaptureInspection"] });
+    const { rerender } = render(shellTree(client, "/capture/v1", { actor: null, settled: false }));
+    await screen.findByText(WAITING);
+    expect(screen.queryByRole("navigation")).toBeNull();
+
+    rerender(shellTree(client, "/capture/v1", { actor: driver, settled: true }));
+    const nav = screen.getByRole("navigation", { name: "Main" });
+    expect(within(nav).getAllByRole("link")).toHaveLength(1);
+    expect(within(nav).getByRole("link", { name: "My inspections" })).toHaveAttribute(
+      "href",
+      "/my",
+    );
+
+    for (const path of ["/no-such-page", "/MY/"]) {
+      rerender(<></>);
+      rerender(shellTree(client, path, { actor: driver, settled: true }));
+      const links = screen.queryAllByRole("link", { name: "My inspections" });
+      expect(links, path).toHaveLength(path === "/no-such-page" ? 1 : 0);
+    }
+  });
+
   it("ViewFleet actors get grouped navigation", () => {
     const { unmount } = render(
       shellTree(new QueryClient(), "/", { actor: me({ capabilities: ADMIN }), settled: true }),

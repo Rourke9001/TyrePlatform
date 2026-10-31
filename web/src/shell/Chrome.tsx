@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { matchPath, useLocation } from "react-router";
 
 import { useActor, useActorSettled, useCan } from "../auth/actorContext";
 import { SignInLine } from "../auth/SignInLine";
@@ -9,7 +10,7 @@ import { AppShell } from "../ui/AppShell";
 import { BrandMark } from "../ui/BrandMark";
 import { DriverShell } from "../ui/DriverShell";
 import { DevBar } from "./DevBar";
-import { navGroupsFor } from "./navigation";
+import { navGroupsFor, navItemsFor } from "./navigation";
 import "./shell.css";
 
 const PLATFORM = "Fleet tyre platform";
@@ -25,6 +26,7 @@ export function Chrome({ children }: { children: ReactNode }) {
   const manager = useCan("ViewFleet");
   const actor = useActor();
   const { branding } = useBranding();
+  const { pathname } = useLocation();
 
   // Never the security boundary (NFR-SEC-006): the server re-checks every
   // capability on every request. This only shows, in a shared dev
@@ -53,6 +55,11 @@ export function Chrome({ children }: { children: ReactNode }) {
       </AppShell>
     );
   }
+  // U159: a driver keeps a link to their own page from every other one,
+  // the old shell's one destination. The link to the page they are on goes.
+  const driverNav = navItemsFor(actor?.capabilities ?? []).filter(
+    (item) => matchPath(item.to, pathname) === null,
+  );
   // The tile is decoration here; the bar's title carries the name.
   return (
     <DriverShell
@@ -61,6 +68,7 @@ export function Chrome({ children }: { children: ReactNode }) {
       barSubtitle={PLATFORM}
       actor={actorLine}
       signOut={<SignOutButton size="glove" />}
+      nav={driverNav}
       status={status}
       signIn={<SignInLine />}
       devBar={<DevBar />}
