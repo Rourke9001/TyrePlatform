@@ -81,7 +81,8 @@ A11).
 
 TYRE-240's Tread ports of the older screens (fleet register and receipts;
 unit, rigs, fitments and retreads; admin forms and people; dashboard,
-exceptions and at-risk; landing and shell), then 449. Also 209 with 236,
+exceptions and at-risk; landing and shell) landed early in #153, as a pure
+restyle; TYRE-240 stays open for its behaviour fixes. Then 449. Also 209 with 236,
 227, 255, 263, 311, 361, 380 and 395, and the `post-poc` tickets below.
 
 ## The Tread rework (epic TYRE-443)
