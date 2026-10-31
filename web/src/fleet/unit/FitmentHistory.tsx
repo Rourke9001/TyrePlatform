@@ -2,6 +2,7 @@ import type { FitmentHistoryRow } from "../../api/units";
 import { useTenantDate } from "../../time/tenantTime";
 import { EmptyState } from "../../ui/EmptyState";
 import { TyreIcon } from "../../ui/icons/Tyre";
+import { TableScroll } from "../../ui/DataTable";
 import { useUnitLabels } from "../../units/units";
 import { distanceCell, treadCell } from "./unit.view";
 import { orientationLabel } from "./vocabulary";
@@ -23,10 +24,8 @@ export function FitmentHistory({ rows }: { rows: FitmentHistoryRow[] }) {
     );
   }
 
-  // A native table, not DataTable, which draws no row header: the tyre
-  // heads each row.
   return (
-    <div className="unit-table-wrap">
+    <TableScroll label="Fitment history table">
       <table className="unit-table">
         <thead>
           <tr>
@@ -57,6 +56,6 @@ export function FitmentHistory({ rows }: { rows: FitmentHistoryRow[] }) {
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }

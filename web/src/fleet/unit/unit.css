@@ -48,13 +48,7 @@
   padding: var(--space-6) var(--space-4);
 }
 
-/* The two native tables: open inspections and fitment history. A wide one
-   scrolls inside its card rather than widening the page. */
-.unit-table-wrap {
-  min-width: 0;
-  overflow-x: auto;
-}
-
+/* The two native tables: open inspections and fitment history. */
 .unit-table {
   width: 100%;
   border-collapse: collapse;

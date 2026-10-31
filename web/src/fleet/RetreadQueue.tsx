@@ -14,6 +14,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { PageHeader } from "../ui/PageHeader";
 import { TextInput } from "../ui/TextInput";
+import { TableScroll } from "../ui/DataTable";
 import { RefusalAlert } from "./RefusalAlert";
 import { retreadJobsKey, tyresKey } from "./unit/queryKeys";
 import { useFormMutation } from "./useFormMutation";
@@ -251,7 +252,7 @@ export function RetreadQueue() {
 
       {jobs.isSuccess && jobs.data.length > 0 && (
         <Card padding="none">
-          <div className="fleet-table-wrap">
+          <TableScroll label="Retreads table">
             <table className="fleet-table">
               <thead>
                 <tr>
@@ -277,7 +278,7 @@ export function RetreadQueue() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
     </section>

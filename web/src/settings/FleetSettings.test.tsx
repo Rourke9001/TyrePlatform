@@ -100,6 +100,10 @@ describe("fleet settings", () => {
     });
     renderScreen();
     const thresholds = await section("Tread thresholds");
+    // WCAG 2.1.1: a keyboard reaches the table's hidden columns on a phone.
+    expect(
+      within(thresholds).getByRole("region", { name: "Tread thresholds table" }),
+    ).toHaveAttribute("tabindex", "0");
     const fleetWide = rowWith(thresholds, "Whole fleet");
     expect(fleetWide).toHaveTextContent("4.0 mm");
     expect(fleetWide).toHaveTextContent("6.0 mm");

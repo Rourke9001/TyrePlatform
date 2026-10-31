@@ -7,6 +7,7 @@ import { Banner } from "../../ui/Banner";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
 import { EmptyState } from "../../ui/EmptyState";
+import { TableScroll } from "../../ui/DataTable";
 import { NominateControl } from "./NominateControl";
 import { unitTasksKey } from "./queryKeys";
 import { taskDriverLabel, taskStatusLabel } from "./vocabulary";
@@ -45,7 +46,7 @@ export function UnitTaskList({ unitId }: { unitId: string }) {
           // A native table, not DataTable: tasks.spec.ts finds it by its
           // Driver column on the phone projects too, where DataTable draws
           // cards instead of a table.
-          <div className="unit-table-wrap">
+          <TableScroll label="Open inspections table">
             <table className="unit-table">
               <thead>
                 <tr>
@@ -74,7 +75,7 @@ export function UnitTaskList({ unitId }: { unitId: string }) {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         ))}
     </Card>
   );
