@@ -39,8 +39,7 @@
 }
 
 /* The data style, not reading: the caller's string carries its unit. It is
-   never clipped (U146): "13.5mm" at 15px is about 57px, so the half
-   millimetre would go. */
+   never clipped, so a half millimetre always shows (U146). */
 .tr-tile__val {
   align-self: end;
   min-width: 0;
@@ -52,8 +51,8 @@
   white-space: nowrap;
 }
 
-/* A running tile on a 360px phone has about 50px for its value, so the data
-   style steps down to caption size there and "13.5mm" fits whole. */
+/* A running tile on a phone is too narrow for "13.5mm" at data size, so
+   the value steps down to caption size there. */
 @media (max-width: 480px) {
   .tr-tile__val {
     font-size: var(--type-caption-size);
