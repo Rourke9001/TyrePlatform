@@ -9,7 +9,9 @@ import { themes, type ColorToken, type ThemeName } from "./tokens";
 // erratum holds text on the tenant's brand fill at 4.5:1, the floor
 // deriveBrandTheme guarantees for any tenant colour (derive.test.ts). U158:
 // the floors cover everything a driver sees, so the shell, sign-in and base
-// sheets the driver routes render are read too.
+// sheets the driver routes render are read too. Of Tread's sheets only the
+// driver's own shell is listed: the shared ones carry manager variants no
+// driver reaches.
 const sheets = import.meta.glob<string>(
   [
     "/src/capture/**/*.css",
@@ -17,6 +19,7 @@ const sheets = import.meta.glob<string>(
     "/src/shell/shell.css",
     "/src/auth/auth.css",
     "/src/ui/base.css",
+    "/src/ui/DriverShell.css",
   ],
   { query: "?raw", import: "default", eager: true },
 );
@@ -150,6 +153,9 @@ function unchecked(files: Record<string, string> = sheets): string[] {
       if (devOnly(rule.selectors)) continue;
       const decls = declarations(rule.body);
       const own = decls.filter((d) => isBackground(d.property)).flatMap((d) => tokensIn(d.value));
+      // A halo in a ground colour gives the focus ring a ground on a fill;
+      // the ring's own colour takes the mark check (base.css).
+      const halo = rule.selectors.every((s) => s.includes(":focus-visible"));
       const solid = decls
         .filter(
           (d) =>
@@ -186,7 +192,12 @@ function unchecked(files: Record<string, string> = sheets): string[] {
               : isBackground(property)
                 ? [...GROUNDS, ...FILLS, DIVIDER]
                 : isMark(property)
-                  ? [...MARKS, DIVIDER, ...own]
+                  ? [
+                      ...MARKS,
+                      DIVIDER,
+                      ...own,
+                      ...(halo && property === "box-shadow" ? GROUNDS : []),
+                    ]
                   : // A ticked box's fill is the state, so it is a mark.
                     property === "accent-color"
                     ? MARKS
@@ -210,6 +221,7 @@ describe("capture contrast (IR-UI-005)", () => {
         "/src/shell/shell.css",
         "/src/auth/auth.css",
         "/src/ui/base.css",
+        "/src/ui/DriverShell.css",
       ]),
     );
     const unmeasured = cssRules(sheets["/src/capture/capture.css"]).find((r) =>

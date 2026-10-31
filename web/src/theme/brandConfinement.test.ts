@@ -56,6 +56,8 @@ const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
   },
   "/src/ui/DriverShell.css": {
     ".tr-driver__bar": ["background", "color"],
+    ".tr-driver__back": ["background", "color"],
+    ".tr-driver__back:hover": ["background"],
   },
   "/src/ui/IconButton.css": {
     ".tr-iconbtn--on-brand": ["color"],
