@@ -104,9 +104,10 @@ hooks and view models, not on the client (dependency inversion).
 
 **Bad:**
 
-- Until every screen is ported, older screens break the rule. The lint
-  rule is scoped to `src/ui/`, `src/domain/`, transforms and ported
-  screens, and widens as screens port.
+- Until every screen is ported, older screens break the rule. The import
+  rules cover `src/ui/`, `src/domain/` and the transforms (`src/format/`
+  and each `*.view.ts`). A screen, ported or not, is held only to the
+  `fetch` and Dexie bans.
 - A view model per screen is more files than one component that does
   everything.
 - `capture/` keeps data-layer files in a feature folder, because the
