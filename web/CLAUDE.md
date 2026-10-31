@@ -183,8 +183,8 @@ Tread system decide. Every route is on Tread (epic TYRE-443).
 `src/ui/legacy/` holds what is left of the old kit: the Radix Select the
 dashboard's and Exceptions' filters keep until a Tread select keeps the
 combobox role, with its rules in `ui.css`, which both route modules
-import. eslint refuses any other import from it. `/dev/design` is Tread's
-gallery: each
+import. eslint refuses any other import from it everywhere but the DEV-only
+gallery. `/dev/design` is Tread's gallery: each
 `src/ui/gallery/<group>.gallery.tsx` exports a `section`, shown in a
 Daylight and a Night shift column side by side, and it is where a change is
 looked at before it is reviewed. Rules that are not visible in the code:
@@ -204,9 +204,9 @@ looked at before it is reviewed. Rules that are not visible in the code:
   The two exceptions are unit codes (`src/units/units.ts`) and the currency
   symbol (`src/api/money.ts`): the capture entry imports both, and
   `vocabulary.ts` stays out of its budget.
-- Select and Dialog import Radix, so a screen that uses them loads behind
-  `React.lazy` in `routes.tsx`. The capture route's JavaScript is gated:
-  `npm run bundle:check` (also in `make lint` and CI) fails when the entry
+- The legacy Select is the one Radix import left, so the dashboard and
+  Exceptions, which use it, load behind `React.lazy` in `routes.tsx`. The
+  capture route's JavaScript is gated: `npm run bundle:check` (also in `make lint` and CI) fails when the entry
   chunk's static closure exceeds `bundle-budget.json`, or when any module under
   `src/capture/` or `src/driver/` is reachable from the entry only through a
   dynamic import (ADR-0009, rule 7). The budget only ratchets down; a rise
