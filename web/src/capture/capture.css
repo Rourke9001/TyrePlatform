@@ -1,6 +1,7 @@
 /* Driver capture screens (TYRE-69), one stylesheet so cascade order for
-   shared classes never depends on load order. Colour/font: theme/tokens.ts
-   custom properties only; a literal here is a bug. */
+   shared classes never depends on load order. Colour and font family come
+   from theme/tokens.ts custom properties only; a size takes the type scale
+   where it has a step. */
 
 /* --------------------------------------------------------- position sheet */
 
