@@ -43,7 +43,7 @@
    (NFR-USE-009). */
 .auth-screen .auth-body[role="alert"] {
   padding: var(--space-3) var(--space-4);
-  border-left: var(--space-1) solid var(--warn);
+  border-left: var(--space-1) solid var(--warn-text);
   border-radius: var(--radius-md);
   background: var(--warn-soft);
   color: var(--ink);
