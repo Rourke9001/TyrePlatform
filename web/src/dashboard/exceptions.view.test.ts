@@ -13,8 +13,8 @@ import {
 const instant = (at: string) => `I(${at})`;
 
 describe("the exceptions URL", () => {
-  // The order the params are read in is the order the request and its
-  // query key carry them, so a link and a picked filter share one entry.
+  // The order the params are read in is the order the request URL carries
+  // them, so a link and a picked filter ask for the same URL.
   it("reads every filter in a fixed order, resolved as includeResolved", () => {
     const params = readExceptionsParams(
       new URLSearchParams("resolved=true&depot=d1&rule=FR-EXC-020&severity=CRITICAL"),

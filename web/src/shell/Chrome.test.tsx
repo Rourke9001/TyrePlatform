@@ -206,8 +206,8 @@ describe("the shell for each audience", () => {
     expect(within(screen.getByRole("main")).getByText("screen")).toBeInTheDocument();
   });
 
-  // U159: the old shell's one link for a driver, kept on every page but its
-  // own, NotFound and a crashed capture included; none before /api/me.
+  // U159: a driver's link to My inspections shows on every page but its own,
+  // NotFound and capture included, and none before /api/me settles.
   it("gives a driver a link to My inspections from every other page", async () => {
     const client = new QueryClient();
     const driver = me({ role: "DRIVER", capabilities: ["CaptureInspection"] });

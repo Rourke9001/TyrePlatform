@@ -63,7 +63,8 @@ function ReceiptRow({
     },
   });
 
-  // Escape, Cancel and Close all leave it open while the write is pending.
+  // Escape, Close and the backdrop leave it open while the write is pending;
+  // Cancel is disabled then.
   const closeKeeping = () => {
     if (!keep.isPending) setKeeping(false);
   };

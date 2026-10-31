@@ -203,9 +203,10 @@ describe("open receipts", () => {
     it("closes on a backdrop click", async () => {
       mockApi();
       renderScreen();
-      const { dialog } = await openKeep();
+      const { opener, dialog } = await openKeep();
       await userEvent.click(scrim(dialog));
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+      expect(opener).toHaveFocus();
     });
 
     it.each([

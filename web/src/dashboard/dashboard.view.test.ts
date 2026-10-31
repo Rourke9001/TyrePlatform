@@ -175,7 +175,6 @@ describe("tilesView", () => {
     ).toMatchObject({ money: { value: null, visible: false }, after: " across 0 tyres in total." });
   });
 
-  // The three-way agreement's rendered half: 19 open, 11 urgent.
   it("reads the open count, its severities in order and the clock", () => {
     const { exceptions } = tilesView(dashboardBody());
     expect(exceptions.value).toBe("19");

@@ -69,8 +69,7 @@ describe("the unit plan", () => {
     expect(pressed[0].getAttribute("data-position-id")).toBe("p3");
   });
 
-  // Both keys a button answers to select, each exactly once, since a second
-  // call would select a position the user did not pick.
+  // Both keys a button answers to select, each exactly once.
   it("selects on click, on Enter and on Space, so the plan needs no mouse", async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();

@@ -2,8 +2,9 @@
    properties only, per web/CLAUDE.md. Layout lives here; the look is
    Tread's components' (TYRE-240). */
 
-/* The register, retreads, receipts, fitments and rigs share one page width.
-   One rule, not a clone, so the screens cannot drift apart by accident. */
+/* The register, retreads, receipts, fitments, rigs and fleet settings share
+   one page width. One rule, not a clone, so the screens cannot drift apart
+   by accident. */
 .fleet-page {
   max-width: 68rem;
 }
@@ -50,8 +51,8 @@
   color: var(--ink-muted);
 }
 
-/* A failed read keeps the heading it has always had inside Banner's title,
-   which already sets the weight; the heading adds no size or margin. */
+/* A failed read's heading sits inside Banner's title, which already sets
+   the weight; the heading adds no size or margin. */
 .fleet-banner-heading {
   margin: 0;
   font: inherit;
@@ -176,8 +177,8 @@
   accent-color: var(--interactive);
 }
 
-/* Receive tyres and the other one-form screens on Tread (TYRE-240): cards
-   of fields, two to a row where the width allows, one on a phone. */
+/* Receive tyres on Tread (TYRE-240): cards of fields, two to a row where
+   the width allows, one on a phone. */
 .fleet-form-page {
   max-width: 48rem;
 }

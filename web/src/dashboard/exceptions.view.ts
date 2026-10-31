@@ -19,7 +19,7 @@ export interface Option {
 
 // The URL spells includeResolved as resolved; this and
 // writeExceptionsParams are the only two places that know both spellings.
-// The order read is the order the request and its query key carry.
+// The order read is the order the request URL carries.
 export function readExceptionsParams(search: URLSearchParams): ExceptionsParams {
   const params: ExceptionsParams = {};
   const severity = search.get("severity");

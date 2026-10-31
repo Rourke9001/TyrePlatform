@@ -179,9 +179,8 @@ export function TyreList() {
             <Button to="/fleet/tyres/new" variant="primary" icon={PlusIcon}>
               Receive tyres
             </Button>
-            {/* The queue's only discoverable entry point, gated on LogRetread
-                since an actor who cannot log a return has nothing to do on
-                that screen. */}
+            {/* Gated on LogRetread, since an actor who cannot log a return
+                has nothing to do on that screen. */}
             {canLogRetread && (
               <Button to="/fleet/tyres/retreads" icon={RefreshIcon}>
                 Retreads

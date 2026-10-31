@@ -1,4 +1,4 @@
-// The manager screens' words, written once so no page spells one itself
+// The manager screens' shared words, written once so no page spells one itself
 // (U48). The server owns the code vocabularies (severity, judgedAt,
 // unavailable reasons, tread and distance source, cost basis, inflation
 // bands), so each code map passes an unknown code through rather than
