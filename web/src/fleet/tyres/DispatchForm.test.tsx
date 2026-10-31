@@ -182,6 +182,8 @@ describe("dispatching a tyre", () => {
 
     inFlight.resolve(respond(200, RETREADERS));
     await within(depotSelect).findByRole("option", { name: "Retread Co" });
+    expect(within(depotSelect).getByRole("option", { name: "Choose…" })).toBeEnabled();
+    expect(depotSelect.closest(".tr-input")).not.toBeNull();
   });
 
   it("shows an alert with a retry action when the depot read fails, and recovers on retry", async () => {
