@@ -86,7 +86,6 @@
 .tr-driver__nav-link {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
   min-height: var(--target-glove);
   padding: 0 var(--space-2);
   font-weight: 700;
