@@ -43,7 +43,7 @@ export function VehicleList() {
 
       {vehicles.isPending && (
         <Card padding="none">
-          <ul className="tr-list unit-rows" aria-hidden="true">
+          <ul className="tr-list vehicle-rows" aria-hidden="true">
             {[0, 1, 2, 3].map((i) => (
               <li key={i} className="unit-row-skeleton">
                 <span />
@@ -118,7 +118,7 @@ function VehicleRows({
         {rows.length === total ? `${total} units` : `${rows.length} of ${total} units`}
       </p>
       <Card padding="none">
-        <ul className="tr-list unit-rows">
+        <ul className="tr-list vehicle-rows">
           {rows.map((v) => (
             <li key={v.id}>
               {/* The whole row is the link, registration and all: D7 makes

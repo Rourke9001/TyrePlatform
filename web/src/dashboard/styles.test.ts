@@ -18,15 +18,15 @@ describe("the unit list's sheet", () => {
   it("never clips a row's focus ring, and rounds the end rows to the card", () => {
     const code = unitListCss.replace(/\/\*[\s\S]*?\*\//g, "");
     expect(code).not.toMatch(/overflow\s*:\s*(hidden|clip)/);
-    expect(ruleBody(unitListCss, ".unit-rows > li:first-child > .tr-row")).toMatch(
+    expect(ruleBody(unitListCss, ".vehicle-rows > li:first-child > .tr-row")).toMatch(
       /border-radius:\s*var\(--radius-lg\)\s+var\(--radius-lg\)\s+0\s+0/,
     );
-    expect(ruleBody(unitListCss, ".unit-rows > li:last-child > .tr-row")).toMatch(
+    expect(ruleBody(unitListCss, ".vehicle-rows > li:last-child > .tr-row")).toMatch(
       /border-radius:\s*0\s+0\s+var\(--radius-lg\)\s+var\(--radius-lg\)/,
     );
     // A lone row is both ends; the last-child rule alone would square its
     // top corners, so this rule comes after it.
-    expect(ruleBody(unitListCss, ".unit-rows > li:only-child > .tr-row")).toMatch(
+    expect(ruleBody(unitListCss, ".vehicle-rows > li:only-child > .tr-row")).toMatch(
       /border-radius:\s*var\(--radius-lg\);/,
     );
     expect(code.indexOf("li:only-child")).toBeGreaterThan(code.indexOf("li:last-child"));
