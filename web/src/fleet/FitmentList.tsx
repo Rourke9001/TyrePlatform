@@ -8,6 +8,7 @@ import { Banner } from "../ui/Banner";
 import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { PageHeader } from "../ui/PageHeader";
+import { TableScroll } from "../ui/DataTable";
 import { openFitmentsKey } from "./unit/queryKeys";
 import "./fleet.css";
 
@@ -43,7 +44,7 @@ export function FitmentList() {
 
       {fitments.isSuccess && fitments.data.length > 0 && (
         <Card padding="none">
-          <div className="fleet-table-wrap">
+          <TableScroll label="Fitments table">
             <table className="fleet-table">
               <thead>
                 <tr>
@@ -72,7 +73,7 @@ export function FitmentList() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
     </section>

@@ -196,6 +196,28 @@ describe("DataTable", () => {
     );
   });
 
+  // WCAG 2.1.1: a wide table scrolls in its box, which a keyboard reaches
+  // only if the box takes focus. The phone's cards do not scroll.
+  it("puts a desktop table in a named region the keyboard can focus", () => {
+    const { unmount } = render(<DataTable {...base} rows={rows} />);
+    const region = screen.getByRole("region", { name: "Tyres at risk" });
+    expect(region).toHaveAttribute("tabindex", "0");
+    expect(within(region).getByRole("table")).toBeInTheDocument();
+    unmount();
+
+    const clickable = render(<DataTable {...base} rows={rows} onRowClick={() => undefined} />);
+    expect(screen.queryByRole("region")).toBeNull();
+    clickable.unmount();
+
+    const restore = forceMatchMedia(true);
+    try {
+      render(<DataTable {...base} rows={rows} />);
+      expect(screen.queryByRole("region")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
   it("renders the empty state instead of an empty table", () => {
     render(<DataTable {...base} rows={[]} empty={<p>none</p>} />);
     expect(screen.queryByRole("table")).toBeNull();

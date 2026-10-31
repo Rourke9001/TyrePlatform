@@ -9,6 +9,7 @@ import { useTenantDate } from "../../time/tenantTime";
 import { Banner } from "../../ui/Banner";
 import { Button } from "../../ui/Button";
 import { Card } from "../../ui/Card";
+import { TableScroll } from "../../ui/DataTable";
 import { useFormMutation } from "../useFormMutation";
 import { rigsKey, vehiclesKey } from "../unit/queryKeys";
 import "../fleet.css";
@@ -86,7 +87,7 @@ export function RigList() {
               </p>
             ) : (
               <Card padding="none">
-                <div className="fleet-table-wrap">
+                <TableScroll label="Open rigs table">
                   <table className="fleet-table">
                     <thead>
                       <tr>
@@ -117,7 +118,7 @@ export function RigList() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TableScroll>
               </Card>
             );
           })()}
@@ -129,7 +130,7 @@ export function RigList() {
               <p className="fleet-note">No ended rigs yet.</p>
             ) : (
               <Card padding="none">
-                <div className="fleet-table-wrap">
+                <TableScroll label="Ended rigs table">
                   <table className="fleet-table">
                     <thead>
                       <tr>
@@ -154,7 +155,7 @@ export function RigList() {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </TableScroll>
               </Card>
             );
           })()}

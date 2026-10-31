@@ -11,6 +11,7 @@ import { Button } from "../ui/Button";
 import { Card } from "../ui/Card";
 import { KeyValue } from "../ui/KeyValue";
 import { PageHeader } from "../ui/PageHeader";
+import { TableScroll } from "../ui/DataTable";
 import { unitLabels } from "../units/units";
 import {
   CONSENT_PURPOSES,
@@ -70,7 +71,7 @@ function Thresholds({ body }: { body: FleetSettingsBody }) {
       {body.thresholds.length === 0 ? (
         <p className="fleet-card-empty">No tread thresholds are in force.</p>
       ) : (
-        <div className="fleet-table-wrap">
+        <TableScroll label="Tread thresholds table">
           <table className="fleet-table">
             <thead>
               <tr>
@@ -108,7 +109,7 @@ function Thresholds({ body }: { body: FleetSettingsBody }) {
               })}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       )}
     </Card>
   );
@@ -120,7 +121,7 @@ function Consent({ body }: { body: FleetSettingsBody }) {
   const asDate = useTenantDate();
   return (
     <Card title="Consent" padding="none">
-      <div className="fleet-table-wrap">
+      <TableScroll label="Consent table">
         <table className="fleet-table">
           <thead>
             <tr>
@@ -141,7 +142,7 @@ function Consent({ body }: { body: FleetSettingsBody }) {
             ))}
           </tbody>
         </table>
-      </div>
+      </TableScroll>
     </Card>
   );
 }
@@ -155,7 +156,7 @@ function PriceList({ body }: { body: FleetSettingsBody }) {
       {body.priceList.length === 0 ? (
         <p className="fleet-card-empty">No price list entries are in force.</p>
       ) : (
-        <div className="fleet-table-wrap">
+        <TableScroll label="Price list table">
           <table className="fleet-table">
             <thead>
               <tr>
@@ -182,7 +183,7 @@ function PriceList({ body }: { body: FleetSettingsBody }) {
               ))}
             </tbody>
           </table>
-        </div>
+        </TableScroll>
       )}
     </Card>
   );
@@ -197,7 +198,7 @@ function CatalogueList({
 }) {
   if (rows.length === 0) return null;
   return (
-    <div className="fleet-table-wrap">
+    <TableScroll label={`${title} table`}>
       <table className="fleet-table">
         <caption>{title}</caption>
         <thead>
@@ -215,7 +216,7 @@ function CatalogueList({
           ))}
         </tbody>
       </table>
-    </div>
+    </TableScroll>
   );
 }
 

@@ -19,6 +19,7 @@ import { Dialog } from "../../ui/Dialog";
 import { IconButton } from "../../ui/IconButton";
 import { CloseIcon } from "../../ui/icons/Close";
 import { PageHeader } from "../../ui/PageHeader";
+import { TableScroll } from "../../ui/DataTable";
 import { receiptStateLabel } from "../../domain/vocabulary";
 import { RefusalAlert } from "../RefusalAlert";
 import { openReceiptsKey, tyresKey } from "../unit/queryKeys";
@@ -174,7 +175,7 @@ export function ReceiptList() {
 
       {receipts.isSuccess && receipts.data.length > 0 && (
         <Card padding="none">
-          <div className="fleet-table-wrap">
+          <TableScroll label="Receipts table">
             <table className="fleet-table">
               <thead>
                 <tr>
@@ -204,7 +205,7 @@ export function ReceiptList() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
     </section>

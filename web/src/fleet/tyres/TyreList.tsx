@@ -16,6 +16,7 @@ import { PlusIcon } from "../../ui/icons/Plus";
 import { RefreshIcon } from "../../ui/icons/Refresh";
 import { PageHeader } from "../../ui/PageHeader";
 import { TextInput } from "../../ui/TextInput";
+import { TableScroll } from "../../ui/DataTable";
 import { byNaturalCode } from "../unit/naturalOrder";
 import { tyresKey } from "../unit/queryKeys";
 import { CostForm } from "./CostForm";
@@ -248,7 +249,7 @@ export function TyreList() {
 
       {tyres.isSuccess && rows.length > 0 && (
         <Card padding="none">
-          <div className="fleet-table-wrap">
+          <TableScroll label="Tyres table">
             <table className="fleet-table">
               <thead>
                 <tr>
@@ -319,7 +320,7 @@ export function TyreList() {
                 ))}
               </tbody>
             </table>
-          </div>
+          </TableScroll>
         </Card>
       )}
     </section>

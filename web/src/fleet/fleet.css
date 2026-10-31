@@ -57,14 +57,8 @@
   font: inherit;
 }
 
-/* Today's tables in Tread's table look. They keep their row headers, which
-   the screens' tests and the e2e cell arithmetic count on, until DataTable
-   can draw one (TYRE-447). */
-.fleet-table-wrap {
-  min-width: 0;
-  overflow-x: auto;
-}
-
+/* Today's native tables in Tread's table look. They keep their row
+   headers, which the screens' tests and the e2e cell arithmetic count on. */
 .fleet-table {
   width: 100%;
   border-collapse: separate;

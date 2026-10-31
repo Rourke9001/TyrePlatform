@@ -54,6 +54,25 @@ export interface DataTableProps<T> extends HTMLAttributes<HTMLDivElement> {
   cardHeadingLevel?: 2 | 3 | 4;
 }
 
+// WCAG 2.1.1: a table wider than its box scrolls inside it, and a box with
+// nothing focusable in it is out of a keyboard's reach, so it is a named
+// region in the tab order.
+export function TableScroll({
+  label,
+  className,
+  ...rest
+}: HTMLAttributes<HTMLDivElement> & { label: string }) {
+  return (
+    <div
+      role="region"
+      aria-label={label}
+      tabIndex={0}
+      {...rest}
+      className={cx("tr-table-wrap", className)}
+    />
+  );
+}
+
 const SKELETON_ROWS = [0, 1, 2, 3];
 
 const CONTROL = "a, button, input, select, textarea, label, summary, [role='button'], [tabindex]";
@@ -112,6 +131,12 @@ export function DataTable<T>({
       {status}
       {body}
     </div>
+  );
+  const scroller = (body: ReactNode) => (
+    <TableScroll label={caption} className={className} {...rest}>
+      {status}
+      {body}
+    </TableScroll>
   );
 
   if (!loading && rows.length === 0 && empty !== undefined) return frame(empty);
@@ -204,7 +229,8 @@ export function DataTable<T>({
   const openOnClick = (row: T) => (event: MouseEvent<HTMLTableRowElement>) => {
     if (!fromControl(event)) onRowClick?.(row);
   };
-  return frame(
+  // A clickable row takes focus itself, so its box needs no tab stop.
+  return (onRowClick ? frame : scroller)(
     <table className="tr-table" aria-busy={loading === true ? true : undefined}>
       <caption className={captionVisible ? undefined : "tr-vh"}>{caption}</caption>
       <thead>
