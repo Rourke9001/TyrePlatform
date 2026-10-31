@@ -30,6 +30,23 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-10-31 - A stacked branch's config taken whole at a rebase stop drops the base's rules, and lint stays green (#154)
+
+**What happened:** #153's body told #154's rebase to resolve
+`web/eslint.config.js` by taking #154's file and putting back three named
+lines. #154's file was cut before #151's fix rounds, so taking it would
+also have dropped develop's `domain/` and `format/` bans and an entry line.
+A looser config refuses less, so every gate stayed green; only a diff of
+the resolved file against develop showed it. In the same round,
+`**/ui/legacy/**` was found never to fire inside `src/ui/`: an import ban
+matches the import's text, and from there the kit is `./legacy/`.
+
+**The rule:** at a rebase stop on a config or allowlist, keep the base's
+file and add the branch's changes, then check that
+`git diff origin/develop -- <file>` removes only what the branch meant to.
+Prove a new import ban with a planted import from every depth it covers,
+including the banned folder's own neighbours.
+
 ## 2026-10-26 - Importing a lazy route's stylesheet first does not load it first (TYRE-443)
 
 **What happened:** to take the old kit's `ui.css` off the capture entry,
