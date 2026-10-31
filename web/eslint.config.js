@@ -173,6 +173,13 @@ const legacyBan = {
     "The old kit is retired (TYRE-443). Use Tread's component in src/ui/; only the Radix Select is left in src/ui/legacy/.",
 };
 
+// Inside src/ui/ the kit is ./legacy/: a pattern matches the import's text,
+// not the path it resolves to, so **/ui/legacy/** never sees it there.
+const legacyBanInUi = {
+  ...legacyBan,
+  group: ["**/legacy/**", "!**/legacy/Select", "!**/legacy/Select.*", "!**/legacy/ui.css"],
+};
+
 // TYRE-443: the capture entry carries no manager component. The rule reads
 // static imports alone, so a lazy route's import() passes. Patterns match
 // as gitignore globs, which have no brace expansion, so each manager-only
@@ -276,7 +283,10 @@ export default tseslint.config(
     files: ["src/ui/**/*.{ts,tsx}"],
     ignores: ["src/ui/gallery/**", ...testFiles],
     rules: {
-      "@typescript-eslint/no-restricted-imports": ["error", { patterns: [dexieBan, uiBans] }],
+      "@typescript-eslint/no-restricted-imports": [
+        "error",
+        { patterns: [dexieBan, uiBans, legacyBanInUi] },
+      ],
     },
   },
   // Capture imports format/ statically, so it is entry code too.
