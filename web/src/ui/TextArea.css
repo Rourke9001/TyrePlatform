@@ -17,5 +17,5 @@
 }
 
 .tr-input textarea::placeholder {
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }

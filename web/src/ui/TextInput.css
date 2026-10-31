@@ -53,12 +53,12 @@
 }
 
 .tr-input input::placeholder {
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }
 
 .tr-input__affix {
   padding: 0 var(--space-3);
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   font-size: 15px;
   font-weight: 500;
   white-space: nowrap;

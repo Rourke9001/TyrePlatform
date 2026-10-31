@@ -29,9 +29,11 @@
 
 .tr-check input {
   position: absolute;
-  opacity: 0;
   width: 1px;
   height: 1px;
+  margin: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
 }
 
 .tr-check__box {
@@ -44,12 +46,16 @@
   border-radius: var(--radius-sm);
   border: 2px solid var(--line-strong);
   background: var(--surface);
-  color: var(--on-interactive);
+}
+
+.tr-check input:not(:checked) + .tr-check__box > * {
+  visibility: hidden;
 }
 
 .tr-check input:checked + .tr-check__box {
   background: var(--interactive);
   border-color: var(--interactive);
+  color: var(--on-interactive);
 }
 
 /* The input is invisible, so its focus ring is drawn on the box. */
@@ -58,8 +64,18 @@
   outline-offset: 2px;
 }
 
+/* A disabled box says so in tokens, not by dimming (IR-UI-005): empty, it
+   goes flat; ticked, as the motive unit a driver cannot untick is, it is
+   drawn in ink, not the interactive colour. */
 .tr-check input:disabled + .tr-check__box {
-  opacity: 0.55;
+  border-color: var(--line);
+  background: var(--surface-muted);
+}
+
+.tr-check input:checked:disabled + .tr-check__box {
+  border-color: var(--surface-inverse);
+  background: var(--surface-inverse);
+  color: var(--on-inverse);
 }
 
 .tr-check__text {

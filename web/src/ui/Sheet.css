@@ -109,7 +109,7 @@
   font-weight: var(--type-eyebrow-weight);
   letter-spacing: var(--tracking-eyebrow);
   text-transform: uppercase;
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }
 
 .tr-sheet__title {
