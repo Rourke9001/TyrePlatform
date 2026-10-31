@@ -56,8 +56,11 @@
   color: var(--ink-secondary);
 }
 
+/* min-width: 0 lets a field sized in rem shrink to a phone's width
+   instead of widening the page. */
 .tr-pagehead__actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
+  min-width: 0;
 }
