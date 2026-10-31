@@ -9,3 +9,13 @@
 .adm-page {
   max-width: 32rem;
 }
+
+/* The reactivate button names the address, which can be wider than that
+   column, so its words wrap. Two classes, so this beats Button.css's
+   nowrap by specificity. */
+.adm-page .adm-reactivate {
+  padding-block: var(--space-2);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: start;
+}

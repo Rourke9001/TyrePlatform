@@ -152,6 +152,7 @@ export function AddDriver() {
               the button is a sibling so a screen-reader user can reach it. */}
           <div>
             <Button
+              className="adm-reactivate"
               disabled={create.isPending}
               onClick={() =>
                 create.mutate({
