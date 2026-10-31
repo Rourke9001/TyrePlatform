@@ -7,7 +7,7 @@ import { UnitPlan } from "./UnitPlan";
 import { openFitment, unit, unitPosition } from "../../test/fixtures";
 
 // jsdom lays nothing out, so whether a tile holds its tyre code is read from
-// the rules that size it; a browser measured 360 to 1440px on 27 Oct 2026.
+// the rules that size it.
 describe("the unit plan's sheet", () => {
   const code = unitCss.replace(/\/\*[\s\S]*?\*\//g, "");
 

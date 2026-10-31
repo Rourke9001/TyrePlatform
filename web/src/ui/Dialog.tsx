@@ -51,11 +51,9 @@ export function Dialog({
   ...rest
 }: DialogProps) {
   const panel = useRef<HTMLDivElement>(null);
-  // A text selection dragged from the panel out over the scrim ends in a
-  // click on the scrim; only a press that began there is a dismissal.
   // A click closes only when the press and the release both landed on the
-  // scrim: a drag across the panel edge clicks the scrim, their common
-  // ancestor.
+  // scrim: a drag across the panel's edge, out or in, clicks the scrim,
+  // their common ancestor.
   const pressedScrim = useRef(false);
   const releasedScrim = useRef(false);
   const titleId = useId();
