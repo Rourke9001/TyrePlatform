@@ -9,7 +9,7 @@
   font-size: var(--type-caption-size);
   line-height: var(--type-caption-line);
   font-weight: 700;
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
@@ -78,7 +78,7 @@ button.tr-tread__cell {
 .tr-tread__unit {
   font-size: var(--type-caption-size);
   font-weight: 500;
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }
 
 .tr-tread--dense .tr-tread__val {
@@ -113,8 +113,8 @@ button.tr-tread__cell {
   letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
-  background: var(--ink);
-  color: var(--surface);
+  background: var(--surface-inverse);
+  color: var(--on-inverse);
 }
 
 .tr-tread__low--warn {

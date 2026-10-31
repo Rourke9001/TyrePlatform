@@ -57,7 +57,9 @@ const colour = {
   // (captureContrast.test.ts); the hover stays a step darker in Daylight.
   interactive: ["#084c93", "#8abfff"],
   "interactive-hover": ["#063a70", "#9cc8ff"],
-  "interactive-soft": ["#e4eefa", "#15304f"],
+  // IR-UI-005: a pressed key or selected cell is a capture ground too, so
+  // Night shift's is a step darker than the artifact's for 7:1 text on it.
+  "interactive-soft": ["#e4eefa", "#142e4c"],
   "on-interactive": ["#ffffff", "#08182c"],
   brand: [PLATFORM_BRAND, PLATFORM_BRAND],
   "brand-hover": ["#145064", "#145064"],

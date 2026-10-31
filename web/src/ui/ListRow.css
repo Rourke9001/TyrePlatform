@@ -88,5 +88,5 @@ button.tr-row:hover {
 }
 
 .tr-row__chev {
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
 }

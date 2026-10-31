@@ -76,12 +76,13 @@
   color: var(--on-warn);
 }
 
+/* IR-UI-005: pressed, the fill still holds its text at 7:1. */
 .tr-key--go.tr-key--warn:active:not(:disabled) {
-  background: color-mix(in srgb, var(--warn) 80%, var(--on-warn));
+  background: color-mix(in srgb, var(--warn) 88%, var(--on-warn));
 }
 
 .tr-key--go:disabled {
   background: var(--line);
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   cursor: default;
 }

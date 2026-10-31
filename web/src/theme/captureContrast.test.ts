@@ -8,10 +8,9 @@ import { themes, type ColorToken, type ThemeName } from "./tokens";
 // for a mark that carries a state, in Daylight and in Night shift. U157's
 // erratum holds text on the tenant's brand fill at 4.5:1, the floor
 // deriveBrandTheme guarantees for any tenant colour (derive.test.ts). U158:
-// the floors cover everything a driver sees, so the shell, sign-in and base
-// sheets the driver routes render are read too. Of Tread's sheets only the
-// driver's own shell is listed: the shared ones carry manager variants no
-// driver reaches.
+// the floors cover everything a driver sees, so every sheet the driver's
+// modules import is read whole, a shared component's manager variants
+// included; "reads every sheet" below holds the list to the imports.
 const sheets = import.meta.glob<string>(
   [
     "/src/capture/**/*.css",
@@ -20,9 +19,72 @@ const sheets = import.meta.glob<string>(
     "/src/auth/auth.css",
     "/src/ui/base.css",
     "/src/ui/DriverShell.css",
+    "/src/ui/AxleDiagram.css",
+    "/src/ui/BrandMark.css",
+    "/src/ui/Button.css",
+    "/src/ui/Card.css",
+    "/src/ui/Checkbox.css",
+    "/src/ui/Icon.css",
+    "/src/ui/Keypad.css",
+    "/src/ui/ListRow.css",
+    "/src/ui/Sheet.css",
+    "/src/ui/TextArea.css",
+    "/src/ui/TextInput.css",
+    "/src/ui/TreadReadings.css",
+    "/src/ui/TyreTile.css",
   ],
   { query: "?raw", import: "default", eager: true },
 );
+
+// The sheets a driver's modules import that hold no driver colour.
+const NOT_READ: Record<string, string> = {
+  "/src/ui/AppShell.css": "a manager's shell; Chrome.tsx gives a driver DriverShell",
+  "/src/theme/fonts.css": "font faces, no colour",
+};
+
+const sources = import.meta.glob<string>(["/src/**/*.{ts,tsx}", "!**/*.test.*", "!/src/test/**"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+
+// A relative specifier against the importing file, as the glob keys it.
+function resolveSpecifier(from: string, spec: string): string | undefined {
+  const parts = from.split("/").slice(0, -1);
+  for (const part of spec.replace(/\?.*$/, "").split("/")) {
+    if (part === "..") parts.pop();
+    else if (part !== ".") parts.push(part);
+  }
+  const path = parts.join("/");
+  if (path.endsWith(".css")) return path;
+  return [".ts", ".tsx", "/index.ts", "/index.tsx"]
+    .map((ext) => path + ext)
+    .find((p) => p in sources);
+}
+
+// Every sheet reached by static import from the driver's folders and the
+// entry files; a route behind React.lazy is an import() and is not followed.
+function driverSheets(): string[] {
+  const queue = Object.keys(sources).filter((f) =>
+    /^\/src\/(?:(?:capture|driver|shell|auth)\/|(?:main|App|routes)\.tsx$)/.test(f),
+  );
+  const seen = new Set<string>();
+  const found = new Set<string>();
+  while (queue.length > 0) {
+    const file = queue.pop() ?? "";
+    if (seen.has(file)) continue;
+    seen.add(file);
+    for (const m of (sources[file] ?? "").matchAll(
+      /^\s*import\s+(?!type\b)(?:[^;]*?\sfrom\s+)?["'](\.[^"']+)["']/gm,
+    )) {
+      const target = resolveSpecifier(file, m[1]);
+      if (!target) continue;
+      if (target.endsWith(".css")) found.add(target);
+      else queue.push(target);
+    }
+  }
+  return [...found].sort();
+}
 
 // DevBar and the tenant switcher render in development only.
 const DEV_ONLY = [".dev-bar", ".shell-tenant"];
@@ -32,11 +94,25 @@ const devOnly = (selectors: string[]) =>
 
 const THEME_NAMES: ThemeName[] = ["light", "dark"];
 
-// Every ground a driver's screen sets text or a mark on.
-const GROUNDS: ColorToken[] = ["canvas", "surface", "surface-muted", "warn-soft", "critical-soft"];
+// Every ground a driver's screen sets text or a mark on; --interactive-soft
+// is a pressed key, a selected card or the cell being typed into.
+const GROUNDS: ColorToken[] = [
+  "canvas",
+  "surface",
+  "surface-muted",
+  "warn-soft",
+  "critical-soft",
+  "interactive-soft",
+];
 
 // Text that may sit on any ground above; a link is --interactive.
-const TEXT: ColorToken[] = ["ink", "ink-secondary", "critical-text", "interactive"];
+const TEXT: ColorToken[] = [
+  "ink",
+  "ink-secondary",
+  "critical-text",
+  "interactive",
+  "interactive-hover",
+];
 
 // Text on a fill, with the fill and its floor. A hovered or pressed brand
 // fill keeps the brand's floor.
@@ -44,6 +120,8 @@ const ON_FILL: [ColorToken, ColorToken, number][] = [
   ["on-ok", "ok", 7],
   ["on-warn", "warn", 7],
   ["on-critical", "critical", 7],
+  ["on-interactive", "interactive", 7],
+  ["on-inverse", "surface-inverse", 7],
   ["on-brand", "brand", 4.5],
   ["on-brand", "brand-hover", 4.5],
   ["on-brand", "brand-pressed", 4.5],
@@ -65,6 +143,9 @@ const MARKS: ColorToken[] = [
 // Dividers and resting edges, which carry no state. --line-strong outlines
 // a control at rest, so it holds NFR-USE-007's 3:1 for a control's border.
 const EDGES: ColorToken[] = ["line", "line-strong"];
+
+// The page behind a modal sheet, which nothing is read on.
+const SCRIM: ColorToken = "scrim";
 
 const FILLS = ON_FILL.map(([, fill]) => fill);
 
@@ -152,24 +233,46 @@ function fillPairs(files: Record<string, string> = sheets): string[] {
 function unchecked(files: Record<string, string> = sheets): string[] {
   const out: string[] = [];
   for (const [file, css] of Object.entries(files)) {
-    for (const rule of cssRules(css)) {
+    const rules = cssRules(css);
+    const fillsOf = (selector: string) =>
+      rules
+        .filter((r) => r.selectors.includes(selector))
+        .flatMap((r) => declarations(r.body))
+        .filter((d) => isBackground(d.property))
+        .flatMap((d) => tokensIn(d.value));
+    for (const rule of rules) {
       if (devOnly(rule.selectors)) continue;
       const decls = declarations(rule.body);
-      const own = decls.filter((d) => isBackground(d.property)).flatMap((d) => tokensIn(d.value));
-      // A halo in a ground colour gives the focus ring a ground on a fill;
-      // the ring's own colour takes the mark check (base.css).
-      const halo = rule.selectors.every((s) => s.includes(":focus-visible"));
+      // A modifier draws on its block's fill (.tr-brandmark__tile--on-brand).
+      const own = [
+        ...decls.filter((d) => isBackground(d.property)).flatMap((d) => tokensIn(d.value)),
+        ...rule.selectors.flatMap((s) => {
+          const block = s.replace(/^(\.[\w-]+?)--[\w-]+$/, "$1");
+          return block === s ? [] : fillsOf(block);
+        }),
+      ];
+      const ownText = ON_FILL.filter(([, fill]) => own.includes(fill)).map(([text]) => text);
       const solid = decls
         .filter(
           (d) =>
             (isMark(d.property) || isBackground(d.property)) && !d.value.includes("color-mix("),
         )
         .flatMap((d) => tokensIn(d.value));
+      // A halo in a ground colour sets a ring off what it rings: the focus
+      // ring base.css draws, or a state mark the rule draws solid, which
+      // takes the mark check itself.
+      const halo =
+        rule.selectors.every((s) => s.includes(":focus-visible")) ||
+        solid.some((t) => MARKS.includes(t));
+      // An entrance animation's first step starts see-through; the rule it
+      // animates holds the floor at rest.
+      const step = rule.selectors.every((s) => /^(?:from|to|\d+(?:\.\d+)?%)$/.test(s));
       for (const { property, value } of decls) {
         if (/-(?:radius|width|style)$/.test(property)) continue;
         // Dimming takes text and marks under their floors by an amount no
         // token states (TYRE-155's absent spare).
         const alpha = value.endsWith("%") ? parseFloat(value) / 100 : parseFloat(value);
+        if (property === "opacity" && step) continue;
         if ((property === "opacity" && alpha < 1) || property === "filter") {
           out.push(`${file}: ${rule.selectors.join(", ")} { ${property}: ${value} }`);
           continue;
@@ -191,14 +294,16 @@ function unchecked(files: Record<string, string> = sheets): string[] {
         for (const token of tokensIn(value)) {
           const allowed =
             property === "color"
-              ? [...TEXT, ...ON_FILL.filter(([, fill]) => own.includes(fill)).map(([text]) => text)]
+              ? [...TEXT, ...ownText]
               : isBackground(property)
-                ? [...GROUNDS, ...FILLS, ...EDGES]
+                ? [...GROUNDS, ...FILLS, ...EDGES, SCRIM]
                 : isMark(property)
                   ? [
                       ...MARKS,
                       ...EDGES,
                       ...own,
+                      // A fill's own text, ringing that fill, holds its floor.
+                      ...ownText,
                       ...(halo && property === "box-shadow" ? GROUNDS : []),
                     ]
                   : // A ticked box's fill is the state, so it is a mark.
@@ -225,12 +330,23 @@ describe("capture contrast (IR-UI-005)", () => {
         "/src/auth/auth.css",
         "/src/ui/base.css",
         "/src/ui/DriverShell.css",
+        "/src/ui/TyreTile.css",
       ]),
     );
     const belowRemoval = cssRules(sheets["/src/capture/capture.css"]).find((r) =>
       r.selectors.includes(".cap-alert--below-removal"),
     );
     expect(belowRemoval?.body).toContain("var(--critical-text)");
+    const unread = cssRules(sheets["/src/ui/TyreTile.css"]).find((r) =>
+      r.selectors.includes(".tr-tile--unread"),
+    );
+    expect(unread?.body).toContain("var(--unmeasured)");
+  });
+
+  it("reads every sheet the driver's modules import", () => {
+    const reached = driverSheets();
+    expect(reached).toEqual(expect.arrayContaining(["/src/ui/base.css", "/src/ui/AppShell.css"]));
+    expect(reached.filter((s) => !(s in sheets) && !(s in NOT_READ))).toEqual([]);
   });
 
   it("puts each fill's own text on it, pressed fills included", () => {
@@ -311,8 +427,38 @@ describe("the capture contrast check catches each planted case", () => {
       "a see-through ring in a text colour",
       ".x { color: var(--ink-secondary); outline: 2px solid color-mix(in srgb, var(--ink-secondary) 50%, transparent); }",
     ],
+    ["a ground-coloured ring with no mark", ".x { box-shadow: 0 0 0 2px var(--surface); }"],
+    ["a colour in an animation step", "@keyframes k { from { color: var(--ink-muted); } }"],
+    ["text in the scrim", ".x { color: var(--scrim); }"],
+    ["a ring in the scrim", ".x { border-color: var(--scrim); }"],
+    [
+      "muted text on a pressed tint",
+      ".x { background: var(--interactive-soft); color: var(--ink-muted); }",
+    ],
+    [
+      "a modifier's ring with no block fill",
+      ".y--m { box-shadow: inset 0 0 0 2px var(--on-brand); }",
+    ],
+    [
+      "a modifier's ring in another fill's text",
+      ".y { background: var(--ok); color: var(--on-ok); }\n.y--m { box-shadow: inset 0 0 0 2px var(--on-brand); }",
+    ],
   ])("%s", (_, css) => {
     expect(unchecked({ [planted]: css })).not.toEqual([]);
+  });
+
+  it.each([
+    [
+      "a modifier ringing its block's fill in that fill's text",
+      ".y { background: var(--brand); color: var(--on-brand); }\n.y--m { box-shadow: inset 0 0 0 2px var(--on-brand); }",
+    ],
+    [
+      "a ground halo beside a state mark",
+      ".x { border-color: var(--interactive); box-shadow: 0 0 0 2px var(--interactive-soft); }",
+    ],
+    ["an entrance animation's see-through first step", "@keyframes k { from { opacity: 0; } }"],
+  ])("lets %s pass", (_, css) => {
+    expect(unchecked({ [planted]: css })).toEqual([]);
   });
 
   // The real sheets show a ring echoing a border; this is the fill half.

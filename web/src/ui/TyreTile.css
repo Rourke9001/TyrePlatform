@@ -95,7 +95,7 @@
 
 .tr-tile--empty {
   background: transparent;
-  color: var(--ink-muted);
+  color: var(--ink-secondary);
   border: 2px dotted var(--line-strong);
   cursor: default;
 }
