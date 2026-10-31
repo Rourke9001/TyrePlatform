@@ -128,6 +128,16 @@
   flex: 1 1 auto;
 }
 
+/* A busy Refresh keeps keyboard focus (aria-disabled, FilterBar) and looks
+   disabled as well as saying so (NFR-USE-009). Two classes on the button,
+   so it beats Button.css's hover fill by specificity. */
+.list-filters .tr-btn.tr-btn--secondary[aria-disabled="true"] {
+  border-style: dashed;
+  background: var(--surface-muted);
+  color: var(--ink-secondary);
+  cursor: default;
+}
+
 /* ----------------------------------------------------------------- tables */
 
 /* The rule name with its code on a line of its own, in mono. The minimum

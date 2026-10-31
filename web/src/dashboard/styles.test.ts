@@ -34,6 +34,17 @@ describe("the unit list's sheet", () => {
 });
 
 describe("the overview's sheet", () => {
+  // NFR-USE-009: Button.css draws only :disabled, and Refresh is
+  // aria-disabled while busy so it keeps keyboard focus.
+  it("draws a busy Refresh as disabled", () => {
+    const body = ruleBody(
+      analyticsCss,
+      '.list-filters .tr-btn.tr-btn--secondary[aria-disabled="true"]',
+    );
+    expect(body).toMatch(/border-style:\s*dashed/);
+    expect(body).toMatch(/background:\s*var\(--surface-muted\)/);
+  });
+
   // NFR-USE-004: each severity line's link is a 44px target, not a line of
   // text.
   it("gives each severity link the 44px floor", () => {
