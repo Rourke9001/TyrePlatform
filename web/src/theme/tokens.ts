@@ -69,7 +69,9 @@ const colour = {
   warn: ["#f2ab00", "#f0b429"],
   "on-warn": ["#1d1400", "#1d1400"],
   "warn-text": ["#8a5300", "#ffc95c"],
-  critical: ["#c4271b", "#ff6f61"],
+  // IR-UI-005 (U157), as critical-text below: Daylight's fill is off the
+  // artifact's value, in its hue, so its own text clears 7:1 for a driver.
+  critical: ["#a92217", "#ff6f61"],
   "on-critical": ["#ffffff", "#1f0604"],
   // IR-UI-005 (U157): off the artifact's values, in their hue, so capture's
   // text clears 7:1 and its unmeasured mark 4.5:1 on every capture ground
