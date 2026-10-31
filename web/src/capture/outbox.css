@@ -1,9 +1,8 @@
 /* The outbox band (ADR-0009, NFR-USE-010), mounted in the shell under the
    bar on every route. OutboxIndicator imports it. */
 
-/* Mounted in the shell, so it is the one piece of capture that appears on
-   every screen. Kept to a single band: it is a status line, not a panel, and
-   it must never push the driver's work below the fold. */
+/* A single band: it is a status line, not a panel, and it must never push
+   the driver's work below the fold. */
 .cap-outbox {
   display: flex;
   align-items: center;

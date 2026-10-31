@@ -1,5 +1,5 @@
 /* A pending sign-in keeps keyboard focus (aria-disabled, SignInButton) and
-   says so in shape as well as tone (NFR-USE-009). Two classes on the
+   says so in its label as well as its tone (NFR-USE-009). Two classes on the
    button, so it beats Button.css's hover and press fills by specificity
    whatever order the sheets load in. */
 .auth-action .tr-btn.tr-btn--primary[aria-disabled="true"] {
@@ -10,7 +10,8 @@
 }
 
 /* The sign-in and access screens sit in the driver shell's body
-   (ADR-0020): a title, what to do, then one glove-size action. */
+   (ADR-0020): a title, what to do, and a glove-size action where the
+   screen has one. */
 .auth-screen {
   display: grid;
   gap: var(--space-4);

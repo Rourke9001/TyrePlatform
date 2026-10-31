@@ -29,8 +29,8 @@ export function Chrome({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
 
   // Never the security boundary (NFR-SEC-006): the server re-checks every
-  // capability on every request. This only shows, in a shared dev
-  // environment, who the app thinks is asking.
+  // capability on every request. This only shows who the app thinks is
+  // asking.
   const actorLine = actor ? `${actor.displayName} · ${actor.role}` : undefined;
   // A logo exists only once upload and serving land with RBAC (TYRE-26), so
   // the monogram tile is the designed default, not a degraded state.
@@ -55,8 +55,8 @@ export function Chrome({ children }: { children: ReactNode }) {
       </AppShell>
     );
   }
-  // U159: a driver keeps a link to their own page from every other one,
-  // the old shell's one destination. The link to the page they are on goes.
+  // U159: a driver has a link to their own page from every other page; the
+  // link to the page they are on is left out.
   const driverNav = navItemsFor(actor?.capabilities ?? []).filter(
     (item) => matchPath(item.to, pathname) === null,
   );

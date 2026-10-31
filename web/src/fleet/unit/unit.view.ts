@@ -26,9 +26,8 @@ export function lastTreadCell(fitment: OpenFitment): string {
   return `${mm} (${treadSourceLabel(fitment.lastTreadSource)}${age})`;
 }
 
-// CR-012: a distance and its provenance are one fact, rendered in one cell.
-// A bare number reads as measured, which for an inferred one is a claim
-// the register never made.
+// CR-012: a distance and its provenance are one fact, rendered in one cell
+// (domain/vocabulary.ts, distanceSourceLabel).
 export function distanceCell(row: FitmentHistoryRow, units: UnitLabels): string {
   if (row.removedAt === null) return "Fitted";
   if (row.distanceKm === null) return distanceSourceLabel(row.distanceSource);

@@ -1,7 +1,5 @@
-/* The admin forms. Layout only; the look is Tread's components' (TYRE-240),
-   and colour comes from the theme tokens (web/src/theme/tokens.ts), so a
-   tenant's branding reaches these screens without either file knowing
-   about the other. */
+/* The admin forms. Layout only; the look is Tread's components'
+   (TYRE-240). */
 
 /* Stacked, never side by side: these screens are reachable from the same
    phone the capture app runs on, and a two-column form at 360px is a

@@ -91,8 +91,8 @@ export function heroView(
       moneyVisible && running.tyreCount > 0 && running.casingValueAtRisk !== null
         ? "critical"
         : "default",
-    // U18: the register's today count, not the class's, which is judged at
-    // each unit's latest inspection.
+    // U18: the register's today count, not the exception count, which is
+    // judged at each unit's latest inspection.
     qualifier: `from ${plural(belowThreshold.running, "running tyre", "running tyres")} at or below the removal threshold ${judgedAtLabel(belowThreshold.judgedAt)}`,
     footnote: `${formatCount(running.actualCount)} at actual cost, ${formatCount(running.estimatedOrAuditCount)} estimated or audit, of which ${formatCount(running.auditCount)} audit; ${formatCount(running.unvaluedCount)} unvalued`,
     segments: [
@@ -398,8 +398,8 @@ export interface SpareRowView {
 }
 
 // FR-DSH-019. A spare is judged on the tenant's calendar, so it shows the
-// day it was measured, not the time (FR-RPT-041); its age (FR-TYR-017)
-// joins the day in one cell, never a column of its own.
+// day it was measured, not the time (FR-RPT-041); the reading's age
+// (FR-TYR-017) joins the day in one cell, never a column of its own.
 export function spareRows(spares: SpareRow[], formatDate: Formatter): SpareRowView[] {
   return spares.map((s) => ({
     key: s.tyreId,

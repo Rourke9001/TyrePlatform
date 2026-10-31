@@ -20,7 +20,7 @@ export function UnitPlan({
       role="group"
       aria-label="Unit plan view"
       units={[diagramUnit(unit)]}
-      // "" rather than null: every tile is a toggle, so with nothing picked
+      // "" rather than undefined: every tile is a toggle, so with nothing picked
       // each still states aria-pressed="false".
       selectedId={selectedId ?? ""}
       onSelect={(position) => onSelect(position.id)}

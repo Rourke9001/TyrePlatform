@@ -4,9 +4,9 @@ import { fileURLToPath } from "node:url";
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
 
-// ADR-0022: a screen's *.view.ts is a transform, so it imports domain/ and
-// format/ only. The type-aware parser needs a file it can find, so each
-// probe's text stands in for an existing view model's.
+// ADR-0022: a screen's *.view.ts is a transform, so it imports domain,
+// format and other transforms only. The type-aware parser needs a file it
+// can find, so each probe's text stands in for an existing view model's.
 const eslint = new ESLint({ cwd: fileURLToPath(new URL("..", import.meta.url)) });
 const VIEW = "src/dashboard/atRisk.view.ts";
 

@@ -185,7 +185,7 @@ describe("AxleDiagram", () => {
     expect(screen.queryAllByRole("group")).toHaveLength(0);
   });
 
-  // U146: an uneven axle drew its middle tyre on the wrong side.
+  // U146: an uneven axle draws each tyre on the side its position names.
   it("splits an axle by each position's side when all carry one", () => {
     const sided = (n: number, side: "left" | "right"): DiagramPosition => ({
       ...pos("U", n),
