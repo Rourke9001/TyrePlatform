@@ -4,7 +4,8 @@ The record of what landed, in which batch, on which pull request, and what
 each batch found that changed the batch after it. Until 9 Sep 2026 this was
 the body of `docs/implementation-order.md`; that page now holds only the
 queue, and this one holds the batches it has already retired, through B7
-and the B9 and platform-lane PRs to 21 Oct 2026. Citations of
+and the B9 and platform-lane PRs to 21 Oct 2026, then trips and Tread to
+1 Nov 2026. Citations of
 the form `docs/implementation-order.md §B5` (migration 000035, ADR-0012, the
 B5 and B6 design specs) resolve to the same-named section here.
 
@@ -566,6 +567,33 @@ permanent once real rows exist taken first. What merged, in order:
 | 19 Oct | [#131](https://github.com/Rourke9001/TyrePlatform/pull/131) | TYRE-397, production, deployed from `main` with only images staging passed; TYRE-203's Bicep half, 313, 401, 402, 403, 411 and 433 folded in. The owner brought production up on 20 Oct, and `main` was first promoted to `d2bd08c` (ADR-0017, U89) |
 | 20 Oct | [#133](https://github.com/Rourke9001/TyrePlatform/pull/133) | TYRE-435: each environment gets `kv-tyre-api-<env>` holding `database-url` alone, the API identity's only Key Vault role (U141); staging switched over the same day |
 | 21 Oct | [#139](https://github.com/Rourke9001/TyrePlatform/pull/139) | TYRE-283 with 418 (migration 000059, section 75): the consent writer, receipts priced once, the price list read at receipt, the fleet settings page, tenant unit labels and `formatMoney`; `inspection.tyres_created` moved to TYRE-286 (U143) |
+
+### Trips and Tread - 21 Oct to 1 Nov 2026
+
+Sprint 1 of the pilot plan (`docs/implementation-order.md`). What merged:
+
+| When | PR | What |
+|---|---|---|
+| 21 Oct | [#146](https://github.com/Rourke9001/TyrePlatform/pull/146) | Fixes from the 21 Oct roles review, with no ticket: assignment and scheduling refuse an assignee whose role cannot capture |
+| 26 Oct | [#148](https://github.com/Rourke9001/TyrePlatform/pull/148) | TYRE-326, per-trip assignment and nominated drivers (migration 000060, section 76; U148 to U154). It shipped in one release by U151's exception |
+| 29 Oct | [#151](https://github.com/Rourke9001/TyrePlatform/pull/151) | TYRE-445 and 446, Tread's foundation: the tokens in Daylight and Night shift, Atkinson Hyperlegible Next and Mono self-hosted, the colour-literal gate, and the capture entry's CSS and fonts under the bundle gate (281; 343 folded into 445). The IR-UI-005 erratum is U157 |
+| 29 Oct | [#152](https://github.com/Rourke9001/TyrePlatform/pull/152) | TYRE-447, Tread's component library in `web/src/ui`, with tests and the `/dev/design` gallery |
+| 31 Oct | [#153](https://github.com/Rourke9001/TyrePlatform/pull/153) | TYRE-240's ports of every manager screen, the landing and both shells, as a pure restyle; U159 keeps a driver's "My inspections" link on every page but `/my` |
+| 1 Nov | [#154](https://github.com/Rourke9001/TyrePlatform/pull/154) | Capture on Tread with U160's half key, and the old kit deleted except its Select; ADR-0022's layer lint covers the ported screens. TYRE-447 closed with it |
+
+U156 (26 Oct) replaced U145's Tread sequence, which had 445 and 446 in
+sprint 1, 447 split into a core and manager set (447a, sprint 2) and a
+capture set (447b, sprint 3), logic fixes before each restyle, and the
+older screens after the pilot. Instead every route moved to Tread at once
+for the 28 Oct shareholder demo, on `TYRE-443-tread-frontend`, which stays
+with the tag `tread-demo-safe-0` at 96e7fdf. After the demo it was rebased
+onto `develop` and cut into #151 to #154. Each was rebase-merged, and after
+each merge the owner rebased the next branch onto `develop` and
+force-pushed it. The integration branch had recorded the capture budget
+only once, so each cut re-recorded it in its own commit; `develop`'s
+figures are in `web/bundle-budget.json`. None of the four added a
+migration. TYRE-240 stays open for its behaviour fixes, and epic TYRE-443
+for the items the queue page lists.
 
 ### Board prunes - 24 Sep to 21 Oct 2026
 
