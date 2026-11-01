@@ -194,9 +194,9 @@ describe("applyKey at other granularities (FR-CFG-027)", () => {
   });
 });
 
-// U146, the owner's ruling of 27 Oct 2026: 13 settles at 0.5 mm, so the
-// keypad moves on after the hold, and a half pressed straight after belongs
-// to the cell it left. Not settled, so the sheet arms no second advance.
+// U160: 13 settles at 0.5 mm, so the keypad moves on after the hold, and a
+// half pressed straight after belongs to the cell it left. Not settled, so
+// the sheet arms no second advance.
 describe("the half key straight after the keypad moves on", () => {
   const thirteenThenNext = (opts: typeof whole) =>
     applyKey(type(newEntryState(3), "13", opts).state, { type: "next" }, opts).state;

@@ -109,10 +109,10 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       // U145: the half key is a 0.5mm tenant's, and it only ever adds to a tread.
       if (opts.granularityMm !== 0.5) return { state, settled: false };
       const from = state.advancedFrom;
-      // U146, the owner's ruling of 27 Oct 2026: after next, every half until
-      // another key belongs to the whole reading the keypad left, never to the
-      // field it moved on to, so a double tap finds it at x.5 and stops. Not
-      // settled, so the sheet arms no second advance.
+      // U160: after next, every half until another key belongs to the whole
+      // reading the keypad left, never to the field it moved on to, so a
+      // double tap finds it at x.5 and stops. Not settled, so the sheet arms
+      // no second advance.
       if (from !== null) {
         const left = state.treads[from];
         if (left === null || !Number.isInteger(left) || halfPassesCeiling(left)) {
