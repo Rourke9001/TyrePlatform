@@ -272,7 +272,9 @@ function unchecked(files: Record<string, string> = sheets): string[] {
         // Dimming takes text and marks under their floors by an amount no
         // token states (TYRE-155's absent spare).
         const alpha = value.endsWith("%") ? parseFloat(value) / 100 : parseFloat(value);
-        if (property === "opacity" && step) continue;
+        // Opacity 0 hides rather than dims: a native input under the box
+        // drawn for it stays the click target (Checkbox.css).
+        if (property === "opacity" && (step || alpha === 0)) continue;
         if ((property === "opacity" && alpha < 1) || property === "filter") {
           out.push(`${file}: ${rule.selectors.join(", ")} { ${property}: ${value} }`);
           continue;
@@ -457,6 +459,7 @@ describe("the capture contrast check catches each planted case", () => {
       ".x { border-color: var(--interactive); box-shadow: 0 0 0 2px var(--interactive-soft); }",
     ],
     ["an entrance animation's see-through first step", "@keyframes k { from { opacity: 0; } }"],
+    ["a native input hidden under its drawn box", ".x input { opacity: 0; }"],
   ])("lets %s pass", (_, css) => {
     expect(unchecked({ [planted]: css })).toEqual([]);
   });

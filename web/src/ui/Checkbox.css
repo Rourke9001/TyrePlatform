@@ -27,13 +27,12 @@
   background: var(--interactive-soft);
 }
 
+/* Transparent, not clipped: the native input stays the click target. */
 .tr-check input {
   position: absolute;
+  opacity: 0;
   width: 1px;
   height: 1px;
-  margin: 0;
-  overflow: hidden;
-  clip-path: inset(50%);
 }
 
 .tr-check__box {

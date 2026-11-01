@@ -1,9 +1,9 @@
 {
   "entryClosureGzipBytes": 148578,
-  "entryCssGzipBytes": 6591,
+  "entryCssGzipBytes": 6595,
   "entryFontBytes": 70188,
   "recordedAt": "2026-10-31",
-  "cssRecordedAt": "2026-10-31",
+  "cssRecordedAt": "2026-11-01",
   "chunks": [
     "assets/index-BFcROCJm.js"
   ]
