@@ -41,8 +41,8 @@ BAC's measured window is targeted for about **2 Dec 2026** (U147), after a
 readiness week from 25 Nov. The dates below are estimates from the pace since
 13 Oct (12 code PRs merged in 9 days); the order is the commitment. A window
 from 2 Dec runs into the December holidays; if the date moves earlier, the
-first things out are TYRE-441, 76, 366 and 377. By 1 Nov, the end of sprint
-1, trips and Tread had merged and the rest of sprint 1's row had not; the
+first things out are TYRE-441, 76, 366 and 377. At 1 Nov, past sprint 1's
+dates, trips and Tread had merged and the rest of sprint 1's row had not; the
 dates have not been re-planned.
 
 Two lanes run side by side because they touch disjoint files. The database
