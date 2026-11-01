@@ -137,12 +137,11 @@ A bug found on a branch is fixed on that branch (U146, CLAUDE.md); Set aside
 holds only what is not a bug.
 
 The capture route's entry budget in `web/bundle-budget.json` was recorded
-on 31 Oct 2026 by TYRE-240, for Tread's capture set and both shells on
-develop: 148578 gzip bytes of JavaScript, 6591 of CSS and 70188 raw bytes of
-fonts. The gate
-only lets those figures go down. Every capture-route change in the queue adds
-bytes: the capture fixes, photos, the manifest and the Tread capture slice.
-Each such PR re-records the budget in its own commit and says why, so the
+on 31 Oct 2026 (CSS on 1 Nov) by TYRE-240, for Tread's capture set and
+both shells on develop: 148578 gzip bytes of JavaScript, 6595 of CSS and
+70188 raw bytes of fonts. The gate only lets those figures go down. Every
+capture-route change in the queue adds bytes: the capture fixes, photos,
+the manifest and the Tread capture slice. Each such PR re-records the budget in its own commit and says why, so the
 growth is a decision, not an accident (ADR-0015).
 
 BAC Transport is the acceptance fixture. Tests and demos type in Sandbox Fleet
