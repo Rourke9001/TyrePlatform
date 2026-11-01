@@ -1,9 +1,11 @@
 # Implementation order
 
-Re-verified **21 Oct 2026** against `develop` @ `4f9414f` and the board, by
-the pilot audit (TYRE-452). The owner approved its plan the same day: U145
-(the Tread rework), U146 (a bug found on a branch is fixed there) and U147
-(the board changes, the product answers and the pilot date).
+Re-verified **1 Nov 2026** against `develop` @ `1ab75a2` and the board,
+after the Tread stack (#151 to #154) merged. The plan is the pilot audit's
+of 21 Oct 2026 (TYRE-452), which the owner approved that day: U145 (the
+Tread rework), U146 (a bug found on a branch is fixed there) and U147 (the
+board changes, the product answers and the pilot date). U156 moved the
+Tread rework ahead of it on 26 Oct.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -14,7 +16,8 @@ end.
 A sprint here is a sequencing claim, not a scope claim. Each ticket's own
 definition of done, and the U147 comment on it, govern what gets built. What
 has merged is recorded in `docs/delivery-history.md`, batch by batch: B1 to
-B7, then B9 and the platform lane to 21 Oct 2026. A citation written as
+B7, then B9 and the platform lane to 21 Oct 2026, then trips and Tread to
+1 Nov 2026. A citation written as
 `docs/implementation-order.md §B5` (or §B6, §B7) resolves to the same-named
 section there.
 
@@ -38,7 +41,9 @@ BAC's measured window is targeted for about **2 Dec 2026** (U147), after a
 readiness week from 25 Nov. The dates below are estimates from the pace since
 13 Oct (12 code PRs merged in 9 days); the order is the commitment. A window
 from 2 Dec runs into the December holidays; if the date moves earlier, the
-first things out are TYRE-441, 76, 366 and 377, then Tread's 447a.
+first things out are TYRE-441, 76, 366 and 377. By 1 Nov, the end of sprint
+1, trips and Tread had merged and the rest of sprint 1's row had not; the
+dates have not been re-planned.
 
 Two lanes run side by side because they touch disjoint files. The database
 lane runs one PR after another, because each takes the next migration number
@@ -48,25 +53,25 @@ whichever database branch is cut first.
 | Sprint | Dates | Web, API and infrastructure lane | Database lane | Unlocks |
 |---|---|---|---|---|
 | 0 | 21 to 23 Oct | #141 (ADR-0020, TYRE-444); #142 (U146, TYRE-452); this page's PR with ADR-0021 (TYRE-350) | | A board with only build work on it |
-| 1. Foundations and trips | 22 to 30 Oct | Tread's ports landed ahead of the plan: 445 colour and themes (with 281; 343 folded in), 446 type, 447's components and 240's screen ports, as four stacked PRs (U156, below); the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334 and the network PR (389, 381, 388), both now rebasing onto Tread's capture files; 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
-| 2. Driver path and manager views | 31 Oct to 7 Nov | 447a core components (275 folded in); 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 (425 folded in); 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
-| 3. Capture slice and reports | 8 to 16 Nov | The Tread capture slice: 447b with 152's screens, 448, 285 and 319's Today screen; 320 reports and export (ADR first); 354, 363 and 367 | 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
+| 1. Foundations and trips | 22 to 30 Oct | Tread, ahead of the plan (U156, below): 445 colour and themes (with 281; 343 folded in), 446 type, 447's components and 240's screen ports (merged, #151 to #154); the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334 and the network PR (389, 381, 388), both now written against Tread's capture files; 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
+| 2. Driver path and manager views | 31 Oct to 7 Nov | 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 (425 folded in); 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
+| 3. Capture slice and reports | 8 to 16 Nov | Capture's remaining screens, on Tread's components: 152's photos, 448, 285 and 319's Today screen; 320 reports and export (ADR first); 354, 363 and 367 | 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
 | 4. Hardening | 17 to 24 Nov | 115 with 140; 159; 377; 366 if BAC runs two or more operating groups; 434; 398 as a release step | The register batch (123, 120, 121, 244, 131, 113, 105); the suite PR (245, 112); 76 depot capture; 441; 243 slice 3, rule administration | Money and dates right per tenant; the suite covering exceptions |
 | Readiness | 25 Nov to 1 Dec | TYRE-321: production migrated and promoted, BAC onboarded live (U139), driver training, the 7-day live run | | The measured window |
 
-TYRE-321's restore rehearsal (NFR-BAK-004, with TYRE-203 folded in) runs this
-week, before any of it: staging to a point in time, and the empty production
-geo-restored to South Africa West, with `docs/runbooks/restore-a-database.md`
-committed (U147 B34).
+TYRE-321's restore rehearsal (NFR-BAK-004, with TYRE-203 folded in), planned
+for the week of 21 Oct, is still owed, before any of it: staging to a point in
+time, and the empty production geo-restored to South Africa West, with
+`docs/runbooks/restore-a-database.md` committed (U147 B34).
 
 ### Feature work and fixes
 
-Of the 69 tickets in sprints 1 to 4 and readiness, 27 are features, 8 are
-platform pieces and 34 are fixes; the fixes travel in about a dozen batched
-PRs, so feature work sets the pace.
+Of the 65 tickets still open in sprints 1 to 4 and readiness, 23 are
+features, 8 are platform pieces and 34 are fixes; the fixes travel in about a
+dozen batched PRs, so feature work sets the pace.
 
 - **Features:** 76, 99, 100, 102, 109, 133, 152, 154, 243, 284, 285, 286,
-  287, 292, 319, 320, 322, 325, 326, 366, 367, 377, 441, 445, 446, 447, 448.
+  287, 292, 319, 320, 322, 325, 366, 367, 377, 441, 448.
 - **Platform:** 321, 371, 379, 398, 410, 413, 434, 438.
 - **Fixes:** 105, 112, 113, 115, 120, 121, 123, 129, 131, 140, 159, 168,
   171, 173, 176, 190, 207, 218, 240, 244, 245, 270, 323, 329, 334, 342, 354,
@@ -79,58 +84,41 @@ A11).
 
 ### After the pilot
 
-TYRE-240's Tread ports of the older screens (fleet register and receipts;
-unit, rigs, fitments and retreads; admin forms and people; dashboard,
-exceptions and at-risk; landing and shell) landed early in #153, as a pure
-restyle; TYRE-240 stays open for its behaviour fixes. Then 449. Also 209 with 236,
-227, 255, 263, 311, 361, 380 and 395, and the `post-poc` tickets below.
+TYRE-449, Tread's per-device settings (C8). Also 209 with 236, 227, 255,
+263, 311, 361, 380 and 395, and the `post-poc` tickets below.
+
+Raised since 21 Oct and not yet placed in a sprint: TYRE-455 (High; a
+trailer swap logs the horse's odometer, an SRS change), and under the Tread
+epic TYRE-457 (each route sets its page title) and TYRE-458 (inner and outer
+place words need an API field).
 
 ## The Tread rework (epic TYRE-443)
 
-**U156 (owner, 26 Oct 2026) moves the rework to now.** Every route moves to
-Tread in one branch, `TYRE-443-tread-frontend`, which carries 445, 446, 447
-and 240's screen ports together. It lands as four stacked PRs cut from it
-after the 28 Oct demo: the foundation (445, 446), the components (447), the
-manager screens and capture (240's ports). The sprint placements of 445, 446, 447a,
-447b and 240's ports in the table above, and 240 under "After the pilot",
-are superseded. ADR-0020's Sequence paragraph is superseded. The rest of its
-Decision stands: the capture rulings, the navigation rule and the
+**U156 (owner, 26 Oct 2026) moved the rework ahead of the plan.** Every
+route moved to Tread in one branch, `TYRE-443-tread-frontend`, and landed as
+four stacked PRs cut from it after the 28 Oct demo: #151 the foundation (445,
+446), #152 the components (447), #153 the manager screens and #154 capture
+(240's ports, with U160's half key). `docs/delivery-history.md` records the
+stack. ADR-0020's Sequence paragraph is superseded; the rest of its Decision
+stands: the capture rulings of U145 (#141), the navigation rule and the
 non-negotiable rules. The design spec is
 `docs/superpowers/specs/2026-10-26-tread-frontend-design.md`, and ADR-0022
-holds the frontend layers. The list below is the U145 plan as it stood
-before U156.
+holds the frontend layers.
 
-ADR-0020 is accepted with the capture rulings of U145 (#141): capture keeps
-numbered tread cells (IR-UI-014), the rig-wide tile number with per-unit
-place words (FR-INS-060, Appendix I) and a non-modal sheet; the navigation
-does not change before the pilot; U16 is retired. What has to hold for the
-rework to land:
+The epic stays open for:
 
-1. **Run it locally.** This machine has Docker, superpowers and impeccable;
-   the cloud session that wrote the handover had none of them
-   (`docs/lessons.md`, 2026-10-20).
-2. **TYRE-445 takes four more things:** TYRE-281's gate on the capture
-   entry's CSS and fonts (`scripts/check-capture-bundle.mjs` counts
-   JavaScript only), a gate on colour literals (now
-   `scripts/check-colour-literals.mjs`, in `make lint`), Tread's
-   spacing, radius and size tokens, and TYRE-343's confinement test,
-   rewritten to the new names and made to fail first. `applyCssVars` sets
-   every token inline, so only the brand slot stays inline; Tread's
-   `space-5` is 20px where today's is 24px; pin `deriveBrandTheme`'s outputs
-   before the swap; the CSP refuses an inline theme script.
-3. **TYRE-446** drops the latin fonts from 184 KB to 70 KB of woff2.
-4. **TYRE-447 splits.** 447a, the core and manager set, in sprint 2; new
-   manager screens are built on it from then. 447b, the capture set, inside
-   the capture slice in sprint 3, before driver training (OR-TRN-001).
-   `tread.css` splits by route, or it lands on the capture entry unseen. The
-   port must not copy the artifact's hard-coded mm and kPa, its missing tread
-   age, its number format that drops ".0", its bare `<a href>` links, its
-   Sheet and Dialog without a focus trap, or its Tabs without a tab panel.
-5. **Logic fixes land before restyles**, so each port is a pure restyle: the
-   capture fixes in sprint 1, TYRE-240's behaviour fixes in sprint 2.
-6. **impeccable advises** (CLAUDE.md's precedence list): audit, critique,
-   harden, adapt, clarify, polish and optimize on each slice, and shape for
-   243's and 320's screens. Never init, document, extract, hooks or live.
+- TYRE-457 and TYRE-458, not yet placed (above), and TYRE-449 after the pilot.
+- The old Radix Select (`web/src/ui/legacy/`), which Dashboard's and
+  Exceptions' filters keep until a Tread select keeps the combobox role.
+  Until then not every route renders only Tread.
+- A web-design-guidelines audit of #151's files, which no review round ran.
+
+Screens still to build are built on Tread's components. They do not copy the
+artifact's hard-coded mm and kPa, its missing tread age, its number format
+that drops ".0" or its bare `<a href>` links. impeccable advises (CLAUDE.md's
+precedence list): audit, critique, harden, adapt, clarify, polish and
+optimize on each slice, and shape for 243's and 320's screens. Never init,
+document, extract, hooks or live.
 
 ## Constraints every branch carries
 
@@ -142,7 +130,7 @@ on 31 Oct 2026 (CSS on 1 Nov) by TYRE-240, for Tread's capture set and
 both shells on develop: 148578 gzip bytes of JavaScript, 6595 of CSS and
 70188 raw bytes of fonts. The gate only lets those figures go down. Every
 capture-route change in the queue adds bytes: the capture fixes, photos,
-the manifest and the Tread capture slice. Each such PR re-records the budget in its own commit and says why, so the
+the manifest and capture's remaining screens. Each such PR re-records the budget in its own commit and says why, so the
 growth is a decision, not an accident (ADR-0015).
 
 BAC Transport is the acceptance fixture. Tests and demos type in Sandbox Fleet
@@ -153,14 +141,13 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 ## Blocked on people, not code
 
-**The owner, this week:** merge #142 and this page's PR (#140 and #141
-merged and #138 closed on 21 Oct); migrate staging to 000059
-(`environment-release.md`, Each release); run the restore rehearsal
-(TYRE-321); add yourself as required reviewer on the GitHub production
-environment (TYRE-413). TYRE-378's revoke and page edits, and the SRS rows
-drafted on TYRE-442, 430, 322, 448, 76 and 372, were done on 21 Oct.
-Production stays
-at 58 until the next promotion, which must migrate first. TYRE-371's custom
+**The owner:** migrate staging to 000060, which #148 added on 26 Oct
+(`environment-release.md`, Each release; the release log's last staging row
+is 59, on 21 Oct); run the restore rehearsal (TYRE-321); add yourself as
+required reviewer on the GitHub production environment (TYRE-413); rule
+under U146 on #148's two Set aside items (TYRE-326 comment 14081); place
+TYRE-455, 457 and 458. Production stays at 58 until the next promotion,
+which must migrate first. TYRE-371's custom
 sender domain needs the platform domain, which the team registers outside
 Jira.
 
