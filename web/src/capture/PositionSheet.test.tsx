@@ -157,10 +157,9 @@ describe("PositionSheet", () => {
     expect(within(screen.getByLabelText("Tread reading 1 of 3")).getByText("13.5")).toBeVisible();
   });
 
-  // U146, the owner's ruling of 27 Oct 2026: 13 settles, so the keypad moves
-  // on after the hold, and a half pressed straight after lands on the cell
-  // it left with no tap back. The clock advance after the half is what
-  // tells one advance from two.
+  // U160: 13 settles, so the keypad moves on after the hold, and a half
+  // pressed straight after lands on the cell it left with no tap back. The
+  // clock advance after the half is what tells one advance from two.
   it("at 0.5 mm, a half straight after the keypad moves on lands on the cell it left", async () => {
     const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
     const halves: CaptureContext = { ...ctx, config: { ...ctx.config, treadGranularityMm: 0.5 } };
