@@ -60,7 +60,9 @@ code=$(cat "$t.code")
 if [ -n "$headers" ]; then
   { printf 'HTTP/2 %s\r\n' "$code"; sed 's/$/\r/' "$t.headers"; printf '\r\n'; } >"$headers"
 fi
-[ -z "$body" ] || cat "$t.body" >"$body"
+src="$t.body"
+[ "$n" -ne 1 ] || [ ! -e "$t.first.body" ] || src="$t.first.body"
+[ -z "$body" ] || cat "$src" >"$body"
 printf '%s' "$code"
 exit "$(cat "$t.exit")"
 EOF
@@ -83,6 +85,13 @@ first() {
   local t; t="$work/t/$(key "$1" "$2" "$3")"
   printf '%s' "$4" >"$t.first.code"
   printf '%s' "$5" >"$t.first.exit"
+}
+
+# first_body METHOD URL ORIGIN BODY: the body the first call alone gets,
+# with the table's code and headers.
+first_body() {
+  local t; t="$work/t/$(key "$1" "$2" "$3")"
+  printf '%s' "$4" >"$t.first.body"
 }
 
 INDEX='<!doctype html><title>Tyre Platform</title>'
@@ -165,6 +174,11 @@ expect "the deep link answers another body" 1
 control; answer GET "$WEB/fleet/tyres?smoke=1" "" 200 "$HSTS
 permissions-policy: camera=(), geolocation=()" "$INDEX"
 expect "the deep link sends no CSP" 1
+
+# Run 40959334000: an upload still propagating changes / after the headers
+# check has read it, and the deep link compares against / as it is now.
+control; first_body GET "$WEB/" "" '<!doctype html><title>Tyre Platform, the build before</title>'
+expect "/ changes between the headers check and the deep link's" 0
 
 control; answer GET "$WEB/assets/deploy-smoke-missing.js" "" 200 "content-type: text/html" "$INDEX"
 expect "a missing asset answers 200" 1
