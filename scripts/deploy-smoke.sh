@@ -90,9 +90,13 @@ web_origin() {
 }
 
 deep_link() {
+  # / is read again on every try: an upload still propagating can change it
+  # after web_origin read it, and a stale copy would fail every retry.
+  fetch now GET "$web/"
+  [ "$code" = 200 ] || { why="GET $web/ answered $code"; return 1; }
   fetch deep GET "$web/fleet/tyres?smoke=1"
   [ "$code" = 200 ] || { why="a deep link answered $code"; return 1; }
-  cmp -s "$work/root.b" "$work/deep.b" || { why="a deep link answered a body other than /"; return 1; }
+  cmp -s "$work/now.b" "$work/deep.b" || { why="a deep link answered a body other than /"; return 1; }
   # A reload of any route is this fallback answer, so it carries the same
   # headers as / (NFR-SEC-010).
   local name want
