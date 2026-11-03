@@ -6,8 +6,10 @@ of 21 Oct 2026 (TYRE-452), which the owner approved that day: U145 (the
 Tread rework), U146 (a bug found on a branch is fixed there) and U147 (the
 board changes, the product answers and the pilot date). U156 moved the
 Tread rework ahead of it on 26 Oct. On 3 Nov the owner placed TYRE-455,
-457 and 458 (U162) and raised 459 (U161), 460 and 461 (U163); those
-placements are added here without a full re-verification.
+457 and 458 (U162), and the rulings U161 and U163 raised 459, 460 and 461,
+whose sprints are a default the owner can move. Those changes, staging's
+migrate to 000060 and the restore rehearsal are added here without a full
+re-verification.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -57,14 +59,17 @@ whichever database branch is cut first.
 | 0 | 21 to 23 Oct | #141 (ADR-0020, TYRE-444); #142 (U146, TYRE-452); this page's PR with ADR-0021 (TYRE-350) | | A board with only build work on it |
 | 1. Foundations and trips | 22 to 30 Oct | Tread, ahead of the plan (U156, below): 445 colour and themes (with 281; 343 folded in), 446 type, 447's components and 240's screen ports (merged, #151 to #154); the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334 and the network PR (389, 381, 388), both now written against Tread's capture files; 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
 | 2. Driver path and manager views | 31 Oct to 7 Nov | 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 (425 folded in); 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
-| 3. Capture slice and reports | 8 to 16 Nov | Capture's remaining screens, on Tread's components: 152's photos, 448, 285 and 319's Today screen; 457 page titles and 458 inner and outer place words (U162); 460 double-tap zoom and 461 announced form errors (U163); 320 reports and export (ADR first); 354, 363 and 367 | 459, a retired truck's open trip and a blank cancellation reason (U161); 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
+| 3. Capture slice and reports | 8 to 16 Nov | Capture's remaining screens, on Tread's components: 152's photos, 448, 285 and 319's Today screen; 457 page titles and 458 inner and outer place words (U162); 460 double-tap zoom and 461 announced form errors (raised under U163, placed here by default); 320 reports and export (ADR first); 354, 363 and 367 | 459, a retired truck's open trip and a blank cancellation reason (raised under U161, placed here by default); 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
 | 4. Hardening | 17 to 24 Nov | 115 with 140; 159; 377; 366 if BAC runs two or more operating groups; 434; 398 as a release step | The register batch (123, 120, 121, 244, 131, 113, 105); the suite PR (245, 112); 76 depot capture; 441 with 455, one spec for the driver's trip-vehicle screen (U162); 243 slice 3, rule administration | Money and dates right per tenant; the suite covering exceptions |
 | Readiness | 25 Nov to 1 Dec | TYRE-321: production migrated and promoted, BAC onboarded live (U139), driver training, the 7-day live run | | The measured window |
 
-TYRE-321's restore rehearsal (NFR-BAK-004, with TYRE-203 folded in), planned
-for the week of 21 Oct, is still owed, before any of it: staging to a point in
-time, and the empty production geo-restored to South Africa West, with
-`docs/runbooks/restore-a-database.md` committed (U147 B34).
+TYRE-321's restore rehearsal (NFR-BAK-004, with TYRE-203 folded in, U147
+B34) ran on 3 Nov: staging restored to a point in time in about 8 minutes,
+every table matching, with `docs/runbooks/restore-a-database.md` written
+from the run. The geo-restore of production to South Africa West was
+refused, because that region is not open to the subscription; opening it
+takes an Azure support request, which is the owner's call (TYRE-321
+comment 14110).
 
 ### Feature work and fixes
 
@@ -140,14 +145,17 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 ## Blocked on people, not code
 
-**The owner:** migrate staging to 000060, which #148 added on 26 Oct
-(`environment-release.md`, Each release; the release log's last staging row
-is 59, on 21 Oct); run the restore rehearsal (TYRE-321); make TYRE-413's
-settings edit, its pilot-audit comment's B37 less the production reviewer
-already set: deny `gh pr merge`, a hook that refuses a merge through
-`gh api` and asks before a push to `develop` or `main`, and allow `gh api`.
-Production stays at 58 until the next promotion, which must migrate first.
-TYRE-371's custom
+**The owner:** have a Cowork agent add the two 3 Nov rows to the release
+log on Confluence 10682399, staging's migrate to 60 and the restore
+rehearsal (`docs/HANDOFF_release-row_2026-11-03.md`, gitignored); decide
+whether to ask Azure to open South Africa West so production's geo-restore
+can run (TYRE-321 comment 14110); make TYRE-413's settings edit, its
+pilot-audit comment's B37 less the production reviewer already set: deny
+`gh pr merge`, a hook that refuses a merge through `gh api` and asks before
+a push to `develop` or `main`, and allow `gh api`. Staging is at 60 since
+3 Nov, so its rollback floor is PR #148 (`environment-release.md`, Roll
+back). Production stays at 58 until the next promotion, which must migrate
+first. TYRE-371's custom
 sender domain needs the platform domain, which the team registers outside
 Jira.
 
