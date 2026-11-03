@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
 import { useState } from "react";
 
+import { ApiError } from "../api/apiError";
 import { bearerMode } from "../api/token";
-import { failureOf } from "../auth/actorContext";
+import { ACCESS_COPY, failureOf } from "../auth/actorContext";
 import { SignInButton } from "../auth/SignInButton";
 import { Button } from "../ui/Button";
 import { inertOutside } from "../ui/inertOutside";
@@ -29,6 +30,17 @@ interface Outcome {
   state: "sent" | "queued" | "failed";
   lastCode: string | null;
   lastStatus: number | null;
+}
+
+// NFR-USE-005: a 403 answers the same on every reload, so it says who can
+// change it (TYRE-329). On this read a 403 "forbidden" is a vehicle outside
+// the driver's capture set (ADR-0006), not the unset account failureOf
+// takes it for on GET /api/me.
+function refusalWords(error: unknown): string | null {
+  if (!(error instanceof ApiError) || error.status !== 403) return null;
+  if (error.code === "tenant_inactive") return ACCESS_COPY["tenant-inactive"].body;
+  if (error.code === "not_provisioned") return ACCESS_COPY["not-set-up"].body;
+  return "You do not have permission to inspect this vehicle. Ask your fleet office to check you are assigned to it.";
 }
 
 export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: string | null }) {
@@ -192,24 +204,33 @@ export function CaptureFlow({ vehicleId, taskId }: { vehicleId: string; taskId: 
     // alert is hoisted so its retry can sit beside this screen's own, each
     // naming its own action.
     const signedOut = failureOf(motive.error) === "signed-out";
-    body = (
-      <section className="cap-screen">
-        <p role="alert" className="cap-alert cap-alert--stop">
-          {signedOut
-            ? "Sign in to load this vehicle."
-            : "Could not load this vehicle. Find signal and try again."}
-        </p>
-        {signedOut && bearerMode() && <SignInButton label="Sign in" />}
-        <Button
-          variant={signedOut ? "secondary" : "primary"}
-          size="glove"
-          block
-          onClick={() => void motive.refetch()}
-        >
-          Reload vehicle
-        </Button>
-      </section>
-    );
+    const refusal = refusalWords(motive.error);
+    body =
+      refusal === null ? (
+        <section className="cap-screen">
+          <p role="alert" className="cap-alert cap-alert--stop">
+            {signedOut
+              ? "Sign in to load this vehicle."
+              : "Could not load this vehicle. Find signal and try again."}
+          </p>
+          {signedOut && bearerMode() && <SignInButton label="Sign in" />}
+          <Button
+            variant={signedOut ? "secondary" : "primary"}
+            size="glove"
+            block
+            onClick={() => void motive.refetch()}
+          >
+            Reload vehicle
+          </Button>
+        </section>
+      ) : (
+        <section className="cap-screen">
+          <p role="alert" className="cap-alert cap-alert--stop">
+            {refusal}
+          </p>
+          <BackToWork />
+        </section>
+      );
   } else if (screen === "start") {
     body = (
       <CaptureStart

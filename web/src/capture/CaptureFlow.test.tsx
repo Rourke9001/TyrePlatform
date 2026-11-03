@@ -903,6 +903,57 @@ describe("sign-in inside capture", () => {
   });
 });
 
+// TYRE-329, NFR-USE-005: a refusal answers the same on every reload, so it
+// says what happened and who can change it, and offers no reload. Only a
+// fault that signal can clear keeps the signal line and its button.
+describe("a vehicle that does not load", () => {
+  function answer(status: number, code: string) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: false,
+          status,
+          json: () => Promise.resolve({ code, message: "x" }),
+        }),
+      ),
+    );
+  }
+
+  it.each([
+    [
+      "forbidden",
+      "You do not have permission to inspect this vehicle. Ask your fleet office to check you are assigned to it.",
+    ],
+    ["tenant_inactive", "This company's account is not active. Contact your fleet office."],
+    ["not_provisioned", "Ask your fleet office to set up your account."],
+  ])("says why a 403 %s refuses it, with nothing to reload", async (code, sentence) => {
+    answer(403, code);
+    renderFlow();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(sentence);
+    expect(screen.queryByRole("button", { name: /reload vehicle/i })).toBeNull();
+    expect(screen.queryByText(/Find signal/)).toBeNull();
+    expect(screen.getByRole("link", { name: "My inspections" })).toHaveAttribute("href", "/my");
+  });
+
+  it.each([
+    ["a 500", () => answer(500, "internal")],
+    [
+      "a network fault",
+      () => vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch"))),
+    ],
+  ])("keeps the signal line and the reload for %s", async (_, fail) => {
+    fail();
+    renderFlow();
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Could not load this vehicle. Find signal and try again.",
+    );
+    expect(screen.getByRole("button", { name: "Reload vehicle" })).toBeInTheDocument();
+  });
+});
+
 describe("a held 401 inside capture", () => {
   // Passing null for lastStatus would leave the signal wording here.
   it("tells the driver to sign in to send it when the submit is refused with 401", async () => {
