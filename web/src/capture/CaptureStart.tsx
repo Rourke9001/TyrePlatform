@@ -170,8 +170,8 @@ export function CaptureStart({
               : `Last reading ${groupThousands(String(motive.lastOdometerKm))} ${labels.distance}`}
             {/* The age words every other reading's age uses: grouped (U55),
                 and one day is "1 day" (TYRE-342). */}
-            {motive.lastOdometerAt
-              ? `, ${formatTreadAge(Math.round((openedAt - Date.parse(motive.lastOdometerAt)) / 86_400_000))}`
+            {motive.lastOdometerAgeDays != null
+              ? `, ${formatTreadAge(motive.lastOdometerAgeDays)}`
               : ""}
           </p>
           {/* The confirm half of "confirm or correct" (FR-INS-020): one tap,
@@ -184,7 +184,7 @@ export function CaptureStart({
           )}
           {value === null && projected !== null && (
             <p className="cap-hint">
-              Worked out from that reading and this unit&rsquo;s usual daily distance. Check it
+              Worked out from that reading and this unit&apos;s usual daily distance. Check it
               against the dash. Confirm it, type the real number, or skip it.
             </p>
           )}
