@@ -30,6 +30,18 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-03 - jq on Windows ends every line with a CR, so a multi-line command never matches a line exactly (TYRE-413)
+
+**What happened:** `.claude/hooks/merge-push-guard.sh` drops a heredoc's
+body by matching its closing delimiter line. Its test fed a command with
+`<<'EOF'` ... `EOF`, and the delimiter never matched: `jq -r` on Windows
+writes CRLF, so every line of `.tool_input.command` ended in a CR. Git
+Bash's `$(...)` drops only the last one, so the single-line cases passed.
+
+**The rule:** in a hook or script that reads text through `jq -r`, strip
+CRs before comparing lines (`cmd=${cmd//$'\r'/}`), and give its test at
+least one multi-line case.
+
 ## 2026-11-03 - jsdom and user-event ignore `inert`, so a Tab test passes against a focus leak (#158)
 
 **What happened:** stage 5 on #158 found that Shift+Tab from the open
