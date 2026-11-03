@@ -148,7 +148,9 @@ status you read back is the pipe's; `set -o pipefail` is the way through.
 `origin/develop` — a migration on a feature branch stays editable, an applied
 one is replaced by a new pair. `merge-push-guard.sh` refuses a merge through
 `gh pr merge` or `gh api`, since the owner merges every PR (U123), and asks
-before a push that lands on `develop` or `main`, since both deploy.
+before a push, a ref write or a contents write that lands on `develop` or
+`main`, since both deploy (U167). It judges the command's text, so a command
+built to evade it can pass; the hook's header names the gaps.
 
 **Comments**
 `docs/comments.md` is the full standard; these are the operative rules.

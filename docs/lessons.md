@@ -30,6 +30,21 @@ Newest first. An entry that merges several lessons is dated by its newest
 one and names the older dates and tickets in its heading, so a citation by
 date still finds it; each rule bullet carries its own source date.
 
+## 2026-11-03 - A text-matching gate patched one finding at a time opens a new hole each round (#151, #162)
+
+**What happened:** #151's colour gate was a regex scanner fixed finding by
+finding, and stage 5 rounds 3, 4 and 5 each found a hole the previous
+round's patch had opened. #162's merge and push guard repeated it: its
+`192033b` fixed single-line quotes only, and stage 5 then found nine bugs
+(commands after `then` or `env`, continuations, comments, `2>&1`, a PR
+number in a variable). Each probe had been a form sessions write daily.
+
+**The rule:** when a review finds holes in a gate that reads text, add every
+probe from the review to the gate's test first and show each one red, then
+make one structural change that reads the text the way its consumer does
+(here, bash). Never patch per finding; rerun the whole case list after the
+change, so a reopened case shows.
+
 ## 2026-11-03 - jq on Windows ends every line with a CR, so a multi-line command never matches a line exactly (TYRE-413)
 
 **What happened:** `.claude/hooks/merge-push-guard.sh` drops a heredoc's
