@@ -5,7 +5,9 @@ after the Tread stack (#151 to #154) merged. The plan is the pilot audit's
 of 21 Oct 2026 (TYRE-452), which the owner approved that day: U145 (the
 Tread rework), U146 (a bug found on a branch is fixed there) and U147 (the
 board changes, the product answers and the pilot date). U156 moved the
-Tread rework ahead of it on 26 Oct.
+Tread rework ahead of it on 26 Oct. On 3 Nov the owner placed TYRE-455,
+457 and 458 (U162) and raised 459 (U161), 460 and 461 (U163); those
+placements are added here without a full re-verification.
 
 **Jira is the live authority.** This page exists so a session working in the
 repo can see the shape of the queue without leaving the codebase. Where this
@@ -55,8 +57,8 @@ whichever database branch is cut first.
 | 0 | 21 to 23 Oct | #141 (ADR-0020, TYRE-444); #142 (U146, TYRE-452); this page's PR with ADR-0021 (TYRE-350) | | A board with only build work on it |
 | 1. Foundations and trips | 22 to 30 Oct | Tread, ahead of the plan (U156, below): 445 colour and themes (with 281; 343 folded in), 446 type, 447's components and 240's screen ports (merged, #151 to #154); the capture fixes PR (129, 154, 171, 173, 207, 218, 329, 342) with 334 and the network PR (389, 381, 388), both now written against Tread's capture files; 371 job runner and email (ADR first); 438 with 437's fix; 379 with 410; 413 | 326 trips (merged, #148); 99 with 102, carrying 450 and #139's 18 set-aside bugs (B40) | Trips, which 319, 133, 441 and 76 build on; the job runner; Tread colour and type on every screen |
 | 2. Driver path and manager views | 31 Oct to 7 Nov | 240's behaviour fixes with 176 and back-dated movements (B41); 152's server, queue and office read | 319 with 323; 325 with void; 287; 243 slice 1, the lifecycle; 109, 286, 292 and 270; 432 (425 folded in); 100 with 372 | A driver captures only against a task; managers see inspections and act on exceptions (agreement 11.2) |
-| 3. Capture slice and reports | 8 to 16 Nov | Capture's remaining screens, on Tread's components: 152's photos, 448, 285 and 319's Today screen; 320 reports and export (ADR first); 354, 363 and 367 | 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
-| 4. Hardening | 17 to 24 Nov | 115 with 140; 159; 377; 366 if BAC runs two or more operating groups; 434; 398 as a release step | The register batch (123, 120, 121, 244, 131, 113, 105); the suite PR (245, 112); 76 depot capture; 441; 243 slice 3, rule administration | Money and dates right per tenant; the suite covering exceptions |
+| 3. Capture slice and reports | 8 to 16 Nov | Capture's remaining screens, on Tread's components: 152's photos, 448, 285 and 319's Today screen; 457 page titles and 458 inner and outer place words (U162); 460 double-tap zoom and 461 announced form errors (U163); 320 reports and export (ADR first); 354, 363 and 367 | 459, a retired truck's open trip and a blank cancellation reason (U161); 168 with 190's F10 (W5d), then 322 odometer import; 133 schedules; 243 slice 2, notifications; 284 compliance | The driver app as trained; H.1's reports; H.3 criterion 4's on-time figure |
+| 4. Hardening | 17 to 24 Nov | 115 with 140; 159; 377; 366 if BAC runs two or more operating groups; 434; 398 as a release step | The register batch (123, 120, 121, 244, 131, 113, 105); the suite PR (245, 112); 76 depot capture; 441 with 455, one spec for the driver's trip-vehicle screen (U162); 243 slice 3, rule administration | Money and dates right per tenant; the suite covering exceptions |
 | Readiness | 25 Nov to 1 Dec | TYRE-321: production migrated and promoted, BAC onboarded live (U139), driver training, the 7-day live run | | The measured window |
 
 TYRE-321's restore rehearsal (NFR-BAK-004, with TYRE-203 folded in), planned
@@ -66,17 +68,17 @@ time, and the empty production geo-restored to South Africa West, with
 
 ### Feature work and fixes
 
-Of the 65 tickets still open in sprints 1 to 4 and readiness, 23 are
-features, 8 are platform pieces and 34 are fixes; the fixes travel in about a
+Of the 71 tickets still open in sprints 1 to 4 and readiness, 24 are
+features, 8 are platform pieces and 39 are fixes; the fixes travel in about a
 dozen batched PRs, so feature work sets the pace.
 
 - **Features:** 76, 99, 100, 102, 109, 133, 152, 154, 243, 284, 285, 286,
-  287, 292, 319, 320, 322, 325, 366, 367, 377, 441, 448.
+  287, 292, 319, 320, 322, 325, 366, 367, 377, 441, 448, 455.
 - **Platform:** 321, 371, 379, 398, 410, 413, 434, 438.
 - **Fixes:** 105, 112, 113, 115, 120, 121, 123, 129, 131, 140, 159, 168,
   171, 173, 176, 190, 207, 218, 240, 244, 245, 270, 323, 329, 334, 342, 354,
-  363, 372, 381, 388, 389, 432, 450. TYRE-275 folded into 447, 343 into 445
-  and 425 into 432 on 21 Oct.
+  363, 372, 381, 388, 389, 432, 450, 457, 458, 459, 460, 461. TYRE-275
+  folded into 447, 343 into 445 and 425 into 432 on 21 Oct.
 
 TYRE-453, the backfill of BAC's paper sheets (FR-IMP-009, from TYRE-430),
 lands during the pilot after 322, 432 and 168; it is not a pilot gate (U147
@@ -87,15 +89,11 @@ A11).
 TYRE-449, Tread's per-device settings (C8). Also 209 with 236, 227, 255,
 263, 311, 361, 380 and 395, and the `post-poc` tickets below.
 
-Raised since 21 Oct and not yet placed in a sprint: TYRE-455 (High; a
-trailer swap logs the horse's odometer, an SRS change), and under the Tread
-epic TYRE-457 (each route sets its page title) and TYRE-458 (inner and outer
-place words need an API field).
-
 ## The Tread rework (epic TYRE-443)
 
 **U156 (owner, 26 Oct 2026) moved the rework ahead of the plan.** Every
-route moved to Tread in one branch, `TYRE-443-tread-frontend`, and landed as
+route moved to Tread in one branch, `TYRE-443-tread-frontend` (deleted on
+3 Nov; the tag `tread-demo-safe-0` keeps its head), and landed as
 four stacked PRs cut from it after the 28 Oct demo: #151 the foundation (445,
 446), #152 the components (447), #153 the manager screens and #154 capture
 (240's ports, with U160's half key). `docs/delivery-history.md` records the
@@ -107,7 +105,8 @@ holds the frontend layers.
 
 The epic stays open for:
 
-- TYRE-457 and TYRE-458, not yet placed (above), and TYRE-449 after the pilot.
+- TYRE-457 and 458 (U162) and TYRE-460 and 461 (U163), all in sprint 3,
+  and TYRE-449 after the pilot.
 - The old Radix Select (`web/src/ui/legacy/`), which Dashboard's and
   Exceptions' filters keep until a Tread select keeps the combobox role.
   Until then not every route renders only Tread.
@@ -143,11 +142,12 @@ tenant, created at TYRE-321's live onboarding (U139).
 
 **The owner:** migrate staging to 000060, which #148 added on 26 Oct
 (`environment-release.md`, Each release; the release log's last staging row
-is 59, on 21 Oct); run the restore rehearsal (TYRE-321); add yourself as
-required reviewer on the GitHub production environment (TYRE-413); rule
-under U146 on #148's two Set aside items (TYRE-326 comment 14081); place
-TYRE-455, 457 and 458. Production stays at 58 until the next promotion,
-which must migrate first. TYRE-371's custom
+is 59, on 21 Oct); run the restore rehearsal (TYRE-321); make TYRE-413's
+settings edit, its pilot-audit comment's B37 less the production reviewer
+already set: deny `gh pr merge`, a hook that refuses a merge through
+`gh api` and asks before a push to `develop` or `main`, and allow `gh api`.
+Production stays at 58 until the next promotion, which must migrate first.
+TYRE-371's custom
 sender domain needs the platform domain, which the team registers outside
 Jira.
 
