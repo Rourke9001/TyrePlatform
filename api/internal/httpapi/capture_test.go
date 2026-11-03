@@ -3,6 +3,7 @@ package httpapi_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -615,6 +616,44 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	// put a fiction on an append-only timeline (DR-018).
 	require.NotNil(t, after.AverageDailyKm, "two readings 25 days apart yielded no rate")
 	require.InDelta(t, 400.0, *after.AverageDailyKm, 0.005)
+}
+
+// The unique key admits one reading per source per day, so two sources can
+// share the last date. An odometer only rises, so the higher one is the later
+// reading. The higher is planted first, so a pick in insertion order or its
+// reverse would each serve the wrong one in one of the two runs.
+func TestCaptureContextServesTheHigherOfTwoReadingsOnOneDay(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	for _, order := range [][]int64{{125000, 120000}, {120000, 125000}} {
+		t.Run(fmt.Sprintf("planted %d then %d", order[0], order[1]), func(t *testing.T) {
+			tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin,
+				fmt.Sprintf("odometer-tie-%d", order[0]))
+			driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+			plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+			for i, km := range order {
+				_, err := admin.Exec(ctx,
+					`INSERT INTO app.vehicle_odometer_reading
+					   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+					 VALUES ($1, $2, (now() AT TIME ZONE 'UTC')::date - 2, $3, $4)`,
+					tenantID, vehicleID, km, []string{"MANUAL", "FUEL_RECORD"}[i])
+				require.NoError(t, err)
+			}
+
+			rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
+				tenantID.String(), driverID.String())
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var body struct {
+				LastOdometerKm *int64 `json:"lastOdometerKm"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NotNil(t, body.LastOdometerKm)
+			require.Equal(t, int64(125000), *body.LastOdometerKm,
+				"the lower of two readings on the last day was served as the last one")
+		})
+	}
 }
 
 // FR-TYR-017, rule 6: the age beside the last odometer reading is a count of

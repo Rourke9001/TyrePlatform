@@ -189,10 +189,12 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		  FROM `+from+`
 		  JOIN app.tenant tn ON tn.id = v.tenant_id
 		  LEFT JOIN LATERAL (
+		       -- One reading per source per day is allowed, and an odometer only
+		       -- rises, so on a shared last day the higher reading is the later.
 		       SELECT vo.odometer_km, vo.reading_date
 		         FROM app.vehicle_odometer_reading vo
 		        WHERE vo.vehicle_id = v.id
-		        ORDER BY vo.reading_date DESC LIMIT 1) o ON true
+		        ORDER BY vo.reading_date DESC, vo.odometer_km DESC LIMIT 1) o ON true
 		  LEFT JOIN LATERAL (
 		       SELECT round((max(vo.odometer_km) - min(vo.odometer_km))::numeric
 		                  / NULLIF(max(vo.reading_date) - min(vo.reading_date), 0), 2) AS km
