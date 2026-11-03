@@ -217,7 +217,8 @@ looked at before it is reviewed. Rules that are not visible in the code:
   - A module under `src/capture/` or `src/driver/` is reachable from the
     entry only through a dynamic import, so the driver's flow would wait on
     a chunk fetch (ADR-0009, rule 7).
-  - The entry carries oidc-client-ts (TYRE-317, ADR-0016).
+  - The entry carries oidc-client-ts, or the check can no longer see the
+    library (TYRE-317, ADR-0016).
 
   The budget only ratchets down. A rise needs a reason in the PR and a
   re-record on a known-good tree: `npm run bundle:check -- --record` writes

@@ -136,6 +136,51 @@ function budgetFindings(got, budget) {
   return out;
 }
 
+// A missing budget and one that does not parse are refused apart: a merge
+// conflict in a file re-recorded by PR after PR is not a missing file.
+function loadBudget(readText) {
+  let text;
+  try {
+    text = readText();
+  } catch (err) {
+    return {
+      budget: null,
+      problem:
+        err.code === "ENOENT"
+          ? "no web/bundle-budget.json; run with --record on a known-good tree first"
+          : `web/bundle-budget.json cannot be read (${err.message})`,
+    };
+  }
+  try {
+    const budget = JSON.parse(text);
+    if (budget !== null && typeof budget === "object") {
+      return { budget, problem: null };
+    }
+  } catch (err) {
+    return {
+      budget: null,
+      problem: `web/bundle-budget.json does not parse (${err.message}); resolve it, or re-record with --record on a known-good tree`,
+    };
+  }
+  return {
+    budget: null,
+    problem: "web/bundle-budget.json is not a JSON object; re-record with --record on a known-good tree",
+  };
+}
+
+// Every finding prints before the run's verdict, so a tolerated rise in one
+// figure, or a budget that cannot be read, cannot hide another.
+function verdict(findings, loaded, got) {
+  if (loaded.problem !== null) {
+    return { errors: [...findings, loaded.problem], code: 2 };
+  }
+  const errors = [
+    ...findings,
+    ...budgetFindings(got, loaded.budget).map((f) => `FAIL: ${f}`),
+  ];
+  return { errors, code: errors.length > 0 ? 1 : 0 };
+}
+
 // --record-css keeps the JS figure, its date and its chunk list, since the JS
 // figure is the one --record alone may move.
 function nextBudget(budget, got, chunkFiles, cssOnly, today) {
@@ -358,6 +403,29 @@ if (process.argv.includes("--self-test")) {
       process.exit(1);
     }
   }
+  // A budget file re-recorded by PR after PR can hold a merge conflict. It
+  // is refused as unreadable, not as missing, and the findings already
+  // collected still print (TYRE-443).
+  const conflicted = loadBudget(
+    () => '<<<<<<< HEAD\n{"entryClosureGzipBytes": 1}\n=======\n',
+  );
+  const missing = loadBudget(() => {
+    throw Object.assign(new Error("ENOENT: no such file"), { code: "ENOENT" });
+  });
+  const refused = verdict(["FAIL: earlier"], conflicted, got);
+  if (
+    conflicted.budget !== null ||
+    !/does not parse/.test(conflicted.problem ?? "") ||
+    !/^no web\/bundle-budget\.json/.test(missing.problem ?? "") ||
+    refused.code !== 2 ||
+    refused.errors[0] !== "FAIL: earlier" ||
+    refused.errors[1] !== conflicted.problem
+  ) {
+    console.error(
+      `self-test: an unreadable budget: got ${JSON.stringify({ conflicted, missing, refused })}`,
+    );
+    process.exit(1);
+  }
   for (const [name, found] of budgetCases) {
     for (const f of found) console.log(`self-test (${name}): ${f}`);
   }
@@ -432,12 +500,13 @@ console.log(
   `entry fonts: ${assets.fontFiles.length} files, ${assets.fontBytes} bytes`,
 );
 
-let budget = null;
-try {
-  budget = JSON.parse(readFileSync(budgetPath, "utf8"));
-} catch {
-  budget = null;
-}
+const loaded = loadBudget(() => readFileSync(budgetPath, "utf8"));
+const { budget } = loaded;
+const got = {
+  jsGzipBytes: total,
+  cssGzipBytes: assets.cssGzipBytes,
+  fontBytes: assets.fontBytes,
+};
 
 if (record || recordCss) {
   if (findings.length > 0) {
@@ -446,17 +515,13 @@ if (record || recordCss) {
   }
   if (recordCss && !budget) {
     console.error(
-      "no web/bundle-budget.json; --record-css keeps its JS figure, so run --record first",
+      `${loaded.problem}. --record-css keeps the JS figure, so run --record instead`,
     );
     process.exit(2);
   }
   const next = nextBudget(
     budget,
-    {
-      jsGzipBytes: total,
-      cssGzipBytes: assets.cssGzipBytes,
-      fontBytes: assets.fontBytes,
-    },
+    got,
     chunks.map((c) => c.file),
     !record,
     new Date().toISOString().slice(0, 10),
@@ -468,26 +533,10 @@ if (record || recordCss) {
   process.exit(0);
 }
 
-if (!budget) {
-  console.error(
-    "no web/bundle-budget.json; run with --record on a known-good tree first",
-  );
-  process.exit(2);
-}
-for (const f of budgetFindings(
-  {
-    jsGzipBytes: total,
-    cssGzipBytes: assets.cssGzipBytes,
-    fontBytes: assets.fontBytes,
-  },
-  budget,
-))
-  findings.push(`FAIL: ${f}`);
-// Every finding prints before the one exit, so a tolerated rise in one
-// figure cannot hide another.
-if (findings.length > 0) {
-  for (const f of findings) console.error(f);
-  process.exit(1);
+const { errors, code } = verdict(findings, loaded, got);
+if (code !== 0) {
+  for (const e of errors) console.error(e);
+  process.exit(code);
 }
 console.log(
   `OK: within budget ${budget.entryClosureGzipBytes} JS (recorded ${budget.recordedAt}), ${budget.entryCssGzipBytes} CSS and ${budget.entryFontBytes} fonts (recorded ${budget.cssRecordedAt ?? budget.recordedAt})`,
