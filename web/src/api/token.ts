@@ -139,8 +139,9 @@ const EXPIRY_SKEW_MS = 60_000;
 // refused).
 const FRESH_MS = 60_000;
 // Transport timing, not tenant policy (rule 5). The sign-in library's request
-// timeout (oidc.ts), the store's bound on a renewal and the bound on reading
-// config.json (runtimeConfig.ts) are this one value.
+// timeout (oidc.ts), the store's bound on a renewal, the bound on reading
+// config.json (runtimeConfig.ts) and on every API call (client.ts) are this
+// one value.
 export const REQUEST_TIMEOUT_SECONDS = 10;
 
 let latched = false;

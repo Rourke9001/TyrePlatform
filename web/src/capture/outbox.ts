@@ -176,18 +176,38 @@ async function recordFailure(entry: OutboxEntry, error: unknown): Promise<void> 
   });
 }
 
-export async function attemptSend(clientUuid: string, opts: SendOptions = {}): Promise<void> {
+// TYRE-389: the sends this page has in flight, so a flush that overlaps
+// another joins its send instead of posting the entry twice. The claim comes
+// after the backoff check, so a flush that will not send cannot hold off the
+// one after sign-in, and it always ends, because a request is bounded
+// (client.ts).
+const inFlight = new Map<string, Promise<void>>();
+
+export async function attemptSend(
+  clientUuid: string,
+  opts: SendOptions = {},
+  credential: () => Promise<Sender> = sender,
+): Promise<void> {
   const entry = await table().get(clientUuid);
   if (!entry) return;
   if (entry.state === "failed" && !opts.force) return;
   if (!opts.force && !opts.ignoreBackoff && Date.now() < entry.nextAttemptAt) return;
 
+  const running = inFlight.get(clientUuid);
+  if (running !== undefined) return running;
+  const sending = sendEntry(entry, credential).finally(() => inFlight.delete(clientUuid));
+  inFlight.set(clientUuid, sending);
+  return sending;
+}
+
+async function sendEntry(entry: OutboxEntry, credential: () => Promise<Sender>): Promise<void> {
+  const { clientUuid } = entry;
   let who: Sender;
   try {
     // Throws while the token store is latched or unconfigured, so a refused
     // credential never reaches the API from here (spec section 4, A fresh
     // token refused).
-    who = await sender();
+    who = await credential();
   } catch (error) {
     // Nothing was sent, so a refused entry keeps its refusal and its Remove
     // (spec section 4, After sign-in).
@@ -219,8 +239,23 @@ export async function attemptSend(clientUuid: string, opts: SendOptions = {}): P
 // open. Never Background Sync. iOS Safari does not have it and ADR-0009
 // settled that this design does not depend on it.
 export async function flushOutbox(opts: SendOptions = {}): Promise<void> {
+  // TYRE-385: a credential that failed fails the same way for the rest of
+  // the flush, so it is asked for until it first fails, not once per entry
+  // (each ask could be a bounded renewal). Every due entry still records the
+  // failure, so the band counts them all, and a success is asked again per
+  // entry, so none sends on a token that expired mid-flush.
+  let failed: { error: unknown } | null = null;
+  const credential = async (): Promise<Sender> => {
+    if (failed !== null) throw failed.error;
+    try {
+      return await sender();
+    } catch (error) {
+      failed = { error };
+      throw error;
+    }
+  };
   for (const entry of await listOutbox()) {
-    await attemptSend(entry.clientUuid, opts);
+    await attemptSend(entry.clientUuid, opts, credential);
   }
 }
 

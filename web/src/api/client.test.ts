@@ -8,6 +8,7 @@ vi.mock("../auth/oidc", () => ({
 }));
 
 import { AUTH_HEADER, ApiError, apiGet, apiPatch, apiPost } from "./client";
+import { REQUEST_TIMEOUT_SECONDS } from "./token";
 import { clearDevActorId, clearDevTenantId, setDevActorId, setDevTenantId } from "./devTenant";
 import { sentBody } from "../test/fixtures";
 import { bearerSession } from "../test/bearerSession";
@@ -281,5 +282,94 @@ describe("the bearer path", () => {
     expect(first.code).toBe("auth_unavailable");
     expect(second.status).toBe(503);
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(1);
+  });
+});
+
+// TYRE-389: a request that stalls, in its headers or its body, reads as
+// offline once the bound passes, so the outbox holds the entry and retries it.
+describe("the request bound", () => {
+  const PENDING = Symbol("pending");
+
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+    // Only the timer the bound uses: nothing here touches IndexedDB.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function afterTheBound(call: Promise<unknown>): Promise<unknown> {
+    const settled = call.catch((e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_SECONDS * 1000);
+    return Promise.race([settled, Promise.resolve(PENDING)]);
+  }
+
+  function stallingBody(status: number) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({ ok: status < 400, status, json: () => new Promise(() => undefined) }),
+      ),
+    );
+  }
+
+  it("rejects as offline when a success's body never arrives", async () => {
+    stallingBody(201);
+
+    const result = await afterTheBound(apiPost("/api/inspections", {}));
+
+    expect(result).not.toBe(PENDING);
+    expect(result).toBeInstanceOf(Error);
+    expect(result).not.toBeInstanceOf(ApiError);
+  });
+
+  // A refusal's code decides whether the outbox retries (outbox.ts classify),
+  // so a refusal whose body stalls is not read as the bare status.
+  it("rejects as offline when a refusal's body never arrives", async () => {
+    stallingBody(403);
+
+    const result = await afterTheBound(apiPost("/api/inspections", {}));
+
+    expect(result).not.toBe(PENDING);
+    expect(result).not.toBeInstanceOf(ApiError);
+  });
+
+  it("aborts a request whose response never starts", async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            signal = init.signal ?? undefined;
+            signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            );
+          }),
+      ),
+    );
+
+    const result = await afterTheBound(apiGet("/api/me"));
+
+    expect(result).not.toBe(PENDING);
+    expect(result).not.toBeInstanceOf(ApiError);
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it("leaves a request that finished in time alone", async () => {
+    let signal: AbortSignal | undefined;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((_url: string, init: RequestInit) => {
+        signal = init.signal ?? undefined;
+        return Promise.resolve(new Response(JSON.stringify({ ok: 1 }), { status: 200 }));
+      }),
+    );
+
+    const result = await afterTheBound(apiGet("/api/me"));
+
+    expect(result).toEqual({ ok: 1 });
+    expect(signal?.aborted).toBe(false);
   });
 });

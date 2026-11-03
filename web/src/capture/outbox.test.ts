@@ -646,3 +646,43 @@ describe("the flush after sign-in", () => {
     expect(left.map((e) => e.clientUuid)).toEqual([failed.clientUuid]);
   });
 });
+
+const sent = () => ({ ok: true, status: 201, json: () => Promise.resolve({}) });
+
+describe("flushes that overlap (TYRE-389)", () => {
+  // The callback's flush after sign-in and the indicator's mount flush run
+  // together. A real request is in flight for a while; this one for 200 ms.
+  function slowSend() {
+    return vi.fn(() => new Promise((resolve) => setTimeout(() => resolve(sent()), 200)));
+  }
+
+  it("make one POST for an entry that is due", async () => {
+    const fetchMock = slowSend();
+    vi.stubGlobal("fetch", fetchMock);
+    await queueOne();
+
+    await Promise.all([flushOutbox({ ignoreBackoff: true }), flushOutbox()]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await listOutbox()).toEqual([]);
+  });
+
+  it.each([
+    ["the plain flush first", [{}, { ignoreBackoff: true }]],
+    ["the sign-in flush first", [{ ignoreBackoff: true }, {}]],
+  ])("still send a backoff-held entry on the sign-in flush, %s", async (_name, order) => {
+    const fetchMock = slowSend();
+    vi.stubGlobal("fetch", fetchMock);
+    const entry = await queueOne();
+    await db.table("outbox").update(entry.clientUuid, {
+      lastStatus: 401,
+      attempts: 3,
+      nextAttemptAt: Date.now() + 600_000,
+    });
+
+    await Promise.all(order.map((opts) => flushOutbox(opts)));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await listOutbox()).toEqual([]);
+  });
+});
