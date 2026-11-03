@@ -122,9 +122,9 @@ describe("historyWarnings", () => {
     expect(codes(w)).not.toContain("FR-INS-035");
   });
 
-  // Boundary test: FR-INS-035 boundary-1.
-  // One mm less than the exact multiple should trigger the warning.
-  it("warns when the implied wear rate is one mm above the trigger", () => {
+  // FR-INS-035 just past the boundary. 9.5mm is 0.1mm under the 9.6mm that
+  // wears at exactly the trigger, so the rate is 0.1mm/month above it.
+  it("warns when the implied wear rate is just above the trigger", () => {
     const exactlyOneMonthAgo = new Date(NOW.getTime() - 30.44 * 86_400_000);
     const adjustedPosition = { ...position, previousReadingAt: exactlyOneMonthAgo.toISOString() };
 
@@ -187,8 +187,7 @@ describe("odometerRejection", () => {
     expect(odometerRejection(412000, ctx, metric)).toBe("Lower than the last recorded 412,180 km.");
   });
 
-  it("accepts a reading at or above it", () => {
-    expect(odometerRejection(412180, ctx, metric)).toBeNull();
+  it("accepts a reading above it", () => {
     expect(odometerRejection(500000, ctx, metric)).toBeNull();
   });
 

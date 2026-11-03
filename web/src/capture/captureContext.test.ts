@@ -1,8 +1,12 @@
+import { QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, waitFor } from "@testing-library/react";
+import { createElement, type ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "../api/apiError";
+import { testQueryClient } from "../test/fixtures";
 import type { CaptureContext } from "./captureContext";
-import { captureContextQuery, fetchCaptureContext } from "./captureContext";
+import { captureContextQuery, fetchCaptureContext, useCaptureContext } from "./captureContext";
 
 const body: CaptureContext = {
   vehicleId: "11111111-1111-1111-1111-111111111111",
@@ -153,5 +157,71 @@ describe("captureContextQuery retry", () => {
     const { retry } = captureContextQuery("v1");
     expect(retry(0, new ApiError(503, "x", "auth_unavailable"))).toBe(false);
     expect(retry(0, new ApiError(503, "x"))).toBe(true);
+  });
+});
+
+// FR-OFF-002/003 (TYRE-129): the context is held for the session and
+// refreshed only on demand. A gcTime regression is silent, since the cache
+// drops the thresholds mid-inspection and offline nothing refetches them
+// (FR-OFF-001). Read from the cache the hook writes, not from the options
+// object, so a caller that overrides one is caught as well.
+describe("useCaptureContext's cached options", () => {
+  it("holds the context for the session and never refetches on focus", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve(body) }),
+    );
+    const client = testQueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+
+    const { result } = renderHook(() => useCaptureContext(body.vehicleId), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    const query = client
+      .getQueryCache()
+      .find({ queryKey: captureContextQuery(body.vehicleId).queryKey, exact: true });
+    expect(query?.options).toMatchObject({
+      staleTime: Infinity,
+      gcTime: Infinity,
+      refetchOnWindowFocus: false,
+    });
+  });
+});
+
+// NFR-PRV-006 and ADR-0009 (erratum CS-2) tell a driver that nothing about
+// the fleet is stored on their phone. A TanStack persister would write the
+// query cache to device storage, so none may be installed or wired.
+const manifest = import.meta.glob<string>("/package.json", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+});
+const sources = import.meta.glob<string>(
+  ["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}", "!/src/test/**"],
+  { query: "?raw", import: "default", eager: true },
+);
+
+describe("the capture query cache at rest (TYRE-129)", () => {
+  it("installs no TanStack persister package", () => {
+    const pkg = JSON.parse(manifest["/package.json"]) as {
+      dependencies?: Record<string, string>;
+      devDependencies?: Record<string, string>;
+    };
+    const installed = Object.keys({ ...pkg.dependencies, ...pkg.devDependencies });
+    expect(installed).toContain("@tanstack/react-query");
+    expect(installed.filter((name) => /^@tanstack\/.*persist/.test(name))).toEqual([]);
+  });
+
+  it("wires no persister into any source file", () => {
+    expect(Object.keys(sources)).toContain("/src/capture/captureContext.ts");
+    const wired = Object.entries(sources)
+      .filter(([, text]) =>
+        /persistQueryClient|PersistQueryClientProvider|@tanstack\/[\w-]*persist|createSyncStoragePersister|createAsyncStoragePersister/.test(
+          text,
+        ),
+      )
+      .map(([file]) => file);
+    expect(wired).toEqual([]);
   });
 });

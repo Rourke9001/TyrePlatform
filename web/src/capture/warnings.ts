@@ -131,7 +131,7 @@ export function positionWarnings(
       out.push({
         code: "FR-INS-037",
         requiresConfirmation: false,
-        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target.`,
+        message: `${entry.pressureKpa} ${units.pressure} against a ${target} ${units.pressure} target. Check the inflation before departure.`,
         enteredValue: String(entry.pressureKpa),
       });
     }
