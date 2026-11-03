@@ -495,18 +495,6 @@ func TestSubmitUnretryableShapesAreClientErrors(t *testing.T) {
 	}
 }
 
-// TestCaptureContextServesTheLastOdometerReading pins FR-INS-033's
-// denominator. The rule divides the tread lost since the previous reading by
-// the distance covered since it, so the capture context has to carry both the
-// last odometer value AND the date it was taken. Serving the value alone
-// leaves the plausibility warning with nothing to divide by.
-//
-// The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by
-// reading_date DESC, so two things need proving and neither is visible from
-// the fixture: that an absent reading serves null rather than a zero, and that
-// "last" means the most recent by reading date rather than whichever row the
-// planner happened to reach first.
-//
 // FR-TYR-017: each position's previous reading carries its age in the
 // fleet's calendar, beside FR-INS-034's previous figure. The fixture's
 // sheets are months back, so a field left at zero cannot pass.
@@ -541,6 +529,18 @@ func TestCaptureContextCarriesPreviousReadingAge(t *testing.T) {
 	require.Positive(t, read, "the fixture's veh1 has read positions")
 }
 
+// TestCaptureContextServesTheLastOdometerReading pins FR-INS-033's
+// denominator. The rule divides the tread lost since the previous reading by
+// the distance covered since it, so the capture context has to carry both the
+// last odometer value AND the date it was taken. Serving the value alone
+// leaves the plausibility warning with nothing to divide by.
+//
+// The join that resolves them is a LEFT JOIN LATERAL taking one row ordered by
+// reading_date DESC, so two things need proving and neither is visible from
+// the fixture: that an absent reading serves null rather than a zero, and that
+// "last" means the most recent by reading date rather than whichever row the
+// planner happened to reach first.
+//
 // The same two rows settle FR-INS-020's pre-fill, which is why it is asserted
 // here rather than apart: the projection the driver confirms is this reading
 // carried forward at averageDailyKm, so the rate has to be derived from the
@@ -554,18 +554,20 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	h := httpapi.New(s, httpapi.HeaderActorResolver{})
 
 	read := func(t *testing.T) struct {
-		LastOdometerKm *int64     `json:"lastOdometerKm"`
-		LastOdometerAt *time.Time `json:"lastOdometerAt"`
-		AverageDailyKm *float64   `json:"averageDailyKm"`
+		LastOdometerKm      *int64     `json:"lastOdometerKm"`
+		LastOdometerAt      *time.Time `json:"lastOdometerAt"`
+		LastOdometerAgeDays *int       `json:"lastOdometerAgeDays"`
+		AverageDailyKm      *float64   `json:"averageDailyKm"`
 	} {
 		t.Helper()
 		rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
 			tenantID.String(), driverID.String())
 		require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
 		var body struct {
-			LastOdometerKm *int64     `json:"lastOdometerKm"`
-			LastOdometerAt *time.Time `json:"lastOdometerAt"`
-			AverageDailyKm *float64   `json:"averageDailyKm"`
+			LastOdometerKm      *int64     `json:"lastOdometerKm"`
+			LastOdometerAt      *time.Time `json:"lastOdometerAt"`
+			LastOdometerAgeDays *int       `json:"lastOdometerAgeDays"`
+			AverageDailyKm      *float64   `json:"averageDailyKm"`
 		}
 		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 		return body
@@ -576,6 +578,7 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	before := read(t)
 	require.Nil(t, before.LastOdometerKm, "a vehicle with no reading served an odometer value")
 	require.Nil(t, before.LastOdometerAt, "a vehicle with no reading served a reading date")
+	require.Nil(t, before.LastOdometerAgeDays, "a vehicle with no reading served an age")
 	require.Nil(t, before.AverageDailyKm,
 		"a vehicle with no timeline served a rate, which FR-INS-020 would project from")
 
@@ -612,6 +615,46 @@ func TestCaptureContextServesTheLastOdometerReading(t *testing.T) {
 	// put a fiction on an append-only timeline (DR-018).
 	require.NotNil(t, after.AverageDailyKm, "two readings 25 days apart yielded no rate")
 	require.InDelta(t, 400.0, *after.AverageDailyKm, 0.005)
+}
+
+// FR-TYR-017, rule 6: the age beside the last odometer reading is a count of
+// the fleet's own calendar days, as the tread's is. Kiritimati and Midway sit
+// 25 hours apart and never share a civil date, so a count taken on UTC's
+// calendar, or the runner's, misses for one of them at any hour.
+func TestCaptureContextCountsTheOdometerAgeInTheFleetsDays(t *testing.T) {
+	ctx := context.Background()
+	s, admin := testStore(t, ctx)
+	h := httpapi.New(s, httpapi.HeaderActorResolver{})
+
+	for _, zone := range []string{"Pacific/Kiritimati", "Pacific/Midway"} {
+		t.Run(zone, func(t *testing.T) {
+			tenantID, vehicleID, _ := plantCaptureFixture(t, ctx, admin, "odometer-age")
+			_, err := admin.Exec(ctx, `UPDATE app.tenant SET timezone = $2 WHERE id = $1`, tenantID, zone)
+			require.NoError(t, err)
+			driverID := plantUser(t, ctx, admin, tenantID, auth.RoleDriver)
+			plantTrip(t, ctx, admin, tenantID, vehicleID, driverID)
+
+			// Dated in SQL from the tenant's own today, so no Go clock is
+			// what the test measures.
+			_, err = admin.Exec(ctx,
+				`INSERT INTO app.vehicle_odometer_reading
+				   (tenant_id, vehicle_id, reading_date, odometer_km, source)
+				 SELECT id, $2, app.tenant_today(timezone) - 3, 100000, 'MANUAL'
+				   FROM app.tenant WHERE id = $1`,
+				tenantID, vehicleID)
+			require.NoError(t, err)
+
+			rec := get(t, h, "/api/capture/vehicles/"+vehicleID.String(),
+				tenantID.String(), driverID.String())
+			require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+			var body struct {
+				LastOdometerAgeDays *int `json:"lastOdometerAgeDays"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+			require.NotNil(t, body.LastOdometerAgeDays, "a dated reading served no age")
+			require.Equal(t, 3, *body.LastOdometerAgeDays, "the age is counted in this fleet's own calendar")
+		})
+	}
 }
 
 // captureBetween is captureFixture's payload with its own started_at and

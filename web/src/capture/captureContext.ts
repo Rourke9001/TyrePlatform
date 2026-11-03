@@ -82,6 +82,9 @@ export interface CaptureContext {
   // FR-INS-033 divides by the gap since this date; the value alone has no
   // denominator.
   lastOdometerAt: string | null;
+  // FR-TYR-017: days since lastOdometerAt in the tenant's calendar (rule 6).
+  // Optional for the reason previousReadingAgeDays is.
+  lastOdometerAgeDays?: number | null;
   // FR-INS-020's pre-fill projects from the last reading at this rate. Null
   // when the timeline cannot support one (a first inspection, or two
   // readings the same day); see history.projectedOdometerKm.

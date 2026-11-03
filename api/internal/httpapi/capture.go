@@ -88,6 +88,9 @@ type captureContextBody struct {
 	// FR-INS-033 divides by the gap since this date. Serving the value
 	// without it leaves the plausibility warning with no denominator.
 	LastOdometerAt *time.Time `json:"lastOdometerAt"`
+	// FR-TYR-017: days since LastOdometerAt in the tenant's calendar (rule
+	// 6); nil when LastOdometerAt is.
+	LastOdometerAgeDays *int `json:"lastOdometerAgeDays"`
 	// FR-INS-020's pre-fill is a PROJECTION: the last known reading carried
 	// forward by this unit's average daily distance. It is not the last
 	// reading itself, which is what stops one tap recording last inspection's
@@ -175,10 +178,16 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 	// wrong window for "how far has this unit gone"). Ninety days matches the
 	// forecast's convention; a unit with one reading, or two on the same day,
 	// correctly yields no rate (FR-INS-020 then starts empty).
+	//
+	// reading_date is a date, not an instant, so its age is the tenant's
+	// today minus it (rule 6). app.tenant_days_since would read it as a
+	// midnight, which falls on the day before west of UTC.
 	err := tx.QueryRow(ctx, `
 		SELECT v.id, v.fleet_number, v.registration, v.unit_kind::text,
-		       o.odometer_km, o.reading_date, avg_km.km
+		       o.odometer_km, o.reading_date, app.tenant_today(tn.timezone) - o.reading_date,
+		       avg_km.km
 		  FROM `+from+`
+		  JOIN app.tenant tn ON tn.id = v.tenant_id
 		  LEFT JOIN LATERAL (
 		       SELECT vo.odometer_km, vo.reading_date
 		         FROM app.vehicle_odometer_reading vo
@@ -192,7 +201,7 @@ func loadCaptureContext(ctx context.Context, tx pgx.Tx, a auth.Actor, vehicleID 
 		          AND vo.reading_date > (now() AT TIME ZONE 'UTC')::date - 90) avg_km ON true
 		 WHERE v.id = $1`+where, args...).
 		Scan(&out.VehicleID, &out.FleetNumber, &out.Registration, &out.UnitKind,
-			&out.LastOdometerKm, &out.LastOdometerAt, &out.AverageDailyKm)
+			&out.LastOdometerKm, &out.LastOdometerAt, &out.LastOdometerAgeDays, &out.AverageDailyKm)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return errForbidden
 	}

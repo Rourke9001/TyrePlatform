@@ -173,20 +173,43 @@ describe("CaptureStart's odometer", () => {
     ).toBeInTheDocument();
   });
 
-  const daysBefore = (days: number) =>
-    new Date(Date.parse("2026-08-27T06:00:00Z") - days * 86_400_000).toISOString();
-
   // U55 (TYRE-342): the age beside the grouped reading groups too.
   it("groups a four-digit day count beside the last reading", () => {
-    renderStart(vi.fn(), { lastOdometerAt: daysBefore(1000) });
+    renderStart(vi.fn(), { lastOdometerAgeDays: 1000 });
     expect(screen.getByText("Last reading 412,180 km, 1,000 days ago")).toBeInTheDocument();
   });
 
   // A reading taken yesterday is one day, in the words formatTreadAge
   // writes for every other age the driver reads.
   it("says 1 day, not 1 days", () => {
-    renderStart(vi.fn(), { lastOdometerAt: daysBefore(1) });
+    renderStart(vi.fn(), { lastOdometerAgeDays: 1 });
     expect(screen.getByText("Last reading 412,180 km, 1 day ago")).toBeInTheDocument();
+  });
+
+  // Rule 6 (TYRE-342): the count is the server's, in the fleet's days. At
+  // 15:00 SAST a reading dated two days back is two and a half days old by
+  // the browser clock, which rounds to 3.
+  it("says the served day count whatever the browser clock", () => {
+    vi.setSystemTime(new Date("2026-08-27T13:00:00Z"));
+    renderStart(vi.fn(), { lastOdometerAt: "2026-08-25T00:00:00Z", lastOdometerAgeDays: 2 });
+    expect(screen.getByText("Last reading 412,180 km, 2 days ago")).toBeInTheDocument();
+  });
+
+  // An API older than the field sends no count, and the browser clock does
+  // not stand in for one (rule 6).
+  it("leaves the age off when the server sends no count", () => {
+    renderStart(vi.fn());
+    expect(screen.getByText("Last reading 412,180 km")).toBeInTheDocument();
+  });
+
+  // Driver copy is straight-quoted (CLAUDE.md, Comments; /unslop).
+  it("explains the projection in straight-quoted words", () => {
+    renderStart(vi.fn());
+    expect(
+      screen.getByText(
+        "Worked out from that reading and this unit's usual daily distance. Check it against the dash. Confirm it, type the real number, or skip it.",
+      ),
+    ).toBeInTheDocument();
   });
 
   // A corrected reading still meets a rejection: BR-INS-002 is unconditional,
