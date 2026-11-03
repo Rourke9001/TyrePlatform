@@ -104,6 +104,16 @@ allowed "a branch whose name starts with develop" "git push origin develop-notes
 allowed "a push to a main-like name" "git push origin TYRE-9-main:TYRE-9-main"
 allowed "a command with no git or gh" "make check > log 2>&1"
 
+# Single quotes are literal to bash, so text in them is never run, unless a
+# shell's -c reads it. Double quotes still run a backtick or $( ).
+allowed "a mention in single quotes" "node -e 'const t = \"deny \`gh pr merge\` here\";'"
+allowed "a commit message in single quotes" "git commit -m 'see \`gh pr merge 1\` and git push origin main'"
+denied "a merge inside bash -c single quotes" "bash -c 'gh pr merge 158'"
+denied "a backtick merge inside double quotes" "git commit -m \"see \`gh pr merge 1\`\""
+denied "a \$( ) merge inside double quotes" "echo \"\$(gh pr merge 158)\""
+denied "a quoted merge path" "gh api -X PUT 'repos/o/r/pulls/1/merge'"
+asked "a push inside sh -c double quotes" "sh -c \"cd /tmp; git push origin develop\""
+
 # A heredoc's body is data, such as a PR body or a doc, unless a shell reads it.
 nl=$'\n'
 allowed "a heredoc that mentions a merge and a push" \

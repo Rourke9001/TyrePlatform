@@ -124,11 +124,40 @@ strip_heredocs() {
   done <<<"$1"
 }
 
-# One command per line: split on the shell's separators and at each place a
-# nested command starts, so "cd x && git push" and bash -c "..." are judged.
-segments=$(strip_heredocs "$cmd" | sed -E 's/\$\(/\n/g; s/`/\n/g; s/\|\|/\n/g; s/&&/\n/g; s/[;|()]/\n/g; s/(^|[[:space:]])(ba|z)?sh[[:space:]]+-l?c[[:space:]]+/\n/g')
+# One command per line, split where bash would start one: at ; & | ( ) and a
+# newline outside quotes, and at a backtick or $( outside single quotes. Text
+# in single quotes is never run, unless a shell's -c reads the quoted script.
+read -r -d '' split_awk <<'AWK'
+{ s = s $0 "\n" }
+END {
+  out = ""; q = ""; code = ""; n = length(s)
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (q != "") {
+      out = out c
+      if (c == bs && q == dq) { out = out substr(s, ++i, 1); continue }
+      if (c == q) { q = ""; continue }
+      if (q == dq && (c == bq || (c == "$" && substr(s, i + 1, 1) == "("))) out = out "\n"
+      continue
+    }
+    if (c == bs) { out = out c substr(s, ++i, 1); continue }
+    if (code != "" && c == code) { code = ""; out = out "\n"; continue }
+    if (c == sq || c == dq) {
+      if (code == "" && out ~ /(^|[[:space:];&|(])(ba|z)?sh[[:space:]]+-l?c[[:space:]]*$/) {
+        code = c; out = out "\n"; continue
+      }
+      q = c; out = out c; continue
+    }
+    if (c == bq || c ~ /[;&|()\n]/) { out = out "\n"; continue }
+    if (c == "$" && substr(s, i + 1, 1) == "(") { out = out "\n"; i++; continue }
+    out = out c
+  }
+  printf "%s", out
+}
+AWK
+segments=$(strip_heredocs "$cmd" | awk -v sq="'" -v dq='"' -v bq='`' -v bs='\\' "$split_awk")
 while IFS= read -r seg; do
-  seg=$(printf '%s' "$seg" | sed -E "s/^[[:space:]\"']+//; s/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//; s/^(command|exec|time|nohup|env)[[:space:]]+//")
+  seg=$(printf '%s' "$seg" | sed -E "s/^[[:space:]\"'(]+//; s/^([A-Za-z_][A-Za-z0-9_]*=[^[:space:]]*[[:space:]]+)+//; s/^(command|exec|time|nohup|env)[[:space:]]+//")
   if [[ "$seg" =~ ^cd[[:space:]]+(.+)$ ]]; then
     cwd=$(resolve "$(printf '%s' "${BASH_REMATCH[1]}" | sed -E 's/[[:space:]]+$//')")
   elif [[ "$seg" =~ ^gh[[:space:]]+pr[[:space:]]+merge([[:space:]]|$) ]]; then
