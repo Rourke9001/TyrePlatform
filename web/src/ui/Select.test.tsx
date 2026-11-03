@@ -66,12 +66,16 @@ describe("Select", () => {
   // jsdom applies no layout, so this reads the sheet. A chevron laid out
   // beside the select takes a click itself and opens nothing. Drawn over
   // the select's padding with no pointer events, it lets the click through.
+  // It reads Select.css alone, so it cannot see a rule elsewhere that
+  // outranks these; it pins the mechanism, not the click.
   it("draws its chevron over the select, so a click on it reaches the select", () => {
     const { container } = render(<Select aria-label="Rule" options={options} />);
     const select = screen.getByRole("combobox", { name: "Rule" });
     const chevron = container.querySelector("svg");
-    expect(chevron?.parentElement).toBe(select.parentElement);
-    expect(declared(chevron!)).toMatchObject({ position: "absolute", "pointer-events": "none" });
+    expect(chevron).not.toBeNull();
+    if (chevron === null) return;
+    expect(chevron.parentElement).toBe(select.parentElement);
+    expect(declared(chevron)).toMatchObject({ position: "absolute", "pointer-events": "none" });
     expect(declared(select.parentElement!)).toMatchObject({ position: "relative" });
     // Two classes, for the reason Select.css gives.
     const pad = cssRules(selectCss).find(
