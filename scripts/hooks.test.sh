@@ -205,11 +205,35 @@ asked "a bare push after { cd" "{ cd '$D'; git push; }"
 asked "a bare push after cd with 2>/dev/null" "cd '$D' 2>/dev/null && git push"
 asked "a bare push after a subshell's cd" "(cd '$F' && ls); git push" "$D"
 asked "a bare push after a substitution's cd" "root=\$(cd '$F' && pwd); git push" "$D"
-allowed "a bare push after a subshell's cd to develop" "(cd '$D' && ls); git push"
+asked "a bare push after any cd in a subshell" "(cd '$D' && ls); git push"
 # gh takes -R or --repo before its subcommand.
 denied "gh -R pr merge" "gh -R o/r pr merge 1"
 denied "gh --repo pr merge" "gh --repo o/r pr merge 1"
 denied "gh --repo= pr merge" "gh --repo=o/r pr merge 1"
+
+# Round 3: a body the hook does not decode (a shell's -c, eval, a heredoc a
+# shell reads) is refused when it holds a merge and asks when it names a push
+# or merge; after a cd it cannot follow, a bare push asks.
+asked "a push inside bash -euo pipefail -c" "bash -euo pipefail -c 'git push origin develop'"
+denied "a merge inside bash -euo pipefail -c" "bash -euo pipefail -c 'gh pr merge 1'"
+denied "a merge inside bash -O extglob -c" "bash -O extglob -c 'gh pr merge 1'"
+denied "a merge inside bash --rcfile -c" "bash --rcfile /dev/null -c 'gh pr merge 1'"
+denied "a merge after '\\'' inside double quotes" "bash -c 'echo \"it'\\''s\"; gh pr merge 1'"
+denied "a merge after '\\'' inside \$( )" "bash -c 'x=\$(echo '\\''a'\\''); gh pr merge 1'"
+allowed "a test run then a commit heredoc" "bash scripts/hooks.test.sh && git commit -q -F - <<'EOF'${nl}gh pr merge is refused now.${nl}EOF"
+allowed "a test run then a PR body heredoc" "bash scripts/hooks.test.sh > /tmp/h.log 2>&1 && gh pr create --base develop --title x --body-file - <<'EOF'${nl}The guard refuses gh pr merge, and it's tested.${nl}EOF"
+allowed "a commit heredoc then a test run" "git commit -q -F - <<'EOF' && bash scripts/hooks.test.sh${nl}gh pr merge is refused${nl}EOF"
+denied "a graphql merge from a heredoc piped to jq" "gh api graphql -F query=@- <<'Q' | jq .${nl}mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }${nl}Q"
+denied "a graphql merge from a heredoc then echo" "gh api graphql -F query=@- <<'Q' && echo ok${nl}mutation { mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId } }${nl}Q"
+denied "gh pr -R merge" "gh pr -R o/r merge 1"
+denied "gh -R with no space" "gh -Ro/r pr merge 1"
+asked "a bare push after eval cd" "eval \"cd '$D'\"; git push"
+asked "a bare push after eval cd and &&" "eval \"cd '$D'\" && git push"
+asked "a sibling subshell push after a subshell cd" "(cd '$F' && ls); (git push)" "$D"
+asked "a subshell push after a subshell cd" "(cd '$F') && (git push)" "$D"
+asked "a substitution push after a substitution cd" "echo \$(cd '$F')\$(git push)" "$D"
+asked "a bare push after pushd" "pushd '$D' && git push"
+asked "a bare push after builtin cd" "builtin cd '$D' && git push"
 
 # Commands a working session ran on 3 Nov, from a feature branch. Each must
 # pass, so a change that refuses ordinary work shows red.
