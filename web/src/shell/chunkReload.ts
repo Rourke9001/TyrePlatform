@@ -24,14 +24,36 @@ let suppressed = 0;
 // On an object so a test can replace it: jsdom implements no navigation.
 export const page = { reload: (): void => window.location.reload() };
 
+// The one loop guard both reloads share: none inside the window after the
+// last, stamped first. Blocked storage (private mode, quota, or a
+// SecurityError merely reading window.sessionStorage: all cookies blocked, a
+// sandboxed iframe) means no guard is possible, and reloading without one
+// risks looping on a chunk that never becomes reachable, so it answers false
+// (TYRE-280). The storage is resolved inside the try: install runs in main.tsx
+// before the first render, and a throw there would blank the whole app,
+// capture flow included (TYRE-238).
+function stampReload(storage: Pick<Storage, "getItem" | "setItem"> | undefined, now: number) {
+  try {
+    const store = storage ?? window.sessionStorage;
+    const stamp = store.getItem(STAMP_KEY);
+    if (stamp !== null && now - Number(stamp) < RELOAD_GUARD_WINDOW_MS) return false;
+    store.setItem(STAMP_KEY, String(now));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // U105 (TYRE-381): Chrome and released Safari keep a failed module fetch in
 // the module map for the life of the page, so after one failed import of the
 // auth chunk only a reload loads it again. A tap on Sign in or Sign out
 // reloads; a renewal never does. Offline the reload would strand the driver
 // on the browser's offline page (no service worker, ADR-0009), so it reloads
-// only while the phone reports a connection. Returns whether it reloaded.
+// only while the phone reports a connection, and once inside the guard
+// window, so a chunk that fails on every load shows the line (U172). Returns
+// whether it reloaded.
 export function reloadForAuthChunk(): boolean {
-  if (!window.navigator.onLine) return false;
+  if (!window.navigator.onLine || !stampReload(undefined, Date.now())) return false;
   page.reload();
   return true;
 }
@@ -55,34 +77,11 @@ export function installChunkReload(deps: Partial<ChunkReloadDeps> = {}): () => v
   const reload = deps.reload ?? (() => window.location.reload());
   const now = deps.now ?? Date.now;
 
+  // Without a reload the error reaches RouteErrorBoundary, which offers the
+  // retry (TYRE-280).
   function handlePreloadError() {
     if (suppressed > 0) return;
-    // Blocked storage (private mode, quota, or a SecurityError merely
-    // reading window.sessionStorage: all cookies blocked, a sandboxed
-    // iframe) means no guard is possible; reloading without one risks
-    // looping on a chunk that never becomes reachable, so this leaves the
-    // error to reach RouteErrorBoundary instead (TYRE-280).
-    let storage: Pick<Storage, "getItem" | "setItem">;
-    let lastReloadAt: number | null;
-    try {
-      // Resolved here, inside the try, rather than at install time: install
-      // runs in main.tsx before createRoot(...).render, and a throw there
-      // would blank the whole app, capture flow included (TYRE-238).
-      storage = deps.storage ?? window.sessionStorage;
-      const stamp = storage.getItem(STAMP_KEY);
-      lastReloadAt = stamp === null ? null : Number(stamp);
-    } catch {
-      return;
-    }
-
-    if (lastReloadAt !== null && now() - lastReloadAt < RELOAD_GUARD_WINDOW_MS) return;
-
-    try {
-      storage.setItem(STAMP_KEY, String(now()));
-    } catch {
-      return;
-    }
-    reload();
+    if (stampReload(deps.storage, now())) reload();
   }
 
   // Never preventDefault: with it, Vite's preload helper resolves the

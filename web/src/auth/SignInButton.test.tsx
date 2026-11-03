@@ -14,6 +14,7 @@ vi.mock("./oidc", () => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+  window.sessionStorage.clear();
 });
 
 it("says so, offline, when the sign-in chunk cannot load, and does not reload", async () => {
@@ -37,4 +38,18 @@ it("reloads, with a connection, when the sign-in chunk cannot load", async () =>
   await userEvent.setup().click(screen.getByRole("button", { name: "Sign in" }));
   await vi.waitFor(() => expect(reload).toHaveBeenCalledTimes(1));
   expect(screen.queryByRole("alert")).toBeNull();
+});
+
+// U172: the first failed tap reloads; a second inside the guard window shows
+// the line, so a chunk that fails on every load cannot loop the page.
+it("shows the line, not a second reload, when the chunk fails again straight after", async () => {
+  vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(true);
+  const reload = vi.spyOn(page, "reload").mockImplementation(() => undefined);
+  window.sessionStorage.setItem("chunkReloadAt", String(Date.now()));
+  render(<SignInButton label="Sign in" />);
+  await userEvent.setup().click(screen.getByRole("button", { name: "Sign in" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Could not start sign-in. Find signal and try again.",
+  );
+  expect(reload).not.toHaveBeenCalled();
 });

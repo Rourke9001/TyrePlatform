@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { installChunkReload, suppressReloadWhile } from "./chunkReload";
+import { installChunkReload, page, reloadForAuthChunk, suppressReloadWhile } from "./chunkReload";
 
 // A fake store: same get/set/throw contract as sessionStorage, without
 // touching jsdom's real one, so the "blocked storage" case can be forced.
@@ -155,5 +155,54 @@ describe("installChunkReload", () => {
     await pending;
     dispatchPreloadError();
     expect(reload).toHaveBeenCalledTimes(1);
+  });
+});
+
+// U172 (TYRE-381): a tap reloads once; a second failed import inside the
+// guard window shows the line instead, so a chunk that fails on every load
+// cannot loop the page.
+describe("reloadForAuthChunk", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    window.sessionStorage.clear();
+  });
+
+  function online(value: boolean) {
+    vi.spyOn(window.navigator, "onLine", "get").mockReturnValue(value);
+    return vi.spyOn(page, "reload").mockImplementation(() => undefined);
+  }
+
+  it("reloads once, then not again inside the guard window", () => {
+    const reload = online(true);
+
+    expect(reloadForAuthChunk()).toBe(true);
+    expect(reloadForAuthChunk()).toBe(false);
+
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("reloads again once the guard window has passed", () => {
+    const reload = online(true);
+    window.sessionStorage.setItem("chunkReloadAt", String(Date.now() - 10_001));
+
+    expect(reloadForAuthChunk()).toBe(true);
+    expect(reload).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not reload offline", () => {
+    const reload = online(false);
+
+    expect(reloadForAuthChunk()).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it("does not reload when storage cannot hold the stamp", () => {
+    const reload = online(true);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+
+    expect(reloadForAuthChunk()).toBe(false);
+    expect(reload).not.toHaveBeenCalled();
   });
 });
