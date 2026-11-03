@@ -25,7 +25,7 @@ describe("applyKey at whole-millimetre granularity", () => {
 
   // Settle rule: settle when another digit would exceed the ceiling. At
   // 1.0mm, 4-9 settle on the first press; 1-3 wait, since 10-35mm are real
-  // readings.
+  // readings. A lone 0 settles too (below).
   it("settles a first digit that cannot grow", () => {
     const r = applyKey(newEntryState(3), { type: "digit", digit: "7" }, whole);
     expect(r.state.treads[0]).toBe(7);
@@ -36,6 +36,18 @@ describe("applyKey at whole-millimetre granularity", () => {
     const r = applyKey(newEntryState(3), { type: "digit", digit: "1" }, whole);
     expect(r.state.treads[0]).toBe(1);
     expect(r.settled).toBe(false);
+  });
+
+  // TYRE-171: no tread reading starts with a zero, so a lone 0 is the whole
+  // answer, and the worst tread in the fleet costs no Next tap.
+  it.each([
+    ["whole", whole],
+    ["halves", halves],
+    ["tenths", tenths],
+  ])("settles a lone 0 on a tread field at %s", (_, opts) => {
+    const r = applyKey(newEntryState(3), { type: "digit", digit: "0" }, opts);
+    expect(r.state.treads[0]).toBe(0);
+    expect(r.settled).toBe(true);
   });
 
   it("settles once a second digit lands", () => {
@@ -117,6 +129,14 @@ describe("applyKey on the pressure field", () => {
   it("waits for a fourth digit where one is still possible", () => {
     const { state, settled } = type(atPressure(), "120", whole);
     expect(state.pressureKpa).toBe(120);
+    expect(settled).toBe(false);
+  });
+
+  // TYRE-171's lone 0 is a tread rule only: 0 kPa is a flat a driver must
+  // see held on the field, not carried past by the keypad.
+  it("does not settle a lone 0", () => {
+    const { state, settled } = type(atPressure(), "0", whole);
+    expect(state.pressureKpa).toBe(0);
     expect(settled).toBe(false);
   });
 
@@ -206,6 +226,17 @@ describe("the half key straight after the keypad moves on", () => {
     expect(r.state.treads).toEqual([13.5, null, null]);
     expect(r.state.field).toBe(1);
     expect(r.settled).toBe(false);
+  });
+
+  // TYRE-171 with U160: a lone 0 settles, so the keypad moves on from it as
+  // it does from 13, and a half straight after makes it 0.5.
+  it("adds the half to a lone 0 the keypad moved on from", () => {
+    const zero = applyKey(newEntryState(3), { type: "digit", digit: "0" }, halves);
+    expect(zero.settled).toBe(true);
+    const moved = applyKey(zero.state, { type: "next" }, halves).state;
+    const r = applyKey(moved, { type: "half" }, halves);
+    expect(r.state.treads).toEqual([0.5, null, null]);
+    expect(r.state.field).toBe(1);
   });
 
   it("adds it to the new cell once a digit lands there", () => {

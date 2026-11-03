@@ -139,11 +139,13 @@ export function applyKey(state: EntryState, key: EntryKey, opts: EntryOptions): 
       // more likely than an intention to enter 39mm.
       const buffer = valueOf(grown, state, opts) > ceiling ? key.digit : grown;
       const next = write(state, buffer, opts);
-      // The whole auto-advance rule, in one line: could another digit still
-      // change this answer? Appending "0" is the smallest possible growth, so
-      // if even that overshoots, nothing can.
-      const settled = valueOf(buffer + "0", state, opts) > ceiling;
-      return { state: next, settled };
+      // Could another digit still change this answer? Appending "0" is the
+      // smallest possible growth, so if even that overshoots, nothing can.
+      const overshoots = valueOf(buffer + "0", state, opts) > ceiling;
+      // TYRE-171: no tread reading starts with a zero, so a lone 0 is a 0mm
+      // tread. Pressure waits, so 0 kPa is held on its field.
+      const loneZeroTread = buffer === "0" && !isPressure(state, opts);
+      return { state: next, settled: overshoots || loneZeroTread };
     }
   }
 }
