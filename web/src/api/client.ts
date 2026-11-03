@@ -4,7 +4,14 @@
 import { getDevActorId, getDevTenantId } from "./devTenant";
 import { ApiError } from "./apiError";
 import { apiUrl } from "./runtimeConfig";
-import { authUnavailable, isLatched, refused, sender, type Sender } from "./token";
+import {
+  REQUEST_TIMEOUT_SECONDS,
+  authUnavailable,
+  isLatched,
+  refused,
+  sender,
+  type Sender,
+} from "./token";
 
 export { ApiError } from "./apiError";
 
@@ -29,6 +36,26 @@ async function refusal(res: Response): Promise<{ code: string | null; message: s
   }
 }
 
+// TYRE-389: one bound over the request and its body read, because on a dead
+// link either can stall for minutes. Past it the call rejects with a plain
+// Error, which the outbox (classify) and the queries read as offline. The
+// race does not wait on the abort reaching the body, which a stubbed or
+// older fetch may never do.
+function deadline() {
+  const controller = new AbortController();
+  const expired = new Promise<never>((_resolve, reject) => {
+    controller.signal.addEventListener("abort", () => reject(new Error("request timed out")));
+  });
+  // Raced on every await below; this keeps an unraced expiry quiet.
+  expired.catch(() => undefined);
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_SECONDS * 1000);
+  return {
+    signal: controller.signal,
+    within: <R>(work: Promise<R>): Promise<R> => Promise.race([work, expired]),
+    end: () => clearTimeout(timer),
+  };
+}
+
 // One implementation of identity attribution, refusal shaping and 204
 // handling; apiGet/Post/Patch delegate here so they cannot drift apart.
 async function send<T>(method: string, path: string, body?: unknown, as?: Sender): Promise<T> {
@@ -48,25 +75,37 @@ async function send<T>(method: string, path: string, body?: unknown, as?: Sender
     if (devActor) headers["X-User-ID"] = devActor;
   }
 
-  const res = await fetch(apiUrl(path), {
-    method,
-    headers,
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
-  });
-  if (!res.ok) {
-    if (res.status === 401 && who.accessToken !== null && refused(who.accessToken)) {
-      throw authUnavailable();
+  // The bound starts here, after the credential: a renewal carries its own
+  // (token.ts).
+  const bound = deadline();
+  try {
+    const res = await bound.within(
+      fetch(apiUrl(path), {
+        method,
+        headers,
+        signal: bound.signal,
+        ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      }),
+    );
+    if (!res.ok) {
+      if (res.status === 401 && who.accessToken !== null && refused(who.accessToken)) {
+        throw authUnavailable();
+      }
+      // A refusal's code can make it retryable (outbox.ts classify), so a
+      // stalled refusal body expires as offline rather than as the status.
+      const { code, message } = await bound.within(refusal(res));
+      throw new ApiError(res.status, message ?? `${method} ${path} failed: ${res.status}`, code);
     }
-    const { code, message } = await refusal(res);
-    throw new ApiError(res.status, message ?? `${method} ${path} failed: ${res.status}`, code);
+    // A 204 from any verb carries no body, by spec, and res.json() rejects on
+    // an empty stream. A bare parse here would turn a successful call into a
+    // thrown SyntaxError indistinguishable from a transport failure.
+    if (res.status === 204) {
+      return undefined as unknown as T;
+    }
+    return await bound.within(res.json() as Promise<T>);
+  } finally {
+    bound.end();
   }
-  // A 204 from any verb carries no body, by spec, and res.json() rejects on
-  // an empty stream. A bare parse here would turn a successful call into a
-  // thrown SyntaxError indistinguishable from a transport failure.
-  if (res.status === 204) {
-    return undefined as unknown as T;
-  }
-  return res.json() as Promise<T>;
 }
 
 export function apiGet<T>(path: string): Promise<T> {
