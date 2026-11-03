@@ -148,10 +148,10 @@ tenant, created at TYRE-321's live onboarding (U139).
 **The owner:** have the SRS Cowork agent paste U166's errata for
 NFR-BAK-005 and 006 and fix the release log's staging database row
 (`docs/HANDOFF_srs_errata_TYRE-321_U166_2026-11-03.md`, gitignored);
-make TYRE-413's settings edit, its
-pilot-audit comment's B37 less the production reviewer already set: deny
-`gh pr merge`, a hook that refuses a merge through `gh api` and asks before
-a push to `develop` or `main`, and allow `gh api`. Staging is at 60 since
+finish TYRE-413's settings edit, its
+pilot-audit comment's B37 less the production reviewer already set and the
+`gh pr merge` deny that PR #161 landed: a hook that refuses a merge through
+`gh api` and asks before a push to `develop` or `main`, and allow `gh api`. Staging is at 60 since
 3 Nov, so its rollback floor is PR #148 (`environment-release.md`, Roll
 back). Production stays at 58 until the next promotion, which must migrate
 first. TYRE-371's custom
