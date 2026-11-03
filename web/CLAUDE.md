@@ -206,11 +206,23 @@ looked at before it is reviewed. Rules that are not visible in the code:
   `vocabulary.ts` stays out of its budget.
 - The legacy Select is the one Radix import left, so the dashboard and
   Exceptions, which use it, load behind `React.lazy` in `routes.tsx`. The
-  capture route's JavaScript is gated: `npm run bundle:check` (also in `make lint` and CI) fails when the entry
-  chunk's static closure exceeds `bundle-budget.json`, or when any module under
-  `src/capture/` or `src/driver/` is reachable from the entry only through a
-  dynamic import (ADR-0009, rule 7). The budget only ratchets down; a rise
-  needs `--record` and a reason in the PR.
+  capture route must not pay for the manager app (TYRE-238). `npm run
+  bundle:check` (`scripts/check-capture-bundle.mjs`, also in `make lint` and
+  CI) reads the build manifest and fails on any of three findings, all
+  printed before it exits:
+  - The entry's static closure exceeds `bundle-budget.json` in any of three
+    figures: JS and CSS in gzip bytes, fonts in raw bytes, since woff and
+    woff2 are already compressed. A lazy chunk loads with its route, so it
+    is not counted.
+  - A module under `src/capture/` or `src/driver/` is reachable from the
+    entry only through a dynamic import, so the driver's flow would wait on
+    a chunk fetch (ADR-0009, rule 7).
+  - The entry carries oidc-client-ts (TYRE-317, ADR-0016).
+
+  The budget only ratchets down. A rise needs a reason in the PR and a
+  re-record on a known-good tree: `npm run bundle:check -- --record` writes
+  every figure, and `-- --record-css` writes only the CSS and font figures
+  and their date, `cssRecordedAt`, leaving the JS one (TYRE-445).
 - The word "roadworthy" appears in no label, legend or aria text; the
   platform reports the tenant's configured thresholds (CLAUDE.md).
 - A money figure is `Money` (`src/api/money.ts`) and rendered only by
@@ -229,9 +241,10 @@ looked at before it is reviewed. Rules that are not visible in the code:
   limit line is drawn only when the caller passes `limitBefore` (rule 5), which
   the dashboard never does. A CSS rule that switches at the same width writes
   640px and cites the constant.
-- A measurement always shows one decimal with a point (`formatMm`, "4.0 mm");
-  millimetres never go through `Intl`'s en-ZA format, whose decimal separator
-  is a comma.
+- On the manager screens a tread reading shows one decimal with a point
+  (`formatMm`, "4.0 mm"). Capture writes its own compact "4mm" and "4.5mm"
+  (owner, 3 Nov 2026). Millimetres never go through `Intl`'s en-ZA format,
+  whose decimal separator is a comma.
 - Every displayed number groups thousands with a comma, as money does:
   "1,234 tyres", "416,180 km", "R1,234.00" (U55). The separator is written
   once, in `groupThousands` (`src/format/groupThousands.ts`), which

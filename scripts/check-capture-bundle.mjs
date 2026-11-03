@@ -1,17 +1,5 @@
 // The capture route must not pay for the manager app (TYRE-238, ADR-0015).
-// Three checks, all read from dist/.vite/manifest.json:
-// 1. The entry's static closure stays within web/bundle-budget.json in three
-//    figures: JS and CSS in gzip bytes, fonts in raw bytes (woff and woff2
-//    are already compressed). A lazy chunk loads with its route, so it is not
-//    counted. A rise fails until --record writes the new figures, with the
-//    reason given in the PR. --record-css writes the CSS and font figures and
-//    their date, cssRecordedAt, and leaves the JS one as it is (TYRE-445).
-// 2. No module under src/capture/ or src/driver/ is reachable from the entry
-//    only through a dynamic import (ADR-0009): the driver's flow never waits
-//    on a chunk fetch.
-// 3. oidc-client-ts stays out of the entry (TYRE-317, ADR-0016).
-// Every finding is printed before the one exit, so a tolerated rise in one
-// figure cannot hide another.
+// web/CLAUDE.md, The design system, lists what this checks.
 import { readFileSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { resolve, dirname } from "node:path";
@@ -495,6 +483,8 @@ for (const f of budgetFindings(
   budget,
 ))
   findings.push(`FAIL: ${f}`);
+// Every finding prints before the one exit, so a tolerated rise in one
+// figure cannot hide another.
 if (findings.length > 0) {
   for (const f of findings) console.error(f);
   process.exit(1);
