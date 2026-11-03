@@ -23,6 +23,19 @@ describe("CaptureDone", () => {
     expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
   });
 
+  // TYRE-215: the phone's clock holds a TY021 entry, not signal, so the
+  // screen says what the outbox band says.
+  it("says the phone clock is ahead when that is what holds it", () => {
+    render(<CaptureDone state="queued" lastCode="TY021" lastStatus={422} />);
+    expect(screen.getByRole("heading", { name: "Inspection saved" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "This phone's clock is ahead, so the office could not accept it yet. It will send later. Check the time.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/when you have signal/)).not.toBeInTheDocument();
+  });
+
   it("keeps the signal wording for any other hold", () => {
     render(<CaptureDone state="queued" lastCode={null} lastStatus={null} />);
     expect(screen.getByText(/when you have signal/)).toBeInTheDocument();

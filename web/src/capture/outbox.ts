@@ -44,6 +44,12 @@ const STALE_AFTER_MS = 48 * 3600 * 1000;
 
 const table = () => db.table<OutboxEntry, string>("outbox");
 
+// TYRE-215: what the outbox band and the done screen both say of an entry
+// TY021 holds, so the two never say different things. The driver can fix it
+// without the office, and signal does not.
+export const CLOCK_AHEAD_COPY =
+  "This phone's clock is ahead, so the office could not accept it yet. It will send later. Check the time.";
+
 export function backoffMs(attempts: number): number {
   return Math.min(BASE_BACKOFF_MS * 2 ** attempts, MAX_BACKOFF_MS);
 }
