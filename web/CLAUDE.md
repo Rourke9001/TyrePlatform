@@ -243,7 +243,7 @@ looked at before it is reviewed. Rules that are not visible in the code:
   640px and cites the constant.
 - On the manager screens a tread reading shows one decimal with a point
   (`formatMm`, "4.0 mm"). Capture writes its own compact "4mm" and "4.5mm"
-  (owner, 3 Nov 2026). Millimetres never go through `Intl`'s en-ZA format,
+  (U164, ADR-0020). Millimetres never go through `Intl`'s en-ZA format,
   whose decimal separator is a comma.
 - Every displayed number groups thousands with a comma, as money does:
   "1,234 tyres", "416,180 km", "R1,234.00" (U55). The separator is written
