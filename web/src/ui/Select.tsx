@@ -26,7 +26,12 @@ export function Select({ options, placeholder, size = "md", className, ...rest }
   const invalid = rest["aria-invalid"] !== undefined && String(rest["aria-invalid"]) !== "false";
   return (
     <div
-      className={cx("tr-input", size === "glove" && "tr-input--glove", className)}
+      className={cx(
+        "tr-input",
+        "tr-input--select",
+        size === "glove" && "tr-input--glove",
+        className,
+      )}
       data-invalid={invalid ? "true" : undefined}
     >
       <select {...rest}>
