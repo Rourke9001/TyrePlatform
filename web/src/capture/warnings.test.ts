@@ -256,7 +256,7 @@ describe("pressure labels", () => {
       unitLabels("XKPA", "KM"),
     );
     expect(w.find((x) => x.code === "FR-INS-037")?.message).toBe(
-      "700 XKPA against a 800 XKPA target.",
+      "700 XKPA against a 800 XKPA target. Check the inflation before departure.",
     );
   });
 });
