@@ -2,6 +2,7 @@ import {
   OTHER_DRIVER_KEY,
   authChunk,
   bearerMode,
+  bounded,
   clearMirror,
   rememberSubject,
   writeMirror,
@@ -59,6 +60,15 @@ async function undoSignIn(): Promise<void> {
   }
 }
 
+async function discardLate(): Promise<void> {
+  try {
+    await (await authChunk()).discardUser();
+  } catch {
+    // Best effort; with no last-known subject for it, nothing renews it
+    // (U111 B, token.ts).
+  }
+}
+
 export type RedirectOutcome = "none" | "signed-in" | "failed" | "undone";
 
 // Runs before the first render (main.tsx), so the U104 compare comes before
@@ -67,11 +77,16 @@ export async function completeRedirect(): Promise<RedirectOutcome> {
   const url = new URL(window.location.href);
   if (!bearerMode() || !isRedirectCallback(url)) return "none";
 
+  // Bounded, because the first render waits on this (TYRE-388).
+  const exchange = authChunk().then((auth) => auth.completeSignIn(url.href));
   let signedIn: SignedIn;
   try {
-    signedIn = await (await authChunk()).completeSignIn(url.href);
+    signedIn = await bounded(exchange, "sign-in callback");
   } catch {
     didNotFinish = true;
+    // An exchange that finishes past the bound stores a user the compare
+    // below never saw, so it goes too (U104).
+    exchange.then(discardLate, () => undefined);
     return "failed";
   } finally {
     // Success or not, so a reload cannot replay a spent code.
