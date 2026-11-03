@@ -1,7 +1,7 @@
-// A ref callback for a layer drawn over the whole screen: while it is
-// mounted, everything outside it is inert, so nothing it covers takes focus
-// (WCAG 2.4.11). It walks up to <body>, so it reaches the shell around the
-// caller too, and on unmount it clears only what it set.
+// A ref callback for a layer drawn over the whole screen. What is outside it
+// when it mounts goes inert, up to <body>, so nothing it covers takes focus
+// (WCAG 2.4.11); an element mounted later is left alone. On unmount it clears
+// only what it set.
 export function inertOutside(layer: HTMLElement | null): (() => void) | undefined {
   if (layer === null) return undefined;
   const marked: Element[] = [];

@@ -32,6 +32,15 @@ describe("inertOutside", () => {
     expect(inside.closest("[inert]")).toBeNull();
   });
 
+  // CaptureFlow's storage alert can mount while a sheet is open, and is heard at once.
+  it("leaves an element mounted after the call alone", () => {
+    const { main, layer } = page();
+    inertOutside(layer);
+    const late = document.createElement("div");
+    main.append(late);
+    expect(late.closest("[inert]")).toBeNull();
+  });
+
   it("clears only what it set, so an element already inert stays inert", () => {
     const { header, nav, layer, aside } = page();
     const release = inertOutside(layer);
