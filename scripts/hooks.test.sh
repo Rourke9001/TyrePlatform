@@ -28,7 +28,7 @@ run() {
   local cmd=$1 cwd=$2
   out=$(jq -n --arg c "$cmd" --arg d "$cwd" \
     '{hook_event_name: "PreToolUse", tool_name: "Bash", cwd: $d, tool_input: {command: $c}}' |
-    bash "$hook" 2>/dev/null)
+    HOME="${hook_home:-$HOME}" bash "$hook" 2>/dev/null)
   rc=$?
 }
 
@@ -121,6 +121,61 @@ allowed "a heredoc that mentions a merge and a push" \
 allowed "a here-string beside a heredoc-like word" "jq -r . <<<\"\$x\"${nl}echo ok"
 denied "a heredoc fed to bash" "bash <<'EOF'${nl}gh pr merge 12${nl}EOF"
 asked "a push after a heredoc ends" "cat > n.md <<'EOF'${nl}text${nl}EOF${nl}git push origin develop"
+
+# Stage 5 of #162: forms a session writes in ordinary work (U167). Only a
+# form built to evade a text guard is its accepted limit.
+D=$work/on-develop
+# A command starts after a keyword, a wrapper, or inside a flagged shell -c.
+asked "a push after then" "if true; then git push origin develop; fi"
+asked "a push after do" "for i in 1; do git push origin develop; done"
+asked "a push after !" "! git push origin develop"
+asked "a push after else" "if false; then :; else git push origin develop; fi"
+asked "a push after env" "env GIT_TRACE=0 git push origin develop"
+asked "a push after timeout" "timeout 60 git push origin develop"
+asked "a push inside bash -ec" "bash -ec \"git push origin develop\""
+asked "an unquoted echo of a push" "echo git push origin develop"
+denied "a merge after then" "if true; then gh pr merge 1; fi"
+denied "a merge inside braces" "{ gh pr merge 1; }"
+denied "a merge after env" "env GH_DEBUG=0 gh pr merge 1"
+denied "a merge inside bash -ec" "bash -ec \"gh pr merge 1\""
+denied "a merge inside bash -x -c" "bash -x -c 'gh pr merge 158'"
+denied "a merge inside /bin/bash -c" "/bin/bash -c 'gh pr merge 158'"
+denied "a merge through xargs" "echo 158 | xargs gh pr merge"
+denied "a merge through eval" "eval \"gh pr merge 1\""
+# A newline in quotes is part of the string; a backslash-newline joins lines;
+# a comment ends at the line's end, whatever quote it holds.
+allowed "a multi-line commit message in single quotes" "git commit -m 'Fix the guard${nl}gh pr merge is refused now'"
+allowed "a multi-line node script in single quotes" "node -e 'const x = 1;${nl}git push origin main'"
+denied "a merge split by a line continuation" "gh pr \\${nl}  merge 158 --rebase"
+denied "a merge path after a line continuation" "gh api -X PUT \\${nl}  $R/pulls/158/merge"
+asked "a push split by a line continuation" "git push \\${nl}  origin develop"
+asked "a push after a comment with an apostrophe" "# it's the docs push${nl}cd '$D' && git push origin"
+denied "a merge after a comment with an apostrophe" "# don't wait${nl}echo hi; gh pr merge 1"
+denied "a multi-line graphql merge" "gh api graphql -f query='mutation {${nl}  mergePullRequest(input: {pullRequestId: \"x\"}) { clientMutationId }${nl}}'"
+# A redirection is not a refspec.
+asked "a bare push with 2>&1 on develop" "git push origin 2>&1" "$D"
+asked "a bare push redirected to a file on develop" "git push origin > /tmp/x.log" "$D"
+asked "a push to develop redirected with no space" "git push origin develop>/tmp/x.log"
+asked "a push to develop inside quoted \$( )" "out=\"\$(git push origin develop)\""
+# A PR number may be a variable, and the path may end in a slash.
+denied "a merge path with \$n" "gh api -X PUT $R/pulls/\$n/merge"
+denied "a merge path with \${PR}" "gh api -X PUT $R/pulls/\${PR}/merge"
+denied "a merge path with a trailing slash" "gh api -X PUT $R/pulls/158/merge/"
+# A heredoc's delimiter is a whole word, and << in quotes opens nothing.
+asked "a push after a hyphenated heredoc" "cat > n.md <<'PR-BODY'${nl}text${nl}PR-BODY${nl}git push origin develop"
+asked "a push after << in a commit message" "git commit -m \"x <<EOF\"${nl}git push origin develop"
+# -X takes its value with no space, and ~ is the home directory.
+asked "a ref delete with -XDELETE" "gh api -XDELETE $R/git/refs/heads/main"
+hook_home=$work asked "a bare push after cd ~ onto develop" "cd ~/on-develop && git push"
+# A mutation name in a heredoc body or another command is not a merge.
+allowed "a comment body that names a mutation" "gh api -X POST $R/issues/1/comments -F body=@- <<'EOF'${nl}mergePullRequest is denied${nl}EOF"
+allowed "a mutation name in a later echo" "gh api $R/pulls/1 && echo 'mergePullRequest'"
+# U167: a contents-API write to develop or main asks the owner.
+asked "a contents write to develop" "gh api -X PUT $R/contents/docs/x.md -f message=m -f content=Zg== -f branch=develop"
+asked "a contents write to main, -F" "gh api -X PUT $R/contents/docs/x.md -F message=m -F content=Zg== -F branch=main"
+asked "a contents delete on develop" "gh api -X DELETE $R/contents/docs/x.md -f message=m -f sha=abc --field branch=develop"
+allowed "a contents write to a feature branch" "gh api -X PUT $R/contents/docs/x.md -f message=m -f content=Zg== -f branch=TYRE-1-x"
+allowed "a contents read at develop" "gh api '$R/contents/docs/x.md?ref=develop'"
 
 if [ "$fails" -ne 0 ]; then
   echo "$fails CASE(S) FAILED"
