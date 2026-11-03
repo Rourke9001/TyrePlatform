@@ -5,8 +5,8 @@ import { useMyTasks, useMyTrip, type MyTask } from "./driver.data";
 import { homeView } from "./driver.view";
 import "./driver.css";
 
-// Composed to sit inside the shell's DriverShell (shell/), so it renders
-// no second banner or main of its own.
+// Renders inside Chrome's frame (shell/Chrome.tsx), AppShell or DriverShell,
+// which owns the banner and main, so it has neither of its own.
 export function DriverHome() {
   const tasks = useMyTasks();
   const trip = useMyTrip();

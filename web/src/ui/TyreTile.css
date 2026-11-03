@@ -38,8 +38,8 @@
   font-weight: 700;
 }
 
-/* The data style, not reading: the caller's string carries its unit. It is
-   never clipped, so a half millimetre always shows (U146). */
+/* The data style, not reading, because the caller's string carries its
+   unit. It is never clipped, so a half millimetre always shows (TYRE-447). */
 .tr-tile__val {
   align-self: end;
   min-width: 0;

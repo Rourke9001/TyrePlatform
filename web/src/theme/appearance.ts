@@ -68,9 +68,8 @@ function storageOf(win: Window): Storage | null {
   }
 }
 
-// Reads the preference, applies it before the first render, and follows
-// the OS live while it is "system". The boot path calls it, never an
-// inline script, which the CSP refuses (ADR-0019).
+// The boot path calls this, never an inline script, which the CSP refuses
+// (ADR-0019).
 export function startAppearance(win: Window = window): () => void {
   const storage = storageOf(win);
   current = storage ? readAppearance(storage) : null;

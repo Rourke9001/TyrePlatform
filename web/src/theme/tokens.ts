@@ -21,9 +21,9 @@ export function treadBandStep(ordinal: number, bandCount: number): number {
   return Math.min(Math.max(index, 0), last) + 1;
 }
 
-// The one width below which a page changes form: a table stacks into cards
-// and the band chart turns into rows (TYRE-238). @media cannot read a custom
-// property, so a CSS rule writes 640px and cites this constant.
+// The phone width. Below it a table stacks into cards and the band chart
+// turns into rows (TYRE-238). @media cannot read a custom property, so a CSS
+// rule at this width writes 640px and cites this constant.
 export const breakpoint = { phone: 640 } as const;
 
 export function applyCssVars(el: HTMLElement, vars: Record<string, string>): void {
@@ -119,7 +119,8 @@ export const BRAND_SLOT: readonly ColorToken[] = [
   "on-brand",
 ];
 
-// Ink at low alpha, so a tenant's brand never tints a shadow.
+// A neutral at low alpha (Daylight's ink, black in Night shift), so a
+// tenant's brand never tints a shadow.
 export const shadow: Record<ThemeName, { raised: string; overlay: string; sheet: string }> = {
   light: {
     raised: "0 1px 2px rgba(17, 20, 23, 0.08), 0 0 0 1px rgba(17, 20, 23, 0.04)",
@@ -190,8 +191,8 @@ interface TypeSpec {
   family: keyof typeof treadFont;
 }
 
-// Drivers read body-lg and managers body; nothing goes below caption.
-// Readings, registrations and codes are mono (TYRE-446).
+// Tread's scale (TYRE-446, docs/superpowers/specs/2026-10-26-tread-frontend-design.md,
+// Type). Readings, registrations and codes are mono.
 export const treadType: Record<TypeStyle, TypeSpec> = {
   hero: { size: "56px", line: "60px", weight: 800, tracking: "-0.02em", family: "sans" },
   display: { size: "36px", line: "40px", weight: 800, tracking: "-0.015em", family: "sans" },

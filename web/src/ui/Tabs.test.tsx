@@ -73,9 +73,7 @@ describe("Tabs", () => {
     expect(screen.getByRole("tabpanel", { name: "Events 3" })).toHaveFocus();
   });
 
-  // As SegmentedControl's test of the same name: Alt+Left is the browser's
-  // back, and Ctrl, Cmd and Shift keys belong to the browser and the screen
-  // reader.
+  // The modified-key rule SegmentedControl.tsx states.
   it("leaves an arrow, Home or End with a modifier to the browser", () => {
     const onChange = vi.fn();
     render(<Tabs label="Vehicle" items={items} value="inspections" onChange={onChange} />);

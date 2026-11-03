@@ -81,9 +81,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const branding = query.data ?? cached ?? PLATFORM_BRANDING;
   const theme = useMemo(() => deriveBrandTheme(branding.primaryColor), [branding.primaryColor]);
 
-  // Layout effect: the four brand tokens must be on the root before the
-  // browser paints the frame that uses them. Every other token is the
-  // stylesheet's (themeStyle.ts), so a tenant reaches chrome only (U53).
+  // A layout effect, so the four brand tokens (BRAND_SLOT, tokens.ts) are on
+  // the root before the browser paints the frame that uses them.
   useLayoutEffect(() => {
     applyCssVars(document.documentElement, brandVars(theme));
   }, [theme]);

@@ -36,8 +36,8 @@
   color: var(--ink-muted);
 }
 
-/* --ink-muted all but vanishes on the brand, so the glyph fades instead,
-   as a disabled checkbox does. */
+/* --ink-muted all but vanishes on the brand, so a disabled glyph keeps
+   --on-brand and fades. */
 .tr-iconbtn--on-brand:disabled {
   color: var(--on-brand);
   opacity: 0.55;

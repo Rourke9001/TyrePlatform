@@ -218,7 +218,8 @@ describe("Sheet", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
-  // Today's spare sheet puts "No spare" after Close (capture/PositionSheet.tsx).
+  // Capture's spare sheet puts its no-spare toggle after Close
+  // (capture/PositionSheet.tsx).
   it("puts its actions before Close and its trailing control after it", async () => {
     const user = userEvent.setup();
     render(

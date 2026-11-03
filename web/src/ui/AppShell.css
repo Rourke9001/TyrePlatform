@@ -215,8 +215,7 @@
 .tr-shell__content {
   flex: 1;
   display: grid;
-  /* One track no wider than the box, so a child with a wide minimum, such
-     as a tab list, scrolls inside itself instead of widening the page. */
+  /* minmax(0, 1fr) for the reason .tr-stack gives (base.css). */
   grid-template-columns: minmax(0, 1fr);
   align-content: start;
   gap: var(--space-6);
@@ -225,16 +224,15 @@
   padding: var(--space-2) var(--space-8) var(--space-12);
 }
 
-/* 1023px: below a desk's width the side nav becomes a drawer. tokens.ts
-   holds only the phone breakpoint, which @media could not read anyway.
-   Closed, the drawer is visibility: hidden, so its links leave the tab
-   order and the accessibility tree; the visibility change waits for the
-   slide out. */
+/* 1023px: below a desk's width the side nav becomes a drawer (AppShell.tsx,
+   DRAWER_QUERY). */
 @media (max-width: 1023px) {
   .tr-shell__frame {
     grid-template-columns: minmax(0, 1fr);
   }
 
+  /* visibility: hidden takes the closed drawer's links out of the tab order
+     and the accessibility tree; the change waits for the slide out. */
   .tr-shell__side {
     position: fixed;
     inset: 0 auto 0 0;

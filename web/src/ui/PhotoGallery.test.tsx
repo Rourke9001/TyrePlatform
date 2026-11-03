@@ -85,8 +85,7 @@ describe("PhotoGallery", () => {
     expect(previous).toHaveFocus();
   });
 
-  // As Tabs' test of the same name: Alt+Left is the browser's back, and
-  // Ctrl, Cmd and Shift arrows belong to the browser and the screen reader.
+  // The modified-arrow rule SegmentedControl.tsx states.
   it("leaves an arrow with a modifier to the browser", async () => {
     const user = userEvent.setup();
     render(<PhotoGallery photos={photos} />);
@@ -176,8 +175,7 @@ describe("PhotoGallery", () => {
     render(<PhotoGallery photos={photos} data-testid="gallery" />);
     expect(screen.getByRole("list")).toHaveAttribute("data-testid", "gallery");
   });
-  // As AppShell's test of the same name: the viewer is near black in both
-  // themes, where the Daylight ring measures 2.27:1.
+  // The AppShell.css halo, because the viewer is near black in both themes.
   it("haloes the focus ring in the viewer", () => {
     expect(galleryCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
       /\.tr-viewer :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,

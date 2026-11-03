@@ -13,8 +13,8 @@ export interface SearchInputProps extends Omit<
   // Required: a search field shows no visible label.
   label: string;
   size?: "md" | "glove";
-  // Makes the frame a search landmark. Off by default, so a screen keeps
-  // the landmarks it has today when a filter field moves onto this one.
+  // Makes the frame a search landmark. Off by default, so a filter field
+  // adds no landmark to its screen.
   landmark?: boolean;
 }
 

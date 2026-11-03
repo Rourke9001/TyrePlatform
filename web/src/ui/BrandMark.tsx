@@ -5,8 +5,8 @@ import "./BrandMark.css";
 
 export interface BrandMarkProps extends HTMLAttributes<HTMLSpanElement> {
   // The organisation's display name and served logo, from useBranding().
-  // ThemeProvider already derives and applies the brand colour (TYRE-26),
-  // so the mark takes its words and image as props and reads no context.
+  // ThemeProvider derives and applies the brand colour (TYRE-27), so the
+  // mark takes its words and image as props and reads no context.
   name: string;
   logoUrl: string | null;
   showName?: boolean;

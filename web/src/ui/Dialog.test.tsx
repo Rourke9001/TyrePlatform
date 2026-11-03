@@ -151,8 +151,8 @@ describe("Dialog", () => {
     expect(opener).toHaveFocus();
   });
 
-  // TYRE-275 item 1, folded into TYRE-447: a field that takes focus as the
-  // dialog mounts keeps it, and the opener still gets focus back.
+  // TYRE-275 item 1: a field that takes focus as the dialog mounts keeps it,
+  // and the opener still gets focus back.
   it("leaves focus on a body field that takes it on open, and returns focus to the opener", async () => {
     const user = userEvent.setup();
     function Harness() {

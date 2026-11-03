@@ -119,7 +119,7 @@ describe("DriverShell", () => {
     await user.click(within(banner).getByRole("button", { name: "Back to the rig" }));
     expect(onBack).toHaveBeenCalledTimes(1);
   });
-  // As AppShell's test of the same name: the bar carries the brand.
+  // The AppShell.css halo, because the bar carries the brand.
   it("haloes the focus ring on the bar, which carries the brand", () => {
     expect(driverCss.replace(/\/\*[\s\S]*?\*\//g, "")).toMatch(
       /\.tr-driver__bar :focus-visible \{[^}]*box-shadow: 0 0 0 2px var\(--surface\);/,

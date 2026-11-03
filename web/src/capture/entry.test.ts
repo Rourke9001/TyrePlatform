@@ -286,9 +286,9 @@ describe("the half key straight after the keypad moves on", () => {
     expect(r.state.treads).toEqual([13, 12.5, 12]);
   });
 
-  // The reach-back arms only for a cell typed into or halved on this visit,
-  // so a reading nobody typed is never halved and an emptied cell does not
-  // swallow the half.
+  // The reach-back arms only for a cell typed into or halved on this visit.
+  // After a cell only tapped or emptied, the half goes to the focused cell
+  // (U160).
   it("does not reach back to a cell that was only tapped", () => {
     const tapped = applyKey(reopened(), { type: "focus", field: 0 }, halves).state;
     const moved = applyKey(tapped, { type: "next" }, halves).state;

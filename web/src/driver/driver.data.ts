@@ -16,9 +16,8 @@ export interface MyTask {
   captureVehicleId?: string;
 }
 
-// The fields of GET /api/my/trip this screen renders, declared here rather
-// than imported: api/trips.ts is the fleet screens' and stays out of the
-// capture entry (web/CLAUDE.md, The design system).
+// The fields of GET /api/my/trip DriverHome renders; api/trips.ts says why
+// they are not imported.
 export interface TripUnit {
   vehicleId: string;
   fleetNumber: string;

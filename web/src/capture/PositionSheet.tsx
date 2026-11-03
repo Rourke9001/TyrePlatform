@@ -238,8 +238,7 @@ export function PositionSheet({
   return (
     <Sheet
       open
-      // U145: not modal. The rig stays in the page and the tab order, so
-      // nothing traps focus, and the layer the caller draws places it.
+      // U145: docked, not modal (ui/Sheet.tsx).
       modal={false}
       className="cap-sheet"
       // Named the way the diagram cell that opens it is named. A spare
@@ -254,8 +253,8 @@ export function PositionSheet({
       title={rig.displayNumber === null ? "Spare tyre" : `Position ${rig.displayNumber}`}
       titleAs="p"
       // FR-INS-026: the tyre identified from fitment state, shown for
-      // confirmation. FR-INS-027's dispute is a later ticket; the payload
-      // already carries whatever tyre id the driver was shown.
+      // confirmation. FR-INS-027's dispute is TYRE-285; the payload carries
+      // whatever tyre id the driver was shown.
       description={
         <>
           {rig.context.fleetNumber} · {rig.position.axleClass.toLowerCase()}
@@ -265,9 +264,9 @@ export function PositionSheet({
       }
       onClose={close}
       trailing={
-        // TYRE-155 / FR-INS-066: one tap, on the spare sheet only. It replaces
-        // the close tap a driver with no spare pays today, so the ledger is
-        // net zero; the observation rides to the server (000041).
+        // TYRE-155 / FR-INS-066: on the spare sheet only. It stands in for
+        // the Close a driver with no spare would tap, so it adds no tap; the
+        // observation rides to the server (000041).
         rig.position.isSpare && onAbsent ? (
           <Button
             variant="secondary"
@@ -309,11 +308,6 @@ export function PositionSheet({
       )}
 
       <TreadReadings
-        // FR-INS-029a and decision D-A: numbered, not named. The driver never
-        // sees the words inner or outer, and the cells sit left to right in
-        // the plan view, the same direction the diagram reads. Each cell is
-        // named "Tread reading N of M" and carries aria-current while it is
-        // live, which a test waits on rather than racing the auto-advance.
         readings={state.treads.map((t) => (t === null ? "" : String(t)))}
         governingIndex={null}
         activeIndex={state.field < count ? state.field : undefined}

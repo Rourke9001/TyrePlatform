@@ -113,8 +113,7 @@ describe("TyreTile", () => {
     expect(tile()).toHaveAttribute("data-active", "true");
   });
 
-  // The inventory's passthrough: an undefined ariaLabel must not erase the
-  // caller's own aria-label or role.
+  // An undefined ariaLabel must not erase the caller's own aria-label or role.
   it("keeps a caller's aria-label and role when no ariaLabel is given", () => {
     const { rerender } = render(
       <TyreTile numberText="1" aria-label="Position 1, from the caller" onClick={vi.fn()} />,
@@ -159,14 +158,14 @@ describe("TyreTile", () => {
     expect(css).toMatch(/\.tr-tile:focus-visible \{[^}]*z-index: 1;/);
   });
 
-  it("never clips the value, so a half millimetre stays whole (U146)", () => {
+  it("never clips the value, so a half millimetre stays whole (TYRE-447)", () => {
     render(<TyreTile numberText="3" valueText="13.5mm" />);
     expect(screen.getByText("13.5mm")).toBeInTheDocument();
     const rule = /\.tr-tile__val \{[^}]*\}/.exec(tileCss)?.[0] ?? "";
     expect(rule).not.toBe("");
     expect(rule).not.toMatch(/text-overflow: ellipsis/);
     expect(rule).not.toMatch(/overflow: hidden/);
-    // The fit at 360px rests on this step, with under 2px to spare.
+    // The 360px fit rests on this step (e2e/rigFit.spec.ts).
     expect(tileCss).toMatch(
       /@media \(max-width: 480px\) \{\s*\.tr-tile__val \{\s*font-size: var\(--type-caption-size\);/,
     );

@@ -21,10 +21,8 @@ const sources = import.meta.glob<string>(
 // Chrome and filled controls, whose text is --on-brand, derived to clear
 // 4.5:1 on the brand (TYRE-27). Keyed by file, selector and property, so an
 // allowed rule that gains a brand outline or an alias still fails (TYRE-343).
-// After wave 0 a lane that needs another entry asks the orchestrator
-// (TYRE-443).
 const BRAND_ALLOWED: Record<string, Record<string, string[]>> = {
-  // Capture's two anchors.
+  // Capture's "Go to it" anchor, a filled control (CaptureFlow.tsx).
   "/src/capture/capture.css": {
     ".cap-primary": ["background", "color"],
     ".cap-primary:active": ["background"],

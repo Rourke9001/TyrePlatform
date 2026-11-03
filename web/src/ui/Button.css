@@ -86,8 +86,8 @@
   color: var(--on-critical);
 }
 
-/* Toward ink is away from the text in both themes, where a darkening
-   filter would take Night shift's dark text under 7:1 (IR-UI-005). */
+/* Mixed toward ink, which moves the fill away from its text in both themes,
+   so the hover holds 7:1 (IR-UI-005, U158). */
 .tr-btn--danger:hover:not(:disabled) {
   background: color-mix(in srgb, var(--critical) 92%, var(--ink));
 }

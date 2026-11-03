@@ -105,14 +105,10 @@ function TableSample() {
   );
 }
 
-// One track no wider than the gallery column, so a wide sample scrolls
-// inside itself (the shells' content grids do the same).
-const column: CSSProperties = { gridTemplateColumns: "minmax(0, 1fr)" };
-
 export function DataSamples() {
   return (
     <Routed>
-      <div className="tr-stack" style={column}>
+      <div className="tr-stack">
         <div style={grid}>
           <Metric
             label="Open exceptions"
