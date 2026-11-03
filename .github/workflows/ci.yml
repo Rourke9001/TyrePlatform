@@ -146,6 +146,8 @@ jobs:
         run: make deploy-smoke-test
       - name: Pipeline launcher cases
         run: make pipeline-launch-test
+      - name: Hook cases
+        run: make hooks-test
 
   api:
     name: Go

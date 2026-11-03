@@ -317,6 +317,10 @@ pipeline: ## One ticket from triage to its PR with an agent team: make pipeline 
 pipeline-launch-test: ## The pipeline launcher's key check and launch shape, with a stub claude (TYRE-412)
 	bash scripts/pipeline.test.sh
 
+.PHONY: hooks-test
+hooks-test: ## The hooks: each one settings.json names is executable, and the merge and push guard's cases (TYRE-413)
+	bash scripts/hooks.test.sh
+
 ## ---------------------------------------------------------------- aggregate
 
 .PHONY: py-tools
@@ -385,7 +389,7 @@ lint: py-tools-check npm-release-age-check ## Format check, vet, staticcheck, Bi
 	$(MAKE) web-bundle
 
 .PHONY: test
-test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test ## Every test in the repo
+test: db-reset db-test db-test-privileged db-provision-test api-test web-test web-production deploy-gate-test deploy-guard-test deploy-smoke-test pipeline-launch-test hooks-test ## Every test in the repo
 
 .PHONY: check
 check: fmt lint test ## What CI runs. Run this before you commit.
